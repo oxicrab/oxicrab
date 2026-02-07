@@ -268,72 +268,6 @@ impl SessionManager {
         Ok(())
     }
 
-    pub async fn delete(&self, key: &str) -> Result<bool> {
-        // Remove from cache
-        {
-            let mut cache = self.cache.lock().await;
-            cache.pop(key);
-        }
-
-        // Remove file
-        let path = self.get_session_path(key);
-        if path.exists() {
-            fs::remove_file(&path)
-                .with_context(|| format!("Failed to delete session file: {}", path.display()))?;
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
-    fn list_sessions(&self) -> Result<Vec<HashMap<String, Value>>> {
-        let mut sessions = Vec::new();
-
-        for entry in fs::read_dir(&self.sessions_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension() != Some(std::ffi::OsStr::new("jsonl")) {
-                continue;
-            }
-
-            if let Ok(content) = fs::read_to_string(&path) {
-                if let Some(first_line) = content.lines().next() {
-                    if let Ok(data) = serde_json::from_str::<Value>(first_line) {
-                        if data.get("_type") == Some(&Value::String("metadata".to_string())) {
-                            let mut session_info = HashMap::new();
-                            session_info.insert(
-                                "key".to_string(),
-                                Value::String(
-                                    path.file_stem()
-                                        .unwrap()
-                                        .to_string_lossy()
-                                        .replacen("_", ":", 1),
-                                ),
-                            );
-                            if let Some(created_at) = data.get("created_at") {
-                                session_info.insert("created_at".to_string(), created_at.clone());
-                            }
-                            if let Some(updated_at) = data.get("updated_at") {
-                                session_info.insert("updated_at".to_string(), updated_at.clone());
-                            }
-                            session_info.insert(
-                                "path".to_string(),
-                                Value::String(path.to_string_lossy().to_string()),
-                            );
-                            sessions.push(session_info);
-                        }
-                    }
-                }
-            }
-        }
-
-        sessions.sort_by(|a, b| {
-            let a_ts = a.get("updated_at").and_then(|v| v.as_str()).unwrap_or("");
-            let b_ts = b.get("updated_at").and_then(|v| v.as_str()).unwrap_or("");
-            b_ts.cmp(a_ts)
-        });
-
-        Ok(sessions)
-    }
 }
 
 #[async_trait]
@@ -344,13 +278,5 @@ impl SessionStore for SessionManager {
 
     async fn save(&self, session: &Session) -> Result<()> {
         SessionManager::save(self, session).await
-    }
-
-    async fn delete(&self, key: &str) -> Result<bool> {
-        SessionManager::delete(self, key).await
-    }
-
-    async fn list_sessions(&self) -> Result<Vec<HashMap<String, Value>>> {
-        Ok(SessionManager::list_sessions(self)?)
     }
 }

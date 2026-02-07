@@ -287,7 +287,9 @@ impl SubagentManager {
             metadata: HashMap::new(),
         };
 
-        self.bus.lock().await.publish_inbound(msg).await;
+        if let Err(e) = self.bus.lock().await.publish_inbound(msg).await {
+            warn!("Failed to publish inbound message from subagent: {}", e);
+        }
         debug!(
             "Subagent [{}] announced result to {}:{}",
             task_id, origin.0, origin.1

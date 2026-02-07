@@ -1,10 +1,11 @@
 use crate::providers::base::{
-    LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition, Usage,
+    LLMProvider, LLMResponse, Message, ProviderMetrics, ToolCallRequest, ToolDefinition,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::{json, Value};
+use std::sync::Mutex;
 
 const API_URL: &str = "https://api.openai.com/v1/chat/completions";
 
@@ -12,6 +13,7 @@ pub struct OpenAIProvider {
     api_key: String,
     default_model: String,
     client: Client,
+    metrics: std::sync::Arc<Mutex<ProviderMetrics>>,
 }
 
 impl OpenAIProvider {
@@ -20,6 +22,7 @@ impl OpenAIProvider {
             api_key,
             default_model: default_model.unwrap_or_else(|| "gpt-4o".to_string()),
             client: Client::new(),
+            metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
         }
     }
 
@@ -50,27 +53,9 @@ impl OpenAIProvider {
             }
         }
 
-        let usage_obj = json["usage"].as_object();
-        let usage = Usage {
-            prompt_tokens: usage_obj
-                .and_then(|u| u["prompt_tokens"].as_u64())
-                .unwrap_or(0) as u32,
-            completion_tokens: usage_obj
-                .and_then(|u| u["completion_tokens"].as_u64())
-                .unwrap_or(0) as u32,
-            total_tokens: usage_obj
-                .and_then(|u| u["total_tokens"].as_u64())
-                .unwrap_or(0) as u32,
-        };
-
         Ok(LLMResponse {
             content,
             tool_calls,
-            finish_reason: choice["finish_reason"]
-                .as_str()
-                .unwrap_or("stop")
-                .to_string(),
-            usage,
             reasoning_content: None, // OpenAI doesn't expose reasoning content separately
         })
     }
@@ -151,6 +136,17 @@ impl LLMProvider for OpenAIProvider {
             .json()
             .await
             .context("Failed to parse OpenAI API response")?;
+
+        // Update metrics on success
+        {
+            let mut metrics = self.metrics.lock().unwrap();
+            metrics.request_count += 1;
+            if let Some(usage) = json.get("usage").and_then(|u| u.as_object()) {
+                if let Some(tokens) = usage.get("total_tokens").and_then(|t| t.as_u64()) {
+                    metrics.token_count += tokens;
+                }
+            }
+        }
 
         self.parse_response(json)
     }

@@ -1,4 +1,4 @@
-use crate::agent::tools::{Tool, ToolResult};
+use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -45,6 +45,10 @@ impl Tool for ReadFileTool {
 
     fn description(&self) -> &str {
         "Read the contents of a file at the given path."
+    }
+
+    fn version(&self) -> ToolVersion {
+        ToolVersion::new(1, 0, 0)
     }
 
     fn parameters(&self) -> Value {

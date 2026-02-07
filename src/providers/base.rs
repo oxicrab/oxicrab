@@ -9,22 +9,10 @@ pub struct ToolCallRequest {
     pub arguments: Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Usage {
-    #[serde(default)]
-    pub prompt_tokens: u32,
-    #[serde(default)]
-    pub completion_tokens: u32,
-    #[serde(default)]
-    pub total_tokens: u32,
-}
-
 #[derive(Debug, Clone)]
 pub struct LLMResponse {
     pub content: Option<String>,
     pub tool_calls: Vec<ToolCallRequest>,
-    pub finish_reason: String,
-    pub usage: Usage,
     pub reasoning_content: Option<String>,
 }
 
@@ -55,7 +43,6 @@ pub struct ProviderMetrics {
     pub request_count: u64,
     pub token_count: u64,
     pub error_count: u64,
-    pub retry_count: u64,
 }
 
 /// Configuration for retry behavior
@@ -90,11 +77,6 @@ pub trait LLMProvider: Send + Sync {
     ) -> anyhow::Result<LLMResponse>;
 
     fn default_model(&self) -> &str;
-
-    /// Get provider metrics (optional - default returns empty metrics)
-    fn metrics(&self) -> ProviderMetrics {
-        ProviderMetrics::default()
-    }
 
     /// Chat with automatic retry on transient errors
     async fn chat_with_retry(

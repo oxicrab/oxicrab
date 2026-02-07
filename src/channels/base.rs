@@ -8,34 +8,6 @@ pub trait BaseChannel: Send + Sync {
     async fn start(&mut self) -> anyhow::Result<()>;
     async fn stop(&mut self) -> anyhow::Result<()>;
     async fn send(&self, msg: &OutboundMessage) -> anyhow::Result<()>;
-
-    fn is_allowed(&self, sender_id: &str, allow_list: &[String]) -> bool {
-        if allow_list.is_empty() {
-            return true;
-        }
-
-        let normalized: std::collections::HashSet<String> = allow_list
-            .iter()
-            .map(|a| a.trim_start_matches('+').to_string())
-            .collect();
-
-        let sender_str = sender_id.to_string();
-        let parts: Vec<&str> = if sender_str.contains('|') {
-            sender_str.split('|').collect()
-        } else {
-            vec![&sender_str]
-        };
-
-        for part in parts {
-            if !part.is_empty() {
-                let part_normalized = part.trim_start_matches('+');
-                if normalized.contains(part) || normalized.contains(part_normalized) {
-                    return true;
-                }
-            }
-        }
-        false
-    }
 }
 
 pub fn split_message(text: &str, limit: usize) -> Vec<String> {

@@ -433,6 +433,7 @@ impl Config {
         crate::utils::get_workspace_path(&self.agents.defaults.workspace)
     }
 
+    #[allow(dead_code)]
     pub fn get_api_key(&self, model: Option<&str>) -> Option<String> {
         let model = model.unwrap_or(&self.agents.defaults.model).to_lowercase();
 
@@ -474,6 +475,7 @@ impl Config {
         None
     }
 
+    #[allow(dead_code)]
     pub fn get_api_base(&self, model: Option<&str>) -> Option<String> {
         let model = model.unwrap_or(&self.agents.defaults.model).to_lowercase();
 

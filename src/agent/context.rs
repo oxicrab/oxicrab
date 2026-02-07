@@ -1,6 +1,6 @@
 use crate::agent::memory::MemoryStore;
 use crate::agent::skills::SkillsLoader;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{Datelike, Utc};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,7 +19,13 @@ pub struct ContextBuilder {
 impl ContextBuilder {
     pub fn new(workspace: impl AsRef<Path>) -> Result<Self> {
         let workspace = workspace.as_ref().to_path_buf();
-        let memory = MemoryStore::new(&workspace)?;
+        
+        // Ensure workspace exists and is accessible
+        std::fs::create_dir_all(&workspace)
+            .with_context(|| format!("Failed to create workspace directory: {}", workspace.display()))?;
+        
+        let memory = MemoryStore::new(&workspace)
+            .with_context(|| format!("Failed to initialize memory store for workspace: {}", workspace.display()))?;
 
         // Try to find builtin skills directory (relative to executable or workspace)
         let builtin_skills = std::env::current_exe()

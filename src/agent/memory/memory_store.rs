@@ -1,5 +1,5 @@
 use crate::agent::memory::MemoryDB;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{Datelike, Utc};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -14,10 +14,18 @@ impl MemoryStore {
     pub fn new(workspace: impl AsRef<Path>) -> Result<Self> {
         let workspace = workspace.as_ref();
         let memory_dir = workspace.join("memory");
-        std::fs::create_dir_all(&memory_dir)?;
+        
+        // Ensure workspace exists first
+        std::fs::create_dir_all(workspace)
+            .with_context(|| format!("Failed to create workspace directory: {}", workspace.display()))?;
+        
+        std::fs::create_dir_all(&memory_dir)
+            .with_context(|| format!("Failed to create memory directory: {}", memory_dir.display()))?;
 
         let db_path = memory_dir.join("memory.sqlite3");
-        let db = MemoryDB::new(db_path)?;
+        let db_path_clone = db_path.clone();
+        let db = MemoryDB::new(db_path)
+            .with_context(|| format!("Failed to create memory database at: {}", db_path_clone.display()))?;
 
         Ok(Self {
             _workspace: workspace.to_path_buf(),

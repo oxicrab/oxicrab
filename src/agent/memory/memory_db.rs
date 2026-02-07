@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::Utc;
 use regex::Regex;
 use rusqlite::{params, Connection};
@@ -21,7 +21,8 @@ impl MemoryDB {
     pub fn new(db_path: impl AsRef<Path>) -> Result<Self> {
         let db_path = db_path.as_ref();
         if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create database parent directory: {}", parent.display()))?;
         }
 
         let mut db = Self {
@@ -29,7 +30,8 @@ impl MemoryDB {
             has_fts: false,
         };
 
-        db.ensure_schema()?;
+        db.ensure_schema()
+            .with_context(|| format!("Failed to initialize database schema at: {}", db_path.display()))?;
         Ok(db)
     }
 

@@ -4,25 +4,15 @@ use serde_json::Value;
 #[derive(Debug, Clone)]
 pub struct ToolResult {
     pub content: String,
-    pub is_error: bool,
-    pub metadata: std::collections::HashMap<String, Value>,
 }
 
 impl ToolResult {
     pub fn new(content: String) -> Self {
-        Self {
-            content,
-            is_error: false,
-            metadata: std::collections::HashMap::new(),
-        }
+        Self { content }
     }
 
     pub fn error(content: String) -> Self {
-        Self {
-            content,
-            is_error: true,
-            metadata: std::collections::HashMap::new(),
-        }
+        Self { content }
     }
 }
 
@@ -56,24 +46,6 @@ impl Default for ToolVersion {
     }
 }
 
-/// Tool metadata
-#[derive(Debug, Clone)]
-pub struct ToolMetadata {
-    pub version: ToolVersion,
-    pub author: Option<String>,
-    pub dependencies: Vec<String>,
-}
-
-impl Default for ToolMetadata {
-    fn default() -> Self {
-        Self {
-            version: ToolVersion::default(),
-            author: None,
-            dependencies: Vec::new(),
-        }
-    }
-}
-
 #[async_trait]
 pub trait Tool: Send + Sync {
     fn name(&self) -> &str;
@@ -85,17 +57,6 @@ pub trait Tool: Send + Sync {
     /// Get tool version (defaults to 1.0.0)
     fn version(&self) -> ToolVersion {
         ToolVersion::default()
-    }
-
-    /// Get tool metadata (optional)
-    fn metadata(&self) -> ToolMetadata {
-        ToolMetadata::default()
-    }
-
-    /// Check if tool dependencies are available
-    async fn check_dependencies(&self) -> Result<Vec<String>, Vec<String>> {
-        // Default: no dependencies
-        Ok(Vec::new())
     }
 
     fn to_schema(&self) -> Value {

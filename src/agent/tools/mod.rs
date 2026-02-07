@@ -11,5 +11,5 @@ pub mod subagent_control;
 pub mod tmux;
 pub mod web;
 
-pub use base::{Tool, ToolResult};
+pub use base::{Tool, ToolResult, ToolVersion};
 pub use registry::ToolRegistry;

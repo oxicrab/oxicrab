@@ -1,15 +1,17 @@
 use crate::providers::base::{
-    LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition, Usage,
+    LLMProvider, LLMResponse, Message, ProviderMetrics, ToolCallRequest, ToolDefinition,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::{json, Value};
+use std::sync::Mutex;
 
 pub struct GeminiProvider {
     api_key: String,
     default_model: String,
     client: Client,
+    metrics: std::sync::Arc<Mutex<ProviderMetrics>>,
 }
 
 impl GeminiProvider {
@@ -18,6 +20,7 @@ impl GeminiProvider {
             api_key,
             default_model: default_model.unwrap_or_else(|| "gemini-pro".to_string()),
             client: Client::new(),
+            metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
         }
     }
 
@@ -52,31 +55,9 @@ impl GeminiProvider {
             }
         }
 
-        let usage_obj = json["usageMetadata"].as_object();
-        let usage = Usage {
-            prompt_tokens: usage_obj
-                .and_then(|u| u["promptTokenCount"].as_u64())
-                .unwrap_or(0) as u32,
-            completion_tokens: usage_obj
-                .and_then(|u| u["candidatesTokenCount"].as_u64())
-                .unwrap_or(0) as u32,
-            total_tokens: usage_obj
-                .and_then(|u| {
-                    u["promptTokenCount"]
-                        .as_u64()
-                        .and_then(|p| u["candidatesTokenCount"].as_u64().map(|c| p + c))
-                })
-                .unwrap_or(0) as u32,
-        };
-
         Ok(LLMResponse {
             content,
             tool_calls,
-            finish_reason: candidate["finishReason"]
-                .as_str()
-                .unwrap_or("STOP")
-                .to_string(),
-            usage,
             reasoning_content: None,
         })
     }
@@ -149,6 +130,17 @@ impl LLMProvider for GeminiProvider {
             .json()
             .await
             .context("Failed to parse Gemini API response")?;
+
+        // Update metrics on success
+        {
+            let mut metrics = self.metrics.lock().unwrap();
+            metrics.request_count += 1;
+            if let Some(usage) = json.get("usageMetadata").and_then(|u| u.as_object()) {
+                if let Some(tokens) = usage.get("totalTokenCount").and_then(|t| t.as_u64()) {
+                    metrics.token_count += tokens;
+                }
+            }
+        }
 
         self.parse_response(json)
     }

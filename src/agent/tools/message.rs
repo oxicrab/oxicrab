@@ -1,4 +1,4 @@
-use crate::agent::tools::{Tool, ToolResult};
+use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::bus::OutboundMessage;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -30,6 +30,10 @@ impl Tool for MessageTool {
 
     fn description(&self) -> &str {
         "Send a message to the user. Use this when you want to communicate something."
+    }
+
+    fn version(&self) -> ToolVersion {
+        ToolVersion::new(1, 0, 0)
     }
 
     fn parameters(&self) -> Value {

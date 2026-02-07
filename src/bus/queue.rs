@@ -91,11 +91,4 @@ impl MessageBus {
         Ok(())
     }
 
-    pub fn inbound_size(&self) -> usize {
-        self.inbound_tx.capacity()
-    }
-
-    pub fn outbound_size(&self) -> usize {
-        self.outbound_tx.capacity()
-    }
 }

@@ -338,6 +338,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
             heartbeat.stop().await;
             cron.stop().await;
             agent.stop();
+            // Channels will stop themselves when the task ends
         }
         _ = agent_task => {}
         _ = channels_task => {}
@@ -582,6 +583,11 @@ fn start_channels_loop(
                 }
             }
         }
+        
+        // Graceful shutdown - stop all channels when loop ends
+        if let Err(e) = channels.stop_all().await {
+            tracing::error!("Error stopping channels during shutdown: {}", e);
+        }
     })
 }
 
@@ -591,7 +597,7 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
     // Create provider
     let provider = config.create_provider(None).await?;
 
-    let mut bus = MessageBus::default();
+    let bus = MessageBus::default();
 
     // Extract outbound sender for agent
     let outbound_tx = Arc::new(bus.outbound_tx.clone());

@@ -19,7 +19,7 @@ use crate::agent::truncation::truncate_tool_result;
 use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
 use crate::cron::service::CronService;
 use crate::providers::base::{LLMProvider, Message};
-use crate::session::{Session, SessionManager};
+use crate::session::{Session, SessionManager, SessionStore};
 use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -33,11 +33,11 @@ const EMPTY_RESPONSE_RETRIES: usize = 2;
 pub struct AgentLoop {
     inbound_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<InboundMessage>>>,
     provider: Arc<dyn LLMProvider>,
-    workspace: PathBuf, // Used in constructor for context/session/memory initialization
+    _workspace: PathBuf, // Used in constructor for context/session/memory initialization
     model: String,
     max_iterations: usize,
     context: Arc<Mutex<ContextBuilder>>,
-    sessions: Arc<SessionManager>,
+    sessions: Arc<dyn SessionStore>,
     memory: Arc<MemoryStore>,
     tools: Arc<Mutex<ToolRegistry>>,
     compactor: Option<Arc<MessageCompactor>>,
@@ -50,7 +50,7 @@ pub struct AgentLoop {
 
 impl AgentLoop {
     pub async fn new(
-        mut bus: Arc<Mutex<MessageBus>>,
+        bus: Arc<Mutex<MessageBus>>,
         provider: Arc<dyn LLMProvider>,
         workspace: PathBuf,
         model: Option<String>,
@@ -71,7 +71,7 @@ impl AgentLoop {
         }));
         let model = model.unwrap_or_else(|| provider.default_model().to_string());
         let context = Arc::new(Mutex::new(ContextBuilder::new(&workspace)?));
-        let sessions = Arc::new(SessionManager::new(workspace.clone())?);
+        let sessions: Arc<dyn SessionStore> = Arc::new(SessionManager::new(workspace.clone())?);
         let memory = Arc::new(MemoryStore::new(&workspace)?);
 
         let mut tools = ToolRegistry::new();
@@ -170,7 +170,7 @@ impl AgentLoop {
         Ok(Self {
             inbound_rx,
             provider,
-            workspace,
+            _workspace: workspace,
             model,
             max_iterations,
             context,
@@ -334,9 +334,10 @@ impl AgentLoop {
                 tools_guard.get_definitions()
             };
 
+            // Use retry logic for provider calls
             let response = self
                 .provider
-                .chat(
+                .chat_with_retry(
                     messages.clone(),
                     {
                         let tools_guard = self.tools.lock().await;
@@ -345,6 +346,7 @@ impl AgentLoop {
                     Some(&self.model),
                     4096,
                     0.7,
+                    Some(crate::providers::base::RetryConfig::default()),
                 )
                 .await?;
 

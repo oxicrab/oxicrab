@@ -1,5 +1,5 @@
 use crate::providers::base::{
-    LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition, Usage,
+    LLMProvider, LLMResponse, Message, ProviderMetrics, ToolCallRequest, ToolDefinition,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -13,6 +13,7 @@ pub struct AnthropicProvider {
     api_key: String,
     default_model: String,
     client: Client,
+    metrics: std::sync::Arc<std::sync::Mutex<ProviderMetrics>>,
 }
 
 impl AnthropicProvider {
@@ -22,6 +23,7 @@ impl AnthropicProvider {
             default_model: default_model
                 .unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
             client: Client::new(),
+            metrics: std::sync::Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),
         }
     }
 
@@ -148,28 +150,9 @@ impl AnthropicProvider {
             }
         }
 
-        let usage_obj = json["usage"].as_object();
-        let usage = Usage {
-            prompt_tokens: usage_obj
-                .and_then(|u| u["input_tokens"].as_u64())
-                .unwrap_or(0) as u32,
-            completion_tokens: usage_obj
-                .and_then(|u| u["output_tokens"].as_u64())
-                .unwrap_or(0) as u32,
-            total_tokens: usage_obj
-                .and_then(|u| {
-                    u["input_tokens"]
-                        .as_u64()
-                        .and_then(|i| u["output_tokens"].as_u64().map(|o| i + o))
-                })
-                .unwrap_or(0) as u32,
-        };
-
         Ok(LLMResponse {
             content,
             tool_calls,
-            finish_reason: json["stop_reason"].as_str().unwrap_or("stop").to_string(),
-            usage,
             reasoning_content,
         })
     }
@@ -294,6 +277,12 @@ impl LLMProvider for AnthropicProvider {
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown error");
 
+            // Update error metrics
+            {
+                let mut metrics = self.metrics.lock().unwrap();
+                metrics.error_count += 1;
+            }
+
             // Provide helpful message for model not found errors
             if error_type == "not_found_error" && error_msg.contains("model:") {
                 let model_name = error_msg.replace("model: ", "").trim().to_string();
@@ -310,6 +299,20 @@ impl LLMProvider for AnthropicProvider {
             }
 
             return Err(anyhow::anyhow!("Anthropic API error: {}", error_msg));
+        }
+
+        // Update metrics on success
+        {
+            let mut metrics = self.metrics.lock().unwrap();
+            metrics.request_count += 1;
+            if let Some(usage) = json.get("usage").and_then(|u| u.as_object()) {
+                if let Some(tokens) = usage.get("input_tokens").and_then(|t| t.as_u64()) {
+                    metrics.token_count += tokens;
+                }
+                if let Some(tokens) = usage.get("output_tokens").and_then(|t| t.as_u64()) {
+                    metrics.token_count += tokens;
+                }
+            }
         }
 
         self.parse_response(json)

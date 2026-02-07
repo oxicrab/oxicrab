@@ -1,5 +1,5 @@
 use crate::providers::base::{
-    LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition, Usage,
+    LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -309,28 +309,9 @@ impl AnthropicOAuthProvider {
             Some(content_parts.join("\n"))
         };
 
-        let usage_obj = json["usage"].as_object();
-        let usage = Usage {
-            prompt_tokens: usage_obj
-                .and_then(|u| u["input_tokens"].as_u64())
-                .unwrap_or(0) as u32,
-            completion_tokens: usage_obj
-                .and_then(|u| u["output_tokens"].as_u64())
-                .unwrap_or(0) as u32,
-            total_tokens: usage_obj
-                .and_then(|u| {
-                    u["input_tokens"]
-                        .as_u64()
-                        .and_then(|i| u["output_tokens"].as_u64().map(|o| i + o))
-                })
-                .unwrap_or(0) as u32,
-        };
-
         Ok(LLMResponse {
             content,
             tool_calls,
-            finish_reason: json["stop_reason"].as_str().unwrap_or("stop").to_string(),
-            usage,
             reasoning_content: None,
         })
     }
@@ -577,12 +558,6 @@ impl LLMProvider for AnthropicOAuthProvider {
                             status, body
                         )),
                         tool_calls: vec![],
-                        finish_reason: "error".to_string(),
-                        usage: Usage {
-                            prompt_tokens: 0,
-                            completion_tokens: 0,
-                            total_tokens: 0,
-                        },
                         reasoning_content: None,
                     })
                 }
@@ -592,12 +567,6 @@ impl LLMProvider for AnthropicOAuthProvider {
                 Ok(LLMResponse {
                     content: Some(format!("Error calling Anthropic API: {}", e)),
                     tool_calls: vec![],
-                    finish_reason: "error".to_string(),
-                    usage: Usage {
-                        prompt_tokens: 0,
-                        completion_tokens: 0,
-                        total_tokens: 0,
-                    },
                     reasoning_content: None,
                 })
             }

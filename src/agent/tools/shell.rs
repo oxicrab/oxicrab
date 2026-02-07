@@ -1,4 +1,4 @@
-use crate::agent::tools::{Tool, ToolResult};
+use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
 use regex::Regex;
@@ -92,6 +92,10 @@ impl Tool for ExecTool {
             },
             "required": ["command"]
         })
+    }
+
+    fn version(&self) -> ToolVersion {
+        ToolVersion::new(1, 1, 0) // Version 1.1.0 - includes security improvements
     }
 
     async fn execute(&self, params: Value) -> Result<ToolResult> {
