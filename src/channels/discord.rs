@@ -19,6 +19,10 @@ struct Handler {
 
 #[serenity_async_trait]
 impl EventHandler for Handler {
+    async fn cache_ready(&self, ctx: Context, _guilds: Vec<serenity::model::id::GuildId>) {
+        tracing::info!("Discord cache is ready");
+    }
+
     async fn message(&self, _ctx: Context, msg: DiscordMessage) {
         if msg.author.bot {
             return;
@@ -51,15 +55,15 @@ impl EventHandler for Handler {
     }
 
     async fn ready(&self, _: Context, ready: Ready) {
-        tracing::info!("Discord bot connected as {}", ready.user.name);
+        tracing::info!("Discord bot connected as {} (id: {})", ready.user.name, ready.user.id);
     }
 }
 
 pub struct DiscordChannel {
     config: DiscordConfig,
     inbound_tx: mpsc::Sender<InboundMessage>,
-    client: Option<Client>,
     _running: Arc<tokio::sync::Mutex<bool>>,
+    _client_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl DiscordChannel {
@@ -67,8 +71,8 @@ impl DiscordChannel {
         Self {
             config,
             inbound_tx,
-            client: None,
             _running: Arc::new(tokio::sync::Mutex::new(false)),
+            _client_handle: None,
         }
     }
 }
@@ -80,6 +84,10 @@ impl BaseChannel for DiscordChannel {
     }
 
     async fn start(&mut self) -> Result<()> {
+        if self.config.token.is_empty() {
+            return Err(anyhow::anyhow!("Discord token is empty"));
+        }
+
         tracing::info!("Initializing Discord client...");
         *self._running.lock().await = true;
 
@@ -89,12 +97,16 @@ impl BaseChannel for DiscordChannel {
         };
 
         tracing::info!("Connecting to Discord gateway...");
-        let client = Client::builder(
+        let mut client = Client::builder(
             &self.config.token,
             GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT,
         )
         .event_handler(handler)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create Discord client: {}", e);
+            anyhow::anyhow!("Failed to create Discord client: {}", e)
+        })?;
 
         let shard_manager = client.shard_manager.clone();
         tokio::spawn(async move {
@@ -102,18 +114,27 @@ impl BaseChannel for DiscordChannel {
             shard_manager.shutdown_all().await;
         });
 
-        // Start the client in a background task
-        // Note: serenity Client starts automatically when created, but we need to keep it running
-        // The client is already connected, we just need to store it
-        self.client = Some(client);
-        tracing::info!("Discord channel started successfully");
+        // Start the client - this actually connects to Discord
+        // Keep the client alive by running start() in a spawned task
+        let shard_manager_for_error = client.shard_manager.clone();
+        let handle = tokio::spawn(async move {
+            if let Err(why) = client.start().await {
+                tracing::error!("Discord client connection error: {:?}", why);
+                shard_manager_for_error.shutdown_all().await;
+            }
+        });
+        
+        self._client_handle = Some(handle);
+
+        tracing::info!("Discord channel started successfully - connection will be established in background");
         Ok(())
     }
 
     async fn stop(&mut self) -> Result<()> {
         *self._running.lock().await = false;
-        if let Some(client) = &self.client {
-            client.shard_manager.shutdown_all().await;
+        // Client will be dropped when handle completes
+        if let Some(handle) = self._client_handle.take() {
+            handle.abort();
         }
         Ok(())
     }
@@ -123,13 +144,17 @@ impl BaseChannel for DiscordChannel {
             return Ok(());
         }
 
-        if let Some(client) = &self.client {
-            let channel_id = msg.chat_id.parse::<u64>()?;
-            let chunks = split_message(&msg.content, 2000);
+        // For sending messages, we need the HTTP client
+        // Since we can't easily access it from shard_manager, we'll create a temporary HTTP client
+        // This is a limitation - ideally we'd keep the client alive, but serenity's API makes this difficult
+        let channel_id = msg.chat_id.parse::<u64>()?;
+        let chunks = split_message(&msg.content, 2000);
+        let http = serenity::http::Http::new(&self.config.token);
 
-            for chunk in chunks {
-                let channel_id_typed = serenity::model::id::ChannelId::new(channel_id);
-                let _ = channel_id_typed.say(&client.http, &chunk).await;
+        for chunk in chunks {
+            let channel_id_typed = serenity::model::id::ChannelId::new(channel_id);
+            if let Err(e) = channel_id_typed.say(&http, &chunk).await {
+                tracing::error!("Failed to send Discord message: {}", e);
             }
         }
 

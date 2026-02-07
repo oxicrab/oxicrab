@@ -84,7 +84,10 @@ impl ChannelManager {
                 .map(|s| s.as_str())
                 .unwrap_or("unknown");
             tracing::info!("Starting channel: {}", channel_name);
-            channel.start().await?;
+            if let Err(e) = channel.start().await {
+                tracing::error!("Failed to start channel {}: {}", channel_name, e);
+                return Err(anyhow::anyhow!("Failed to start channel {}: {}", channel_name, e));
+            }
             tracing::info!("Channel {} started successfully", channel_name);
         }
         Ok(())

@@ -297,14 +297,20 @@ impl BaseChannel for SlackChannel {
             }
         }
 
-        // Set presence to active
+        // Set presence to active (optional - requires users:write scope)
         let mut presence_params = HashMap::new();
         presence_params.insert("presence", Value::String("auto".to_string()));
         if let Err(e) = self
             .send_slack_api("users.setPresence", &presence_params)
             .await
         {
-            warn!("Failed to set Slack presence: {}", e);
+            // Only warn if it's not a missing scope error (which is expected if scope not granted)
+            let error_msg = e.to_string();
+            if !error_msg.contains("missing_scope") {
+                warn!("Failed to set Slack presence: {}", e);
+            } else {
+                debug!("Slack presence setting skipped (missing users:write scope)");
+            }
         }
 
         info!("Starting Slack bot (Socket Mode)...");
