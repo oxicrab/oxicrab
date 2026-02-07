@@ -1,7 +1,7 @@
 use crate::agent::tools::{Tool, ToolResult};
 use crate::cron::service::CronService;
 use crate::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
@@ -101,8 +101,8 @@ impl Tool for CronTool {
 
                 let now_ms = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as i64;
+                    .context("System time is before UNIX epoch")
+                    .map(|d| d.as_millis() as i64)?;
 
                 let job = CronJob {
                     id: uuid::Uuid::new_v4().to_string()[..8].to_string(),

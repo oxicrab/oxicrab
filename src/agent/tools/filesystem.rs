@@ -153,6 +153,7 @@ impl Tool for WriteFileTool {
             Ok::<PathBuf, anyhow::Error>(home.join(stripped))
         })?;
 
+        // Check path restrictions even after fallback canonicalization
         if let Some(err) = check_path_allowed(&expanded, &self.allowed_roots) {
             return Ok(ToolResult::error(err));
         }

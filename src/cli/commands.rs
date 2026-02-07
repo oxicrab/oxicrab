@@ -544,8 +544,10 @@ fn start_agent_loop(agent: Arc<AgentLoop>) -> tokio::task::JoinHandle<()> {
     tracing::info!("Starting agent loop...");
     tokio::spawn(async move {
         tracing::info!("Agent loop running");
-        let _ = agent.run().await;
-        tracing::warn!("Agent loop exited");
+        match agent.run().await {
+            Ok(_) => tracing::info!("Agent loop completed successfully"),
+            Err(e) => tracing::error!("Agent loop exited with error: {}", e),
+        }
     })
 }
 
@@ -670,9 +672,9 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
                         .state
                         .next_run_at_ms
                         .map(|ms| {
-                            let dt =
-                                chrono::DateTime::from_timestamp(ms / 1000, 0).unwrap_or_default();
-                            format!("{}", dt.format("%Y-%m-%d %H:%M:%S"))
+                            chrono::DateTime::from_timestamp(ms / 1000, 0)
+                                .map(|dt| format!("{}", dt.format("%Y-%m-%d %H:%M:%S")))
+                                .unwrap_or_else(|| "invalid timestamp".to_string())
                         })
                         .unwrap_or_else(|| "never".to_string());
                     println!(
@@ -715,8 +717,8 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
 
             let now_ms = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as i64;
+                .context("System time is before UNIX epoch")
+                .map(|d| d.as_millis() as i64)?;
 
             let job = CronJob {
                 id: uuid::Uuid::new_v4().to_string()[..8].to_string(),
@@ -833,6 +835,7 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn _parse_schedule(s: &str) -> Result<CronSchedule> {
     // Try parsing as cron expression first
     if s.contains(' ') || s.contains('*') || s.contains('/') {
@@ -1066,10 +1069,11 @@ async fn status_command() -> Result<()> {
         println!("OpenAI API: {}", if has_openai { "✓" } else { "not set" });
         println!("Gemini API: {}", if has_gemini { "✓" } else { "not set" });
         if has_vllm {
-            println!(
-                "vLLM/Local: ✓ {}",
-                config.providers.vllm.api_base.as_ref().unwrap()
-            );
+            if let Some(api_base) = config.providers.vllm.api_base.as_ref() {
+                println!("vLLM/Local: ✓ {}", api_base);
+            } else {
+                println!("vLLM/Local: not set");
+            }
         } else {
             println!("vLLM/Local: not set");
         }

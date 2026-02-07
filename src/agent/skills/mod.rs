@@ -83,8 +83,12 @@ impl SkillsLoader {
             skills
                 .into_iter()
                 .filter(|s| {
-                    let meta = self.get_skill_metadata(s.get("name").unwrap());
-                    self.check_requirements(meta.as_ref())
+                    if let Some(name) = s.get("name") {
+                        let meta = self.get_skill_metadata(name);
+                        self.check_requirements(meta.as_ref())
+                    } else {
+                        false
+                    }
                 })
                 .collect()
         } else {
@@ -139,19 +143,25 @@ impl SkillsLoader {
 
         let mut lines = vec!["<skills>".to_string()];
         for s in all_skills {
-            let name = escape_xml(s.get("name").unwrap());
-            let path = s.get("path").unwrap();
-            let desc = escape_xml(&self.get_skill_description(s.get("name").unwrap()));
-            let meta = self.get_skill_metadata(s.get("name").unwrap());
+            let name = s.get("name")
+                .map(|s| s.as_str())
+                .unwrap_or("unknown");
+            let path = s.get("path")
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            let desc = escape_xml(&self.get_skill_description(name));
+            let meta = self.get_skill_metadata(name);
             let available = self.check_requirements(meta.as_ref());
 
+            let name_escaped = escape_xml(name);
+            let path_escaped = escape_xml(path);
             lines.push(format!(
                 "  <skill available=\"{}\">",
                 available.to_string().to_lowercase()
             ));
-            lines.push(format!("    <name>{}</name>", name));
+            lines.push(format!("    <name>{}</name>", name_escaped));
             lines.push(format!("    <description>{}</description>", desc));
-            lines.push(format!("    <location>{}</location>", path));
+            lines.push(format!("    <location>{}</location>", path_escaped));
 
             if !available {
                 let missing = self.get_missing_requirements(meta.as_ref());
@@ -269,14 +279,14 @@ impl SkillsLoader {
         self.list_skills(true)
             .into_iter()
             .filter_map(|s| {
-                let name = s.get("name")?.clone();
-                let meta = self.get_skill_metadata(&name)?;
+                let name = s.get("name")?;
+                let meta = self.get_skill_metadata(name)?;
                 if meta
                     .get("always")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false)
                 {
-                    Some(name)
+                    Some(name.clone())
                 } else {
                     None
                 }

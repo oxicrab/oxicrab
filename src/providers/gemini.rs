@@ -1,6 +1,7 @@
 use crate::providers::base::{
     LLMProvider, LLMResponse, Message, ProviderMetrics, ToolCallRequest, ToolDefinition,
 };
+use crate::providers::errors::ProviderErrorHandler;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
@@ -126,18 +127,86 @@ impl LLMProvider for GeminiProvider {
             .await
             .context("Failed to send request to Gemini API")?;
 
+        // Check for HTTP errors
+        let status = resp.status();
+        if !status.is_success() {
+            // Extract headers before consuming response
+            let retry_after = resp
+                .headers()
+                .get("retry-after")
+                .and_then(|h| h.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok());
+            
+            let error_text = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "unknown error".to_string());
+
+            // Handle rate limiting
+            if status == 429 {
+                ProviderErrorHandler::log_and_handle_error(
+                    &anyhow::anyhow!("Rate limit exceeded"),
+                    "Gemini",
+                    "chat",
+                );
+                return Err(ProviderErrorHandler::handle_rate_limit(status.as_u16(), retry_after)
+                    .unwrap_err());
+            }
+
+            // Handle authentication errors
+            if status == 401 || status == 403 {
+                ProviderErrorHandler::log_and_handle_error(
+                    &anyhow::anyhow!("Authentication failed"),
+                    "Gemini",
+                    "chat",
+                );
+                return Err(ProviderErrorHandler::handle_auth_error(status.as_u16(), &error_text)
+                    .unwrap_err());
+            }
+
+            // Use shared error handler for other errors
+            ProviderErrorHandler::log_and_handle_error(
+                &anyhow::anyhow!("API error"),
+                "Gemini",
+                "chat",
+            );
+            return Err(ProviderErrorHandler::parse_api_error(status.as_u16(), &error_text)
+                .unwrap_err());
+        }
+
         let json: Value = resp
             .json()
             .await
             .context("Failed to parse Gemini API response")?;
 
+        // Check for API-level errors in the JSON response
+        if let Some(error) = json.get("error") {
+            // Update error metrics
+            {
+                if let Ok(mut metrics) = self.metrics.lock() {
+                    metrics.error_count += 1;
+                }
+            }
+
+            let error_text = serde_json::to_string(error)
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            ProviderErrorHandler::log_and_handle_error(
+                &anyhow::anyhow!("API error in response"),
+                "Gemini",
+                "chat",
+            );
+            return Err(ProviderErrorHandler::parse_api_error(200, &error_text)
+                .unwrap_err());
+        }
+
         // Update metrics on success
         {
-            let mut metrics = self.metrics.lock().unwrap();
-            metrics.request_count += 1;
-            if let Some(usage) = json.get("usageMetadata").and_then(|u| u.as_object()) {
-                if let Some(tokens) = usage.get("totalTokenCount").and_then(|t| t.as_u64()) {
-                    metrics.token_count += tokens;
+            if let Ok(mut metrics) = self.metrics.lock() {
+                metrics.request_count += 1;
+                if let Some(usage) = json.get("usageMetadata").and_then(|u| u.as_object()) {
+                    if let Some(tokens) = usage.get("totalTokenCount").and_then(|t| t.as_u64()) {
+                        metrics.token_count += tokens;
+                    }
                 }
             }
         }

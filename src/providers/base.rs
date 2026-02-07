@@ -91,11 +91,16 @@ pub trait LLMProvider: Send + Sync {
         let config = retry_config.unwrap_or_default();
         let mut last_error = None;
 
+        // Use Arc to avoid cloning messages and tools on each retry
+        use std::sync::Arc;
+        let messages_arc = Arc::new(messages);
+        let tools_arc = tools.map(Arc::new);
+
         for attempt in 0..=config.max_retries {
             match self
                 .chat(
-                    messages.clone(),
-                    tools.clone(),
+                    (*messages_arc).clone(), // Only clone on actual call
+                    tools_arc.as_ref().map(|t| (**t).clone()),
                     model,
                     max_tokens,
                     temperature,

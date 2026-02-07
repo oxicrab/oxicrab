@@ -28,10 +28,19 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
 
         let config: Config =
             serde_json::from_value(data).with_context(|| "Failed to deserialize config")?;
+        
+        // Validate configuration
+        config.validate()
+            .with_context(|| "Configuration validation failed")?;
+        
         return Ok(config);
     }
 
-    Ok(Config::default())
+    let default_config = Config::default();
+    // Validate default config too (should always pass, but good practice)
+    default_config.validate()
+        .with_context(|| "Default configuration validation failed")?;
+    Ok(default_config)
 }
 
 fn migrate_config(data: Value) -> Value {

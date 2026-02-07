@@ -1,5 +1,6 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::BaseChannel;
+use crate::channels::utils::{check_allowed_sender, exponential_backoff_delay};
 use crate::config::WhatsAppConfig;
 use crate::utils::get_nanobot_home;
 use anyhow::Result;
@@ -82,6 +83,7 @@ impl BaseChannel for WhatsAppChannel {
         *self.running.lock().await = true;
 
         let bot_task = tokio::spawn(async move {
+            let mut reconnect_attempt = 0u32;
             loop {
                 if !*running.lock().await {
                     break;
@@ -93,7 +95,10 @@ impl BaseChannel for WhatsAppChannel {
                     Ok(b) => Arc::new(b),
                     Err(e) => {
                         error!("Failed to create WhatsApp backend: {}", e);
-                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                        let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                        reconnect_attempt += 1;
+                        warn!("Retrying WhatsApp backend creation in {} seconds...", delay);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                         continue;
                     }
                 };
@@ -123,63 +128,45 @@ impl BaseChannel for WhatsAppChannel {
                             {
                                 let mut client_guard = client_storage.lock().await;
                                 *client_guard = Some(client.clone());
-
-                                // Process any queued messages
-                                // Note: We need access to message_queue here, but it's in self
-                                // For now, messages will be sent on next send() call
                             }
 
                             // Process events
                             info!("WhatsApp event received: type={:?}", std::mem::discriminant(&event));
                             match &event {
                                 whatsapp_rust::types::events::Event::Message(msg, info) => {
-                                    info!("WhatsApp Event::Message received: sender={}, msg_id={}", 
-                                        info.source.sender, info.id);
+                                    // Handle message event (organized inline to avoid type issues)
                                     let sender = info.source.sender.to_string();
-                                    // Extract phone number without device ID (e.g., "15037348571:20@s.whatsapp.net" -> "15037348571")
+                                    
+                                    // Extract phone number without device ID
                                     let chat_id = if sender.contains('@') {
                                         sender.split('@').next().unwrap_or(&sender).to_string()
                                     } else {
                                         sender.clone()
                                     };
 
-                                    // Remove device ID suffix (e.g., "15037348571:20" -> "15037348571")
+                                    // Remove device ID suffix
                                     let phone_number = if chat_id.contains(':') {
                                         chat_id.split(':').next().unwrap_or(&chat_id).to_string()
                                     } else {
                                         chat_id.clone()
                                     };
 
-                                    // Check allow_from filter - match against both full chat_id and phone number
-                                    // The sender comes as "15037348571:20@s.whatsapp.net", we extract phone "15037348571"
-                                    // Config might have "15037348571" or "+15037348571", so we normalize both
-                                    if !config_allow.is_empty() {
-                                        let allowed = config_allow.iter().any(|a: &String| {
-                                            let a_clean = a.trim_start_matches('+');
-                                            // Match against phone number (without device ID) or full chat_id
-                                            // Also check if phone number contains the allowed value (for partial matches)
-                                            phone_number == a_clean ||
-                                            phone_number == a.as_str() ||
-                                            chat_id == a_clean ||
-                                            chat_id == a.as_str() ||
-                                            phone_number.ends_with(a_clean) ||
-                                            chat_id.starts_with(a_clean)
-                                        });
-                                        if !allowed {
-                                            warn!("WhatsApp message from {} (phone: {}) blocked by allowFrom filter (allowed: {:?})", 
-                                                chat_id, phone_number, config_allow);
-                                            return;
-                                        }
+                                    // Check allow_from filter using utility function
+                                    if !check_allowed_sender(&phone_number, &config_allow)
+                                        && !check_allowed_sender(&chat_id, &config_allow)
+                                    {
+                                        warn!("WhatsApp message from {} (phone: {}) blocked by allowFrom filter (allowed: {:?})", 
+                                            chat_id, phone_number, config_allow);
+                                        return;
                                     }
 
-                                    // Use MessageExt methods to extract content
-                                    let content = if let Some(text) = msg.text_content() {
-                                        text.to_string()
-                                    } else {
-                                        // Check message type by examining the message structure
-                                        // MessageExt only provides text_content(), so we use a generic fallback
-                                        warn!("WhatsApp message has no text content, using fallback");
-                                        "[Media Message]".to_string()
+                                    // Extract message content
+                                    let content: String = match msg.text_content() {
+                                        Some(text) => text.to_string(),
+                                        None => {
+                                            warn!("WhatsApp message has no text content, using fallback");
+                                            "[Media Message]".to_string()
+                                        }
                                     };
 
                                     if content.trim().is_empty() {
@@ -218,23 +205,20 @@ impl BaseChannel for WhatsAppChannel {
                                     }
                                 }
                                 whatsapp_rust::types::events::Event::PairingQrCode { code, .. } => {
+                                    // Display QR code (organized inline)
                                     println!("\n🤖 WhatsApp QR Code:");
-                                    // Use qr2term for compact, scannable QR code rendering
-                                    match qr2term::print_qr(&code) {
+                                    match qr2term::print_qr(code) {
                                         Ok(_) => {
                                             println!("\nScan with WhatsApp: Settings > Linked Devices > Link a Device");
                                         }
                                         Err(e) => {
-                                            // Fallback to qrcode crate if qr2term fails
                                             warn!("qr2term failed: {}, falling back to qrcode crate", e);
-                                            match qrcode::QrCode::new(&code) {
+                                            match qrcode::QrCode::new(code) {
                                                 Ok(qr) => {
-                                                    // Downsample: render at 2x2 then compress to single chars
                                                     let string = qr.render::<char>()
                                                         .quiet_zone(false)
-                                                        .module_dimensions(2, 1)  // Wider modules
+                                                        .module_dimensions(2, 1)
                                                         .build();
-                                                    // Limit to 25 lines max
                                                     let lines: Vec<&str> = string.lines().collect();
                                                     let max_lines = 25;
                                                     for line in lines.iter().take(max_lines.min(lines.len())) {
@@ -288,7 +272,9 @@ impl BaseChannel for WhatsAppChannel {
                         match bot.run().await {
                             Ok(handle) => {
                                 // Wait for bot to finish (or be stopped)
-                                let _ = handle.await;
+                                if let Err(e) = handle.await {
+                                    error!("WhatsApp bot handle error: {}", e);
+                                }
                             }
                             Err(e) => {
                                 error!("WhatsApp bot run error: {}", e);
@@ -301,8 +287,12 @@ impl BaseChannel for WhatsAppChannel {
                 }
 
                 if *running.lock().await {
-                    warn!("WhatsApp bot stopped, reconnecting in 5 seconds...");
-                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                    reconnect_attempt += 1;
+                    warn!("WhatsApp bot stopped, reconnecting in {} seconds...", delay);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                } else {
+                    reconnect_attempt = 0; // Reset on stop
                 }
             }
         });

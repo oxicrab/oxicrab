@@ -1,4 +1,5 @@
 use crate::cron::types::{CronJob, CronSchedule, CronStore};
+use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
 use chrono::DateTime;
 use chrono_tz::Tz;
@@ -14,8 +15,8 @@ const POLL_WHEN_EMPTY_SEC: u64 = 30;
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn compute_next_run(schedule: &CronSchedule, now_ms: i64) -> Option<i64> {
@@ -73,9 +74,10 @@ pub struct CronService {
                         + Sync,
                 >,
             >,
-        >,
+            >,
     >,
     running: Arc<tokio::sync::Mutex<bool>>,
+    task_tracker: Arc<TaskTracker>,
 }
 
 impl CronService {
@@ -85,6 +87,7 @@ impl CronService {
             store: Arc::new(Mutex::new(None)),
             on_job: Arc::new(tokio::sync::Mutex::new(None)),
             running: Arc::new(tokio::sync::Mutex::new(false)),
+            task_tracker: Arc::new(TaskTracker::new()),
         }
     }
 
@@ -141,8 +144,10 @@ impl CronService {
         let running = self.running.clone();
         let store_path = self.store_path.clone();
         let on_job = self.on_job.clone();
+        let task_tracker_for_service = self.task_tracker.clone();
+        let task_tracker_for_jobs = self.task_tracker.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             loop {
                 if !*running.lock().await {
                     break;
@@ -179,9 +184,26 @@ impl CronService {
                             if let Some(ref callback) = callback_opt {
                                 let job_clone = job.clone();
                                 let callback = callback.clone();
-                                tokio::spawn(async move {
-                                    let _ = callback(job_clone).await;
-                                });
+                                let job_id = job.id.clone();
+                                // Use spawn_auto_cleanup since cron jobs are one-off executions
+                                let task_tracker_for_job = task_tracker_for_jobs.clone();
+                                let job_id_for_tracking = job_id.clone();
+                                task_tracker_for_job.spawn_auto_cleanup(
+                                    format!("cron_job_{}", job_id_for_tracking),
+                                    async move {
+                                        match callback(job_clone).await {
+                                            Ok(Some(result)) => {
+                                                tracing::debug!("Cron job completed successfully: {}", result);
+                                            }
+                                            Ok(None) => {
+                                                tracing::debug!("Cron job completed (no result)");
+                                            }
+                                            Err(e) => {
+                                                tracing::error!("Cron job failed: {}", e);
+                                            }
+                                        }
+                                    },
+                                );
                             }
                         } else {
                             next_run = Some(next_run.map(|n| n.min(job_next)).unwrap_or(job_next));
@@ -198,6 +220,9 @@ impl CronService {
                 tokio::time::sleep(tokio::time::Duration::from_millis(delay.min(30000))).await;
             }
         });
+        
+        // Track the cron service task
+        task_tracker_for_service.spawn("cron_service".to_string(), handle).await;
 
         info!("Cron service started");
         Ok(())
@@ -205,11 +230,14 @@ impl CronService {
 
     pub async fn stop(&self) {
         *self.running.lock().await = false;
+        // Cancel tracked tasks
+        self.task_tracker.cancel_all().await;
     }
 
     pub async fn add_job(&self, job: CronJob) -> Result<()> {
         let mut store_guard = self.store.lock().await;
-        let store = store_guard.as_mut().unwrap();
+        let store = store_guard.as_mut()
+            .ok_or_else(|| anyhow::anyhow!("CronService store is not initialized"))?;
         store.jobs.push(job);
         drop(store_guard);
         self.save_store().await?;
@@ -218,7 +246,8 @@ impl CronService {
 
     pub async fn remove_job(&self, job_id: &str) -> Result<Option<CronJob>> {
         let mut store_guard = self.store.lock().await;
-        let store = store_guard.as_mut().unwrap();
+        let store = store_guard.as_mut()
+            .ok_or_else(|| anyhow::anyhow!("CronService store is not initialized"))?;
         let mut removed = None;
         let mut remaining = Vec::new();
         for job in store.jobs.drain(..) {
@@ -249,7 +278,8 @@ impl CronService {
 
     pub async fn enable_job(&self, job_id: &str, enabled: bool) -> Result<Option<CronJob>> {
         let mut store_guard = self.store.lock().await;
-        let store = store_guard.as_mut().unwrap();
+        let store = store_guard.as_mut()
+            .ok_or_else(|| anyhow::anyhow!("CronService store is not initialized"))?;
 
         for job in &mut store.jobs {
             if job.id == job_id {
@@ -280,7 +310,8 @@ impl CronService {
         to: Option<String>,
     ) -> Result<Option<CronJob>> {
         let mut store_guard = self.store.lock().await;
-        let store = store_guard.as_mut().unwrap();
+        let store = store_guard.as_mut()
+            .ok_or_else(|| anyhow::anyhow!("CronService store is not initialized"))?;
 
         for job in &mut store.jobs {
             if job.id == job_id {

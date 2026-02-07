@@ -45,17 +45,19 @@ impl AnthropicOAuthProvider {
         expires_at: i64,
         default_model: Option<String>,
         credentials_path: Option<PathBuf>,
-    ) -> Self {
+    ) -> Result<Self> {
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .context("Failed to create HTTP client for AnthropicOAuthProvider")?;
+
         let provider = Self {
             access_token: Arc::new(Mutex::new(access_token)),
             refresh_token,
             expires_at: Arc::new(Mutex::new(expires_at)),
             default_model: default_model.unwrap_or_else(|| "anthropic/claude-opus-4-6".to_string()),
             credentials_path: credentials_path.map(PathBuf::from),
-            client: Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
-                .build()
-                .expect("Failed to create HTTP client"),
+            client,
         };
 
         // Load cached tokens if available
@@ -63,7 +65,7 @@ impl AnthropicOAuthProvider {
             provider.load_cached_tokens(path);
         }
 
-        provider
+        Ok(provider)
     }
 
     fn load_cached_tokens(&self, path: &Path) {
@@ -105,8 +107,8 @@ impl AnthropicOAuthProvider {
         if !refresh_token.is_empty() && expires_at > 0 {
             let now_ms = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as i64;
+                .context("System time is before UNIX epoch")
+                .map(|d| d.as_millis() as i64)?;
 
             if now_ms > expires_at {
                 info!("OAuth token expired, refreshing...");
@@ -165,8 +167,8 @@ impl AnthropicOAuthProvider {
         let expires_in_secs = data["expires_in"].as_u64().unwrap_or(0);
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64;
+            .context("System time is before UNIX epoch")
+            .map(|d| d.as_millis() as i64)?;
         let expires_at = now_ms + (expires_in_secs * 1000) as i64 - 300_000;
 
         *self.access_token.lock().await = access_token;
@@ -348,7 +350,7 @@ impl AnthropicOAuthProvider {
             expires_at,
             default_model,
             Some(path.to_path_buf()),
-        )))
+        )?))
     }
 
     pub async fn from_openclaw(default_model: Option<String>) -> Result<Option<Self>> {
@@ -408,7 +410,7 @@ impl AnthropicOAuthProvider {
                                 expires,
                                 default_model,
                                 Some(store_path),
-                            )));
+                            )?));
                         }
                     } else if cred_type == "token" {
                         if let Some(token) = cred.get("token").and_then(|v| v.as_str()) {
@@ -420,7 +422,7 @@ impl AnthropicOAuthProvider {
                                 expires,
                                 default_model,
                                 Some(store_path),
-                            )));
+                            )?));
                         }
                     }
                 }
@@ -464,7 +466,7 @@ impl AnthropicOAuthProvider {
                 expires,
                 default_model,
                 Some(cred_path),
-            )));
+            )?));
         }
 
         Ok(None)

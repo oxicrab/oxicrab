@@ -1,10 +1,11 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{split_message, BaseChannel};
+use crate::channels::utils::check_allowed_sender;
 use crate::config::TelegramConfig;
+use crate::utils::regex::RegexPatterns;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
-use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use teloxide::prelude::*;
@@ -16,6 +17,7 @@ pub struct TelegramChannel {
     inbound_tx: mpsc::Sender<InboundMessage>,
     bot: Bot,
     _running: Arc<tokio::sync::Mutex<bool>>,
+    dispatcher_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl TelegramChannel {
@@ -26,6 +28,7 @@ impl TelegramChannel {
             inbound_tx,
             bot,
             _running: Arc::new(tokio::sync::Mutex::new(false)),
+            dispatcher_handle: None,
         }
     }
 }
@@ -53,13 +56,8 @@ impl BaseChannel for TelegramChannel {
                     if let Some(text) = text {
                         let sender_id = msg.from.as_ref().map(|u| u.id.to_string()).unwrap_or_default();
 
-                        // Check allowlist
-                        let normalized: std::collections::HashSet<String> = allow_list
-                            .iter()
-                            .map(|a: &String| a.trim_start_matches('+').to_string())
-                            .collect();
-
-                        if !allow_list.is_empty() && !normalized.contains(&sender_id) {
+                        // Check allowlist using utility function
+                        if !check_allowed_sender(&sender_id, &allow_list) {
                             return Ok(());
                         }
 
@@ -85,10 +83,11 @@ impl BaseChannel for TelegramChannel {
         tracing::info!("Starting Telegram dispatcher...");
         let mut dispatcher = Dispatcher::builder(bot, handler).build();
 
-        // Spawn dispatcher in background task so it doesn't block
-        tokio::spawn(async move {
+        // Spawn dispatcher in background task and track handle
+        let handle = tokio::spawn(async move {
             dispatcher.dispatch().await;
         });
+        self.dispatcher_handle = Some(handle);
 
         tracing::info!("Telegram channel started successfully");
         Ok(())
@@ -96,6 +95,9 @@ impl BaseChannel for TelegramChannel {
 
     async fn stop(&mut self) -> Result<()> {
         *self._running.lock().await = false;
+        if let Some(handle) = self.dispatcher_handle.take() {
+            handle.abort();
+        }
         Ok(())
     }
 
@@ -126,12 +128,6 @@ fn markdown_to_telegram_html(text: &str) -> String {
         return String::new();
     }
 
-    // Simple markdown to HTML conversion
-    let re_bold = Regex::new(r"\*\*(.+?)\*\*").unwrap();
-    let re_italic = Regex::new(r"_(.+?)_").unwrap();
-    let re_code = Regex::new(r"`([^`]+)`").unwrap();
-    let re_link = Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap();
-
     let mut html = text.to_string();
 
     // Escape HTML
@@ -140,13 +136,19 @@ fn markdown_to_telegram_html(text: &str) -> String {
         .replace("<", "&lt;")
         .replace(">", "&gt;");
 
-    // Convert markdown
-    html = re_link
+    // Convert markdown using shared regex patterns
+    html = RegexPatterns::markdown_link()
         .replace_all(&html, r#"<a href="$2">$1</a>"#)
         .to_string();
-    html = re_bold.replace_all(&html, r#"<b>$1</b>"#).to_string();
-    html = re_italic.replace_all(&html, r#"<i>$1</i>"#).to_string();
-    html = re_code.replace_all(&html, r#"<code>$1</code>"#).to_string();
+    html = RegexPatterns::markdown_bold()
+        .replace_all(&html, r#"<b>$1</b>"#)
+        .to_string();
+    html = RegexPatterns::markdown_italic()
+        .replace_all(&html, r#"<i>$1</i>"#)
+        .to_string();
+    html = RegexPatterns::markdown_code()
+        .replace_all(&html, r#"<code>$1</code>"#)
+        .to_string();
 
     html
 }

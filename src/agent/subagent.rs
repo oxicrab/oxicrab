@@ -167,7 +167,7 @@ impl SubagentManager {
             self.restrict_to_workspace,
         )));
         tools.register(Arc::new(WebSearchTool::new(self.brave_api_key.clone(), 5)));
-        tools.register(Arc::new(WebFetchTool::new(50000)));
+        tools.register(Arc::new(WebFetchTool::new(50000)?));
 
         // Build messages
         let system_prompt = self.build_subagent_prompt(task);

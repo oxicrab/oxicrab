@@ -1,7 +1,7 @@
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
-use anyhow::Result;
+use crate::utils::regex::{compile_regex, RegexPatterns};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use regex::Regex;
 use reqwest::Client;
 use scraper::{Html, Selector};
 use serde_json::Value;
@@ -119,15 +119,15 @@ pub struct WebFetchTool {
 }
 
 impl WebFetchTool {
-    pub fn new(max_chars: usize) -> Self {
-        Self {
+    pub fn new(max_chars: usize) -> Result<Self> {
+        Ok(Self {
             max_chars,
             client: Client::builder()
                 .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS as usize))
                 .timeout(Duration::from_secs(30))
                 .build()
-                .unwrap(),
-        }
+                .context("Failed to create HTTP client for WebFetchTool")?,
+        })
     }
 }
 
@@ -264,23 +264,16 @@ impl Tool for WebFetchTool {
 }
 
 fn strip_tags(html: &str) -> String {
-    let re_script = Regex::new(r"(?i)<script[\s\S]*?</script>").unwrap();
-    let re_style = Regex::new(r"(?i)<style[\s\S]*?</style>").unwrap();
-    let re_tags = Regex::new(r"<[^>]+>").unwrap();
-
-    let text = re_script.replace_all(html, "");
-    let text = re_style.replace_all(&text, "");
-    let text = re_tags.replace_all(&text, "");
+    let text = RegexPatterns::html_script().replace_all(html, "");
+    let text = RegexPatterns::html_style().replace_all(&text, "");
+    let text = RegexPatterns::html_tags().replace_all(&text, "");
 
     html_escape::decode_html_entities(&text).to_string()
 }
 
 fn normalize(text: &str) -> String {
-    let re_whitespace = Regex::new(r"[ \t]+").unwrap();
-    let re_newlines = Regex::new(r"\n{3,}").unwrap();
-
-    let text = re_whitespace.replace_all(text, " ");
-    let text = re_newlines.replace_all(&text, "\n\n");
+    let text = RegexPatterns::whitespace().replace_all(text, " ");
+    let text = RegexPatterns::newlines().replace_all(&text, "\n\n");
     text.trim().to_string()
 }
 
@@ -288,7 +281,8 @@ fn extract_html(html: &str, markdown: bool) -> Result<String> {
     let document = Html::parse_document(html);
 
     // Extract title using scraper
-    let title_selector = Selector::parse("title").unwrap();
+    let title_selector = Selector::parse("title")
+        .map_err(|e| anyhow::anyhow!("Failed to parse title selector: {:?}", e))?;
     let title = document
         .select(&title_selector)
         .next()
@@ -333,10 +327,8 @@ fn extract_html(html: &str, markdown: bool) -> Result<String> {
 }
 
 fn strip_scripts_styles(html: &str) -> String {
-    let re_script = Regex::new(r"(?i)<script[\s\S]*?</script>").unwrap();
-    let re_style = Regex::new(r"(?i)<style[\s\S]*?</style>").unwrap();
-    let text = re_script.replace_all(html, "");
-    re_style.replace_all(&text, "").to_string()
+    let text = RegexPatterns::html_script().replace_all(html, "");
+    RegexPatterns::html_style().replace_all(&text, "").to_string()
 }
 
 fn html_to_markdown(html: &str) -> String {
@@ -383,46 +375,47 @@ fn html_to_markdown(html: &str) -> String {
         // Fallback: use regex-based markdown conversion (like Python version)
         let mut text = html.to_string();
         // Convert links
-        text = Regex::new(r#"(?i)<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)</a>"#)
-            .unwrap()
-            .replace_all(&text, |caps: &regex::Captures| {
-                let href = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-                let link_text = strip_tags(caps.get(2).map(|m| m.as_str()).unwrap_or(""));
-                format!("[{}]({})", link_text.trim(), href)
-            })
-            .to_string();
-
-        // Convert headings
-        for level in 1..=6 {
-            text = Regex::new(&format!(r"(?i)<h{}[^>]*>([\s\S]*?)</h{}>", level, level))
-                .unwrap()
+        if let Ok(re_link) = compile_regex(r#"(?i)<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)</a>"#) {
+            text = re_link
                 .replace_all(&text, |caps: &regex::Captures| {
-                    let heading_text = strip_tags(caps.get(1).map(|m| m.as_str()).unwrap_or(""));
-                    format!("\n{} {}\n", "#".repeat(level), heading_text.trim())
+                    let href = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                    let link_text = strip_tags(caps.get(2).map(|m| m.as_str()).unwrap_or(""));
+                    format!("[{}]({})", link_text.trim(), href)
                 })
                 .to_string();
         }
 
+        // Convert headings
+        for level in 1..=6 {
+            if let Ok(re_heading) = compile_regex(&format!(r"(?i)<h{}[^>]*>([\s\S]*?)</h{}>", level, level)) {
+                text = re_heading
+                    .replace_all(&text, |caps: &regex::Captures| {
+                        let heading_text = strip_tags(caps.get(1).map(|m| m.as_str()).unwrap_or(""));
+                        format!("\n{} {}\n", "#".repeat(level), heading_text.trim())
+                    })
+                    .to_string();
+            }
+        }
+
         // Convert lists
-        text = Regex::new(r"(?i)<li[^>]*>([\s\S]*?)</li>")
-            .unwrap()
-            .replace_all(&text, |caps: &regex::Captures| {
-                let item_text = strip_tags(caps.get(1).map(|m| m.as_str()).unwrap_or(""));
-                format!("\n- {}", item_text.trim())
-            })
-            .to_string();
+        if let Ok(re_list) = compile_regex(r"(?i)<li[^>]*>([\s\S]*?)</li>") {
+            text = re_list
+                .replace_all(&text, |caps: &regex::Captures| {
+                    let item_text = strip_tags(caps.get(1).map(|m| m.as_str()).unwrap_or(""));
+                    format!("\n- {}", item_text.trim())
+                })
+                .to_string();
+        }
 
         // Convert block elements
-        text = Regex::new(r"(?i)</(p|div|section|article)>")
-            .unwrap()
-            .replace_all(&text, "\n\n")
-            .to_string();
+        if let Ok(re_block) = compile_regex(r"(?i)</(p|div|section|article)>") {
+            text = re_block.replace_all(&text, "\n\n").to_string();
+        }
 
         // Convert br/hr
-        text = Regex::new(r"(?i)<(br|hr)\s*/?>")
-            .unwrap()
-            .replace_all(&text, "\n")
-            .to_string();
+        if let Ok(re_br) = compile_regex(r"(?i)<(br|hr)\s*/?>") {
+            text = re_br.replace_all(&text, "\n").to_string();
+        }
 
         normalize(&strip_tags(&text))
     } else {

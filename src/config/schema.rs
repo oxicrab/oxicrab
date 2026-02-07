@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use tracing::warn;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WhatsAppConfig {
@@ -431,6 +432,71 @@ impl Default for Config {
 impl Config {
     pub fn workspace_path(&self) -> PathBuf {
         crate::utils::get_workspace_path(&self.agents.defaults.workspace)
+    }
+
+    /// Validate configuration values
+    pub fn validate(&self) -> anyhow::Result<()> {
+
+        // Validate agent defaults
+        if self.agents.defaults.max_tokens == 0 {
+            anyhow::bail!("agents.defaults.maxTokens must be > 0");
+        }
+        if self.agents.defaults.max_tokens > 1_000_000 {
+            anyhow::bail!("agents.defaults.maxTokens is unreasonably large (> 1,000,000)");
+        }
+        if self.agents.defaults.temperature < 0.0 || self.agents.defaults.temperature > 2.0 {
+            anyhow::bail!("agents.defaults.temperature must be between 0.0 and 2.0");
+        }
+        if self.agents.defaults.max_tool_iterations == 0 {
+            anyhow::bail!("agents.defaults.maxToolIterations must be > 0");
+        }
+        if self.agents.defaults.max_tool_iterations > 1000 {
+            anyhow::bail!("agents.defaults.maxToolIterations is unreasonably large (> 1000)");
+        }
+
+        // Validate compaction config
+        if self.agents.defaults.compaction.enabled {
+            if self.agents.defaults.compaction.threshold_tokens == 0 {
+                anyhow::bail!("agents.defaults.compaction.thresholdTokens must be > 0 when enabled");
+            }
+            if self.agents.defaults.compaction.keep_recent == 0 {
+                anyhow::bail!("agents.defaults.compaction.keepRecent must be > 0 when enabled");
+            }
+        }
+
+        // Validate daemon config
+        if self.agents.defaults.daemon.enabled {
+            if self.agents.defaults.daemon.interval == 0 {
+                anyhow::bail!("agents.defaults.daemon.interval must be > 0 when enabled");
+            }
+            if self.agents.defaults.daemon.interval < 60 {
+                warn!("Daemon interval is very short (< 60s). This may cause high resource usage.");
+            }
+        }
+
+        // Validate gateway config
+        if self.gateway.port == 0 {
+            anyhow::bail!("gateway.port must be > 0");
+        }
+        // Note: u16 max is 65535, so the upper bound check is redundant but kept for clarity
+
+        // Validate tools config
+        if self.tools.exec.timeout == 0 {
+            anyhow::bail!("tools.exec.timeout must be > 0");
+        }
+        if self.tools.exec.timeout > 3600 {
+            warn!("tools.exec.timeout is very long (> 3600s). This may cause timeouts.");
+        }
+
+        // Validate web search config
+        if self.tools.web.search.max_results == 0 {
+            anyhow::bail!("tools.web.search.maxResults must be > 0");
+        }
+        if self.tools.web.search.max_results > 100 {
+            warn!("tools.web.search.maxResults is very large (> 100). This may be slow.");
+        }
+
+        Ok(())
     }
 
     #[allow(dead_code)]

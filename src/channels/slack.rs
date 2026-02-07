@@ -1,11 +1,12 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{split_message, BaseChannel};
+use crate::channels::utils::{check_allowed_sender, exponential_backoff_delay};
 use crate::config::SlackConfig;
+use crate::utils::regex::{compile_slack_mention, RegexPatterns};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
 use futures_util::SinkExt;
-use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -41,13 +42,11 @@ impl SlackChannel {
             return String::new();
         }
         // Slack uses *bold* not **bold**
-        let re_bold = Regex::new(r"\*\*(.+?)\*\*").unwrap();
-        let text = re_bold.replace_all(text, r"*\1*");
+        let text = RegexPatterns::markdown_bold().replace_all(text, r"*$1*");
         // Slack uses ~strike~ not ~~strike~~
-        let re_strike = Regex::new(r"~~(.+?)~~").unwrap();
-        let text = re_strike.replace_all(&text, r"~\1~");
+        let text = RegexPatterns::markdown_strike().replace_all(&text, r"~$1~");
         // Slack links: [text](url) -> <url|text>
-        let re_link = Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap();
+        let re_link = RegexPatterns::markdown_link();
         re_link.replace_all(&text, r"<$2|$1>").to_string()
     }
 
@@ -121,25 +120,23 @@ impl SlackChannel {
 
         // Strip the bot @mention from text
         if let Some(ref bot_id) = self.bot_user_id {
-            // Escape special regex characters in bot_id
-            let escaped_id = regex::escape(bot_id);
-            let re_mention = Regex::new(&format!(r"<@{}\s*>\s*", escaped_id)).unwrap();
-            text = re_mention.replace_all(&text, "").to_string();
+            match compile_slack_mention(bot_id) {
+                Ok(re_mention) => {
+                    text = re_mention.replace_all(&text, "").to_string();
+                }
+                Err(e) => {
+                    warn!("Failed to compile Slack mention regex: {}", e);
+                }
+            }
         }
 
         if text.trim().is_empty() {
             return Ok(());
         }
 
-        // Check allowlist
-        if !self.config.allow_from.is_empty() {
-            let allowed = self.config.allow_from.iter().any(|a: &String| {
-                let a_clean = a.trim_start_matches('+');
-                user_id == a || user_id == a_clean || user_id.contains(a_clean)
-            });
-            if !allowed {
-                return Ok(());
-            }
+        // Check allowlist using utility function
+        if !check_allowed_sender(user_id, &self.config.allow_from) {
+            return Ok(());
         }
 
         // Build sender_id — try to enrich with username
@@ -331,6 +328,7 @@ impl BaseChannel for SlackChannel {
             // First, call apps.connections.open to get the WebSocket URL
             // Then connect to that URL
 
+            let mut reconnect_attempt = 0u32;
             loop {
                 debug!("Attempting to connect to Slack Socket Mode...");
                 debug!(
@@ -350,8 +348,10 @@ impl BaseChannel for SlackChannel {
                     Ok(r) => r,
                     Err(e) => {
                         error!("Failed to call apps.connections.open: {}", e);
-                        warn!("Retrying Slack Socket Mode connection in 5 seconds...");
-                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                        let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                        reconnect_attempt += 1;
+                        warn!("Retrying Slack Socket Mode connection in {} seconds...", delay);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                         continue;
                     }
                 };
@@ -360,8 +360,10 @@ impl BaseChannel for SlackChannel {
                     Ok(j) => j,
                     Err(e) => {
                         error!("Failed to parse apps.connections.open response: {}", e);
-                        warn!("Retrying Slack Socket Mode connection in 5 seconds...");
-                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                        let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                        reconnect_attempt += 1;
+                        warn!("Retrying Slack Socket Mode connection in {} seconds...", delay);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                         continue;
                     }
                 };
@@ -375,8 +377,10 @@ impl BaseChannel for SlackChannel {
                     if error == "invalid_auth" {
                         warn!("Invalid app_token - check that it starts with 'xapp-' and has 'connections:write' scope");
                     }
-                    warn!("Retrying Slack Socket Mode connection in 5 seconds...");
-                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                    reconnect_attempt += 1;
+                    warn!("Retrying Slack Socket Mode connection in {} seconds...", delay);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                     continue;
                 }
 
@@ -384,8 +388,10 @@ impl BaseChannel for SlackChannel {
                     Some(url) => url,
                     None => {
                         error!("No 'url' field in apps.connections.open response");
-                        warn!("Retrying Slack Socket Mode connection in 5 seconds...");
-                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                        let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                        reconnect_attempt += 1;
+                        warn!("Retrying Slack Socket Mode connection in {} seconds...", delay);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                         continue;
                     }
                 };
@@ -399,8 +405,10 @@ impl BaseChannel for SlackChannel {
                     Ok(u) => u,
                     Err(e) => {
                         error!("Failed to parse WebSocket URL: {}", e);
-                        warn!("Retrying Slack Socket Mode connection in 5 seconds...");
-                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                        let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                        reconnect_attempt += 1;
+                        warn!("Retrying Slack Socket Mode connection in {} seconds...", delay);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                         continue;
                     }
                 };
@@ -432,11 +440,12 @@ impl BaseChannel for SlackChannel {
                                         // Slack Socket Mode requires acknowledgments to be sent back through the WebSocket
                                         if event_type == "events_api" {
                                             if let Some(envelope_id) = event.get("envelope_id") {
+                                                let envelope_id_str = envelope_id.as_str().unwrap_or("");
                                                 let ack_msg = serde_json::json!({
-                                                    "envelope_id": envelope_id.as_str().unwrap_or(""),
+                                                    "envelope_id": envelope_id_str,
                                                     "payload": {}
                                                 });
-                                                debug!("Sending Socket Mode acknowledgment for envelope_id: {}", envelope_id.as_str().unwrap_or(""));
+                                                debug!("Sending Socket Mode acknowledgment for envelope_id: {}", envelope_id_str);
                                                 if let Err(e) = write
                                                     .send(Message::Text(ack_msg.to_string()))
                                                     .await
@@ -486,10 +495,13 @@ impl BaseChannel for SlackChannel {
                                 }
                                 Ok(Message::Close(_)) => {
                                     info!("Slack Socket Mode connection closed");
+                                    reconnect_attempt = 0; // Reset on successful connection
                                     break;
                                 }
                                 Ok(Message::Ping(_)) => {
-                                    let _ = write.send(Message::Pong(vec![])).await;
+                                    if let Err(e) = write.send(Message::Pong(vec![])).await {
+                                        error!("Failed to send Slack WebSocket pong: {}", e);
+                                    }
                                 }
                                 Err(e) => {
                                     error!("WebSocket error: {}", e);
@@ -512,8 +524,10 @@ impl BaseChannel for SlackChannel {
                             warn!("  2. app_token is a Socket Mode token (starts with xapp-)");
                             warn!("  3. The token has not expired");
                         }
-                        warn!("Retrying Slack Socket Mode connection in 5 seconds...");
-                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                        let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                        reconnect_attempt += 1;
+                        warn!("Retrying Slack Socket Mode connection in {} seconds...", delay);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                     }
                 }
             }

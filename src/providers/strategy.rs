@@ -54,7 +54,7 @@ impl ProviderStrategy for AnthropicOAuthStrategy {
                     .credentials_path
                     .as_ref()
                     .map(|p| std::path::PathBuf::from(p)),
-            ))));
+            )?)));
         }
 
         // Try auto-detection

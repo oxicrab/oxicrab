@@ -175,21 +175,22 @@ impl ContextBuilder {
             if file_path.exists() {
                 if let Ok(metadata) = std::fs::metadata(&file_path) {
                     if let Ok(mtime) = metadata.modified() {
-                        current_mtimes.insert(
-                            filename.to_string(),
-                            mtime
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
-                                .as_secs(),
-                        );
+                        if let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH) {
+                            current_mtimes.insert(
+                                filename.to_string(),
+                                duration.as_secs(),
+                            );
+                        }
                     }
                 }
             }
         }
 
         // Return cached if unchanged
-        if self.bootstrap_cache.is_some() && current_mtimes == self.bootstrap_mtimes {
-            return Ok(self.bootstrap_cache.as_ref().unwrap().clone());
+        if let Some(ref cache) = self.bootstrap_cache {
+            if current_mtimes == self.bootstrap_mtimes {
+                return Ok(cache.clone());
+            }
         }
 
         // Rebuild from disk

@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
-use regex::Regex;
 use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -12,6 +11,7 @@ pub struct MemoryHit {
     pub content: String,
 }
 
+#[derive(Clone)]
 pub struct MemoryDB {
     db_path: PathBuf,
     has_fts: bool,
@@ -124,7 +124,11 @@ impl MemoryDB {
         path.metadata()
             .and_then(|m| {
                 m.modified()
-                    .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as i64)
+                    .map(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_nanos() as i64)
+                            .unwrap_or(0)
+                    })
             })
             .unwrap_or(0)
     }
@@ -296,7 +300,7 @@ fn hash_text(s: &str) -> String {
 }
 
 fn split_into_chunks(text: &str) -> Vec<String> {
-    let re = Regex::new(r"\n\s*\n+").unwrap();
+    let re = crate::utils::regex::RegexPatterns::double_newlines();
     let raw: Vec<&str> = re.split(text.trim()).collect();
     let mut chunks = Vec::new();
 
@@ -317,7 +321,7 @@ fn split_into_chunks(text: &str) -> Vec<String> {
 }
 
 fn fts_query(text: &str) -> String {
-    let re = Regex::new(r"[A-Za-z0-9_]{2,}").unwrap();
+    let re = crate::utils::regex::RegexPatterns::words();
     let terms: Vec<&str> = re.find_iter(text).map(|m| m.as_str()).collect();
 
     if terms.is_empty() {

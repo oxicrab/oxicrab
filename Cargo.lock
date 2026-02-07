@@ -2369,6 +2369,7 @@ dependencies = [
  "lock_api",
  "lru",
  "oauth2",
+ "once_cell",
  "open",
  "qr2term",
  "qrcode",

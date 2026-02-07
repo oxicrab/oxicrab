@@ -108,7 +108,8 @@ impl SessionManager {
             _workspace: workspace.clone(),
             sessions_dir,
             cache: Mutex::new(LruCache::new(
-                NonZeroUsize::new(MAX_CACHED_SESSIONS).unwrap(),
+                NonZeroUsize::new(MAX_CACHED_SESSIONS)
+                    .expect("MAX_CACHED_SESSIONS must be > 0"),
             )),
         })
     }
@@ -197,9 +198,11 @@ impl SessionManager {
                     .to_string();
 
                 let mut extra = HashMap::new();
-                for (k, v) in data.as_object().unwrap() {
-                    if k != "role" && k != "content" && k != "timestamp" {
-                        extra.insert(k.clone(), v.clone());
+                if let Some(obj) = data.as_object() {
+                    for (k, v) in obj {
+                        if k != "role" && k != "content" && k != "timestamp" && k != "_type" {
+                            extra.insert(k.clone(), v.clone());
+                        }
                     }
                 }
 

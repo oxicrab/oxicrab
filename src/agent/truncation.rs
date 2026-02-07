@@ -1,4 +1,4 @@
-use regex::Regex;
+use crate::utils::regex::RegexPatterns;
 use serde_json::Value;
 
 const _DEFAULT_MAX_CHARS: usize = 3000;
@@ -9,8 +9,7 @@ pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
 
 fn truncate_tool_result_internal(result: &str, max_chars: usize) -> String {
     // Strip ANSI escape codes
-    let re_ansi = Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
-    let clean = re_ansi.replace_all(result, "").to_string();
+    let clean = RegexPatterns::ansi_escape().replace_all(result, "").to_string();
 
     if clean.len() <= max_chars {
         return clean;

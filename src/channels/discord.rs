@@ -19,7 +19,7 @@ struct Handler {
 
 #[serenity_async_trait]
 impl EventHandler for Handler {
-    async fn cache_ready(&self, ctx: Context, _guilds: Vec<serenity::model::id::GuildId>) {
+    async fn cache_ready(&self, _ctx: Context, _guilds: Vec<serenity::model::id::GuildId>) {
         tracing::info!("Discord cache is ready");
     }
 

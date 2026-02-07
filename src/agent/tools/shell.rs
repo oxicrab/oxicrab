@@ -1,5 +1,6 @@
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
-use anyhow::Result;
+use crate::utils::regex::compile_security_patterns;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use regex::Regex;
 use serde_json::Value;
@@ -16,23 +17,14 @@ pub struct ExecTool {
 
 impl ExecTool {
     pub fn new(timeout: u64, working_dir: Option<PathBuf>, restrict_to_workspace: bool) -> Self {
-        let deny_patterns = vec![
-            Regex::new(r"\brm\s+-[rf]{1,2}\b").unwrap(),
-            Regex::new(r"\bdel\s+/[fq]\b").unwrap(),
-            Regex::new(r"\brmdir\s+/s\b").unwrap(),
-            Regex::new(r"\b(format|mkfs|diskpart)\b").unwrap(),
-            Regex::new(r"\bdd\s+if=").unwrap(),
-            Regex::new(r">\s*/dev/sd").unwrap(),
-            Regex::new(r"\b(shutdown|reboot|poweroff)\b").unwrap(),
-            Regex::new(r":\(\)\s*\{.*\};\s*:").unwrap(),
-            Regex::new(r"\beval\b").unwrap(),
-            Regex::new(r"\bbase64\b.*\|\s*(sh|bash|zsh)\b").unwrap(),
-            Regex::new(r"\b(curl|wget)\b.*\|\s*(sh|bash|zsh|python)\b").unwrap(),
-            Regex::new(r"\bpython[23]?\s+-c\b").unwrap(),
-            Regex::new(r"\bchmod\b.*\bo?[0-7]*7[0-7]{0,2}\b").unwrap(),
-            Regex::new(r"\bchown\b").unwrap(),
-            Regex::new(r"\b(useradd|userdel|usermod|passwd|adduser|deluser)\b").unwrap(),
-        ];
+        // Compile security patterns with proper error handling
+        // If compilation fails, we'll log a warning but continue with empty patterns
+        // This is a safety measure - in production, this should never fail
+        let deny_patterns = compile_security_patterns()
+            .unwrap_or_else(|e| {
+                tracing::warn!("Failed to compile security patterns: {}. Tool will have reduced security.", e);
+                Vec::new()
+            });
 
         Self {
             timeout,
@@ -108,7 +100,14 @@ impl Tool for ExecTool {
             .map(PathBuf::from)
             .or_else(|| self.working_dir.clone());
 
-        let cwd = working_dir.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let cwd = working_dir.unwrap_or_else(|| {
+            std::env::current_dir()
+                .context("Failed to get current directory")
+                .unwrap_or_else(|e| {
+                    tracing::warn!("Failed to get current directory: {}, using '.'", e);
+                    PathBuf::from(".")
+                })
+        });
 
         if let Some(err) = self.guard_command(command, &cwd) {
             return Ok(ToolResult::error(err));

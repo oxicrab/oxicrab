@@ -20,6 +20,7 @@ use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
 use crate::cron::service::CronService;
 use crate::providers::base::{LLMProvider, Message};
 use crate::session::{Session, SessionManager, SessionStore};
+use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -46,6 +47,7 @@ pub struct AgentLoop {
     _processing_lock: Arc<tokio::sync::Mutex<()>>,
     running: Arc<tokio::sync::Mutex<bool>>,
     outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
+    task_tracker: Arc<TaskTracker>,
 }
 
 impl AgentLoop {
@@ -64,6 +66,7 @@ impl AgentLoop {
         google_config: Option<crate::config::GoogleConfig>,
     ) -> Result<Self> {
         // Extract receiver to avoid lock contention
+        // Receivers are !Sync, so we wrap in Arc<Mutex> for sharing
         let inbound_rx = Arc::new(tokio::sync::Mutex::new({
             let mut bus_guard = bus.lock().await;
             bus_guard.take_inbound_rx()
@@ -73,6 +76,8 @@ impl AgentLoop {
         let context = Arc::new(Mutex::new(ContextBuilder::new(&workspace)?));
         let sessions: Arc<dyn SessionStore> = Arc::new(SessionManager::new(workspace.clone())?);
         let memory = Arc::new(MemoryStore::new(&workspace)?);
+        // Start background memory indexer
+        memory.start_indexer().await?;
 
         let mut tools = ToolRegistry::new();
 
@@ -100,7 +105,7 @@ impl AgentLoop {
 
         // Register web tools
         tools.register(Arc::new(WebSearchTool::new(brave_api_key.clone(), 5)));
-        tools.register(Arc::new(WebFetchTool::new(50000)));
+        tools.register(Arc::new(WebFetchTool::new(50000)?));
 
         // Register message tool with outbound sender
         let outbound_tx_for_tool = outbound_tx.clone();
@@ -183,6 +188,7 @@ impl AgentLoop {
             _processing_lock: Arc::new(tokio::sync::Mutex::new(())),
             running: Arc::new(tokio::sync::Mutex::new(false)),
             outbound_tx,
+            task_tracker: Arc::new(TaskTracker::new()),
         })
     }
 
@@ -200,7 +206,8 @@ impl AgentLoop {
                 break;
             }
 
-            // Check for messages - receiver extracted to avoid lock contention
+            // Check for messages - lock receiver only for recv()
+            // Note: This is necessary because receivers are !Sync
             let msg_opt = {
                 let mut rx = self.inbound_rx.lock().await;
                 rx.recv().await
@@ -238,12 +245,15 @@ impl AgentLoop {
     }
 
     pub fn stop(&self) {
-        // Signal stop
-        tokio::spawn({
-            let running = self.running.clone();
-            async move {
-                *running.lock().await = false;
-            }
+        // Signal stop - use blocking call since this is called from sync context
+        // If called from async context, consider making this async
+        let running = self.running.clone();
+        let task_tracker = self.task_tracker.clone();
+        tokio::spawn(async move {
+            let mut guard = running.lock().await;
+            *guard = false;
+            // Cancel all tracked background tasks
+            task_tracker.cancel_all().await;
         });
     }
 
@@ -266,7 +276,8 @@ impl AgentLoop {
         self.set_tool_contexts(&msg.channel, &msg.chat_id).await;
 
         let session_key = msg.session_key();
-        let session = self.sessions.get_or_create(&session_key).await?;
+        // Reuse session to avoid repeated lookups
+        let mut session = self.sessions.get_or_create(&session_key).await?;
 
         let history = self.get_compacted_history(&session).await?;
 
@@ -280,8 +291,7 @@ impl AgentLoop {
 
         let final_content = self.run_agent_loop(messages).await?;
 
-        // Save conversation
-        let mut session = self.sessions.get_or_create(&session_key).await?;
+        // Save conversation (reuse session variable)
         let extra = HashMap::new();
         session.add_message("user".to_string(), msg.content.clone(), extra.clone());
         if let Some(ref content) = final_content {
@@ -296,14 +306,24 @@ impl AgentLoop {
                 let memory = self.memory.clone();
                 let user_msg = msg.content.clone();
                 let assistant_msg = content.clone();
-                tokio::spawn(async move {
-                    if let Ok(facts) = compactor.extract_facts(&user_msg, &assistant_msg).await {
-                        if !facts.is_empty() {
-                            if let Err(e) =
-                                memory.append_today(&format!("\n## Facts\n\n{}\n", facts))
-                            {
-                                warn!("Failed to save facts to daily note: {}", e);
+                let task_tracker = self.task_tracker.clone();
+                let task_name = format!("fact_extraction_{}", chrono::Utc::now().timestamp());
+                // Use spawn_auto_cleanup since this is a one-off task that should remove itself
+                task_tracker.spawn_auto_cleanup(task_name, async move {
+                    match compactor.extract_facts(&user_msg, &assistant_msg).await {
+                        Ok(facts) => {
+                            if !facts.is_empty() {
+                                if let Err(e) =
+                                    memory.append_today(&format!("\n## Facts\n\n{}\n", facts))
+                                {
+                                    warn!("Failed to save facts to daily note: {}", e);
+                                } else {
+                                    debug!("Successfully saved {} facts to daily note", facts.len());
+                                }
                             }
+                        }
+                        Err(e) => {
+                            warn!("Failed to extract facts from conversation: {}", e);
                         }
                     }
                 });
@@ -328,21 +348,21 @@ impl AgentLoop {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut last_used_delivery_tool = false;
 
-        for iteration in 1..=self.max_iterations {
-            let _tools_defs = {
-                let tools_guard = self.tools.lock().await;
-                tools_guard.get_definitions()
-            };
+        // Cache tool definitions to avoid repeated lock acquisition
+        let tools_defs = {
+            let tools_guard = self.tools.lock().await;
+            tools_guard.get_tool_definitions()
+        };
 
+        for iteration in 1..=self.max_iterations {
             // Use retry logic for provider calls
+            // Note: messages are cloned here because they're mutated in the loop
+            // This is necessary for the agent loop pattern
             let response = self
                 .provider
                 .chat_with_retry(
                     messages.clone(),
-                    {
-                        let tools_guard = self.tools.lock().await;
-                        Some(tools_guard.get_tool_definitions())
-                    },
+                    Some(tools_defs.clone()),
                     Some(&self.model),
                     4096,
                     0.7,

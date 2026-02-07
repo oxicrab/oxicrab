@@ -1,4 +1,5 @@
 use crate::providers::base::LLMProvider;
+use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,6 +25,7 @@ pub struct HeartbeatService {
     strategy_file: String,
     _cooldown_s: u64,
     running: Arc<tokio::sync::Mutex<bool>>,
+    task_tracker: Arc<TaskTracker>,
 }
 
 impl HeartbeatService {
@@ -56,6 +58,7 @@ impl HeartbeatService {
             strategy_file,
             _cooldown_s: cooldown_after_action,
             running: Arc::new(tokio::sync::Mutex::new(false)),
+            task_tracker: Arc::new(TaskTracker::new()),
         }
     }
 
@@ -70,8 +73,9 @@ impl HeartbeatService {
         let on_heartbeat = self.on_heartbeat.clone();
         let workspace = self.workspace.clone();
         let strategy_file = self.strategy_file.clone();
+        let task_tracker = self.task_tracker.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             loop {
                 if !*running.lock().await {
                     break;
@@ -86,10 +90,20 @@ impl HeartbeatService {
                         workspace.display(),
                         strategy_file
                     );
-                    let _ = callback(prompt).await;
+                    match callback(prompt).await {
+                        Ok(result) => {
+                            tracing::debug!("Heartbeat completed: {}", result);
+                        }
+                        Err(e) => {
+                            tracing::error!("Heartbeat failed: {}", e);
+                        }
+                    }
                 }
             }
         });
+        
+        // Track the heartbeat task
+        task_tracker.spawn("heartbeat".to_string(), handle).await;
 
         tracing::info!("Heartbeat service started (every {}s)", interval);
         Ok(())
@@ -97,5 +111,7 @@ impl HeartbeatService {
 
     pub async fn stop(&self) {
         *self.running.lock().await = false;
+        // Cancel tracked tasks
+        self.task_tracker.cancel_all().await;
     }
 }

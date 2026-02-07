@@ -387,9 +387,8 @@ fn extract_body(payload: &Value) -> String {
                         if let Ok(decoded) = URL_SAFE_NO_PAD.decode(data) {
                             if let Ok(text) = String::from_utf8(decoded) {
                                 if *mime == "text/html" {
-                                    // Strip HTML tags
-                                    return regex::Regex::new(r"<[^>]+>")
-                                        .unwrap()
+                                    // Strip HTML tags using shared regex pattern
+                                    return crate::utils::regex::RegexPatterns::html_tags()
                                         .replace_all(&text, "")
                                         .to_string();
                                 }

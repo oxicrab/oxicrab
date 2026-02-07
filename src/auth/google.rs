@@ -5,7 +5,7 @@ use oauth2::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
@@ -32,11 +32,10 @@ pub struct GoogleCredentials {
 impl GoogleCredentials {
     pub fn is_valid(&self) -> bool {
         if let Some(expiry) = self.expiry {
-            let now = SystemTime::now()
+            SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
-            now < expiry
+                .map(|d| d.as_secs() < expiry)
+                .unwrap_or(false)
         } else {
             true // No expiry means it's valid
         }
@@ -48,12 +47,11 @@ impl GoogleCredentials {
         }
 
         // Use direct HTTP call for refresh since oauth2 crate refresh flow is complex
+        let refresh_token = self.refresh_token.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No refresh token available"))?;
         let client = reqwest::Client::new();
         let mut params = HashMap::new();
-        params.insert(
-            "refresh_token",
-            self.refresh_token.as_ref().unwrap().clone(),
-        );
+        params.insert("refresh_token", refresh_token.clone());
         params.insert("client_id", self.client_id.clone());
         params.insert("client_secret", self.client_secret.clone());
         params.insert("grant_type", "refresh_token".to_string());
@@ -85,11 +83,9 @@ impl GoogleCredentials {
         }
 
         if let Some(expires_in) = token_data.get("expires_in").and_then(|v| v.as_u64()) {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
-            self.expiry = Some(now + expires_in);
+            if let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) {
+                self.expiry = Some(duration.as_secs() + expires_in);
+            }
         }
 
         Ok(())
@@ -111,7 +107,11 @@ pub async fn get_credentials(
         .unwrap_or_else(|| DEFAULT_SCOPES.to_vec());
     let token_path = token_path
         .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| dirs::home_dir().unwrap().join(DEFAULT_TOKEN_PATH));
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .map(|h| h.join(DEFAULT_TOKEN_PATH))
+                .unwrap_or_else(|| PathBuf::from(DEFAULT_TOKEN_PATH))
+        });
 
     let mut creds = load_credentials(&token_path, &scopes)?;
 
@@ -151,7 +151,11 @@ pub async fn run_oauth_flow(
         .unwrap_or_else(|| DEFAULT_SCOPES.to_vec());
     let token_path = token_path
         .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| dirs::home_dir().unwrap().join(DEFAULT_TOKEN_PATH));
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .map(|h| h.join(DEFAULT_TOKEN_PATH))
+                .unwrap_or_else(|| PathBuf::from(DEFAULT_TOKEN_PATH))
+        });
 
     let client = BasicClient::new(
         ClientId::new(client_id.to_string()),
@@ -241,12 +245,11 @@ async fn run_browser_flow(
             .scopes()
             .map(|s| s.iter().map(|s| s.to_string()).collect())
             .unwrap_or_default(),
-        expiry: token_result.expires_in().map(|d| {
+        expiry: token_result.expires_in().and_then(|d| {
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                + d.as_secs()
+                .ok()
+                .map(|now| now.as_secs() + d.as_secs())
         }),
     };
 
@@ -323,12 +326,11 @@ async fn run_manual_flow(
     let expiry = token_data
         .get("expires_in")
         .and_then(|v| v.as_u64())
-        .map(|secs| {
+        .and_then(|secs| {
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                + secs
+                .ok()
+                .map(|now| now.as_secs() + secs)
         });
 
     let creds = GoogleCredentials {
@@ -381,14 +383,16 @@ pub fn has_valid_credentials(
     token_path: Option<&Path>,
 ) -> bool {
     tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(get_credentials(
-            client_id,
-            client_secret,
-            scopes,
-            token_path,
-        ))
-        .is_ok()
+        .map(|rt| {
+            rt.block_on(get_credentials(
+                client_id,
+                client_secret,
+                scopes,
+                token_path,
+            ))
+            .is_ok()
+        })
+        .unwrap_or(false)
 }
 
 fn load_credentials(path: &Path, scopes: &[&str]) -> Result<Option<GoogleCredentials>> {
