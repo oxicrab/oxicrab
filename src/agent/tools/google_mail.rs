@@ -1,0 +1,363 @@
+use crate::agent::tools::{Tool, ToolResult};
+use crate::auth::google::GoogleCredentials;
+use anyhow::Result;
+use async_trait::async_trait;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use serde_json::Value;
+use std::sync::Arc;
+
+pub struct GoogleMailTool {
+    credentials: Arc<tokio::sync::Mutex<GoogleCredentials>>,
+}
+
+impl GoogleMailTool {
+    pub fn new(credentials: GoogleCredentials) -> Self {
+        Self {
+            credentials: Arc::new(tokio::sync::Mutex::new(credentials)),
+        }
+    }
+
+    async fn get_access_token(&self) -> Result<String> {
+        let mut creds = self.credentials.lock().await;
+        if !creds.is_valid() {
+            creds.refresh().await?;
+        }
+        Ok(creds.get_access_token().to_string())
+    }
+
+    async fn call_api(&self, endpoint: &str, method: &str, body: Option<Value>) -> Result<Value> {
+        let token = self.get_access_token().await?;
+        let client = reqwest::Client::new();
+        let url = format!("https://www.googleapis.com/gmail/v1/{}", endpoint);
+
+        let mut request = match method {
+            "GET" => client.get(&url),
+            "POST" => client.post(&url),
+            "PUT" => client.put(&url),
+            _ => return Err(anyhow::anyhow!("Unsupported method: {}", method)),
+        };
+
+        request = request.header("Authorization", format!("Bearer {}", token));
+
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+
+        let response = request.send().await?;
+        let data: serde_json::Value = response.error_for_status()?.json().await?;
+        Ok(data)
+    }
+}
+
+#[async_trait]
+impl Tool for GoogleMailTool {
+    fn name(&self) -> &str {
+        "google_mail"
+    }
+
+    fn description(&self) -> &str {
+        "Interact with Gmail. Actions: search, read, send, reply, list_labels, label."
+    }
+
+    fn parameters(&self) -> Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["search", "read", "send", "reply", "list_labels", "label"],
+                    "description": "Action to perform"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Gmail search query (for search). e.g. 'is:unread from:alice'"
+                },
+                "message_id": {
+                    "type": "string",
+                    "description": "Message ID (for read / reply / label)"
+                },
+                "to": {
+                    "type": "string",
+                    "description": "Recipient email address (for send)"
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "Email subject (for send)"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Email body text (for send / reply)"
+                },
+                "label_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Label IDs to add (for label)"
+                },
+                "remove_label_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Label IDs to remove (for label)"
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum results to return (for search, default 10)",
+                    "minimum": 1,
+                    "maximum": 50
+                }
+            },
+            "required": ["action"]
+        })
+    }
+
+    async fn execute(&self, params: Value) -> Result<ToolResult> {
+        let action = params["action"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
+
+        match action {
+            "search" => {
+                let query = params["query"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
+                let max_results = params["max_results"].as_u64().unwrap_or(10) as u32;
+
+                let endpoint = format!(
+                    "users/me/messages?q={}&maxResults={}",
+                    urlencoding::encode(query), max_results
+                );
+                let result = self.call_api(&endpoint, "GET", None).await?;
+                let empty_messages: Vec<serde_json::Value> = vec![];
+                let messages = result["messages"].as_array().unwrap_or(&empty_messages);
+
+                if messages.is_empty() {
+                    return Ok(ToolResult::new(format!("No messages found for query: {}", query)));
+                }
+
+                let mut lines = vec![format!("Found {} message(s) for: {}\n", messages.len(), query)];
+                for msg_stub in messages {
+                    let msg_id = msg_stub["id"].as_str().unwrap_or("");
+                    let endpoint = format!(
+                        "users/me/messages/{}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date",
+                        urlencoding::encode(msg_id)
+                    );
+                    let msg = self.call_api(&endpoint, "GET", None).await?;
+                    let headers: std::collections::HashMap<String, String> = msg["payload"]["headers"]
+                        .as_array()
+                        .unwrap_or(&vec![])
+                        .iter()
+                        .filter_map(|h| {
+                            let name = h["name"].as_str()?;
+                            let value = h["value"].as_str()?;
+                            Some((name.to_string(), value.to_string()))
+                        })
+                        .collect();
+                    let snippet = msg["snippet"].as_str().unwrap_or("");
+
+                    lines.push(format!(
+                        "- ID: {}\n  From: {}\n  Subject: {}\n  Date: {}\n  Snippet: {}",
+                        msg_id,
+                        headers.get("From").unwrap_or(&"?".to_string()),
+                        headers.get("Subject").unwrap_or(&"(no subject)".to_string()),
+                        headers.get("Date").unwrap_or(&"?".to_string()),
+                        snippet
+                    ));
+                }
+                Ok(ToolResult::new(lines.join("\n")))
+            }
+            "read" => {
+                let message_id = params["message_id"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'message_id' parameter"))?;
+
+                let endpoint = format!("users/me/messages/{}?format=full", urlencoding::encode(message_id));
+                let msg = self.call_api(&endpoint, "GET", None).await?;
+                let headers: std::collections::HashMap<String, String> = msg["payload"]["headers"]
+                    .as_array()
+                    .unwrap_or(&vec![])
+                    .iter()
+                    .filter_map(|h| {
+                        let name = h["name"].as_str()?;
+                        let value = h["value"].as_str()?;
+                        Some((name.to_string(), value.to_string()))
+                    })
+                    .collect();
+                let body = extract_body(&msg["payload"]);
+                let labels: Vec<String> = msg["labelIds"]
+                    .as_array()
+                    .unwrap_or(&vec![])
+                    .iter()
+                    .filter_map(|l| l.as_str().map(|s| s.to_string()))
+                    .collect();
+
+                Ok(ToolResult::new(format!(
+                    "From: {}\nTo: {}\nSubject: {}\nDate: {}\nLabels: {}\n---\n{}",
+                    headers.get("From").unwrap_or(&"?".to_string()),
+                    headers.get("To").unwrap_or(&"?".to_string()),
+                    headers.get("Subject").unwrap_or(&"(no subject)".to_string()),
+                    headers.get("Date").unwrap_or(&"?".to_string()),
+                    labels.join(", "),
+                    body
+                )))
+            }
+            "send" => {
+                let to = params["to"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'to' parameter"))?;
+                let subject = params["subject"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'subject' parameter"))?;
+                let body = params["body"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'body' parameter"))?;
+
+                let email = format!("To: {}\r\nSubject: {}\r\n\r\n{}", to, subject, body);
+                let raw = URL_SAFE_NO_PAD.encode(email.as_bytes());
+
+                let body_json = serde_json::json!({"raw": raw});
+                let endpoint = "users/me/messages/send";
+                let sent = self.call_api(endpoint, "POST", Some(body_json)).await?;
+                Ok(ToolResult::new(format!("Email sent successfully (ID: {})", sent["id"].as_str().unwrap_or("?"))))
+            }
+            "reply" => {
+                let message_id = params["message_id"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'message_id' parameter"))?;
+                let body = params["body"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'body' parameter"))?;
+
+                let endpoint = format!(
+                    "users/me/messages/{}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Message-ID",
+                    urlencoding::encode(message_id)
+                );
+                let original = self.call_api(&endpoint, "GET", None).await?;
+                let headers: std::collections::HashMap<String, String> = original["payload"]["headers"]
+                    .as_array()
+                    .unwrap_or(&vec![])
+                    .iter()
+                    .filter_map(|h| {
+                        let name = h["name"].as_str()?;
+                        let value = h["value"].as_str()?;
+                        Some((name.to_string(), value.to_string()))
+                    })
+                    .collect();
+                let thread_id = original["threadId"].as_str().unwrap_or("");
+
+                let empty_str = String::new();
+                let reply_to = headers.get("From").unwrap_or(&empty_str);
+                let mut subject = headers.get("Subject").unwrap_or(&"".to_string()).clone();
+                if !subject.to_lowercase().starts_with("re:") {
+                    subject = format!("Re: {}", subject);
+                }
+
+                let email = format!(
+                    "To: {}\r\nSubject: {}\r\nIn-Reply-To: {}\r\nReferences: {}\r\n\r\n{}",
+                    reply_to,
+                    subject,
+                    headers.get("Message-ID").unwrap_or(&"".to_string()),
+                    headers.get("Message-ID").unwrap_or(&"".to_string()),
+                    body
+                );
+                let raw = URL_SAFE_NO_PAD.encode(email.as_bytes());
+
+                let body_json = serde_json::json!({
+                    "raw": raw,
+                    "threadId": thread_id
+                });
+                let endpoint = "users/me/messages/send";
+                let sent = self.call_api(endpoint, "POST", Some(body_json)).await?;
+                Ok(ToolResult::new(format!("Reply sent successfully (ID: {})", sent["id"].as_str().unwrap_or("?"))))
+            }
+            "list_labels" => {
+                let result = self.call_api("users/me/labels", "GET", None).await?;
+                let empty_labels: Vec<serde_json::Value> = vec![];
+                let labels = result["labels"].as_array().unwrap_or(&empty_labels);
+                if labels.is_empty() {
+                    return Ok(ToolResult::new("No labels found.".to_string()));
+                }
+                let mut lines = vec!["Gmail Labels:\n".to_string()];
+                let mut sorted_labels: Vec<&Value> = labels.iter().collect();
+                sorted_labels.sort_by_key(|l| l["name"].as_str().unwrap_or(""));
+                for lbl in sorted_labels {
+                    lines.push(format!(
+                        "- {} (ID: {})",
+                        lbl["name"].as_str().unwrap_or("?"),
+                        lbl["id"].as_str().unwrap_or("?")
+                    ));
+                }
+                Ok(ToolResult::new(lines.join("\n")))
+            }
+            "label" => {
+                let message_id = params["message_id"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'message_id' parameter"))?;
+                let label_ids = params["label_ids"].as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect::<Vec<_>>())
+                    .unwrap_or_default();
+                let remove_label_ids = params["remove_label_ids"].as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect::<Vec<_>>())
+                    .unwrap_or_default();
+
+                if label_ids.is_empty() && remove_label_ids.is_empty() {
+                    return Ok(ToolResult::error("Error: provide 'label_ids' and/or 'remove_label_ids'".to_string()));
+                }
+
+                let mut body = serde_json::json!({});
+                if !label_ids.is_empty() {
+                    body["addLabelIds"] = Value::Array(label_ids.into_iter().map(|s| Value::String(s)).collect());
+                }
+                if !remove_label_ids.is_empty() {
+                    body["removeLabelIds"] = Value::Array(remove_label_ids.into_iter().map(|s| Value::String(s)).collect());
+                }
+
+                let endpoint = format!("users/me/messages/{}/modify", urlencoding::encode(message_id));
+                self.call_api(&endpoint, "POST", Some(body)).await?;
+                Ok(ToolResult::new(format!("Labels updated on message {}", message_id)))
+            }
+            _ => Ok(ToolResult::error(format!("Unknown action: {}", action))),
+        }
+    }
+}
+
+fn extract_body(payload: &Value) -> String {
+    // Direct body
+    if payload["mimeType"].as_str() == Some("text/plain") {
+        if let Some(data) = payload["body"]["data"].as_str() {
+            if let Ok(decoded) = URL_SAFE_NO_PAD.decode(data) {
+                if let Ok(text) = String::from_utf8(decoded) {
+                    return text;
+                }
+            }
+        }
+    }
+
+    // Multipart - look for text/plain first, then text/html
+    if let Some(parts) = payload["parts"].as_array() {
+        for mime in &["text/plain", "text/html"] {
+            for part in parts {
+                if part["mimeType"].as_str() == Some(mime) {
+                    if let Some(data) = part["body"]["data"].as_str() {
+                        if let Ok(decoded) = URL_SAFE_NO_PAD.decode(data) {
+                            if let Ok(text) = String::from_utf8(decoded) {
+                                if *mime == "text/html" {
+                                    // Strip HTML tags
+                                    return regex::Regex::new(r"<[^>]+>").unwrap().replace_all(&text, "").to_string();
+                                }
+                                return text;
+                            }
+                        }
+                    }
+                }
+                // Nested multipart
+                if part["parts"].is_array() {
+                    let nested = extract_body(part);
+                    if !nested.is_empty() {
+                        return nested;
+                    }
+                }
+            }
+        }
+    }
+
+    "(no readable body)".to_string()
+}
