@@ -31,7 +31,7 @@ use tracing::{debug, error, info, warn};
 const EMPTY_RESPONSE_RETRIES: usize = 2;
 
 pub struct AgentLoop {
-    bus: Arc<Mutex<MessageBus>>,
+    inbound_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<InboundMessage>>>,
     provider: Arc<dyn LLMProvider>,
     workspace: PathBuf, // Used in constructor for context/session/memory initialization
     model: String,
@@ -45,12 +45,12 @@ pub struct AgentLoop {
     _subagents: Option<Arc<SubagentManager>>,
     _processing_lock: Arc<tokio::sync::Mutex<()>>,
     running: Arc<tokio::sync::Mutex<bool>>,
-    outbound_tx: Arc<tokio::sync::mpsc::UnboundedSender<OutboundMessage>>,
+    outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
 }
 
 impl AgentLoop {
     pub async fn new(
-        bus: Arc<Mutex<MessageBus>>,
+        mut bus: Arc<Mutex<MessageBus>>,
         provider: Arc<dyn LLMProvider>,
         workspace: PathBuf,
         model: Option<String>,
@@ -59,10 +59,16 @@ impl AgentLoop {
         exec_timeout: u64,
         restrict_to_workspace: bool,
         compaction_config: crate::config::CompactionConfig,
-        outbound_tx: Arc<tokio::sync::mpsc::UnboundedSender<OutboundMessage>>,
+        outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
         cron_service: Option<Arc<CronService>>,
         google_config: Option<crate::config::GoogleConfig>,
     ) -> Result<Self> {
+        // Extract receiver to avoid lock contention
+        let inbound_rx = Arc::new(tokio::sync::Mutex::new({
+            let mut bus_guard = bus.lock().await;
+            bus_guard.take_inbound_rx()
+                .ok_or_else(|| anyhow::anyhow!("Inbound receiver already taken"))?
+        }));
         let model = model.unwrap_or_else(|| provider.default_model().to_string());
         let context = Arc::new(Mutex::new(ContextBuilder::new(&workspace)?));
         let sessions = Arc::new(SessionManager::new(workspace.clone())?);
@@ -162,7 +168,7 @@ impl AgentLoop {
         };
 
         Ok(Self {
-            bus,
+            inbound_rx,
             provider,
             workspace,
             model,
@@ -194,10 +200,10 @@ impl AgentLoop {
                 break;
             }
 
-            // Check for messages
+            // Check for messages - receiver extracted to avoid lock contention
             let msg_opt = {
-                let mut bus = self.bus.lock().await;
-                bus.consume_inbound().await
+                let mut rx = self.inbound_rx.lock().await;
+                rx.recv().await
             };
 
             if let Some(msg) = msg_opt {
@@ -208,7 +214,7 @@ impl AgentLoop {
                         // Send response back through the bus
                         info!("Agent generated outbound message: channel={}, chat_id={}, content_len={}", 
                             outbound_msg.channel, outbound_msg.chat_id, outbound_msg.content.len());
-                        if let Err(e) = self.outbound_tx.send(outbound_msg) {
+                        if let Err(e) = self.outbound_tx.send(outbound_msg).await {
                             error!("Failed to send outbound message: {}", e);
                         } else {
                             info!("Successfully sent outbound message to bus");
@@ -260,7 +266,7 @@ impl AgentLoop {
         self.set_tool_contexts(&msg.channel, &msg.chat_id).await;
 
         let session_key = msg.session_key();
-        let session = self.sessions.get_or_create(&session_key)?;
+        let session = self.sessions.get_or_create(&session_key).await?;
 
         let history = self.get_compacted_history(&session).await?;
 
@@ -275,13 +281,13 @@ impl AgentLoop {
         let final_content = self.run_agent_loop(messages).await?;
 
         // Save conversation
-        let mut session = self.sessions.get_or_create(&session_key)?;
+        let mut session = self.sessions.get_or_create(&session_key).await?;
         let extra = HashMap::new();
         session.add_message("user".to_string(), msg.content.clone(), extra.clone());
         if let Some(ref content) = final_content {
             session.add_message("assistant".to_string(), content.clone(), extra);
         }
-        self.sessions.save(&session)?;
+        self.sessions.save(&session).await?;
 
         // Background fact extraction
         if let (Some(ref compactor), Some(ref content)) = (&self.compactor, &final_content) {
@@ -479,12 +485,12 @@ impl AgentLoop {
                 Ok(summary) => {
                     // Update session metadata with new summary
                     let session_key = session.key.clone();
-                    let mut updated_session = self.sessions.get_or_create(&session_key)?;
+                    let mut updated_session = self.sessions.get_or_create(&session_key).await?;
                     updated_session.metadata.insert(
                         "compaction_summary".to_string(),
                         Value::String(summary.clone()),
                     );
-                    self.sessions.save(&updated_session)?;
+                    self.sessions.save(&updated_session).await?;
 
                     // Return summary + recent messages
                     let mut result = vec![HashMap::from([
@@ -518,7 +524,7 @@ impl AgentLoop {
         };
 
         let session_key = format!("{}:{}", origin_channel, origin_chat_id);
-        let session = self.sessions.get_or_create(&session_key)?;
+        let session = self.sessions.get_or_create(&session_key).await?;
 
         let history = self.get_compacted_history(&session).await?;
 
@@ -535,7 +541,7 @@ impl AgentLoop {
             .await?
             .unwrap_or_else(|| "Background task completed.".to_string());
 
-        let mut session = self.sessions.get_or_create(&session_key)?;
+        let mut session = self.sessions.get_or_create(&session_key).await?;
         let extra = HashMap::new();
         session.add_message(
             "user".to_string(),
@@ -543,7 +549,7 @@ impl AgentLoop {
             extra.clone(),
         );
         session.add_message("assistant".to_string(), final_content.clone(), extra);
-        self.sessions.save(&session)?;
+        self.sessions.save(&session).await?;
 
         Ok(Some(OutboundMessage {
             channel: origin_channel.to_string(),
@@ -562,7 +568,7 @@ impl AgentLoop {
         channel: &str,
         chat_id: &str,
     ) -> Result<String> {
-        let session = self.sessions.get_or_create(session_key)?;
+        let session = self.sessions.get_or_create(session_key).await?;
         let history = self.get_compacted_history(&session).await?;
 
         let mut context = self.context.lock().await;
@@ -573,11 +579,11 @@ impl AgentLoop {
             .await?
             .unwrap_or_else(|| "No response generated.".to_string());
 
-        let mut session = self.sessions.get_or_create(session_key)?;
+        let mut session = self.sessions.get_or_create(session_key).await?;
         let extra = HashMap::new();
         session.add_message("user".to_string(), content.to_string(), extra.clone());
         session.add_message("assistant".to_string(), response.clone(), extra);
-        self.sessions.save(&session)?;
+        self.sessions.save(&session).await?;
 
         Ok(response)
     }

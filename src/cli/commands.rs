@@ -302,38 +302,100 @@ async fn gateway(model: Option<String>) -> Result<()> {
     tracing::info!("Configuration loaded. Using model: {}", effective_model);
     tracing::debug!("Workspace: {:?}", config.workspace_path());
 
-    // Create provider
+    // Setup components
+    let provider = setup_provider(&config, model.as_deref()).await?;
+    let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) = setup_message_bus().await?;
+    let cron = setup_cron_service()?;
+    let agent = setup_agent(
+        bus_for_channels.clone(),
+        provider,
+        &config,
+        model.clone(),
+        outbound_tx.clone(),
+        cron.clone(),
+    )
+    .await?;
+    setup_cron_callbacks(cron.clone(), agent.clone(), bus_for_channels.clone()).await?;
+    let heartbeat = setup_heartbeat(&config, agent.clone()).await?;
+    let channels = setup_channels(&config, inbound_tx)?;
+
+    println!("Starting nanobot gateway...");
+    println!("Enabled channels: {:?}", channels.enabled_channels());
+
+    // Start services
+    start_services(cron.clone(), heartbeat.clone()).await?;
+
+    // Run agent and channels
+    let agent_task = start_agent_loop(agent.clone());
+    let channels_task = start_channels_loop(channels, outbound_rx);
+
+    tracing::info!("All services started. Gateway is running.");
+
+    // Handle shutdown
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            println!("\nShutting down...");
+            heartbeat.stop().await;
+            cron.stop().await;
+            agent.stop();
+        }
+        _ = agent_task => {}
+        _ = channels_task => {}
+    }
+
+    Ok(())
+}
+
+async fn setup_provider(
+    config: &Config,
+    model: Option<&str>,
+) -> Result<Arc<dyn crate::providers::base::LLMProvider>> {
+    let effective_model = model.unwrap_or(&config.agents.defaults.model);
     tracing::info!("Creating LLM provider for model: {}", effective_model);
-    let provider = config.create_provider(model.as_deref()).await?;
+    let provider = config.create_provider(model).await?;
     tracing::info!(
         "Provider created successfully. Default model: {}",
         provider.default_model()
     );
+    Ok(provider)
+}
 
-    // Create message bus
+async fn setup_message_bus() -> Result<(
+    tokio::sync::mpsc::Sender<crate::bus::InboundMessage>,
+    Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
+    tokio::sync::mpsc::Receiver<crate::bus::OutboundMessage>,
+    Arc<Mutex<MessageBus>>,
+)> {
     tracing::debug!("Creating message bus...");
-    let bus = Arc::new(Mutex::new(MessageBus::default()));
-
-    // Extract senders from bus for components that need them
-    let inbound_tx = {
-        let bus_guard = bus.lock().await;
-        Arc::new(bus_guard.inbound_tx.clone())
-    };
-    let outbound_tx = {
-        let bus_guard = bus.lock().await;
-        Arc::new(bus_guard.outbound_tx.clone())
-    };
+    let mut bus = MessageBus::default();
+    let inbound_tx = bus.inbound_tx.clone();
+    let outbound_tx = Arc::new(bus.outbound_tx.clone());
+    let outbound_rx = bus
+        .take_outbound_rx()
+        .ok_or_else(|| anyhow::anyhow!("Outbound receiver already taken"))?;
+    let bus_for_channels = Arc::new(Mutex::new(bus));
     tracing::debug!("Message bus initialized");
+    Ok((inbound_tx, outbound_tx, outbound_rx, bus_for_channels))
+}
 
-    // Create cron service
+fn setup_cron_service() -> Result<Arc<CronService>> {
     tracing::debug!("Initializing cron service...");
     let cron_store_path = crate::utils::get_nanobot_home()?
         .join("cron")
         .join("jobs.json");
     let cron = CronService::new(cron_store_path);
     tracing::debug!("Cron service initialized");
+    Ok(Arc::new(cron))
+}
 
-    // Create agent loop
+async fn setup_agent(
+    bus_for_channels: Arc<Mutex<MessageBus>>,
+    provider: Arc<dyn crate::providers::base::LLMProvider>,
+    config: &Config,
+    model: Option<String>,
+    outbound_tx: Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
+    cron: Arc<CronService>,
+) -> Result<Arc<AgentLoop>> {
     tracing::info!("Initializing agent loop...");
     tracing::debug!(
         "  - Max tool iterations: {}",
@@ -350,24 +412,30 @@ async fn gateway(model: Option<String>) -> Result<()> {
     );
     let agent = Arc::new(
         AgentLoop::new(
-            bus.clone(),
-            provider.clone(),
+            bus_for_channels,
+            provider,
             config.workspace_path(),
-            model.clone(),
+            model,
             config.agents.defaults.max_tool_iterations,
             Some(config.tools.web.search.api_key.clone()),
             config.tools.exec.timeout,
             config.tools.restrict_to_workspace,
             config.agents.defaults.compaction.clone(),
-            outbound_tx.clone(),
-            Some(Arc::new(cron.clone())),
+            outbound_tx,
+            Some(cron),
             Some(config.tools.google.clone()),
         )
         .await?,
     );
     tracing::info!("Agent loop initialized");
+    Ok(agent)
+}
 
-    // Set cron callback
+async fn setup_cron_callbacks(
+    cron: Arc<CronService>,
+    agent: Arc<AgentLoop>,
+    bus: Arc<Mutex<MessageBus>>,
+) -> Result<()> {
     tracing::debug!("Setting up cron job callback...");
     let agent_clone = agent.clone();
     let bus_clone = bus.clone();
@@ -389,7 +457,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
                 if let Some(channel) = &job.payload.channel {
                     if let Some(to) = &job.payload.to {
                         let bus_guard = bus.lock().await;
-                        bus_guard
+                        if let Err(e) = bus_guard
                             .publish_outbound(crate::bus::OutboundMessage {
                                 channel: channel.clone(),
                                 chat_id: to.clone(),
@@ -398,7 +466,10 @@ async fn gateway(model: Option<String>) -> Result<()> {
                                 media: vec![],
                                 metadata: std::collections::HashMap::new(),
                             })
-                            .await;
+                            .await
+                        {
+                            tracing::error!("Failed to publish outbound message from cron: {}", e);
+                        }
                     }
                 }
             }
@@ -407,8 +478,13 @@ async fn gateway(model: Option<String>) -> Result<()> {
         })
     })
     .await;
+    Ok(())
+}
 
-    // Create heartbeat
+async fn setup_heartbeat(
+    config: &Config,
+    agent: Arc<AgentLoop>,
+) -> Result<Arc<HeartbeatService>> {
     tracing::debug!("Initializing heartbeat service...");
     tracing::debug!("  - Enabled: {}", config.agents.defaults.daemon.enabled);
     tracing::debug!("  - Interval: {}s", config.agents.defaults.daemon.interval);
@@ -436,19 +512,23 @@ async fn gateway(model: Option<String>) -> Result<()> {
         config.agents.defaults.daemon.cooldown_after_action,
     );
     tracing::debug!("Heartbeat service initialized");
+    Ok(Arc::new(heartbeat))
+}
 
-    // Create channel manager
+fn setup_channels(
+    config: &Config,
+    inbound_tx: tokio::sync::mpsc::Sender<crate::bus::InboundMessage>,
+) -> Result<ChannelManager> {
     tracing::info!("Initializing channels...");
-    let channels = ChannelManager::new(config.clone(), inbound_tx)?;
+    let channels = ChannelManager::new(config.clone(), Arc::new(inbound_tx))?;
     tracing::info!(
         "Channels initialized. Enabled: {:?}",
         channels.enabled_channels()
     );
+    Ok(channels)
+}
 
-    println!("Starting nanobot gateway...");
-    println!("Enabled channels: {:?}", channels.enabled_channels());
-
-    // Start services
+async fn start_services(cron: Arc<CronService>, heartbeat: Arc<HeartbeatService>) -> Result<()> {
     tracing::info!("Starting cron service...");
     cron.start().await?;
     tracing::info!("Cron service started");
@@ -456,37 +536,31 @@ async fn gateway(model: Option<String>) -> Result<()> {
     tracing::info!("Starting heartbeat service...");
     heartbeat.start().await?;
     tracing::info!("Heartbeat service started");
+    Ok(())
+}
 
-    // Run agent and channels
+fn start_agent_loop(agent: Arc<AgentLoop>) -> tokio::task::JoinHandle<()> {
     tracing::info!("Starting agent loop...");
-    let agent_task = {
-        let agent = agent.clone();
-        tokio::spawn(async move {
-            tracing::info!("Agent loop running");
-            let _ = agent.run().await;
-            tracing::warn!("Agent loop exited");
-        })
-    };
+    tokio::spawn(async move {
+        tracing::info!("Agent loop running");
+        let _ = agent.run().await;
+        tracing::warn!("Agent loop exited");
+    })
+}
 
+fn start_channels_loop(
+    mut channels: ChannelManager,
+    mut outbound_rx: tokio::sync::mpsc::Receiver<crate::bus::OutboundMessage>,
+) -> tokio::task::JoinHandle<()> {
     tracing::info!("Starting all channels...");
-    let mut channels_for_start = channels;
-    let bus_for_outbound = bus.clone();
-    let channels_task = tokio::spawn(async move {
-        match channels_for_start.start_all().await {
+    tokio::spawn(async move {
+        match channels.start_all().await {
             Ok(_) => tracing::info!("All channels started successfully"),
             Err(e) => tracing::error!("Error starting channels: {}", e),
         }
 
         // Consume outbound messages and send to channels
-        // Extract the receiver so we don't hold the lock while waiting
-        let mut outbound_rx = {
-            let mut bus_guard = bus_for_outbound.lock().await;
-            std::mem::replace(&mut bus_guard.outbound_rx, {
-                let (_tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                rx
-            })
-        };
-
+        // Receiver already extracted to avoid lock contention
         loop {
             match outbound_rx.recv().await {
                 Some(msg) => {
@@ -496,7 +570,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
                         msg.chat_id,
                         msg.content.len()
                     );
-                    if let Err(e) = channels_for_start.send(&msg).await {
+                    if let Err(e) = channels.send(&msg).await {
                         tracing::error!("Error sending message to channels: {}", e);
                     } else {
                         tracing::info!("Successfully sent outbound message to channel manager");
@@ -508,23 +582,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
                 }
             }
         }
-    });
-    tracing::info!("All services started. Gateway is running.");
-
-    // Handle shutdown
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            println!("\nShutting down...");
-            heartbeat.stop().await;
-            cron.stop().await;
-            agent.stop();
-            // channels was moved, can't stop here
-        }
-        _ = agent_task => {}
-        _ = channels_task => {}
-    }
-
-    Ok(())
+    })
 }
 
 async fn agent(message: Option<String>, session: String) -> Result<()> {
@@ -533,16 +591,14 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
     // Create provider
     let provider = config.create_provider(None).await?;
 
-    let bus = Arc::new(Mutex::new(MessageBus::default()));
+    let mut bus = MessageBus::default();
 
     // Extract outbound sender for agent
-    let outbound_tx = {
-        let bus_guard = bus.lock().await;
-        Arc::new(bus_guard.outbound_tx.clone())
-    };
+    let outbound_tx = Arc::new(bus.outbound_tx.clone());
+    let bus_for_agent = Arc::new(Mutex::new(bus));
 
     let agent = AgentLoop::new(
-        bus,
+        bus_for_agent,
         provider,
         config.workspace_path(),
         None,

@@ -13,13 +13,13 @@ use tokio::sync::mpsc;
 
 pub struct TelegramChannel {
     config: TelegramConfig,
-    inbound_tx: mpsc::UnboundedSender<InboundMessage>,
+    inbound_tx: mpsc::Sender<InboundMessage>,
     bot: Bot,
     _running: Arc<tokio::sync::Mutex<bool>>,
 }
 
 impl TelegramChannel {
-    pub fn new(config: TelegramConfig, inbound_tx: mpsc::UnboundedSender<InboundMessage>) -> Self {
+    pub fn new(config: TelegramConfig, inbound_tx: mpsc::Sender<InboundMessage>) -> Self {
         let bot = Bot::new(&config.token);
         Self {
             config,
@@ -73,7 +73,9 @@ impl BaseChannel for TelegramChannel {
                             metadata: HashMap::new(),
                         };
 
-                        let _ = inbound_tx.send(inbound_msg);
+                        if let Err(e) = inbound_tx.send(inbound_msg).await {
+                            tracing::error!("Failed to send Telegram inbound message: {}", e);
+                        }
                     }
                 }
                 Ok::<(), anyhow::Error>(())

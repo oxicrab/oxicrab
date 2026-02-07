@@ -17,13 +17,13 @@ pub struct ChannelManager {
 impl ChannelManager {
     pub fn new(
         config: Config,
-        inbound_tx: Arc<mpsc::UnboundedSender<InboundMessage>>,
+        inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
     ) -> Result<Self> {
         let mut channels: Vec<Box<dyn BaseChannel>> = Vec::new();
         let mut enabled = Vec::new();
 
         // For WhatsApp, create a separate channel for outbound messages
-        let (_, outbound_rx) = tokio::sync::mpsc::unbounded_channel::<OutboundMessage>();
+        let (_, outbound_rx) = tokio::sync::mpsc::channel::<OutboundMessage>(1000);
 
         if config.channels.telegram.enabled && !config.channels.telegram.token.is_empty() {
             tracing::debug!("Initializing Telegram channel...");

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 struct Handler {
-    inbound_tx: mpsc::UnboundedSender<InboundMessage>,
+    inbound_tx: mpsc::Sender<InboundMessage>,
     allow_list: Vec<String>,
 }
 
@@ -45,7 +45,9 @@ impl EventHandler for Handler {
             metadata: HashMap::new(),
         };
 
-        let _ = self.inbound_tx.send(inbound_msg);
+        if let Err(e) = self.inbound_tx.send(inbound_msg).await {
+            tracing::error!("Failed to send Discord inbound message: {}", e);
+        }
     }
 
     async fn ready(&self, _: Context, ready: Ready) {
@@ -55,13 +57,13 @@ impl EventHandler for Handler {
 
 pub struct DiscordChannel {
     config: DiscordConfig,
-    inbound_tx: mpsc::UnboundedSender<InboundMessage>,
+    inbound_tx: mpsc::Sender<InboundMessage>,
     client: Option<Client>,
     _running: Arc<tokio::sync::Mutex<bool>>,
 }
 
 impl DiscordChannel {
-    pub fn new(config: DiscordConfig, inbound_tx: mpsc::UnboundedSender<InboundMessage>) -> Self {
+    pub fn new(config: DiscordConfig, inbound_tx: mpsc::Sender<InboundMessage>) -> Self {
         Self {
             config,
             inbound_tx,

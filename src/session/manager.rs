@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 
 const MAX_CACHED_SESSIONS: usize = 64;
 const MAX_SESSION_MESSAGES: usize = 200;
@@ -121,22 +121,28 @@ impl SessionManager {
         self.sessions_dir.join(format!("{}.jsonl", safe_key))
     }
 
-    pub fn get_or_create(&self, key: &str) -> Result<Session> {
-        // Check cache
-        {
-            let mut cache = self.cache.lock().unwrap();
-            if let Some(session) = cache.get(key) {
-                return Ok(session.clone());
-            }
+    pub async fn get_or_create(&self, key: &str) -> Result<Session> {
+        // Check cache with single lock scope to prevent race conditions
+        let cached_session = {
+            let mut cache = self.cache.lock().await;
+            cache.get(key).cloned()
+        };
+
+        if let Some(session) = cached_session {
+            return Ok(session);
         }
 
         // Try to load from disk
         let session = self.load(key)?;
         let session = session.unwrap_or_else(|| Session::new(key.to_string()));
 
-        // Put in cache
+        // Put in cache - double-check pattern to avoid duplicates
         {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.cache.lock().await;
+            // Check again in case another task loaded it
+            if let Some(existing) = cache.get(key) {
+                return Ok(existing.clone());
+            }
             cache.put(key.to_string(), session.clone());
         }
 
@@ -223,7 +229,7 @@ impl SessionManager {
         }))
     }
 
-    pub fn save(&self, session: &Session) -> Result<()> {
+    pub async fn save(&self, session: &Session) -> Result<()> {
         let path = self.get_session_path(&session.key);
         ensure_dir(path.parent().context("Session path has no parent")?)?;
 
@@ -258,25 +264,25 @@ impl SessionManager {
 
         // Update cache
         {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.cache.lock().await;
             cache.put(session.key.clone(), session.clone());
         }
 
         Ok(())
     }
 
-    #[allow(dead_code)] // May be used for session management
-    pub fn delete(&self, key: &str) -> Result<bool> {
+    pub async fn delete(&self, key: &str) -> Result<bool> {
         // Remove from cache
         {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.cache.lock().await;
             cache.pop(key);
         }
 
         // Remove file
         let path = self.get_session_path(key);
         if path.exists() {
-            fs::remove_file(&path)?;
+            fs::remove_file(&path)
+                .with_context(|| format!("Failed to delete session file: {}", path.display()))?;
             return Ok(true);
         }
         Ok(false)

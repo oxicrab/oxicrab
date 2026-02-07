@@ -15,7 +15,7 @@ use whatsapp_rust::proto_helpers::MessageExt;
 
 pub struct WhatsAppChannel {
     config: WhatsAppConfig,
-    inbound_tx: Arc<mpsc::UnboundedSender<InboundMessage>>,
+    inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
     bot_handle: Option<tokio::task::JoinHandle<()>>,
     running: Arc<tokio::sync::Mutex<bool>>,
     session_path: PathBuf,
@@ -26,8 +26,8 @@ pub struct WhatsAppChannel {
 impl WhatsAppChannel {
     pub fn new(
         config: WhatsAppConfig,
-        inbound_tx: Arc<mpsc::UnboundedSender<InboundMessage>>,
-        _outbound_rx: mpsc::UnboundedReceiver<OutboundMessage>,
+        inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
+        _outbound_rx: mpsc::Receiver<OutboundMessage>,
     ) -> Self {
         // Determine session path for WhatsApp session storage
         let session_path = get_nanobot_home()
@@ -211,7 +211,7 @@ impl BaseChannel for WhatsAppChannel {
 
                                     info!("WhatsApp: sending inbound message to bus: sender={}, chat_id={}, content_len={}", 
                                         chat_id, sender, inbound_msg.content.len());
-                                    if let Err(e) = inbound_tx.send(inbound_msg) {
+                                    if let Err(e) = inbound_tx.send(inbound_msg).await {
                                         error!("Failed to send WhatsApp inbound message: {}", e);
                                     } else {
                                         info!("WhatsApp: successfully sent inbound message to bus");

@@ -14,7 +14,7 @@ use tracing::{debug, error, info, warn};
 
 pub struct SlackChannel {
     config: SlackConfig,
-    inbound_tx: Arc<mpsc::UnboundedSender<InboundMessage>>,
+    inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
     bot_user_id: Option<String>,
     running: Arc<tokio::sync::Mutex<bool>>,
     ws_handle: Option<tokio::task::JoinHandle<()>>,
@@ -24,7 +24,7 @@ pub struct SlackChannel {
 impl SlackChannel {
     pub fn new(
         config: SlackConfig,
-        inbound_tx: Arc<mpsc::UnboundedSender<InboundMessage>>,
+        inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
     ) -> Self {
         Self {
             config,
@@ -222,6 +222,7 @@ impl SlackChannel {
 
         self.inbound_tx
             .send(inbound_msg)
+            .await
             .map_err(|e| anyhow::anyhow!("Send error: {}", e))?;
         Ok(())
     }

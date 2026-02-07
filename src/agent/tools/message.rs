@@ -7,13 +7,13 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 pub struct MessageTool {
-    send_tx: Option<Arc<mpsc::UnboundedSender<OutboundMessage>>>,
+    send_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>,
     default_channel: Arc<tokio::sync::Mutex<String>>,
     default_chat_id: Arc<tokio::sync::Mutex<String>>,
 }
 
 impl MessageTool {
-    pub fn new(send_tx: Option<Arc<mpsc::UnboundedSender<OutboundMessage>>>) -> Self {
+    pub fn new(send_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>) -> Self {
         Self {
             send_tx,
             default_channel: Arc::new(tokio::sync::Mutex::new(String::new())),
@@ -89,6 +89,7 @@ impl Tool for MessageTool {
                 metadata: std::collections::HashMap::new(),
             };
             tx.send(msg)
+                .await
                 .map_err(|e| anyhow::anyhow!("Send error: {}", e))?;
             Ok(ToolResult::new(format!(
                 "Message sent to {}:{}",

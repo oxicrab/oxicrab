@@ -28,9 +28,10 @@ pub fn get_nanobot_home() -> Result<PathBuf> {
 
 pub fn get_workspace_path(workspace: &str) -> PathBuf {
     let path = PathBuf::from(workspace);
-    if path.starts_with("~") {
+    if workspace.starts_with("~") {
         if let Some(home) = dirs::home_dir() {
-            return home.join(path.strip_prefix("~").unwrap());
+            let stripped = workspace.strip_prefix("~").unwrap_or(workspace);
+            return home.join(stripped);
         }
     }
     path
