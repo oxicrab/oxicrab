@@ -24,14 +24,14 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.9"
 clap = { version = "4.5", features = ["derive"] }
 config = "0.14"
-cron = "0.20"
+cron = "0.15"
 dirs = "5.0"
 fastrand = "2.0"
 futures-util = "0.3"
 hex = "0.4"
 html-escape = "0.2"
 lru = "0.12"
-oauth2 = "5.0"
+oauth2 = "4.4"
 open = "5.0"
 qr2term = "0.3"
 qrcode = "0.14"
@@ -51,14 +51,14 @@ tokio-process = "0.2"
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tzfile = "0.2"
+tzfile = "0.1.3"
 url = "2.5"
 urlencoding = "2.1"
 uuid = { version = "1.10", features = ["v4", "serde"] }
 walkdir = "2.4"
-whatsapp-rust = { git = "https://github.com/Emilgardis/whatsapp-rust", branch = "main" }
-whatsapp-rust-tokio-transport = { git = "https://github.com/Emilgardis/whatsapp-rust", package = "whatsapp-rust-tokio-transport", branch = "main" }
-whatsapp-rust-ureq-http-client = { git = "https://github.com/Emilgardis/whatsapp-rust", package = "whatsapp-rust-ureq-http-client", branch = "main" }
+whatsapp-rust = { git = "https://github.com/jlucaso1/whatsapp-rust", branch = "main" }
+whatsapp-rust-tokio-transport = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-tokio-transport", branch = "main" }
+whatsapp-rust-ureq-http-client = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-ureq-http-client", branch = "main" }
 which = "6.0"
 
 [dev-dependencies]

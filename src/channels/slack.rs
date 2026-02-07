@@ -292,7 +292,6 @@ impl BaseChannel for SlackChannel {
         let ws_task = tokio::spawn(async move {
             use tokio_tungstenite::{connect_async, tungstenite::Message};
             use futures_util::StreamExt;
-            use url::Url;
 
             // Slack Socket Mode connection
             // First, call apps.connections.open to get the WebSocket URL
@@ -353,7 +352,7 @@ impl BaseChannel for SlackChannel {
                 
                 debug!("Received WebSocket URL from Slack (length: {} chars)", ws_url.len());
                 
-                let url = match Url::parse(ws_url) {
+                let url = match url::Url::parse(ws_url) {
                     Ok(u) => u,
                     Err(e) => {
                         error!("Failed to parse WebSocket URL: {}", e);
@@ -363,7 +362,7 @@ impl BaseChannel for SlackChannel {
                     }
                 };
                 
-                match connect_async(&url).await {
+                match tokio_tungstenite::connect_async(url.as_str()).await {
                     Ok((ws_stream, response)) => {
                         info!("Connected to Slack Socket Mode (status: {})", response.status());
                         let (mut write, mut read) = ws_stream.split();
