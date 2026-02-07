@@ -3,4 +3,4 @@ pub mod anthropic_oauth;
 pub mod base;
 pub mod gemini;
 pub mod openai;
-pub mod transcription;
+pub mod strategy;

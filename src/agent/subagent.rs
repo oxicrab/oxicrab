@@ -329,12 +329,6 @@ When you have completed the task, provide a clear summary of your findings or ac
         )
     }
 
-    #[allow(dead_code)] // May be used for monitoring/debugging
-    pub fn get_running_count(&self) -> usize {
-        // This would need async, but for simplicity return 0
-        // In practice, you'd need to await the lock
-        0
-    }
 
     pub async fn list_running(&self) -> Vec<HashMap<String, Value>> {
         let tasks = self.running_tasks.lock().await;

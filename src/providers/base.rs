@@ -23,9 +23,7 @@ pub struct Usage {
 pub struct LLMResponse {
     pub content: Option<String>,
     pub tool_calls: Vec<ToolCallRequest>,
-    #[allow(dead_code)] // Part of response structure, may be used for logging/debugging
     pub finish_reason: String,
-    #[allow(dead_code)] // Part of response structure, may be used for logging/debugging
     pub usage: Usage,
     pub reasoning_content: Option<String>,
 }
@@ -51,6 +49,35 @@ pub struct ToolDefinition {
     pub parameters: Value, // JSON Schema
 }
 
+/// Metrics for provider operations
+#[derive(Debug, Clone, Default)]
+pub struct ProviderMetrics {
+    pub request_count: u64,
+    pub token_count: u64,
+    pub error_count: u64,
+    pub retry_count: u64,
+}
+
+/// Configuration for retry behavior
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    pub max_retries: usize,
+    pub initial_delay_ms: u64,
+    pub max_delay_ms: u64,
+    pub backoff_multiplier: f64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            initial_delay_ms: 1000,
+            max_delay_ms: 10000,
+            backoff_multiplier: 2.0,
+        }
+    }
+}
+
 #[async_trait]
 pub trait LLMProvider: Send + Sync {
     async fn chat(
@@ -63,4 +90,49 @@ pub trait LLMProvider: Send + Sync {
     ) -> anyhow::Result<LLMResponse>;
 
     fn default_model(&self) -> &str;
+
+    /// Get provider metrics (optional - default returns empty metrics)
+    fn metrics(&self) -> ProviderMetrics {
+        ProviderMetrics::default()
+    }
+
+    /// Chat with automatic retry on transient errors
+    async fn chat_with_retry(
+        &self,
+        messages: Vec<Message>,
+        tools: Option<Vec<ToolDefinition>>,
+        model: Option<&str>,
+        max_tokens: u32,
+        temperature: f32,
+        retry_config: Option<RetryConfig>,
+    ) -> anyhow::Result<LLMResponse> {
+        let config = retry_config.unwrap_or_default();
+        let mut last_error = None;
+
+        for attempt in 0..=config.max_retries {
+            match self
+                .chat(
+                    messages.clone(),
+                    tools.clone(),
+                    model,
+                    max_tokens,
+                    temperature,
+                )
+                .await
+            {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < config.max_retries {
+                        let delay = (config.initial_delay_ms as f64
+                            * config.backoff_multiplier.powi(attempt as i32))
+                            .min(config.max_delay_ms as f64) as u64;
+                        tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("All retry attempts failed")))
+    }
 }

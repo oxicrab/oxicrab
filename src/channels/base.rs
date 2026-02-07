@@ -6,11 +6,9 @@ pub trait BaseChannel: Send + Sync {
     fn name(&self) -> &str;
 
     async fn start(&mut self) -> anyhow::Result<()>;
-    #[allow(dead_code)] // Trait method - used in ChannelManager::stop_all
     async fn stop(&mut self) -> anyhow::Result<()>;
     async fn send(&self, msg: &OutboundMessage) -> anyhow::Result<()>;
 
-    #[allow(dead_code)] // Trait method with default implementation - may be used by implementations
     fn is_allowed(&self, sender_id: &str, allow_list: &[String]) -> bool {
         if allow_list.is_empty() {
             return true;

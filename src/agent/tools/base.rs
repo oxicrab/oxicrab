@@ -4,9 +4,7 @@ use serde_json::Value;
 #[derive(Debug, Clone)]
 pub struct ToolResult {
     pub content: String,
-    #[allow(dead_code)] // Part of ToolResult structure, may be used for error handling
     pub is_error: bool,
-    #[allow(dead_code)] // Part of ToolResult structure, may be used for tool metadata
     pub metadata: std::collections::HashMap<String, Value>,
 }
 
@@ -34,6 +32,48 @@ impl std::fmt::Display for ToolResult {
     }
 }
 
+/// Tool version information
+#[derive(Debug, Clone)]
+pub struct ToolVersion {
+    pub major: u32,
+    pub minor: u32,
+    pub patch: u32,
+}
+
+impl ToolVersion {
+    pub fn new(major: u32, minor: u32, patch: u32) -> Self {
+        Self { major, minor, patch }
+    }
+
+    pub fn to_string(&self) -> String {
+        format!("{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
+impl Default for ToolVersion {
+    fn default() -> Self {
+        Self::new(1, 0, 0)
+    }
+}
+
+/// Tool metadata
+#[derive(Debug, Clone)]
+pub struct ToolMetadata {
+    pub version: ToolVersion,
+    pub author: Option<String>,
+    pub dependencies: Vec<String>,
+}
+
+impl Default for ToolMetadata {
+    fn default() -> Self {
+        Self {
+            version: ToolVersion::default(),
+            author: None,
+            dependencies: Vec::new(),
+        }
+    }
+}
+
 #[async_trait]
 pub trait Tool: Send + Sync {
     fn name(&self) -> &str;
@@ -42,15 +82,39 @@ pub trait Tool: Send + Sync {
 
     async fn execute(&self, params: Value) -> anyhow::Result<ToolResult>;
 
+    /// Get tool version (defaults to 1.0.0)
+    fn version(&self) -> ToolVersion {
+        ToolVersion::default()
+    }
+
+    /// Get tool metadata (optional)
+    fn metadata(&self) -> ToolMetadata {
+        ToolMetadata::default()
+    }
+
+    /// Check if tool dependencies are available
+    async fn check_dependencies(&self) -> Result<Vec<String>, Vec<String>> {
+        // Default: no dependencies
+        Ok(Vec::new())
+    }
+
     fn to_schema(&self) -> Value {
-        serde_json::json!({
+        let mut schema = serde_json::json!({
             "type": "function",
             "function": {
                 "name": self.name(),
                 "description": self.description(),
                 "parameters": self.parameters()
             }
-        })
+        });
+
+        // Add version info if available
+        let version = self.version();
+        if version.major != 1 || version.minor != 0 || version.patch != 0 {
+            schema["function"]["version"] = serde_json::Value::String(version.to_string());
+        }
+
+        schema
     }
 
     /// Set context for tools that need it (channel, chat_id).

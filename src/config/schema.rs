@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WhatsAppConfig {
@@ -475,7 +474,6 @@ impl Config {
         None
     }
 
-    #[allow(dead_code)] // May be used for API routing
     pub fn get_api_base(&self, model: Option<&str>) -> Option<String> {
         let model = model.unwrap_or(&self.agents.defaults.model).to_lowercase();
 
@@ -500,146 +498,15 @@ impl Config {
 
     /// Create an LLM provider instance based on configuration.
     ///
-    /// For Anthropic models, prefers OAuth provider if configured/enabled,
-    /// otherwise falls back to API key provider.
+    /// Uses a strategy pattern to select the appropriate provider based on model name.
     pub async fn create_provider(
         &self,
         model: Option<&str>,
     ) -> anyhow::Result<std::sync::Arc<dyn crate::providers::base::LLMProvider>> {
-        use crate::providers::{
-            anthropic::AnthropicProvider, anthropic_oauth::AnthropicOAuthProvider,
-            gemini::GeminiProvider, openai::OpenAIProvider,
-        };
+        use crate::providers::strategy::ProviderFactory;
 
         let model = model.unwrap_or(&self.agents.defaults.model);
-        let model_lower = model.to_lowercase();
-
-        // Check if this is an Anthropic model and OAuth is preferred
-        // Only try OAuth for models that explicitly require it (start with "anthropic/")
-        // or if OAuth is explicitly enabled
-        if model.starts_with("anthropic/")
-            || (model_lower.contains("anthropic") || model_lower.contains("claude"))
-        {
-            let oauth_cfg = &self.providers.anthropic_oauth;
-
-            // For OAuth-only models (starting with "anthropic/"), always try OAuth
-            // For other models, only try OAuth if explicitly enabled (not just auto-detect)
-            let should_try_oauth =
-                model.starts_with("anthropic/") || oauth_cfg.enabled || oauth_cfg.auto_detect;
-
-            if should_try_oauth {
-                // Try explicit config first
-                if !oauth_cfg.access_token.is_empty() {
-                    return Ok(Arc::new(AnthropicOAuthProvider::new(
-                        oauth_cfg.access_token.clone(),
-                        oauth_cfg.refresh_token.clone(),
-                        oauth_cfg.expires_at,
-                        Some(model.to_string()),
-                        oauth_cfg
-                            .credentials_path
-                            .as_ref()
-                            .map(|p| std::path::PathBuf::from(p)),
-                    )));
-                }
-
-                // Try auto-detection (only for OAuth-only models or if auto-detect is enabled)
-                if model.starts_with("anthropic/") || oauth_cfg.auto_detect {
-                    // Try Claude CLI
-                    if let Ok(Some(provider)) =
-                        AnthropicOAuthProvider::from_claude_cli(Some(model.to_string())).await
-                    {
-                        return Ok(Arc::new(provider));
-                    }
-
-                    // Try OpenClaw
-                    if let Ok(Some(provider)) =
-                        AnthropicOAuthProvider::from_openclaw(Some(model.to_string())).await
-                    {
-                        return Ok(Arc::new(provider));
-                    }
-
-                    // Try credentials file if path specified
-                    if let Some(ref path) = oauth_cfg.credentials_path {
-                        let path_buf = std::path::PathBuf::from(path);
-                        if let Ok(Some(provider)) = AnthropicOAuthProvider::from_credentials_file(
-                            &path_buf,
-                            Some(model.to_string()),
-                        )
-                        .await
-                        {
-                            return Ok(Arc::new(provider));
-                        }
-                    }
-
-                    // If auto-detect was attempted but failed, and this is an OAuth-only model, provide helpful error
-                    if model.starts_with("anthropic/") {
-                        anyhow::bail!(
-                            "Model '{}' requires OAuth authentication. Auto-detection failed to find credentials.\n\
-                            \n\
-                            Options:\n\
-                            1. Install Claude CLI: https://github.com/anthropics/claude-cli\n\
-                            2. Install OpenClaw: https://github.com/anthropics/openclaw\n\
-                            3. Set 'providers.anthropicOAuth.credentialsPath' in ~/.nanobot/config.json\n\
-                            4. Use an API key model instead (e.g., 'claude-sonnet-4-5-20250929')",
-                            model
-                        );
-                    }
-                }
-            }
-        }
-
-        // Check if this is an OAuth-only model (starts with "anthropic/")
-        if model.starts_with("anthropic/") {
-            anyhow::bail!(
-                "Model '{}' requires OAuth authentication. Please configure Anthropic OAuth:\n\
-                1. Set 'providers.anthropicOAuth.enabled' to true in ~/.nanobot/config.json, OR\n\
-                2. Install Claude CLI or OpenClaw (auto-detection will find credentials), OR\n\
-                3. Set 'providers.anthropicOAuth.credentialsPath' to point to your credentials file.\n\
-                \n\
-                For API key models, use models like 'claude-sonnet-4-5-20250929' instead.",
-                model
-            );
-        }
-
-        // Fall back to API key provider
-        // For Claude models, try to use Anthropic API key directly
-        if model_lower.contains("anthropic") || model_lower.contains("claude") {
-            if !self.providers.anthropic.api_key.is_empty() {
-                tracing::info!("Using Anthropic API key provider for model: {}", model);
-                return Ok(Arc::new(AnthropicProvider::new(
-                    self.providers.anthropic.api_key.clone(),
-                    Some(model.to_string()),
-                )));
-            } else {
-                tracing::warn!("Anthropic API key is empty, trying fallback...");
-            }
-        }
-
-        let api_key = self.get_api_key(Some(model));
-        let model_str = model.to_string();
-
-        if let Some(key) = api_key {
-            tracing::info!("Using API key provider for model: {}", model);
-            if model_lower.contains("anthropic") || model_lower.contains("claude") {
-                Ok(Arc::new(AnthropicProvider::new(key, Some(model_str))))
-            } else if model_lower.contains("openai") || model_lower.contains("gpt") {
-                Ok(Arc::new(OpenAIProvider::new(key, Some(model_str))))
-            } else if model_lower.contains("gemini") {
-                Ok(Arc::new(GeminiProvider::new(key, Some(model_str))))
-            } else {
-                // Default to Anthropic
-                Ok(Arc::new(AnthropicProvider::new(key, Some(model_str))))
-            }
-        } else {
-            tracing::error!("No API key found for model: {}", model);
-            tracing::debug!(
-                "Available providers: anthropic={}, openai={}, gemini={}, openrouter={}",
-                !self.providers.anthropic.api_key.is_empty(),
-                !self.providers.openai.api_key.is_empty(),
-                !self.providers.gemini.api_key.is_empty(),
-                !self.providers.openrouter.api_key.is_empty()
-            );
-            anyhow::bail!("No API key configured for model: {}", model);
-        }
+        let factory = ProviderFactory::new(self);
+        factory.create_provider(model).await
     }
 }

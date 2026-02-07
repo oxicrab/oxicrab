@@ -56,20 +56,6 @@ impl ToolRegistry {
         tool.execute(params).await
     }
 
-    #[allow(dead_code)] // May be used for introspection/debugging
-    pub fn tool_names(&self) -> Vec<String> {
-        self.tools.keys().cloned().collect()
-    }
-
-    #[allow(dead_code)] // May be used for introspection/debugging
-    pub fn len(&self) -> usize {
-        self.tools.len()
-    }
-
-    #[allow(dead_code)] // May be used for introspection/debugging
-    pub fn contains(&self, name: &str) -> bool {
-        self.tools.contains_key(name)
-    }
 }
 
 impl Default for ToolRegistry {

@@ -1,5 +1,7 @@
+use crate::session::store::SessionStore;
 use crate::utils::{ensure_dir, get_nanobot_home, safe_filename};
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
@@ -91,11 +93,6 @@ impl Session {
             .collect()
     }
 
-    #[allow(dead_code)] // May be used for session management
-    pub fn clear(&mut self) {
-        self.messages.clear();
-        self.updated_at = Utc::now();
-    }
 }
 
 pub struct SessionManager {
@@ -288,8 +285,7 @@ impl SessionManager {
         Ok(false)
     }
 
-    #[allow(dead_code)] // May be used for session management/debugging
-    pub fn list_sessions(&self) -> Result<Vec<HashMap<String, Value>>> {
+    fn list_sessions(&self) -> Result<Vec<HashMap<String, Value>>> {
         let mut sessions = Vec::new();
 
         for entry in fs::read_dir(&self.sessions_dir)? {
@@ -337,5 +333,24 @@ impl SessionManager {
         });
 
         Ok(sessions)
+    }
+}
+
+#[async_trait]
+impl SessionStore for SessionManager {
+    async fn get_or_create(&self, key: &str) -> Result<Session> {
+        SessionManager::get_or_create(self, key).await
+    }
+
+    async fn save(&self, session: &Session) -> Result<()> {
+        SessionManager::save(self, session).await
+    }
+
+    async fn delete(&self, key: &str) -> Result<bool> {
+        SessionManager::delete(self, key).await
+    }
+
+    async fn list_sessions(&self) -> Result<Vec<HashMap<String, Value>>> {
+        Ok(SessionManager::list_sessions(self)?)
     }
 }

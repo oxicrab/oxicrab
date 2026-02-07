@@ -90,7 +90,6 @@ impl ChannelManager {
         Ok(())
     }
 
-    #[allow(dead_code)] // May be used for graceful shutdown
     pub async fn stop_all(&mut self) -> Result<()> {
         for channel in self.channels.iter_mut() {
             channel.stop().await?;
