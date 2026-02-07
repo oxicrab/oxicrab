@@ -50,16 +50,15 @@ impl GoogleCredentials {
         // Use direct HTTP call for refresh since oauth2 crate refresh flow is complex
         let client = reqwest::Client::new();
         let mut params = HashMap::new();
-        params.insert("refresh_token", self.refresh_token.as_ref().unwrap().clone());
+        params.insert(
+            "refresh_token",
+            self.refresh_token.as_ref().unwrap().clone(),
+        );
         params.insert("client_id", self.client_id.clone());
         params.insert("client_secret", self.client_secret.clone());
         params.insert("grant_type", "refresh_token".to_string());
 
-        let response = client
-            .post(&self.token_uri)
-            .form(&params)
-            .send()
-            .await?;
+        let response = client.post(&self.token_uri).form(&params).send().await?;
 
         if !response.status().is_success() {
             let error_text = response.text().await?;
@@ -158,7 +157,9 @@ pub async fn run_oauth_flow(
         ClientId::new(client_id.to_string()),
         Some(ClientSecret::new(client_secret.to_string())),
         AuthUrl::new("https://accounts.google.com/o/oauth2/auth".to_string())?,
-        Some(TokenUrl::new("https://oauth2.googleapis.com/token".to_string())?),
+        Some(TokenUrl::new(
+            "https://oauth2.googleapis.com/token".to_string(),
+        )?),
     )
     .set_redirect_uri(RedirectUrl::new(format!("http://localhost:{}", port))?);
 
@@ -168,7 +169,14 @@ pub async fn run_oauth_flow(
         .url();
 
     if headless {
-        return run_manual_flow(client_id, client_secret, &scopes, &token_path, auth_url.clone()).await;
+        return run_manual_flow(
+            client_id,
+            client_secret,
+            &scopes,
+            &token_path,
+            auth_url.clone(),
+        )
+        .await;
     }
 
     // Try browser flow, fall back to manual if it fails
@@ -192,8 +200,8 @@ async fn run_browser_flow(
     _csrf_token: CsrfToken,
     port: u16,
 ) -> Result<GoogleCredentials> {
-    use tokio::net::TcpListener;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     // Open browser
     if let Err(e) = open::that(auth_url.as_str()) {
@@ -225,9 +233,7 @@ async fn run_browser_flow(
 
     let creds = GoogleCredentials {
         token: token_result.access_token().secret().clone(),
-        refresh_token: token_result
-            .refresh_token()
-            .map(|rt| rt.secret().clone()),
+        refresh_token: token_result.refresh_token().map(|rt| rt.secret().clone()),
         token_uri: "https://oauth2.googleapis.com/token".to_string(),
         client_id: client.client_id().to_string(),
         client_secret: client_secret.to_string(),
@@ -235,15 +241,13 @@ async fn run_browser_flow(
             .scopes()
             .map(|s| s.iter().map(|s| s.to_string()).collect())
             .unwrap_or_default(),
-        expiry: token_result
-            .expires_in()
-            .map(|d| {
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    + d.as_secs()
-            }),
+        expiry: token_result.expires_in().map(|d| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + d.as_secs()
+        }),
     };
 
     Ok(creds)
@@ -365,7 +369,9 @@ fn extract_code_from_request(request: &str) -> Result<String> {
             }
         }
     }
-    Err(anyhow::anyhow!("Could not find 'code' parameter in request"))
+    Err(anyhow::anyhow!(
+        "Could not find 'code' parameter in request"
+    ))
 }
 
 pub fn has_valid_credentials(
@@ -376,7 +382,12 @@ pub fn has_valid_credentials(
 ) -> bool {
     tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(get_credentials(client_id, client_secret, scopes, token_path))
+        .block_on(get_credentials(
+            client_id,
+            client_secret,
+            scopes,
+            token_path,
+        ))
         .is_ok()
 }
 
@@ -385,16 +396,19 @@ fn load_credentials(path: &Path, scopes: &[&str]) -> Result<Option<GoogleCredent
         return Ok(None);
     }
 
-    let content = std::fs::read_to_string(path)
-        .context(format!("Failed to read credentials from {}", path.display()))?;
-    let creds: GoogleCredentials = serde_json::from_str(&content)
-        .context(format!("Failed to parse credentials from {}", path.display()))?;
+    let content = std::fs::read_to_string(path).context(format!(
+        "Failed to read credentials from {}",
+        path.display()
+    ))?;
+    let creds: GoogleCredentials = serde_json::from_str(&content).context(format!(
+        "Failed to parse credentials from {}",
+        path.display()
+    ))?;
 
     // Verify scopes match
     let required_scopes: std::collections::HashSet<String> =
         scopes.iter().map(|s| s.to_string()).collect();
-    let cred_scopes: std::collections::HashSet<String> =
-        creds.scopes.iter().cloned().collect();
+    let cred_scopes: std::collections::HashSet<String> = creds.scopes.iter().cloned().collect();
     if !required_scopes.is_subset(&cred_scopes) {
         warn!("Credential scopes don't match required scopes");
         return Ok(None);

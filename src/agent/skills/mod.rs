@@ -28,7 +28,11 @@ impl SkillsLoader {
 
         // Workspace skills (highest priority)
         if self.workspace_skills.exists() {
-            for entry in WalkDir::new(&self.workspace_skills).max_depth(1).into_iter().flatten() {
+            for entry in WalkDir::new(&self.workspace_skills)
+                .max_depth(1)
+                .into_iter()
+                .flatten()
+            {
                 if entry.file_type().is_dir() && entry.path() != self.workspace_skills {
                     let skill_file = entry.path().join("SKILL.md");
                     if skill_file.exists() {
@@ -36,7 +40,10 @@ impl SkillsLoader {
                         skills.push({
                             let mut map = HashMap::new();
                             map.insert("name".to_string(), name.clone());
-                            map.insert("path".to_string(), skill_file.to_string_lossy().to_string());
+                            map.insert(
+                                "path".to_string(),
+                                skill_file.to_string_lossy().to_string(),
+                            );
                             map.insert("source".to_string(), "workspace".to_string());
                             map
                         });
@@ -57,7 +64,10 @@ impl SkillsLoader {
                                 skills.push({
                                     let mut map = HashMap::new();
                                     map.insert("name".to_string(), name);
-                                    map.insert("path".to_string(), skill_file.to_string_lossy().to_string());
+                                    map.insert(
+                                        "path".to_string(),
+                                        skill_file.to_string_lossy().to_string(),
+                                    );
                                     map.insert("source".to_string(), "builtin".to_string());
                                     map
                                 });
@@ -70,7 +80,8 @@ impl SkillsLoader {
 
         // Filter by requirements
         if filter_unavailable {
-            skills.into_iter()
+            skills
+                .into_iter()
                 .filter(|s| {
                     let meta = self.get_skill_metadata(s.get("name").unwrap());
                     self.check_requirements(meta.as_ref())
@@ -121,7 +132,9 @@ impl SkillsLoader {
         }
 
         fn escape_xml(s: &str) -> String {
-            s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
         }
 
         let mut lines = vec!["<skills>".to_string()];
@@ -132,7 +145,10 @@ impl SkillsLoader {
             let meta = self.get_skill_metadata(s.get("name").unwrap());
             let available = self.check_requirements(meta.as_ref());
 
-            lines.push(format!("  <skill available=\"{}\">", available.to_string().to_lowercase()));
+            lines.push(format!(
+                "  <skill available=\"{}\">",
+                available.to_string().to_lowercase()
+            ));
             lines.push(format!("    <name>{}</name>", name));
             lines.push(format!("    <description>{}</description>", desc));
             lines.push(format!("    <location>{}</location>", path));
@@ -179,8 +195,11 @@ impl SkillsLoader {
 
     fn get_skill_description(&self, name: &str) -> String {
         let meta = self.get_skill_metadata(name);
-        meta.and_then(|m| m.get("description").and_then(|v| v.as_str().map(|s| s.to_string())))
-            .unwrap_or_else(|| name.to_string())
+        meta.and_then(|m| {
+            m.get("description")
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+        })
+        .unwrap_or_else(|| name.to_string())
     }
 
     fn strip_frontmatter(&self, content: &str) -> String {
@@ -231,7 +250,11 @@ impl SkillsLoader {
                     for line in yaml_content.lines() {
                         if let Some((key, value)) = line.split_once(':') {
                             let key = key.trim().to_string();
-                            let value = value.trim().trim_matches('"').trim_matches('\'').to_string();
+                            let value = value
+                                .trim()
+                                .trim_matches('"')
+                                .trim_matches('\'')
+                                .to_string();
                             metadata.insert(key, Value::String(value));
                         }
                     }
@@ -248,7 +271,11 @@ impl SkillsLoader {
             .filter_map(|s| {
                 let name = s.get("name")?.clone();
                 let meta = self.get_skill_metadata(&name)?;
-                if meta.get("always").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if meta
+                    .get("always")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     Some(name)
                 } else {
                     None

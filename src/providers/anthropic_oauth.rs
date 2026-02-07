@@ -1,13 +1,15 @@
-use crate::providers::base::{LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition, Usage};
-use async_trait::async_trait;
+use crate::providers::base::{
+    LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition, Usage,
+};
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use reqwest::Client;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 const TOKEN_URL: &str = "https://console.anthropic.com/v1/oauth/token";
@@ -70,28 +72,26 @@ impl AnthropicOAuthProvider {
         }
 
         match std::fs::read_to_string(path) {
-            Ok(content) => {
-                match serde_json::from_str::<Value>(&content) {
-                    Ok(data) => {
-                        if let Some(cached_at) = data.get("expires_at").and_then(|v| v.as_i64()) {
-                            let current_expires = *self.expires_at.blocking_lock();
-                            if cached_at > current_expires {
-                                if let (Some(access), Some(_refresh)) = (
-                                    data.get("access_token").and_then(|v| v.as_str()),
-                                    data.get("refresh_token").and_then(|v| v.as_str()),
-                                ) {
-                                    *self.access_token.blocking_lock() = access.to_string();
-                                    *self.expires_at.blocking_lock() = cached_at;
-                                    info!("Loaded refreshed OAuth tokens from cache");
-                                }
+            Ok(content) => match serde_json::from_str::<Value>(&content) {
+                Ok(data) => {
+                    if let Some(cached_at) = data.get("expires_at").and_then(|v| v.as_i64()) {
+                        let current_expires = *self.expires_at.blocking_lock();
+                        if cached_at > current_expires {
+                            if let (Some(access), Some(_refresh)) = (
+                                data.get("access_token").and_then(|v| v.as_str()),
+                                data.get("refresh_token").and_then(|v| v.as_str()),
+                            ) {
+                                *self.access_token.blocking_lock() = access.to_string();
+                                *self.expires_at.blocking_lock() = cached_at;
+                                info!("Loaded refreshed OAuth tokens from cache");
                             }
                         }
                     }
-                    Err(e) => {
-                        debug!("No cached OAuth tokens: {}", e);
-                    }
                 }
-            }
+                Err(e) => {
+                    debug!("No cached OAuth tokens: {}", e);
+                }
+            },
             Err(e) => {
                 debug!("Failed to read cached tokens: {}", e);
             }
@@ -101,13 +101,13 @@ impl AnthropicOAuthProvider {
     async fn ensure_valid_token(&self) -> Result<String> {
         let refresh_token = self.refresh_token.clone();
         let expires_at = *self.expires_at.lock().await;
-        
+
         if !refresh_token.is_empty() && expires_at > 0 {
             let now_ms = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_millis() as i64;
-            
+
             if now_ms > expires_at {
                 info!("OAuth token expired, refreshing...");
                 match self.refresh_token_internal().await {
@@ -120,17 +120,17 @@ impl AnthropicOAuthProvider {
                 }
             }
         }
-        
+
         Ok(self.access_token.lock().await.clone())
     }
 
     async fn refresh_token_internal(&self) -> Result<()> {
         let refresh_token = self.refresh_token.clone();
-        
+
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
-        
+
         let payload = json!({
             "grant_type": "refresh_token",
             "client_id": CLIENT_ID,
@@ -145,23 +145,24 @@ impl AnthropicOAuthProvider {
             .await
             .context("Failed to refresh OAuth token")?;
 
-        let data: Value = resp.json().await.context("Failed to parse refresh response")?;
+        let data: Value = resp
+            .json()
+            .await
+            .context("Failed to parse refresh response")?;
 
         let access_token = data["access_token"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing access_token in refresh response"))?
             .to_string();
-        
+
         let _new_refresh_token = data
             .get("refresh_token")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| self.refresh_token.clone());
-        
+
         // expires_in is in seconds, store as ms with 5min buffer
-        let expires_in_secs = data["expires_in"]
-            .as_u64()
-            .unwrap_or(0);
+        let expires_in_secs = data["expires_in"].as_u64().unwrap_or(0);
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -193,7 +194,10 @@ impl AnthropicOAuthProvider {
             "expires_at": *self.expires_at.lock().await,
         });
 
-        if let Err(e) = std::fs::write(path, serde_json::to_string_pretty(&data).unwrap_or_default()) {
+        if let Err(e) = std::fs::write(
+            path,
+            serde_json::to_string_pretty(&data).unwrap_or_default(),
+        ) {
             warn!("Failed to save OAuth credentials: {}", e);
         } else {
             debug!("OAuth credentials saved to {}", path.display());
@@ -315,9 +319,9 @@ impl AnthropicOAuthProvider {
                 .unwrap_or(0) as u32,
             total_tokens: usage_obj
                 .and_then(|u| {
-                    u["input_tokens"].as_u64().and_then(|i| {
-                        u["output_tokens"].as_u64().map(|o| i + o)
-                    })
+                    u["input_tokens"]
+                        .as_u64()
+                        .and_then(|i| u["output_tokens"].as_u64().map(|o| i + o))
                 })
                 .unwrap_or(0) as u32,
         };
@@ -325,10 +329,7 @@ impl AnthropicOAuthProvider {
         Ok(LLMResponse {
             content,
             tool_calls,
-            finish_reason: json["stop_reason"]
-                .as_str()
-                .unwrap_or("stop")
-                .to_string(),
+            finish_reason: json["stop_reason"].as_str().unwrap_or("stop").to_string(),
             usage,
             reasoning_content: None,
         })
@@ -342,27 +343,23 @@ impl AnthropicOAuthProvider {
             return Ok(None);
         }
 
-        let content = std::fs::read_to_string(path)
-            .context("Failed to read credentials file")?;
-        
-        let data: Value = serde_json::from_str(&content)
-            .context("Failed to parse credentials file")?;
+        let content = std::fs::read_to_string(path).context("Failed to read credentials file")?;
+
+        let data: Value =
+            serde_json::from_str(&content).context("Failed to parse credentials file")?;
 
         let access_token = data["access_token"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing access_token"))?
             .to_string();
-        
+
         let refresh_token = data
             .get("refresh_token")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_default();
-        
-        let expires_at = data
-            .get("expires_at")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+
+        let expires_at = data.get("expires_at").and_then(|v| v.as_i64()).unwrap_or(0);
 
         Ok(Some(Self::new(
             access_token,
@@ -373,9 +370,7 @@ impl AnthropicOAuthProvider {
         )))
     }
 
-    pub async fn from_openclaw(
-        default_model: Option<String>,
-    ) -> Result<Option<Self>> {
+    pub async fn from_openclaw(default_model: Option<String>) -> Result<Option<Self>> {
         let store_path = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("No home directory"))?
             .join(".openclaw")
@@ -390,11 +385,12 @@ impl AnthropicOAuthProvider {
 
         let content = std::fs::read_to_string(&store_path)
             .context("Failed to read OpenClaw auth profiles")?;
-        
-        let data: Value = serde_json::from_str(&content)
-            .context("Failed to parse OpenClaw auth profiles")?;
 
-        let profiles = data.get("profiles")
+        let data: Value =
+            serde_json::from_str(&content).context("Failed to parse OpenClaw auth profiles")?;
+
+        let profiles = data
+            .get("profiles")
             .and_then(|v| v.as_object())
             .ok_or_else(|| anyhow::anyhow!("Invalid profiles structure"))?;
 
@@ -421,9 +417,10 @@ impl AnthropicOAuthProvider {
                 if let Some(cred_type) = cred.get("type").and_then(|v| v.as_str()) {
                     if cred_type == "oauth" {
                         if let Some(access) = cred.get("access").and_then(|v| v.as_str()) {
-                            let refresh = cred.get("refresh").and_then(|v| v.as_str()).unwrap_or("");
+                            let refresh =
+                                cred.get("refresh").and_then(|v| v.as_str()).unwrap_or("");
                             let expires = cred.get("expires").and_then(|v| v.as_i64()).unwrap_or(0);
-                            
+
                             return Ok(Some(Self::new(
                                 access.to_string(),
                                 refresh.to_string(),
@@ -435,7 +432,7 @@ impl AnthropicOAuthProvider {
                     } else if cred_type == "token" {
                         if let Some(token) = cred.get("token").and_then(|v| v.as_str()) {
                             let expires = cred.get("expires").and_then(|v| v.as_i64()).unwrap_or(0);
-                            
+
                             return Ok(Some(Self::new(
                                 token.to_string(),
                                 String::new(),
@@ -452,9 +449,7 @@ impl AnthropicOAuthProvider {
         Ok(None)
     }
 
-    pub async fn from_claude_cli(
-        default_model: Option<String>,
-    ) -> Result<Option<Self>> {
+    pub async fn from_claude_cli(default_model: Option<String>) -> Result<Option<Self>> {
         let cred_path = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("No home directory"))?
             .join(".claude")
@@ -464,20 +459,24 @@ impl AnthropicOAuthProvider {
             return Ok(None);
         }
 
-        let content = std::fs::read_to_string(&cred_path)
-            .context("Failed to read Claude CLI credentials")?;
-        
-        let data: Value = serde_json::from_str(&content)
-            .context("Failed to parse Claude CLI credentials")?;
+        let content =
+            std::fs::read_to_string(&cred_path).context("Failed to read Claude CLI credentials")?;
 
-        let oauth = data.get("claudeAiOauth")
+        let data: Value =
+            serde_json::from_str(&content).context("Failed to parse Claude CLI credentials")?;
+
+        let oauth = data
+            .get("claudeAiOauth")
             .and_then(|v| v.as_object())
             .ok_or_else(|| anyhow::anyhow!("Missing claudeAiOauth"))?;
 
         if let Some(access) = oauth.get("accessToken").and_then(|v| v.as_str()) {
-            let refresh = oauth.get("refreshToken").and_then(|v| v.as_str()).unwrap_or("");
+            let refresh = oauth
+                .get("refreshToken")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let expires = oauth.get("expiresAt").and_then(|v| v.as_i64()).unwrap_or(0);
-            
+
             return Ok(Some(Self::new(
                 access.to_string(),
                 refresh.to_string(),
@@ -573,7 +572,10 @@ impl LLMProvider for AnthropicOAuthProvider {
                     let body = resp.text().await.unwrap_or_default();
                     warn!("Anthropic OAuth API error {}: {}", status, body);
                     Ok(LLMResponse {
-                        content: Some(format!("Error calling Anthropic API: {} - {}", status, body)),
+                        content: Some(format!(
+                            "Error calling Anthropic API: {} - {}",
+                            status, body
+                        )),
                         tool_calls: vec![],
                         finish_reason: "error".to_string(),
                         usage: Usage {

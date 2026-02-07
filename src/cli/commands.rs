@@ -3,9 +3,9 @@ use crate::bus::MessageBus;
 use crate::channels::manager::ChannelManager;
 use crate::config::{load_config, Config};
 use crate::cron::service::CronService;
-use crate::cron::types::{CronJob, CronPayload, CronSchedule, CronJobState};
+use crate::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule};
 use crate::heartbeat::service::HeartbeatService;
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -178,7 +178,7 @@ pub async fn run() -> Result<()> {
 
 async fn onboard() -> Result<()> {
     println!("🤖 Initializing nanobot...");
-    
+
     let config_path = crate::config::get_config_path()?;
     if config_path.exists() {
         println!("⚠️  Config already exists at {}", config_path.display());
@@ -189,29 +189,31 @@ async fn onboard() -> Result<()> {
             return Ok(());
         }
     }
-    
+
     let config = Config::default();
     crate::config::save_config(&config, Some(config_path.as_path()))?;
     println!("✓ Created config at {}", config_path.display());
-    
+
     let workspace = config.workspace_path();
     crate::utils::ensure_dir(&workspace)?;
     println!("✓ Created workspace at {}", workspace.display());
-    
+
     create_workspace_templates(&workspace)?;
-    
+
     println!("\n🤖 nanobot is ready!");
     println!("\nNext steps:");
     println!("  1. Add your API key to ~/.nanobot/config.json");
     println!("     Get one at: https://openrouter.ai/keys");
     println!("  2. Chat: nanobot agent -m \"Hello!\"");
-    
+
     Ok(())
 }
 
 fn create_workspace_templates(workspace: &std::path::Path) -> Result<()> {
     let templates = vec![
-        ("AGENTS.md", r#"# Agent Instructions
+        (
+            "AGENTS.md",
+            r#"# Agent Instructions
 
 You are a helpful AI assistant. Be concise, accurate, and friendly.
 
@@ -221,8 +223,11 @@ You are a helpful AI assistant. Be concise, accurate, and friendly.
 - Ask for clarification when the request is ambiguous
 - Use tools to help accomplish tasks
 - Remember important information in your memory files
-"#),
-        ("SOUL.md", r#"# Soul
+"#,
+        ),
+        (
+            "SOUL.md",
+            r#"# Soul
 
 I am nanobot, a lightweight AI assistant.
 
@@ -237,8 +242,11 @@ I am nanobot, a lightweight AI assistant.
 - Accuracy over speed
 - User privacy and safety
 - Transparency in actions
-"#),
-        ("USER.md", r#"# User
+"#,
+        ),
+        (
+            "USER.md",
+            r#"# User
 
 Information about the user goes here.
 
@@ -247,9 +255,10 @@ Information about the user goes here.
 - Communication style: (casual/formal)
 - Timezone: (your timezone)
 - Language: (your preferred language)
-"#),
+"#,
+        ),
     ];
-    
+
     for (filename, content) in templates {
         let file_path = workspace.join(filename);
         if !file_path.exists() {
@@ -257,7 +266,7 @@ Information about the user goes here.
             println!("  Created {}", filename);
         }
     }
-    
+
     // Create memory directory and MEMORY.md
     let memory_dir = workspace.join("memory");
     crate::utils::ensure_dir(&memory_dir)?;
@@ -282,7 +291,7 @@ This file stores important information that should persist across sessions.
         std::fs::write(&memory_file, memory_content)?;
         println!("  Created memory/MEMORY.md");
     }
-    
+
     Ok(())
 }
 
@@ -292,16 +301,19 @@ async fn gateway(model: Option<String>) -> Result<()> {
     let effective_model = model.as_deref().unwrap_or(&config.agents.defaults.model);
     tracing::info!("Configuration loaded. Using model: {}", effective_model);
     tracing::debug!("Workspace: {:?}", config.workspace_path());
-    
+
     // Create provider
     tracing::info!("Creating LLM provider for model: {}", effective_model);
     let provider = config.create_provider(model.as_deref()).await?;
-    tracing::info!("Provider created successfully. Default model: {}", provider.default_model());
+    tracing::info!(
+        "Provider created successfully. Default model: {}",
+        provider.default_model()
+    );
 
     // Create message bus
     tracing::debug!("Creating message bus...");
     let bus = Arc::new(Mutex::new(MessageBus::default()));
-    
+
     // Extract senders from bus for components that need them
     let inbound_tx = {
         let bus_guard = bus.lock().await;
@@ -315,30 +327,44 @@ async fn gateway(model: Option<String>) -> Result<()> {
 
     // Create cron service
     tracing::debug!("Initializing cron service...");
-    let cron_store_path = crate::utils::get_nanobot_home()?.join("cron").join("jobs.json");
+    let cron_store_path = crate::utils::get_nanobot_home()?
+        .join("cron")
+        .join("jobs.json");
     let cron = CronService::new(cron_store_path);
     tracing::debug!("Cron service initialized");
 
     // Create agent loop
     tracing::info!("Initializing agent loop...");
-    tracing::debug!("  - Max tool iterations: {}", config.agents.defaults.max_tool_iterations);
+    tracing::debug!(
+        "  - Max tool iterations: {}",
+        config.agents.defaults.max_tool_iterations
+    );
     tracing::debug!("  - Exec timeout: {}s", config.tools.exec.timeout);
-    tracing::debug!("  - Restrict to workspace: {}", config.tools.restrict_to_workspace);
-    tracing::debug!("  - Compaction enabled: {}", config.agents.defaults.compaction.enabled);
-    let agent = Arc::new(AgentLoop::new(
-        bus.clone(),
-        provider.clone(),
-        config.workspace_path(),
-        model.clone(),
-        config.agents.defaults.max_tool_iterations,
-        Some(config.tools.web.search.api_key.clone()),
-        config.tools.exec.timeout,
-        config.tools.restrict_to_workspace,
-        config.agents.defaults.compaction.clone(),
-        outbound_tx.clone(),
-        Some(Arc::new(cron.clone())),
-        Some(config.tools.google.clone()),
-    ).await?);
+    tracing::debug!(
+        "  - Restrict to workspace: {}",
+        config.tools.restrict_to_workspace
+    );
+    tracing::debug!(
+        "  - Compaction enabled: {}",
+        config.agents.defaults.compaction.enabled
+    );
+    let agent = Arc::new(
+        AgentLoop::new(
+            bus.clone(),
+            provider.clone(),
+            config.workspace_path(),
+            model.clone(),
+            config.agents.defaults.max_tool_iterations,
+            Some(config.tools.web.search.api_key.clone()),
+            config.tools.exec.timeout,
+            config.tools.restrict_to_workspace,
+            config.agents.defaults.compaction.clone(),
+            outbound_tx.clone(),
+            Some(Arc::new(cron.clone())),
+            Some(config.tools.google.clone()),
+        )
+        .await?,
+    );
     tracing::info!("Agent loop initialized");
 
     // Set cron callback
@@ -363,27 +389,33 @@ async fn gateway(model: Option<String>) -> Result<()> {
                 if let Some(channel) = &job.payload.channel {
                     if let Some(to) = &job.payload.to {
                         let bus_guard = bus.lock().await;
-                        bus_guard.publish_outbound(crate::bus::OutboundMessage {
-                            channel: channel.clone(),
-                            chat_id: to.clone(),
-                            content: response.clone(),
-                            reply_to: None,
-                            media: vec![],
-                            metadata: std::collections::HashMap::new(),
-                        }).await;
+                        bus_guard
+                            .publish_outbound(crate::bus::OutboundMessage {
+                                channel: channel.clone(),
+                                chat_id: to.clone(),
+                                content: response.clone(),
+                                reply_to: None,
+                                media: vec![],
+                                metadata: std::collections::HashMap::new(),
+                            })
+                            .await;
                     }
                 }
             }
 
             Ok(Some(response))
         })
-    }).await;
+    })
+    .await;
 
     // Create heartbeat
     tracing::debug!("Initializing heartbeat service...");
     tracing::debug!("  - Enabled: {}", config.agents.defaults.daemon.enabled);
     tracing::debug!("  - Interval: {}s", config.agents.defaults.daemon.interval);
-    tracing::debug!("  - Strategy file: {}", config.agents.defaults.daemon.strategy_file);
+    tracing::debug!(
+        "  - Strategy file: {}",
+        config.agents.defaults.daemon.strategy_file
+    );
     let agent_for_heartbeat = agent.clone();
     let heartbeat = HeartbeatService::new(
         config.workspace_path(),
@@ -391,7 +423,9 @@ async fn gateway(model: Option<String>) -> Result<()> {
             tracing::debug!("Heartbeat triggered with prompt: {}", prompt);
             let agent = agent_for_heartbeat.clone();
             Box::pin(async move {
-                agent.process_direct(&prompt, "daemon", "cli", "direct").await
+                agent
+                    .process_direct(&prompt, "daemon", "cli", "direct")
+                    .await
             })
         })),
         config.agents.defaults.daemon.interval,
@@ -406,7 +440,10 @@ async fn gateway(model: Option<String>) -> Result<()> {
     // Create channel manager
     tracing::info!("Initializing channels...");
     let channels = ChannelManager::new(config.clone(), inbound_tx)?;
-    tracing::info!("Channels initialized. Enabled: {:?}", channels.enabled_channels());
+    tracing::info!(
+        "Channels initialized. Enabled: {:?}",
+        channels.enabled_channels()
+    );
 
     println!("Starting nanobot gateway...");
     println!("Enabled channels: {:?}", channels.enabled_channels());
@@ -415,7 +452,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
     tracing::info!("Starting cron service...");
     cron.start().await?;
     tracing::info!("Cron service started");
-    
+
     tracing::info!("Starting heartbeat service...");
     heartbeat.start().await?;
     tracing::info!("Heartbeat service started");
@@ -439,7 +476,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
             Ok(_) => tracing::info!("All channels started successfully"),
             Err(e) => tracing::error!("Error starting channels: {}", e),
         }
-        
+
         // Consume outbound messages and send to channels
         // Extract the receiver so we don't hold the lock while waiting
         let mut outbound_rx = {
@@ -449,12 +486,16 @@ async fn gateway(model: Option<String>) -> Result<()> {
                 rx
             })
         };
-        
+
         loop {
             match outbound_rx.recv().await {
                 Some(msg) => {
-                    tracing::info!("Consumed outbound message: channel={}, chat_id={}, content_len={}", 
-                        msg.channel, msg.chat_id, msg.content.len());
+                    tracing::info!(
+                        "Consumed outbound message: channel={}, chat_id={}, content_len={}",
+                        msg.channel,
+                        msg.chat_id,
+                        msg.content.len()
+                    );
                     if let Err(e) = channels_for_start.send(&msg).await {
                         tracing::error!("Error sending message to channels: {}", e);
                     } else {
@@ -488,18 +529,18 @@ async fn gateway(model: Option<String>) -> Result<()> {
 
 async fn agent(message: Option<String>, session: String) -> Result<()> {
     let config = load_config(None)?;
-    
+
     // Create provider
     let provider = config.create_provider(None).await?;
 
     let bus = Arc::new(Mutex::new(MessageBus::default()));
-    
+
     // Extract outbound sender for agent
     let outbound_tx = {
         let bus_guard = bus.lock().await;
         Arc::new(bus_guard.outbound_tx.clone())
     };
-    
+
     let agent = AgentLoop::new(
         bus,
         provider,
@@ -513,28 +554,33 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
         outbound_tx,
         None, // No cron service for CLI agent mode
         Some(config.tools.google.clone()),
-    ).await?;
+    )
+    .await?;
 
     if let Some(msg) = message {
-        let response = agent.process_direct(&msg, &session, "cli", "direct").await?;
+        let response = agent
+            .process_direct(&msg, &session, "cli", "direct")
+            .await?;
         println!("🤖 {}", response);
     } else {
         println!("🤖 Interactive mode (Ctrl+C to exit)\n");
         loop {
-            use std::io::{self, Write, BufRead};
+            use std::io::{self, BufRead, Write};
             print!("You: ");
             io::stdout().flush()?;
-            
+
             let stdin = io::stdin();
             let mut input = String::new();
             stdin.lock().read_line(&mut input)?;
             let input = input.trim();
-            
+
             if input.is_empty() {
                 continue;
             }
 
-            let response = agent.process_direct(input, &session, "cli", "direct").await?;
+            let response = agent
+                .process_direct(input, &session, "cli", "direct")
+                .await?;
             println!("\n🤖 {}\n", response);
         }
     }
@@ -544,7 +590,9 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
 
 async fn cron_command(cmd: CronCommands) -> Result<()> {
     let _config = load_config(None)?;
-    let cron_store_path = crate::utils::get_nanobot_home()?.join("cron").join("jobs.json");
+    let cron_store_path = crate::utils::get_nanobot_home()?
+        .join("cron")
+        .join("jobs.json");
     let cron = CronService::new(cron_store_path);
 
     match cmd {
@@ -556,36 +604,58 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
                 println!("Cron jobs:");
                 for job in jobs {
                     let status = if job.enabled { "enabled" } else { "disabled" };
-                    let next_run = job.state.next_run_at_ms
+                    let next_run = job
+                        .state
+                        .next_run_at_ms
                         .map(|ms| {
-                            let dt = chrono::DateTime::from_timestamp(ms / 1000, 0)
-                                .unwrap_or_default();
+                            let dt =
+                                chrono::DateTime::from_timestamp(ms / 1000, 0).unwrap_or_default();
                             format!("{}", dt.format("%Y-%m-%d %H:%M:%S"))
                         })
                         .unwrap_or_else(|| "never".to_string());
-                    println!("  [{}] {} - {} (next: {})", job.id, job.name, status, next_run);
+                    println!(
+                        "  [{}] {} - {} (next: {})",
+                        job.id, job.name, status, next_run
+                    );
                 }
             }
         }
-        CronCommands::Add { name, message, every, cron: cron_expr, tz, at, deliver: _deliver, to: _to, channel: _channel } => {
+        CronCommands::Add {
+            name,
+            message,
+            every,
+            cron: cron_expr,
+            tz,
+            at,
+            deliver: _deliver,
+            to: _to,
+            channel: _channel,
+        } => {
             let schedule = if let Some(every_sec) = every {
-                CronSchedule::Every { every_ms: Some((every_sec * 1000) as i64) }
+                CronSchedule::Every {
+                    every_ms: Some((every_sec * 1000) as i64),
+                }
             } else if let Some(expr) = cron_expr {
-                CronSchedule::Cron { expr: Some(expr), tz }
+                CronSchedule::Cron {
+                    expr: Some(expr),
+                    tz,
+                }
             } else if let Some(at_str) = at {
                 let dt = chrono::DateTime::parse_from_rfc3339(&at_str)
                     .or_else(|_| chrono::DateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M:%S"))
                     .context("Invalid date format. Use ISO 8601 or YYYY-MM-DD HH:MM:SS")?;
-                CronSchedule::At { at_ms: Some(dt.timestamp_millis()) }
+                CronSchedule::At {
+                    at_ms: Some(dt.timestamp_millis()),
+                }
             } else {
                 anyhow::bail!("Must specify --every, --cron, or --at");
             };
-            
+
             let now_ms = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_millis() as i64;
-            
+
             let job = CronJob {
                 id: uuid::Uuid::new_v4().to_string()[..8].to_string(),
                 name,
@@ -608,48 +678,65 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
                 updated_at_ms: now_ms,
                 delete_after_run: false,
             };
-            
+
             cron.add_job(job).await?;
             println!("Cron job added successfully.");
         }
-        CronCommands::Remove { id } => {
-            match cron.remove_job(&id).await? {
-                Some(job) => {
-                    println!("Removed cron job: {} ({})", job.name, job.id);
-                }
-                None => {
-                    println!("Cron job {} not found.", id);
-                }
+        CronCommands::Remove { id } => match cron.remove_job(&id).await? {
+            Some(job) => {
+                println!("Removed cron job: {} ({})", job.name, job.id);
             }
-        }
-        CronCommands::Enable { id, disable } => {
-            match cron.enable_job(&id, !disable).await? {
-                Some(job) => {
-                    let status = if job.enabled { "enabled" } else { "disabled" };
-                    println!("Job {} ({}) {}", job.name, job.id, status);
-                }
-                None => {
-                    println!("Cron job {} not found.", id);
-                }
+            None => {
+                println!("Cron job {} not found.", id);
             }
-        }
-        CronCommands::Edit { id, name, message, every, cron: cron_expr, tz, at, deliver, to, channel } => {
+        },
+        CronCommands::Enable { id, disable } => match cron.enable_job(&id, !disable).await? {
+            Some(job) => {
+                let status = if job.enabled { "enabled" } else { "disabled" };
+                println!("Job {} ({}) {}", job.name, job.id, status);
+            }
+            None => {
+                println!("Cron job {} not found.", id);
+            }
+        },
+        CronCommands::Edit {
+            id,
+            name,
+            message,
+            every,
+            cron: cron_expr,
+            tz,
+            at,
+            deliver,
+            to,
+            channel,
+        } => {
             let schedule = if let Some(every_sec) = every {
-                Some(CronSchedule::Every { every_ms: Some((every_sec * 1000) as i64) })
+                Some(CronSchedule::Every {
+                    every_ms: Some((every_sec * 1000) as i64),
+                })
             } else if let Some(expr) = cron_expr {
-                Some(CronSchedule::Cron { expr: Some(expr), tz })
+                Some(CronSchedule::Cron {
+                    expr: Some(expr),
+                    tz,
+                })
             } else if let Some(at_str) = at {
                 let dt = chrono::DateTime::parse_from_rfc3339(&at_str)
                     .or_else(|_| chrono::DateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M:%S"))
                     .context("Invalid date format. Use ISO 8601 or YYYY-MM-DD HH:MM:SS")?;
-                Some(CronSchedule::At { at_ms: Some(dt.timestamp_millis()) })
+                Some(CronSchedule::At {
+                    at_ms: Some(dt.timestamp_millis()),
+                })
             } else if tz.is_some() {
                 // Just updating timezone - need to get current job
                 let jobs = cron.list_jobs(true).await?;
                 let current_job = jobs.iter().find(|j| j.id == id);
                 if let Some(job) = current_job {
                     if let CronSchedule::Cron { expr, .. } = &job.schedule {
-                        Some(CronSchedule::Cron { expr: expr.clone(), tz })
+                        Some(CronSchedule::Cron {
+                            expr: expr.clone(),
+                            tz,
+                        })
                     } else {
                         None
                     }
@@ -659,8 +746,11 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
             } else {
                 None
             };
-            
-            match cron.update_job(&id, name, message, schedule, deliver, channel, to).await? {
+
+            match cron
+                .update_job(&id, name, message, schedule, deliver, channel, to)
+                .await?
+            {
                 Some(job) => {
                     println!("Updated job: {} ({})", job.name, job.id);
                 }
@@ -677,7 +767,7 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -689,7 +779,7 @@ fn _parse_schedule(s: &str) -> Result<CronSchedule> {
             tz: None,
         });
     }
-    
+
     // Try parsing as "every N seconds/minutes/hours"
     if let Some(every) = s.strip_prefix("every ") {
         let every_lower = every.to_lowercase();
@@ -715,13 +805,13 @@ fn _parse_schedule(s: &str) -> Result<CronSchedule> {
             }
         }
     }
-    
+
     // Try parsing as ISO timestamp
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
         let ms = dt.timestamp_millis();
         return Ok(CronSchedule::At { at_ms: Some(ms) });
     }
-    
+
     // Default to cron expression
     Ok(CronSchedule::Cron {
         expr: Some(s.to_string()),
@@ -734,7 +824,7 @@ async fn auth_command(cmd: AuthCommands) -> Result<()> {
         AuthCommands::Google { port, headless } => {
             let config = load_config(None)?;
             let gcfg = &config.tools.google;
-            
+
             if gcfg.client_id.is_empty() || gcfg.client_secret.is_empty() {
                 eprintln!("Error: Google client_id and client_secret are not configured.");
                 eprintln!("\nAdd them to ~/.nanobot/config.json under tools.google:");
@@ -745,10 +835,12 @@ async fn auth_command(cmd: AuthCommands) -> Result<()> {
                 eprintln!("      \"clientSecret\": \"YOUR_CLIENT_SECRET\"");
                 eprintln!("    }}");
                 eprintln!("  }}");
-                eprintln!("\nGet credentials at: https://console.cloud.google.com/apis/credentials");
+                eprintln!(
+                    "\nGet credentials at: https://console.cloud.google.com/apis/credentials"
+                );
                 return Ok(());
             }
-            
+
             // Check if already authenticated
             if crate::auth::google::has_valid_credentials(
                 &gcfg.client_id,
@@ -759,14 +851,16 @@ async fn auth_command(cmd: AuthCommands) -> Result<()> {
                 println!("✓ Already authenticated with Google.");
                 // In real implementation, would prompt for re-auth
             }
-            
+
             if headless {
                 println!("🤖 Starting Google OAuth2 flow (headless mode)...");
             } else {
                 println!("🤖 Starting Google OAuth2 flow...");
-                println!("A browser window will open — or fall back to manual mode if unavailable.\n");
+                println!(
+                    "A browser window will open — or fall back to manual mode if unavailable.\n"
+                );
             }
-            
+
             let _creds = crate::auth::google::run_oauth_flow(
                 &gcfg.client_id,
                 &gcfg.client_secret,
@@ -774,8 +868,9 @@ async fn auth_command(cmd: AuthCommands) -> Result<()> {
                 None,
                 port,
                 headless,
-            ).await?;
-            
+            )
+            .await?;
+
             println!("\n✓ Google authentication successful!");
             println!("  Tokens saved to ~/.nanobot/google_tokens.json");
             println!("\nMake sure tools.google.enabled is true in your config, then restart the gateway.");
@@ -788,43 +883,76 @@ async fn channels_command(cmd: ChannelCommands) -> Result<()> {
     match cmd {
         ChannelCommands::Status => {
             let config = load_config(None)?;
-            
+
             println!("Channel Status");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            
+
             // WhatsApp
             let wa = &config.channels.whatsapp;
-            println!("WhatsApp: {}", if wa.enabled { "✓ enabled" } else { "✗ disabled" });
+            println!(
+                "WhatsApp: {}",
+                if wa.enabled {
+                    "✓ enabled"
+                } else {
+                    "✗ disabled"
+                }
+            );
             if wa.enabled {
                 let session_path = crate::utils::get_nanobot_home()
                     .map(|h| h.join("whatsapp").join("whatsapp.db"))
                     .unwrap_or_else(|_| PathBuf::from(".nanobot/whatsapp/whatsapp.db"));
                 let session_exists = session_path.exists();
-                println!("  Session: {} ({})", 
+                println!(
+                    "  Session: {} ({})",
                     session_path.display(),
-                    if session_exists { "exists" } else { "not paired - run 'nanobot channels login'" }
+                    if session_exists {
+                        "exists"
+                    } else {
+                        "not paired - run 'nanobot channels login'"
+                    }
                 );
             }
-            
+
             // Discord
             let dc = &config.channels.discord;
-            println!("Discord: {}", if dc.enabled { "✓ enabled" } else { "✗ disabled" });
+            println!(
+                "Discord: {}",
+                if dc.enabled {
+                    "✓ enabled"
+                } else {
+                    "✗ disabled"
+                }
+            );
             if dc.enabled && !dc.token.is_empty() {
                 let token_preview = &dc.token[..10.min(dc.token.len())];
                 println!("  Token: {}...", token_preview);
             }
-            
+
             // Telegram
             let tg = &config.channels.telegram;
-            println!("Telegram: {}", if tg.enabled { "✓ enabled" } else { "✗ disabled" });
+            println!(
+                "Telegram: {}",
+                if tg.enabled {
+                    "✓ enabled"
+                } else {
+                    "✗ disabled"
+                }
+            );
             if tg.enabled && !tg.token.is_empty() {
                 let token_preview = &tg.token[..10.min(tg.token.len())];
                 println!("  Token: {}...", token_preview);
             }
-            
+
             // Slack
             let sl = &config.channels.slack;
-            println!("Slack: {}", if sl.enabled { "✓ enabled" } else { "✗ disabled" });
+            println!(
+                "Slack: {}",
+                if sl.enabled {
+                    "✓ enabled"
+                } else {
+                    "✗ disabled"
+                }
+            );
             if sl.enabled && !sl.bot_token.is_empty() {
                 let token_preview = &sl.bot_token[..10.min(sl.bot_token.len())];
                 println!("  Bot Token: {}...", token_preview);
@@ -841,38 +969,49 @@ async fn status_command() -> Result<()> {
     let config = load_config(None)?;
     let config_path = crate::config::get_config_path()?;
     let workspace = config.workspace_path();
-    
+
     println!("🤖 nanobot Status\n");
-    
-    println!("Config: {} {}", 
+
+    println!(
+        "Config: {} {}",
         config_path.display(),
         if config_path.exists() { "✓" } else { "✗" }
     );
-    println!("Workspace: {} {}", 
+    println!(
+        "Workspace: {} {}",
         workspace.display(),
         if workspace.exists() { "✓" } else { "✗" }
     );
-    
+
     if config_path.exists() {
         println!("Model: {}", config.agents.defaults.model);
-        
+
         // Check API keys
         let has_openrouter = !config.providers.openrouter.api_key.is_empty();
         let has_anthropic = !config.providers.anthropic.api_key.is_empty();
         let has_openai = !config.providers.openai.api_key.is_empty();
         let has_gemini = !config.providers.gemini.api_key.is_empty();
         let has_vllm = config.providers.vllm.api_base.is_some();
-        
-        println!("OpenRouter API: {}", if has_openrouter { "✓" } else { "not set" });
-        println!("Anthropic API: {}", if has_anthropic { "✓" } else { "not set" });
+
+        println!(
+            "OpenRouter API: {}",
+            if has_openrouter { "✓" } else { "not set" }
+        );
+        println!(
+            "Anthropic API: {}",
+            if has_anthropic { "✓" } else { "not set" }
+        );
         println!("OpenAI API: {}", if has_openai { "✓" } else { "not set" });
         println!("Gemini API: {}", if has_gemini { "✓" } else { "not set" });
         if has_vllm {
-            println!("vLLM/Local: ✓ {}", config.providers.vllm.api_base.as_ref().unwrap());
+            println!(
+                "vLLM/Local: ✓ {}",
+                config.providers.vllm.api_base.as_ref().unwrap()
+            );
         } else {
             println!("vLLM/Local: not set");
         }
-        
+
         // Google status
         let gcfg = &config.tools.google;
         if gcfg.enabled {
@@ -886,10 +1025,10 @@ async fn status_command() -> Result<()> {
             } else {
                 false
             };
-            let status_str = if google_authed { 
-                "✓ authenticated" 
-            } else { 
-                "not authenticated (run: nanobot auth google)" 
+            let status_str = if google_authed {
+                "✓ authenticated"
+            } else {
+                "not authenticated (run: nanobot auth google)"
             };
             println!("Google: {}", status_str);
         } else {
@@ -905,24 +1044,23 @@ async fn whatsapp_login() -> Result<()> {
     use std::sync::Arc;
     use whatsapp_rust::bot::Bot;
     use whatsapp_rust::store::SqliteStore;
+    use whatsapp_rust::types::events::Event;
     use whatsapp_rust_tokio_transport::TokioWebSocketTransportFactory;
     use whatsapp_rust_ureq_http_client::UreqHttpClient;
-    use whatsapp_rust::types::events::Event;
 
     println!("🤖 Starting WhatsApp authentication...");
     println!("Scan the QR code that appears below to connect.\n");
 
     // Determine session path
-    let session_path = get_nanobot_home()?
-        .join("whatsapp");
+    let session_path = get_nanobot_home()?.join("whatsapp");
     std::fs::create_dir_all(&session_path)?;
-    
+
     let session_db = session_path.join("whatsapp.db");
     let session_db_str = session_db.to_string_lossy().to_string();
 
     // Create backend
     let backend = Arc::new(SqliteStore::new(&session_db_str).await?);
-    
+
     // Create transport and HTTP client
     let transport_factory = TokioWebSocketTransportFactory::new();
     let http_client = UreqHttpClient::new();
@@ -939,7 +1077,8 @@ async fn whatsapp_login() -> Result<()> {
                     // Render QR code in terminal (compact)
                     match qrcode::QrCode::new(&code) {
                         Ok(qr) => {
-                            let string = qr.render::<char>()
+                            let string = qr
+                                .render::<char>()
                                 .quiet_zone(false)
                                 .module_dimensions(1, 1)
                                 .build();
@@ -976,7 +1115,7 @@ async fn whatsapp_login() -> Result<()> {
         .await?;
 
     println!("Waiting for QR code...\n");
-    
+
     // Run bot - this will display QR code and wait for pairing
     let mut bot_mut = bot;
     match bot_mut.run().await {

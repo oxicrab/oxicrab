@@ -162,8 +162,8 @@ impl SessionManager {
                 continue;
             }
 
-            let data: Value = serde_json::from_str(line)
-                .with_context(|| "Failed to parse session JSON line")?;
+            let data: Value =
+                serde_json::from_str(line).with_context(|| "Failed to parse session JSON line")?;
 
             if data.get("_type") == Some(&Value::String("metadata".to_string())) {
                 if let Some(meta) = data.get("metadata").and_then(|v| v.as_object()) {

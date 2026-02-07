@@ -1,6 +1,6 @@
 use crate::agent::tools::{Tool, ToolResult};
 use crate::cron::service::CronService;
-use crate::cron::types::{CronJob, CronPayload, CronSchedule, CronJobState};
+use crate::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -21,7 +21,6 @@ impl CronTool {
             chat_id: Arc::new(tokio::sync::Mutex::new(String::new())),
         }
     }
-
 }
 
 #[async_trait]
@@ -80,18 +79,24 @@ impl Tool for CronTool {
                 let chat_id = self.chat_id.lock().await.clone();
 
                 if channel.is_empty() || chat_id.is_empty() {
-                    return Ok(ToolResult::error("Error: no session context (channel/chat_id)".to_string()));
+                    return Ok(ToolResult::error(
+                        "Error: no session context (channel/chat_id)".to_string(),
+                    ));
                 }
 
                 let schedule = if let Some(every_secs) = params["every_seconds"].as_u64() {
-                    CronSchedule::Every { every_ms: Some((every_secs * 1000) as i64) }
+                    CronSchedule::Every {
+                        every_ms: Some((every_secs * 1000) as i64),
+                    }
                 } else if let Some(cron_expr) = params["cron_expr"].as_str() {
                     CronSchedule::Cron {
                         expr: Some(cron_expr.to_string()),
                         tz: None,
                     }
                 } else {
-                    return Ok(ToolResult::error("Error: either every_seconds or cron_expr is required".to_string()));
+                    return Ok(ToolResult::error(
+                        "Error: either every_seconds or cron_expr is required".to_string(),
+                    ));
                 };
 
                 let now_ms = SystemTime::now()
@@ -101,7 +106,11 @@ impl Tool for CronTool {
 
                 let job = CronJob {
                     id: uuid::Uuid::new_v4().to_string()[..8].to_string(),
-                    name: if message.len() > 30 { format!("{}...", &message[..30]) } else { message.clone() },
+                    name: if message.len() > 30 {
+                        format!("{}...", &message[..30])
+                    } else {
+                        message.clone()
+                    },
                     enabled: true,
                     schedule,
                     payload: CronPayload {
@@ -123,21 +132,35 @@ impl Tool for CronTool {
                 };
 
                 self.cron_service.add_job(job.clone()).await?;
-                Ok(ToolResult::new(format!("Created job '{}' (id: {})", job.name, job.id)))
+                Ok(ToolResult::new(format!(
+                    "Created job '{}' (id: {})",
+                    job.name, job.id
+                )))
             }
             "list" => {
                 let jobs = self.cron_service.list_jobs(false).await?;
                 if jobs.is_empty() {
                     return Ok(ToolResult::new("No scheduled jobs.".to_string()));
                 }
-                let lines: Vec<String> = jobs.iter()
-                    .map(|j| format!("- {} (id: {}, {})", j.name, j.id, match &j.schedule {
-                        CronSchedule::At { .. } => "at",
-                        CronSchedule::Every { .. } => "every",
-                        CronSchedule::Cron { .. } => "cron",
-                    }))
+                let lines: Vec<String> = jobs
+                    .iter()
+                    .map(|j| {
+                        format!(
+                            "- {} (id: {}, {})",
+                            j.name,
+                            j.id,
+                            match &j.schedule {
+                                CronSchedule::At { .. } => "at",
+                                CronSchedule::Every { .. } => "every",
+                                CronSchedule::Cron { .. } => "cron",
+                            }
+                        )
+                    })
                     .collect();
-                Ok(ToolResult::new(format!("Scheduled jobs:\n{}", lines.join("\n"))))
+                Ok(ToolResult::new(format!(
+                    "Scheduled jobs:\n{}",
+                    lines.join("\n")
+                )))
             }
             "remove" => {
                 let job_id = params["job_id"]
@@ -149,10 +172,10 @@ impl Tool for CronTool {
                     None => Ok(ToolResult::error(format!("Job {} not found", job_id))),
                 }
             }
-            _ =>             Ok(ToolResult::error(format!("Unknown action: {}", action))),
+            _ => Ok(ToolResult::error(format!("Unknown action: {}", action))),
         }
     }
-    
+
     async fn set_context(&self, channel: &str, chat_id: &str) {
         *self.channel.lock().await = channel.to_string();
         *self.chat_id.lock().await = chat_id.to_string();

@@ -134,9 +134,7 @@ impl Tool for GoogleCalendarTool {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
 
-        let cal_id = params["calendar_id"]
-            .as_str()
-            .unwrap_or("primary");
+        let cal_id = params["calendar_id"].as_str().unwrap_or("primary");
 
         match action {
             "list_events" => {
@@ -148,9 +146,7 @@ impl Tool for GoogleCalendarTool {
                 let time_max = params["time_max"]
                     .as_str()
                     .map(|s| s.to_string())
-                    .unwrap_or_else(|| {
-                        (now + chrono::Duration::days(7)).to_rfc3339()
-                    });
+                    .unwrap_or_else(|| (now + chrono::Duration::days(7)).to_rfc3339());
                 let max_results = params["max_results"].as_u64().unwrap_or(20) as u32;
 
                 let endpoint = format!(
@@ -167,10 +163,12 @@ impl Tool for GoogleCalendarTool {
 
                 let mut lines = vec![format!("Found {} event(s):\n", events.len())];
                 for ev in events {
-                    let start = ev["start"]["dateTime"].as_str()
+                    let start = ev["start"]["dateTime"]
+                        .as_str()
                         .or_else(|| ev["start"]["date"].as_str())
                         .unwrap_or("?");
-                    let end = ev["end"]["dateTime"].as_str()
+                    let end = ev["end"]["dateTime"]
+                        .as_str()
                         .or_else(|| ev["end"]["date"].as_str())
                         .unwrap_or("?");
                     let summary = ev["summary"].as_str().unwrap_or("(no title)");
@@ -183,7 +181,8 @@ impl Tool for GoogleCalendarTool {
                     let empty_attendees: Vec<serde_json::Value> = vec![];
                     let attendees = ev["attendees"].as_array().unwrap_or(&empty_attendees);
                     let att_str = if !attendees.is_empty() {
-                        let names: Vec<String> = attendees.iter()
+                        let names: Vec<String> = attendees
+                            .iter()
                             .take(5)
                             .filter_map(|a| a["email"].as_str().map(|s| s.to_string()))
                             .collect();
@@ -213,7 +212,11 @@ impl Tool for GoogleCalendarTool {
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'event_id' parameter"))?;
 
-                let endpoint = format!("calendars/{}/events/{}", urlencoding::encode(cal_id), urlencoding::encode(event_id));
+                let endpoint = format!(
+                    "calendars/{}/events/{}",
+                    urlencoding::encode(cal_id),
+                    urlencoding::encode(event_id)
+                );
                 let ev = self.call_api(&endpoint, "GET", None).await?;
                 Ok(ToolResult::new(format_event_detail(&ev)))
             }
@@ -245,7 +248,9 @@ impl Tool for GoogleCalendarTool {
                     body["end"] = serde_json::json!({"date": &end[..10.min(end.len())]});
                 } else {
                     body["start"] = serde_json::json!({"dateTime": start, "timeZone": tz});
-                    let end = params["end"].as_str().map(|s| s.to_string())
+                    let end = params["end"]
+                        .as_str()
+                        .map(|s| s.to_string())
                         .unwrap_or_else(|| {
                             DateTime::parse_from_rfc3339(start)
                                 .map(|dt| (dt + chrono::Duration::hours(1)).to_rfc3339())
@@ -256,10 +261,11 @@ impl Tool for GoogleCalendarTool {
 
                 if let Some(attendees) = params["attendees"].as_array() {
                     body["attendees"] = Value::Array(
-                        attendees.iter()
+                        attendees
+                            .iter()
                             .filter_map(|a| a.as_str())
                             .map(|email| serde_json::json!({"email": email}))
-                            .collect()
+                            .collect(),
                     );
                 }
 
@@ -277,7 +283,11 @@ impl Tool for GoogleCalendarTool {
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'event_id' parameter"))?;
 
-                let endpoint = format!("calendars/{}/events/{}", urlencoding::encode(cal_id), urlencoding::encode(event_id));
+                let endpoint = format!(
+                    "calendars/{}/events/{}",
+                    urlencoding::encode(cal_id),
+                    urlencoding::encode(event_id)
+                );
                 let mut ev = self.call_api(&endpoint, "GET", None).await?;
 
                 let tz = params["timezone"].as_str().unwrap_or("UTC");
@@ -307,10 +317,11 @@ impl Tool for GoogleCalendarTool {
                 }
                 if let Some(attendees) = params["attendees"].as_array() {
                     ev["attendees"] = Value::Array(
-                        attendees.iter()
+                        attendees
+                            .iter()
                             .filter_map(|a| a.as_str())
                             .map(|email| serde_json::json!({"email": email}))
-                            .collect()
+                            .collect(),
                     );
                 }
 
@@ -326,7 +337,11 @@ impl Tool for GoogleCalendarTool {
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'event_id' parameter"))?;
 
-                let endpoint = format!("calendars/{}/events/{}", urlencoding::encode(cal_id), urlencoding::encode(event_id));
+                let endpoint = format!(
+                    "calendars/{}/events/{}",
+                    urlencoding::encode(cal_id),
+                    urlencoding::encode(event_id)
+                );
                 self.call_api(&endpoint, "DELETE", None).await?;
                 Ok(ToolResult::new(format!("Event {} deleted.", event_id)))
             }
@@ -339,7 +354,11 @@ impl Tool for GoogleCalendarTool {
                 }
                 let mut lines = vec!["Your calendars:\n".to_string()];
                 for cal in cals {
-                    let primary = if cal["primary"].as_bool().unwrap_or(false) { " (primary)" } else { "" };
+                    let primary = if cal["primary"].as_bool().unwrap_or(false) {
+                        " (primary)"
+                    } else {
+                        ""
+                    };
                     lines.push(format!(
                         "- {}{}\n  ID: {}",
                         cal["summary"].as_str().unwrap_or("?"),
@@ -355,14 +374,19 @@ impl Tool for GoogleCalendarTool {
 }
 
 fn format_event_detail(ev: &Value) -> String {
-    let start = ev["start"]["dateTime"].as_str()
+    let start = ev["start"]["dateTime"]
+        .as_str()
         .or_else(|| ev["start"]["date"].as_str())
         .unwrap_or("?");
-    let end = ev["end"]["dateTime"].as_str()
+    let end = ev["end"]["dateTime"]
+        .as_str()
         .or_else(|| ev["end"]["date"].as_str())
         .unwrap_or("?");
     let mut parts = vec![
-        format!("Summary: {}", ev["summary"].as_str().unwrap_or("(no title)")),
+        format!(
+            "Summary: {}",
+            ev["summary"].as_str().unwrap_or("(no title)")
+        ),
         format!("ID: {}", ev["id"].as_str().unwrap_or("")),
         format!("Start: {}", start),
         format!("End: {}", end),
@@ -374,7 +398,8 @@ fn format_event_detail(ev: &Value) -> String {
         parts.push(format!("Description: {}", desc));
     }
     if let Some(attendees) = ev["attendees"].as_array() {
-        let att: Vec<String> = attendees.iter()
+        let att: Vec<String> = attendees
+            .iter()
             .filter_map(|a| a["email"].as_str().map(|s| s.to_string()))
             .collect();
         parts.push(format!("Attendees: {}", att.join(", ")));

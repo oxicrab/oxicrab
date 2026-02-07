@@ -39,15 +39,20 @@ impl MessageBus {
     pub async fn publish_inbound(&mut self, msg: InboundMessage) {
         let now = Instant::now();
         let key = format!("{}:{}", msg.channel, msg.sender_id);
-        
-        let timestamps = self.sender_timestamps.entry(key.clone()).or_insert_with(Vec::new);
+
+        let timestamps = self
+            .sender_timestamps
+            .entry(key.clone())
+            .or_insert_with(Vec::new);
         let cutoff = now - self.rate_window;
         timestamps.retain(|&t| t > cutoff);
 
         if timestamps.len() >= self.rate_limit {
             warn!(
                 "Rate limit hit for {} ({}/{:.0}s) – dropping message",
-                key, self.rate_limit, self.rate_window.as_secs_f64()
+                key,
+                self.rate_limit,
+                self.rate_window.as_secs_f64()
             );
             return;
         }

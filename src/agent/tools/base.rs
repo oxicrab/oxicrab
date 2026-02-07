@@ -52,7 +52,7 @@ pub trait Tool: Send + Sync {
             }
         })
     }
-    
+
     /// Set context for tools that need it (channel, chat_id).
     /// Default implementation does nothing - tools that need context override this.
     async fn set_context(&self, _channel: &str, _chat_id: &str) {

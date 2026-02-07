@@ -28,14 +28,23 @@ impl ToolRegistry {
     }
 
     pub fn get_tool_definitions(&self) -> Vec<crate::providers::base::ToolDefinition> {
-        self.tools.values().map(|t| {
-            let schema = t.to_schema();
-            crate::providers::base::ToolDefinition {
-                name: schema["function"]["name"].as_str().unwrap_or("").to_string(),
-                description: schema["function"]["description"].as_str().unwrap_or("").to_string(),
-                parameters: schema["function"]["parameters"].clone(),
-            }
-        }).collect()
+        self.tools
+            .values()
+            .map(|t| {
+                let schema = t.to_schema();
+                crate::providers::base::ToolDefinition {
+                    name: schema["function"]["name"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string(),
+                    description: schema["function"]["description"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string(),
+                    parameters: schema["function"]["parameters"].clone(),
+                }
+            })
+            .collect()
     }
 
     pub async fn execute(&self, name: &str, params: Value) -> Result<ToolResult> {

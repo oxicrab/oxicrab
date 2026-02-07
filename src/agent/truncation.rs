@@ -11,7 +11,7 @@ fn truncate_tool_result_internal(result: &str, max_chars: usize) -> String {
     // Strip ANSI escape codes
     let re_ansi = Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
     let clean = re_ansi.replace_all(result, "").to_string();
-    
+
     if clean.len() <= max_chars {
         return clean;
     }

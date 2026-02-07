@@ -58,13 +58,13 @@ impl Tool for MessageTool {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?
             .to_string();
-        
+
         let channel = if let Some(ch) = params["channel"].as_str() {
             ch.to_string()
         } else {
             self.default_channel.lock().await.clone()
         };
-        
+
         let chat_id = if let Some(cid) = params["chat_id"].as_str() {
             cid.to_string()
         } else {
@@ -88,13 +88,19 @@ impl Tool for MessageTool {
                 media: vec![],
                 metadata: std::collections::HashMap::new(),
             };
-            tx.send(msg).map_err(|e| anyhow::anyhow!("Send error: {}", e))?;
-            Ok(ToolResult::new(format!("Message sent to {}:{}", channel_clone, chat_id_clone)))
+            tx.send(msg)
+                .map_err(|e| anyhow::anyhow!("Send error: {}", e))?;
+            Ok(ToolResult::new(format!(
+                "Message sent to {}:{}",
+                channel_clone, chat_id_clone
+            )))
         } else {
-            Ok(ToolResult::error("Error: Message sending not configured".to_string()))
+            Ok(ToolResult::error(
+                "Error: Message sending not configured".to_string(),
+            ))
         }
     }
-    
+
     async fn set_context(&self, channel: &str, chat_id: &str) {
         *self.default_channel.lock().await = channel.to_string();
         *self.default_chat_id.lock().await = chat_id.to_string();

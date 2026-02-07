@@ -1,6 +1,8 @@
-use crate::providers::base::{LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition, Usage};
-use async_trait::async_trait;
+use crate::providers::base::{
+    LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition, Usage,
+};
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::{json, Value};
 

@@ -1,15 +1,15 @@
 use crate::bus::{InboundMessage, OutboundMessage};
-use crate::channels::base::{BaseChannel, split_message};
+use crate::channels::base::{split_message, BaseChannel};
 use crate::config::DiscordConfig;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
-use std::collections::HashMap;
-use std::sync::Arc;
 use serenity::async_trait as serenity_async_trait;
 use serenity::model::channel::Message as DiscordMessage;
-use serenity::model::gateway::{Ready, GatewayIntents};
+use serenity::model::gateway::{GatewayIntents, Ready};
 use serenity::prelude::*;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 struct Handler {
@@ -25,7 +25,8 @@ impl EventHandler for Handler {
         }
 
         let sender_id = msg.author.id.to_string();
-        let normalized: std::collections::HashSet<String> = self.allow_list
+        let normalized: std::collections::HashSet<String> = self
+            .allow_list
             .iter()
             .map(|a| a.trim_start_matches('+').to_string())
             .collect();
@@ -60,10 +61,7 @@ pub struct DiscordChannel {
 }
 
 impl DiscordChannel {
-    pub fn new(
-        config: DiscordConfig,
-        inbound_tx: mpsc::UnboundedSender<InboundMessage>,
-    ) -> Self {
+    pub fn new(config: DiscordConfig, inbound_tx: mpsc::UnboundedSender<InboundMessage>) -> Self {
         Self {
             config,
             inbound_tx,
@@ -89,9 +87,12 @@ impl BaseChannel for DiscordChannel {
         };
 
         tracing::info!("Connecting to Discord gateway...");
-        let client = Client::builder(&self.config.token, GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT)
-            .event_handler(handler)
-            .await?;
+        let client = Client::builder(
+            &self.config.token,
+            GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT,
+        )
+        .event_handler(handler)
+        .await?;
 
         let shard_manager = client.shard_manager.clone();
         tokio::spawn(async move {

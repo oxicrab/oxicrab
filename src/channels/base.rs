@@ -4,30 +4,30 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait BaseChannel: Send + Sync {
     fn name(&self) -> &str;
-    
+
     async fn start(&mut self) -> anyhow::Result<()>;
     #[allow(dead_code)] // Trait method - used in ChannelManager::stop_all
     async fn stop(&mut self) -> anyhow::Result<()>;
     async fn send(&self, msg: &OutboundMessage) -> anyhow::Result<()>;
-    
+
     #[allow(dead_code)] // Trait method with default implementation - may be used by implementations
     fn is_allowed(&self, sender_id: &str, allow_list: &[String]) -> bool {
         if allow_list.is_empty() {
             return true;
         }
-        
+
         let normalized: std::collections::HashSet<String> = allow_list
             .iter()
             .map(|a| a.trim_start_matches('+').to_string())
             .collect();
-        
+
         let sender_str = sender_id.to_string();
         let parts: Vec<&str> = if sender_str.contains('|') {
             sender_str.split('|').collect()
         } else {
             vec![&sender_str]
         };
-        
+
         for part in parts {
             if !part.is_empty() {
                 let part_normalized = part.trim_start_matches('+');

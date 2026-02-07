@@ -18,16 +18,16 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
         let mut data: Value = serde_json::from_str(&content)
             .with_context(|| format!("Failed to parse config JSON from {}", path.display()))?;
-        
+
         // Migrate old config formats
         data = migrate_config(data);
-        
+
         // Note: We don't convert keys here because serde's `rename` attributes
         // expect the original camelCase keys from JSON. The conversion was causing
         // fields with `rename` attributes to not be deserialized correctly.
-        
-        let config: Config = serde_json::from_value(data)
-            .with_context(|| "Failed to deserialize config")?;
+
+        let config: Config =
+            serde_json::from_value(data).with_context(|| "Failed to deserialize config")?;
         return Ok(config);
     }
 
@@ -55,24 +55,24 @@ fn migrate_config(data: Value) -> Value {
 pub fn save_config(config: &Config, config_path: Option<&Path>) -> Result<()> {
     let default_path = get_config_path().unwrap_or_else(|_| PathBuf::from("config.json"));
     let path = config_path.unwrap_or(default_path.as_path());
-    
+
     ensure_dir(path.parent().context("Config path has no parent")?)?;
-    
+
     // Convert to camelCase
     let mut data = serde_json::to_value(config)?;
     data = convert_to_camel(data);
-    
+
     let content = serde_json::to_string_pretty(&data)?;
     fs::write(path, content)
         .with_context(|| format!("Failed to write config to {}", path.display()))?;
-    
+
     // Restrict permissions (best-effort, may fail on Windows)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
     }
-    
+
     Ok(())
 }
 
@@ -86,9 +86,7 @@ fn convert_to_camel(value: Value) -> Value {
             }
             Value::Object(new_map)
         }
-        Value::Array(arr) => {
-            Value::Array(arr.into_iter().map(convert_to_camel).collect())
-        }
+        Value::Array(arr) => Value::Array(arr.into_iter().map(convert_to_camel).collect()),
         _ => value,
     }
 }
@@ -98,14 +96,15 @@ fn snake_to_camel(name: &str) -> String {
     if parts.is_empty() {
         return String::new();
     }
-    parts[0].to_string() + &parts[1..]
-        .iter()
-        .map(|s| {
-            let mut chars = s.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-            }
-        })
-        .collect::<String>()
+    parts[0].to_string()
+        + &parts[1..]
+            .iter()
+            .map(|s| {
+                let mut chars = s.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                }
+            })
+            .collect::<String>()
 }

@@ -38,7 +38,12 @@ impl MemoryStore {
 
         // Get today's date for daily notes
         let today = Utc::now();
-        let today_key = format!("{}-{:02}-{:02}.md", today.year(), today.month(), today.day());
+        let today_key = format!(
+            "{}-{:02}-{:02}.md",
+            today.year(),
+            today.month(),
+            today.day()
+        );
         let today_file = self.memory_dir.join(&today_key);
 
         // Index today's note
@@ -79,7 +84,12 @@ impl MemoryStore {
 
     pub fn get_today_file(&self) -> PathBuf {
         let today = Utc::now();
-        self.memory_dir.join(format!("{}-{:02}-{:02}.md", today.year(), today.month(), today.day()))
+        self.memory_dir.join(format!(
+            "{}-{:02}-{:02}.md",
+            today.year(),
+            today.month(),
+            today.day()
+        ))
     }
 
     #[allow(dead_code)] // May be used by tools or future features

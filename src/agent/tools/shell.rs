@@ -15,11 +15,7 @@ pub struct ExecTool {
 }
 
 impl ExecTool {
-    pub fn new(
-        timeout: u64,
-        working_dir: Option<PathBuf>,
-        restrict_to_workspace: bool,
-    ) -> Self {
+    pub fn new(timeout: u64, working_dir: Option<PathBuf>, restrict_to_workspace: bool) -> Self {
         let deny_patterns = vec![
             Regex::new(r"\brm\s+-[rf]{1,2}\b").unwrap(),
             Regex::new(r"\bdel\s+/[fq]\b").unwrap(),
@@ -49,7 +45,10 @@ impl ExecTool {
     fn guard_command(&self, command: &str, cwd: &PathBuf) -> Option<String> {
         for pattern in &self.deny_patterns {
             if pattern.is_match(command) {
-                return Some(format!("Error: Command blocked by security policy: {}", command));
+                return Some(format!(
+                    "Error: Command blocked by security policy: {}",
+                    command
+                ));
             }
         }
 
@@ -105,8 +104,7 @@ impl Tool for ExecTool {
             .map(PathBuf::from)
             .or_else(|| self.working_dir.clone());
 
-        let cwd = working_dir
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let cwd = working_dir.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
         if let Some(err) = self.guard_command(command, &cwd) {
             return Ok(ToolResult::error(err));
@@ -121,7 +119,7 @@ impl Tool for ExecTool {
             Ok(Ok(output)) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                
+
                 let mut result = String::new();
                 if !stdout.is_empty() {
                     result.push_str(&stdout);
@@ -132,9 +130,13 @@ impl Tool for ExecTool {
                     }
                     result.push_str(&stderr);
                 }
-                
+
                 if output.status.success() {
-                    Ok(ToolResult::new(if result.is_empty() { "(no output)".to_string() } else { result }))
+                    Ok(ToolResult::new(if result.is_empty() {
+                        "(no output)".to_string()
+                    } else {
+                        result
+                    }))
                 } else {
                     Ok(ToolResult::error(format!("Command failed: {}", result)))
                 }

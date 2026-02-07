@@ -32,12 +32,13 @@ impl GroqTranscriptionProvider {
 
         let client = reqwest::Client::new();
         let file_bytes = std::fs::read(path)?;
-        let file_name = path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("audio");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("audio");
 
         let form = reqwest::multipart::Form::new()
-            .part("file", reqwest::multipart::Part::bytes(file_bytes).file_name(file_name.to_string()))
+            .part(
+                "file",
+                reqwest::multipart::Part::bytes(file_bytes).file_name(file_name.to_string()),
+            )
             .text("model", "whisper-large-v3");
 
         let response = client

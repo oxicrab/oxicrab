@@ -64,25 +64,30 @@ impl Tool for ReadFileTool {
         let path_str = params["path"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
-        
+
         let file_path = PathBuf::from(path_str);
-        let expanded = file_path.canonicalize()
-            .or_else(|_| {
-                let home = dirs::home_dir().unwrap_or_default();
-                let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
-                Ok::<PathBuf, anyhow::Error>(home.join(stripped))
-            })?;
+        let expanded = file_path.canonicalize().or_else(|_| {
+            let home = dirs::home_dir().unwrap_or_default();
+            let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
+            Ok::<PathBuf, anyhow::Error>(home.join(stripped))
+        })?;
 
         if let Some(err) = check_path_allowed(&expanded, &self.allowed_roots) {
             return Ok(ToolResult::error(err));
         }
 
         if !expanded.exists() {
-            return Ok(ToolResult::error(format!("Error: File not found: {}", path_str)));
+            return Ok(ToolResult::error(format!(
+                "Error: File not found: {}",
+                path_str
+            )));
         }
 
         if !expanded.is_file() {
-            return Ok(ToolResult::error(format!("Error: Not a file: {}", path_str)));
+            return Ok(ToolResult::error(format!(
+                "Error: Not a file: {}",
+                path_str
+            )));
         }
 
         match std::fs::read_to_string(&expanded) {
@@ -138,12 +143,11 @@ impl Tool for WriteFileTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
 
         let file_path = PathBuf::from(path_str);
-        let expanded = file_path.canonicalize()
-            .or_else(|_| {
-                let home = dirs::home_dir().unwrap_or_default();
-                let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
-                Ok::<PathBuf, anyhow::Error>(home.join(stripped))
-            })?;
+        let expanded = file_path.canonicalize().or_else(|_| {
+            let home = dirs::home_dir().unwrap_or_default();
+            let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
+            Ok::<PathBuf, anyhow::Error>(home.join(stripped))
+        })?;
 
         if let Some(err) = check_path_allowed(&expanded, &self.allowed_roots) {
             return Ok(ToolResult::error(err));
@@ -213,26 +217,29 @@ impl Tool for EditFileTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'new_text' parameter"))?;
 
         let file_path = PathBuf::from(path_str);
-        let expanded = file_path.canonicalize()
-            .or_else(|_| {
-                let home = dirs::home_dir().unwrap_or_default();
-                let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
-                Ok::<PathBuf, anyhow::Error>(home.join(stripped))
-            })?;
+        let expanded = file_path.canonicalize().or_else(|_| {
+            let home = dirs::home_dir().unwrap_or_default();
+            let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
+            Ok::<PathBuf, anyhow::Error>(home.join(stripped))
+        })?;
 
         if let Some(err) = check_path_allowed(&expanded, &self.allowed_roots) {
             return Ok(ToolResult::error(err));
         }
 
         if !expanded.exists() {
-            return Ok(ToolResult::error(format!("Error: File not found: {}", path_str)));
+            return Ok(ToolResult::error(format!(
+                "Error: File not found: {}",
+                path_str
+            )));
         }
 
         match std::fs::read_to_string(&expanded) {
             Ok(content) => {
                 if !content.contains(old_text) {
                     return Ok(ToolResult::error(
-                        "Error: old_text not found in file. Make sure it matches exactly.".to_string()
+                        "Error: old_text not found in file. Make sure it matches exactly."
+                            .to_string(),
                     ));
                 }
 
@@ -294,23 +301,28 @@ impl Tool for ListDirTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
 
         let dir_path = PathBuf::from(path_str);
-        let expanded = dir_path.canonicalize()
-            .or_else(|_| {
-                let home = dirs::home_dir().unwrap_or_default();
-                let stripped = dir_path.strip_prefix("~").unwrap_or(dir_path.as_path());
-                Ok::<PathBuf, anyhow::Error>(home.join(stripped))
-            })?;
+        let expanded = dir_path.canonicalize().or_else(|_| {
+            let home = dirs::home_dir().unwrap_or_default();
+            let stripped = dir_path.strip_prefix("~").unwrap_or(dir_path.as_path());
+            Ok::<PathBuf, anyhow::Error>(home.join(stripped))
+        })?;
 
         if let Some(err) = check_path_allowed(&expanded, &self.allowed_roots) {
             return Ok(ToolResult::error(err));
         }
 
         if !expanded.exists() {
-            return Ok(ToolResult::error(format!("Error: Directory not found: {}", path_str)));
+            return Ok(ToolResult::error(format!(
+                "Error: Directory not found: {}",
+                path_str
+            )));
         }
 
         if !expanded.is_dir() {
-            return Ok(ToolResult::error(format!("Error: Not a directory: {}", path_str)));
+            return Ok(ToolResult::error(format!(
+                "Error: Not a directory: {}",
+                path_str
+            )));
         }
 
         let mut entries = Vec::new();

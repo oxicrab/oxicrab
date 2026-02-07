@@ -10,7 +10,7 @@ pub mod providers;
 pub mod session;
 pub mod utils;
 
-pub use auth::google::{get_credentials, run_oauth_flow, has_valid_credentials, GoogleCredentials};
+pub use auth::google::{get_credentials, has_valid_credentials, run_oauth_flow, GoogleCredentials};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const LOGO: &str = "🤖";

@@ -1,6 +1,8 @@
 use crate::agent::tools::{
-    ToolRegistry, filesystem::{ReadFileTool, WriteFileTool, ListDirTool},
-    shell::ExecTool, web::{WebSearchTool, WebFetchTool},
+    filesystem::{ListDirTool, ReadFileTool, WriteFileTool},
+    shell::ExecTool,
+    web::{WebFetchTool, WebSearchTool},
+    ToolRegistry,
 };
 use crate::agent::truncation::truncate_tool_result;
 use crate::bus::{InboundMessage, MessageBus};
@@ -84,10 +86,15 @@ impl SubagentManager {
         };
 
         let bg_task = tokio::spawn(async move {
-            manager.run_subagent(task_id_clone, task, display_label_clone, origin).await;
+            manager
+                .run_subagent(task_id_clone, task, display_label_clone, origin)
+                .await;
         });
 
-        self.running_tasks.lock().await.insert(task_id.clone(), bg_task);
+        self.running_tasks
+            .lock()
+            .await
+            .insert(task_id.clone(), bg_task);
 
         info!("Spawned subagent [{}]: {}", task_id, display_label);
         Ok(format!(
@@ -105,7 +112,9 @@ impl SubagentManager {
     ) {
         info!("Subagent [{}] starting task: {}", task_id, label);
 
-        let result = self.run_subagent_inner(&task_id, &task, &label, &origin).await;
+        let result = self
+            .run_subagent_inner(&task_id, &task, &label, &origin)
+            .await;
 
         // Cleanup
         self.running_tasks.lock().await.remove(&task_id);
@@ -113,11 +122,20 @@ impl SubagentManager {
         match result {
             Ok(final_result) => {
                 info!("Subagent [{}] completed successfully", task_id);
-                self.announce_result(&task_id, &label, &task, &final_result, &origin, "ok").await;
+                self.announce_result(&task_id, &label, &task, &final_result, &origin, "ok")
+                    .await;
             }
             Err(e) => {
                 warn!("Subagent [{}] failed: {}", task_id, e);
-                self.announce_result(&task_id, &label, &task, &format!("Error: {}", e), &origin, "error").await;
+                self.announce_result(
+                    &task_id,
+                    &label,
+                    &task,
+                    &format!("Error: {}", e),
+                    &origin,
+                    "error",
+                )
+                .await;
             }
         }
     }
@@ -132,7 +150,10 @@ impl SubagentManager {
         // Build tools
         let mut tools = ToolRegistry::new();
         let allowed_roots = if self.restrict_to_workspace {
-            Some(vec![self.workspace.clone(), dirs::home_dir().unwrap_or_default()])
+            Some(vec![
+                self.workspace.clone(),
+                dirs::home_dir().unwrap_or_default(),
+            ])
         } else {
             None
         };
@@ -175,13 +196,16 @@ impl SubagentManager {
 
             let _tools_defs = tools.get_definitions();
 
-            let response = self.provider.chat(
-                messages.clone(),
-                Some(tools.get_tool_definitions()),
-                Some(&self.model),
-                4096,
-                0.7,
-            ).await?;
+            let response = self
+                .provider
+                .chat(
+                    messages.clone(),
+                    Some(tools.get_tool_definitions()),
+                    Some(&self.model),
+                    4096,
+                    0.7,
+                )
+                .await?;
 
             if response.has_tool_calls() {
                 // Add assistant message
@@ -194,8 +218,13 @@ impl SubagentManager {
 
                 // Execute tools
                 for tool_call in &response.tool_calls {
-                    debug!("Subagent [{}] executing: {} with arguments: {}", task_id, tool_call.name, tool_call.arguments);
-                    let result = tools.execute(&tool_call.name, tool_call.arguments.clone()).await?;
+                    debug!(
+                        "Subagent [{}] executing: {} with arguments: {}",
+                        task_id, tool_call.name, tool_call.arguments
+                    );
+                    let result = tools
+                        .execute(&tool_call.name, tool_call.arguments.clone())
+                        .await?;
                     let result_str = truncate_tool_result(&result.content, MAX_TOOL_RESULT_CHARS);
                     messages.push(Message {
                         role: "tool".to_string(),
@@ -218,7 +247,10 @@ impl SubagentManager {
                     tokio::time::sleep(tokio::time::Duration::from_secs_f64(delay)).await;
                     continue;
                 }
-                warn!("Subagent [{}] empty response, no retries left - giving up", task_id);
+                warn!(
+                    "Subagent [{}] empty response, no retries left - giving up",
+                    task_id
+                );
                 break;
             }
         }
@@ -235,7 +267,11 @@ impl SubagentManager {
         origin: &(String, String),
         status: &str,
     ) {
-        let status_text = if status == "ok" { "completed successfully" } else { "failed" };
+        let status_text = if status == "ok" {
+            "completed successfully"
+        } else {
+            "failed"
+        };
         let announce_content = format!(
             "[Subagent '{}' {}]\n\nTask: {}\n\nResult:\n{}\n\nSummarize this naturally for the user. Keep it brief (1-2 sentences). Do not mention technical details like \"subagent\" or task IDs.",
             label, status_text, task, result
@@ -252,7 +288,10 @@ impl SubagentManager {
         };
 
         self.bus.lock().await.publish_inbound(msg).await;
-        debug!("Subagent [{}] announced result to {}:{}", task_id, origin.0, origin.1);
+        debug!(
+            "Subagent [{}] announced result to {}:{}",
+            task_id, origin.0, origin.1
+        );
     }
 
     fn build_subagent_prompt(&self, task: &str) -> String {
@@ -285,7 +324,8 @@ You are a subagent spawned by the main agent to complete a specific task.
 Your workspace is at: {}
 
 When you have completed the task, provide a clear summary of your findings or actions."#,
-            task, self.workspace.display()
+            task,
+            self.workspace.display()
         )
     }
 
@@ -298,7 +338,8 @@ When you have completed the task, provide a clear summary of your findings or ac
 
     pub async fn list_running(&self) -> Vec<HashMap<String, Value>> {
         let tasks = self.running_tasks.lock().await;
-        tasks.iter()
+        tasks
+            .iter()
             .map(|(id, handle)| {
                 let mut map = HashMap::new();
                 map.insert("id".to_string(), Value::String(id.clone()));

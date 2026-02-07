@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use regex::Regex;
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tracing::debug;
@@ -39,7 +39,7 @@ impl MemoryDB {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
-             PRAGMA busy_timeout=3000;"
+             PRAGMA busy_timeout=3000;",
         )?;
         Ok(conn)
     }
@@ -239,14 +239,20 @@ impl MemoryDB {
                     .into_iter()
                     .filter(|(key, _)| !exclude.contains(key))
                     .take(limit)
-                    .map(|(source_key, content)| MemoryHit { source_key, content })
+                    .map(|(source_key, content)| MemoryHit {
+                        source_key,
+                        content,
+                    })
                     .collect();
                 return Ok(hits);
             }
         }
 
         // Fallback: LIKE search
-        let like = format!("%{}%", query_text.trim().chars().take(200).collect::<String>());
+        let like = format!(
+            "%{}%",
+            query_text.trim().chars().take(200).collect::<String>()
+        );
         let mut stmt = conn.prepare(
             "SELECT source_key, content
             FROM memory_entries
@@ -265,7 +271,10 @@ impl MemoryDB {
                 .into_iter()
                 .filter(|(key, _)| !exclude.contains(key))
                 .take(limit)
-                .map(|(source_key, content)| MemoryHit { source_key, content })
+                .map(|(source_key, content)| MemoryHit {
+                    source_key,
+                    content,
+                })
                 .collect();
             return Ok(hits);
         }

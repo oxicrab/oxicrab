@@ -436,7 +436,7 @@ impl Config {
 
     pub fn get_api_key(&self, model: Option<&str>) -> Option<String> {
         let model = model.unwrap_or(&self.agents.defaults.model).to_lowercase();
-        
+
         // Match provider by model name
         if model.contains("openrouter") && !self.providers.openrouter.api_key.is_empty() {
             return Some(self.providers.openrouter.api_key.clone());
@@ -444,16 +444,20 @@ impl Config {
         if model.contains("deepseek") && !self.providers.deepseek.api_key.is_empty() {
             return Some(self.providers.deepseek.api_key.clone());
         }
-        if (model.contains("anthropic") || model.contains("claude")) && !self.providers.anthropic.api_key.is_empty() {
+        if (model.contains("anthropic") || model.contains("claude"))
+            && !self.providers.anthropic.api_key.is_empty()
+        {
             return Some(self.providers.anthropic.api_key.clone());
         }
-        if (model.contains("openai") || model.contains("gpt")) && !self.providers.openai.api_key.is_empty() {
+        if (model.contains("openai") || model.contains("gpt"))
+            && !self.providers.openai.api_key.is_empty()
+        {
             return Some(self.providers.openai.api_key.clone());
         }
         if model.contains("gemini") && !self.providers.gemini.api_key.is_empty() {
             return Some(self.providers.gemini.api_key.clone());
         }
-        
+
         // Fallback: first available key
         if !self.providers.openrouter.api_key.is_empty() {
             return Some(self.providers.openrouter.api_key.clone());
@@ -467,16 +471,22 @@ impl Config {
         if !self.providers.gemini.api_key.is_empty() {
             return Some(self.providers.gemini.api_key.clone());
         }
-        
+
         None
     }
 
     #[allow(dead_code)] // May be used for API routing
     pub fn get_api_base(&self, model: Option<&str>) -> Option<String> {
         let model = model.unwrap_or(&self.agents.defaults.model).to_lowercase();
-        
+
         if model.contains("openrouter") {
-            return Some(self.providers.openrouter.api_base.clone().unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()));
+            return Some(
+                self.providers
+                    .openrouter
+                    .api_base
+                    .clone()
+                    .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
+            );
         }
         if model.contains("zhipu") && self.providers.zhipu.api_base.is_some() {
             return self.providers.zhipu.api_base.clone();
@@ -484,33 +494,39 @@ impl Config {
         if model.contains("vllm") && self.providers.vllm.api_base.is_some() {
             return self.providers.vllm.api_base.clone();
         }
-        
+
         None
     }
 
     /// Create an LLM provider instance based on configuration.
-    /// 
+    ///
     /// For Anthropic models, prefers OAuth provider if configured/enabled,
     /// otherwise falls back to API key provider.
     pub async fn create_provider(
         &self,
         model: Option<&str>,
     ) -> anyhow::Result<std::sync::Arc<dyn crate::providers::base::LLMProvider>> {
-        use crate::providers::{anthropic::AnthropicProvider, anthropic_oauth::AnthropicOAuthProvider, openai::OpenAIProvider, gemini::GeminiProvider};
-        
+        use crate::providers::{
+            anthropic::AnthropicProvider, anthropic_oauth::AnthropicOAuthProvider,
+            gemini::GeminiProvider, openai::OpenAIProvider,
+        };
+
         let model = model.unwrap_or(&self.agents.defaults.model);
         let model_lower = model.to_lowercase();
-        
+
         // Check if this is an Anthropic model and OAuth is preferred
         // Only try OAuth for models that explicitly require it (start with "anthropic/")
         // or if OAuth is explicitly enabled
-        if model.starts_with("anthropic/") || (model_lower.contains("anthropic") || model_lower.contains("claude")) {
+        if model.starts_with("anthropic/")
+            || (model_lower.contains("anthropic") || model_lower.contains("claude"))
+        {
             let oauth_cfg = &self.providers.anthropic_oauth;
-            
+
             // For OAuth-only models (starting with "anthropic/"), always try OAuth
             // For other models, only try OAuth if explicitly enabled (not just auto-detect)
-            let should_try_oauth = model.starts_with("anthropic/") || oauth_cfg.enabled || oauth_cfg.auto_detect;
-            
+            let should_try_oauth =
+                model.starts_with("anthropic/") || oauth_cfg.enabled || oauth_cfg.auto_detect;
+
             if should_try_oauth {
                 // Try explicit config first
                 if !oauth_cfg.access_token.is_empty() {
@@ -519,30 +535,42 @@ impl Config {
                         oauth_cfg.refresh_token.clone(),
                         oauth_cfg.expires_at,
                         Some(model.to_string()),
-                        oauth_cfg.credentials_path.as_ref().map(|p| std::path::PathBuf::from(p)),
+                        oauth_cfg
+                            .credentials_path
+                            .as_ref()
+                            .map(|p| std::path::PathBuf::from(p)),
                     )));
                 }
-                
+
                 // Try auto-detection (only for OAuth-only models or if auto-detect is enabled)
                 if model.starts_with("anthropic/") || oauth_cfg.auto_detect {
                     // Try Claude CLI
-                    if let Ok(Some(provider)) = AnthropicOAuthProvider::from_claude_cli(Some(model.to_string())).await {
+                    if let Ok(Some(provider)) =
+                        AnthropicOAuthProvider::from_claude_cli(Some(model.to_string())).await
+                    {
                         return Ok(Arc::new(provider));
                     }
-                    
+
                     // Try OpenClaw
-                    if let Ok(Some(provider)) = AnthropicOAuthProvider::from_openclaw(Some(model.to_string())).await {
+                    if let Ok(Some(provider)) =
+                        AnthropicOAuthProvider::from_openclaw(Some(model.to_string())).await
+                    {
                         return Ok(Arc::new(provider));
                     }
-                    
+
                     // Try credentials file if path specified
                     if let Some(ref path) = oauth_cfg.credentials_path {
                         let path_buf = std::path::PathBuf::from(path);
-                        if let Ok(Some(provider)) = AnthropicOAuthProvider::from_credentials_file(&path_buf, Some(model.to_string())).await {
+                        if let Ok(Some(provider)) = AnthropicOAuthProvider::from_credentials_file(
+                            &path_buf,
+                            Some(model.to_string()),
+                        )
+                        .await
+                        {
                             return Ok(Arc::new(provider));
                         }
                     }
-                    
+
                     // If auto-detect was attempted but failed, and this is an OAuth-only model, provide helpful error
                     if model.starts_with("anthropic/") {
                         anyhow::bail!(
@@ -559,7 +587,7 @@ impl Config {
                 }
             }
         }
-        
+
         // Check if this is an OAuth-only model (starts with "anthropic/")
         if model.starts_with("anthropic/") {
             anyhow::bail!(
@@ -572,7 +600,7 @@ impl Config {
                 model
             );
         }
-        
+
         // Fall back to API key provider
         // For Claude models, try to use Anthropic API key directly
         if model_lower.contains("anthropic") || model_lower.contains("claude") {
@@ -580,16 +608,16 @@ impl Config {
                 tracing::info!("Using Anthropic API key provider for model: {}", model);
                 return Ok(Arc::new(AnthropicProvider::new(
                     self.providers.anthropic.api_key.clone(),
-                    Some(model.to_string())
+                    Some(model.to_string()),
                 )));
             } else {
                 tracing::warn!("Anthropic API key is empty, trying fallback...");
             }
         }
-        
+
         let api_key = self.get_api_key(Some(model));
         let model_str = model.to_string();
-        
+
         if let Some(key) = api_key {
             tracing::info!("Using API key provider for model: {}", model);
             if model_lower.contains("anthropic") || model_lower.contains("claude") {
@@ -604,11 +632,13 @@ impl Config {
             }
         } else {
             tracing::error!("No API key found for model: {}", model);
-            tracing::debug!("Available providers: anthropic={}, openai={}, gemini={}, openrouter={}",
+            tracing::debug!(
+                "Available providers: anthropic={}, openai={}, gemini={}, openrouter={}",
                 !self.providers.anthropic.api_key.is_empty(),
                 !self.providers.openai.api_key.is_empty(),
                 !self.providers.gemini.api_key.is_empty(),
-                !self.providers.openrouter.api_key.is_empty());
+                !self.providers.openrouter.api_key.is_empty()
+            );
             anyhow::bail!("No API key configured for model: {}", model);
         }
     }

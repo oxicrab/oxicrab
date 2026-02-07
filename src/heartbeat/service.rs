@@ -7,7 +7,16 @@ const HEARTBEAT_PROMPT: &str = "Read HEARTBEAT.md in your workspace (if it exist
 
 pub struct HeartbeatService {
     workspace: PathBuf,
-    on_heartbeat: Option<Arc<dyn Fn(String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String>> + Send>> + Send + Sync>>,
+    on_heartbeat: Option<
+        Arc<
+            dyn Fn(
+                    String,
+                )
+                    -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String>> + Send>>
+                + Send
+                + Sync,
+        >,
+    >,
     interval_s: u64,
     enabled: bool,
     _triage_provider: Option<Arc<dyn LLMProvider>>,
@@ -20,7 +29,16 @@ pub struct HeartbeatService {
 impl HeartbeatService {
     pub fn new(
         workspace: PathBuf,
-        on_heartbeat: Option<Arc<dyn Fn(String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String>> + Send>> + Send + Sync>>,
+        on_heartbeat: Option<
+            Arc<
+                dyn Fn(
+                        String,
+                    ) -> std::pin::Pin<
+                        Box<dyn std::future::Future<Output = Result<String>> + Send>,
+                    > + Send
+                    + Sync,
+            >,
+        >,
         interval_s: u64,
         enabled: bool,
         triage_provider: Option<Arc<dyn LLMProvider>>,
@@ -62,7 +80,12 @@ impl HeartbeatService {
                 tokio::time::sleep(tokio::time::Duration::from_secs(interval)).await;
 
                 if let Some(ref callback) = on_heartbeat {
-                    let prompt = format!("{}\n\nRead {}/{}", HEARTBEAT_PROMPT, workspace.display(), strategy_file);
+                    let prompt = format!(
+                        "{}\n\nRead {}/{}",
+                        HEARTBEAT_PROMPT,
+                        workspace.display(),
+                        strategy_file
+                    );
                     let _ = callback(prompt).await;
                 }
             }

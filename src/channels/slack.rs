@@ -1,16 +1,16 @@
 use crate::bus::{InboundMessage, OutboundMessage};
-use crate::channels::base::{BaseChannel, split_message};
+use crate::channels::base::{split_message, BaseChannel};
 use crate::config::SlackConfig;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
+use futures_util::SinkExt;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
-use futures_util::SinkExt;
 
 pub struct SlackChannel {
     config: SlackConfig,
@@ -57,20 +57,18 @@ impl SlackChannel {
         let mut form = params.clone();
         form.insert("token", Value::String(self.config.bot_token.clone()));
 
-        let response = client
-            .post(&url)
-            .form(&form)
-            .send()
-            .await?;
-        
+        let response = client.post(&url).form(&form).send().await?;
+
         let json: Value = response.json().await?;
         if json.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-            let error = json.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let error = json
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             return Err(anyhow::anyhow!("Slack API error: {}", error));
         }
         Ok(json)
     }
-
 
     async fn handle_message_event(&self, event: &Value) -> Result<()> {
         // Ignore bot messages and message_changed subtypes
@@ -80,7 +78,11 @@ impl SlackChannel {
 
         let user_id = event.get("user").and_then(|v| v.as_str()).unwrap_or("");
         let channel_id = event.get("channel").and_then(|v| v.as_str()).unwrap_or("");
-        let mut text = event.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let mut text = event
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
         if user_id.is_empty() || channel_id.is_empty() {
             return Ok(());
@@ -145,7 +147,11 @@ impl SlackChannel {
         let mut params = HashMap::new();
         params.insert("user", Value::String(user_id.to_string()));
         if let Ok(user_info) = self.send_slack_api("users.info", &params).await {
-            if let Some(name) = user_info.get("user").and_then(|u| u.get("name")).and_then(|n| n.as_str()) {
+            if let Some(name) = user_info
+                .get("user")
+                .and_then(|u| u.get("name"))
+                .and_then(|n| n.as_str())
+            {
                 sender_id = format!("{}|{}", user_id, name);
             }
         }
@@ -158,7 +164,8 @@ impl SlackChannel {
             for file in files {
                 if let Some(mimetype) = file.get("mimetype").and_then(|v| v.as_str()) {
                     if mimetype.starts_with("image/") {
-                        if let Some(url) = file.get("url_private_download").and_then(|v| v.as_str()) {
+                        if let Some(url) = file.get("url_private_download").and_then(|v| v.as_str())
+                        {
                             if let Some(file_id) = file.get("id").and_then(|v| v.as_str()) {
                                 // Download file
                                 match self.download_file(url, file_id, mimetype).await {
@@ -173,7 +180,10 @@ impl SlackChannel {
                             }
                         }
                     } else {
-                        let file_name = file.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let file_name = file
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
                         content_parts.push(format!("[file: {}]", file_name));
                     }
                 }
@@ -186,7 +196,12 @@ impl SlackChannel {
             text
         };
 
-        debug!("Slack message from {} in {}: {}...", sender_id, channel_id, &content[..content.len().min(50)]);
+        debug!(
+            "Slack message from {} in {}: {}...",
+            sender_id,
+            channel_id,
+            &content[..content.len().min(50)]
+        );
 
         let inbound_msg = InboundMessage {
             channel: "slack".to_string(),
@@ -205,7 +220,9 @@ impl SlackChannel {
             },
         };
 
-        self.inbound_tx.send(inbound_msg).map_err(|e| anyhow::anyhow!("Send error: {}", e))?;
+        self.inbound_tx
+            .send(inbound_msg)
+            .map_err(|e| anyhow::anyhow!("Send error: {}", e))?;
         Ok(())
     }
 
@@ -262,8 +279,14 @@ impl BaseChannel for SlackChannel {
         let params = HashMap::new();
         match self.send_slack_api("auth.test", &params).await {
             Ok(auth) => {
-                self.bot_user_id = auth.get("user_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-                let user = auth.get("user").and_then(|v| v.as_str()).unwrap_or("unknown");
+                self.bot_user_id = auth
+                    .get("user_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let user = auth
+                    .get("user")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
                 let user_id = auth.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
                 info!("Slack bot connected as {} (ID: {})", user, user_id);
             }
@@ -276,7 +299,10 @@ impl BaseChannel for SlackChannel {
         // Set presence to active
         let mut presence_params = HashMap::new();
         presence_params.insert("presence", Value::String("auto".to_string()));
-        if let Err(e) = self.send_slack_api("users.setPresence", &presence_params).await {
+        if let Err(e) = self
+            .send_slack_api("users.setPresence", &presence_params)
+            .await
+        {
             warn!("Failed to set Slack presence: {}", e);
         }
 
@@ -290,18 +316,21 @@ impl BaseChannel for SlackChannel {
         let bot_token = self.config.bot_token.clone();
 
         let ws_task = tokio::spawn(async move {
-            use tokio_tungstenite::tungstenite::Message;
             use futures_util::StreamExt;
+            use tokio_tungstenite::tungstenite::Message;
 
             // Slack Socket Mode connection
             // First, call apps.connections.open to get the WebSocket URL
             // Then connect to that URL
-            
+
             loop {
                 debug!("Attempting to connect to Slack Socket Mode...");
-                debug!("Token starts with: {}", app_token.chars().take(10).collect::<String>());
+                debug!(
+                    "Token starts with: {}",
+                    app_token.chars().take(10).collect::<String>()
+                );
                 debug!("Token length: {} characters", app_token.len());
-                
+
                 // Get WebSocket URL from Slack API
                 let client = reqwest::Client::new();
                 let response = match client
@@ -318,7 +347,7 @@ impl BaseChannel for SlackChannel {
                         continue;
                     }
                 };
-                
+
                 let json: Value = match response.json().await {
                     Ok(j) => j,
                     Err(e) => {
@@ -328,9 +357,12 @@ impl BaseChannel for SlackChannel {
                         continue;
                     }
                 };
-                
+
                 if json.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-                    let error = json.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let error = json
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
                     error!("Slack apps.connections.open error: {}", error);
                     if error == "invalid_auth" {
                         warn!("Invalid app_token - check that it starts with 'xapp-' and has 'connections:write' scope");
@@ -339,7 +371,7 @@ impl BaseChannel for SlackChannel {
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                     continue;
                 }
-                
+
                 let ws_url = match json.get("url").and_then(|v| v.as_str()) {
                     Some(url) => url,
                     None => {
@@ -349,9 +381,12 @@ impl BaseChannel for SlackChannel {
                         continue;
                     }
                 };
-                
-                debug!("Received WebSocket URL from Slack (length: {} chars)", ws_url.len());
-                
+
+                debug!(
+                    "Received WebSocket URL from Slack (length: {} chars)",
+                    ws_url.len()
+                );
+
                 let url = match url::Url::parse(ws_url) {
                     Ok(u) => u,
                     Err(e) => {
@@ -361,24 +396,30 @@ impl BaseChannel for SlackChannel {
                         continue;
                     }
                 };
-                
+
                 match tokio_tungstenite::connect_async(url.as_str()).await {
                     Ok((ws_stream, response)) => {
-                        info!("Connected to Slack Socket Mode (status: {})", response.status());
+                        info!(
+                            "Connected to Slack Socket Mode (status: {})",
+                            response.status()
+                        );
                         let (mut write, mut read) = ws_stream.split();
 
                         while let Some(msg) = read.next().await {
                             match msg {
                                 Ok(Message::Text(text)) => {
                                     if let Ok(event) = serde_json::from_str::<Value>(&text) {
-                                        let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                                        
+                                        let event_type = event
+                                            .get("type")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
+
                                         // Handle hello message
                                         if event_type == "hello" {
                                             info!("Received Socket Mode hello message");
                                             continue;
                                         }
-                                        
+
                                         // Acknowledge events_api messages via WebSocket
                                         // Slack Socket Mode requires acknowledgments to be sent back through the WebSocket
                                         if event_type == "events_api" {
@@ -388,18 +429,24 @@ impl BaseChannel for SlackChannel {
                                                     "payload": {}
                                                 });
                                                 debug!("Sending Socket Mode acknowledgment for envelope_id: {}", envelope_id.as_str().unwrap_or(""));
-                                                if let Err(e) = write.send(Message::Text(ack_msg.to_string())).await {
+                                                if let Err(e) = write
+                                                    .send(Message::Text(ack_msg.to_string()))
+                                                    .await
+                                                {
                                                     error!("Failed to send Socket Mode acknowledgment: {}", e);
                                                 }
                                             }
                                         }
-                                        
+
                                         // Process the event
                                         if event_type == "events_api" {
                                             if let Some(payload) = event.get("payload") {
                                                 if let Some(event_data) = payload.get("event") {
-                                                    let inner_event_type = event_data.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                                                    
+                                                    let inner_event_type = event_data
+                                                        .get("type")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("");
+
                                                     match inner_event_type {
                                                         "message" | "app_mention" => {
                                                             let channel = SlackChannel {
@@ -415,7 +462,10 @@ impl BaseChannel for SlackChannel {
                                                                 ws_handle: None,
                                                                 seen_messages: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
                                                             };
-                                                            if let Err(e) = channel.handle_message_event(event_data).await {
+                                                            if let Err(e) = channel
+                                                                .handle_message_event(event_data)
+                                                                .await
+                                                            {
                                                                 error!("Error handling Slack message event: {}", e);
                                                             }
                                                         }

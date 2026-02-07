@@ -1,6 +1,9 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::BaseChannel;
-use crate::channels::{telegram::TelegramChannel, discord::DiscordChannel, slack::SlackChannel, whatsapp::WhatsAppChannel};
+use crate::channels::{
+    discord::DiscordChannel, slack::SlackChannel, telegram::TelegramChannel,
+    whatsapp::WhatsAppChannel,
+};
 use crate::config::Config;
 use anyhow::Result;
 use std::sync::Arc;
@@ -18,7 +21,7 @@ impl ChannelManager {
     ) -> Result<Self> {
         let mut channels: Vec<Box<dyn BaseChannel>> = Vec::new();
         let mut enabled = Vec::new();
-        
+
         // For WhatsApp, create a separate channel for outbound messages
         let (_, outbound_rx) = tokio::sync::mpsc::unbounded_channel::<OutboundMessage>();
 
@@ -75,7 +78,9 @@ impl ChannelManager {
 
     pub async fn start_all(&mut self) -> Result<()> {
         for (idx, channel) in self.channels.iter_mut().enumerate() {
-            let channel_name = self.enabled_channels.get(idx)
+            let channel_name = self
+                .enabled_channels
+                .get(idx)
                 .map(|s| s.as_str())
                 .unwrap_or("unknown");
             tracing::info!("Starting channel: {}", channel_name);
@@ -94,8 +99,12 @@ impl ChannelManager {
     }
 
     pub async fn send(&self, msg: &OutboundMessage) -> Result<()> {
-        tracing::info!("ChannelManager.send: channel={}, chat_id={}, content_len={}", 
-            msg.channel, msg.chat_id, msg.content.len());
+        tracing::info!(
+            "ChannelManager.send: channel={}, chat_id={}, content_len={}",
+            msg.channel,
+            msg.chat_id,
+            msg.content.len()
+        );
         for channel in self.channels.iter() {
             if channel.name() == msg.channel {
                 tracing::info!("Found matching channel: {}", channel.name());
@@ -107,9 +116,11 @@ impl ChannelManager {
                 return Ok(());
             }
         }
-        tracing::error!("No channel found for: {} (available channels: {:?})", 
-            msg.channel, 
-            self.channels.iter().map(|c| c.name()).collect::<Vec<_>>());
+        tracing::error!(
+            "No channel found for: {} (available channels: {:?})",
+            msg.channel,
+            self.channels.iter().map(|c| c.name()).collect::<Vec<_>>()
+        );
         Ok(())
     }
 }

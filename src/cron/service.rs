@@ -1,10 +1,10 @@
 use crate::cron::types::{CronJob, CronSchedule, CronStore};
-use std::sync::Arc;
 use anyhow::Result;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use cron::Schedule;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -23,24 +23,26 @@ fn compute_next_run(schedule: &CronSchedule, now_ms: i64) -> Option<i64> {
         CronSchedule::At { at_ms } => {
             at_ms.and_then(|at| if at > now_ms { Some(at) } else { None })
         }
-        CronSchedule::Every { every_ms } => {
-            every_ms.and_then(|every| if every > 0 { Some(now_ms + every) } else { None })
-        }
+        CronSchedule::Every { every_ms } => every_ms.and_then(|every| {
+            if every > 0 {
+                Some(now_ms + every)
+            } else {
+                None
+            }
+        }),
         CronSchedule::Cron { expr, tz } => {
             if let Some(expr_str) = expr {
                 if let Ok(sched) = expr_str.parse::<Schedule>() {
                     let now_sec = now_ms / 1000;
                     let now_dt: Option<DateTime<Tz>> = if let Some(tz_str) = tz {
                         if let Ok(tz_val) = tz_str.parse::<Tz>() {
-                            DateTime::from_timestamp(now_sec, 0)
-                                .map(|dt| dt.with_timezone(&tz_val))
+                            DateTime::from_timestamp(now_sec, 0).map(|dt| dt.with_timezone(&tz_val))
                         } else {
                             DateTime::from_timestamp(now_sec, 0)
                                 .map(|dt| dt.with_timezone(&Tz::UTC))
                         }
                     } else {
-                        DateTime::from_timestamp(now_sec, 0)
-                            .map(|dt| dt.with_timezone(&Tz::UTC))
+                        DateTime::from_timestamp(now_sec, 0).map(|dt| dt.with_timezone(&Tz::UTC))
                     };
 
                     if let Some(now_dt) = now_dt {
@@ -59,7 +61,20 @@ fn compute_next_run(schedule: &CronSchedule, now_ms: i64) -> Option<i64> {
 pub struct CronService {
     store_path: PathBuf,
     store: Arc<Mutex<Option<CronStore>>>,
-    on_job: Arc<tokio::sync::Mutex<Option<Arc<dyn Fn(CronJob) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>>> + Send>> + Send + Sync>>>>,
+    on_job: Arc<
+        tokio::sync::Mutex<
+            Option<
+                Arc<
+                    dyn Fn(
+                            CronJob,
+                        ) -> std::pin::Pin<
+                            Box<dyn std::future::Future<Output = Result<Option<String>>> + Send>,
+                        > + Send
+                        + Sync,
+                >,
+            >,
+        >,
+    >,
     running: Arc<tokio::sync::Mutex<bool>>,
 }
 
@@ -75,7 +90,13 @@ impl CronService {
 
     pub async fn set_on_job<F>(&self, callback: F)
     where
-        F: Fn(CronJob) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>>> + Send>> + Send + Sync + 'static,
+        F: Fn(
+                CronJob,
+            ) -> std::pin::Pin<
+                Box<dyn std::future::Future<Output = Result<Option<String>>> + Send>,
+            > + Send
+            + Sync
+            + 'static,
     {
         *self.on_job.lock().await = Some(Arc::new(callback));
     }
@@ -128,10 +149,13 @@ impl CronService {
                 }
 
                 let service = CronService::new(store_path.clone());
-                let store = service.load_store(true).await.unwrap_or_else(|_| CronStore {
-                    version: 1,
-                    jobs: vec![],
-                });
+                let store = service
+                    .load_store(true)
+                    .await
+                    .unwrap_or_else(|_| CronStore {
+                        version: 1,
+                        jobs: vec![],
+                    });
 
                 let now = now_ms();
                 let mut next_run: Option<i64> = None;
@@ -144,7 +168,9 @@ impl CronService {
                         continue;
                     }
 
-                    let job_next = job.state.next_run_at_ms
+                    let job_next = job
+                        .state
+                        .next_run_at_ms
                         .or_else(|| compute_next_run(&job.schedule, now));
 
                     if let Some(job_next) = job_next {
@@ -224,7 +250,7 @@ impl CronService {
     pub async fn enable_job(&self, job_id: &str, enabled: bool) -> Result<Option<CronJob>> {
         let mut store_guard = self.store.lock().await;
         let store = store_guard.as_mut().unwrap();
-        
+
         for job in &mut store.jobs {
             if job.id == job_id {
                 job.enabled = enabled;
@@ -255,7 +281,7 @@ impl CronService {
     ) -> Result<Option<CronJob>> {
         let mut store_guard = self.store.lock().await;
         let store = store_guard.as_mut().unwrap();
-        
+
         for job in &mut store.jobs {
             if job.id == job_id {
                 if let Some(n) = name {
@@ -292,19 +318,19 @@ impl CronService {
     pub async fn run_job(&self, job_id: &str, force: bool) -> Result<bool> {
         let store = self.load_store(false).await?;
         let job = store.jobs.iter().find(|j| j.id == job_id);
-        
+
         if let Some(job) = job {
             if !force && !job.enabled {
                 return Ok(false);
             }
-            
+
             let on_job_guard = self.on_job.lock().await;
             if let Some(ref callback) = *on_job_guard {
                 let job_clone = job.clone();
                 let callback = callback.clone();
                 drop(on_job_guard);
                 callback(job_clone).await?;
-                
+
                 // Update last run time
                 let mut store_guard = self.store.lock().await;
                 if let Some(ref mut store) = *store_guard {

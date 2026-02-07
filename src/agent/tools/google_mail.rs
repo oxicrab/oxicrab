@@ -123,17 +123,25 @@ impl Tool for GoogleMailTool {
 
                 let endpoint = format!(
                     "users/me/messages?q={}&maxResults={}",
-                    urlencoding::encode(query), max_results
+                    urlencoding::encode(query),
+                    max_results
                 );
                 let result = self.call_api(&endpoint, "GET", None).await?;
                 let empty_messages: Vec<serde_json::Value> = vec![];
                 let messages = result["messages"].as_array().unwrap_or(&empty_messages);
 
                 if messages.is_empty() {
-                    return Ok(ToolResult::new(format!("No messages found for query: {}", query)));
+                    return Ok(ToolResult::new(format!(
+                        "No messages found for query: {}",
+                        query
+                    )));
                 }
 
-                let mut lines = vec![format!("Found {} message(s) for: {}\n", messages.len(), query)];
+                let mut lines = vec![format!(
+                    "Found {} message(s) for: {}\n",
+                    messages.len(),
+                    query
+                )];
                 for msg_stub in messages {
                     let msg_id = msg_stub["id"].as_str().unwrap_or("");
                     let endpoint = format!(
@@ -141,7 +149,8 @@ impl Tool for GoogleMailTool {
                         urlencoding::encode(msg_id)
                     );
                     let msg = self.call_api(&endpoint, "GET", None).await?;
-                    let headers: std::collections::HashMap<String, String> = msg["payload"]["headers"]
+                    let headers: std::collections::HashMap<String, String> = msg["payload"]
+                        ["headers"]
                         .as_array()
                         .unwrap_or(&vec![])
                         .iter()
@@ -157,7 +166,9 @@ impl Tool for GoogleMailTool {
                         "- ID: {}\n  From: {}\n  Subject: {}\n  Date: {}\n  Snippet: {}",
                         msg_id,
                         headers.get("From").unwrap_or(&"?".to_string()),
-                        headers.get("Subject").unwrap_or(&"(no subject)".to_string()),
+                        headers
+                            .get("Subject")
+                            .unwrap_or(&"(no subject)".to_string()),
                         headers.get("Date").unwrap_or(&"?".to_string()),
                         snippet
                     ));
@@ -169,7 +180,10 @@ impl Tool for GoogleMailTool {
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'message_id' parameter"))?;
 
-                let endpoint = format!("users/me/messages/{}?format=full", urlencoding::encode(message_id));
+                let endpoint = format!(
+                    "users/me/messages/{}?format=full",
+                    urlencoding::encode(message_id)
+                );
                 let msg = self.call_api(&endpoint, "GET", None).await?;
                 let headers: std::collections::HashMap<String, String> = msg["payload"]["headers"]
                     .as_array()
@@ -193,7 +207,9 @@ impl Tool for GoogleMailTool {
                     "From: {}\nTo: {}\nSubject: {}\nDate: {}\nLabels: {}\n---\n{}",
                     headers.get("From").unwrap_or(&"?".to_string()),
                     headers.get("To").unwrap_or(&"?".to_string()),
-                    headers.get("Subject").unwrap_or(&"(no subject)".to_string()),
+                    headers
+                        .get("Subject")
+                        .unwrap_or(&"(no subject)".to_string()),
                     headers.get("Date").unwrap_or(&"?".to_string()),
                     labels.join(", "),
                     body
@@ -216,7 +232,10 @@ impl Tool for GoogleMailTool {
                 let body_json = serde_json::json!({"raw": raw});
                 let endpoint = "users/me/messages/send";
                 let sent = self.call_api(endpoint, "POST", Some(body_json)).await?;
-                Ok(ToolResult::new(format!("Email sent successfully (ID: {})", sent["id"].as_str().unwrap_or("?"))))
+                Ok(ToolResult::new(format!(
+                    "Email sent successfully (ID: {})",
+                    sent["id"].as_str().unwrap_or("?")
+                )))
             }
             "reply" => {
                 let message_id = params["message_id"]
@@ -231,7 +250,8 @@ impl Tool for GoogleMailTool {
                     urlencoding::encode(message_id)
                 );
                 let original = self.call_api(&endpoint, "GET", None).await?;
-                let headers: std::collections::HashMap<String, String> = original["payload"]["headers"]
+                let headers: std::collections::HashMap<String, String> = original["payload"]
+                    ["headers"]
                     .as_array()
                     .unwrap_or(&vec![])
                     .iter()
@@ -266,7 +286,10 @@ impl Tool for GoogleMailTool {
                 });
                 let endpoint = "users/me/messages/send";
                 let sent = self.call_api(endpoint, "POST", Some(body_json)).await?;
-                Ok(ToolResult::new(format!("Reply sent successfully (ID: {})", sent["id"].as_str().unwrap_or("?"))))
+                Ok(ToolResult::new(format!(
+                    "Reply sent successfully (ID: {})",
+                    sent["id"].as_str().unwrap_or("?")
+                )))
             }
             "list_labels" => {
                 let result = self.call_api("users/me/labels", "GET", None).await?;
@@ -291,28 +314,52 @@ impl Tool for GoogleMailTool {
                 let message_id = params["message_id"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'message_id' parameter"))?;
-                let label_ids = params["label_ids"].as_array()
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect::<Vec<_>>())
+                let label_ids = params["label_ids"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect::<Vec<_>>()
+                    })
                     .unwrap_or_default();
-                let remove_label_ids = params["remove_label_ids"].as_array()
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect::<Vec<_>>())
+                let remove_label_ids = params["remove_label_ids"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect::<Vec<_>>()
+                    })
                     .unwrap_or_default();
 
                 if label_ids.is_empty() && remove_label_ids.is_empty() {
-                    return Ok(ToolResult::error("Error: provide 'label_ids' and/or 'remove_label_ids'".to_string()));
+                    return Ok(ToolResult::error(
+                        "Error: provide 'label_ids' and/or 'remove_label_ids'".to_string(),
+                    ));
                 }
 
                 let mut body = serde_json::json!({});
                 if !label_ids.is_empty() {
-                    body["addLabelIds"] = Value::Array(label_ids.into_iter().map(|s| Value::String(s)).collect());
+                    body["addLabelIds"] =
+                        Value::Array(label_ids.into_iter().map(|s| Value::String(s)).collect());
                 }
                 if !remove_label_ids.is_empty() {
-                    body["removeLabelIds"] = Value::Array(remove_label_ids.into_iter().map(|s| Value::String(s)).collect());
+                    body["removeLabelIds"] = Value::Array(
+                        remove_label_ids
+                            .into_iter()
+                            .map(|s| Value::String(s))
+                            .collect(),
+                    );
                 }
 
-                let endpoint = format!("users/me/messages/{}/modify", urlencoding::encode(message_id));
+                let endpoint = format!(
+                    "users/me/messages/{}/modify",
+                    urlencoding::encode(message_id)
+                );
                 self.call_api(&endpoint, "POST", Some(body)).await?;
-                Ok(ToolResult::new(format!("Labels updated on message {}", message_id)))
+                Ok(ToolResult::new(format!(
+                    "Labels updated on message {}",
+                    message_id
+                )))
             }
             _ => Ok(ToolResult::error(format!("Unknown action: {}", action))),
         }
@@ -341,7 +388,10 @@ fn extract_body(payload: &Value) -> String {
                             if let Ok(text) = String::from_utf8(decoded) {
                                 if *mime == "text/html" {
                                     // Strip HTML tags
-                                    return regex::Regex::new(r"<[^>]+>").unwrap().replace_all(&text, "").to_string();
+                                    return regex::Regex::new(r"<[^>]+>")
+                                        .unwrap()
+                                        .replace_all(&text, "")
+                                        .to_string();
                                 }
                                 return text;
                             }

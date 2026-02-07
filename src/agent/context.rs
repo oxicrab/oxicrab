@@ -20,7 +20,7 @@ impl ContextBuilder {
     pub fn new(workspace: impl AsRef<Path>) -> Result<Self> {
         let workspace = workspace.as_ref().to_path_buf();
         let memory = MemoryStore::new(&workspace)?;
-        
+
         // Try to find builtin skills directory (relative to executable or workspace)
         let builtin_skills = std::env::current_exe()
             .ok()
@@ -29,9 +29,13 @@ impl ContextBuilder {
             .or_else(|| {
                 // Fallback: check workspace/skills or common locations
                 let ws_skills = workspace.join("skills");
-                if ws_skills.exists() { Some(ws_skills) } else { None }
+                if ws_skills.exists() {
+                    Some(ws_skills)
+                } else {
+                    None
+                }
             });
-        
+
         let skills = SkillsLoader::new(&workspace, builtin_skills);
 
         Ok(Self {
@@ -74,7 +78,7 @@ impl ContextBuilder {
                 parts.push(format!("# Active Skills\n\n{}", always_content));
             }
         }
-        
+
         // 2. Available skills: only show summary (agent uses read_file to load)
         let skills_summary = self.skills.build_skills_summary();
         if !skills_summary.is_empty() {
@@ -89,16 +93,21 @@ impl ContextBuilder {
 
     fn get_identity(&self) -> Result<String> {
         let now = Utc::now();
-        let date_str = format!("{}-{:02}-{:02} ({})", 
-            now.year(), now.month(), now.day(),
+        let date_str = format!(
+            "{}-{:02}-{:02} ({})",
+            now.year(),
+            now.month(),
+            now.day(),
             now.format("%A")
         );
-        
-        let workspace_path = self.workspace.canonicalize()
+
+        let workspace_path = self
+            .workspace
+            .canonicalize()
             .unwrap_or_else(|_| self.workspace.clone())
             .to_string_lossy()
             .to_string();
-        
+
         let runtime = format!("Rust {}", env!("CARGO_PKG_VERSION"));
 
         // Try to load identity from IDENTITY.md
@@ -106,7 +115,10 @@ impl ContextBuilder {
         if identity_file.exists() {
             if let Ok(content) = std::fs::read_to_string(&identity_file) {
                 return Ok(self.build_identity_with_context(
-                    &content, &date_str, &runtime, &workspace_path
+                    &content,
+                    &date_str,
+                    &runtime,
+                    &workspace_path,
                 ));
             } else {
                 warn!("Failed to load IDENTITY.md, using defaults");
@@ -148,7 +160,7 @@ impl ContextBuilder {
 
     fn load_bootstrap_files(&mut self) -> Result<String> {
         let mut current_mtimes = HashMap::new();
-        
+
         for filename in BOOTSTRAP_FILES {
             if *filename == "IDENTITY.md" {
                 continue; // Handled separately
@@ -159,7 +171,8 @@ impl ContextBuilder {
                     if let Ok(mtime) = metadata.modified() {
                         current_mtimes.insert(
                             filename.to_string(),
-                            mtime.duration_since(std::time::UNIX_EPOCH)
+                            mtime
+                                .duration_since(std::time::UNIX_EPOCH)
                                 .unwrap()
                                 .as_secs(),
                         );
@@ -205,7 +218,10 @@ impl ContextBuilder {
         // System prompt
         let mut system_prompt = self.build_system_prompt(None, Some(current_message))?;
         if let (Some(ch), Some(cid)) = (channel, chat_id) {
-            system_prompt.push_str(&format!("\n\n## Current Session\nChannel: {}\nChat ID: {}", ch, cid));
+            system_prompt.push_str(&format!(
+                "\n\n## Current Session\nChannel: {}\nChat ID: {}",
+                ch, cid
+            ));
         }
         messages.push(crate::providers::base::Message {
             role: "system".to_string(),

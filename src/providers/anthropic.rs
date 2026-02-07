@@ -1,6 +1,8 @@
-use crate::providers::base::{LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition, Usage};
-use async_trait::async_trait;
+use crate::providers::base::{
+    LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition, Usage,
+};
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use reqwest::Client;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -17,7 +19,8 @@ impl AnthropicProvider {
     pub fn new(api_key: String, default_model: Option<String>) -> Self {
         Self {
             api_key,
-            default_model: default_model.unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
+            default_model: default_model
+                .unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
             client: Client::new(),
         }
     }
@@ -99,26 +102,33 @@ impl AnthropicProvider {
 
     fn parse_response(&self, json: Value) -> Result<LLMResponse> {
         // Debug: log the raw response structure
-        tracing::debug!("Anthropic API response: {}", serde_json::to_string_pretty(&json).unwrap_or_else(|_| "failed to serialize".to_string()));
-        
-        let content = json["content"]
-            .as_array()
-            .and_then(|arr| {
-                arr.iter()
-                    .find_map(|block| {
-                        if block["type"] == "text" {
-                            block["text"].as_str().map(|s| s.to_string())
-                        } else {
-                            None
-                        }
-                    })
-            });
-        
+        tracing::debug!(
+            "Anthropic API response: {}",
+            serde_json::to_string_pretty(&json)
+                .unwrap_or_else(|_| "failed to serialize".to_string())
+        );
+
+        let content = json["content"].as_array().and_then(|arr| {
+            arr.iter().find_map(|block| {
+                if block["type"] == "text" {
+                    block["text"].as_str().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+        });
+
         // Debug: log what content was extracted
         if content.is_none() {
-            tracing::warn!("No text content found in Anthropic response. Content array: {:?}", json["content"]);
+            tracing::warn!(
+                "No text content found in Anthropic response. Content array: {:?}",
+                json["content"]
+            );
         } else {
-            tracing::debug!("Extracted content length: {} chars", content.as_ref().unwrap().len());
+            tracing::debug!(
+                "Extracted content length: {} chars",
+                content.as_ref().unwrap().len()
+            );
         }
 
         let mut tool_calls = Vec::new();
@@ -148,9 +158,9 @@ impl AnthropicProvider {
                 .unwrap_or(0) as u32,
             total_tokens: usage_obj
                 .and_then(|u| {
-                    u["input_tokens"].as_u64().and_then(|i| {
-                        u["output_tokens"].as_u64().map(|o| i + o)
-                    })
+                    u["input_tokens"]
+                        .as_u64()
+                        .and_then(|i| u["output_tokens"].as_u64().map(|o| i + o))
                 })
                 .unwrap_or(0) as u32,
         };
@@ -158,10 +168,7 @@ impl AnthropicProvider {
         Ok(LLMResponse {
             content,
             tool_calls,
-            finish_reason: json["stop_reason"]
-                .as_str()
-                .unwrap_or("stop")
-                .to_string(),
+            finish_reason: json["stop_reason"].as_str().unwrap_or("stop").to_string(),
             usage,
             reasoning_content,
         })
@@ -219,19 +226,28 @@ impl LLMProvider for AnthropicProvider {
             .send()
             .await
             .context("Failed to send request to Anthropic API")?;
-        
+
         // Check for HTTP errors first
         let status = resp.status();
         tracing::debug!("Anthropic API response status: {}", status);
         if !status.is_success() {
-            let error_text = resp.text().await.unwrap_or_else(|_| "unknown error".to_string());
-            
+            let error_text = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "unknown error".to_string());
+
             // Parse error JSON if possible to provide better error messages
             if let Ok(error_json) = serde_json::from_str::<Value>(&error_text) {
                 if let Some(error) = error_json.get("error") {
-                    let error_type = error.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
-                    let error_msg = error.get("message").and_then(|v| v.as_str()).unwrap_or("Unknown error");
-                    
+                    let error_type = error
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    let error_msg = error
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown error");
+
                     // Provide helpful message for model not found errors
                     if error_type == "not_found_error" && error_msg.contains("model:") {
                         let model_name = error_msg.replace("model: ", "").trim().to_string();
@@ -246,26 +262,38 @@ impl LLMProvider for AnthropicProvider {
                             model_name
                         ));
                     }
-                    
-                    return Err(anyhow::anyhow!("Anthropic API error ({}): {}", error_type, error_msg));
+
+                    return Err(anyhow::anyhow!(
+                        "Anthropic API error ({}): {}",
+                        error_type,
+                        error_msg
+                    ));
                 }
             }
-            
-            return Err(anyhow::anyhow!("Anthropic API error ({}): {}", status, error_text));
+
+            return Err(anyhow::anyhow!(
+                "Anthropic API error ({}): {}",
+                status,
+                error_text
+            ));
         }
-        
+
         let json: Value = resp
             .json()
             .await
             .context("Failed to parse Anthropic API response")?;
-        
+
         // Check for API-level errors in the JSON response
         if let Some(error) = json.get("error") {
-            let error_type = error.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
-            let error_msg = error.get("message")
+            let error_type = error
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let error_msg = error
+                .get("message")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown error");
-            
+
             // Provide helpful message for model not found errors
             if error_type == "not_found_error" && error_msg.contains("model:") {
                 let model_name = error_msg.replace("model: ", "").trim().to_string();
@@ -280,7 +308,7 @@ impl LLMProvider for AnthropicProvider {
                     model_name
                 ));
             }
-            
+
             return Err(anyhow::anyhow!("Anthropic API error: {}", error_msg));
         }
 

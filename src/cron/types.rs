@@ -4,9 +4,15 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "kind")]
 pub enum CronSchedule {
     #[serde(rename = "at")]
-    At { #[serde(rename = "atMs")] at_ms: Option<i64> },
+    At {
+        #[serde(rename = "atMs")]
+        at_ms: Option<i64>,
+    },
     #[serde(rename = "every")]
-    Every { #[serde(rename = "everyMs")] every_ms: Option<i64> },
+    Every {
+        #[serde(rename = "everyMs")]
+        every_ms: Option<i64>,
+    },
     #[serde(rename = "cron")]
     Cron {
         expr: Option<String>,
@@ -30,8 +36,7 @@ fn default_kind() -> String {
     "agent_turn".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CronJobState {
     #[serde(rename = "nextRunAtMs")]
     pub next_run_at_ms: Option<i64>,

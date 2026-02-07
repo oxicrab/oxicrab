@@ -81,7 +81,9 @@ impl Tool for TmuxTool {
     async fn execute(&self, params: Value) -> Result<ToolResult> {
         // Check if tmux is available
         if Command::new("tmux").arg("-V").output().await.is_err() {
-            return Ok(ToolResult::error("Error: tmux is not installed or not found on PATH".to_string()));
+            return Ok(ToolResult::error(
+                "Error: tmux is not installed or not found on PATH".to_string(),
+            ));
         }
 
         let action = params["action"]
@@ -90,16 +92,28 @@ impl Tool for TmuxTool {
 
         match action {
             "create" => {
-                let session_name = params["session_name"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'session_name' parameter for create"))?;
+                let session_name = params["session_name"].as_str().ok_or_else(|| {
+                    anyhow::anyhow!("Missing 'session_name' parameter for create")
+                })?;
 
-                let (code, _stdout, stderr) = self.run_tmux(&["new-session", "-d", "-s", session_name]).await?;
+                let (code, _stdout, stderr) = self
+                    .run_tmux(&["new-session", "-d", "-s", session_name])
+                    .await?;
                 if code != 0 {
-                    return Ok(ToolResult::error(format!("Error: Failed to create session '{}': {}", session_name, stderr)));
+                    return Ok(ToolResult::error(format!(
+                        "Error: Failed to create session '{}': {}",
+                        session_name, stderr
+                    )));
                 }
-                debug!("tmux session '{}' created via socket {}", session_name, get_socket_path().display());
-                Ok(ToolResult::new(format!("Session '{}' created", session_name)))
+                debug!(
+                    "tmux session '{}' created via socket {}",
+                    session_name,
+                    get_socket_path().display()
+                );
+                Ok(ToolResult::new(format!(
+                    "Session '{}' created",
+                    session_name
+                )))
             }
             "send" => {
                 let session_name = params["session_name"]
@@ -109,11 +123,19 @@ impl Tool for TmuxTool {
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter for send"))?;
 
-                let (code, _, stderr) = self.run_tmux(&["send-keys", "-t", session_name, command, "Enter"]).await?;
+                let (code, _, stderr) = self
+                    .run_tmux(&["send-keys", "-t", session_name, command, "Enter"])
+                    .await?;
                 if code != 0 {
-                    return Ok(ToolResult::error(format!("Error: Failed to send command to '{}': {}", session_name, stderr)));
+                    return Ok(ToolResult::error(format!(
+                        "Error: Failed to send command to '{}': {}",
+                        session_name, stderr
+                    )));
                 }
-                Ok(ToolResult::new(format!("Command sent to session '{}'", session_name)))
+                Ok(ToolResult::new(format!(
+                    "Command sent to session '{}'",
+                    session_name
+                )))
             }
             "read" => {
                 let session_name = params["session_name"]
@@ -121,12 +143,28 @@ impl Tool for TmuxTool {
                     .ok_or_else(|| anyhow::anyhow!("Missing 'session_name' parameter for read"))?;
                 let lines = params["lines"].as_u64().unwrap_or(50) as i32;
 
-                let (code, stdout, stderr) = self.run_tmux(&["capture-pane", "-t", session_name, "-p", "-S", &format!("-{}", lines)]).await?;
+                let (code, stdout, stderr) = self
+                    .run_tmux(&[
+                        "capture-pane",
+                        "-t",
+                        session_name,
+                        "-p",
+                        "-S",
+                        &format!("-{}", lines),
+                    ])
+                    .await?;
                 if code != 0 {
-                    return Ok(ToolResult::error(format!("Error: Failed to read session '{}': {}", session_name, stderr)));
+                    return Ok(ToolResult::error(format!(
+                        "Error: Failed to read session '{}': {}",
+                        session_name, stderr
+                    )));
                 }
                 let output = stdout.trim();
-                Ok(ToolResult::new(if output.is_empty() { "(no output)".to_string() } else { output.to_string() }))
+                Ok(ToolResult::new(if output.is_empty() {
+                    "(no output)".to_string()
+                } else {
+                    output.to_string()
+                }))
             }
             "list" => {
                 let (code, stdout, stderr) = self.run_tmux(&["list-sessions"]).await?;
@@ -134,24 +172,41 @@ impl Tool for TmuxTool {
                     if stderr.contains("no server running") || stderr.contains("no sessions") {
                         return Ok(ToolResult::new("No active sessions".to_string()));
                     }
-                    return Ok(ToolResult::error(format!("Error: Failed to list sessions: {}", stderr)));
+                    return Ok(ToolResult::error(format!(
+                        "Error: Failed to list sessions: {}",
+                        stderr
+                    )));
                 }
                 let output = stdout.trim();
-                Ok(ToolResult::new(if output.is_empty() { "No active sessions".to_string() } else { output.to_string() }))
+                Ok(ToolResult::new(if output.is_empty() {
+                    "No active sessions".to_string()
+                } else {
+                    output.to_string()
+                }))
             }
             "kill" => {
                 let session_name = params["session_name"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'session_name' parameter for kill"))?;
 
-                let (code, _, stderr) = self.run_tmux(&["kill-session", "-t", session_name]).await?;
+                let (code, _, stderr) =
+                    self.run_tmux(&["kill-session", "-t", session_name]).await?;
                 if code != 0 {
-                    return Ok(ToolResult::error(format!("Error: Failed to kill session '{}': {}", session_name, stderr)));
+                    return Ok(ToolResult::error(format!(
+                        "Error: Failed to kill session '{}': {}",
+                        session_name, stderr
+                    )));
                 }
                 debug!("tmux session '{}' killed", session_name);
-                Ok(ToolResult::new(format!("Session '{}' killed", session_name)))
+                Ok(ToolResult::new(format!(
+                    "Session '{}' killed",
+                    session_name
+                )))
             }
-            _ => Ok(ToolResult::error(format!("Error: Unknown action '{}'", action))),
+            _ => Ok(ToolResult::error(format!(
+                "Error: Unknown action '{}'",
+                action
+            ))),
         }
     }
 }

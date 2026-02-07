@@ -95,19 +95,17 @@ impl MessageCompactor {
 
         let response = self
             .provider
-            .chat(
-                llm_messages,
-                None,
-                self.model.as_deref(),
-                2000,
-                0.3,
-            )
+            .chat(llm_messages, None, self.model.as_deref(), 2000, 0.3)
             .await?;
 
         Ok(response.content.unwrap_or_default())
     }
 
-    pub async fn extract_facts(&self, user_message: &str, assistant_message: &str) -> Result<String> {
+    pub async fn extract_facts(
+        &self,
+        user_message: &str,
+        assistant_message: &str,
+    ) -> Result<String> {
         let prompt = EXTRACTION_PROMPT
             .replace("{user_message}", user_message)
             .replace("{assistant_message}", assistant_message);
@@ -121,13 +119,7 @@ impl MessageCompactor {
 
         let response = self
             .provider
-            .chat(
-                llm_messages,
-                None,
-                self.model.as_deref(),
-                500,
-                0.3,
-            )
+            .chat(llm_messages, None, self.model.as_deref(), 500, 0.3)
             .await?;
 
         let content = response.content.unwrap_or_default();

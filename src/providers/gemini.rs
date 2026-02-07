@@ -1,6 +1,8 @@
-use crate::providers::base::{LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition, Usage};
-use async_trait::async_trait;
+use crate::providers::base::{
+    LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition, Usage,
+};
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::{json, Value};
 
@@ -25,17 +27,15 @@ impl GeminiProvider {
             .and_then(|arr| arr.first())
             .context("No candidates in Gemini response")?;
 
-        let content = candidate["content"]["parts"]
-            .as_array()
-            .and_then(|parts| {
-                parts.iter().find_map(|p| {
-                    if p["text"].is_string() {
-                        p["text"].as_str().map(|s| s.to_string())
-                    } else {
-                        None
-                    }
-                })
-            });
+        let content = candidate["content"]["parts"].as_array().and_then(|parts| {
+            parts.iter().find_map(|p| {
+                if p["text"].is_string() {
+                    p["text"].as_str().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+        });
 
         let mut tool_calls = Vec::new();
         if let Some(parts) = candidate["content"]["parts"].as_array() {
@@ -62,9 +62,9 @@ impl GeminiProvider {
                 .unwrap_or(0) as u32,
             total_tokens: usage_obj
                 .and_then(|u| {
-                    u["promptTokenCount"].as_u64().and_then(|p| {
-                        u["candidatesTokenCount"].as_u64().map(|c| p + c)
-                    })
+                    u["promptTokenCount"]
+                        .as_u64()
+                        .and_then(|p| u["candidatesTokenCount"].as_u64().map(|c| p + c))
                 })
                 .unwrap_or(0) as u32,
         };

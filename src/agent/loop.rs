@@ -3,10 +3,17 @@ use crate::agent::context::ContextBuilder;
 use crate::agent::memory::MemoryStore;
 use crate::agent::subagent::SubagentManager;
 use crate::agent::tools::{
-    ToolRegistry, filesystem::{ReadFileTool, WriteFileTool, EditFileTool, ListDirTool},
-    message::MessageTool, shell::ExecTool, web::{WebSearchTool, WebFetchTool},
-    cron::CronTool, spawn::SpawnTool, subagent_control::SubagentControlTool,
-    tmux::TmuxTool, google_calendar::GoogleCalendarTool, google_mail::GoogleMailTool,
+    cron::CronTool,
+    filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool},
+    google_calendar::GoogleCalendarTool,
+    google_mail::GoogleMailTool,
+    message::MessageTool,
+    shell::ExecTool,
+    spawn::SpawnTool,
+    subagent_control::SubagentControlTool,
+    tmux::TmuxTool,
+    web::{WebFetchTool, WebSearchTool},
+    ToolRegistry,
 };
 use crate::agent::truncation::truncate_tool_result;
 use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
@@ -60,32 +67,35 @@ impl AgentLoop {
         let context = Arc::new(Mutex::new(ContextBuilder::new(&workspace)?));
         let sessions = Arc::new(SessionManager::new(workspace.clone())?);
         let memory = Arc::new(MemoryStore::new(&workspace)?);
-        
+
         let mut tools = ToolRegistry::new();
-        
+
         // Register filesystem tools
         let allowed_roots = if restrict_to_workspace {
-            Some(vec![workspace.clone(), dirs::home_dir().unwrap_or_default()])
+            Some(vec![
+                workspace.clone(),
+                dirs::home_dir().unwrap_or_default(),
+            ])
         } else {
             None
         };
-        
+
         tools.register(Arc::new(ReadFileTool::new(allowed_roots.clone())));
         tools.register(Arc::new(WriteFileTool::new(allowed_roots.clone())));
         tools.register(Arc::new(EditFileTool::new(allowed_roots.clone())));
         tools.register(Arc::new(ListDirTool::new(allowed_roots)));
-        
+
         // Register shell tool
         tools.register(Arc::new(ExecTool::new(
             exec_timeout,
             Some(workspace.clone()),
             restrict_to_workspace,
         )));
-        
+
         // Register web tools
         tools.register(Arc::new(WebSearchTool::new(brave_api_key.clone(), 5)));
         tools.register(Arc::new(WebFetchTool::new(50000)));
-        
+
         // Register message tool with outbound sender
         let outbound_tx_for_tool = outbound_tx.clone();
         tools.register(Arc::new(MessageTool::new(Some(outbound_tx_for_tool))));
@@ -116,13 +126,18 @@ impl AgentLoop {
 
         // Register Google tools if configured
         if let Some(ref google_cfg) = google_config {
-            if google_cfg.enabled && !google_cfg.client_id.is_empty() && !google_cfg.client_secret.is_empty() {
+            if google_cfg.enabled
+                && !google_cfg.client_id.is_empty()
+                && !google_cfg.client_secret.is_empty()
+            {
                 match crate::auth::google::get_credentials(
                     &google_cfg.client_id,
                     &google_cfg.client_secret,
                     Some(&google_cfg.scopes),
                     None,
-                ).await {
+                )
+                .await
+                {
                     Ok(creds) => {
                         tools.register(Arc::new(GoogleMailTool::new(creds.clone())));
                         tools.register(Arc::new(GoogleCalendarTool::new(creds)));
@@ -134,9 +149,9 @@ impl AgentLoop {
                 }
             }
         }
-        
+
         let tools = Arc::new(Mutex::new(tools));
-        
+
         let compactor = if compaction_config.enabled {
             Some(Arc::new(MessageCompactor::new(
                 provider.clone() as Arc<dyn LLMProvider>,
@@ -146,7 +161,7 @@ impl AgentLoop {
             None
         };
 
-        Ok(        Self {
+        Ok(Self {
             bus,
             provider,
             workspace,
@@ -231,7 +246,10 @@ impl AgentLoop {
         self.process_message_unlocked(msg).await
     }
 
-    async fn process_message_unlocked(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
+    async fn process_message_unlocked(
+        &self,
+        msg: InboundMessage,
+    ) -> Result<Option<OutboundMessage>> {
         if msg.channel == "system" {
             return self.process_system_message(msg).await;
         }
@@ -243,9 +261,9 @@ impl AgentLoop {
 
         let session_key = msg.session_key();
         let session = self.sessions.get_or_create(&session_key)?;
-        
+
         let history = self.get_compacted_history(&session).await?;
-        
+
         let mut context = self.context.lock().await;
         let messages = context.build_messages(
             &history,
@@ -275,7 +293,9 @@ impl AgentLoop {
                 tokio::spawn(async move {
                     if let Ok(facts) = compactor.extract_facts(&user_msg, &assistant_msg).await {
                         if !facts.is_empty() {
-                            if let Err(e) = memory.append_today(&format!("\n## Facts\n\n{}\n", facts)) {
+                            if let Err(e) =
+                                memory.append_today(&format!("\n## Facts\n\n{}\n", facts))
+                            {
                                 warn!("Failed to save facts to daily note: {}", e);
                             }
                         }
@@ -323,10 +343,16 @@ impl AgentLoop {
                 .await?;
 
             if response.has_tool_calls() {
-                let tool_names: Vec<&str> = response.tool_calls.iter().map(|tc| tc.name.as_str()).collect();
-                last_used_delivery_tool = tool_names.iter().any(|n| *n == "message" || *n == "spawn");
+                let tool_names: Vec<&str> = response
+                    .tool_calls
+                    .iter()
+                    .map(|tc| tc.name.as_str())
+                    .collect();
+                last_used_delivery_tool =
+                    tool_names.iter().any(|n| *n == "message" || *n == "spawn");
 
-                let _tool_call_dicts: Vec<Value> = response.tool_calls
+                let _tool_call_dicts: Vec<Value> = response
+                    .tool_calls
                     .iter()
                     .map(|tc| {
                         serde_json::json!({
@@ -350,15 +376,25 @@ impl AgentLoop {
 
                 // Execute tools
                 for tool_call in &response.tool_calls {
-                    debug!("Executing tool: {} with arguments: {}", tool_call.name, tool_call.arguments);
-                    
+                    debug!(
+                        "Executing tool: {} with arguments: {}",
+                        tool_call.name, tool_call.arguments
+                    );
+
                     let result = {
                         let tools_guard = self.tools.lock().await;
-                        tools_guard.execute(&tool_call.name, tool_call.arguments.clone()).await?
+                        tools_guard
+                            .execute(&tool_call.name, tool_call.arguments.clone())
+                            .await?
                     };
 
                     let result_str = truncate_tool_result(&result.content, 3000);
-                    context.add_tool_result(&mut messages, &tool_call.id, &tool_call.name, &result_str);
+                    context.add_tool_result(
+                        &mut messages,
+                        &tool_call.id,
+                        &tool_call.name,
+                        &result_str,
+                    );
                 }
             } else if let Some(content) = response.content {
                 return Ok(Some(content));
@@ -401,7 +437,10 @@ impl AgentLoop {
         }
     }
 
-    async fn get_compacted_history(&self, session: &Session) -> Result<Vec<HashMap<String, Value>>> {
+    async fn get_compacted_history(
+        &self,
+        session: &Session,
+    ) -> Result<Vec<HashMap<String, Value>>> {
         if self.compactor.is_none() || !self.compaction_config.enabled {
             return Ok(session.get_history(50));
         }
@@ -427,7 +466,8 @@ impl AgentLoop {
         let recent_messages = &full_history[full_history.len() - keep_recent..];
 
         // Get existing summary from metadata
-        let previous_summary = session.metadata
+        let previous_summary = session
+            .metadata
             .get("compaction_summary")
             .and_then(|v| v.as_str())
             .unwrap_or("")
@@ -449,7 +489,10 @@ impl AgentLoop {
                     // Return summary + recent messages
                     let mut result = vec![HashMap::from([
                         ("role".to_string(), Value::String("system".to_string())),
-                        ("content".to_string(), Value::String(format!("[Previous conversation summary: {}]", summary))),
+                        (
+                            "content".to_string(),
+                            Value::String(format!("[Previous conversation summary: {}]", summary)),
+                        ),
                     ])];
                     result.extend(recent_messages.iter().cloned());
                     Ok(result)
@@ -466,7 +509,7 @@ impl AgentLoop {
 
     async fn process_system_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
         info!("Processing system message from {}", msg.sender_id);
-        
+
         let parts: Vec<&str> = msg.chat_id.splitn(2, ':').collect();
         let (origin_channel, origin_chat_id) = if parts.len() == 2 {
             (parts[0].to_string(), parts[1].to_string())
@@ -478,7 +521,7 @@ impl AgentLoop {
         let session = self.sessions.get_or_create(&session_key)?;
 
         let history = self.get_compacted_history(&session).await?;
-        
+
         let mut context = self.context.lock().await;
         let messages = context.build_messages(
             &history,
@@ -487,7 +530,9 @@ impl AgentLoop {
             Some(origin_chat_id.as_str()),
         )?;
 
-        let final_content = self.run_agent_loop(messages).await?
+        let final_content = self
+            .run_agent_loop(messages)
+            .await?
             .unwrap_or_else(|| "Background task completed.".to_string());
 
         let mut session = self.sessions.get_or_create(&session_key)?;
@@ -523,7 +568,9 @@ impl AgentLoop {
         let mut context = self.context.lock().await;
         let messages = context.build_messages(&history, content, Some(channel), Some(chat_id))?;
 
-        let response = self.run_agent_loop(messages).await?
+        let response = self
+            .run_agent_loop(messages)
+            .await?
             .unwrap_or_else(|| "No response generated.".to_string());
 
         let mut session = self.sessions.get_or_create(session_key)?;

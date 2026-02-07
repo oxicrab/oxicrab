@@ -58,13 +58,15 @@ impl Tool for WebSearchTool {
 
     async fn execute(&self, params: Value) -> Result<ToolResult> {
         if self.api_key.is_empty() {
-            return Ok(ToolResult::error("Error: BRAVE_API_KEY not configured".to_string()));
+            return Ok(ToolResult::error(
+                "Error: BRAVE_API_KEY not configured".to_string(),
+            ));
         }
 
         let query = params["query"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
-        
+
         let count = params["count"]
             .as_u64()
             .map(|n| n.min(10).max(1) as usize)
@@ -170,9 +172,7 @@ impl Tool for WebFetchTool {
             )));
         }
 
-        let extract_mode = params["extractMode"]
-            .as_str()
-            .unwrap_or("markdown");
+        let extract_mode = params["extractMode"].as_str().unwrap_or("markdown");
         let max_chars = params["maxChars"]
             .as_u64()
             .map(|n| n as usize)
@@ -201,8 +201,18 @@ impl Tool for WebFetchTool {
                     let json: Value = serde_json::from_str(&text)?;
                     (serde_json::to_string_pretty(&json)?, "json")
                 } else if content_type.contains("text/html")
-                    || text.chars().take(256).collect::<String>().to_lowercase().starts_with("<!doctype")
-                    || text.chars().take(256).collect::<String>().to_lowercase().starts_with("<html")
+                    || text
+                        .chars()
+                        .take(256)
+                        .collect::<String>()
+                        .to_lowercase()
+                        .starts_with("<!doctype")
+                    || text
+                        .chars()
+                        .take(256)
+                        .collect::<String>()
+                        .to_lowercase()
+                        .starts_with("<html")
                 {
                     match extract_html(&text, extract_mode == "markdown") {
                         Ok(content) => (content, "readability"),
@@ -249,18 +259,18 @@ fn strip_tags(html: &str) -> String {
     let re_script = Regex::new(r"(?i)<script[\s\S]*?</script>").unwrap();
     let re_style = Regex::new(r"(?i)<style[\s\S]*?</style>").unwrap();
     let re_tags = Regex::new(r"<[^>]+>").unwrap();
-    
+
     let text = re_script.replace_all(html, "");
     let text = re_style.replace_all(&text, "");
     let text = re_tags.replace_all(&text, "");
-    
+
     html_escape::decode_html_entities(&text).to_string()
 }
 
 fn normalize(text: &str) -> String {
     let re_whitespace = Regex::new(r"[ \t]+").unwrap();
     let re_newlines = Regex::new(r"\n{3,}").unwrap();
-    
+
     let text = re_whitespace.replace_all(text, " ");
     let text = re_newlines.replace_all(&text, "\n\n");
     text.trim().to_string()
@@ -268,7 +278,7 @@ fn normalize(text: &str) -> String {
 
 fn extract_html(html: &str, markdown: bool) -> Result<String> {
     let document = Html::parse_document(html);
-    
+
     // Extract title using scraper
     let title_selector = Selector::parse("title").unwrap();
     let title = document
@@ -276,7 +286,7 @@ fn extract_html(html: &str, markdown: bool) -> Result<String> {
         .next()
         .map(|e| e.text().collect::<String>())
         .unwrap_or_default();
-    
+
     // Try to find main content: article > main > body (using scraper for better extraction)
     let content_html = if let Ok(article_sel) = Selector::parse("article") {
         if let Some(element) = document.select(&article_sel).next() {
@@ -285,7 +295,9 @@ fn extract_html(html: &str, markdown: bool) -> Result<String> {
             if let Some(element) = document.select(&main_sel).next() {
                 element.html()
             } else if let Ok(body_sel) = Selector::parse("body") {
-                document.select(&body_sel).next()
+                document
+                    .select(&body_sel)
+                    .next()
                     .map(|e| e.html())
                     .unwrap_or_else(|| strip_scripts_styles(html))
             } else {
@@ -297,14 +309,14 @@ fn extract_html(html: &str, markdown: bool) -> Result<String> {
     } else {
         strip_scripts_styles(html)
     };
-    
+
     // Convert to markdown or plain text
     let content = if markdown {
         html_to_markdown(&content_html)
     } else {
         normalize(&strip_tags(&content_html))
     };
-    
+
     if markdown && !title.is_empty() {
         Ok(format!("# {}\n\n{}", title.trim(), content))
     } else {
@@ -323,7 +335,7 @@ fn html_to_markdown(html: &str) -> String {
     // Use scraper to parse and convert HTML elements to markdown
     let fragment = Html::parse_fragment(html);
     let mut parts = Vec::new();
-    
+
     // Convert links
     if let Ok(link_sel) = Selector::parse("a") {
         for link in fragment.select(&link_sel) {
@@ -335,7 +347,7 @@ fn html_to_markdown(html: &str) -> String {
             }
         }
     }
-    
+
     // Convert headings
     for level in 1..=6 {
         if let Ok(heading_sel) = Selector::parse(&format!("h{}", level)) {
@@ -347,7 +359,7 @@ fn html_to_markdown(html: &str) -> String {
             }
         }
     }
-    
+
     // Convert lists
     if let Ok(li_sel) = Selector::parse("li") {
         for li in fragment.select(&li_sel) {
@@ -357,7 +369,7 @@ fn html_to_markdown(html: &str) -> String {
             }
         }
     }
-    
+
     // If we extracted specific elements, use them; otherwise fall back to regex-based conversion
     if parts.is_empty() {
         // Fallback: use regex-based markdown conversion (like Python version)
@@ -371,7 +383,7 @@ fn html_to_markdown(html: &str) -> String {
                 format!("[{}]({})", link_text.trim(), href)
             })
             .to_string();
-        
+
         // Convert headings
         for level in 1..=6 {
             text = Regex::new(&format!(r"(?i)<h{}[^>]*>([\s\S]*?)</h{}>", level, level))
@@ -382,7 +394,7 @@ fn html_to_markdown(html: &str) -> String {
                 })
                 .to_string();
         }
-        
+
         // Convert lists
         text = Regex::new(r"(?i)<li[^>]*>([\s\S]*?)</li>")
             .unwrap()
@@ -391,19 +403,19 @@ fn html_to_markdown(html: &str) -> String {
                 format!("\n- {}", item_text.trim())
             })
             .to_string();
-        
+
         // Convert block elements
         text = Regex::new(r"(?i)</(p|div|section|article)>")
             .unwrap()
             .replace_all(&text, "\n\n")
             .to_string();
-        
+
         // Convert br/hr
         text = Regex::new(r"(?i)<(br|hr)\s*/?>")
             .unwrap()
             .replace_all(&text, "\n")
             .to_string();
-        
+
         normalize(&strip_tags(&text))
     } else {
         // Use extracted parts, but also include remaining text content

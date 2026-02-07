@@ -19,7 +19,6 @@ impl SpawnTool {
             origin_chat_id: Arc::new(tokio::sync::Mutex::new("direct".to_string())),
         }
     }
-
 }
 
 #[async_trait]
@@ -55,9 +54,7 @@ impl Tool for SpawnTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'task' parameter"))?
             .to_string();
 
-        let label = params["label"]
-            .as_str()
-            .map(|s| s.to_string());
+        let label = params["label"].as_str().map(|s| s.to_string());
 
         let channel = self.origin_channel.lock().await.clone();
         let chat_id = self.origin_chat_id.lock().await.clone();
@@ -65,7 +62,7 @@ impl Tool for SpawnTool {
         let result = self.manager.spawn(task, label, channel, chat_id).await?;
         Ok(ToolResult::new(result))
     }
-    
+
     async fn set_context(&self, channel: &str, chat_id: &str) {
         *self.origin_channel.lock().await = channel.to_string();
         *self.origin_chat_id.lock().await = chat_id.to_string();
