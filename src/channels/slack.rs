@@ -314,6 +314,7 @@ impl BaseChannel for SlackChannel {
         let config_allow = self.config.allow_from.clone();
         let bot_user_id = self.bot_user_id.clone();
         let bot_token = self.config.bot_token.clone();
+        let seen_messages = self.seen_messages.clone();
 
         let ws_task = tokio::spawn(async move {
             use futures_util::StreamExt;
@@ -460,7 +461,7 @@ impl BaseChannel for SlackChannel {
                                                                 bot_user_id: bot_user_id.clone(),
                                                                 running: Arc::new(tokio::sync::Mutex::new(true)),
                                                                 ws_handle: None,
-                                                                seen_messages: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
+                                                                seen_messages: seen_messages.clone(),
                                                             };
                                                             if let Err(e) = channel
                                                                 .handle_message_event(event_data)
