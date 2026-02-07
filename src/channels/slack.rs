@@ -290,7 +290,7 @@ impl BaseChannel for SlackChannel {
         let bot_token = self.config.bot_token.clone();
 
         let ws_task = tokio::spawn(async move {
-            use tokio_tungstenite::{connect_async, tungstenite::Message};
+            use tokio_tungstenite::tungstenite::Message;
             use futures_util::StreamExt;
 
             // Slack Socket Mode connection
