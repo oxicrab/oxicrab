@@ -181,7 +181,7 @@ impl AgentLoop {
             Some(workspace.clone()),
             restrict_to_workspace,
             allowed_commands.clone(),
-        )));
+        )?));
 
         // Register web tools
         tools.register(Arc::new(WebSearchTool::new(brave_api_key.clone(), 5)));

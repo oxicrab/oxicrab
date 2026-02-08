@@ -22,22 +22,17 @@ impl ExecTool {
         working_dir: Option<PathBuf>,
         restrict_to_workspace: bool,
         allowed_commands: Vec<String>,
-    ) -> Self {
-        let deny_patterns = compile_security_patterns().unwrap_or_else(|e| {
-            tracing::warn!(
-                "Failed to compile security patterns: {}. Tool will have reduced security.",
-                e
-            );
-            Vec::new()
-        });
+    ) -> Result<Self> {
+        let deny_patterns = compile_security_patterns()
+            .context("Failed to compile security patterns for exec tool")?;
 
-        Self {
+        Ok(Self {
             timeout,
             working_dir,
             deny_patterns,
             allowed_commands,
             restrict_to_workspace,
-        }
+        })
     }
 
     /// Extract the base command name from a shell command string.
@@ -254,7 +249,7 @@ mod tests {
     }
 
     fn tool(cmds: Vec<String>) -> ExecTool {
-        ExecTool::new(60, Some(PathBuf::from("/tmp")), false, cmds)
+        ExecTool::new(60, Some(PathBuf::from("/tmp")), false, cmds).unwrap()
     }
 
     #[test]

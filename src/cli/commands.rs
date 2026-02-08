@@ -12,6 +12,9 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 
+/// Temperature used for tool-calling iterations (low for determinism)
+const TOOL_TEMPERATURE: f32 = 0.0;
+
 #[derive(Parser)]
 #[command(name = "nanobot")]
 #[command(about = "Personal AI Assistant")]
@@ -321,8 +324,9 @@ async fn gateway(model: Option<String>) -> Result<()> {
             provider,
             model: model.clone(),
             outbound_tx: outbound_tx.clone(),
-            cron: cron.clone(),
+            cron: Some(cron.clone()),
             typing_tx: Some(typing_tx),
+            channels_config: Some(config.channels.clone()),
         },
         &config,
     )
@@ -408,8 +412,9 @@ struct SetupAgentParams {
     provider: Arc<dyn crate::providers::base::LLMProvider>,
     model: Option<String>,
     outbound_tx: Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
-    cron: Arc<CronService>,
+    cron: Option<Arc<CronService>>,
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
+    channels_config: Option<crate::config::ChannelsConfig>,
 }
 
 async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<AgentLoop>> {
@@ -440,16 +445,16 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
             allowed_commands: config.tools.exec.allowed_commands.clone(),
             compaction_config: config.agents.defaults.compaction.clone(),
             outbound_tx: params.outbound_tx,
-            cron_service: Some(params.cron),
+            cron_service: params.cron,
             google_config: Some(config.tools.google.clone()),
             github_config: Some(config.tools.github.clone()),
             weather_config: Some(config.tools.weather.clone()),
             todoist_config: Some(config.tools.todoist.clone()),
-            temperature: 0.7,
-            tool_temperature: 0.0,
+            temperature: config.agents.defaults.temperature,
+            tool_temperature: TOOL_TEMPERATURE,
             session_ttl_days: config.agents.defaults.session_ttl_days,
             typing_tx: params.typing_tx,
-            channels_config: Some(config.channels.clone()),
+            channels_config: params.channels_config,
         })
         .await?,
     );
@@ -645,38 +650,24 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
     let config = load_config(None)?;
     config.validate()?;
 
-    // Create provider
     let provider = config.create_provider(None).await?;
 
     let bus = MessageBus::default();
-
-    // Extract outbound sender for agent
     let outbound_tx = Arc::new(bus.outbound_tx.clone());
     let bus_for_agent = Arc::new(Mutex::new(bus));
 
-    let agent = AgentLoop::new(crate::agent::AgentLoopConfig {
-        bus: bus_for_agent,
-        provider,
-        workspace: config.workspace_path(),
-        model: None,
-        max_iterations: config.agents.defaults.max_tool_iterations,
-        brave_api_key: Some(config.tools.web.search.api_key),
-        exec_timeout: config.tools.exec.timeout,
-        restrict_to_workspace: config.tools.restrict_to_workspace,
-        allowed_commands: config.tools.exec.allowed_commands,
-        compaction_config: config.agents.defaults.compaction,
-        outbound_tx,
-        cron_service: None,
-        google_config: Some(config.tools.google.clone()),
-        github_config: Some(config.tools.github.clone()),
-        weather_config: Some(config.tools.weather.clone()),
-        todoist_config: Some(config.tools.todoist.clone()),
-        temperature: 0.7,
-        tool_temperature: 0.0,
-        session_ttl_days: config.agents.defaults.session_ttl_days,
-        typing_tx: None,
-        channels_config: None,
-    })
+    let agent = setup_agent(
+        SetupAgentParams {
+            bus: bus_for_agent,
+            provider,
+            model: None,
+            outbound_tx,
+            cron: None,
+            typing_tx: None,
+            channels_config: None,
+        },
+        &config,
+    )
     .await?;
 
     if let Some(msg) = message {
@@ -685,29 +676,34 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
             .await?;
         println!("🤖 {}", response);
     } else {
-        println!("🤖 Interactive mode (Ctrl+C to exit)\n");
-        loop {
-            use std::io::{self, BufRead, Write};
-            print!("You: ");
-            io::stdout().flush()?;
-
-            let stdin = io::stdin();
-            let mut input = String::new();
-            stdin.lock().read_line(&mut input)?;
-            let input = input.trim();
-
-            if input.is_empty() {
-                continue;
-            }
-
-            let response = agent
-                .process_direct(input, &session, "cli", "direct")
-                .await?;
-            println!("\n🤖 {}\n", response);
-        }
+        interactive_repl(&agent, &session).await?;
     }
 
     Ok(())
+}
+
+async fn interactive_repl(agent: &AgentLoop, session: &str) -> Result<()> {
+    use std::io::{self, BufRead, Write};
+
+    println!("🤖 Interactive mode (Ctrl+C to exit)\n");
+    loop {
+        print!("You: ");
+        io::stdout().flush()?;
+
+        let stdin = io::stdin();
+        let mut input = String::new();
+        stdin.lock().read_line(&mut input)?;
+        let input = input.trim();
+
+        if input.is_empty() {
+            continue;
+        }
+
+        let response = agent
+            .process_direct(input, session, "cli", "direct")
+            .await?;
+        println!("\n🤖 {}\n", response);
+    }
 }
 
 async fn cron_command(cmd: CronCommands) -> Result<()> {

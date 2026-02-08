@@ -11,29 +11,34 @@ pub struct MemoryHit {
     pub content: String,
 }
 
+/// Minimum size for a memory chunk (paragraphs shorter than this are skipped)
+const MIN_CHUNK_SIZE: usize = 12;
+/// Maximum size for a memory chunk (longer paragraphs are truncated)
+const MAX_CHUNK_SIZE: usize = 1200;
+/// Maximum number of unique terms used in FTS queries
+const MAX_FTS_TERMS: usize = 16;
+
 pub struct MemoryDB {
     conn: std::sync::Mutex<Connection>,
+    db_path: String,
     has_fts: bool,
 }
 
 impl Clone for MemoryDB {
     fn clone(&self) -> Self {
         // Re-open a connection for clones (rare, needed for spawn_blocking patterns).
-        // Recover from poisoned lock by extracting the inner value.
-        let guard = self.conn.lock().unwrap_or_else(|e| e.into_inner());
-        let path = guard.path().unwrap_or("").to_string();
-        drop(guard);
-        let new_conn = Connection::open(&path)
-            .unwrap_or_else(|e| panic!("Failed to re-open DB at '{}': {}", path, e));
+        let new_conn = Connection::open(&self.db_path)
+            .expect("Failed to re-open DB for clone; path was valid at construction time");
         new_conn
             .execute_batch(
                 "PRAGMA journal_mode=WAL;
                  PRAGMA synchronous=NORMAL;
                  PRAGMA busy_timeout=3000;",
             )
-            .unwrap_or_else(|e| panic!("Failed to set PRAGMAs on cloned connection: {}", e));
+            .expect("Failed to set PRAGMAs on cloned connection");
         Self {
             conn: std::sync::Mutex::new(new_conn),
+            db_path: self.db_path.clone(),
             has_fts: self.has_fts,
         }
     }
@@ -61,6 +66,7 @@ impl MemoryDB {
 
         let mut db = Self {
             conn: std::sync::Mutex::new(conn),
+            db_path: db_path.to_string_lossy().to_string(),
             has_fts: false,
         };
 
@@ -337,11 +343,11 @@ fn split_into_chunks(text: &str) -> Vec<String> {
 
     for part in raw {
         let p = part.trim();
-        if p.is_empty() || p.len() < 12 {
+        if p.is_empty() || p.len() < MIN_CHUNK_SIZE {
             continue;
         }
-        let chunk = if p.len() > 1200 {
-            let mut end = 1200;
+        let chunk = if p.len() > MAX_CHUNK_SIZE {
+            let mut end = MAX_CHUNK_SIZE;
             while end > 0 && !p.is_char_boundary(end) {
                 end -= 1;
             }
@@ -372,7 +378,7 @@ fn fts_query(text: &str) -> String {
             seen.insert(low.clone());
             unique.push(low);
         }
-        if unique.len() >= 16 {
+        if unique.len() >= MAX_FTS_TERMS {
             break;
         }
     }

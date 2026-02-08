@@ -4,20 +4,11 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-fn check_path_allowed(
-    file_path: &Path,
-    allowed_roots: &Option<Vec<PathBuf>>,
-) -> Result<(), String> {
+fn check_path_allowed(file_path: &Path, allowed_roots: &Option<Vec<PathBuf>>) -> Result<()> {
     if let Some(roots) = allowed_roots {
-        let resolved = match file_path.canonicalize() {
-            Ok(p) => p,
-            Err(_) => {
-                return Err(format!(
-                    "Error: Cannot resolve path '{}'",
-                    file_path.display()
-                ))
-            }
-        };
+        let resolved = file_path
+            .canonicalize()
+            .map_err(|_| anyhow::anyhow!("Error: Cannot resolve path '{}'", file_path.display()))?;
         for root in roots {
             if let Ok(root_resolved) = root.canonicalize() {
                 if resolved == root_resolved || resolved.starts_with(&root_resolved) {
@@ -30,11 +21,11 @@ fn check_path_allowed(
             .map(|r| r.to_string_lossy().to_string())
             .collect::<Vec<_>>()
             .join(", ");
-        return Err(format!(
+        anyhow::bail!(
             "Error: Path '{}' is outside the allowed directories ({})",
             file_path.display(),
             roots_str
-        ));
+        );
     }
     Ok(())
 }
@@ -93,7 +84,7 @@ impl Tool for ReadFileTool {
         })?;
 
         if let Err(err) = check_path_allowed(&expanded, &self.allowed_roots) {
-            return Ok(ToolResult::error(err));
+            return Ok(ToolResult::error(err.to_string()));
         }
 
         if !expanded.exists() {
@@ -171,7 +162,7 @@ impl Tool for WriteFileTool {
 
         // Check path restrictions even after fallback canonicalization
         if let Err(err) = check_path_allowed(&expanded, &self.allowed_roots) {
-            return Ok(ToolResult::error(err));
+            return Ok(ToolResult::error(err.to_string()));
         }
 
         if let Some(parent) = expanded.parent() {
@@ -245,7 +236,7 @@ impl Tool for EditFileTool {
         })?;
 
         if let Err(err) = check_path_allowed(&expanded, &self.allowed_roots) {
-            return Ok(ToolResult::error(err));
+            return Ok(ToolResult::error(err.to_string()));
         }
 
         if !expanded.exists() {
@@ -333,7 +324,7 @@ impl Tool for ListDirTool {
         })?;
 
         if let Err(err) = check_path_allowed(&expanded, &self.allowed_roots) {
-            return Ok(ToolResult::error(err));
+            return Ok(ToolResult::error(err.to_string()));
         }
 
         if !expanded.exists() {

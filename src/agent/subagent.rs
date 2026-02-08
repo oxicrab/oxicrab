@@ -175,7 +175,7 @@ impl SubagentManager {
             Some(self.workspace.clone()),
             self.restrict_to_workspace,
             self.allowed_commands.clone(),
-        )));
+        )?));
         tools.register(Arc::new(WebSearchTool::new(self.brave_api_key.clone(), 5)));
         tools.register(Arc::new(WebFetchTool::new(50000)?));
 
