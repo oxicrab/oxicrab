@@ -69,8 +69,7 @@ impl LLMProvider for AnthropicProvider {
             .await
             .context("Failed to send request to Anthropic API")?;
 
-        let json =
-            ProviderErrorHandler::check_response(resp, "Anthropic", &self.metrics).await?;
+        let json = ProviderErrorHandler::check_response(resp, "Anthropic", &self.metrics).await?;
 
         // Update metrics on success
         {
@@ -127,8 +126,7 @@ impl LLMProvider for AnthropicProvider {
             .await
             .context("Failed to send streaming request to Anthropic API")?;
 
-        let resp =
-            ProviderErrorHandler::check_http_status(resp, "Anthropic").await?;
+        let resp = ProviderErrorHandler::check_http_status(resp, "Anthropic").await?;
 
         // Process SSE stream
         let mut content_text = String::new();

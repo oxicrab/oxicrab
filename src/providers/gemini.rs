@@ -127,8 +127,7 @@ impl LLMProvider for GeminiProvider {
             .await
             .context("Failed to send request to Gemini API")?;
 
-        let json =
-            ProviderErrorHandler::check_response(resp, "Gemini", &self.metrics).await?;
+        let json = ProviderErrorHandler::check_response(resp, "Gemini", &self.metrics).await?;
 
         // Update metrics on success
         {

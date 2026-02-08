@@ -109,22 +109,14 @@ impl ProviderErrorHandler {
             .unwrap_or_else(|_| "unknown error".to_string());
 
         if status == 429 {
-            Self::log_and_handle_error(
-                &anyhow::anyhow!("Rate limit exceeded"),
-                provider,
-                "chat",
-            );
+            Self::log_and_handle_error(&anyhow::anyhow!("Rate limit exceeded"), provider, "chat");
             return Err(Self::handle_rate_limit(status.as_u16(), retry_after)
                 .unwrap_err()
                 .into());
         }
 
         if status == 401 || status == 403 {
-            Self::log_and_handle_error(
-                &anyhow::anyhow!("Authentication failed"),
-                provider,
-                "chat",
-            );
+            Self::log_and_handle_error(&anyhow::anyhow!("Authentication failed"), provider, "chat");
             return Err(Self::handle_auth_error(status.as_u16(), &error_text)
                 .unwrap_err()
                 .into());
@@ -145,25 +137,20 @@ impl ProviderErrorHandler {
     ) -> Result<Value, anyhow::Error> {
         let resp = Self::check_http_status(resp, provider).await?;
 
-        let json: Value = resp.json().await.map_err(|e| {
-            anyhow::anyhow!("Failed to parse {} API response: {}", provider, e)
-        })?;
+        let json: Value = resp
+            .json()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to parse {} API response: {}", provider, e))?;
 
         // Check for API-level errors in the JSON body
         if let Some(error_val) = json.get("error") {
             if let Ok(mut m) = metrics.lock() {
                 m.error_count += 1;
             }
-            let error_text = serde_json::to_string(error_val)
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            Self::log_and_handle_error(
-                &anyhow::anyhow!("API error in response"),
-                provider,
-                "chat",
-            );
-            return Err(Self::parse_api_error(200, &error_text)
-                .unwrap_err()
-                .into());
+            let error_text =
+                serde_json::to_string(error_val).unwrap_or_else(|_| "Unknown error".to_string());
+            Self::log_and_handle_error(&anyhow::anyhow!("API error in response"), provider, "chat");
+            return Err(Self::parse_api_error(200, &error_text).unwrap_err().into());
         }
 
         Ok(json)

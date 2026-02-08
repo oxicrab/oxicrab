@@ -133,8 +133,7 @@ impl LLMProvider for OpenAIProvider {
             .await
             .context("Failed to send request to OpenAI API")?;
 
-        let json =
-            ProviderErrorHandler::check_response(resp, "OpenAI", &self.metrics).await?;
+        let json = ProviderErrorHandler::check_response(resp, "OpenAI", &self.metrics).await?;
 
         // Update metrics on success
         {
