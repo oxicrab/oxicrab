@@ -51,7 +51,6 @@ impl MemoryStore {
     }
 
     /// Stop the background memory indexer
-    #[allow(dead_code)] // May be used for graceful shutdown in future
     pub async fn stop_indexer(&self) {
         if let Some(ref indexer) = self.indexer {
             indexer.stop().await;
@@ -135,16 +134,6 @@ impl MemoryStore {
         ))
     }
 
-    #[allow(dead_code)] // May be used by tools or future features
-    pub fn read_today(&self) -> Result<String> {
-        let today_file = self.get_today_file();
-        if today_file.exists() {
-            Ok(std::fs::read_to_string(&today_file)?)
-        } else {
-            Ok(String::new())
-        }
-    }
-
     pub fn append_today(&self, content: &str) -> Result<()> {
         let today_file = self.get_today_file();
         let today = Utc::now();
@@ -170,54 +159,4 @@ impl MemoryStore {
         }
     }
 
-    #[allow(dead_code)] // May be used by tools or future features
-    pub fn write_long_term(&self, content: &str) -> Result<()> {
-        let memory_file = self.memory_dir.join("MEMORY.md");
-        std::fs::write(&memory_file, content)?;
-        Ok(())
-    }
-
-    #[allow(dead_code)] // May be used by tools or future features
-    pub fn get_recent_memories(&self, days: usize) -> Result<String> {
-        let mut memories = Vec::new();
-        let today = Utc::now().date_naive();
-
-        for i in 0..days {
-            let date = today - chrono::Duration::days(i as i64);
-            let date_str = date.format("%Y-%m-%d").to_string();
-            let file_path = self.memory_dir.join(format!("{}.md", date_str));
-
-            if file_path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&file_path) {
-                    memories.push(content);
-                }
-            }
-        }
-
-        Ok(memories.join("\n\n---\n\n"))
-    }
-
-    #[allow(dead_code)] // May be used by tools or future features
-    pub fn list_memory_files(&self) -> Result<Vec<PathBuf>> {
-        if !self.memory_dir.exists() {
-            return Ok(vec![]);
-        }
-
-        let mut files = Vec::new();
-        for entry in std::fs::read_dir(&self.memory_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension() == Some(std::ffi::OsStr::new("md")) {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    // Check if it matches YYYY-MM-DD.md pattern
-                    if name.len() == 13 && name.chars().take(4).all(|c| c.is_ascii_digit()) {
-                        files.push(path);
-                    }
-                }
-            }
-        }
-
-        files.sort_by(|a, b| b.cmp(a)); // Newest first
-        Ok(files)
-    }
 }

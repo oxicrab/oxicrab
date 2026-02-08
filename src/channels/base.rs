@@ -10,6 +10,7 @@ pub trait BaseChannel: Send + Sync {
     async fn send(&self, msg: &OutboundMessage) -> anyhow::Result<()>;
 }
 
+/// Split a message into chunks respecting UTF-8 character boundaries.
 pub fn split_message(text: &str, limit: usize) -> Vec<String> {
     if text.len() <= limit {
         return vec![text.to_string()];
@@ -19,23 +20,37 @@ pub fn split_message(text: &str, limit: usize) -> Vec<String> {
     let mut remaining = text;
 
     while remaining.len() > limit {
-        // Try paragraph boundary
-        if let Some(idx) = remaining[..limit].rfind("\n\n") {
+        // Find the largest valid byte index <= limit that is a char boundary
+        let mut split_at = limit;
+        while split_at > 0 && !remaining.is_char_boundary(split_at) {
+            split_at -= 1;
+        }
+        if split_at == 0 {
+            // Degenerate case: single character wider than limit
+            split_at = remaining
+                .char_indices()
+                .nth(1)
+                .map(|(i, _)| i)
+                .unwrap_or(remaining.len());
+        }
+
+        // Try paragraph boundary within the safe range
+        if let Some(idx) = remaining[..split_at].rfind("\n\n") {
             chunks.push(remaining[..idx].trim().to_string());
             remaining = &remaining[idx + 2..];
             continue;
         }
 
         // Try single newline
-        if let Some(idx) = remaining[..limit].rfind('\n') {
+        if let Some(idx) = remaining[..split_at].rfind('\n') {
             chunks.push(remaining[..idx].trim().to_string());
             remaining = &remaining[idx + 1..];
             continue;
         }
 
-        // Hard cut
-        chunks.push(remaining[..limit].to_string());
-        remaining = &remaining[limit..];
+        // Hard cut at char boundary
+        chunks.push(remaining[..split_at].to_string());
+        remaining = &remaining[split_at..];
     }
 
     if !remaining.is_empty() {

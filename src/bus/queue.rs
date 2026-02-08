@@ -35,7 +35,10 @@ impl MessageBus {
         }
     }
 
-    pub fn default() -> Self {
+}
+
+impl Default for MessageBus {
+    fn default() -> Self {
         Self::new(
             DEFAULT_RATE_LIMIT,
             DEFAULT_RATE_WINDOW_S,
@@ -43,6 +46,9 @@ impl MessageBus {
             DEFAULT_OUTBOUND_CAPACITY,
         )
     }
+}
+
+impl MessageBus {
 
     /// Extract the inbound receiver to avoid holding lock during await
     pub fn take_inbound_rx(&mut self) -> Option<mpsc::Receiver<InboundMessage>> {

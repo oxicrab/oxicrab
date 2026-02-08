@@ -1,13 +1,9 @@
-use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-const _BUILTIN_SKILLS_DIR: &str = "skills";
-
 pub struct SkillsLoader {
-    _workspace: PathBuf,
     workspace_skills: PathBuf,
     builtin_skills: Option<PathBuf>,
 }
@@ -17,7 +13,6 @@ impl SkillsLoader {
         let workspace = workspace.as_ref().to_path_buf();
         let workspace_skills = workspace.join("skills");
         Self {
-            _workspace: workspace.clone(),
             workspace_skills,
             builtin_skills: builtin_skills_dir,
         }
@@ -214,10 +209,10 @@ impl SkillsLoader {
 
     fn strip_frontmatter(&self, content: &str) -> String {
         if content.starts_with("---") {
-            if let Ok(re) = Regex::new(r"^---\n.*?\n---\n") {
-                if let Some(mat) = re.find(content) {
-                    return content[mat.end()..].trim().to_string();
-                }
+            // Find the closing "---" after the opening one
+            if let Some(end_idx) = content[3..].find("\n---\n") {
+                let after = 3 + end_idx + 5; // skip past "\n---\n"
+                return content[after..].trim().to_string();
             }
         }
         content.to_string()
@@ -252,23 +247,15 @@ impl SkillsLoader {
     fn get_skill_metadata(&self, name: &str) -> Option<Value> {
         let content = self.load_skill(name)?;
         if content.starts_with("---") {
-            if let Ok(re) = Regex::new(r"^---\n(.*?)\n---") {
-                if let Some(caps) = re.captures(&content) {
-                    let yaml_content = caps.get(1)?.as_str();
-                    // Simple YAML parsing
-                    let mut metadata = serde_json::Map::new();
-                    for line in yaml_content.lines() {
-                        if let Some((key, value)) = line.split_once(':') {
-                            let key = key.trim().to_string();
-                            let value = value
-                                .trim()
-                                .trim_matches('"')
-                                .trim_matches('\'')
-                                .to_string();
-                            metadata.insert(key, Value::String(value));
-                        }
-                    }
-                    return Some(Value::Object(metadata));
+            // Find the closing "---" after the opening one
+            let end_idx = content[3..].find("\n---")?;
+            let yaml_content = &content[3..3 + end_idx].trim();
+            // Use serde_yaml for proper YAML parsing
+            match serde_yaml::from_str::<Value>(yaml_content) {
+                Ok(val) => return Some(val),
+                Err(e) => {
+                    tracing::debug!("Failed to parse skill YAML frontmatter: {}", e);
+                    return None;
                 }
             }
         }

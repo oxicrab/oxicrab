@@ -63,8 +63,9 @@ impl SubagentManager {
     ) -> Result<String> {
         let task_id = Uuid::new_v4().to_string()[..8].to_string();
         let display_label = label.unwrap_or_else(|| {
-            if task.len() > 30 {
-                format!("{}...", &task[..30])
+            let truncated: String = task.chars().take(30).collect();
+            if truncated.len() < task.len() {
+                format!("{}...", truncated)
             } else {
                 task.clone()
             }
@@ -172,18 +173,8 @@ impl SubagentManager {
         // Build messages
         let system_prompt = self.build_subagent_prompt(task);
         let mut messages = vec![
-            Message {
-                role: "system".to_string(),
-                content: system_prompt,
-                tool_calls: None,
-                tool_call_id: None,
-            },
-            Message {
-                role: "user".to_string(),
-                content: task.to_string(),
-                tool_calls: None,
-                tool_call_id: None,
-            },
+            Message::system(system_prompt),
+            Message::user(task),
         ];
 
         // Run agent loop
@@ -193,8 +184,6 @@ impl SubagentManager {
 
         while iteration < max_iterations {
             iteration += 1;
-
-            let _tools_defs = tools.get_definitions();
 
             let response = self
                 .provider
@@ -209,12 +198,10 @@ impl SubagentManager {
 
             if response.has_tool_calls() {
                 // Add assistant message
-                messages.push(Message {
-                    role: "assistant".to_string(),
-                    content: response.content.clone().unwrap_or_default(),
-                    tool_calls: Some(response.tool_calls.clone()),
-                    tool_call_id: None,
-                });
+                messages.push(Message::assistant(
+                    response.content.clone().unwrap_or_default(),
+                    Some(response.tool_calls.clone()),
+                ));
 
                 // Execute tools
                 for tool_call in &response.tool_calls {
@@ -226,12 +213,11 @@ impl SubagentManager {
                         .execute(&tool_call.name, tool_call.arguments.clone())
                         .await?;
                     let result_str = truncate_tool_result(&result.content, MAX_TOOL_RESULT_CHARS);
-                    messages.push(Message {
-                        role: "tool".to_string(),
-                        content: result_str,
-                        tool_calls: None,
-                        tool_call_id: Some(tool_call.id.clone()),
-                    });
+                    messages.push(Message::tool_result(
+                        tool_call.id.clone(),
+                        result_str,
+                        result.is_error,
+                    ));
                 }
             } else if let Some(content) = response.content {
                 return Ok(content);

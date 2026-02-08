@@ -31,6 +31,22 @@ use tracing::{debug, error, info, warn};
 
 const EMPTY_RESPONSE_RETRIES: usize = 2;
 
+/// Configuration for creating an AgentLoop instance.
+pub struct AgentLoopConfig {
+    pub bus: Arc<Mutex<MessageBus>>,
+    pub provider: Arc<dyn LLMProvider>,
+    pub workspace: PathBuf,
+    pub model: Option<String>,
+    pub max_iterations: usize,
+    pub brave_api_key: Option<String>,
+    pub exec_timeout: u64,
+    pub restrict_to_workspace: bool,
+    pub compaction_config: crate::config::CompactionConfig,
+    pub outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
+    pub cron_service: Option<Arc<CronService>>,
+    pub google_config: Option<crate::config::GoogleConfig>,
+}
+
 pub struct AgentLoop {
     inbound_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<InboundMessage>>>,
     provider: Arc<dyn LLMProvider>,
@@ -51,20 +67,22 @@ pub struct AgentLoop {
 }
 
 impl AgentLoop {
-    pub async fn new(
-        bus: Arc<Mutex<MessageBus>>,
-        provider: Arc<dyn LLMProvider>,
-        workspace: PathBuf,
-        model: Option<String>,
-        max_iterations: usize,
-        brave_api_key: Option<String>,
-        exec_timeout: u64,
-        restrict_to_workspace: bool,
-        compaction_config: crate::config::CompactionConfig,
-        outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
-        cron_service: Option<Arc<CronService>>,
-        google_config: Option<crate::config::GoogleConfig>,
-    ) -> Result<Self> {
+    pub async fn new(config: AgentLoopConfig) -> Result<Self> {
+        let AgentLoopConfig {
+            bus,
+            provider,
+            workspace,
+            model,
+            max_iterations,
+            brave_api_key,
+            exec_timeout,
+            restrict_to_workspace,
+            compaction_config,
+            outbound_tx,
+            cron_service,
+            google_config,
+        } = config;
+
         // Extract receiver to avoid lock contention
         // Receivers are !Sync, so we wrap in Arc<Mutex> for sharing
         let inbound_rx = Arc::new(tokio::sync::Mutex::new({
@@ -249,11 +267,14 @@ impl AgentLoop {
         // If called from async context, consider making this async
         let running = self.running.clone();
         let task_tracker = self.task_tracker.clone();
+        let memory = self.memory.clone();
         tokio::spawn(async move {
             let mut guard = running.lock().await;
             *guard = false;
             // Cancel all tracked background tasks
             task_tracker.cancel_all().await;
+            // Stop the background memory indexer
+            memory.stop_indexer().await;
         });
     }
 
@@ -326,7 +347,7 @@ impl AgentLoop {
                             warn!("Failed to extract facts from conversation: {}", e);
                         }
                     }
-                });
+                }).await;
             }
         }
 
@@ -379,21 +400,6 @@ impl AgentLoop {
                 last_used_delivery_tool =
                     tool_names.iter().any(|n| *n == "message" || *n == "spawn");
 
-                let _tool_call_dicts: Vec<Value> = response
-                    .tool_calls
-                    .iter()
-                    .map(|tc| {
-                        serde_json::json!({
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.name,
-                                "arguments": tc.arguments
-                            }
-                        })
-                    })
-                    .collect();
-
                 let context = self.context.lock().await;
                 context.add_assistant_message(
                     &mut messages,
@@ -422,6 +428,7 @@ impl AgentLoop {
                         &tool_call.id,
                         &tool_call.name,
                         &result_str,
+                        result.is_error,
                     );
                 }
             } else if let Some(content) = response.content {

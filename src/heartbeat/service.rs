@@ -1,4 +1,3 @@
-use crate::providers::base::LLMProvider;
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
 use std::path::PathBuf;
@@ -20,10 +19,7 @@ pub struct HeartbeatService {
     >,
     interval_s: u64,
     enabled: bool,
-    _triage_provider: Option<Arc<dyn LLMProvider>>,
-    _triage_model: Option<String>,
     strategy_file: String,
-    _cooldown_s: u64,
     running: Arc<tokio::sync::Mutex<bool>>,
     task_tracker: Arc<TaskTracker>,
 }
@@ -43,20 +39,14 @@ impl HeartbeatService {
         >,
         interval_s: u64,
         enabled: bool,
-        triage_provider: Option<Arc<dyn LLMProvider>>,
-        triage_model: Option<String>,
         strategy_file: String,
-        cooldown_after_action: u64,
     ) -> Self {
         Self {
             workspace,
             on_heartbeat,
             interval_s,
             enabled,
-            _triage_provider: triage_provider,
-            _triage_model: triage_model,
             strategy_file,
-            _cooldown_s: cooldown_after_action,
             running: Arc::new(tokio::sync::Mutex::new(false)),
             task_tracker: Arc::new(TaskTracker::new()),
         }

@@ -1,10 +1,8 @@
-use crate::providers::base::{
-    LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition,
-};
+use crate::providers::anthropic_common;
+use crate::providers::base::{LLMProvider, LLMResponse, Message, ToolDefinition};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
-use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -206,118 +204,6 @@ impl AnthropicOAuthProvider {
         }
     }
 
-    fn convert_messages(&self, messages: Vec<Message>) -> (Option<String>, Vec<AnthropicMessage>) {
-        let mut system_parts = Vec::new();
-        let mut anthropic_messages = Vec::new();
-
-        for msg in messages {
-            match msg.role.as_str() {
-                "system" => {
-                    system_parts.push(msg.content);
-                }
-                "user" => {
-                    anthropic_messages.push(AnthropicMessage {
-                        role: "user".to_string(),
-                        content: AnthropicContent::Text(msg.content),
-                    });
-                }
-                "assistant" => {
-                    let mut content: Vec<Value> = vec![json!({
-                        "type": "text",
-                        "text": msg.content
-                    })];
-
-                    if let Some(tool_calls) = msg.tool_calls {
-                        for tc in tool_calls {
-                            content.push(json!({
-                                "type": "tool_use",
-                                "id": tc.id,
-                                "name": tc.name,
-                                "input": tc.arguments
-                            }));
-                        }
-                    }
-
-                    anthropic_messages.push(AnthropicMessage {
-                        role: "assistant".to_string(),
-                        content: AnthropicContent::Blocks(content),
-                    });
-                }
-                "tool" => {
-                    if let Some(tool_call_id) = msg.tool_call_id {
-                        anthropic_messages.push(AnthropicMessage {
-                            role: "user".to_string(),
-                            content: AnthropicContent::Blocks(vec![json!({
-                                "type": "tool_result",
-                                "tool_use_id": tool_call_id,
-                                "content": msg.content
-                            })]),
-                        });
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        let system = if system_parts.is_empty() {
-            None
-        } else {
-            Some(system_parts.join("\n\n"))
-        };
-
-        (system, anthropic_messages)
-    }
-
-    fn convert_tools(&self, tools: Vec<ToolDefinition>) -> Vec<AnthropicTool> {
-        tools
-            .into_iter()
-            .map(|t| AnthropicTool {
-                name: t.name,
-                description: t.description,
-                input_schema: t.parameters,
-            })
-            .collect()
-    }
-
-    fn parse_response(&self, json: Value) -> Result<LLMResponse> {
-        let mut content_parts = Vec::new();
-        let mut tool_calls = Vec::new();
-
-        if let Some(content_array) = json["content"].as_array() {
-            for block in content_array {
-                if let Some(block_type) = block["type"].as_str() {
-                    match block_type {
-                        "text" => {
-                            if let Some(text) = block["text"].as_str() {
-                                content_parts.push(text.to_string());
-                            }
-                        }
-                        "tool_use" => {
-                            tool_calls.push(ToolCallRequest {
-                                id: block["id"].as_str().unwrap_or("").to_string(),
-                                name: block["name"].as_str().unwrap_or("").to_string(),
-                                arguments: block.get("input").cloned().unwrap_or(json!({})),
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        let content = if content_parts.is_empty() {
-            None
-        } else {
-            Some(content_parts.join("\n"))
-        };
-
-        Ok(LLMResponse {
-            content,
-            tool_calls,
-            reasoning_content: None,
-        })
-    }
-
     pub async fn from_credentials_file(
         path: &Path,
         default_model: Option<String>,
@@ -473,28 +359,6 @@ impl AnthropicOAuthProvider {
     }
 }
 
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-enum AnthropicContent {
-    Text(String),
-    Blocks(Vec<Value>),
-}
-
-#[derive(Debug, Serialize)]
-struct AnthropicMessage {
-    role: String,
-    #[serde(flatten)]
-    content: AnthropicContent,
-}
-
-#[derive(Debug, Serialize)]
-struct AnthropicTool {
-    name: String,
-    description: String,
-    #[serde(rename = "input_schema")]
-    input_schema: Value,
-}
-
 #[async_trait]
 impl LLMProvider for AnthropicOAuthProvider {
     async fn chat(
@@ -518,7 +382,7 @@ impl LLMProvider for AnthropicOAuthProvider {
 
         let token = self.ensure_valid_token().await?;
 
-        let (system, anthropic_messages) = self.convert_messages(messages);
+        let (system, anthropic_messages) = anthropic_common::convert_messages(messages);
 
         let mut payload = json!({
             "model": model,
@@ -532,7 +396,7 @@ impl LLMProvider for AnthropicOAuthProvider {
         }
 
         if let Some(tools) = tools {
-            payload["tools"] = json!(self.convert_tools(tools));
+            payload["tools"] = json!(anthropic_common::convert_tools(tools));
             payload["tool_choice"] = json!({"type": "auto"});
         }
 
@@ -545,34 +409,25 @@ impl LLMProvider for AnthropicOAuthProvider {
             request = request.header(key, value);
         }
 
-        match request.json(&payload).send().await {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    let json: Value = resp.json().await.context("Failed to parse response")?;
-                    self.parse_response(json)
-                } else {
-                    let status = resp.status();
-                    let body = resp.text().await.unwrap_or_default();
-                    warn!("Anthropic OAuth API error {}: {}", status, body);
-                    Ok(LLMResponse {
-                        content: Some(format!(
-                            "Error calling Anthropic API: {} - {}",
-                            status, body
-                        )),
-                        tool_calls: vec![],
-                        reasoning_content: None,
-                    })
-                }
-            }
-            Err(e) => {
-                warn!("Anthropic OAuth API error: {}", e);
-                Ok(LLMResponse {
-                    content: Some(format!("Error calling Anthropic API: {}", e)),
-                    tool_calls: vec![],
-                    reasoning_content: None,
-                })
-            }
+        let resp = request
+            .json(&payload)
+            .send()
+            .await
+            .context("Failed to send request to Anthropic OAuth API")?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            warn!("Anthropic OAuth API error {}: {}", status, body);
+            return Err(anyhow::anyhow!(
+                "Anthropic OAuth API error {}: {}",
+                status,
+                body
+            ));
         }
+
+        let json: Value = resp.json().await.context("Failed to parse response")?;
+        anthropic_common::parse_response(&json)
     }
 
     fn default_model(&self) -> &str {

@@ -418,17 +418,8 @@ async fn send_whatsapp_message(
         }
     };
 
-    // Split long messages (WhatsApp has limits)
-    let max_length = 4096;
-    let chunks: Vec<&str> = if msg.content.len() > max_length {
-        msg.content
-            .as_bytes()
-            .chunks(max_length)
-            .map(|chunk| std::str::from_utf8(chunk).unwrap_or(""))
-            .collect()
-    } else {
-        vec![msg.content.as_str()]
-    };
+    // Split long messages using UTF-8 safe splitting
+    let chunks = crate::channels::base::split_message(&msg.content, 4096);
 
     for (i, chunk) in chunks.iter().enumerate() {
         info!(
@@ -440,12 +431,13 @@ async fn send_whatsapp_message(
         );
         // Create a text message using waproto (re-exported by whatsapp-rust)
         let mut text_message = whatsapp_rust::waproto::whatsapp::Message::default();
-        text_message.conversation = Some(chunk.to_string());
+        text_message.conversation = Some(chunk.clone());
 
+        let preview_end = chunk.char_indices().nth(50).map(|(i, _)| i).unwrap_or(chunk.len());
         info!(
             "send_whatsapp_message: calling client.send_message with JID={}, content_preview={}...",
             jid,
-            &chunk[..chunk.len().min(50)]
+            &chunk[..preview_end]
         );
         match client.send_message(jid.clone(), text_message).await {
             Ok(msg_id) => {

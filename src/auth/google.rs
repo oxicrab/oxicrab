@@ -377,22 +377,27 @@ fn extract_code_from_request(request: &str) -> Result<String> {
 }
 
 pub fn has_valid_credentials(
-    client_id: &str,
-    client_secret: &str,
+    _client_id: &str,
+    _client_secret: &str,
     scopes: Option<&[String]>,
     token_path: Option<&Path>,
 ) -> bool {
-    tokio::runtime::Runtime::new()
-        .map(|rt| {
-            rt.block_on(get_credentials(
-                client_id,
-                client_secret,
-                scopes,
-                token_path,
-            ))
-            .is_ok()
-        })
-        .unwrap_or(false)
+    let scopes_vec: Vec<&str> = scopes
+        .map(|s| s.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_else(|| DEFAULT_SCOPES.to_vec());
+    let token_path = token_path
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .map(|h| h.join(DEFAULT_TOKEN_PATH))
+                .unwrap_or_else(|| PathBuf::from(DEFAULT_TOKEN_PATH))
+        });
+
+    // Check credentials synchronously without creating a nested runtime
+    match load_credentials(&token_path, &scopes_vec) {
+        Ok(Some(creds)) => creds.is_valid() || creds.refresh_token.is_some(),
+        _ => false,
+    }
 }
 
 fn load_credentials(path: &Path, scopes: &[&str]) -> Result<Option<GoogleCredentials>> {

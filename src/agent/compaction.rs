@@ -32,7 +32,8 @@ Assistant: {assistant_message}
 If there are notable facts, respond with a short bullet list (one line per fact). If nothing is worth remembering, respond with exactly: NOTHING"#;
 
 pub fn estimate_tokens(text: &str) -> usize {
-    text.len() / 4
+    // Use char count for better accuracy with non-ASCII text
+    text.chars().count() / 4
 }
 
 pub fn estimate_messages_tokens(messages: &[HashMap<String, Value>]) -> usize {
@@ -86,12 +87,7 @@ impl MessageCompactor {
             .replace("{previous_summary}", previous_summary)
             .replace("{messages}", &messages_text);
 
-        let llm_messages = vec![Message {
-            role: "user".to_string(),
-            content: prompt,
-            tool_calls: None,
-            tool_call_id: None,
-        }];
+        let llm_messages = vec![Message::user(prompt)];
 
         let response = self
             .provider
@@ -110,12 +106,7 @@ impl MessageCompactor {
             .replace("{user_message}", user_message)
             .replace("{assistant_message}", assistant_message);
 
-        let llm_messages = vec![Message {
-            role: "user".to_string(),
-            content: prompt,
-            tool_calls: None,
-            tool_call_id: None,
-        }];
+        let llm_messages = vec![Message::user(prompt)];
 
         let response = self
             .provider

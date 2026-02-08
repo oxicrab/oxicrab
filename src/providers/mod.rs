@@ -1,4 +1,5 @@
 pub mod anthropic;
+pub mod anthropic_common;
 pub mod anthropic_oauth;
 pub mod base;
 pub mod errors;

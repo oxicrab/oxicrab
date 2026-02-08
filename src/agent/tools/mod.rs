@@ -2,6 +2,7 @@ pub mod base;
 pub mod cron;
 pub mod filesystem;
 pub mod google_calendar;
+pub mod google_common;
 pub mod google_mail;
 pub mod message;
 pub mod registry;

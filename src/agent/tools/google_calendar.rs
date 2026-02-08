@@ -1,52 +1,20 @@
+use crate::agent::tools::google_common::GoogleApiClient;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::auth::google::GoogleCredentials;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use std::sync::Arc;
 
 pub struct GoogleCalendarTool {
-    credentials: Arc<tokio::sync::Mutex<GoogleCredentials>>,
+    api: GoogleApiClient,
 }
 
 impl GoogleCalendarTool {
     pub fn new(credentials: GoogleCredentials) -> Self {
         Self {
-            credentials: Arc::new(tokio::sync::Mutex::new(credentials)),
+            api: GoogleApiClient::new(credentials, "https://www.googleapis.com/calendar/v3"),
         }
-    }
-
-    async fn get_access_token(&self) -> Result<String> {
-        let mut creds = self.credentials.lock().await;
-        if !creds.is_valid() {
-            creds.refresh().await?;
-        }
-        Ok(creds.get_access_token().to_string())
-    }
-
-    async fn call_api(&self, endpoint: &str, method: &str, body: Option<Value>) -> Result<Value> {
-        let token = self.get_access_token().await?;
-        let client = reqwest::Client::new();
-        let url = format!("https://www.googleapis.com/calendar/v3/{}", endpoint);
-
-        let mut request = match method {
-            "GET" => client.get(&url),
-            "POST" => client.post(&url),
-            "PUT" => client.put(&url),
-            "DELETE" => client.delete(&url),
-            _ => return Err(anyhow::anyhow!("Unsupported method: {}", method)),
-        };
-
-        request = request.header("Authorization", format!("Bearer {}", token));
-
-        if let Some(body) = body {
-            request = request.json(&body);
-        }
-
-        let response = request.send().await?;
-        let data: serde_json::Value = response.error_for_status()?.json().await?;
-        Ok(data)
     }
 }
 
@@ -153,7 +121,7 @@ impl Tool for GoogleCalendarTool {
                     "calendars/{}/events?timeMin={}&timeMax={}&maxResults={}&singleEvents=true&orderBy=startTime",
                     urlencoding::encode(cal_id), urlencoding::encode(&time_min), urlencoding::encode(&time_max), max_results
                 );
-                let result = self.call_api(&endpoint, "GET", None).await?;
+                let result = self.api.call(&endpoint, "GET", None).await?;
                 let empty_vec: Vec<serde_json::Value> = vec![];
                 let events = result["items"].as_array().unwrap_or(&empty_vec);
 
@@ -217,7 +185,7 @@ impl Tool for GoogleCalendarTool {
                     urlencoding::encode(cal_id),
                     urlencoding::encode(event_id)
                 );
-                let ev = self.call_api(&endpoint, "GET", None).await?;
+                let ev = self.api.call(&endpoint, "GET", None).await?;
                 Ok(ToolResult::new(format_event_detail(&ev)))
             }
             "create_event" => {
@@ -270,7 +238,7 @@ impl Tool for GoogleCalendarTool {
                 }
 
                 let endpoint = format!("calendars/{}/events", urlencoding::encode(cal_id));
-                let ev = self.call_api(&endpoint, "POST", Some(body)).await?;
+                let ev = self.api.call(&endpoint, "POST", Some(body)).await?;
                 Ok(ToolResult::new(format!(
                     "Event created: {} (ID: {})\nLink: {}",
                     ev["summary"].as_str().unwrap_or("?"),
@@ -288,7 +256,7 @@ impl Tool for GoogleCalendarTool {
                     urlencoding::encode(cal_id),
                     urlencoding::encode(event_id)
                 );
-                let mut ev = self.call_api(&endpoint, "GET", None).await?;
+                let mut ev = self.api.call(&endpoint, "GET", None).await?;
 
                 let tz = params["timezone"].as_str().unwrap_or("UTC");
 
@@ -325,7 +293,7 @@ impl Tool for GoogleCalendarTool {
                     );
                 }
 
-                let updated = self.call_api(&endpoint, "PUT", Some(ev)).await?;
+                let updated = self.api.call(&endpoint, "PUT", Some(ev)).await?;
                 Ok(ToolResult::new(format!(
                     "Event updated: {} (ID: {})",
                     updated["summary"].as_str().unwrap_or("?"),
@@ -342,11 +310,11 @@ impl Tool for GoogleCalendarTool {
                     urlencoding::encode(cal_id),
                     urlencoding::encode(event_id)
                 );
-                self.call_api(&endpoint, "DELETE", None).await?;
+                self.api.call(&endpoint, "DELETE", None).await?;
                 Ok(ToolResult::new(format!("Event {} deleted.", event_id)))
             }
             "list_calendars" => {
-                let result = self.call_api("users/me/calendarList", "GET", None).await?;
+                let result = self.api.call("users/me/calendarList", "GET", None).await?;
                 let empty_cals: Vec<serde_json::Value> = vec![];
                 let cals = result["items"].as_array().unwrap_or(&empty_cals);
                 if cals.is_empty() {

@@ -4,15 +4,22 @@ use serde_json::Value;
 #[derive(Debug, Clone)]
 pub struct ToolResult {
     pub content: String,
+    pub is_error: bool,
 }
 
 impl ToolResult {
     pub fn new(content: String) -> Self {
-        Self { content }
+        Self {
+            content,
+            is_error: false,
+        }
     }
 
     pub fn error(content: String) -> Self {
-        Self { content }
+        Self {
+            content,
+            is_error: true,
+        }
     }
 }
 
@@ -34,9 +41,11 @@ impl ToolVersion {
     pub fn new(major: u32, minor: u32, patch: u32) -> Self {
         Self { major, minor, patch }
     }
+}
 
-    pub fn to_string(&self) -> String {
-        format!("{}.{}.{}", self.major, self.minor, self.patch)
+impl std::fmt::Display for ToolVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }
 }
 

@@ -1,5 +1,5 @@
 /// Task tracker for managing background tasks
-/// 
+///
 /// Provides centralized tracking and cleanup of background tasks spawned with `tokio::spawn`.
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 /// Task tracker for managing background tasks
-/// 
+///
 /// Provides centralized tracking and cleanup of background tasks spawned with `tokio::spawn`.
 pub struct TaskTracker {
     tasks: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
@@ -33,7 +33,7 @@ impl TaskTracker {
     }
 
     /// Spawn a tracked background task that removes itself on completion
-    pub fn spawn_auto_cleanup<F>(&self, name: String, future: F)
+    pub async fn spawn_auto_cleanup<F>(&self, name: String, future: F)
     where
         F: std::future::Future<Output = ()> + Send + 'static,
     {
@@ -45,14 +45,12 @@ impl TaskTracker {
             tasks_guard.remove(&name_clone);
             debug!("Task '{}' completed and removed from tracker", name_clone);
         });
-        
-        // Track the task
-        let tasks_clone = self.tasks.clone();
-        let name_clone2 = name.clone();
-        tokio::spawn(async move {
-            let mut tasks_guard = tasks_clone.lock().await;
-            tasks_guard.insert(name_clone2, handle);
-        });
+
+        // Insert handle immediately under the same lock-free path
+        // Since we hold no lock here and the task may complete before we insert,
+        // the worst case is a no-op remove in the spawned future.
+        let mut tasks_guard = self.tasks.lock().await;
+        tasks_guard.insert(name, handle);
     }
 
     /// Cancel all tracked tasks
@@ -67,7 +65,6 @@ impl TaskTracker {
             info!("Cancelled {} tracked tasks", count);
         }
     }
-
 }
 
 impl Default for TaskTracker {

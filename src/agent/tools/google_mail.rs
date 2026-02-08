@@ -1,51 +1,20 @@
+use crate::agent::tools::google_common::GoogleApiClient;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::auth::google::GoogleCredentials;
 use anyhow::Result;
 use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::Value;
-use std::sync::Arc;
 
 pub struct GoogleMailTool {
-    credentials: Arc<tokio::sync::Mutex<GoogleCredentials>>,
+    api: GoogleApiClient,
 }
 
 impl GoogleMailTool {
     pub fn new(credentials: GoogleCredentials) -> Self {
         Self {
-            credentials: Arc::new(tokio::sync::Mutex::new(credentials)),
+            api: GoogleApiClient::new(credentials, "https://www.googleapis.com/gmail/v1"),
         }
-    }
-
-    async fn get_access_token(&self) -> Result<String> {
-        let mut creds = self.credentials.lock().await;
-        if !creds.is_valid() {
-            creds.refresh().await?;
-        }
-        Ok(creds.get_access_token().to_string())
-    }
-
-    async fn call_api(&self, endpoint: &str, method: &str, body: Option<Value>) -> Result<Value> {
-        let token = self.get_access_token().await?;
-        let client = reqwest::Client::new();
-        let url = format!("https://www.googleapis.com/gmail/v1/{}", endpoint);
-
-        let mut request = match method {
-            "GET" => client.get(&url),
-            "POST" => client.post(&url),
-            "PUT" => client.put(&url),
-            _ => return Err(anyhow::anyhow!("Unsupported method: {}", method)),
-        };
-
-        request = request.header("Authorization", format!("Bearer {}", token));
-
-        if let Some(body) = body {
-            request = request.json(&body);
-        }
-
-        let response = request.send().await?;
-        let data: serde_json::Value = response.error_for_status()?.json().await?;
-        Ok(data)
     }
 }
 
@@ -126,7 +95,7 @@ impl Tool for GoogleMailTool {
                     urlencoding::encode(query),
                     max_results
                 );
-                let result = self.call_api(&endpoint, "GET", None).await?;
+                let result = self.api.call(&endpoint, "GET", None).await?;
                 let empty_messages: Vec<serde_json::Value> = vec![];
                 let messages = result["messages"].as_array().unwrap_or(&empty_messages);
 
@@ -148,7 +117,7 @@ impl Tool for GoogleMailTool {
                         "users/me/messages/{}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date",
                         urlencoding::encode(msg_id)
                     );
-                    let msg = self.call_api(&endpoint, "GET", None).await?;
+                    let msg = self.api.call(&endpoint, "GET", None).await?;
                     let headers: std::collections::HashMap<String, String> = msg["payload"]
                         ["headers"]
                         .as_array()
@@ -184,7 +153,7 @@ impl Tool for GoogleMailTool {
                     "users/me/messages/{}?format=full",
                     urlencoding::encode(message_id)
                 );
-                let msg = self.call_api(&endpoint, "GET", None).await?;
+                let msg = self.api.call(&endpoint, "GET", None).await?;
                 let headers: std::collections::HashMap<String, String> = msg["payload"]["headers"]
                     .as_array()
                     .unwrap_or(&vec![])
@@ -231,7 +200,7 @@ impl Tool for GoogleMailTool {
 
                 let body_json = serde_json::json!({"raw": raw});
                 let endpoint = "users/me/messages/send";
-                let sent = self.call_api(endpoint, "POST", Some(body_json)).await?;
+                let sent = self.api.call(endpoint, "POST", Some(body_json)).await?;
                 Ok(ToolResult::new(format!(
                     "Email sent successfully (ID: {})",
                     sent["id"].as_str().unwrap_or("?")
@@ -249,7 +218,7 @@ impl Tool for GoogleMailTool {
                     "users/me/messages/{}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Message-ID",
                     urlencoding::encode(message_id)
                 );
-                let original = self.call_api(&endpoint, "GET", None).await?;
+                let original = self.api.call(&endpoint, "GET", None).await?;
                 let headers: std::collections::HashMap<String, String> = original["payload"]
                     ["headers"]
                     .as_array()
@@ -285,14 +254,14 @@ impl Tool for GoogleMailTool {
                     "threadId": thread_id
                 });
                 let endpoint = "users/me/messages/send";
-                let sent = self.call_api(endpoint, "POST", Some(body_json)).await?;
+                let sent = self.api.call(endpoint, "POST", Some(body_json)).await?;
                 Ok(ToolResult::new(format!(
                     "Reply sent successfully (ID: {})",
                     sent["id"].as_str().unwrap_or("?")
                 )))
             }
             "list_labels" => {
-                let result = self.call_api("users/me/labels", "GET", None).await?;
+                let result = self.api.call("users/me/labels", "GET", None).await?;
                 let empty_labels: Vec<serde_json::Value> = vec![];
                 let labels = result["labels"].as_array().unwrap_or(&empty_labels);
                 if labels.is_empty() {
@@ -355,7 +324,7 @@ impl Tool for GoogleMailTool {
                     "users/me/messages/{}/modify",
                     urlencoding::encode(message_id)
                 );
-                self.call_api(&endpoint, "POST", Some(body)).await?;
+                self.api.call(&endpoint, "POST", Some(body)).await?;
                 Ok(ToolResult::new(format!(
                     "Labels updated on message {}",
                     message_id

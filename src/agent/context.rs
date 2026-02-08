@@ -230,12 +230,7 @@ impl ContextBuilder {
                 ch, cid
             ));
         }
-        messages.push(crate::providers::base::Message {
-            role: "system".to_string(),
-            content: system_prompt,
-            tool_calls: None,
-            tool_call_id: None,
-        });
+        messages.push(crate::providers::base::Message::system(system_prompt));
 
         // History
         for msg in history {
@@ -246,20 +241,17 @@ impl ContextBuilder {
                 messages.push(crate::providers::base::Message {
                     role: role.to_string(),
                     content: content.to_string(),
-                    tool_calls: None,
-                    tool_call_id: None,
+                    ..Default::default()
                 });
             }
         }
 
         // Current message with time prefix
         let time_prefix = format!("[{}] ", Utc::now().format("%H:%M"));
-        messages.push(crate::providers::base::Message {
-            role: "user".to_string(),
-            content: format!("{}{}", time_prefix, current_message),
-            tool_calls: None,
-            tool_call_id: None,
-        });
+        messages.push(crate::providers::base::Message::user(format!(
+            "{}{}",
+            time_prefix, current_message
+        )));
 
         Ok(messages)
     }
@@ -270,13 +262,11 @@ impl ContextBuilder {
         tool_call_id: &str,
         _tool_name: &str,
         result: &str,
+        is_error: bool,
     ) {
-        messages.push(crate::providers::base::Message {
-            role: "tool".to_string(),
-            content: result.to_string(),
-            tool_calls: None,
-            tool_call_id: Some(tool_call_id.to_string()),
-        });
+        messages.push(crate::providers::base::Message::tool_result(
+            tool_call_id, result, is_error,
+        ));
     }
 
     pub fn add_assistant_message(
@@ -286,12 +276,10 @@ impl ContextBuilder {
         tool_calls: Option<Vec<crate::providers::base::ToolCallRequest>>,
         _reasoning_content: Option<&str>,
     ) {
-        let msg = crate::providers::base::Message {
-            role: "assistant".to_string(),
-            content: content.unwrap_or("").to_string(),
-            tool_calls: tool_calls,
-            tool_call_id: None,
-        };
+        let msg = crate::providers::base::Message::assistant(
+            content.unwrap_or(""),
+            tool_calls,
+        );
         messages.push(msg);
     }
 }

@@ -22,12 +22,32 @@ impl LLMResponse {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Message {
     pub role: String,
     pub content: String,
     pub tool_calls: Option<Vec<ToolCallRequest>>,
     pub tool_call_id: Option<String>,
+    /// Whether this tool result represents an error (for role="tool" messages)
+    pub is_error: bool,
+}
+
+impl Message {
+    pub fn system(content: impl Into<String>) -> Self {
+        Self { role: "system".into(), content: content.into(), ..Default::default() }
+    }
+
+    pub fn user(content: impl Into<String>) -> Self {
+        Self { role: "user".into(), content: content.into(), ..Default::default() }
+    }
+
+    pub fn assistant(content: impl Into<String>, tool_calls: Option<Vec<ToolCallRequest>>) -> Self {
+        Self { role: "assistant".into(), content: content.into(), tool_calls, ..Default::default() }
+    }
+
+    pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>, is_error: bool) -> Self {
+        Self { role: "tool".into(), content: content.into(), tool_call_id: Some(tool_call_id.into()), is_error, ..Default::default() }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

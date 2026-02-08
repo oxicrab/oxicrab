@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tracing::debug;
 
 #[derive(Debug, Clone)]
@@ -11,10 +11,29 @@ pub struct MemoryHit {
     pub content: String,
 }
 
-#[derive(Clone)]
 pub struct MemoryDB {
-    db_path: PathBuf,
+    conn: std::sync::Mutex<Connection>,
     has_fts: bool,
+}
+
+impl Clone for MemoryDB {
+    fn clone(&self) -> Self {
+        // Re-open a connection for clones (rare, needed for Arc sharing patterns)
+        let conn = self.conn.lock().unwrap();
+        let path = conn.path().unwrap_or("").to_string();
+        let new_conn = Connection::open(&path).expect("Failed to re-open DB for clone");
+        new_conn
+            .execute_batch(
+                "PRAGMA journal_mode=WAL;
+                 PRAGMA synchronous=NORMAL;
+                 PRAGMA busy_timeout=3000;",
+            )
+            .expect("Failed to set PRAGMAs on cloned connection");
+        Self {
+            conn: std::sync::Mutex::new(new_conn),
+            has_fts: self.has_fts,
+        }
+    }
 }
 
 impl MemoryDB {
@@ -25,8 +44,16 @@ impl MemoryDB {
                 .with_context(|| format!("Failed to create database parent directory: {}", parent.display()))?;
         }
 
+        let conn = Connection::open(db_path)
+            .with_context(|| format!("Failed to open database at: {}", db_path.display()))?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
+             PRAGMA busy_timeout=3000;",
+        )?;
+
         let mut db = Self {
-            db_path: db_path.to_path_buf(),
+            conn: std::sync::Mutex::new(conn),
             has_fts: false,
         };
 
@@ -35,19 +62,8 @@ impl MemoryDB {
         Ok(db)
     }
 
-    fn connect(&self) -> Result<Connection> {
-        let conn = Connection::open(&self.db_path)?;
-        // Use execute_batch for PRAGMA statements that might return values
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             PRAGMA busy_timeout=3000;",
-        )?;
-        Ok(conn)
-    }
-
     fn ensure_schema(&mut self) -> Result<()> {
-        let conn = self.connect()?;
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS memory_sources (
@@ -137,7 +153,7 @@ impl MemoryDB {
         let mtime_ns = Self::get_mtime_ns(path);
         let now = Utc::now().to_rfc3339();
 
-        let conn = self.connect()?;
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
 
         // Check if unchanged
         let existing: Option<i64> = conn
@@ -222,7 +238,7 @@ impl MemoryDB {
 
         let default_set = std::collections::HashSet::new();
         let exclude = exclude_sources.unwrap_or(&default_set);
-        let conn = self.connect()?;
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
 
         if self.has_fts {
             let mut stmt = conn.prepare(
@@ -289,10 +305,6 @@ impl MemoryDB {
     }
 }
 
-fn _utc_now_iso() -> String {
-    chrono::Utc::now().to_rfc3339()
-}
-
 fn hash_text(s: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(s.as_bytes());
@@ -310,7 +322,11 @@ fn split_into_chunks(text: &str) -> Vec<String> {
             continue;
         }
         let chunk = if p.len() > 1200 {
-            p[..1200].to_string()
+            let mut end = 1200;
+            while end > 0 && !p.is_char_boundary(end) {
+                end -= 1;
+            }
+            p[..end].to_string()
         } else {
             p.to_string()
         };

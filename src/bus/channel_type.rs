@@ -23,16 +23,20 @@ impl ChannelType {
             ChannelType::Cli => "cli",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for ChannelType {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
-            "telegram" => Some(ChannelType::Telegram),
-            "discord" => Some(ChannelType::Discord),
-            "slack" => Some(ChannelType::Slack),
-            "whatsapp" => Some(ChannelType::WhatsApp),
-            "system" => Some(ChannelType::System),
-            "cli" => Some(ChannelType::Cli),
-            _ => None,
+            "telegram" => Ok(ChannelType::Telegram),
+            "discord" => Ok(ChannelType::Discord),
+            "slack" => Ok(ChannelType::Slack),
+            "whatsapp" => Ok(ChannelType::WhatsApp),
+            "system" => Ok(ChannelType::System),
+            "cli" => Ok(ChannelType::Cli),
+            _ => Err(format!("Unknown channel type: {}", s)),
         }
     }
 }

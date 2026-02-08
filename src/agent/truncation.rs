@@ -1,13 +1,7 @@
 use crate::utils::regex::RegexPatterns;
 use serde_json::Value;
 
-const _DEFAULT_MAX_CHARS: usize = 3000;
-
 pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
-    truncate_tool_result_internal(result, max_chars)
-}
-
-fn truncate_tool_result_internal(result: &str, max_chars: usize) -> String {
     // Strip ANSI escape codes
     let clean = RegexPatterns::ansi_escape().replace_all(result, "").to_string();
 
@@ -23,10 +17,11 @@ fn truncate_tool_result_internal(result: &str, max_chars: usize) -> String {
                     return pretty;
                 }
                 let budget = max_chars.saturating_sub(120);
+                let safe_budget = floor_char_boundary(&pretty, budget);
                 return format!(
                     "{}\n\n... [JSON truncated - showed {} of {} chars. Do NOT re-run this tool to see more.]",
-                    &pretty[..budget.min(pretty.len())],
-                    budget,
+                    &pretty[..safe_budget],
+                    safe_budget,
                     pretty.len()
                 );
             }
@@ -34,10 +29,20 @@ fn truncate_tool_result_internal(result: &str, max_chars: usize) -> String {
     }
 
     let budget = max_chars.saturating_sub(100);
+    let safe_budget = floor_char_boundary(&clean, budget);
     format!(
         "{}\n\n... [truncated - showed {} of {} chars. Do NOT re-run this tool to see more.]",
-        &clean[..budget.min(clean.len())],
-        budget,
+        &clean[..safe_budget],
+        safe_budget,
         clean.len()
     )
+}
+
+/// Find the largest byte index <= `index` that is a valid char boundary.
+fn floor_char_boundary(s: &str, index: usize) -> usize {
+    let mut i = index.min(s.len());
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
 }

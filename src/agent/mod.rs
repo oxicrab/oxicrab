@@ -8,4 +8,4 @@ pub mod subagent;
 pub mod tools;
 pub mod truncation;
 
-pub use agent_loop::AgentLoop;
+pub use agent_loop::{AgentLoop, AgentLoopConfig};

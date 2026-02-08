@@ -16,10 +16,11 @@ use tracing::{debug, error, info, warn};
 pub struct SlackChannel {
     config: SlackConfig,
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
-    bot_user_id: Option<String>,
+    bot_user_id: Arc<tokio::sync::Mutex<Option<String>>>,
     running: Arc<tokio::sync::Mutex<bool>>,
     ws_handle: Option<tokio::task::JoinHandle<()>>,
     seen_messages: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+    client: reqwest::Client,
 }
 
 impl SlackChannel {
@@ -30,10 +31,11 @@ impl SlackChannel {
         Self {
             config,
             inbound_tx,
-            bot_user_id: None,
+            bot_user_id: Arc::new(tokio::sync::Mutex::new(None)),
             running: Arc::new(tokio::sync::Mutex::new(false)),
             ws_handle: None,
             seen_messages: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
+            client: reqwest::Client::new(),
         }
     }
 
@@ -51,12 +53,11 @@ impl SlackChannel {
     }
 
     async fn send_slack_api(&self, method: &str, params: &HashMap<&str, Value>) -> Result<Value> {
-        let client = reqwest::Client::new();
         let url = format!("https://slack.com/api/{}", method);
         let mut form = params.clone();
         form.insert("token", Value::String(self.config.bot_token.clone()));
 
-        let response = client.post(&url).form(&form).send().await?;
+        let response = self.client.post(&url).form(&form).send().await?;
 
         let json: Value = response.json().await?;
         if json.get("ok").and_then(|v| v.as_bool()) != Some(true) {
@@ -69,189 +70,6 @@ impl SlackChannel {
         Ok(json)
     }
 
-    async fn handle_message_event(&self, event: &Value) -> Result<()> {
-        // Ignore bot messages and message_changed subtypes
-        if event.get("subtype").is_some() {
-            return Ok(());
-        }
-
-        let user_id = event.get("user").and_then(|v| v.as_str()).unwrap_or("");
-        let channel_id = event.get("channel").and_then(|v| v.as_str()).unwrap_or("");
-        let mut text = event
-            .get("text")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        if user_id.is_empty() || channel_id.is_empty() {
-            return Ok(());
-        }
-
-        // Ignore messages from the bot itself
-        if let Some(ref bot_id) = self.bot_user_id {
-            if user_id == bot_id {
-                debug!("Ignoring message from bot itself (user_id: {})", user_id);
-                return Ok(());
-            }
-        }
-
-        // Deduplicate messages using timestamp (ts) as unique identifier
-        if let Some(ts) = event.get("ts").and_then(|v| v.as_str()) {
-            let mut seen = self.seen_messages.lock().await;
-            let msg_key = format!("{}:{}:{}", channel_id, user_id, ts);
-            if seen.contains(&msg_key) {
-                debug!("Ignoring duplicate Slack message: {}", msg_key);
-                return Ok(());
-            }
-            seen.insert(msg_key);
-            // Clean up old entries (keep last 1000)
-            if seen.len() > 1000 {
-                let entries: Vec<String> = seen.iter().cloned().collect();
-                seen.clear();
-                // Keep the most recent 1000 entries (simple approach: just clear and rebuild)
-                // In practice, we could use a more sophisticated LRU, but this works for now
-                for entry in entries.into_iter().take(1000) {
-                    seen.insert(entry);
-                }
-            }
-        }
-
-        info!("Slack: received message from {} in {}", user_id, channel_id);
-
-        // Strip the bot @mention from text
-        if let Some(ref bot_id) = self.bot_user_id {
-            match compile_slack_mention(bot_id) {
-                Ok(re_mention) => {
-                    text = re_mention.replace_all(&text, "").to_string();
-                }
-                Err(e) => {
-                    warn!("Failed to compile Slack mention regex: {}", e);
-                }
-            }
-        }
-
-        if text.trim().is_empty() {
-            return Ok(());
-        }
-
-        // Check allowlist using utility function
-        if !check_allowed_sender(user_id, &self.config.allow_from) {
-            return Ok(());
-        }
-
-        // Build sender_id — try to enrich with username
-        let mut sender_id = user_id.to_string();
-        let mut params = HashMap::new();
-        params.insert("user", Value::String(user_id.to_string()));
-        if let Ok(user_info) = self.send_slack_api("users.info", &params).await {
-            if let Some(name) = user_info
-                .get("user")
-                .and_then(|u| u.get("name"))
-                .and_then(|n| n.as_str())
-            {
-                sender_id = format!("{}|{}", user_id, name);
-            }
-        }
-
-        // Handle file attachments (images)
-        let mut media_paths = Vec::new();
-        let mut content_parts = vec![text.clone()];
-
-        if let Some(files) = event.get("files").and_then(|v| v.as_array()) {
-            for file in files {
-                if let Some(mimetype) = file.get("mimetype").and_then(|v| v.as_str()) {
-                    if mimetype.starts_with("image/") {
-                        if let Some(url) = file.get("url_private_download").and_then(|v| v.as_str())
-                        {
-                            if let Some(file_id) = file.get("id").and_then(|v| v.as_str()) {
-                                // Download file
-                                match self.download_file(url, file_id, mimetype).await {
-                                    Ok(path) => {
-                                        media_paths.push(path.clone());
-                                        content_parts.push(format!("[image: {}]", path));
-                                    }
-                                    Err(e) => {
-                                        warn!("Failed to download Slack file: {}", e);
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        let file_name = file
-                            .get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown");
-                        content_parts.push(format!("[file: {}]", file_name));
-                    }
-                }
-            }
-        }
-
-        let content = if content_parts.len() > 1 {
-            content_parts.join("\n")
-        } else {
-            text
-        };
-
-        debug!(
-            "Slack message from {} in {}: {}...",
-            sender_id,
-            channel_id,
-            &content[..content.len().min(50)]
-        );
-
-        let inbound_msg = InboundMessage {
-            channel: "slack".to_string(),
-            sender_id,
-            chat_id: channel_id.to_string(),
-            content,
-            timestamp: Utc::now(),
-            media: media_paths,
-            metadata: {
-                let mut meta = HashMap::new();
-                if let Some(ts) = event.get("ts").and_then(|v| v.as_str()) {
-                    meta.insert("ts".to_string(), Value::String(ts.to_string()));
-                }
-                meta.insert("user_id".to_string(), Value::String(user_id.to_string()));
-                meta
-            },
-        };
-
-        self.inbound_tx
-            .send(inbound_msg)
-            .await
-            .map_err(|e| anyhow::anyhow!("Send error: {}", e))?;
-        Ok(())
-    }
-
-    async fn download_file(&self, url: &str, file_id: &str, mimetype: &str) -> Result<String> {
-        use std::path::PathBuf;
-        let media_dir = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".nanobot")
-            .join("media");
-        std::fs::create_dir_all(&media_dir)?;
-
-        let ext = match mimetype {
-            "image/jpeg" => ".jpg",
-            "image/png" => ".png",
-            "image/gif" => ".gif",
-            "image/webp" => ".webp",
-            _ => ".bin",
-        };
-        let file_path = media_dir.join(format!("slack_{}{}", file_id, ext));
-
-        let client = reqwest::Client::new();
-        let response = client
-            .get(url)
-            .header("Authorization", format!("Bearer {}", self.config.bot_token))
-            .send()
-            .await?;
-        let bytes = response.error_for_status()?.bytes().await?;
-        std::fs::write(&file_path, bytes)?;
-
-        Ok(file_path.to_string_lossy().to_string())
-    }
 }
 
 #[async_trait]
@@ -277,10 +95,11 @@ impl BaseChannel for SlackChannel {
         let params = HashMap::new();
         match self.send_slack_api("auth.test", &params).await {
             Ok(auth) => {
-                self.bot_user_id = auth
+                let bot_id = auth
                     .get("user_id")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
+                *self.bot_user_id.lock().await = bot_id;
                 let user = auth
                     .get("user")
                     .and_then(|v| v.as_str())
@@ -313,12 +132,14 @@ impl BaseChannel for SlackChannel {
         info!("Starting Slack bot (Socket Mode)...");
 
         // Connect to Socket Mode via WebSocket
+        // Share channel state with the WS task via Arc
         let app_token = self.config.app_token.clone();
-        let inbound_tx = self.inbound_tx.clone();
-        let config_allow = self.config.allow_from.clone();
-        let bot_user_id = self.bot_user_id.clone();
         let bot_token = self.config.bot_token.clone();
+        let config_allow = self.config.allow_from.clone();
+        let inbound_tx = self.inbound_tx.clone();
+        let bot_user_id = self.bot_user_id.clone();
         let seen_messages = self.seen_messages.clone();
+        let ws_client = self.client.clone();
 
         let ws_task = tokio::spawn(async move {
             use futures_util::StreamExt;
@@ -338,8 +159,7 @@ impl BaseChannel for SlackChannel {
                 debug!("Token length: {} characters", app_token.len());
 
                 // Get WebSocket URL from Slack API
-                let client = reqwest::Client::new();
-                let response = match client
+                let response = match ws_client
                     .post("https://slack.com/api/apps.connections.open")
                     .header("Authorization", format!("Bearer {}", app_token))
                     .send()
@@ -466,23 +286,15 @@ impl BaseChannel for SlackChannel {
 
                                                     match inner_event_type {
                                                         "message" | "app_mention" => {
-                                                            let channel = SlackChannel {
-                                                                config: SlackConfig {
-                                                                    enabled: true,
-                                                                    bot_token: bot_token.clone(),
-                                                                    app_token: app_token.clone(),
-                                                                    allow_from: config_allow.clone(),
-                                                                },
-                                                                inbound_tx: inbound_tx.clone(),
-                                                                bot_user_id: bot_user_id.clone(),
-                                                                running: Arc::new(tokio::sync::Mutex::new(true)),
-                                                                ws_handle: None,
-                                                                seen_messages: seen_messages.clone(),
-                                                            };
-                                                            if let Err(e) = channel
-                                                                .handle_message_event(event_data)
-                                                                .await
-                                                            {
+                                                            if let Err(e) = handle_slack_event(
+                                                                event_data,
+                                                                &bot_user_id,
+                                                                &seen_messages,
+                                                                &inbound_tx,
+                                                                &config_allow,
+                                                                &bot_token,
+                                                                &ws_client,
+                                                            ).await {
                                                                 error!("Error handling Slack message event: {}", e);
                                                             }
                                                         }
@@ -569,4 +381,184 @@ impl BaseChannel for SlackChannel {
 
         Ok(())
     }
+}
+
+/// Standalone message handler that uses shared state instead of constructing a new SlackChannel.
+async fn handle_slack_event(
+    event: &Value,
+    bot_user_id: &Arc<tokio::sync::Mutex<Option<String>>>,
+    seen_messages: &Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+    inbound_tx: &Arc<mpsc::Sender<InboundMessage>>,
+    allow_from: &[String],
+    bot_token: &str,
+    client: &reqwest::Client,
+) -> Result<()> {
+    // Ignore bot messages and message_changed subtypes
+    if event.get("subtype").is_some() {
+        return Ok(());
+    }
+
+    let user_id = event.get("user").and_then(|v| v.as_str()).unwrap_or("");
+    let channel_id = event.get("channel").and_then(|v| v.as_str()).unwrap_or("");
+    let mut text = event
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if user_id.is_empty() || channel_id.is_empty() {
+        return Ok(());
+    }
+
+    // Ignore messages from the bot itself
+    if let Some(ref bot_id) = *bot_user_id.lock().await {
+        if user_id == bot_id {
+            debug!("Ignoring message from bot itself (user_id: {})", user_id);
+            return Ok(());
+        }
+    }
+
+    // Deduplicate messages
+    if let Some(ts) = event.get("ts").and_then(|v| v.as_str()) {
+        let mut seen = seen_messages.lock().await;
+        let msg_key = format!("{}:{}:{}", channel_id, user_id, ts);
+        if seen.contains(&msg_key) {
+            debug!("Ignoring duplicate Slack message: {}", msg_key);
+            return Ok(());
+        }
+        seen.insert(msg_key);
+        if seen.len() > 1000 {
+            let entries: Vec<String> = seen.iter().cloned().collect();
+            seen.clear();
+            for entry in entries.into_iter().take(1000) {
+                seen.insert(entry);
+            }
+        }
+    }
+
+    info!("Slack: received message from {} in {}", user_id, channel_id);
+
+    // Strip the bot @mention from text
+    if let Some(ref bot_id) = *bot_user_id.lock().await {
+        match compile_slack_mention(bot_id) {
+            Ok(re_mention) => {
+                text = re_mention.replace_all(&text, "").to_string();
+            }
+            Err(e) => {
+                warn!("Failed to compile Slack mention regex: {}", e);
+            }
+        }
+    }
+
+    if text.trim().is_empty() {
+        return Ok(());
+    }
+
+    if !check_allowed_sender(user_id, allow_from) {
+        return Ok(());
+    }
+
+    // Build sender_id — try to enrich with username
+    let mut sender_id = user_id.to_string();
+    let url = "https://slack.com/api/users.info";
+    let mut form = HashMap::new();
+    form.insert("token", Value::String(bot_token.to_string()));
+    form.insert("user", Value::String(user_id.to_string()));
+    if let Ok(response) = client.post(url).form(&form).send().await {
+        if let Ok(user_info) = response.json::<Value>().await {
+            if let Some(name) = user_info
+                .get("user")
+                .and_then(|u| u.get("name"))
+                .and_then(|n| n.as_str())
+            {
+                sender_id = format!("{}|{}", user_id, name);
+            }
+        }
+    }
+
+    // Handle file attachments
+    let mut media_paths = Vec::new();
+    let mut content_parts = vec![text.clone()];
+
+    if let Some(files) = event.get("files").and_then(|v| v.as_array()) {
+        for file in files {
+            if let Some(mimetype) = file.get("mimetype").and_then(|v| v.as_str()) {
+                if mimetype.starts_with("image/") {
+                    if let (Some(file_url), Some(file_id)) = (
+                        file.get("url_private_download").and_then(|v| v.as_str()),
+                        file.get("id").and_then(|v| v.as_str()),
+                    ) {
+                        let ext = match mimetype {
+                            "image/jpeg" => ".jpg",
+                            "image/png" => ".png",
+                            "image/gif" => ".gif",
+                            "image/webp" => ".webp",
+                            _ => ".bin",
+                        };
+                        let media_dir = dirs::home_dir()
+                            .unwrap_or_else(|| std::path::PathBuf::from("."))
+                            .join(".nanobot")
+                            .join("media");
+                        let _ = std::fs::create_dir_all(&media_dir);
+                        let file_path = media_dir.join(format!("slack_{}{}", file_id, ext));
+
+                        match client
+                            .get(file_url)
+                            .header("Authorization", format!("Bearer {}", bot_token))
+                            .send()
+                            .await
+                        {
+                            Ok(resp) => match resp.error_for_status() {
+                                Ok(resp) => {
+                                    if let Ok(bytes) = resp.bytes().await {
+                                        let _ = std::fs::write(&file_path, bytes);
+                                        let path_str = file_path.to_string_lossy().to_string();
+                                        media_paths.push(path_str.clone());
+                                        content_parts.push(format!("[image: {}]", path_str));
+                                    }
+                                }
+                                Err(e) => warn!("Failed to download Slack file: {}", e),
+                            },
+                            Err(e) => warn!("Failed to download Slack file: {}", e),
+                        }
+                    }
+                } else {
+                    let file_name = file
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    content_parts.push(format!("[file: {}]", file_name));
+                }
+            }
+        }
+    }
+
+    let content = if content_parts.len() > 1 {
+        content_parts.join("\n")
+    } else {
+        text
+    };
+
+    let inbound_msg = InboundMessage {
+        channel: "slack".to_string(),
+        sender_id,
+        chat_id: channel_id.to_string(),
+        content,
+        timestamp: Utc::now(),
+        media: media_paths,
+        metadata: {
+            let mut meta = HashMap::new();
+            if let Some(ts) = event.get("ts").and_then(|v| v.as_str()) {
+                meta.insert("ts".to_string(), Value::String(ts.to_string()));
+            }
+            meta.insert("user_id".to_string(), Value::String(user_id.to_string()));
+            meta
+        },
+    };
+
+    inbound_tx
+        .send(inbound_msg)
+        .await
+        .map_err(|e| anyhow::anyhow!("Send error: {}", e))?;
+    Ok(())
 }

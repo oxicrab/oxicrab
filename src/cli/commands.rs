@@ -412,20 +412,20 @@ async fn setup_agent(
         config.agents.defaults.compaction.enabled
     );
     let agent = Arc::new(
-        AgentLoop::new(
-            bus_for_channels,
+        AgentLoop::new(crate::agent::AgentLoopConfig {
+            bus: bus_for_channels,
             provider,
-            config.workspace_path(),
+            workspace: config.workspace_path(),
             model,
-            config.agents.defaults.max_tool_iterations,
-            Some(config.tools.web.search.api_key.clone()),
-            config.tools.exec.timeout,
-            config.tools.restrict_to_workspace,
-            config.agents.defaults.compaction.clone(),
+            max_iterations: config.agents.defaults.max_tool_iterations,
+            brave_api_key: Some(config.tools.web.search.api_key.clone()),
+            exec_timeout: config.tools.exec.timeout,
+            restrict_to_workspace: config.tools.restrict_to_workspace,
+            compaction_config: config.agents.defaults.compaction.clone(),
             outbound_tx,
-            Some(cron),
-            Some(config.tools.google.clone()),
-        )
+            cron_service: Some(cron),
+            google_config: Some(config.tools.google.clone()),
+        })
         .await?,
     );
     tracing::info!("Agent loop initialized");
@@ -507,10 +507,7 @@ async fn setup_heartbeat(
         })),
         config.agents.defaults.daemon.interval,
         config.agents.defaults.daemon.enabled,
-        None, // triage_provider
-        config.agents.defaults.daemon.triage_model.clone(),
         config.agents.defaults.daemon.strategy_file.clone(),
-        config.agents.defaults.daemon.cooldown_after_action,
     );
     tracing::debug!("Heartbeat service initialized");
     Ok(Arc::new(heartbeat))
@@ -605,20 +602,20 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
     let outbound_tx = Arc::new(bus.outbound_tx.clone());
     let bus_for_agent = Arc::new(Mutex::new(bus));
 
-    let agent = AgentLoop::new(
-        bus_for_agent,
+    let agent = AgentLoop::new(crate::agent::AgentLoopConfig {
+        bus: bus_for_agent,
         provider,
-        config.workspace_path(),
-        None,
-        config.agents.defaults.max_tool_iterations,
-        Some(config.tools.web.search.api_key),
-        config.tools.exec.timeout,
-        config.tools.restrict_to_workspace,
-        config.agents.defaults.compaction,
+        workspace: config.workspace_path(),
+        model: None,
+        max_iterations: config.agents.defaults.max_tool_iterations,
+        brave_api_key: Some(config.tools.web.search.api_key),
+        exec_timeout: config.tools.exec.timeout,
+        restrict_to_workspace: config.tools.restrict_to_workspace,
+        compaction_config: config.agents.defaults.compaction,
         outbound_tx,
-        None, // No cron service for CLI agent mode
-        Some(config.tools.google.clone()),
-    )
+        cron_service: None,
+        google_config: Some(config.tools.google.clone()),
+    })
     .await?;
 
     if let Some(msg) = message {
@@ -835,55 +832,6 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
-fn _parse_schedule(s: &str) -> Result<CronSchedule> {
-    // Try parsing as cron expression first
-    if s.contains(' ') || s.contains('*') || s.contains('/') {
-        return Ok(CronSchedule::Cron {
-            expr: Some(s.to_string()),
-            tz: None,
-        });
-    }
-
-    // Try parsing as "every N seconds/minutes/hours"
-    if let Some(every) = s.strip_prefix("every ") {
-        let every_lower = every.to_lowercase();
-        if let Some(num_str) = every_lower.strip_suffix("s") {
-            if let Ok(num) = num_str.parse::<i64>() {
-                return Ok(CronSchedule::Every {
-                    every_ms: Some(num * 1000),
-                });
-            }
-        }
-        if let Some(num_str) = every_lower.strip_suffix("m") {
-            if let Ok(num) = num_str.parse::<i64>() {
-                return Ok(CronSchedule::Every {
-                    every_ms: Some(num * 60 * 1000),
-                });
-            }
-        }
-        if let Some(num_str) = every_lower.strip_suffix("h") {
-            if let Ok(num) = num_str.parse::<i64>() {
-                return Ok(CronSchedule::Every {
-                    every_ms: Some(num * 60 * 60 * 1000),
-                });
-            }
-        }
-    }
-
-    // Try parsing as ISO timestamp
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
-        let ms = dt.timestamp_millis();
-        return Ok(CronSchedule::At { at_ms: Some(ms) });
-    }
-
-    // Default to cron expression
-    Ok(CronSchedule::Cron {
-        expr: Some(s.to_string()),
-        tz: None,
-    })
-}
-
 async fn auth_command(cmd: AuthCommands) -> Result<()> {
     match cmd {
         AuthCommands::Google { port, headless } => {
@@ -989,7 +937,7 @@ async fn channels_command(cmd: ChannelCommands) -> Result<()> {
                 }
             );
             if dc.enabled && !dc.token.is_empty() {
-                let token_preview = &dc.token[..10.min(dc.token.len())];
+                let token_preview: String = dc.token.chars().take(10).collect();
                 println!("  Token: {}...", token_preview);
             }
 
@@ -1004,7 +952,7 @@ async fn channels_command(cmd: ChannelCommands) -> Result<()> {
                 }
             );
             if tg.enabled && !tg.token.is_empty() {
-                let token_preview = &tg.token[..10.min(tg.token.len())];
+                let token_preview: String = tg.token.chars().take(10).collect();
                 println!("  Token: {}...", token_preview);
             }
 
@@ -1019,7 +967,7 @@ async fn channels_command(cmd: ChannelCommands) -> Result<()> {
                 }
             );
             if sl.enabled && !sl.bot_token.is_empty() {
-                let token_preview = &sl.bot_token[..10.min(sl.bot_token.len())];
+                let token_preview: String = sl.bot_token.chars().take(10).collect();
                 println!("  Bot Token: {}...", token_preview);
             }
         }

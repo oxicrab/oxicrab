@@ -203,7 +203,7 @@ impl CronService {
                                             }
                                         }
                                     },
-                                );
+                                ).await;
                             }
                         } else {
                             next_run = Some(next_run.map(|n| n.min(job_next)).unwrap_or(job_next));
