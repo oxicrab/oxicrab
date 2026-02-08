@@ -20,6 +20,17 @@ use uuid::Uuid;
 const MAX_TOOL_RESULT_CHARS: usize = 2000;
 const EMPTY_RESPONSE_RETRIES: usize = 2;
 
+pub struct SubagentConfig {
+    pub provider: Arc<dyn LLMProvider>,
+    pub workspace: PathBuf,
+    pub bus: Arc<Mutex<MessageBus>>,
+    pub model: Option<String>,
+    pub brave_api_key: Option<String>,
+    pub exec_timeout: u64,
+    pub restrict_to_workspace: bool,
+    pub allowed_commands: Vec<String>,
+}
+
 pub struct SubagentManager {
     provider: Arc<dyn LLMProvider>,
     workspace: PathBuf,
@@ -33,26 +44,19 @@ pub struct SubagentManager {
 }
 
 impl SubagentManager {
-    pub fn new(
-        provider: Arc<dyn LLMProvider>,
-        workspace: PathBuf,
-        bus: Arc<Mutex<MessageBus>>,
-        model: Option<String>,
-        brave_api_key: Option<String>,
-        exec_timeout: u64,
-        restrict_to_workspace: bool,
-        allowed_commands: Vec<String>,
-    ) -> Self {
-        let model = model.unwrap_or_else(|| provider.default_model().to_string());
+    pub fn new(config: SubagentConfig) -> Self {
+        let model = config
+            .model
+            .unwrap_or_else(|| config.provider.default_model().to_string());
         Self {
-            provider,
-            workspace,
-            bus,
+            provider: config.provider,
+            workspace: config.workspace,
+            bus: config.bus,
             model,
-            brave_api_key,
-            exec_timeout,
-            restrict_to_workspace,
-            allowed_commands,
+            brave_api_key: config.brave_api_key,
+            exec_timeout: config.exec_timeout,
+            restrict_to_workspace: config.restrict_to_workspace,
+            allowed_commands: config.allowed_commands,
             running_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }

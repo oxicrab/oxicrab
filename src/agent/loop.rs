@@ -1,7 +1,7 @@
 use crate::agent::compaction::{estimate_messages_tokens, MessageCompactor};
 use crate::agent::context::ContextBuilder;
 use crate::agent::memory::MemoryStore;
-use crate::agent::subagent::SubagentManager;
+use crate::agent::subagent::{SubagentConfig, SubagentManager};
 use crate::agent::tools::{
     cron::CronTool,
     filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool},
@@ -192,16 +192,16 @@ impl AgentLoop {
         tools.register(Arc::new(MessageTool::new(Some(outbound_tx_for_tool))));
 
         // Create subagent manager
-        let subagents = Arc::new(SubagentManager::new(
-            provider.clone(),
-            workspace.clone(),
-            bus.clone(),
-            Some(model.clone()),
-            brave_api_key.clone(),
+        let subagents = Arc::new(SubagentManager::new(SubagentConfig {
+            provider: provider.clone(),
+            workspace: workspace.clone(),
+            bus: bus.clone(),
+            model: Some(model.clone()),
+            brave_api_key: brave_api_key.clone(),
             exec_timeout,
             restrict_to_workspace,
             allowed_commands,
-        ));
+        }));
 
         // Register spawn and subagent control tools
         let spawn_tool = Arc::new(SpawnTool::new(subagents.clone()));
