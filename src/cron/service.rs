@@ -112,40 +112,7 @@ impl CronService {
 
         if self.store_path.exists() {
             let content = std::fs::read_to_string(&self.store_path)?;
-            let mut store: CronStore = serde_json::from_str(&content)?;
-            // Migrate old channel/to format to targets
-            let mut migrated = false;
-            let raw: serde_json::Value = serde_json::from_str(&content)?;
-            if let Some(jobs) = raw.get("jobs").and_then(|j| j.as_array()) {
-                for (i, raw_job) in jobs.iter().enumerate() {
-                    if let Some(payload) = raw_job.get("payload") {
-                        let has_old_channel =
-                            payload.get("channel").and_then(|v| v.as_str()).is_some();
-                        let has_old_to = payload.get("to").and_then(|v| v.as_str()).is_some();
-                        let has_targets =
-                            payload.get("targets").and_then(|v| v.as_array()).is_some();
-                        if has_old_channel && has_old_to && !has_targets {
-                            let channel = payload["channel"].as_str().unwrap().to_string();
-                            let to = payload["to"].as_str().unwrap().to_string();
-                            if let Some(job) = store.jobs.get_mut(i) {
-                                job.payload.targets =
-                                    vec![crate::cron::types::CronTarget { channel, to }];
-                                migrated = true;
-                            }
-                        }
-                    }
-                }
-            }
-            if migrated {
-                info!("Migrated cron jobs from old channel/to format to targets");
-                // Save migrated store
-                drop(store_guard);
-                let mut sg = self.store.lock().await;
-                *sg = Some(store.clone());
-                drop(sg);
-                self.save_store().await?;
-                return Ok(store);
-            }
+            let store: CronStore = serde_json::from_str(&content)?;
             *store_guard = Some(store.clone());
             return Ok(store);
         }
@@ -176,6 +143,8 @@ impl CronService {
         let task_tracker_for_jobs = self.task_tracker.clone();
 
         let handle = tokio::spawn(async move {
+            let mut first_tick = true;
+
             loop {
                 if !*running.lock().await {
                     break;
@@ -215,6 +184,21 @@ impl CronService {
 
                     if let Some(job_next) = job_next {
                         if job_next <= now {
+                            if first_tick {
+                                // On startup, skip missed jobs — just advance to next run
+                                info!(
+                                    "Skipping missed cron job '{}' (was due at {}ms, now {}ms)",
+                                    job.id, job_next, now
+                                );
+                                job.state.next_run_at_ms = compute_next_run(&job.schedule, now);
+                                job.updated_at_ms = now;
+                                store_dirty = true;
+                                if let Some(next) = job.state.next_run_at_ms {
+                                    next_run = Some(next_run.map(|n| n.min(next)).unwrap_or(next));
+                                }
+                                continue;
+                            }
+
                             // Advance next_run_at_ms BEFORE executing so the job
                             // won't re-fire on the next tick.
                             job.state.last_run_at_ms = Some(now);
@@ -264,6 +248,8 @@ impl CronService {
                         }
                     }
                 }
+
+                first_tick = false;
 
                 // Persist updated state so fired jobs don't re-trigger
                 if store_dirty {

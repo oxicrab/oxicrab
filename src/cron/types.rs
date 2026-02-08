@@ -228,19 +228,6 @@ mod tests {
     }
 
     #[test]
-    fn test_cron_payload_migration_from_old_format() {
-        // Old format with channel/to should still deserialize (with empty targets)
-        let json = r#"{
-            "kind": "agent_turn",
-            "message": "Hello",
-            "agentEcho": false
-        }"#;
-        let payload: CronPayload = serde_json::from_str(json).unwrap();
-        assert!(payload.targets.is_empty());
-        assert_eq!(payload.message, "Hello");
-    }
-
-    #[test]
     fn test_cron_schedule_cron_missing_tz() {
         let schedule = CronSchedule::Cron {
             expr: Some("0 0 * * *".to_string()),
