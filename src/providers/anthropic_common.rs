@@ -17,7 +17,7 @@ pub struct AnthropicTool {
 }
 
 /// Convert generic messages to Anthropic API format.
-/// Returns (system_prompt, anthropic_messages).
+/// Returns (`system_prompt`, `anthropic_messages`).
 pub fn convert_messages(messages: Vec<Message>) -> (Option<String>, Vec<AnthropicMessage>) {
     let mut system_parts = Vec::new();
     let mut anthropic_messages = Vec::new();
@@ -34,10 +34,16 @@ pub fn convert_messages(messages: Vec<Message>) -> (Option<String>, Vec<Anthropi
                 });
             }
             "assistant" => {
-                let mut content: Vec<Value> = vec![json!({
-                    "type": "text",
-                    "text": msg.content
-                })];
+                let mut content: Vec<Value> = Vec::new();
+
+                // Only include text block if content is non-empty
+                // (Anthropic API rejects empty text content blocks)
+                if !msg.content.is_empty() {
+                    content.push(json!({
+                        "type": "text",
+                        "text": msg.content
+                    }));
+                }
 
                 if let Some(tool_calls) = msg.tool_calls {
                     for tc in tool_calls {
@@ -96,7 +102,7 @@ pub fn convert_tools(tools: Vec<ToolDefinition>) -> Vec<AnthropicTool> {
         .collect()
 }
 
-/// Parse an Anthropic API response into a generic LLMResponse.
+/// Parse an Anthropic API response into a generic [`LLMResponse`].
 pub fn parse_response(json: &Value) -> LLMResponse {
     let content = json["content"].as_array().and_then(|arr| {
         arr.iter().find_map(|block| {

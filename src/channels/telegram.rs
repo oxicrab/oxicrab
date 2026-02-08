@@ -132,22 +132,22 @@ fn markdown_to_telegram_html(text: &str) -> String {
 
     // Escape HTML
     html = html
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;");
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
 
     // Convert markdown using shared regex patterns
     html = RegexPatterns::markdown_link()
         .replace_all(&html, r#"<a href="$2">$1</a>"#)
         .to_string();
     html = RegexPatterns::markdown_bold()
-        .replace_all(&html, r#"<b>$1</b>"#)
+        .replace_all(&html, r"<b>$1</b>")
         .to_string();
     html = RegexPatterns::markdown_italic()
-        .replace_all(&html, r#"<i>$1</i>"#)
+        .replace_all(&html, r"<i>$1</i>")
         .to_string();
     html = RegexPatterns::markdown_code()
-        .replace_all(&html, r#"<code>$1</code>"#)
+        .replace_all(&html, r"<code>$1</code>")
         .to_string();
 
     html

@@ -31,7 +31,7 @@ use tracing::{debug, error, info, warn};
 
 const EMPTY_RESPONSE_RETRIES: usize = 2;
 
-/// Configuration for creating an AgentLoop instance.
+/// Configuration for creating an [`AgentLoop`] instance.
 pub struct AgentLoopConfig {
     pub bus: Arc<Mutex<MessageBus>>,
     pub provider: Arc<dyn LLMProvider>,

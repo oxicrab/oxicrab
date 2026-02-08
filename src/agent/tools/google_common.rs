@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Shared Google API client that handles authentication and HTTP requests.
-/// Reuses a single reqwest::Client for connection pooling.
+/// Reuses a single `reqwest::Client` for connection pooling.
 pub struct GoogleApiClient {
     credentials: Arc<Mutex<GoogleCredentials>>,
     client: Client,

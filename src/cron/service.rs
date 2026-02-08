@@ -58,7 +58,7 @@ fn compute_next_run(schedule: &CronSchedule, now_ms: i64) -> Option<i64> {
     }
 }
 
-/// Async callback that takes a CronJob and returns an optional result string.
+/// Async callback that takes a [`CronJob`] and returns an optional result string.
 type CronJobCallback = Arc<
     dyn Fn(CronJob) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>>> + Send>>
         + Send

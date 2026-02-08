@@ -116,7 +116,7 @@ impl SessionManager {
     }
 
     fn get_session_path(&self, key: &str) -> PathBuf {
-        let safe_key = safe_filename(&key.replace(":", "_"));
+        let safe_key = safe_filename(&key.replace(':', "_"));
         self.sessions_dir.join(format!("{}.jsonl", safe_key))
     }
 

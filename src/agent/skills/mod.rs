@@ -131,9 +131,9 @@ impl SkillsLoader {
         }
 
         fn escape_xml(s: &str) -> String {
-            s.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
+            s.replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
         }
 
         let mut lines = vec!["<skills>".to_string()];

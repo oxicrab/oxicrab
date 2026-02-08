@@ -284,7 +284,7 @@ impl SubagentManager {
 
     fn build_subagent_prompt(&self, task: &str) -> String {
         format!(
-            r#"# Subagent
+            r"# Subagent
 
 You are a subagent spawned by the main agent to complete a specific task.
 
@@ -311,7 +311,7 @@ You are a subagent spawned by the main agent to complete a specific task.
 ## Workspace
 Your workspace is at: {}
 
-When you have completed the task, provide a clear summary of your findings or actions."#,
+When you have completed the task, provide a clear summary of your findings or actions.",
             task,
             self.workspace.display()
         )

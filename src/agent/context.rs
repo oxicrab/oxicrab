@@ -1,7 +1,7 @@
 use crate::agent::memory::MemoryStore;
 use crate::agent::skills::SkillsLoader;
 use anyhow::{Context, Result};
-use chrono::{Datelike, Utc};
+use chrono::{Datelike, Local};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::warn;
@@ -98,13 +98,14 @@ impl ContextBuilder {
     }
 
     fn get_identity(&self) -> Result<String> {
-        let now = Utc::now();
+        let now = Local::now();
         let date_str = format!(
-            "{}-{:02}-{:02} ({})",
+            "{}-{:02}-{:02} ({}) {}",
             now.year(),
             now.month(),
             now.day(),
-            now.format("%A")
+            now.format("%A"),
+            now.format("%H:%M %Z")
         );
 
         let workspace_path = self
@@ -231,22 +232,24 @@ impl ContextBuilder {
         }
         messages.push(crate::providers::base::Message::system(system_prompt));
 
-        // History
+        // History (skip messages with empty content — Anthropic rejects empty text blocks)
         for msg in history {
             if let (Some(role), Some(content)) = (
                 msg.get("role").and_then(|v| v.as_str()),
                 msg.get("content").and_then(|v| v.as_str()),
             ) {
-                messages.push(crate::providers::base::Message {
-                    role: role.to_string(),
-                    content: content.to_string(),
-                    ..Default::default()
-                });
+                if !content.is_empty() {
+                    messages.push(crate::providers::base::Message {
+                        role: role.to_string(),
+                        content: content.to_string(),
+                        ..Default::default()
+                    });
+                }
             }
         }
 
-        // Current message with time prefix
-        let time_prefix = format!("[{}] ", Utc::now().format("%H:%M"));
+        // Current message with local time prefix
+        let time_prefix = format!("[{}] ", Local::now().format("%H:%M"));
         messages.push(crate::providers::base::Message::user(format!(
             "{}{}",
             time_prefix, current_message

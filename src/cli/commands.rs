@@ -142,7 +142,7 @@ enum AuthCommands {
 enum ChannelCommands {
     /// Show channel status
     Status,
-    /// Link WhatsApp device via QR code
+    /// Link `WhatsApp` device via QR code
     Login,
 }
 
@@ -213,7 +213,7 @@ fn create_workspace_templates(workspace: &std::path::Path) -> Result<()> {
     let templates = vec![
         (
             "AGENTS.md",
-            r#"# Agent Instructions
+            r"# Agent Instructions
 
 You are a helpful AI assistant. Be concise, accurate, and friendly.
 
@@ -223,11 +223,11 @@ You are a helpful AI assistant. Be concise, accurate, and friendly.
 - Ask for clarification when the request is ambiguous
 - Use tools to help accomplish tasks
 - Remember important information in your memory files
-"#,
+",
         ),
         (
             "SOUL.md",
-            r#"# Soul
+            r"# Soul
 
 I am nanobot, a lightweight AI assistant.
 
@@ -242,11 +242,11 @@ I am nanobot, a lightweight AI assistant.
 - Accuracy over speed
 - User privacy and safety
 - Transparency in actions
-"#,
+",
         ),
         (
             "USER.md",
-            r#"# User
+            r"# User
 
 Information about the user goes here.
 
@@ -255,7 +255,7 @@ Information about the user goes here.
 - Communication style: (casual/formal)
 - Timezone: (your timezone)
 - Language: (your preferred language)
-"#,
+",
         ),
     ];
 
@@ -272,7 +272,7 @@ Information about the user goes here.
     crate::utils::ensure_dir(&memory_dir)?;
     let memory_file = memory_dir.join("MEMORY.md");
     if !memory_file.exists() {
-        let memory_content = r#"# Long-term Memory
+        let memory_content = r"# Long-term Memory
 
 This file stores important information that should persist across sessions.
 
@@ -287,7 +287,7 @@ This file stores important information that should persist across sessions.
 ## Important Notes
 
 (Things to remember)
-"#;
+";
         std::fs::write(&memory_file, memory_content)?;
         println!("  Created memory/MEMORY.md");
     }

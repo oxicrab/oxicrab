@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-const COMPACTION_PROMPT: &str = r#"Summarize this conversation history concisely while preserving:
+const COMPACTION_PROMPT: &str = r"Summarize this conversation history concisely while preserving:
 1. Key decisions made and their reasoning
 2. Important facts, names, dates, and numbers mentioned
 3. User preferences and requests
@@ -17,9 +17,9 @@ Previous summary (if any):
 Messages to summarize:
 {messages}
 
-Write a concise summary (max 500 words) that captures the essential context. Do not include preamble - just the summary."#;
+Write a concise summary (max 500 words) that captures the essential context. Do not include preamble - just the summary.";
 
-const EXTRACTION_PROMPT: &str = r#"Review this conversation exchange and extract any facts worth remembering long-term. Focus on:
+const EXTRACTION_PROMPT: &str = r"Review this conversation exchange and extract any facts worth remembering long-term. Focus on:
 - User preferences, habits, or personal details shared
 - Decisions made or commitments given
 - Project names, technical choices, or configuration details
@@ -29,7 +29,7 @@ User: {user_message}
 
 Assistant: {assistant_message}
 
-If there are notable facts, respond with a short bullet list (one line per fact). If nothing is worth remembering, respond with exactly: NOTHING"#;
+If there are notable facts, respond with a short bullet list (one line per fact). If nothing is worth remembering, respond with exactly: NOTHING";
 
 pub fn estimate_tokens(text: &str) -> usize {
     // Use char count for better accuracy with non-ASCII text

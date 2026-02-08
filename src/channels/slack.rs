@@ -383,7 +383,7 @@ impl BaseChannel for SlackChannel {
     }
 }
 
-/// Standalone message handler that uses shared state instead of constructing a new SlackChannel.
+/// Standalone message handler that uses shared state instead of constructing a new `SlackChannel`.
 async fn handle_slack_event(
     event: &Value,
     bot_user_id: &Arc<tokio::sync::Mutex<Option<String>>>,
