@@ -119,14 +119,17 @@ impl CronService {
             if let Some(jobs) = raw.get("jobs").and_then(|j| j.as_array()) {
                 for (i, raw_job) in jobs.iter().enumerate() {
                     if let Some(payload) = raw_job.get("payload") {
-                        let has_old_channel = payload.get("channel").and_then(|v| v.as_str()).is_some();
+                        let has_old_channel =
+                            payload.get("channel").and_then(|v| v.as_str()).is_some();
                         let has_old_to = payload.get("to").and_then(|v| v.as_str()).is_some();
-                        let has_targets = payload.get("targets").and_then(|v| v.as_array()).is_some();
+                        let has_targets =
+                            payload.get("targets").and_then(|v| v.as_array()).is_some();
                         if has_old_channel && has_old_to && !has_targets {
                             let channel = payload["channel"].as_str().unwrap().to_string();
                             let to = payload["to"].as_str().unwrap().to_string();
                             if let Some(job) = store.jobs.get_mut(i) {
-                                job.payload.targets = vec![crate::cron::types::CronTarget { channel, to }];
+                                job.payload.targets =
+                                    vec![crate::cron::types::CronTarget { channel, to }];
                                 migrated = true;
                             }
                         }

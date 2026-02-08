@@ -25,7 +25,12 @@ impl CronTool {
         }
     }
 
-    fn resolve_targets(&self, channels_param: Option<&Vec<Value>>, current_channel: &str, current_chat_id: &str) -> Vec<CronTarget> {
+    fn resolve_targets(
+        &self,
+        channels_param: Option<&Vec<Value>>,
+        current_channel: &str,
+        current_chat_id: &str,
+    ) -> Vec<CronTarget> {
         match channels_param {
             None => {
                 // No channels param → current channel only
@@ -64,26 +69,38 @@ impl CronTool {
                 "slack" if cfg.slack.enabled => {
                     let to = cfg.slack.allow_from.first().cloned().unwrap_or_default();
                     if !to.is_empty() {
-                        targets.push(CronTarget { channel: "slack".to_string(), to });
+                        targets.push(CronTarget {
+                            channel: "slack".to_string(),
+                            to,
+                        });
                     }
                 }
                 "discord" if cfg.discord.enabled => {
                     let to = cfg.discord.allow_from.first().cloned().unwrap_or_default();
                     if !to.is_empty() {
-                        targets.push(CronTarget { channel: "discord".to_string(), to });
+                        targets.push(CronTarget {
+                            channel: "discord".to_string(),
+                            to,
+                        });
                     }
                 }
                 "telegram" if cfg.telegram.enabled => {
                     let to = cfg.telegram.allow_from.first().cloned().unwrap_or_default();
                     if !to.is_empty() {
-                        targets.push(CronTarget { channel: "telegram".to_string(), to });
+                        targets.push(CronTarget {
+                            channel: "telegram".to_string(),
+                            to,
+                        });
                     }
                 }
                 "whatsapp" if cfg.whatsapp.enabled => {
                     let to = cfg.whatsapp.allow_from.first().cloned().unwrap_or_default();
                     if !to.is_empty() {
                         let to = format_whatsapp_target(&to);
-                        targets.push(CronTarget { channel: "whatsapp".to_string(), to });
+                        targets.push(CronTarget {
+                            channel: "whatsapp".to_string(),
+                            to,
+                        });
                     }
                 }
                 _ => {}
@@ -115,26 +132,38 @@ pub fn resolve_all_channel_targets_from_config(cfg: Option<&ChannelsConfig>) -> 
     if cfg.slack.enabled {
         let to = cfg.slack.allow_from.first().cloned().unwrap_or_default();
         if !to.is_empty() {
-            targets.push(CronTarget { channel: "slack".to_string(), to });
+            targets.push(CronTarget {
+                channel: "slack".to_string(),
+                to,
+            });
         }
     }
     if cfg.discord.enabled {
         let to = cfg.discord.allow_from.first().cloned().unwrap_or_default();
         if !to.is_empty() {
-            targets.push(CronTarget { channel: "discord".to_string(), to });
+            targets.push(CronTarget {
+                channel: "discord".to_string(),
+                to,
+            });
         }
     }
     if cfg.telegram.enabled {
         let to = cfg.telegram.allow_from.first().cloned().unwrap_or_default();
         if !to.is_empty() {
-            targets.push(CronTarget { channel: "telegram".to_string(), to });
+            targets.push(CronTarget {
+                channel: "telegram".to_string(),
+                to,
+            });
         }
     }
     if cfg.whatsapp.enabled {
         let to = cfg.whatsapp.allow_from.first().cloned().unwrap_or_default();
         if !to.is_empty() {
             let to = format_whatsapp_target(&to);
-            targets.push(CronTarget { channel: "whatsapp".to_string(), to });
+            targets.push(CronTarget {
+                channel: "whatsapp".to_string(),
+                to,
+            });
         }
     }
 
@@ -270,7 +299,9 @@ impl Tool for CronTool {
                 self.cron_service.add_job(job.clone()).await?;
                 Ok(ToolResult::new(format!(
                     "Created job '{}' (id: {}, targets: {})",
-                    job.name, job.id, targets_desc.join(", ")
+                    job.name,
+                    job.id,
+                    targets_desc.join(", ")
                 )))
             }
             "list" => {
@@ -321,7 +352,12 @@ impl Tool for CronTool {
                         let targets_desc: String = if j.payload.targets.is_empty() {
                             "no targets".to_string()
                         } else {
-                            j.payload.targets.iter().map(|t| format!("{}:{}", t.channel, t.to)).collect::<Vec<_>>().join(", ")
+                            j.payload
+                                .targets
+                                .iter()
+                                .map(|t| format!("{}:{}", t.channel, t.to))
+                                .collect::<Vec<_>>()
+                                .join(", ")
                         };
                         format!(
                             "- [{}] {} | schedule: {} | {} | targets: [{}] | message: \"{}\"",
@@ -357,7 +393,9 @@ impl Tool for CronTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{ChannelsConfig, SlackConfig, DiscordConfig, TelegramConfig, WhatsAppConfig};
+    use crate::config::{
+        ChannelsConfig, DiscordConfig, SlackConfig, TelegramConfig, WhatsAppConfig,
+    };
 
     fn make_test_channels_config() -> ChannelsConfig {
         ChannelsConfig {
@@ -390,10 +428,18 @@ mod tests {
         let cfg = make_test_channels_config();
         let targets = resolve_all_channel_targets_from_config(Some(&cfg));
         assert_eq!(targets.len(), 4);
-        assert!(targets.iter().any(|t| t.channel == "slack" && t.to == "U08G6HBC89X"));
-        assert!(targets.iter().any(|t| t.channel == "discord" && t.to == "123456789"));
-        assert!(targets.iter().any(|t| t.channel == "telegram" && t.to == "987654321"));
-        assert!(targets.iter().any(|t| t.channel == "whatsapp" && t.to == "15551234567@s.whatsapp.net"));
+        assert!(targets
+            .iter()
+            .any(|t| t.channel == "slack" && t.to == "U08G6HBC89X"));
+        assert!(targets
+            .iter()
+            .any(|t| t.channel == "discord" && t.to == "123456789"));
+        assert!(targets
+            .iter()
+            .any(|t| t.channel == "telegram" && t.to == "987654321"));
+        assert!(targets
+            .iter()
+            .any(|t| t.channel == "whatsapp" && t.to == "15551234567@s.whatsapp.net"));
     }
 
     #[test]
@@ -411,9 +457,18 @@ mod tests {
 
     #[test]
     fn test_resolve_whatsapp_format() {
-        assert_eq!(format_whatsapp_target("+15551234567"), "15551234567@s.whatsapp.net");
-        assert_eq!(format_whatsapp_target("15551234567"), "15551234567@s.whatsapp.net");
-        assert_eq!(format_whatsapp_target("15551234567@s.whatsapp.net"), "15551234567@s.whatsapp.net");
+        assert_eq!(
+            format_whatsapp_target("+15551234567"),
+            "15551234567@s.whatsapp.net"
+        );
+        assert_eq!(
+            format_whatsapp_target("15551234567"),
+            "15551234567@s.whatsapp.net"
+        );
+        assert_eq!(
+            format_whatsapp_target("15551234567@s.whatsapp.net"),
+            "15551234567@s.whatsapp.net"
+        );
     }
 
     #[test]
