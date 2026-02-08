@@ -3,7 +3,7 @@ use serde_json::Value;
 use tracing::{error, warn};
 
 /// Common error handling utilities for LLM providers
-/// 
+///
 /// This module provides standardized error handling patterns for LLM providers.
 /// Functions are designed to be used as static methods.
 pub struct ProviderErrorHandler;
@@ -38,28 +38,18 @@ impl ProviderErrorHandler {
                     ));
                 }
 
-                return Err(anyhow::anyhow!(
-                    "API error ({}): {}",
-                    error_type,
-                    error_msg
-                ));
+                return Err(anyhow::anyhow!("API error ({}): {}", error_type, error_msg));
             }
         }
 
-        Err(anyhow::anyhow!(
-            "API error ({}): {}",
-            status,
-            error_text
-        ))
+        Err(anyhow::anyhow!("API error ({}): {}", status, error_text))
     }
 
     /// Log and handle provider errors consistently
     pub fn log_and_handle_error(e: &anyhow::Error, provider_name: &str, operation: &str) {
         error!(
             "{} provider error during {}: {}",
-            provider_name,
-            operation,
-            e
+            provider_name, operation, e
         );
     }
 

@@ -47,7 +47,9 @@ impl GoogleCredentials {
         }
 
         // Use direct HTTP call for refresh since oauth2 crate refresh flow is complex
-        let refresh_token = self.refresh_token.as_ref()
+        let refresh_token = self
+            .refresh_token
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("No refresh token available"))?;
         let client = reqwest::Client::new();
         let mut params = HashMap::new();
@@ -105,13 +107,11 @@ pub async fn get_credentials(
     let scopes = scopes
         .map(|s| s.iter().map(|s| s.as_str()).collect::<Vec<_>>())
         .unwrap_or_else(|| DEFAULT_SCOPES.to_vec());
-    let token_path = token_path
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .map(|h| h.join(DEFAULT_TOKEN_PATH))
-                .unwrap_or_else(|| PathBuf::from(DEFAULT_TOKEN_PATH))
-        });
+    let token_path = token_path.map(|p| p.to_path_buf()).unwrap_or_else(|| {
+        dirs::home_dir()
+            .map(|h| h.join(DEFAULT_TOKEN_PATH))
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_TOKEN_PATH))
+    });
 
     let mut creds = load_credentials(&token_path, &scopes)?;
 
@@ -149,13 +149,11 @@ pub async fn run_oauth_flow(
     let scopes = scopes
         .map(|s| s.iter().map(|s| s.as_str()).collect::<Vec<_>>())
         .unwrap_or_else(|| DEFAULT_SCOPES.to_vec());
-    let token_path = token_path
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .map(|h| h.join(DEFAULT_TOKEN_PATH))
-                .unwrap_or_else(|| PathBuf::from(DEFAULT_TOKEN_PATH))
-        });
+    let token_path = token_path.map(|p| p.to_path_buf()).unwrap_or_else(|| {
+        dirs::home_dir()
+            .map(|h| h.join(DEFAULT_TOKEN_PATH))
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_TOKEN_PATH))
+    });
 
     let client = BasicClient::new(
         ClientId::new(client_id.to_string()),
@@ -385,13 +383,11 @@ pub fn has_valid_credentials(
     let scopes_vec: Vec<&str> = scopes
         .map(|s| s.iter().map(|s| s.as_str()).collect())
         .unwrap_or_else(|| DEFAULT_SCOPES.to_vec());
-    let token_path = token_path
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .map(|h| h.join(DEFAULT_TOKEN_PATH))
-                .unwrap_or_else(|| PathBuf::from(DEFAULT_TOKEN_PATH))
-        });
+    let token_path = token_path.map(|p| p.to_path_buf()).unwrap_or_else(|| {
+        dirs::home_dir()
+            .map(|h| h.join(DEFAULT_TOKEN_PATH))
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_TOKEN_PATH))
+    });
 
     // Check credentials synchronously without creating a nested runtime
     match load_credentials(&token_path, &scopes_vec) {

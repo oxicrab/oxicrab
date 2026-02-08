@@ -172,10 +172,7 @@ impl SubagentManager {
 
         // Build messages
         let system_prompt = self.build_subagent_prompt(task);
-        let mut messages = vec![
-            Message::system(system_prompt),
-            Message::user(task),
-        ];
+        let mut messages = vec![Message::system(system_prompt), Message::user(task)];
 
         // Run agent loop
         let max_iterations = 15;
@@ -316,7 +313,6 @@ When you have completed the task, provide a clear summary of your findings or ac
             self.workspace.display()
         )
     }
-
 
     pub async fn list_running(&self) -> Vec<HashMap<String, Value>> {
         let tasks = self.running_tasks.lock().await;

@@ -3,7 +3,9 @@ use serde_json::Value;
 
 pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
     // Strip ANSI escape codes
-    let clean = RegexPatterns::ansi_escape().replace_all(result, "").to_string();
+    let clean = RegexPatterns::ansi_escape()
+        .replace_all(result, "")
+        .to_string();
 
     if clean.len() <= max_chars {
         return clean;

@@ -478,7 +478,6 @@ impl Config {
 
     /// Validate configuration values
     pub fn validate(&self) -> anyhow::Result<()> {
-
         // Validate agent defaults
         if self.agents.defaults.max_tokens == 0 {
             anyhow::bail!("agents.defaults.maxTokens must be > 0");
@@ -499,7 +498,9 @@ impl Config {
         // Validate compaction config
         if self.agents.defaults.compaction.enabled {
             if self.agents.defaults.compaction.threshold_tokens == 0 {
-                anyhow::bail!("agents.defaults.compaction.thresholdTokens must be > 0 when enabled");
+                anyhow::bail!(
+                    "agents.defaults.compaction.thresholdTokens must be > 0 when enabled"
+                );
             }
             if self.agents.defaults.compaction.keep_recent == 0 {
                 anyhow::bail!("agents.defaults.compaction.keepRecent must be > 0 when enabled");

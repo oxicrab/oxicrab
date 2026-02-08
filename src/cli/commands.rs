@@ -489,10 +489,7 @@ async fn setup_cron_callbacks(
     Ok(())
 }
 
-fn setup_heartbeat(
-    config: &Config,
-    agent: Arc<AgentLoop>,
-) -> Result<Arc<HeartbeatService>> {
+fn setup_heartbeat(config: &Config, agent: Arc<AgentLoop>) -> Result<Arc<HeartbeatService>> {
     tracing::debug!("Initializing heartbeat service...");
     tracing::debug!("  - Enabled: {}", config.agents.defaults.daemon.enabled);
     tracing::debug!("  - Interval: {}s", config.agents.defaults.daemon.interval);
@@ -589,7 +586,7 @@ fn start_channels_loop(
                 }
             }
         }
-        
+
         // Graceful shutdown - stop all channels when loop ends
         if let Err(e) = channels.stop_all().await {
             tracing::error!("Error stopping channels during shutdown: {}", e);
@@ -821,9 +818,17 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
             };
 
             match cron
-                .update_job(&id, crate::cron::types::UpdateJobParams {
-                    name, message, schedule, deliver, channel, to,
-                })
+                .update_job(
+                    &id,
+                    crate::cron::types::UpdateJobParams {
+                        name,
+                        message,
+                        schedule,
+                        deliver,
+                        channel,
+                        to,
+                    },
+                )
                 .await?
             {
                 Some(job) => {

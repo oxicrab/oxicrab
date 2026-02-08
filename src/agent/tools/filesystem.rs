@@ -4,11 +4,19 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-fn check_path_allowed(file_path: &Path, allowed_roots: &Option<Vec<PathBuf>>) -> Result<(), String> {
+fn check_path_allowed(
+    file_path: &Path,
+    allowed_roots: &Option<Vec<PathBuf>>,
+) -> Result<(), String> {
     if let Some(roots) = allowed_roots {
         let resolved = match file_path.canonicalize() {
             Ok(p) => p,
-            Err(_) => return Err(format!("Error: Cannot resolve path '{}'", file_path.display())),
+            Err(_) => {
+                return Err(format!(
+                    "Error: Cannot resolve path '{}'",
+                    file_path.display()
+                ))
+            }
         };
         for root in roots {
             if let Ok(root_resolved) = root.canonicalize() {

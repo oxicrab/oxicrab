@@ -43,8 +43,12 @@ impl MemoryDB {
     pub fn new(db_path: impl AsRef<Path>) -> Result<Self> {
         let db_path = db_path.as_ref();
         if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create database parent directory: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "Failed to create database parent directory: {}",
+                    parent.display()
+                )
+            })?;
         }
 
         let conn = Connection::open(db_path)
@@ -60,13 +64,20 @@ impl MemoryDB {
             has_fts: false,
         };
 
-        db.ensure_schema()
-            .with_context(|| format!("Failed to initialize database schema at: {}", db_path.display()))?;
+        db.ensure_schema().with_context(|| {
+            format!(
+                "Failed to initialize database schema at: {}",
+                db_path.display()
+            )
+        })?;
         Ok(db)
     }
 
     fn ensure_schema(&mut self) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS memory_sources (
@@ -142,12 +153,11 @@ impl MemoryDB {
     fn get_mtime_ns(path: &Path) -> i64 {
         path.metadata()
             .and_then(|m| {
-                m.modified()
-                    .map(|t| {
-                        t.duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_nanos() as i64)
-                            .unwrap_or(0)
-                    })
+                m.modified().map(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos() as i64)
+                        .unwrap_or(0)
+                })
             })
             .unwrap_or(0)
     }
@@ -156,7 +166,10 @@ impl MemoryDB {
         let mtime_ns = Self::get_mtime_ns(path);
         let now = Utc::now().to_rfc3339();
 
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
 
         // Check if unchanged
         let existing: Option<i64> = conn
@@ -241,7 +254,10 @@ impl MemoryDB {
 
         let default_set = std::collections::HashSet::new();
         let exclude = exclude_sources.unwrap_or(&default_set);
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
 
         if self.has_fts {
             let mut stmt = conn.prepare(

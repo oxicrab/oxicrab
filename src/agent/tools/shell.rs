@@ -20,11 +20,13 @@ impl ExecTool {
         // Compile security patterns with proper error handling
         // If compilation fails, we'll log a warning but continue with empty patterns
         // This is a safety measure - in production, this should never fail
-        let deny_patterns = compile_security_patterns()
-            .unwrap_or_else(|e| {
-                tracing::warn!("Failed to compile security patterns: {}. Tool will have reduced security.", e);
-                Vec::new()
-            });
+        let deny_patterns = compile_security_patterns().unwrap_or_else(|e| {
+            tracing::warn!(
+                "Failed to compile security patterns: {}. Tool will have reduced security.",
+                e
+            );
+            Vec::new()
+        });
 
         Self {
             timeout,

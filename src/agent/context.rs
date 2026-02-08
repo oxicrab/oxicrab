@@ -19,13 +19,21 @@ pub struct ContextBuilder {
 impl ContextBuilder {
     pub fn new(workspace: impl AsRef<Path>) -> Result<Self> {
         let workspace = workspace.as_ref().to_path_buf();
-        
+
         // Ensure workspace exists and is accessible
-        std::fs::create_dir_all(&workspace)
-            .with_context(|| format!("Failed to create workspace directory: {}", workspace.display()))?;
-        
-        let memory = MemoryStore::new(&workspace)
-            .with_context(|| format!("Failed to initialize memory store for workspace: {}", workspace.display()))?;
+        std::fs::create_dir_all(&workspace).with_context(|| {
+            format!(
+                "Failed to create workspace directory: {}",
+                workspace.display()
+            )
+        })?;
+
+        let memory = MemoryStore::new(&workspace).with_context(|| {
+            format!(
+                "Failed to initialize memory store for workspace: {}",
+                workspace.display()
+            )
+        })?;
 
         // Try to find builtin skills directory (relative to executable or workspace)
         let builtin_skills = std::env::current_exe()
@@ -176,10 +184,7 @@ impl ContextBuilder {
                 if let Ok(metadata) = std::fs::metadata(&file_path) {
                     if let Ok(mtime) = metadata.modified() {
                         if let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH) {
-                            current_mtimes.insert(
-                                filename.to_string(),
-                                duration.as_secs(),
-                            );
+                            current_mtimes.insert(filename.to_string(), duration.as_secs());
                         }
                     }
                 }
@@ -266,7 +271,9 @@ impl ContextBuilder {
         is_error: bool,
     ) {
         messages.push(crate::providers::base::Message::tool_result(
-            tool_call_id, result, is_error,
+            tool_call_id,
+            result,
+            is_error,
         ));
     }
 
@@ -276,10 +283,7 @@ impl ContextBuilder {
         tool_calls: Option<Vec<crate::providers::base::ToolCallRequest>>,
         _reasoning_content: Option<&str>,
     ) {
-        let msg = crate::providers::base::Message::assistant(
-            content.unwrap_or(""),
-            tool_calls,
-        );
+        let msg = crate::providers::base::Message::assistant(content.unwrap_or(""), tool_calls);
         messages.push(msg);
     }
 }

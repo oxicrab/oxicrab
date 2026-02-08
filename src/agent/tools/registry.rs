@@ -51,7 +51,6 @@ impl ToolRegistry {
 
         tool.execute(params).await
     }
-
 }
 
 impl Default for ToolRegistry {

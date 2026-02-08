@@ -93,7 +93,6 @@ impl Session {
             })
             .collect()
     }
-
 }
 
 pub struct SessionManager {
@@ -109,8 +108,7 @@ impl SessionManager {
             _workspace: workspace.clone(),
             sessions_dir,
             cache: Mutex::new(LruCache::new(
-                NonZeroUsize::new(MAX_CACHED_SESSIONS)
-                    .expect("MAX_CACHED_SESSIONS must be > 0"),
+                NonZeroUsize::new(MAX_CACHED_SESSIONS).expect("MAX_CACHED_SESSIONS must be > 0"),
             )),
         })
     }
@@ -272,7 +270,6 @@ impl SessionManager {
 
         Ok(())
     }
-
 }
 
 #[async_trait]

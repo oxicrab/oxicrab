@@ -29,15 +29,15 @@ impl AnthropicOAuthStrategy {
 impl ProviderStrategy for AnthropicOAuthStrategy {
     fn can_handle(&self, model: &str) -> bool {
         model.starts_with("anthropic/")
-            || (model.to_lowercase().contains("anthropic") || model.to_lowercase().contains("claude"))
+            || (model.to_lowercase().contains("anthropic")
+                || model.to_lowercase().contains("claude"))
     }
 
     async fn create_provider(&self, model: &str) -> Result<Option<Arc<dyn LLMProvider>>> {
         use crate::providers::anthropic_oauth::AnthropicOAuthProvider;
 
-        let should_try_oauth = model.starts_with("anthropic/")
-            || self.config.enabled
-            || self.config.auto_detect;
+        let should_try_oauth =
+            model.starts_with("anthropic/") || self.config.enabled || self.config.auto_detect;
 
         if !should_try_oauth {
             return Ok(None);
@@ -76,9 +76,10 @@ impl ProviderStrategy for AnthropicOAuthStrategy {
             // Try credentials file
             if let Some(ref path) = self.config.credentials_path {
                 let path_buf = std::path::PathBuf::from(path);
-                if let Ok(Some(provider)) =
-                    AnthropicOAuthProvider::from_credentials_file(&path_buf, Some(model.to_string()))
-                {
+                if let Ok(Some(provider)) = AnthropicOAuthProvider::from_credentials_file(
+                    &path_buf,
+                    Some(model.to_string()),
+                ) {
                     return Ok(Some(Arc::new(provider)));
                 }
             }
@@ -106,7 +107,9 @@ impl ProviderStrategy for ApiKeyProviderStrategy {
     }
 
     async fn create_provider(&self, model: &str) -> Result<Option<Arc<dyn LLMProvider>>> {
-        use crate::providers::{anthropic::AnthropicProvider, gemini::GeminiProvider, openai::OpenAIProvider};
+        use crate::providers::{
+            anthropic::AnthropicProvider, gemini::GeminiProvider, openai::OpenAIProvider,
+        };
 
         let model_lower = model.to_lowercase();
 
@@ -199,18 +202,13 @@ impl ProviderFactory {
                 config.providers.anthropic_oauth.clone(),
             )),
             // API key strategy as fallback
-            Box::new(ApiKeyProviderStrategy::new(
-                config.providers.clone(),
-            )),
+            Box::new(ApiKeyProviderStrategy::new(config.providers.clone())),
         ];
 
         Self { strategies }
     }
 
-    pub async fn create_provider(
-        &self,
-        model: &str,
-    ) -> Result<Arc<dyn LLMProvider>> {
+    pub async fn create_provider(&self, model: &str) -> Result<Arc<dyn LLMProvider>> {
         // Try each strategy in order
         for strategy in &self.strategies {
             if strategy.can_handle(model) {

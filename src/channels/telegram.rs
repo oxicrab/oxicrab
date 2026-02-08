@@ -54,7 +54,11 @@ impl BaseChannel for TelegramChannel {
                 if let MessageKind::Common(_msg_common) = &msg.kind {
                     let text = msg.text();
                     if let Some(text) = text {
-                        let sender_id = msg.from.as_ref().map(|u| u.id.to_string()).unwrap_or_default();
+                        let sender_id = msg
+                            .from
+                            .as_ref()
+                            .map(|u| u.id.to_string())
+                            .unwrap_or_default();
 
                         // Check allowlist using utility function
                         if !check_allowed_sender(&sender_id, &allow_list) {

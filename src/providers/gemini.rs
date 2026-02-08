@@ -136,7 +136,7 @@ impl LLMProvider for GeminiProvider {
                 .get("retry-after")
                 .and_then(|h| h.to_str().ok())
                 .and_then(|s| s.parse::<u64>().ok());
-            
+
             let error_text = resp
                 .text()
                 .await
@@ -149,8 +149,10 @@ impl LLMProvider for GeminiProvider {
                     "Gemini",
                     "chat",
                 );
-                return Err(ProviderErrorHandler::handle_rate_limit(status.as_u16(), retry_after)
-                    .unwrap_err());
+                return Err(
+                    ProviderErrorHandler::handle_rate_limit(status.as_u16(), retry_after)
+                        .unwrap_err(),
+                );
             }
 
             // Handle authentication errors
@@ -160,8 +162,10 @@ impl LLMProvider for GeminiProvider {
                     "Gemini",
                     "chat",
                 );
-                return Err(ProviderErrorHandler::handle_auth_error(status.as_u16(), &error_text)
-                    .unwrap_err());
+                return Err(
+                    ProviderErrorHandler::handle_auth_error(status.as_u16(), &error_text)
+                        .unwrap_err(),
+                );
             }
 
             // Use shared error handler for other errors
@@ -170,8 +174,9 @@ impl LLMProvider for GeminiProvider {
                 "Gemini",
                 "chat",
             );
-            return Err(ProviderErrorHandler::parse_api_error(status.as_u16(), &error_text)
-                .unwrap_err());
+            return Err(
+                ProviderErrorHandler::parse_api_error(status.as_u16(), &error_text).unwrap_err(),
+            );
         }
 
         let json: Value = resp
@@ -188,15 +193,14 @@ impl LLMProvider for GeminiProvider {
                 }
             }
 
-            let error_text = serde_json::to_string(error)
-                .unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text =
+                serde_json::to_string(error).unwrap_or_else(|_| "Unknown error".to_string());
             ProviderErrorHandler::log_and_handle_error(
                 &anyhow::anyhow!("API error in response"),
                 "Gemini",
                 "chat",
             );
-            return Err(ProviderErrorHandler::parse_api_error(200, &error_text)
-                .unwrap_err());
+            return Err(ProviderErrorHandler::parse_api_error(200, &error_text).unwrap_err());
         }
 
         // Update metrics on success

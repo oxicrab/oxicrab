@@ -80,7 +80,7 @@ impl HeartbeatService {
                 }
             }
         });
-        
+
         // Track the heartbeat task
         task_tracker.spawn("heartbeat".to_string(), handle).await;
 

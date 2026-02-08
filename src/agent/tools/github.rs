@@ -219,7 +219,18 @@ impl GitHubTool {
 
         Ok(format!(
             "PR #{} — {} ({})\nBy: {} | {} → {} | {}\n+{} −{} in {} files\n{}\n\n{}",
-            number, title, status_str, user, head, base, checks_str, additions, deletions, changed_files, checks_str, body_truncated
+            number,
+            title,
+            status_str,
+            user,
+            head,
+            base,
+            checks_str,
+            additions,
+            deletions,
+            changed_files,
+            checks_str,
+            body_truncated
         ))
     }
 

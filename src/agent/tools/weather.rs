@@ -24,11 +24,7 @@ impl WeatherTool {
         let resp = self
             .client
             .get(format!("{}/weather", OWM_API))
-            .query(&[
-                ("q", location),
-                ("appid", &self.api_key),
-                ("units", units),
-            ])
+            .query(&[("q", location), ("appid", &self.api_key), ("units", units)])
             .timeout(Duration::from_secs(10))
             .send()
             .await?;
@@ -59,7 +55,16 @@ impl WeatherTool {
 
         Ok(format!(
             "Weather in {}, {}:\n{} | {:.0}{} (feels like {:.0}{})\nHumidity: {}% | Wind: {:.1} {}",
-            city, country, description, temp, unit_label, feels_like, unit_label, humidity, wind_speed, wind_unit
+            city,
+            country,
+            description,
+            temp,
+            unit_label,
+            feels_like,
+            unit_label,
+            humidity,
+            wind_speed,
+            wind_unit
         ))
     }
 
@@ -99,9 +104,7 @@ impl WeatherTool {
             .map(|entry| {
                 let dt_txt = entry["dt_txt"].as_str().unwrap_or("?");
                 let temp = entry["main"]["temp"].as_f64().unwrap_or(0.0);
-                let desc = entry["weather"][0]["description"]
-                    .as_str()
-                    .unwrap_or("?");
+                let desc = entry["weather"][0]["description"].as_str().unwrap_or("?");
                 let pop = entry["pop"].as_f64().unwrap_or(0.0) * 100.0;
                 format!(
                     "{}: {:.0}{} {} (rain: {:.0}%)",
@@ -161,7 +164,11 @@ impl Tool for WeatherTool {
     async fn execute(&self, params: Value) -> Result<ToolResult> {
         let location = match params["location"].as_str() {
             Some(l) => l,
-            None => return Ok(ToolResult::error("Missing 'location' parameter".to_string())),
+            None => {
+                return Ok(ToolResult::error(
+                    "Missing 'location' parameter".to_string(),
+                ))
+            }
         };
 
         let action = params["action"].as_str().unwrap_or("current");

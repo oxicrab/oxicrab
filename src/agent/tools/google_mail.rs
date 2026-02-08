@@ -312,12 +312,8 @@ impl Tool for GoogleMailTool {
                         Value::Array(label_ids.into_iter().map(Value::String).collect());
                 }
                 if !remove_label_ids.is_empty() {
-                    body["removeLabelIds"] = Value::Array(
-                        remove_label_ids
-                            .into_iter()
-                            .map(Value::String)
-                            .collect(),
-                    );
+                    body["removeLabelIds"] =
+                        Value::Array(remove_label_ids.into_iter().map(Value::String).collect());
                 }
 
                 let endpoint = format!(

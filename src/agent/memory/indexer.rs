@@ -1,5 +1,5 @@
 /// Background memory indexer service
-/// 
+///
 /// Periodically indexes memory files in the background to avoid blocking queries.
 use crate::agent::memory::MemoryDB;
 use anyhow::Result;

@@ -138,12 +138,8 @@ impl SkillsLoader {
 
         let mut lines = vec!["<skills>".to_string()];
         for s in all_skills {
-            let name = s.get("name")
-                .map(|s| s.as_str())
-                .unwrap_or("unknown");
-            let path = s.get("path")
-                .map(|s| s.as_str())
-                .unwrap_or("");
+            let name = s.get("name").map(|s| s.as_str()).unwrap_or("unknown");
+            let path = s.get("path").map(|s| s.as_str()).unwrap_or("");
             let desc = escape_xml(&self.get_skill_description(name));
             let meta = self.get_skill_metadata(name);
             let available = self.check_requirements(meta.as_ref());

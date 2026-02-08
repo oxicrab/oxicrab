@@ -149,21 +149,27 @@ impl Tool for CronTool {
                     .iter()
                     .map(|j| {
                         let schedule_desc = match &j.schedule {
-                            CronSchedule::At { at_ms } => {
-                                at_ms.and_then(|ms| {
-                                    chrono::DateTime::from_timestamp(ms / 1000, 0)
-                                        .map(|dt| format!("once at {}", dt.format("%Y-%m-%d %H:%M UTC")))
-                                }).unwrap_or_else(|| "once (no time set)".to_string())
-                            }
-                            CronSchedule::Every { every_ms } => {
-                                every_ms.map(|ms| {
+                            CronSchedule::At { at_ms } => at_ms
+                                .and_then(|ms| {
+                                    chrono::DateTime::from_timestamp(ms / 1000, 0).map(|dt| {
+                                        format!("once at {}", dt.format("%Y-%m-%d %H:%M UTC"))
+                                    })
+                                })
+                                .unwrap_or_else(|| "once (no time set)".to_string()),
+                            CronSchedule::Every { every_ms } => every_ms
+                                .map(|ms| {
                                     let secs = ms / 1000;
-                                    if secs >= 86400 { format!("every {}d", secs / 86400) }
-                                    else if secs >= 3600 { format!("every {}h", secs / 3600) }
-                                    else if secs >= 60 { format!("every {}m", secs / 60) }
-                                    else { format!("every {}s", secs) }
-                                }).unwrap_or_else(|| "recurring (no interval set)".to_string())
-                            }
+                                    if secs >= 86400 {
+                                        format!("every {}d", secs / 86400)
+                                    } else if secs >= 3600 {
+                                        format!("every {}h", secs / 3600)
+                                    } else if secs >= 60 {
+                                        format!("every {}m", secs / 60)
+                                    } else {
+                                        format!("every {}s", secs)
+                                    }
+                                })
+                                .unwrap_or_else(|| "recurring (no interval set)".to_string()),
                             CronSchedule::Cron { expr, tz } => {
                                 let tz_str = tz.as_deref().unwrap_or("UTC");
                                 expr.as_deref()
@@ -171,10 +177,14 @@ impl Tool for CronTool {
                                     .unwrap_or_else(|| "cron (no expression)".to_string())
                             }
                         };
-                        let next_run = j.state.next_run_at_ms.and_then(|ms| {
-                            chrono::DateTime::from_timestamp(ms / 1000, 0)
-                                .map(|dt| format!("next: {}", dt.format("%Y-%m-%d %H:%M UTC")))
-                        }).unwrap_or_else(|| "next: pending".to_string());
+                        let next_run = j
+                            .state
+                            .next_run_at_ms
+                            .and_then(|ms| {
+                                chrono::DateTime::from_timestamp(ms / 1000, 0)
+                                    .map(|dt| format!("next: {}", dt.format("%Y-%m-%d %H:%M UTC")))
+                            })
+                            .unwrap_or_else(|| "next: pending".to_string());
                         format!(
                             "- [{}] {} | schedule: {} | {} | message: \"{}\"",
                             j.id, j.name, schedule_desc, next_run, j.payload.message

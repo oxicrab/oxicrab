@@ -55,7 +55,11 @@ impl EventHandler for Handler {
     }
 
     async fn ready(&self, _: Context, ready: Ready) {
-        tracing::info!("Discord bot connected as {} (id: {})", ready.user.name, ready.user.id);
+        tracing::info!(
+            "Discord bot connected as {} (id: {})",
+            ready.user.name,
+            ready.user.id
+        );
     }
 }
 
@@ -123,10 +127,12 @@ impl BaseChannel for DiscordChannel {
                 shard_manager_for_error.shutdown_all().await;
             }
         });
-        
+
         self._client_handle = Some(handle);
 
-        tracing::info!("Discord channel started successfully - connection will be established in background");
+        tracing::info!(
+            "Discord channel started successfully - connection will be established in background"
+        );
         Ok(())
     }
 

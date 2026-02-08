@@ -39,7 +39,11 @@ pub struct ToolVersion {
 
 impl ToolVersion {
     pub fn new(major: u32, minor: u32, patch: u32) -> Self {
-        Self { major, minor, patch }
+        Self {
+            major,
+            minor,
+            patch,
+        }
     }
 }
 

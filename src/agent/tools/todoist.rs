@@ -108,7 +108,11 @@ impl TodoistTool {
             payload["priority"] = Value::Number(p.into());
         }
         if let Some(l) = labels {
-            payload["labels"] = Value::Array(l.into_iter().map(|s| Value::String(s.to_string())).collect());
+            payload["labels"] = Value::Array(
+                l.into_iter()
+                    .map(|s| Value::String(s.to_string()))
+                    .collect(),
+            );
         }
 
         let resp = self
@@ -258,19 +262,14 @@ impl Tool for TodoistTool {
 
         let result = match action {
             "list_tasks" => {
-                self.list_tasks(
-                    params["project_id"].as_str(),
-                    params["filter"].as_str(),
-                )
-                .await
+                self.list_tasks(params["project_id"].as_str(), params["filter"].as_str())
+                    .await
             }
             "create_task" => {
                 let content = match params["content"].as_str() {
                     Some(c) => c,
                     None => {
-                        return Ok(ToolResult::error(
-                            "Missing 'content' parameter".to_string(),
-                        ))
+                        return Ok(ToolResult::error("Missing 'content' parameter".to_string()))
                     }
                 };
                 let labels: Option<Vec<&str>> = params["labels"]
@@ -290,9 +289,7 @@ impl Tool for TodoistTool {
                 let task_id = match params["task_id"].as_str() {
                     Some(id) => id,
                     None => {
-                        return Ok(ToolResult::error(
-                            "Missing 'task_id' parameter".to_string(),
-                        ))
+                        return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()))
                     }
                 };
                 self.complete_task(task_id).await

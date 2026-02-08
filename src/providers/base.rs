@@ -34,19 +34,42 @@ pub struct Message {
 
 impl Message {
     pub fn system(content: impl Into<String>) -> Self {
-        Self { role: "system".into(), content: content.into(), ..Default::default() }
+        Self {
+            role: "system".into(),
+            content: content.into(),
+            ..Default::default()
+        }
     }
 
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: "user".into(), content: content.into(), ..Default::default() }
+        Self {
+            role: "user".into(),
+            content: content.into(),
+            ..Default::default()
+        }
     }
 
     pub fn assistant(content: impl Into<String>, tool_calls: Option<Vec<ToolCallRequest>>) -> Self {
-        Self { role: "assistant".into(), content: content.into(), tool_calls, ..Default::default() }
+        Self {
+            role: "assistant".into(),
+            content: content.into(),
+            tool_calls,
+            ..Default::default()
+        }
     }
 
-    pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>, is_error: bool) -> Self {
-        Self { role: "tool".into(), content: content.into(), tool_call_id: Some(tool_call_id.into()), is_error, ..Default::default() }
+    pub fn tool_result(
+        tool_call_id: impl Into<String>,
+        content: impl Into<String>,
+        is_error: bool,
+    ) -> Self {
+        Self {
+            role: "tool".into(),
+            content: content.into(),
+            tool_call_id: Some(tool_call_id.into()),
+            is_error,
+            ..Default::default()
+        }
     }
 }
 
@@ -133,7 +156,7 @@ pub trait LLMProvider: Send + Sync {
                     if attempt < config.max_retries {
                         let delay = (config.initial_delay_ms as f64
                             * config.backoff_multiplier.powi(attempt as i32))
-                            .min(config.max_delay_ms as f64) as u64;
+                        .min(config.max_delay_ms as f64) as u64;
                         tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
                     }
                 }

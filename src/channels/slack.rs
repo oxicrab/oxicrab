@@ -24,10 +24,7 @@ pub struct SlackChannel {
 }
 
 impl SlackChannel {
-    pub fn new(
-        config: SlackConfig,
-        inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
-    ) -> Self {
+    pub fn new(config: SlackConfig, inbound_tx: Arc<mpsc::Sender<InboundMessage>>) -> Self {
         Self {
             config,
             inbound_tx,
@@ -69,7 +66,6 @@ impl SlackChannel {
         }
         Ok(json)
     }
-
 }
 
 #[async_trait]
@@ -170,7 +166,10 @@ impl BaseChannel for SlackChannel {
                         error!("Failed to call apps.connections.open: {}", e);
                         let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                         reconnect_attempt += 1;
-                        warn!("Retrying Slack Socket Mode connection in {} seconds...", delay);
+                        warn!(
+                            "Retrying Slack Socket Mode connection in {} seconds...",
+                            delay
+                        );
                         tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                         continue;
                     }
@@ -182,7 +181,10 @@ impl BaseChannel for SlackChannel {
                         error!("Failed to parse apps.connections.open response: {}", e);
                         let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                         reconnect_attempt += 1;
-                        warn!("Retrying Slack Socket Mode connection in {} seconds...", delay);
+                        warn!(
+                            "Retrying Slack Socket Mode connection in {} seconds...",
+                            delay
+                        );
                         tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                         continue;
                     }
@@ -199,7 +201,10 @@ impl BaseChannel for SlackChannel {
                     }
                     let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                     reconnect_attempt += 1;
-                    warn!("Retrying Slack Socket Mode connection in {} seconds...", delay);
+                    warn!(
+                        "Retrying Slack Socket Mode connection in {} seconds...",
+                        delay
+                    );
                     tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                     continue;
                 }
@@ -210,7 +215,10 @@ impl BaseChannel for SlackChannel {
                         error!("No 'url' field in apps.connections.open response");
                         let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                         reconnect_attempt += 1;
-                        warn!("Retrying Slack Socket Mode connection in {} seconds...", delay);
+                        warn!(
+                            "Retrying Slack Socket Mode connection in {} seconds...",
+                            delay
+                        );
                         tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                         continue;
                     }
@@ -227,7 +235,10 @@ impl BaseChannel for SlackChannel {
                         error!("Failed to parse WebSocket URL: {}", e);
                         let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                         reconnect_attempt += 1;
-                        warn!("Retrying Slack Socket Mode connection in {} seconds...", delay);
+                        warn!(
+                            "Retrying Slack Socket Mode connection in {} seconds...",
+                            delay
+                        );
                         tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                         continue;
                     }
@@ -260,7 +271,8 @@ impl BaseChannel for SlackChannel {
                                         // Slack Socket Mode requires acknowledgments to be sent back through the WebSocket
                                         if event_type == "events_api" {
                                             if let Some(envelope_id) = event.get("envelope_id") {
-                                                let envelope_id_str = envelope_id.as_str().unwrap_or("");
+                                                let envelope_id_str =
+                                                    envelope_id.as_str().unwrap_or("");
                                                 let ack_msg = serde_json::json!({
                                                     "envelope_id": envelope_id_str,
                                                     "payload": {}
@@ -294,7 +306,9 @@ impl BaseChannel for SlackChannel {
                                                                 &config_allow,
                                                                 &bot_token,
                                                                 &ws_client,
-                                                            ).await {
+                                                            )
+                                                            .await
+                                                            {
                                                                 error!("Error handling Slack message event: {}", e);
                                                             }
                                                         }
@@ -338,7 +352,10 @@ impl BaseChannel for SlackChannel {
                         }
                         let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                         reconnect_attempt += 1;
-                        warn!("Retrying Slack Socket Mode connection in {} seconds...", delay);
+                        warn!(
+                            "Retrying Slack Socket Mode connection in {} seconds...",
+                            delay
+                        );
                         tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
                     }
                 }

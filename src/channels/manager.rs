@@ -15,10 +15,7 @@ pub struct ChannelManager {
 }
 
 impl ChannelManager {
-    pub fn new(
-        config: Config,
-        inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
-    ) -> Self {
+    pub fn new(config: Config, inbound_tx: Arc<mpsc::Sender<InboundMessage>>) -> Self {
         let mut channels: Vec<Box<dyn BaseChannel>> = Vec::new();
         let mut enabled = Vec::new();
 
@@ -86,7 +83,11 @@ impl ChannelManager {
             tracing::info!("Starting channel: {}", channel_name);
             if let Err(e) = channel.start().await {
                 tracing::error!("Failed to start channel {}: {}", channel_name, e);
-                return Err(anyhow::anyhow!("Failed to start channel {}: {}", channel_name, e));
+                return Err(anyhow::anyhow!(
+                    "Failed to start channel {}: {}",
+                    channel_name,
+                    e
+                ));
             }
             tracing::info!("Channel {} started successfully", channel_name);
         }

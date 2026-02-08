@@ -16,18 +16,30 @@ impl MemoryStore {
     pub fn new(workspace: impl AsRef<Path>) -> Result<Self> {
         let workspace = workspace.as_ref();
         let memory_dir = workspace.join("memory");
-        
+
         // Ensure workspace exists first
-        std::fs::create_dir_all(workspace)
-            .with_context(|| format!("Failed to create workspace directory: {}", workspace.display()))?;
-        
-        std::fs::create_dir_all(&memory_dir)
-            .with_context(|| format!("Failed to create memory directory: {}", memory_dir.display()))?;
+        std::fs::create_dir_all(workspace).with_context(|| {
+            format!(
+                "Failed to create workspace directory: {}",
+                workspace.display()
+            )
+        })?;
+
+        std::fs::create_dir_all(&memory_dir).with_context(|| {
+            format!(
+                "Failed to create memory directory: {}",
+                memory_dir.display()
+            )
+        })?;
 
         let db_path = memory_dir.join("memory.sqlite3");
         let db_path_clone = db_path.clone();
-        let db = Arc::new(MemoryDB::new(db_path)
-            .with_context(|| format!("Failed to create memory database at: {}", db_path_clone.display()))?);
+        let db = Arc::new(MemoryDB::new(db_path).with_context(|| {
+            format!(
+                "Failed to create memory database at: {}",
+                db_path_clone.display()
+            )
+        })?);
 
         // Create background indexer (runs every 5 minutes)
         // Note: Indexer will be started separately via start_indexer() to allow sync initialization
@@ -158,5 +170,4 @@ impl MemoryStore {
             Ok(String::new())
         }
     }
-
 }

@@ -328,7 +328,9 @@ fn extract_html(html: &str, markdown: bool) -> Result<String> {
 
 fn strip_scripts_styles(html: &str) -> String {
     let text = RegexPatterns::html_script().replace_all(html, "");
-    RegexPatterns::html_style().replace_all(&text, "").to_string()
+    RegexPatterns::html_style()
+        .replace_all(&text, "")
+        .to_string()
 }
 
 fn html_to_markdown(html: &str) -> String {
@@ -375,7 +377,9 @@ fn html_to_markdown(html: &str) -> String {
         // Fallback: use regex-based markdown conversion (like Python version)
         let mut text = html.to_string();
         // Convert links
-        if let Ok(re_link) = compile_regex(r#"(?i)<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)</a>"#) {
+        if let Ok(re_link) =
+            compile_regex(r#"(?i)<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)</a>"#)
+        {
             text = re_link
                 .replace_all(&text, |caps: &regex::Captures| {
                     let href = caps.get(1).map(|m| m.as_str()).unwrap_or("");
@@ -387,10 +391,13 @@ fn html_to_markdown(html: &str) -> String {
 
         // Convert headings
         for level in 1..=6 {
-            if let Ok(re_heading) = compile_regex(&format!(r"(?i)<h{}[^>]*>([\s\S]*?)</h{}>", level, level)) {
+            if let Ok(re_heading) =
+                compile_regex(&format!(r"(?i)<h{}[^>]*>([\s\S]*?)</h{}>", level, level))
+            {
                 text = re_heading
                     .replace_all(&text, |caps: &regex::Captures| {
-                        let heading_text = strip_tags(caps.get(1).map(|m| m.as_str()).unwrap_or(""));
+                        let heading_text =
+                            strip_tags(caps.get(1).map(|m| m.as_str()).unwrap_or(""));
                         format!("\n{} {}\n", "#".repeat(level), heading_text.trim())
                     })
                     .to_string();

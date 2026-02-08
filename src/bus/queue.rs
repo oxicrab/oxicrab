@@ -21,7 +21,12 @@ pub struct MessageBus {
 }
 
 impl MessageBus {
-    pub fn new(rate_limit: usize, rate_window_secs: f64, inbound_capacity: usize, outbound_capacity: usize) -> Self {
+    pub fn new(
+        rate_limit: usize,
+        rate_window_secs: f64,
+        inbound_capacity: usize,
+        outbound_capacity: usize,
+    ) -> Self {
         let (inbound_tx, inbound_rx) = mpsc::channel(inbound_capacity);
         let (outbound_tx, outbound_rx) = mpsc::channel(outbound_capacity);
         Self {
@@ -34,7 +39,6 @@ impl MessageBus {
             sender_timestamps: HashMap::new(),
         }
     }
-
 }
 
 impl Default for MessageBus {
@@ -49,7 +53,6 @@ impl Default for MessageBus {
 }
 
 impl MessageBus {
-
     /// Extract the inbound receiver to avoid holding lock during await
     pub fn take_inbound_rx(&mut self) -> Option<mpsc::Receiver<InboundMessage>> {
         self.inbound_rx.take()
@@ -64,10 +67,7 @@ impl MessageBus {
         let now = Instant::now();
         let key = format!("{}:{}", msg.channel, msg.sender_id);
 
-        let timestamps = self
-            .sender_timestamps
-            .entry(key.clone())
-            .or_default();
+        let timestamps = self.sender_timestamps.entry(key.clone()).or_default();
         let cutoff = now - self.rate_window;
         timestamps.retain(|&t| t > cutoff);
 
@@ -96,5 +96,4 @@ impl MessageBus {
             .context("Failed to send outbound message - receiver closed")?;
         Ok(())
     }
-
 }

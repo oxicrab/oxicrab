@@ -105,7 +105,8 @@ impl AgentLoop {
         // Receivers are !Sync, so we wrap in Arc<Mutex> for sharing
         let inbound_rx = Arc::new(tokio::sync::Mutex::new({
             let mut bus_guard = bus.lock().await;
-            bus_guard.take_inbound_rx()
+            bus_guard
+                .take_inbound_rx()
                 .ok_or_else(|| anyhow::anyhow!("Inbound receiver already taken"))?
         }));
         let model = model.unwrap_or_else(|| provider.default_model().to_string());
@@ -379,24 +380,29 @@ impl AgentLoop {
                 let task_tracker = self.task_tracker.clone();
                 let task_name = format!("fact_extraction_{}", chrono::Utc::now().timestamp());
                 // Use spawn_auto_cleanup since this is a one-off task that should remove itself
-                task_tracker.spawn_auto_cleanup(task_name, async move {
-                    match compactor.extract_facts(&user_msg, &assistant_msg).await {
-                        Ok(facts) => {
-                            if !facts.is_empty() {
-                                if let Err(e) =
-                                    memory.append_today(&format!("\n## Facts\n\n{}\n", facts))
-                                {
-                                    warn!("Failed to save facts to daily note: {}", e);
-                                } else {
-                                    debug!("Successfully saved {} facts to daily note", facts.len());
+                task_tracker
+                    .spawn_auto_cleanup(task_name, async move {
+                        match compactor.extract_facts(&user_msg, &assistant_msg).await {
+                            Ok(facts) => {
+                                if !facts.is_empty() {
+                                    if let Err(e) =
+                                        memory.append_today(&format!("\n## Facts\n\n{}\n", facts))
+                                    {
+                                        warn!("Failed to save facts to daily note: {}", e);
+                                    } else {
+                                        debug!(
+                                            "Successfully saved {} facts to daily note",
+                                            facts.len()
+                                        );
+                                    }
                                 }
                             }
+                            Err(e) => {
+                                warn!("Failed to extract facts from conversation: {}", e);
+                            }
                         }
-                        Err(e) => {
-                            warn!("Failed to extract facts from conversation: {}", e);
-                        }
-                    }
-                }).await;
+                    })
+                    .await;
             }
         }
 

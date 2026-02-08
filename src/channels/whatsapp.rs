@@ -136,7 +136,7 @@ impl BaseChannel for WhatsAppChannel {
                                 whatsapp_rust::types::events::Event::Message(msg, info) => {
                                     // Handle message event (organized inline to avoid type issues)
                                     let sender = info.source.sender.to_string();
-                                    
+
                                     // Extract phone number without device ID
                                     let chat_id = if sender.contains('@') {
                                         sender.split('@').next().unwrap_or(&sender).to_string()
@@ -155,7 +155,7 @@ impl BaseChannel for WhatsAppChannel {
                                     if !check_allowed_sender(&phone_number, &config_allow)
                                         && !check_allowed_sender(&chat_id, &config_allow)
                                     {
-                                        warn!("WhatsApp message from {} (phone: {}) blocked by allowFrom filter (allowed: {:?})", 
+                                        warn!("WhatsApp message from {} (phone: {}) blocked by allowFrom filter (allowed: {:?})",
                                             chat_id, phone_number, config_allow);
                                         return;
                                     }
@@ -187,17 +187,17 @@ impl BaseChannel for WhatsAppChannel {
                                         media: vec![],
                                         metadata: {
                                             let mut meta = HashMap::new();
-                                            meta.insert("message_id".to_string(), 
+                                            meta.insert("message_id".to_string(),
                                                 Value::String(info.id.to_string()));
-                                            meta.insert("whatsapp_timestamp".to_string(), 
+                                            meta.insert("whatsapp_timestamp".to_string(),
                                                 Value::Number(serde_json::Number::from(info.timestamp.timestamp_millis())));
-                                            meta.insert("is_group".to_string(), 
+                                            meta.insert("is_group".to_string(),
                                                 Value::Bool(info.source.is_group));
                                             meta
                                         },
                                     };
 
-                                    info!("WhatsApp: sending inbound message to bus: sender={}, chat_id={}, content_len={}", 
+                                    info!("WhatsApp: sending inbound message to bus: sender={}, chat_id={}, content_len={}",
                                         chat_id, sender, inbound_msg.content.len());
                                     if let Err(e) = inbound_tx.send(inbound_msg).await {
                                         error!("Failed to send WhatsApp inbound message: {}", e);
@@ -436,7 +436,11 @@ async fn send_whatsapp_message(
             ..Default::default()
         };
 
-        let preview_end = chunk.char_indices().nth(50).map(|(i, _)| i).unwrap_or(chunk.len());
+        let preview_end = chunk
+            .char_indices()
+            .nth(50)
+            .map(|(i, _)| i)
+            .unwrap_or(chunk.len());
         info!(
             "send_whatsapp_message: calling client.send_message with JID={}, content_preview={}...",
             jid,

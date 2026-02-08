@@ -87,10 +87,7 @@ impl Tool for HttpTool {
         }
 
         let method = params["method"].as_str().unwrap_or("GET").to_uppercase();
-        let timeout_secs = params["timeout_secs"]
-            .as_u64()
-            .unwrap_or(30)
-            .min(120);
+        let timeout_secs = params["timeout_secs"].as_u64().unwrap_or(30).min(120);
 
         let mut request = match method.as_str() {
             "GET" => self.client.get(url),
@@ -159,7 +156,8 @@ impl Tool for HttpTool {
                 // Truncate if needed
                 let truncated = body_display.len() > MAX_RESPONSE_CHARS;
                 let final_body: String = if truncated {
-                    let truncated_text: String = body_display.chars().take(MAX_RESPONSE_CHARS).collect();
+                    let truncated_text: String =
+                        body_display.chars().take(MAX_RESPONSE_CHARS).collect();
                     format!("{}...\n[truncated]", truncated_text)
                 } else {
                     body_display
