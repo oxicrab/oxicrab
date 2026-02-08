@@ -1,5 +1,5 @@
 use crate::session::store::SessionStore;
-use crate::utils::{ensure_dir, get_nanobot_home, safe_filename};
+use crate::utils::{atomic_write, ensure_dir, get_nanobot_home, safe_filename};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -261,7 +261,7 @@ impl SessionManager {
             content.push('\n');
         }
 
-        fs::write(&path, content)
+        atomic_write(&path, &content)
             .with_context(|| format!("Failed to write session file: {}", path.display()))?;
 
         // Update cache

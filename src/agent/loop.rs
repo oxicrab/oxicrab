@@ -45,6 +45,10 @@ pub struct AgentLoopConfig {
     pub outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     pub cron_service: Option<Arc<CronService>>,
     pub google_config: Option<crate::config::GoogleConfig>,
+    /// Temperature for response generation (default 0.7)
+    pub temperature: f32,
+    /// Temperature for tool-calling iterations (default 0.0 for determinism)
+    pub tool_temperature: f32,
 }
 
 pub struct AgentLoop {
@@ -64,6 +68,8 @@ pub struct AgentLoop {
     running: Arc<tokio::sync::Mutex<bool>>,
     outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     task_tracker: Arc<TaskTracker>,
+    temperature: f32,
+    tool_temperature: f32,
 }
 
 impl AgentLoop {
@@ -81,6 +87,8 @@ impl AgentLoop {
             outbound_tx,
             cron_service,
             google_config,
+            temperature,
+            tool_temperature,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -207,6 +215,8 @@ impl AgentLoop {
             running: Arc::new(tokio::sync::Mutex::new(false)),
             outbound_tx,
             task_tracker: Arc::new(TaskTracker::new()),
+            temperature,
+            tool_temperature,
         })
     }
 
@@ -379,8 +389,13 @@ impl AgentLoop {
 
         for iteration in 1..=self.max_iterations {
             // Use retry logic for provider calls
-            // Note: messages are cloned here because they're mutated in the loop
-            // This is necessary for the agent loop pattern
+            // Use low temperature for tool-calling iterations (determinism),
+            // normal temperature for final text responses
+            let current_temp = if tools_defs.is_empty() {
+                self.temperature
+            } else {
+                self.tool_temperature
+            };
             let response = self
                 .provider
                 .chat_with_retry(
@@ -388,7 +403,7 @@ impl AgentLoop {
                     Some(tools_defs.clone()),
                     Some(&self.model),
                     4096,
-                    0.7,
+                    current_temp,
                     Some(crate::providers::base::RetryConfig::default()),
                 )
                 .await?;
@@ -409,27 +424,33 @@ impl AgentLoop {
                     response.reasoning_content.as_deref(),
                 );
 
-                // Execute tools
+                // Execute tools with validation
                 for tool_call in &response.tool_calls {
-                    debug!(
-                        "Executing tool: {} with arguments: {}",
-                        tool_call.name, tool_call.arguments
-                    );
+                    let tools_guard = self.tools.lock().await;
 
-                    let result = {
-                        let tools_guard = self.tools.lock().await;
-                        tools_guard
+                    let (result_str, is_error) = if tools_guard.get(&tool_call.name).is_none() {
+                        warn!("LLM called unknown tool: {}", tool_call.name);
+                        (format!("Error: unknown tool '{}'", tool_call.name), true)
+                    } else {
+                        debug!(
+                            "Executing tool: {} with arguments: {}",
+                            tool_call.name, tool_call.arguments
+                        );
+                        let result = tools_guard
                             .execute(&tool_call.name, tool_call.arguments.clone())
-                            .await?
+                            .await?;
+                        (truncate_tool_result(&result.content, 3000), result.is_error)
                     };
 
-                    let result_str = truncate_tool_result(&result.content, 3000);
+                    // Drop lock before adding to messages
+                    drop(tools_guard);
+
                     ContextBuilder::add_tool_result(
                         &mut messages,
                         &tool_call.id,
                         &tool_call.name,
                         &result_str,
-                        result.is_error,
+                        is_error,
                     );
                 }
             } else if let Some(content) = response.content {

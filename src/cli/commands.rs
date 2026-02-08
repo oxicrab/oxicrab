@@ -427,6 +427,8 @@ async fn setup_agent(
             outbound_tx,
             cron_service: Some(cron),
             google_config: Some(config.tools.google.clone()),
+            temperature: 0.7,
+            tool_temperature: 0.0,
         })
         .await?,
     );
@@ -617,6 +619,8 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
         outbound_tx,
         cron_service: None,
         google_config: Some(config.tools.google.clone()),
+        temperature: 0.7,
+        tool_temperature: 0.0,
     })
     .await?;
 

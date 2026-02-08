@@ -2,6 +2,7 @@ pub mod regex;
 pub mod task_tracker;
 
 use anyhow::{Context, Result};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub fn ensure_dir(path: impl AsRef<Path>) -> Result<PathBuf> {
@@ -27,6 +28,24 @@ pub fn get_nanobot_home() -> Result<PathBuf> {
     Ok(dirs::home_dir()
         .context("Could not determine home directory")?
         .join(".nanobot"))
+}
+
+/// Write content atomically via tempfile + rename.
+///
+/// Guarantees the file is either fully written or untouched.
+/// On crash during write, the original file remains intact.
+pub fn atomic_write(path: &Path, content: &str) -> Result<()> {
+    let parent = path.parent().context("Path has no parent directory")?;
+    std::fs::create_dir_all(parent)?;
+
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)
+        .with_context(|| format!("Failed to create temp file in {}", parent.display()))?;
+    tmp.write_all(content.as_bytes())
+        .with_context(|| "Failed to write to temp file")?;
+    tmp.flush()?;
+    tmp.persist(path)
+        .with_context(|| format!("Failed to atomically rename to {}", path.display()))?;
+    Ok(())
 }
 
 pub fn get_workspace_path(workspace: &str) -> PathBuf {

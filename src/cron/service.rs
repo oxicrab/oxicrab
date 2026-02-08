@@ -1,4 +1,5 @@
 use crate::cron::types::{CronJob, CronSchedule, CronStore, UpdateJobParams};
+use crate::utils::atomic_write;
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
 use chrono::DateTime;
@@ -124,11 +125,8 @@ impl CronService {
     async fn save_store(&self) -> Result<()> {
         let store_guard = self.store.lock().await;
         if let Some(store) = store_guard.as_ref() {
-            if let Some(parent) = self.store_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
             let content = serde_json::to_string_pretty(store)?;
-            std::fs::write(&self.store_path, content)?;
+            atomic_write(&self.store_path, &content)?;
         }
         Ok(())
     }
