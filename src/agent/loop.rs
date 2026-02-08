@@ -26,6 +26,7 @@ use crate::providers::base::{LLMProvider, Message};
 use crate::session::{Session, SessionManager, SessionStore};
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
+use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -34,6 +35,20 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 const EMPTY_RESPONSE_RETRIES: usize = 2;
+
+/// Regex that matches phrases where the LLM claims to have performed an action.
+/// Used to detect hallucinated actions when no tools were actually called.
+static ACTION_CLAIM_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b(?:I(?:'ve| have) (?:updated|written|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled)|I (?:updated|wrote|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled)|(?:Changes|Updates|Modifications) (?:have been|were) (?:made|applied|saved|committed)|(?:File|Config|Settings?) (?:has been|was) (?:updated|written|created|modified|saved|deleted))\b"
+    )
+    .expect("Invalid action claim regex")
+});
+
+/// Returns `true` if the text contains phrases claiming actions were performed.
+pub fn contains_action_claims(text: &str) -> bool {
+    ACTION_CLAIM_RE.is_match(text)
+}
 
 /// Configuration for creating an [`AgentLoop`] instance.
 pub struct AgentLoopConfig {
@@ -452,6 +467,7 @@ impl AgentLoop {
     async fn run_agent_loop(&self, mut messages: Vec<Message>) -> Result<Option<String>> {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut last_used_delivery_tool = false;
+        let mut any_tools_called = false;
 
         // Cache tool definitions to avoid repeated lock acquisition
         let tools_defs = {
@@ -481,6 +497,7 @@ impl AgentLoop {
                 .await?;
 
             if response.has_tool_calls() {
+                any_tools_called = true;
                 let tool_names: Vec<&str> = response
                     .tool_calls
                     .iter()
@@ -534,6 +551,29 @@ impl AgentLoop {
                     );
                 }
             } else if let Some(content) = response.content {
+                // Detect hallucinated actions: LLM claims it did something but never called tools
+                if !any_tools_called && contains_action_claims(&content) {
+                    warn!(
+                        "Action hallucination detected: LLM claims actions but no tools were called"
+                    );
+                    // Add the hallucinated response then inject a correction
+                    ContextBuilder::add_assistant_message(
+                        &mut messages,
+                        Some(&content),
+                        None,
+                        response.reasoning_content.as_deref(),
+                    );
+                    messages.push(Message::user(
+                        "You claimed to have performed actions, but you did not use any tools. \
+                         Do not claim to have done something you haven't. Either use the \
+                         appropriate tools to actually perform the action, or explain what \
+                         you would need to do."
+                            .to_string(),
+                    ));
+                    // Allow one more iteration to self-correct
+                    any_tools_called = true; // Prevent infinite correction loop
+                    continue;
+                }
                 return Ok(Some(content));
             } else {
                 // Empty response
@@ -717,5 +757,137 @@ impl AgentLoop {
         self.sessions.save(&session).await?;
 
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_detects_ive_updated() {
+        assert!(contains_action_claims(
+            "I've updated the configuration file."
+        ));
+    }
+
+    #[test]
+    fn test_detects_i_have_created() {
+        assert!(contains_action_claims(
+            "I have created the new module for you."
+        ));
+    }
+
+    #[test]
+    fn test_detects_i_wrote() {
+        assert!(contains_action_claims("I wrote the function as requested."));
+    }
+
+    #[test]
+    fn test_detects_i_deleted() {
+        assert!(contains_action_claims("I deleted the old config."));
+    }
+
+    #[test]
+    fn test_detects_ive_configured() {
+        assert!(contains_action_claims("I've configured the settings."));
+    }
+
+    #[test]
+    fn test_detects_ive_saved() {
+        assert!(contains_action_claims("I've saved the changes to disk."));
+    }
+
+    #[test]
+    fn test_detects_ive_scheduled() {
+        assert!(contains_action_claims("I've scheduled the cron job."));
+    }
+
+    #[test]
+    fn test_detects_passive_changes_applied() {
+        assert!(contains_action_claims(
+            "Changes have been applied to the project."
+        ));
+    }
+
+    #[test]
+    fn test_detects_passive_file_updated() {
+        assert!(contains_action_claims(
+            "File has been updated successfully."
+        ));
+    }
+
+    #[test]
+    fn test_detects_passive_config_was_modified() {
+        assert!(contains_action_claims("Config was modified as requested."));
+    }
+
+    #[test]
+    fn test_no_match_informational() {
+        assert!(!contains_action_claims(
+            "Here's how you can update the file."
+        ));
+    }
+
+    #[test]
+    fn test_no_match_question() {
+        assert!(!contains_action_claims(
+            "Would you like me to create a new file?"
+        ));
+    }
+
+    #[test]
+    fn test_no_match_explanation() {
+        assert!(!contains_action_claims(
+            "The function returns a string value."
+        ));
+    }
+
+    #[test]
+    fn test_no_match_plan() {
+        assert!(!contains_action_claims(
+            "To update the config, you need to edit settings.json."
+        ));
+    }
+
+    #[test]
+    fn test_no_match_greeting() {
+        assert!(!contains_action_claims("Hello! How can I help you today?"));
+    }
+
+    #[test]
+    fn test_no_match_partial() {
+        // "I updated" should match, but "you updated" should not
+        assert!(!contains_action_claims("You updated the file yesterday."));
+    }
+
+    #[test]
+    fn test_case_insensitive() {
+        assert!(contains_action_claims("I'VE UPDATED THE FILE."));
+        assert!(contains_action_claims("i've written the code."));
+    }
+
+    #[test]
+    fn test_mixed_content_with_claim() {
+        assert!(contains_action_claims(
+            "Sure, here's what I did:\n\nI've updated the configuration to use the new API endpoint.\nLet me know if you need anything else."
+        ));
+    }
+
+    #[test]
+    fn test_detects_i_enabled() {
+        assert!(contains_action_claims("I enabled the feature flag."));
+    }
+
+    #[test]
+    fn test_detects_ive_deployed() {
+        assert!(contains_action_claims("I've deployed the changes."));
+    }
+
+    #[test]
+    fn test_detects_updates_were_made() {
+        assert!(contains_action_claims(
+            "Updates were made to the database schema."
+        ));
     }
 }

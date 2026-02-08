@@ -131,7 +131,7 @@ impl BaseChannel for WhatsAppChannel {
                             }
 
                             // Process events
-                            info!("WhatsApp event received: type={:?}", std::mem::discriminant(&event));
+                            debug!("WhatsApp event received: type={:?}", std::mem::discriminant(&event));
                             match &event {
                                 whatsapp_rust::types::events::Event::Message(msg, info) => {
                                     // Handle message event (organized inline to avoid type issues)
@@ -197,12 +197,8 @@ impl BaseChannel for WhatsAppChannel {
                                         },
                                     };
 
-                                    info!("WhatsApp: sending inbound message to bus: sender={}, chat_id={}, content_len={}",
-                                        chat_id, sender, inbound_msg.content.len());
                                     if let Err(e) = inbound_tx.send(inbound_msg).await {
                                         error!("Failed to send WhatsApp inbound message: {}", e);
-                                    } else {
-                                        info!("WhatsApp: successfully sent inbound message to bus");
                                     }
                                 }
                                 whatsapp_rust::types::events::Event::PairingQrCode { code, .. } => {
@@ -352,15 +348,14 @@ impl BaseChannel for WhatsAppChannel {
             return Ok(());
         }
 
-        info!(
-            "WhatsApp send: received message to send: chat_id={}, content_len={}",
+        debug!(
+            "WhatsApp send: chat_id={}, content_len={}",
             msg.chat_id,
             msg.content.len()
         );
 
         let client_guard = self.client.lock().await;
         if let Some(client) = client_guard.as_ref() {
-            info!("WhatsApp client is available, sending message");
             // Process any queued messages first
             let mut queue = self.message_queue.lock().await;
             let queued = queue.drain(..).collect::<Vec<_>>();
@@ -375,29 +370,22 @@ impl BaseChannel for WhatsAppChannel {
             for queued_msg in queued {
                 if let Err(e) = send_whatsapp_message(client, &queued_msg).await {
                     error!("Failed to send queued WhatsApp message: {}", e);
-                } else {
-                    info!("Successfully sent queued WhatsApp message");
                 }
             }
 
             // Send current message
-            info!("Sending current WhatsApp message via send_whatsapp_message");
             match send_whatsapp_message(client, msg).await {
-                Ok(_) => {
-                    info!("WhatsApp send() completed successfully");
-                    Ok(())
-                }
+                Ok(_) => Ok(()),
                 Err(e) => {
-                    error!("WhatsApp send() failed: {}", e);
+                    error!("WhatsApp send failed: {}", e);
                     Err(e)
                 }
             }
         } else {
-            // Client not ready yet - queue the message
-            warn!("WhatsApp client not available yet, queuing message (queue size will be logged on next send)");
+            warn!("WhatsApp client not available yet, queuing message");
             let mut queue = self.message_queue.lock().await;
             queue.push(msg.clone());
-            info!("WhatsApp: queued message (queue size: {})", queue.len());
+            debug!("WhatsApp: queued message (queue size: {})", queue.len());
             Ok(())
         }
     }
@@ -429,70 +417,40 @@ async fn send_whatsapp_message(
         format!("{}@s.whatsapp.net", msg.chat_id)
     };
 
-    info!(
-        "send_whatsapp_message: original chat_id={}, formatted chat_id_str={} (device ID removed)",
+    debug!(
+        "send_whatsapp_message: chat_id={}, formatted={}",
         msg.chat_id, chat_id_str
     );
 
     // Parse chat_id as JID (whatsapp-rust re-exports Jid)
     use std::str::FromStr;
-    let jid = match whatsapp_rust::Jid::from_str(&chat_id_str) {
-        Ok(j) => {
-            info!("send_whatsapp_message: parsed JID successfully: {}", j);
-            j
-        }
-        Err(e) => {
-            error!("Invalid WhatsApp chat_id format {}: {}", chat_id_str, e);
-            return Err(anyhow::anyhow!("Invalid chat_id: {}", e));
-        }
-    };
+    let jid = whatsapp_rust::Jid::from_str(&chat_id_str)
+        .map_err(|e| anyhow::anyhow!("Invalid WhatsApp chat_id '{}': {}", chat_id_str, e))?;
 
     // Split long messages using UTF-8 safe splitting
     let chunks = crate::channels::base::split_message(&msg.content, 4096);
 
     for (i, chunk) in chunks.iter().enumerate() {
-        info!(
-            "send_whatsapp_message: sending chunk {}/{} ({} bytes) to JID {}",
+        debug!(
+            "send_whatsapp_message: chunk {}/{} ({} bytes)",
             i + 1,
             chunks.len(),
             chunk.len(),
-            jid
         );
-        // Create a text message using waproto (re-exported by whatsapp-rust)
         let text_message = whatsapp_rust::waproto::whatsapp::Message {
             conversation: Some(chunk.clone()),
             ..Default::default()
         };
 
-        let preview_end = chunk
-            .char_indices()
-            .nth(50)
-            .map(|(i, _)| i)
-            .unwrap_or(chunk.len());
-        info!(
-            "send_whatsapp_message: calling client.send_message with JID={}, content_preview={}...",
-            jid,
-            &chunk[..preview_end]
-        );
         match client.send_message(jid.clone(), text_message).await {
             Ok(msg_id) => {
-                info!(
-                    "Successfully sent WhatsApp message to {} (JID: {}): message_id={}",
-                    chat_id_str, jid, msg_id
-                );
+                info!("WhatsApp message sent to {}: id={}", jid, msg_id);
             }
             Err(e) => {
-                error!(
-                    "Failed to send WhatsApp message to {} (JID: {}): {}",
-                    chat_id_str, jid, e
-                );
+                error!("WhatsApp send to {} failed: {}", jid, e);
                 return Err(anyhow::anyhow!("WhatsApp send error: {}", e));
             }
         }
     }
-    info!(
-        "send_whatsapp_message: completed sending all {} chunks",
-        chunks.len()
-    );
     Ok(())
 }

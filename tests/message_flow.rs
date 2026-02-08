@@ -339,3 +339,131 @@ async fn test_multiple_tool_calls_in_sequence() {
 
     assert_eq!(response, "Done reading files.");
 }
+
+#[tokio::test]
+async fn test_hallucination_detection_triggers_retry() {
+    let tmp = TempDir::new().unwrap();
+
+    // First response: LLM claims it did something without calling tools
+    // Second response (after correction): LLM gives honest answer
+    let provider = MockLLMProvider::with_responses(vec![
+        LLMResponse {
+            content: Some("I've updated the configuration file for you.".to_string()),
+            tool_calls: vec![],
+            reasoning_content: None,
+        },
+        LLMResponse {
+            content: Some(
+                "I can help you update the configuration. Which file would you like me to edit?"
+                    .to_string(),
+            ),
+            tool_calls: vec![],
+            reasoning_content: None,
+        },
+    ]);
+    let calls = provider.calls.clone();
+
+    let agent = create_test_agent(provider, &tmp).await;
+
+    let response = agent
+        .process_direct(
+            "Update my config",
+            "test:hallucination",
+            "telegram",
+            "hallucination",
+        )
+        .await
+        .unwrap();
+
+    // Should get the corrected (second) response, not the hallucinated one
+    assert_eq!(
+        response,
+        "I can help you update the configuration. Which file would you like me to edit?"
+    );
+
+    // Should have made 2 calls — original + retry after correction
+    let recorded = calls.lock().unwrap();
+    assert_eq!(recorded.len(), 2);
+
+    // Second call should contain the correction message
+    let second_msgs = &recorded[1].messages;
+    let has_correction = second_msgs
+        .iter()
+        .any(|m| m.role == "user" && m.content.contains("did not use any tools"));
+    assert!(
+        has_correction,
+        "Second call should contain the hallucination correction"
+    );
+}
+
+#[tokio::test]
+async fn test_no_hallucination_when_tools_used() {
+    let tmp = TempDir::new().unwrap();
+
+    // LLM uses a tool, then claims action — this is legitimate
+    let provider = MockLLMProvider::with_responses(vec![
+        LLMResponse {
+            content: None,
+            tool_calls: vec![ToolCallRequest {
+                id: "tc1".to_string(),
+                name: "list_dir".to_string(),
+                arguments: json!({"path": tmp.path().to_str().unwrap()}),
+            }],
+            reasoning_content: None,
+        },
+        LLMResponse {
+            content: Some("I've listed the directory for you.".to_string()),
+            tool_calls: vec![],
+            reasoning_content: None,
+        },
+    ]);
+    let calls = provider.calls.clone();
+
+    let agent = create_test_agent(provider, &tmp).await;
+
+    let response = agent
+        .process_direct(
+            "List files",
+            "test:legit_action",
+            "telegram",
+            "legit_action",
+        )
+        .await
+        .unwrap();
+
+    // Should return the response as-is since tools were actually used
+    assert_eq!(response, "I've listed the directory for you.");
+
+    // Should have made exactly 2 calls (tool call + final response), no correction retry
+    let recorded = calls.lock().unwrap();
+    assert_eq!(recorded.len(), 2);
+}
+
+#[tokio::test]
+async fn test_no_hallucination_for_informational_response() {
+    let tmp = TempDir::new().unwrap();
+
+    // LLM gives an informational response without claiming actions
+    let provider = MockLLMProvider::with_responses(vec![LLMResponse {
+        content: Some("To update the config, you need to edit the settings.json file.".to_string()),
+        tool_calls: vec![],
+        reasoning_content: None,
+    }]);
+    let calls = provider.calls.clone();
+
+    let agent = create_test_agent(provider, &tmp).await;
+
+    let response = agent
+        .process_direct("How do I update config?", "test:info", "telegram", "info")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response,
+        "To update the config, you need to edit the settings.json file."
+    );
+
+    // Only 1 call — no retry needed
+    let recorded = calls.lock().unwrap();
+    assert_eq!(recorded.len(), 1);
+}
