@@ -76,8 +76,8 @@ enum CronCommands {
         tz: Option<String>,
         #[arg(long)]
         at: Option<String>,
-        #[arg(long, short = 'd')]
-        deliver: bool,
+        #[arg(long)]
+        agent_echo: bool,
         #[arg(long)]
         to: Option<String>,
         #[arg(long)]
@@ -111,8 +111,8 @@ enum CronCommands {
         tz: Option<String>,
         #[arg(long)]
         at: Option<String>,
-        #[arg(long, short = 'd')]
-        deliver: Option<bool>,
+        #[arg(long)]
+        agent_echo: Option<bool>,
         #[arg(long)]
         to: Option<String>,
         #[arg(long)]
@@ -470,7 +470,7 @@ async fn setup_cron_callbacks(
                 )
                 .await?;
 
-            if job.payload.deliver {
+            if job.payload.agent_echo {
                 if let Some(channel) = &job.payload.channel {
                     if let Some(to) = &job.payload.to {
                         let bus_guard = bus.lock().await;
@@ -727,10 +727,14 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
             cron: cron_expr,
             tz,
             at,
-            deliver: _deliver,
-            to: _to,
-            channel: _channel,
+            agent_echo,
+            to,
+            channel,
         } => {
+            if channel.is_none() || to.is_none() {
+                anyhow::bail!("--channel and --to are required (e.g. --channel slack --to C0AD9B466G5)");
+            }
+
             let schedule = if let Some(every_sec) = every {
                 CronSchedule::Every {
                     every_ms: Some((every_sec * 1000) as i64),
@@ -764,9 +768,9 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
                 payload: CronPayload {
                     kind: "agent_turn".to_string(),
                     message,
-                    deliver: false,
-                    channel: None,
-                    to: None,
+                    agent_echo,
+                    channel,
+                    to,
                 },
                 state: CronJobState {
                     next_run_at_ms: None, // Will be computed by service
@@ -807,7 +811,7 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
             cron: cron_expr,
             tz,
             at,
-            deliver,
+            agent_echo,
             to,
             channel,
         } => {
@@ -854,7 +858,7 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
                         name,
                         message,
                         schedule,
-                        deliver,
+                        agent_echo,
                         channel,
                         to,
                     },

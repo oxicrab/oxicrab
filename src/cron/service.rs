@@ -149,7 +149,7 @@ impl CronService {
                 }
 
                 // Load jobs directly from disk each tick to pick up changes
-                let store = match std::fs::read_to_string(&store_path) {
+                let mut store = match std::fs::read_to_string(&store_path) {
                     Ok(content) => {
                         serde_json::from_str::<CronStore>(&content).unwrap_or(CronStore {
                             version: 1,
@@ -168,7 +168,9 @@ impl CronService {
                 let callback_opt = on_job_guard.as_ref().map(|c| c.clone());
                 drop(on_job_guard);
 
-                for job in &store.jobs {
+                let mut store_dirty = false;
+
+                for job in &mut store.jobs {
                     if !job.enabled {
                         continue;
                     }
@@ -180,6 +182,18 @@ impl CronService {
 
                     if let Some(job_next) = job_next {
                         if job_next <= now {
+                            // Advance next_run_at_ms BEFORE executing so the job
+                            // won't re-fire on the next tick.
+                            job.state.last_run_at_ms = Some(now);
+                            job.state.last_status = Some("ok".to_string());
+                            job.state.next_run_at_ms = compute_next_run(&job.schedule, now);
+                            job.updated_at_ms = now;
+                            store_dirty = true;
+
+                            if job.delete_after_run {
+                                job.enabled = false;
+                            }
+
                             // Execute job
                             if let Some(ref callback) = callback_opt {
                                 let job_clone = job.clone();
@@ -214,6 +228,15 @@ impl CronService {
                             }
                         } else {
                             next_run = Some(next_run.map(|n| n.min(job_next)).unwrap_or(job_next));
+                        }
+                    }
+                }
+
+                // Persist updated state so fired jobs don't re-trigger
+                if store_dirty {
+                    if let Ok(content) = serde_json::to_string_pretty(&store) {
+                        if let Err(e) = crate::utils::atomic_write(&store_path, &content) {
+                            warn!("Failed to persist cron store after job execution: {}", e);
                         }
                     }
                 }
@@ -335,8 +358,8 @@ impl CronService {
                         job.state.next_run_at_ms = compute_next_run(&s, now_ms());
                     }
                 }
-                if let Some(d) = params.deliver {
-                    job.payload.deliver = d;
+                if let Some(d) = params.agent_echo {
+                    job.payload.agent_echo = d;
                 }
                 if let Some(c) = params.channel {
                     job.payload.channel = Some(c);

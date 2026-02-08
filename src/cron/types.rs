@@ -26,8 +26,8 @@ pub struct CronPayload {
     pub kind: String,
     #[serde(default)]
     pub message: String,
-    #[serde(default)]
-    pub deliver: bool,
+    #[serde(default, rename = "agentEcho")]
+    pub agent_echo: bool,
     pub channel: Option<String>,
     pub to: Option<String>,
 }
@@ -88,7 +88,7 @@ pub struct UpdateJobParams {
     pub name: Option<String>,
     pub message: Option<String>,
     pub schedule: Option<CronSchedule>,
-    pub deliver: Option<bool>,
+    pub agent_echo: Option<bool>,
     pub channel: Option<String>,
     pub to: Option<String>,
 }
@@ -164,7 +164,7 @@ mod tests {
             payload: CronPayload {
                 kind: "agent_turn".to_string(),
                 message: "Hello World".to_string(),
-                deliver: true,
+                agent_echo: true,
                 channel: Some("telegram".to_string()),
                 to: Some("user123".to_string()),
             },
@@ -187,7 +187,7 @@ mod tests {
         assert!(deserialized.enabled);
         assert_eq!(deserialized.payload.kind, "agent_turn");
         assert_eq!(deserialized.payload.message, "Hello World");
-        assert!(deserialized.payload.deliver);
+        assert!(deserialized.payload.agent_echo);
         assert_eq!(deserialized.payload.channel, Some("telegram".to_string()));
         assert_eq!(deserialized.payload.to, Some("user123".to_string()));
         assert_eq!(deserialized.state.next_run_at_ms, Some(9999999999));

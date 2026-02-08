@@ -119,7 +119,7 @@ impl Tool for CronTool {
                     payload: CronPayload {
                         kind: "agent_turn".to_string(),
                         message,
-                        deliver: true,
+                        agent_echo: false,
                         channel: Some(channel),
                         to: Some(chat_id),
                     },

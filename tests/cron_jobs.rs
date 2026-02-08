@@ -15,7 +15,7 @@ fn make_test_job(id: &str, name: &str) -> CronJob {
         payload: CronPayload {
             kind: "agent_turn".to_string(),
             message: format!("Job {} message", id),
-            deliver: false,
+            agent_echo: false,
             channel: Some("telegram".to_string()),
             to: Some("user1".to_string()),
         },
