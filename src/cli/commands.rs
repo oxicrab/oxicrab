@@ -82,6 +82,8 @@ enum CronCommands {
         to: Option<String>,
         #[arg(long)]
         channel: Option<String>,
+        #[arg(long)]
+        all_channels: bool,
     },
     /// Remove a job
     Remove {
@@ -117,6 +119,8 @@ enum CronCommands {
         to: Option<String>,
         #[arg(long)]
         channel: Option<String>,
+        #[arg(long)]
+        all_channels: bool,
     },
     /// Manually run a job
     Run {
@@ -441,6 +445,7 @@ async fn setup_agent(
             tool_temperature: 0.0,
             session_ttl_days: config.agents.defaults.session_ttl_days,
             typing_tx,
+            channels_config: Some(config.channels.clone()),
         })
         .await?,
     );
@@ -461,32 +466,43 @@ async fn setup_cron_callbacks(
         let agent = agent_clone.clone();
         let bus = bus_clone.clone();
         Box::pin(async move {
+            // Use first target for process_direct context, fall back to cli/direct
+            let (ctx_channel, ctx_chat_id) = job
+                .payload
+                .targets
+                .first()
+                .map(|t| (t.channel.as_str(), t.to.as_str()))
+                .unwrap_or(("cli", "direct"));
+
             let response = agent
                 .process_direct(
                     &job.payload.message,
                     &format!("cron:{}", job.id),
-                    job.payload.channel.as_deref().unwrap_or("cli"),
-                    job.payload.to.as_deref().unwrap_or("direct"),
+                    ctx_channel,
+                    ctx_chat_id,
                 )
                 .await?;
 
             if job.payload.agent_echo {
-                if let Some(channel) = &job.payload.channel {
-                    if let Some(to) = &job.payload.to {
-                        let bus_guard = bus.lock().await;
-                        if let Err(e) = bus_guard
-                            .publish_outbound(crate::bus::OutboundMessage {
-                                channel: channel.clone(),
-                                chat_id: to.clone(),
-                                content: response.clone(),
-                                reply_to: None,
-                                media: vec![],
-                                metadata: std::collections::HashMap::new(),
-                            })
-                            .await
-                        {
-                            tracing::error!("Failed to publish outbound message from cron: {}", e);
-                        }
+                for target in &job.payload.targets {
+                    let bus_guard = bus.lock().await;
+                    if let Err(e) = bus_guard
+                        .publish_outbound(crate::bus::OutboundMessage {
+                            channel: target.channel.clone(),
+                            chat_id: target.to.clone(),
+                            content: response.clone(),
+                            reply_to: None,
+                            media: vec![],
+                            metadata: std::collections::HashMap::new(),
+                        })
+                        .await
+                    {
+                        tracing::error!(
+                            "Failed to publish outbound message from cron to {}:{}: {}",
+                            target.channel,
+                            target.to,
+                            e
+                        );
                     }
                 }
             }
@@ -654,6 +670,7 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
         tool_temperature: 0.0,
         session_ttl_days: config.agents.defaults.session_ttl_days,
         typing_tx: None,
+        channels_config: None,
     })
     .await?;
 
@@ -730,10 +747,26 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
             agent_echo,
             to,
             channel,
+            all_channels,
         } => {
-            if channel.is_none() || to.is_none() {
-                anyhow::bail!("--channel and --to are required (e.g. --channel slack --to C0AD9B466G5)");
-            }
+            use crate::agent::tools::cron::resolve_all_channel_targets_from_config;
+            use crate::cron::types::CronTarget;
+
+            let targets = if all_channels {
+                let config = load_config(None)?;
+                let targets = resolve_all_channel_targets_from_config(Some(&config.channels));
+                if targets.is_empty() {
+                    anyhow::bail!("No enabled channels with allowFrom configured");
+                }
+                targets
+            } else if let (Some(ch), Some(to_val)) = (channel, to) {
+                vec![CronTarget {
+                    channel: ch,
+                    to: to_val,
+                }]
+            } else {
+                anyhow::bail!("Either --channel + --to or --all-channels is required");
+            };
 
             let schedule = if let Some(every_sec) = every {
                 CronSchedule::Every {
@@ -769,8 +802,7 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
                     kind: "agent_turn".to_string(),
                     message,
                     agent_echo,
-                    channel,
-                    to,
+                    targets,
                 },
                 state: CronJobState {
                     next_run_at_ms: None, // Will be computed by service
@@ -814,7 +846,11 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
             agent_echo,
             to,
             channel,
+            all_channels,
         } => {
+            use crate::agent::tools::cron::resolve_all_channel_targets_from_config;
+            use crate::cron::types::CronTarget;
+
             let schedule = if let Some(every_sec) = every {
                 Some(CronSchedule::Every {
                     every_ms: Some((every_sec * 1000) as i64),
@@ -851,6 +887,22 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
                 None
             };
 
+            let targets = if all_channels {
+                let config = load_config(None)?;
+                let targets = resolve_all_channel_targets_from_config(Some(&config.channels));
+                if targets.is_empty() {
+                    anyhow::bail!("No enabled channels with allowFrom configured");
+                }
+                Some(targets)
+            } else if let (Some(ch), Some(to_val)) = (channel, to) {
+                Some(vec![CronTarget {
+                    channel: ch,
+                    to: to_val,
+                }])
+            } else {
+                None
+            };
+
             match cron
                 .update_job(
                     &id,
@@ -859,8 +911,7 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
                         message,
                         schedule,
                         agent_echo,
-                        channel,
-                        to,
+                        targets,
                     },
                 )
                 .await?

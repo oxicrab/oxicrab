@@ -41,6 +41,7 @@ async fn create_test_agent(provider: MockLLMProvider, tmp: &TempDir) -> AgentLoo
         tool_temperature: 0.0,
         session_ttl_days: 0, // Disable cleanup in tests
         typing_tx: None,
+        channels_config: None,
     };
 
     AgentLoop::new(config)

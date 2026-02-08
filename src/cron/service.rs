@@ -112,7 +112,37 @@ impl CronService {
 
         if self.store_path.exists() {
             let content = std::fs::read_to_string(&self.store_path)?;
-            let store: CronStore = serde_json::from_str(&content)?;
+            let mut store: CronStore = serde_json::from_str(&content)?;
+            // Migrate old channel/to format to targets
+            let mut migrated = false;
+            let raw: serde_json::Value = serde_json::from_str(&content)?;
+            if let Some(jobs) = raw.get("jobs").and_then(|j| j.as_array()) {
+                for (i, raw_job) in jobs.iter().enumerate() {
+                    if let Some(payload) = raw_job.get("payload") {
+                        let has_old_channel = payload.get("channel").and_then(|v| v.as_str()).is_some();
+                        let has_old_to = payload.get("to").and_then(|v| v.as_str()).is_some();
+                        let has_targets = payload.get("targets").and_then(|v| v.as_array()).is_some();
+                        if has_old_channel && has_old_to && !has_targets {
+                            let channel = payload["channel"].as_str().unwrap().to_string();
+                            let to = payload["to"].as_str().unwrap().to_string();
+                            if let Some(job) = store.jobs.get_mut(i) {
+                                job.payload.targets = vec![crate::cron::types::CronTarget { channel, to }];
+                                migrated = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if migrated {
+                info!("Migrated cron jobs from old channel/to format to targets");
+                // Save migrated store
+                drop(store_guard);
+                let mut sg = self.store.lock().await;
+                *sg = Some(store.clone());
+                drop(sg);
+                self.save_store().await?;
+                return Ok(store);
+            }
             *store_guard = Some(store.clone());
             return Ok(store);
         }
@@ -361,11 +391,8 @@ impl CronService {
                 if let Some(d) = params.agent_echo {
                     job.payload.agent_echo = d;
                 }
-                if let Some(c) = params.channel {
-                    job.payload.channel = Some(c);
-                }
-                if let Some(t) = params.to {
-                    job.payload.to = Some(t);
+                if let Some(targets) = params.targets {
+                    job.payload.targets = targets;
                 }
                 job.updated_at_ms = now_ms();
                 let result = Some(job.clone());

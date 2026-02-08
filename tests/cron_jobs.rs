@@ -1,5 +1,5 @@
 use nanobot::cron::service::CronService;
-use nanobot::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule};
+use nanobot::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule, CronTarget};
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
@@ -16,8 +16,10 @@ fn make_test_job(id: &str, name: &str) -> CronJob {
             kind: "agent_turn".to_string(),
             message: format!("Job {} message", id),
             agent_echo: false,
-            channel: Some("telegram".to_string()),
-            to: Some("user1".to_string()),
+            targets: vec![CronTarget {
+                channel: "telegram".to_string(),
+                to: "user1".to_string(),
+            }],
         },
         state: CronJobState::default(),
         created_at_ms: 1000000,
@@ -221,4 +223,127 @@ async fn test_cron_update_job() {
     let job = updated.unwrap();
     assert_eq!(job.name, "Updated Name");
     assert_eq!(job.payload.message, "Updated message");
+}
+
+#[tokio::test]
+async fn test_cron_multi_target_job() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    let job = CronJob {
+        id: "multi1".to_string(),
+        name: "Multi Target Job".to_string(),
+        enabled: true,
+        schedule: CronSchedule::Every {
+            every_ms: Some(3600000),
+        },
+        payload: CronPayload {
+            kind: "agent_turn".to_string(),
+            message: "Hello all channels".to_string(),
+            agent_echo: true,
+            targets: vec![
+                CronTarget {
+                    channel: "slack".to_string(),
+                    to: "U08G6HBC89X".to_string(),
+                },
+                CronTarget {
+                    channel: "discord".to_string(),
+                    to: "123456789".to_string(),
+                },
+                CronTarget {
+                    channel: "telegram".to_string(),
+                    to: "987654321".to_string(),
+                },
+            ],
+        },
+        state: CronJobState::default(),
+        created_at_ms: 1000000,
+        updated_at_ms: 1000000,
+        delete_after_run: false,
+    };
+
+    svc.add_job(job).await.unwrap();
+
+    // Verify persistence
+    let jobs = svc.list_jobs(false).await.unwrap();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].payload.targets.len(), 3);
+    assert_eq!(jobs[0].payload.targets[0].channel, "slack");
+    assert_eq!(jobs[0].payload.targets[1].channel, "discord");
+    assert_eq!(jobs[0].payload.targets[2].channel, "telegram");
+}
+
+#[tokio::test]
+async fn test_cron_update_targets() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    svc.add_job(make_test_job("upd_targets", "Target Update Test"))
+        .await
+        .unwrap();
+
+    let new_targets = vec![
+        CronTarget {
+            channel: "slack".to_string(),
+            to: "U12345".to_string(),
+        },
+        CronTarget {
+            channel: "discord".to_string(),
+            to: "999888777".to_string(),
+        },
+    ];
+
+    let params = nanobot::cron::types::UpdateJobParams {
+        targets: Some(new_targets),
+        ..Default::default()
+    };
+
+    let updated = svc.update_job("upd_targets", params).await.unwrap();
+    assert!(updated.is_some());
+    let job = updated.unwrap();
+    assert_eq!(job.payload.targets.len(), 2);
+    assert_eq!(job.payload.targets[0].channel, "slack");
+    assert_eq!(job.payload.targets[1].channel, "discord");
+}
+
+#[tokio::test]
+async fn test_cron_migration_from_old_format() {
+    let tmp = TempDir::new().expect("Failed to create temp dir");
+    let store_path = tmp.path().join("cron_store.json");
+
+    // Write old-format store to disk
+    let old_store = r#"{
+        "version": 1,
+        "jobs": [{
+            "id": "old1",
+            "name": "Old Format Job",
+            "enabled": true,
+            "schedule": { "kind": "every", "everyMs": 3600000 },
+            "payload": {
+                "kind": "agent_turn",
+                "message": "Hello",
+                "agentEcho": false,
+                "channel": "slack",
+                "to": "C0AD9B466G5"
+            },
+            "state": {},
+            "createdAtMs": 1000000,
+            "updatedAtMs": 1000000,
+            "deleteAfterRun": false
+        }]
+    }"#;
+    std::fs::write(&store_path, old_store).unwrap();
+
+    let svc = CronService::new(store_path.clone());
+    let store = svc.load_store(true).await.unwrap();
+
+    // Should have migrated channel/to into targets
+    assert_eq!(store.jobs.len(), 1);
+    assert_eq!(store.jobs[0].payload.targets.len(), 1);
+    assert_eq!(store.jobs[0].payload.targets[0].channel, "slack");
+    assert_eq!(store.jobs[0].payload.targets[0].to, "C0AD9B466G5");
+
+    // Verify the migrated store was saved to disk
+    let content = std::fs::read_to_string(&store_path).unwrap();
+    assert!(content.contains("targets"));
 }

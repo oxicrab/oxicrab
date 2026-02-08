@@ -20,6 +20,12 @@ pub enum CronSchedule {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CronTarget {
+    pub channel: String,
+    pub to: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CronPayload {
     #[serde(default = "default_kind")]
@@ -28,8 +34,8 @@ pub struct CronPayload {
     pub message: String,
     #[serde(default, rename = "agentEcho")]
     pub agent_echo: bool,
-    pub channel: Option<String>,
-    pub to: Option<String>,
+    #[serde(default)]
+    pub targets: Vec<CronTarget>,
 }
 
 fn default_kind() -> String {
@@ -89,8 +95,7 @@ pub struct UpdateJobParams {
     pub message: Option<String>,
     pub schedule: Option<CronSchedule>,
     pub agent_echo: Option<bool>,
-    pub channel: Option<String>,
-    pub to: Option<String>,
+    pub targets: Option<Vec<CronTarget>>,
 }
 
 #[cfg(test)]
@@ -153,6 +158,18 @@ mod tests {
     }
 
     #[test]
+    fn test_cron_target_serialization() {
+        let target = CronTarget {
+            channel: "slack".to_string(),
+            to: "U12345".to_string(),
+        };
+        let json = serde_json::to_string(&target).unwrap();
+        let deserialized: CronTarget = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.channel, "slack");
+        assert_eq!(deserialized.to, "U12345");
+    }
+
+    #[test]
     fn test_cron_job_full_roundtrip() {
         let job = CronJob {
             id: "test-job-1".to_string(),
@@ -165,8 +182,16 @@ mod tests {
                 kind: "agent_turn".to_string(),
                 message: "Hello World".to_string(),
                 agent_echo: true,
-                channel: Some("telegram".to_string()),
-                to: Some("user123".to_string()),
+                targets: vec![
+                    CronTarget {
+                        channel: "telegram".to_string(),
+                        to: "user123".to_string(),
+                    },
+                    CronTarget {
+                        channel: "slack".to_string(),
+                        to: "U08G6HBC89X".to_string(),
+                    },
+                ],
             },
             state: CronJobState {
                 next_run_at_ms: Some(9999999999),
@@ -188,8 +213,11 @@ mod tests {
         assert_eq!(deserialized.payload.kind, "agent_turn");
         assert_eq!(deserialized.payload.message, "Hello World");
         assert!(deserialized.payload.agent_echo);
-        assert_eq!(deserialized.payload.channel, Some("telegram".to_string()));
-        assert_eq!(deserialized.payload.to, Some("user123".to_string()));
+        assert_eq!(deserialized.payload.targets.len(), 2);
+        assert_eq!(deserialized.payload.targets[0].channel, "telegram");
+        assert_eq!(deserialized.payload.targets[0].to, "user123");
+        assert_eq!(deserialized.payload.targets[1].channel, "slack");
+        assert_eq!(deserialized.payload.targets[1].to, "U08G6HBC89X");
         assert_eq!(deserialized.state.next_run_at_ms, Some(9999999999));
         assert_eq!(deserialized.state.last_run_at_ms, Some(8888888888));
         assert_eq!(deserialized.state.last_status, Some("success".to_string()));
@@ -197,6 +225,19 @@ mod tests {
         assert_eq!(deserialized.created_at_ms, 1234567890);
         assert_eq!(deserialized.updated_at_ms, 1234567900);
         assert!(!deserialized.delete_after_run);
+    }
+
+    #[test]
+    fn test_cron_payload_migration_from_old_format() {
+        // Old format with channel/to should still deserialize (with empty targets)
+        let json = r#"{
+            "kind": "agent_turn",
+            "message": "Hello",
+            "agentEcho": false
+        }"#;
+        let payload: CronPayload = serde_json::from_str(json).unwrap();
+        assert!(payload.targets.is_empty());
+        assert_eq!(payload.message, "Hello");
     }
 
     #[test]

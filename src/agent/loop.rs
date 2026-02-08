@@ -60,6 +60,8 @@ pub struct AgentLoopConfig {
     pub session_ttl_days: u32,
     /// Sender for typing indicator events (channel, chat_id)
     pub typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
+    /// Channel configurations for multi-channel cron target resolution
+    pub channels_config: Option<crate::config::ChannelsConfig>,
 }
 
 pub struct AgentLoop {
@@ -106,6 +108,7 @@ impl AgentLoop {
             tool_temperature,
             session_ttl_days,
             typing_tx,
+            channels_config,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -189,7 +192,7 @@ impl AgentLoop {
 
         // Register cron tool if service provided
         if let Some(ref cron_svc) = cron_service {
-            tools.register(Arc::new(CronTool::new(cron_svc.clone())));
+            tools.register(Arc::new(CronTool::new(cron_svc.clone(), channels_config)));
         }
 
         // Register Google tools if configured

@@ -160,16 +160,27 @@ impl BaseChannel for DiscordChannel {
             return Ok(());
         }
 
-        // For sending messages, we need the HTTP client
-        // Since we can't easily access it from shard_manager, we'll create a temporary HTTP client
-        // This is a limitation - ideally we'd keep the client alive, but serenity's API makes this difficult
-        let channel_id = msg.chat_id.parse::<u64>()?;
+        let id_val = msg.chat_id.parse::<u64>()?;
         let chunks = split_message(&msg.content, 2000);
         let http = serenity::http::Http::new(&self.config.token);
 
+        // Check if chat_id is a user ID (from allow_from) — if so, open a DM channel
+        let is_user_id = self
+            .config
+            .allow_from
+            .iter()
+            .any(|a| a.trim_start_matches('+') == msg.chat_id);
+
+        let target_channel_id = if is_user_id {
+            let user_id = serenity::model::id::UserId::new(id_val);
+            let dm_channel = user_id.create_dm_channel(&http).await?;
+            dm_channel.id
+        } else {
+            serenity::model::id::ChannelId::new(id_val)
+        };
+
         for chunk in chunks {
-            let channel_id_typed = serenity::model::id::ChannelId::new(channel_id);
-            if let Err(e) = channel_id_typed.say(&http, &chunk).await {
+            if let Err(e) = target_channel_id.say(&http, &chunk).await {
                 tracing::error!("Failed to send Discord message: {}", e);
             }
         }
