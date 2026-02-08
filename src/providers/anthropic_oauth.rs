@@ -54,7 +54,7 @@ impl AnthropicOAuthProvider {
             refresh_token,
             expires_at: Arc::new(Mutex::new(expires_at)),
             default_model: default_model.unwrap_or_else(|| "anthropic/claude-opus-4-6".to_string()),
-            credentials_path: credentials_path.map(PathBuf::from),
+            credentials_path,
             client,
         };
 
@@ -373,7 +373,7 @@ impl LLMProvider for AnthropicOAuthProvider {
             .map(|m| {
                 // Strip provider prefix (e.g. "anthropic/claude-opus-4-6" -> "claude-opus-4-6")
                 if m.contains('/') {
-                    m.splitn(2, '/').nth(1).unwrap_or(m)
+                    m.split_once('/').map(|x| x.1).unwrap_or(m)
                 } else {
                     m
                 }

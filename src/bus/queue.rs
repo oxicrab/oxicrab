@@ -67,7 +67,7 @@ impl MessageBus {
         let timestamps = self
             .sender_timestamps
             .entry(key.clone())
-            .or_insert_with(Vec::new);
+            .or_default();
         let cutoff = now - self.rate_window;
         timestamps.retain(|&t| t > cutoff);
 

@@ -337,13 +337,11 @@ impl Tool for ListDirTool {
         let mut entries = Vec::new();
         match std::fs::read_dir(&expanded) {
             Ok(rd) => {
-                for entry in rd {
-                    if let Ok(entry) = entry {
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        let path = entry.path();
-                        let is_dir = path.is_dir();
-                        entries.push(format!("{}{}", name, if is_dir { "/" } else { "" }));
-                    }
+                for entry in rd.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let path = entry.path();
+                    let is_dir = path.is_dir();
+                    entries.push(format!("{}{}", name, if is_dir { "/" } else { "" }));
                 }
                 entries.sort();
                 Ok(ToolResult::new(entries.join("\n")))

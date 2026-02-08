@@ -309,13 +309,13 @@ impl Tool for GoogleMailTool {
                 let mut body = serde_json::json!({});
                 if !label_ids.is_empty() {
                     body["addLabelIds"] =
-                        Value::Array(label_ids.into_iter().map(|s| Value::String(s)).collect());
+                        Value::Array(label_ids.into_iter().map(Value::String).collect());
                 }
                 if !remove_label_ids.is_empty() {
                     body["removeLabelIds"] = Value::Array(
                         remove_label_ids
                             .into_iter()
-                            .map(|s| Value::String(s))
+                            .map(Value::String)
                             .collect(),
                     );
                 }

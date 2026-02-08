@@ -53,7 +53,7 @@ impl ProviderStrategy for AnthropicOAuthStrategy {
                 self.config
                     .credentials_path
                     .as_ref()
-                    .map(|p| std::path::PathBuf::from(p)),
+                    .map(std::path::PathBuf::from),
             )?)));
         }
 

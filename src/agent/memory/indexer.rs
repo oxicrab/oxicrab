@@ -45,7 +45,7 @@ impl MemoryIndexer {
         let interval = self.interval;
 
         // Do initial indexing immediately
-        Self::index_memory_files(&*db, &memory_dir).await;
+        Self::index_memory_files(&db, &memory_dir).await;
 
         tokio::spawn(async move {
             let mut last_index = std::time::Instant::now();
@@ -72,7 +72,7 @@ impl MemoryIndexer {
                 }
 
                 // Perform indexing
-                Self::index_memory_files(&*db, &memory_dir).await;
+                Self::index_memory_files(&db, &memory_dir).await;
                 last_index = std::time::Instant::now();
                 *last_index_time.lock().await = Some(last_index);
             }
@@ -158,7 +158,7 @@ impl MemoryIndexer {
         let db = self.db.clone();
         let memory_dir = self.memory_dir.clone();
         tokio::spawn(async move {
-            Self::index_memory_files(&*db, &memory_dir).await;
+            Self::index_memory_files(&db, &memory_dir).await;
         });
     }
 }

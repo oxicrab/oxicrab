@@ -16,6 +16,12 @@ fn get_socket_path() -> PathBuf {
 
 pub struct TmuxTool;
 
+impl Default for TmuxTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TmuxTool {
     pub fn new() -> Self {
         Self

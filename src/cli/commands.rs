@@ -449,8 +449,8 @@ async fn setup_cron_callbacks(
                 .process_direct(
                     &job.payload.message,
                     &format!("cron:{}", job.id),
-                    &job.payload.channel.as_deref().unwrap_or("cli"),
-                    &job.payload.to.as_deref().unwrap_or("direct"),
+                    job.payload.channel.as_deref().unwrap_or("cli"),
+                    job.payload.to.as_deref().unwrap_or("direct"),
                 )
                 .await?;
 

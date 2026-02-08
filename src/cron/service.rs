@@ -48,7 +48,7 @@ fn compute_next_run(schedule: &CronSchedule, now_ms: i64) -> Option<i64> {
 
                     if let Some(now_dt) = now_dt {
                         if let Some(next) = sched.after(&now_dt).next() {
-                            return Some(next.timestamp_millis() as i64);
+                            return Some(next.timestamp_millis());
                         }
                     }
                 }
