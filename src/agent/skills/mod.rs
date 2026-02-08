@@ -208,11 +208,10 @@ impl SkillsLoader {
     }
 
     fn strip_frontmatter(&self, content: &str) -> String {
-        if content.starts_with("---") {
-            // Find the closing "---" after the opening one
-            if let Some(end_idx) = content[3..].find("\n---\n") {
-                let after = 3 + end_idx + 5; // skip past "\n---\n"
-                return content[after..].trim().to_string();
+        if let Some(rest) = content.strip_prefix("---") {
+            if let Some(end_idx) = rest.find("\n---\n") {
+                let after = end_idx + 5; // skip past "\n---\n"
+                return rest[after..].trim().to_string();
             }
         }
         content.to_string()
@@ -246,20 +245,18 @@ impl SkillsLoader {
 
     fn get_skill_metadata(&self, name: &str) -> Option<Value> {
         let content = self.load_skill(name)?;
-        if content.starts_with("---") {
-            // Find the closing "---" after the opening one
-            let end_idx = content[3..].find("\n---")?;
-            let yaml_content = &content[3..3 + end_idx].trim();
-            // Use serde_yaml for proper YAML parsing
+        let rest = content.strip_prefix("---")?;
+        {
+            let end_idx = rest.find("\n---")?;
+            let yaml_content = rest[..end_idx].trim();
             match serde_yaml::from_str::<Value>(yaml_content) {
-                Ok(val) => return Some(val),
+                Ok(val) => Some(val),
                 Err(e) => {
                     tracing::debug!("Failed to parse skill YAML frontmatter: {}", e);
-                    return None;
+                    None
                 }
             }
         }
-        None
     }
 
     pub fn get_always_skills(&self) -> Vec<String> {

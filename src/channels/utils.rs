@@ -1,4 +1,4 @@
-/// Utility functions for channel implementations
+//! Utility functions for channel implementations
 
 /// Check if a sender is allowed based on an allow list
 pub fn check_allowed_sender(sender: &str, allow_list: &[String]) -> bool {

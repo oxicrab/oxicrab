@@ -18,7 +18,7 @@ impl ChannelManager {
     pub fn new(
         config: Config,
         inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
-    ) -> Result<Self> {
+    ) -> Self {
         let mut channels: Vec<Box<dyn BaseChannel>> = Vec::new();
         let mut enabled = Vec::new();
 
@@ -66,10 +66,10 @@ impl ChannelManager {
             tracing::info!("WhatsApp channel enabled");
         }
 
-        Ok(Self {
+        Self {
             channels,
             enabled_channels: enabled,
-        })
+        }
     }
 
     pub fn enabled_channels(&self) -> &[String] {

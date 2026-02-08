@@ -73,7 +73,7 @@ impl Tool for WebSearchTool {
 
         let count = params["count"]
             .as_u64()
-            .map(|n| n.min(10).max(1) as usize)
+            .map(|n| n.clamp(1, 10) as usize)
             .unwrap_or(self.max_results);
 
         match self

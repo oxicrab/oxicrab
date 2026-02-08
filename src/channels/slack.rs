@@ -427,12 +427,12 @@ async fn handle_slack_event(
             return Ok(());
         }
         seen.insert(msg_key);
+        // Prune when set grows too large to bound memory.
+        // HashSet has no ordering so we just clear and accept some
+        // re-processing of very recent messages (harmless - they're
+        // idempotent channel messages).
         if seen.len() > 1000 {
-            let entries: Vec<String> = seen.iter().cloned().collect();
             seen.clear();
-            for entry in entries.into_iter().take(1000) {
-                seen.insert(entry);
-            }
         }
     }
 

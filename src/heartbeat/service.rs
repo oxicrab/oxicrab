@@ -5,18 +5,16 @@ use std::sync::Arc;
 
 const HEARTBEAT_PROMPT: &str = "Read HEARTBEAT.md in your workspace (if it exists).\nFollow any instructions or tasks listed there.\nIf nothing needs attention, reply with just: HEARTBEAT_OK";
 
+/// Async callback that takes a prompt string and returns a result string.
+type HeartbeatCallback = Arc<
+    dyn Fn(String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String>> + Send>>
+        + Send
+        + Sync,
+>;
+
 pub struct HeartbeatService {
     workspace: PathBuf,
-    on_heartbeat: Option<
-        Arc<
-            dyn Fn(
-                    String,
-                )
-                    -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String>> + Send>>
-                + Send
-                + Sync,
-        >,
-    >,
+    on_heartbeat: Option<HeartbeatCallback>,
     interval_s: u64,
     enabled: bool,
     strategy_file: String,
@@ -27,16 +25,7 @@ pub struct HeartbeatService {
 impl HeartbeatService {
     pub fn new(
         workspace: PathBuf,
-        on_heartbeat: Option<
-            Arc<
-                dyn Fn(
-                        String,
-                    ) -> std::pin::Pin<
-                        Box<dyn std::future::Future<Output = Result<String>> + Send>,
-                    > + Send
-                    + Sync,
-            >,
-        >,
+        on_heartbeat: Option<HeartbeatCallback>,
         interval_s: u64,
         enabled: bool,
         strategy_file: String,

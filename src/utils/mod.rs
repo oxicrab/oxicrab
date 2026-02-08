@@ -40,16 +40,10 @@ pub fn get_workspace_path(workspace: &str) -> PathBuf {
         if let Some(home) = dirs::home_dir() {
             return home;
         }
-    } else if workspace.starts_with("~") {
+    } else if let Some(rest) = workspace.strip_prefix('~') {
         // Handle "~something" (without slash) - treat as "~/something"
         if let Some(home) = dirs::home_dir() {
-            let stripped = workspace.strip_prefix("~").unwrap_or(workspace);
-            // If stripped starts with /, it's an absolute path - strip that too
-            let relative = if stripped.starts_with('/') {
-                &stripped[1..]
-            } else {
-                stripped
-            };
+            let relative = rest.strip_prefix('/').unwrap_or(rest);
             return home.join(relative);
         }
     }

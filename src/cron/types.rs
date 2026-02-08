@@ -81,3 +81,14 @@ pub struct CronStore {
 fn default_version() -> i32 {
     1
 }
+
+/// Parameters for updating an existing cron job.
+#[derive(Debug, Default)]
+pub struct UpdateJobParams {
+    pub name: Option<String>,
+    pub message: Option<String>,
+    pub schedule: Option<CronSchedule>,
+    pub deliver: Option<bool>,
+    pub channel: Option<String>,
+    pub to: Option<String>,
+}

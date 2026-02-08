@@ -1,4 +1,4 @@
-use crate::cron::types::{CronJob, CronSchedule, CronStore};
+use crate::cron::types::{CronJob, CronSchedule, CronStore, UpdateJobParams};
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
 use chrono::DateTime;
@@ -58,24 +58,18 @@ fn compute_next_run(schedule: &CronSchedule, now_ms: i64) -> Option<i64> {
     }
 }
 
+/// Async callback that takes a CronJob and returns an optional result string.
+type CronJobCallback = Arc<
+    dyn Fn(CronJob) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>>> + Send>>
+        + Send
+        + Sync,
+>;
+
 #[derive(Clone)]
 pub struct CronService {
     store_path: PathBuf,
     store: Arc<Mutex<Option<CronStore>>>,
-    on_job: Arc<
-        tokio::sync::Mutex<
-            Option<
-                Arc<
-                    dyn Fn(
-                            CronJob,
-                        ) -> std::pin::Pin<
-                            Box<dyn std::future::Future<Output = Result<Option<String>>> + Send>,
-                        > + Send
-                        + Sync,
-                >,
-            >,
-            >,
-    >,
+    on_job: Arc<tokio::sync::Mutex<Option<CronJobCallback>>>,
     running: Arc<tokio::sync::Mutex<bool>>,
     task_tracker: Arc<TaskTracker>,
 }
@@ -153,14 +147,12 @@ impl CronService {
                     break;
                 }
 
-                let service = CronService::new(store_path.clone());
-                let store = service
-                    .load_store(true)
-                    .await
-                    .unwrap_or_else(|_| CronStore {
-                        version: 1,
-                        jobs: vec![],
-                    });
+                // Load jobs directly from disk each tick to pick up changes
+                let store = match std::fs::read_to_string(&store_path) {
+                    Ok(content) => serde_json::from_str::<CronStore>(&content)
+                        .unwrap_or(CronStore { version: 1, jobs: vec![] }),
+                    Err(_) => CronStore { version: 1, jobs: vec![] },
+                };
 
                 let now = now_ms();
                 let mut next_run: Option<i64> = None;
@@ -302,12 +294,7 @@ impl CronService {
     pub async fn update_job(
         &self,
         job_id: &str,
-        name: Option<String>,
-        message: Option<String>,
-        schedule: Option<CronSchedule>,
-        deliver: Option<bool>,
-        channel: Option<String>,
-        to: Option<String>,
+        params: UpdateJobParams,
     ) -> Result<Option<CronJob>> {
         let mut store_guard = self.store.lock().await;
         let store = store_guard.as_mut()
@@ -315,25 +302,25 @@ impl CronService {
 
         for job in &mut store.jobs {
             if job.id == job_id {
-                if let Some(n) = name {
+                if let Some(n) = params.name {
                     job.name = n;
                 }
-                if let Some(m) = message {
+                if let Some(m) = params.message {
                     job.payload.message = m;
                 }
-                if let Some(s) = schedule {
+                if let Some(s) = params.schedule {
                     job.schedule = s.clone();
                     if job.enabled {
                         job.state.next_run_at_ms = compute_next_run(&s, now_ms());
                     }
                 }
-                if let Some(d) = deliver {
+                if let Some(d) = params.deliver {
                     job.payload.deliver = d;
                 }
-                if let Some(c) = channel {
+                if let Some(c) = params.channel {
                     job.payload.channel = Some(c);
                 }
-                if let Some(t) = to {
+                if let Some(t) = params.to {
                     job.payload.to = Some(t);
                 }
                 job.updated_at_ms = now_ms();

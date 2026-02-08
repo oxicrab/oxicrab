@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use regex::Regex;
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::Command;
 
@@ -34,7 +34,7 @@ impl ExecTool {
         }
     }
 
-    fn guard_command(&self, command: &str, cwd: &PathBuf) -> Option<String> {
+    fn guard_command(&self, command: &str, cwd: &Path) -> Option<String> {
         for pattern in &self.deny_patterns {
             if pattern.is_match(command) {
                 return Some(format!(

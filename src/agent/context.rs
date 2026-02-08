@@ -126,9 +126,8 @@ impl ContextBuilder {
                     &runtime,
                     &workspace_path,
                 ));
-            } else {
-                warn!("Failed to load IDENTITY.md, using defaults");
             }
+            warn!("Failed to load IDENTITY.md, using defaults");
         }
 
         // Fallback to defaults
@@ -257,7 +256,6 @@ impl ContextBuilder {
     }
 
     pub fn add_tool_result(
-        &self,
         messages: &mut Vec<crate::providers::base::Message>,
         tool_call_id: &str,
         _tool_name: &str,
@@ -270,7 +268,6 @@ impl ContextBuilder {
     }
 
     pub fn add_assistant_message(
-        &self,
         messages: &mut Vec<crate::providers::base::Message>,
         content: Option<&str>,
         tool_calls: Option<Vec<crate::providers::base::ToolCallRequest>>,

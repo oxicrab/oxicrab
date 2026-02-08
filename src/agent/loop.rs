@@ -269,8 +269,10 @@ impl AgentLoop {
         let task_tracker = self.task_tracker.clone();
         let memory = self.memory.clone();
         tokio::spawn(async move {
-            let mut guard = running.lock().await;
-            *guard = false;
+            {
+                let mut guard = running.lock().await;
+                *guard = false;
+            }
             // Cancel all tracked background tasks
             task_tracker.cancel_all().await;
             // Stop the background memory indexer
@@ -400,8 +402,7 @@ impl AgentLoop {
                 last_used_delivery_tool =
                     tool_names.iter().any(|n| *n == "message" || *n == "spawn");
 
-                let context = self.context.lock().await;
-                context.add_assistant_message(
+                ContextBuilder::add_assistant_message(
                     &mut messages,
                     response.content.as_deref(),
                     Some(response.tool_calls.clone()),
@@ -423,7 +424,7 @@ impl AgentLoop {
                     };
 
                     let result_str = truncate_tool_result(&result.content, 3000);
-                    context.add_tool_result(
+                    ContextBuilder::add_tool_result(
                         &mut messages,
                         &tool_call.id,
                         &tool_call.name,
@@ -600,8 +601,8 @@ impl AgentLoop {
         let session = self.sessions.get_or_create(session_key).await?;
         let history = self.get_compacted_history(&session).await?;
 
-        let mut context = self.context.lock().await;
-        let messages = context.build_messages(&history, content, Some(channel), Some(chat_id))?;
+        let mut ctx = self.context.lock().await;
+        let messages = ctx.build_messages(&history, content, Some(channel), Some(chat_id))?;
 
         let response = self
             .run_agent_loop(messages)

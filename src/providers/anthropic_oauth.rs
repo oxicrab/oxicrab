@@ -204,7 +204,7 @@ impl AnthropicOAuthProvider {
         }
     }
 
-    pub async fn from_credentials_file(
+    pub fn from_credentials_file(
         path: &Path,
         default_model: Option<String>,
     ) -> Result<Option<Self>> {
@@ -239,7 +239,7 @@ impl AnthropicOAuthProvider {
         )?))
     }
 
-    pub async fn from_openclaw(default_model: Option<String>) -> Result<Option<Self>> {
+    pub fn from_openclaw(default_model: Option<String>) -> Result<Option<Self>> {
         let store_path = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("No home directory"))?
             .join(".openclaw")
@@ -318,7 +318,7 @@ impl AnthropicOAuthProvider {
         Ok(None)
     }
 
-    pub async fn from_claude_cli(default_model: Option<String>) -> Result<Option<Self>> {
+    pub fn from_claude_cli(default_model: Option<String>) -> Result<Option<Self>> {
         let cred_path = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("No home directory"))?
             .join(".claude")
@@ -427,7 +427,7 @@ impl LLMProvider for AnthropicOAuthProvider {
         }
 
         let json: Value = resp.json().await.context("Failed to parse response")?;
-        anthropic_common::parse_response(&json)
+        Ok(anthropic_common::parse_response(&json))
     }
 
     fn default_model(&self) -> &str {

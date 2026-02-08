@@ -174,8 +174,9 @@ impl BaseChannel for WhatsAppChannel {
                                         return;
                                     }
 
-                                    info!("WhatsApp message from sender={}, chat_id={}, content={}...", 
-                                        sender, chat_id, &content[..content.len().min(50)]);
+                                    let preview: String = content.chars().take(50).collect();
+                                    info!("WhatsApp message from sender={}, chat_id={}, content={}...",
+                                        sender, chat_id, preview);
 
                                     let inbound_msg = InboundMessage {
                                         channel: "whatsapp".to_string(),
@@ -430,8 +431,10 @@ async fn send_whatsapp_message(
             jid
         );
         // Create a text message using waproto (re-exported by whatsapp-rust)
-        let mut text_message = whatsapp_rust::waproto::whatsapp::Message::default();
-        text_message.conversation = Some(chunk.clone());
+        let text_message = whatsapp_rust::waproto::whatsapp::Message {
+            conversation: Some(chunk.clone()),
+            ..Default::default()
+        };
 
         let preview_end = chunk.char_indices().nth(50).map(|(i, _)| i).unwrap_or(chunk.len());
         info!(

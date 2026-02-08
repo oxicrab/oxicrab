@@ -155,7 +155,7 @@ impl LLMProvider for AnthropicProvider {
             }
         }
 
-        anthropic_common::parse_response(&json)
+        Ok(anthropic_common::parse_response(&json))
     }
 
     fn default_model(&self) -> &str {

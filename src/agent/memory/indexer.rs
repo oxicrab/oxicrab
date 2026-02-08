@@ -4,7 +4,7 @@
 use crate::agent::memory::MemoryDB;
 use anyhow::Result;
 use chrono::Datelike;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -106,11 +106,11 @@ impl MemoryIndexer {
     }
 
     /// Perform indexing (can be called manually)
-    async fn index_memory_files(db: &MemoryDB, memory_dir: &PathBuf) {
+    async fn index_memory_files(db: &MemoryDB, memory_dir: &Path) {
         debug!("Starting memory indexing...");
         match tokio::task::spawn_blocking({
             let db = db.clone();
-            let memory_dir = memory_dir.clone();
+            let memory_dir = memory_dir.to_path_buf();
             move || {
                 // Index directory
                 if let Err(e) = db.index_directory(&memory_dir) {

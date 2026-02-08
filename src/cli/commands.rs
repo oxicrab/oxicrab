@@ -151,7 +151,7 @@ pub async fn run() -> Result<()> {
 
     match cli.command {
         Commands::Onboard => {
-            onboard().await?;
+            onboard()?;
         }
         Commands::Gateway { model } => {
             gateway(model).await?;
@@ -169,14 +169,14 @@ pub async fn run() -> Result<()> {
             channels_command(cmd).await?;
         }
         Commands::Status => {
-            status_command().await?;
+            status_command()?;
         }
     }
 
     Ok(())
 }
 
-async fn onboard() -> Result<()> {
+fn onboard() -> Result<()> {
     println!("🤖 Initializing nanobot...");
 
     let config_path = crate::config::get_config_path()?;
@@ -304,7 +304,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
 
     // Setup components
     let provider = setup_provider(&config, model.as_deref()).await?;
-    let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) = setup_message_bus().await?;
+    let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) = setup_message_bus()?;
     let cron = setup_cron_service()?;
     let agent = setup_agent(
         bus_for_channels.clone(),
@@ -316,7 +316,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
     )
     .await?;
     setup_cron_callbacks(cron.clone(), agent.clone(), bus_for_channels.clone()).await?;
-    let heartbeat = setup_heartbeat(&config, agent.clone()).await?;
+    let heartbeat = setup_heartbeat(&config, agent.clone())?;
     let channels = setup_channels(&config, inbound_tx)?;
 
     println!("Starting nanobot gateway...");
@@ -361,12 +361,14 @@ async fn setup_provider(
     Ok(provider)
 }
 
-async fn setup_message_bus() -> Result<(
+type MessageBusSetup = (
     tokio::sync::mpsc::Sender<crate::bus::InboundMessage>,
     Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
     tokio::sync::mpsc::Receiver<crate::bus::OutboundMessage>,
     Arc<Mutex<MessageBus>>,
-)> {
+);
+
+fn setup_message_bus() -> Result<MessageBusSetup> {
     tracing::debug!("Creating message bus...");
     let mut bus = MessageBus::default();
     let inbound_tx = bus.inbound_tx.clone();
@@ -482,7 +484,7 @@ async fn setup_cron_callbacks(
     Ok(())
 }
 
-async fn setup_heartbeat(
+fn setup_heartbeat(
     config: &Config,
     agent: Arc<AgentLoop>,
 ) -> Result<Arc<HeartbeatService>> {
@@ -518,7 +520,7 @@ fn setup_channels(
     inbound_tx: tokio::sync::mpsc::Sender<crate::bus::InboundMessage>,
 ) -> Result<ChannelManager> {
     tracing::info!("Initializing channels...");
-    let channels = ChannelManager::new(config.clone(), Arc::new(inbound_tx))?;
+    let channels = ChannelManager::new(config.clone(), Arc::new(inbound_tx));
     tracing::info!(
         "Channels initialized. Enabled: {:?}",
         channels.enabled_channels()
@@ -809,7 +811,9 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
             };
 
             match cron
-                .update_job(&id, name, message, schedule, deliver, channel, to)
+                .update_job(&id, crate::cron::types::UpdateJobParams {
+                    name, message, schedule, deliver, channel, to,
+                })
                 .await?
             {
                 Some(job) => {
@@ -978,7 +982,7 @@ async fn channels_command(cmd: ChannelCommands) -> Result<()> {
     Ok(())
 }
 
-async fn status_command() -> Result<()> {
+fn status_command() -> Result<()> {
     let config = load_config(None)?;
     let config_path = crate::config::get_config_path()?;
     let workspace = config.workspace_path();

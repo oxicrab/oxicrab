@@ -18,17 +18,20 @@ pub struct MemoryDB {
 
 impl Clone for MemoryDB {
     fn clone(&self) -> Self {
-        // Re-open a connection for clones (rare, needed for Arc sharing patterns)
-        let conn = self.conn.lock().unwrap();
-        let path = conn.path().unwrap_or("").to_string();
-        let new_conn = Connection::open(&path).expect("Failed to re-open DB for clone");
+        // Re-open a connection for clones (rare, needed for spawn_blocking patterns).
+        // Recover from poisoned lock by extracting the inner value.
+        let guard = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let path = guard.path().unwrap_or("").to_string();
+        drop(guard);
+        let new_conn = Connection::open(&path)
+            .unwrap_or_else(|e| panic!("Failed to re-open DB at '{}': {}", path, e));
         new_conn
             .execute_batch(
                 "PRAGMA journal_mode=WAL;
                  PRAGMA synchronous=NORMAL;
                  PRAGMA busy_timeout=3000;",
             )
-            .expect("Failed to set PRAGMAs on cloned connection");
+            .unwrap_or_else(|e| panic!("Failed to set PRAGMAs on cloned connection: {}", e));
         Self {
             conn: std::sync::Mutex::new(new_conn),
             has_fts: self.has_fts,

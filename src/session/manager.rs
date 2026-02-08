@@ -59,7 +59,8 @@ impl Session {
 
         // Prune oldest messages
         if self.messages.len() > MAX_SESSION_MESSAGES {
-            self.messages = self.messages[self.messages.len() - MAX_SESSION_MESSAGES..].to_vec();
+            let drain_count = self.messages.len() - MAX_SESSION_MESSAGES;
+            self.messages.drain(..drain_count);
         }
     }
 
@@ -217,7 +218,8 @@ impl SessionManager {
 
         // Prune on load
         if messages.len() > MAX_SESSION_MESSAGES {
-            messages = messages[messages.len() - MAX_SESSION_MESSAGES..].to_vec();
+            let drain_count = messages.len() - MAX_SESSION_MESSAGES;
+            messages.drain(..drain_count);
         }
 
         Ok(Some(Session {

@@ -41,8 +41,7 @@ impl TaskTracker {
         let name_clone = name.clone();
         let handle = tokio::spawn(async move {
             future.await;
-            let mut tasks_guard = tasks.lock().await;
-            tasks_guard.remove(&name_clone);
+            tasks.lock().await.remove(&name_clone);
             debug!("Task '{}' completed and removed from tracker", name_clone);
         });
 
@@ -55,9 +54,12 @@ impl TaskTracker {
 
     /// Cancel all tracked tasks
     pub async fn cancel_all(&self) {
-        let mut tasks = self.tasks.lock().await;
+        let tasks: HashMap<String, JoinHandle<()>> = {
+            let mut guard = self.tasks.lock().await;
+            guard.drain().collect()
+        };
         let count = tasks.len();
-        for (name, handle) in tasks.drain() {
+        for (name, handle) in tasks {
             handle.abort();
             debug!("Cancelled task '{}'", name);
         }

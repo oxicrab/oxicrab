@@ -61,14 +61,14 @@ impl ProviderStrategy for AnthropicOAuthStrategy {
         if model.starts_with("anthropic/") || self.config.auto_detect {
             // Try Claude CLI
             if let Ok(Some(provider)) =
-                AnthropicOAuthProvider::from_claude_cli(Some(model.to_string())).await
+                AnthropicOAuthProvider::from_claude_cli(Some(model.to_string()))
             {
                 return Ok(Some(Arc::new(provider)));
             }
 
             // Try OpenClaw
             if let Ok(Some(provider)) =
-                AnthropicOAuthProvider::from_openclaw(Some(model.to_string())).await
+                AnthropicOAuthProvider::from_openclaw(Some(model.to_string()))
             {
                 return Ok(Some(Arc::new(provider)));
             }
@@ -77,7 +77,7 @@ impl ProviderStrategy for AnthropicOAuthStrategy {
             if let Some(ref path) = self.config.credentials_path {
                 let path_buf = std::path::PathBuf::from(path);
                 if let Ok(Some(provider)) =
-                    AnthropicOAuthProvider::from_credentials_file(&path_buf, Some(model.to_string())).await
+                    AnthropicOAuthProvider::from_credentials_file(&path_buf, Some(model.to_string()))
                 {
                     return Ok(Some(Arc::new(provider)));
                 }
@@ -193,17 +193,16 @@ pub struct ProviderFactory {
 
 impl ProviderFactory {
     pub fn new(config: &crate::config::schema::Config) -> Self {
-        let mut strategies: Vec<Box<dyn ProviderStrategy>> = Vec::new();
-
-        // Add OAuth strategy first (higher priority)
-        strategies.push(Box::new(AnthropicOAuthStrategy::new(
-            config.providers.anthropic_oauth.clone(),
-        )));
-
-        // Add API key strategy as fallback
-        strategies.push(Box::new(ApiKeyProviderStrategy::new(
-            config.providers.clone(),
-        )));
+        let strategies: Vec<Box<dyn ProviderStrategy>> = vec![
+            // OAuth strategy first (higher priority)
+            Box::new(AnthropicOAuthStrategy::new(
+                config.providers.anthropic_oauth.clone(),
+            )),
+            // API key strategy as fallback
+            Box::new(ApiKeyProviderStrategy::new(
+                config.providers.clone(),
+            )),
+        ];
 
         Self { strategies }
     }

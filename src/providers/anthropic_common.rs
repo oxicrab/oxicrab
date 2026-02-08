@@ -1,5 +1,4 @@
 use crate::providers::base::{LLMResponse, Message, ToolCallRequest, ToolDefinition};
-use anyhow::Result;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -98,7 +97,7 @@ pub fn convert_tools(tools: Vec<ToolDefinition>) -> Vec<AnthropicTool> {
 }
 
 /// Parse an Anthropic API response into a generic LLMResponse.
-pub fn parse_response(json: &Value) -> Result<LLMResponse> {
+pub fn parse_response(json: &Value) -> LLMResponse {
     let content = json["content"].as_array().and_then(|arr| {
         arr.iter().find_map(|block| {
             if block["type"] == "text" {
@@ -130,9 +129,9 @@ pub fn parse_response(json: &Value) -> Result<LLMResponse> {
         }
     }
 
-    Ok(LLMResponse {
+    LLMResponse {
         content,
         tool_calls,
         reasoning_content,
-    })
+    }
 }

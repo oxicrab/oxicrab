@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use once_cell::sync::Lazy;
 use regex::Regex;
+use std::sync::LazyLock;
 
 /// Compiled regex patterns that are reused across the codebase
 pub struct RegexPatterns;
@@ -8,7 +8,7 @@ pub struct RegexPatterns;
 impl RegexPatterns {
     /// Regex for matching ANSI escape codes
     pub fn ansi_escape() -> &'static Regex {
-        static RE: Lazy<Regex> = Lazy::new(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]")
                 .expect("Failed to compile ANSI escape regex")
         });
@@ -17,7 +17,7 @@ impl RegexPatterns {
 
     /// Regex for matching markdown bold (**text**)
     pub fn markdown_bold() -> &'static Regex {
-        static RE: Lazy<Regex> = Lazy::new(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"\*\*(.+?)\*\*")
                 .expect("Failed to compile markdown bold regex")
         });
@@ -26,7 +26,7 @@ impl RegexPatterns {
 
     /// Regex for matching markdown strike-through (~~text~~)
     pub fn markdown_strike() -> &'static Regex {
-        static RE: Lazy<Regex> = Lazy::new(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"~~(.+?)~~")
                 .expect("Failed to compile markdown strike regex")
         });
@@ -35,7 +35,7 @@ impl RegexPatterns {
 
     /// Regex for matching markdown links ([text](url))
     pub fn markdown_link() -> &'static Regex {
-        static RE: Lazy<Regex> = Lazy::new(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"\[([^\]]+)\]\(([^)]+)\)")
                 .expect("Failed to compile markdown link regex")
         });
@@ -44,7 +44,7 @@ impl RegexPatterns {
 
     /// Regex for matching markdown italic (_text_)
     pub fn markdown_italic() -> &'static Regex {
-        static RE: Lazy<Regex> = Lazy::new(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"_(.+?)_")
                 .expect("Failed to compile markdown italic regex")
         });
@@ -53,7 +53,7 @@ impl RegexPatterns {
 
     /// Regex for matching markdown code (`code`)
     pub fn markdown_code() -> &'static Regex {
-        static RE: Lazy<Regex> = Lazy::new(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"`([^`]+)`")
                 .expect("Failed to compile markdown code regex")
         });
@@ -62,7 +62,7 @@ impl RegexPatterns {
 
     /// Regex for matching HTML script tags
     pub fn html_script() -> &'static Regex {
-        static RE: Lazy<Regex> = Lazy::new(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"(?i)<script[\s\S]*?</script>")
                 .expect("Failed to compile HTML script regex")
         });
@@ -71,7 +71,7 @@ impl RegexPatterns {
 
     /// Regex for matching HTML style tags
     pub fn html_style() -> &'static Regex {
-        static RE: Lazy<Regex> = Lazy::new(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"(?i)<style[\s\S]*?</style>")
                 .expect("Failed to compile HTML style regex")
         });
@@ -80,7 +80,7 @@ impl RegexPatterns {
 
     /// Regex for matching HTML tags
     pub fn html_tags() -> &'static Regex {
-        static RE: Lazy<Regex> = Lazy::new(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"<[^>]+>")
                 .expect("Failed to compile HTML tags regex")
         });
@@ -89,7 +89,7 @@ impl RegexPatterns {
 
     /// Regex for matching whitespace
     pub fn whitespace() -> &'static Regex {
-        static RE: Lazy<Regex> = Lazy::new(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"[ \t]+")
                 .expect("Failed to compile whitespace regex")
         });
@@ -98,7 +98,7 @@ impl RegexPatterns {
 
     /// Regex for matching multiple newlines
     pub fn newlines() -> &'static Regex {
-        static RE: Lazy<Regex> = Lazy::new(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"\n{3,}")
                 .expect("Failed to compile newlines regex")
         });
@@ -107,7 +107,7 @@ impl RegexPatterns {
 
     /// Regex for matching double newlines (paragraph breaks)
     pub fn double_newlines() -> &'static Regex {
-        static RE: Lazy<Regex> = Lazy::new(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"\n\s*\n+")
                 .expect("Failed to compile double newlines regex")
         });
@@ -116,7 +116,7 @@ impl RegexPatterns {
 
     /// Regex for matching words (alphanumeric + underscore, 2+ chars)
     pub fn words() -> &'static Regex {
-        static RE: Lazy<Regex> = Lazy::new(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"[A-Za-z0-9_]{2,}")
                 .expect("Failed to compile words regex")
         });
