@@ -148,44 +148,7 @@ impl ProviderStrategy for ApiKeyProviderStrategy {
 
 impl ApiKeyProviderStrategy {
     fn get_api_key(&self, model: &str) -> Option<String> {
-        let model_lower = model.to_lowercase();
-
-        // Match provider by model name
-        if model_lower.contains("openrouter") && !self.config.openrouter.api_key.is_empty() {
-            return Some(self.config.openrouter.api_key.clone());
-        }
-        if model_lower.contains("deepseek") && !self.config.deepseek.api_key.is_empty() {
-            return Some(self.config.deepseek.api_key.clone());
-        }
-        if (model_lower.contains("anthropic") || model_lower.contains("claude"))
-            && !self.config.anthropic.api_key.is_empty()
-        {
-            return Some(self.config.anthropic.api_key.clone());
-        }
-        if (model_lower.contains("openai") || model_lower.contains("gpt"))
-            && !self.config.openai.api_key.is_empty()
-        {
-            return Some(self.config.openai.api_key.clone());
-        }
-        if model_lower.contains("gemini") && !self.config.gemini.api_key.is_empty() {
-            return Some(self.config.gemini.api_key.clone());
-        }
-
-        // Fallback: first available key
-        if !self.config.openrouter.api_key.is_empty() {
-            return Some(self.config.openrouter.api_key.clone());
-        }
-        if !self.config.anthropic.api_key.is_empty() {
-            return Some(self.config.anthropic.api_key.clone());
-        }
-        if !self.config.openai.api_key.is_empty() {
-            return Some(self.config.openai.api_key.clone());
-        }
-        if !self.config.gemini.api_key.is_empty() {
-            return Some(self.config.gemini.api_key.clone());
-        }
-
-        None
+        self.config.get_api_key(model)
     }
 }
 

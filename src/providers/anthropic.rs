@@ -69,88 +69,8 @@ impl LLMProvider for AnthropicProvider {
             .await
             .context("Failed to send request to Anthropic API")?;
 
-        // Check for HTTP errors first
-        let status = resp.status();
-        tracing::debug!("Anthropic API response status: {}", status);
-        if !status.is_success() {
-            // Extract headers before consuming response
-            let retry_after = resp
-                .headers()
-                .get("retry-after")
-                .and_then(|h| h.to_str().ok())
-                .and_then(|s| s.parse::<u64>().ok());
-
-            let error_text = resp
-                .text()
-                .await
-                .unwrap_or_else(|_| "unknown error".to_string());
-
-            // Handle rate limiting
-            if status == 429 {
-                ProviderErrorHandler::log_and_handle_error(
-                    &anyhow::anyhow!("Rate limit exceeded"),
-                    "Anthropic",
-                    "chat",
-                );
-                return Err(
-                    ProviderErrorHandler::handle_rate_limit(status.as_u16(), retry_after)
-                        .unwrap_err()
-                        .into(),
-                );
-            }
-
-            // Handle authentication errors
-            if status == 401 || status == 403 {
-                ProviderErrorHandler::log_and_handle_error(
-                    &anyhow::anyhow!("Authentication failed"),
-                    "Anthropic",
-                    "chat",
-                );
-                return Err(
-                    ProviderErrorHandler::handle_auth_error(status.as_u16(), &error_text)
-                        .unwrap_err()
-                        .into(),
-                );
-            }
-
-            // Use shared error handler for other errors
-            ProviderErrorHandler::log_and_handle_error(
-                &anyhow::anyhow!("API error"),
-                "Anthropic",
-                "chat",
-            );
-            return Err(
-                ProviderErrorHandler::parse_api_error(status.as_u16(), &error_text)
-                    .unwrap_err()
-                    .into(),
-            );
-        }
-
-        let json: Value = resp
-            .json()
-            .await
-            .context("Failed to parse Anthropic API response")?;
-
-        // Check for API-level errors in the JSON response
-        if let Some(error) = json.get("error") {
-            // Update error metrics
-            {
-                if let Ok(mut metrics) = self.metrics.lock() {
-                    metrics.error_count += 1;
-                }
-            }
-
-            let error_text =
-                serde_json::to_string(error).unwrap_or_else(|_| "Unknown error".to_string());
-            ProviderErrorHandler::log_and_handle_error(
-                &anyhow::anyhow!("API error in response"),
-                "Anthropic",
-                "chat",
-            );
-            return Err(ProviderErrorHandler::parse_api_error(200, &error_text)
-                .unwrap_err()
-                .into());
-        }
+        let json =
+            ProviderErrorHandler::check_response(resp, "Anthropic", &self.metrics).await?;
 
         // Update metrics on success
         {
@@ -207,39 +127,8 @@ impl LLMProvider for AnthropicProvider {
             .await
             .context("Failed to send streaming request to Anthropic API")?;
 
-        let status = resp.status();
-        if !status.is_success() {
-            let retry_after = resp
-                .headers()
-                .get("retry-after")
-                .and_then(|h| h.to_str().ok())
-                .and_then(|s| s.parse::<u64>().ok());
-
-            let error_text = resp
-                .text()
-                .await
-                .unwrap_or_else(|_| "unknown error".to_string());
-
-            if status == 429 {
-                return Err(
-                    ProviderErrorHandler::handle_rate_limit(status.as_u16(), retry_after)
-                        .unwrap_err()
-                        .into(),
-                );
-            }
-            if status == 401 || status == 403 {
-                return Err(
-                    ProviderErrorHandler::handle_auth_error(status.as_u16(), &error_text)
-                        .unwrap_err()
-                        .into(),
-                );
-            }
-            return Err(
-                ProviderErrorHandler::parse_api_error(status.as_u16(), &error_text)
-                    .unwrap_err()
-                    .into(),
-            );
-        }
+        let resp =
+            ProviderErrorHandler::check_http_status(resp, "Anthropic").await?;
 
         // Process SSE stream
         let mut content_text = String::new();

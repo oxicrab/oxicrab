@@ -1,5 +1,7 @@
 use crate::errors::NanobotError;
+use crate::providers::base::ProviderMetrics;
 use serde_json::Value;
+use std::sync::{Arc, Mutex};
 use tracing::{error, warn};
 
 /// Common error handling utilities for LLM providers
@@ -81,5 +83,89 @@ impl ProviderErrorHandler {
             "Authentication failed. Please check your API key or credentials. Error: {}",
             error_text
         )))
+    }
+
+    /// Check HTTP status and return a typed error if the response is not successful.
+    /// On error, consumes the response body to extract error details.
+    /// On success, returns the response unchanged for further processing.
+    pub async fn check_http_status(
+        resp: reqwest::Response,
+        provider: &str,
+    ) -> Result<reqwest::Response, anyhow::Error> {
+        if resp.status().is_success() {
+            return Ok(resp);
+        }
+
+        let status = resp.status();
+        let retry_after = resp
+            .headers()
+            .get("retry-after")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok());
+
+        let error_text = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "unknown error".to_string());
+
+        if status == 429 {
+            Self::log_and_handle_error(
+                &anyhow::anyhow!("Rate limit exceeded"),
+                provider,
+                "chat",
+            );
+            return Err(Self::handle_rate_limit(status.as_u16(), retry_after)
+                .unwrap_err()
+                .into());
+        }
+
+        if status == 401 || status == 403 {
+            Self::log_and_handle_error(
+                &anyhow::anyhow!("Authentication failed"),
+                provider,
+                "chat",
+            );
+            return Err(Self::handle_auth_error(status.as_u16(), &error_text)
+                .unwrap_err()
+                .into());
+        }
+
+        Self::log_and_handle_error(&anyhow::anyhow!("API error"), provider, "chat");
+        Err(Self::parse_api_error(status.as_u16(), &error_text)
+            .unwrap_err()
+            .into())
+    }
+
+    /// Check an HTTP response for errors (rate limit, auth, generic API errors).
+    /// Returns the response body as JSON on success, or a typed error on failure.
+    pub async fn check_response(
+        resp: reqwest::Response,
+        provider: &str,
+        metrics: &Arc<Mutex<ProviderMetrics>>,
+    ) -> Result<Value, anyhow::Error> {
+        let resp = Self::check_http_status(resp, provider).await?;
+
+        let json: Value = resp.json().await.map_err(|e| {
+            anyhow::anyhow!("Failed to parse {} API response: {}", provider, e)
+        })?;
+
+        // Check for API-level errors in the JSON body
+        if let Some(error_val) = json.get("error") {
+            if let Ok(mut m) = metrics.lock() {
+                m.error_count += 1;
+            }
+            let error_text = serde_json::to_string(error_val)
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            Self::log_and_handle_error(
+                &anyhow::anyhow!("API error in response"),
+                provider,
+                "chat",
+            );
+            return Err(Self::parse_api_error(200, &error_text)
+                .unwrap_err()
+                .into());
+        }
+
+        Ok(json)
     }
 }

@@ -51,9 +51,9 @@ pub struct ChannelsConfig {
     pub slack: SlackConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompactionConfig {
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default = "default_threshold_tokens", rename = "thresholdTokens")]
     pub threshold_tokens: u32,
@@ -63,6 +63,18 @@ pub struct CompactionConfig {
     pub extraction_enabled: bool,
     #[serde(default)]
     pub model: Option<String>,
+}
+
+impl Default for CompactionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            threshold_tokens: default_threshold_tokens(),
+            keep_recent: default_keep_recent(),
+            extraction_enabled: true,
+            model: None,
+        }
+    }
 }
 
 fn default_threshold_tokens() -> u32 {
@@ -77,9 +89,9 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default = "default_interval")]
     pub interval: u64,
@@ -99,6 +111,22 @@ pub struct DaemonConfig {
     pub cooldown_after_action: u64,
 }
 
+impl Default for DaemonConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval: default_interval(),
+            triage_model: None,
+            triage_provider: None,
+            execution_model: None,
+            execution_provider: None,
+            strategy_file: default_strategy_file(),
+            max_iterations: default_max_iterations(),
+            cooldown_after_action: default_cooldown(),
+        }
+    }
+}
+
 fn default_interval() -> u64 {
     300
 }
@@ -115,7 +143,7 @@ fn default_cooldown() -> u64 {
     600
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentDefaults {
     #[serde(default = "default_workspace")]
     pub workspace: String,
@@ -133,6 +161,21 @@ pub struct AgentDefaults {
     pub daemon: DaemonConfig,
     #[serde(default = "default_session_ttl_days", rename = "sessionTtlDays")]
     pub session_ttl_days: u32,
+}
+
+impl Default for AgentDefaults {
+    fn default() -> Self {
+        Self {
+            workspace: default_workspace(),
+            model: default_model(),
+            max_tokens: default_max_tokens(),
+            temperature: default_temperature(),
+            max_tool_iterations: default_max_tool_iterations(),
+            compaction: CompactionConfig::default(),
+            daemon: DaemonConfig::default(),
+            session_ttl_days: default_session_ttl_days(),
+        }
+    }
 }
 
 fn default_session_ttl_days() -> u32 {
@@ -173,7 +216,7 @@ pub struct ProviderConfig {
     pub api_base: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnthropicOAuthConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -187,6 +230,19 @@ pub struct AnthropicOAuthConfig {
     pub credentials_path: Option<String>,
     #[serde(default = "default_true", rename = "autoDetect")]
     pub auto_detect: bool,
+}
+
+impl Default for AnthropicOAuthConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            access_token: String::new(),
+            refresh_token: String::new(),
+            expires_at: 0,
+            credentials_path: None,
+            auto_detect: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -215,12 +271,66 @@ pub struct ProvidersConfig {
     pub moonshot: ProviderConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+impl ProvidersConfig {
+    /// Get the API key for a given model name by matching provider keywords,
+    /// falling back to the first available key.
+    pub fn get_api_key(&self, model: &str) -> Option<String> {
+        let model_lower = model.to_lowercase();
+
+        // Match provider by model name
+        if model_lower.contains("openrouter") && !self.openrouter.api_key.is_empty() {
+            return Some(self.openrouter.api_key.clone());
+        }
+        if model_lower.contains("deepseek") && !self.deepseek.api_key.is_empty() {
+            return Some(self.deepseek.api_key.clone());
+        }
+        if (model_lower.contains("anthropic") || model_lower.contains("claude"))
+            && !self.anthropic.api_key.is_empty()
+        {
+            return Some(self.anthropic.api_key.clone());
+        }
+        if (model_lower.contains("openai") || model_lower.contains("gpt"))
+            && !self.openai.api_key.is_empty()
+        {
+            return Some(self.openai.api_key.clone());
+        }
+        if model_lower.contains("gemini") && !self.gemini.api_key.is_empty() {
+            return Some(self.gemini.api_key.clone());
+        }
+
+        // Fallback: first available key
+        if !self.openrouter.api_key.is_empty() {
+            return Some(self.openrouter.api_key.clone());
+        }
+        if !self.anthropic.api_key.is_empty() {
+            return Some(self.anthropic.api_key.clone());
+        }
+        if !self.openai.api_key.is_empty() {
+            return Some(self.openai.api_key.clone());
+        }
+        if !self.gemini.api_key.is_empty() {
+            return Some(self.gemini.api_key.clone());
+        }
+
+        None
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
     #[serde(default = "default_host")]
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
+}
+
+impl Default for GatewayConfig {
+    fn default() -> Self {
+        Self {
+            host: default_host(),
+            port: default_port(),
+        }
+    }
 }
 
 fn default_host() -> String {
@@ -231,7 +341,7 @@ fn default_port() -> u16 {
     18790
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GoogleConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -243,6 +353,17 @@ pub struct GoogleConfig {
     pub scopes: Vec<String>,
 }
 
+impl Default for GoogleConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            client_id: String::new(),
+            client_secret: String::new(),
+            scopes: default_google_scopes(),
+        }
+    }
+}
+
 fn default_google_scopes() -> Vec<String> {
     vec![
         "https://www.googleapis.com/auth/gmail.modify".to_string(),
@@ -252,12 +373,21 @@ fn default_google_scopes() -> Vec<String> {
     ]
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchConfig {
     #[serde(default, rename = "apiKey")]
     pub api_key: String,
     #[serde(default = "default_max_results", rename = "maxResults")]
     pub max_results: usize,
+}
+
+impl Default for WebSearchConfig {
+    fn default() -> Self {
+        Self {
+            api_key: String::new(),
+            max_results: default_max_results(),
+        }
+    }
 }
 
 fn default_max_results() -> usize {
@@ -270,10 +400,18 @@ pub struct WebToolsConfig {
     pub search: WebSearchConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecToolConfig {
     #[serde(default = "default_timeout")]
     pub timeout: u64,
+}
+
+impl Default for ExecToolConfig {
+    fn default() -> Self {
+        Self {
+            timeout: default_timeout(),
+        }
+    }
 }
 
 fn default_timeout() -> u64 {
@@ -322,7 +460,7 @@ pub struct ToolsConfig {
     pub todoist: TodoistConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub agents: AgentsConfig,
@@ -334,148 +472,6 @@ pub struct Config {
     pub gateway: GatewayConfig,
     #[serde(default)]
     pub tools: ToolsConfig,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            agents: AgentsConfig {
-                defaults: AgentDefaults {
-                    workspace: default_workspace(),
-                    model: default_model(),
-                    max_tokens: default_max_tokens(),
-                    temperature: default_temperature(),
-                    max_tool_iterations: default_max_tool_iterations(),
-                    compaction: CompactionConfig {
-                        enabled: true,
-                        threshold_tokens: default_threshold_tokens(),
-                        keep_recent: default_keep_recent(),
-                        extraction_enabled: true,
-                        model: None,
-                    },
-                    daemon: DaemonConfig {
-                        enabled: true,
-                        interval: default_interval(),
-                        triage_model: None,
-                        triage_provider: None,
-                        execution_model: None,
-                        execution_provider: None,
-                        strategy_file: default_strategy_file(),
-                        max_iterations: default_max_iterations(),
-                        cooldown_after_action: default_cooldown(),
-                    },
-                    session_ttl_days: default_session_ttl_days(),
-                },
-            },
-            channels: ChannelsConfig {
-                whatsapp: WhatsAppConfig {
-                    enabled: false,
-                    allow_from: vec![],
-                },
-                telegram: TelegramConfig {
-                    enabled: false,
-                    token: String::new(),
-                    allow_from: vec![],
-                    proxy: None,
-                },
-                discord: DiscordConfig {
-                    enabled: false,
-                    token: String::new(),
-                    allow_from: vec![],
-                },
-                slack: SlackConfig {
-                    enabled: false,
-                    bot_token: String::new(),
-                    app_token: String::new(),
-                    allow_from: vec![],
-                },
-            },
-            providers: ProvidersConfig {
-                anthropic: ProviderConfig {
-                    api_key: String::new(),
-                    api_base: None,
-                },
-                anthropic_oauth: AnthropicOAuthConfig {
-                    enabled: false,
-                    access_token: String::new(),
-                    refresh_token: String::new(),
-                    expires_at: 0,
-                    credentials_path: None,
-                    auto_detect: true,
-                },
-                openai: ProviderConfig {
-                    api_key: String::new(),
-                    api_base: None,
-                },
-                openrouter: ProviderConfig {
-                    api_key: String::new(),
-                    api_base: None,
-                },
-                deepseek: ProviderConfig {
-                    api_key: String::new(),
-                    api_base: None,
-                },
-                groq: ProviderConfig {
-                    api_key: String::new(),
-                    api_base: None,
-                },
-                zhipu: ProviderConfig {
-                    api_key: String::new(),
-                    api_base: None,
-                },
-                dashscope: ProviderConfig {
-                    api_key: String::new(),
-                    api_base: None,
-                },
-                vllm: ProviderConfig {
-                    api_key: String::new(),
-                    api_base: None,
-                },
-                gemini: ProviderConfig {
-                    api_key: String::new(),
-                    api_base: None,
-                },
-                moonshot: ProviderConfig {
-                    api_key: String::new(),
-                    api_base: None,
-                },
-            },
-            gateway: GatewayConfig {
-                host: default_host(),
-                port: default_port(),
-            },
-            tools: ToolsConfig {
-                web: WebToolsConfig {
-                    search: WebSearchConfig {
-                        api_key: String::new(),
-                        max_results: default_max_results(),
-                    },
-                },
-                exec: ExecToolConfig {
-                    timeout: default_timeout(),
-                },
-                restrict_to_workspace: false,
-                google: GoogleConfig {
-                    enabled: false,
-                    client_id: String::new(),
-                    client_secret: String::new(),
-                    scopes: default_google_scopes(),
-                },
-                github: GitHubConfig {
-                    enabled: false,
-                    token: String::new(),
-                },
-                weather: WeatherConfig {
-                    enabled: false,
-                    api_key: String::new(),
-                },
-                todoist: TodoistConfig {
-                    enabled: false,
-                    token: String::new(),
-                },
-            },
-        }
-    }
 }
 
 impl Config {
@@ -570,44 +566,8 @@ impl Config {
 
     #[allow(dead_code)]
     pub fn get_api_key(&self, model: Option<&str>) -> Option<String> {
-        let model = model.unwrap_or(&self.agents.defaults.model).to_lowercase();
-
-        // Match provider by model name
-        if model.contains("openrouter") && !self.providers.openrouter.api_key.is_empty() {
-            return Some(self.providers.openrouter.api_key.clone());
-        }
-        if model.contains("deepseek") && !self.providers.deepseek.api_key.is_empty() {
-            return Some(self.providers.deepseek.api_key.clone());
-        }
-        if (model.contains("anthropic") || model.contains("claude"))
-            && !self.providers.anthropic.api_key.is_empty()
-        {
-            return Some(self.providers.anthropic.api_key.clone());
-        }
-        if (model.contains("openai") || model.contains("gpt"))
-            && !self.providers.openai.api_key.is_empty()
-        {
-            return Some(self.providers.openai.api_key.clone());
-        }
-        if model.contains("gemini") && !self.providers.gemini.api_key.is_empty() {
-            return Some(self.providers.gemini.api_key.clone());
-        }
-
-        // Fallback: first available key
-        if !self.providers.openrouter.api_key.is_empty() {
-            return Some(self.providers.openrouter.api_key.clone());
-        }
-        if !self.providers.anthropic.api_key.is_empty() {
-            return Some(self.providers.anthropic.api_key.clone());
-        }
-        if !self.providers.openai.api_key.is_empty() {
-            return Some(self.providers.openai.api_key.clone());
-        }
-        if !self.providers.gemini.api_key.is_empty() {
-            return Some(self.providers.gemini.api_key.clone());
-        }
-
-        None
+        let model = model.unwrap_or(&self.agents.defaults.model);
+        self.providers.get_api_key(model)
     }
 
     #[allow(dead_code)]

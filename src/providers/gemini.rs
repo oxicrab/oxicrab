@@ -127,87 +127,8 @@ impl LLMProvider for GeminiProvider {
             .await
             .context("Failed to send request to Gemini API")?;
 
-        // Check for HTTP errors
-        let status = resp.status();
-        if !status.is_success() {
-            // Extract headers before consuming response
-            let retry_after = resp
-                .headers()
-                .get("retry-after")
-                .and_then(|h| h.to_str().ok())
-                .and_then(|s| s.parse::<u64>().ok());
-
-            let error_text = resp
-                .text()
-                .await
-                .unwrap_or_else(|_| "unknown error".to_string());
-
-            // Handle rate limiting
-            if status == 429 {
-                ProviderErrorHandler::log_and_handle_error(
-                    &anyhow::anyhow!("Rate limit exceeded"),
-                    "Gemini",
-                    "chat",
-                );
-                return Err(
-                    ProviderErrorHandler::handle_rate_limit(status.as_u16(), retry_after)
-                        .unwrap_err()
-                        .into(),
-                );
-            }
-
-            // Handle authentication errors
-            if status == 401 || status == 403 {
-                ProviderErrorHandler::log_and_handle_error(
-                    &anyhow::anyhow!("Authentication failed"),
-                    "Gemini",
-                    "chat",
-                );
-                return Err(
-                    ProviderErrorHandler::handle_auth_error(status.as_u16(), &error_text)
-                        .unwrap_err()
-                        .into(),
-                );
-            }
-
-            // Use shared error handler for other errors
-            ProviderErrorHandler::log_and_handle_error(
-                &anyhow::anyhow!("API error"),
-                "Gemini",
-                "chat",
-            );
-            return Err(
-                ProviderErrorHandler::parse_api_error(status.as_u16(), &error_text)
-                    .unwrap_err()
-                    .into(),
-            );
-        }
-
-        let json: Value = resp
-            .json()
-            .await
-            .context("Failed to parse Gemini API response")?;
-
-        // Check for API-level errors in the JSON response
-        if let Some(error) = json.get("error") {
-            // Update error metrics
-            {
-                if let Ok(mut metrics) = self.metrics.lock() {
-                    metrics.error_count += 1;
-                }
-            }
-
-            let error_text =
-                serde_json::to_string(error).unwrap_or_else(|_| "Unknown error".to_string());
-            ProviderErrorHandler::log_and_handle_error(
-                &anyhow::anyhow!("API error in response"),
-                "Gemini",
-                "chat",
-            );
-            return Err(ProviderErrorHandler::parse_api_error(200, &error_text)
-                .unwrap_err()
-                .into());
-        }
+        let json =
+            ProviderErrorHandler::check_response(resp, "Gemini", &self.metrics).await?;
 
         // Update metrics on success
         {
