@@ -290,6 +290,21 @@ impl CronService {
         let store = store_guard
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("CronService store is not initialized"))?;
+
+        // Reject duplicate names (case-insensitive)
+        let name_lower = job.name.to_lowercase();
+        if let Some(existing) = store
+            .jobs
+            .iter()
+            .find(|j| j.name.to_lowercase() == name_lower)
+        {
+            return Err(anyhow::anyhow!(
+                "A job named '{}' already exists (id: {})",
+                existing.name,
+                existing.id
+            ));
+        }
+
         store.jobs.push(job);
         drop(store_guard);
         self.save_store().await?;

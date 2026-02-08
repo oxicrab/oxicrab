@@ -305,3 +305,29 @@ async fn test_cron_update_targets() {
     assert_eq!(job.payload.targets[0].channel, "slack");
     assert_eq!(job.payload.targets[1].channel, "discord");
 }
+
+#[tokio::test]
+async fn test_cron_add_duplicate_name_rejected() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    svc.add_job(make_test_job("job1", "Morning Briefing"))
+        .await
+        .unwrap();
+
+    // Same name, different case — should be rejected
+    let err = svc
+        .add_job(make_test_job("job2", "morning briefing"))
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("already exists"),
+        "Expected duplicate name error, got: {}",
+        err
+    );
+
+    // Only the original job should exist
+    let jobs = svc.list_jobs(true).await.unwrap();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].id, "job1");
+}
