@@ -7,8 +7,11 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 - **Multi-channel support**: Telegram, Discord, Slack, WhatsApp
 - **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), with OAuth support
 - **Agent capabilities**: Tool calling, memory, context management, subagents
+- **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions with multi-channel delivery
+- **Integrations**: Google (Gmail, Calendar), GitHub, Todoist, Weather, Web search
+- **Streaming**: SSE-based streaming for Anthropic responses
+- **Session management**: Persistent sessions with automatic compaction and fact extraction
 - **Async-first**: Built on Tokio for high-performance async I/O
-- **Type-safe**: Leverages Rust's type system for compile-time guarantees
 
 ## Building
 
@@ -67,6 +70,30 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
       "enabled": true,
       "allowFrom": ["phone_number1", "phone_number2"]
     }
+  },
+  "tools": {
+    "google": {
+      "enabled": true,
+      "clientId": "your-google-client-id",
+      "clientSecret": "your-google-client-secret"
+    },
+    "github": {
+      "enabled": true,
+      "token": "ghp_your-github-token"
+    },
+    "weather": {
+      "enabled": true,
+      "apiKey": "your-openweathermap-api-key"
+    },
+    "todoist": {
+      "enabled": true,
+      "token": "your-todoist-api-token"
+    },
+    "web": {
+      "search": {
+        "apiKey": "your-brave-search-api-key"
+      }
+    }
   }
 }
 ```
@@ -119,7 +146,7 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
    ```json
    "discord": {
      "enabled": true,
-     "token": "MTQ2OTE4Mjc4NDI0MDIyNjMzNA.GsVdH8.VnCu4ns8V3hWUbQmYOarZzavg8xe807QuK917o",
+     "token": "your-discord-bot-token",
      "allowFrom": ["123456789012345678"]
    }
    ```
@@ -145,21 +172,27 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
    - Scroll up and click "Install to Workspace"
    - Copy the "Bot User OAuth Token" (starts with `xoxb-`)
 
-4. **Subscribe to events** (optional, for app mentions):
+4. **Enable App Home messaging**:
+   - Go to "App Home" in the left sidebar
+   - Under "Show Tabs", enable the **Messages Tab**
+   - Check **"Allow users to send Slash commands and messages from the messages tab"**
+
+   Without this, users will see "Sending messages to this app has been turned off."
+
+5. **Subscribe to events**:
    - Go to "Event Subscriptions"
    - Enable "Enable Events"
    - Subscribe to bot events: `app_mention`, `message.channels`, `message.groups`, `message.im`
 
-5. **Get user IDs**:
-   - Right-click on users in Slack and select "Copy member ID" (if available)
-   - Or use the user's email/username in `allowFrom`
+6. **Get user IDs**:
+   - Click on a user's profile in Slack, click the three dots menu, select "Copy member ID"
 
-6. **Configure**:
+7. **Configure**:
    ```json
    "slack": {
      "enabled": true,
      "botToken": "xoxb-1234567890-1234567890123-abcdefghijklmnopqrstuvwx",
-     "appToken": "xapp-1-A1234567890-1234567890123-abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqrstuvwxyz",
+     "appToken": "xapp-1-A1234567890-1234567890123-abcdefghijklmnopqrstuvwxyz1234567890",
      "allowFrom": ["U01234567"]
    }
    ```
@@ -193,24 +226,67 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
 Start the gateway to run all enabled channels and the agent:
 
 ```bash
-# Debug build
-./target/debug/nanobot gateway
-
-# Release build
 ./target/release/nanobot gateway
 ```
 
-### Command Options
+### CLI Mode
+
+Interact with the agent directly from the terminal:
 
 ```bash
-# Use a specific model
-./target/release/nanobot gateway --model claude-sonnet-4-5-20250929
+# Interactive session
+./target/release/nanobot agent
 
-# Enable debug logging
+# Single message
+./target/release/nanobot agent -m "What's the weather?"
+```
+
+### Cron Jobs
+
+Manage scheduled jobs from the CLI:
+
+```bash
+# List jobs
+./target/release/nanobot cron list
+
+# Add a recurring job (every 3600 seconds)
+./target/release/nanobot cron add -n "Hourly check" -m "Check my inbox" -e 3600 --channel telegram --to 123456789
+
+# Add a cron-expression job targeting all channels
+./target/release/nanobot cron add -n "Morning briefing" -m "Give me a morning briefing" -c "0 9 * * *" --tz "America/New_York" --all-channels
+
+# Remove a job
+./target/release/nanobot cron remove --id abc12345
+
+# Enable/disable
+./target/release/nanobot cron enable --id abc12345
+./target/release/nanobot cron enable --id abc12345 --disable
+
+# Edit a job
+./target/release/nanobot cron edit --id abc12345 -m "New message" --all-channels
+
+# Manually trigger a job
+./target/release/nanobot cron run --id abc12345 --force
+```
+
+### Authentication
+
+```bash
+# Authenticate with Google (Gmail, Calendar)
+./target/release/nanobot auth google
+```
+
+### Logging
+
+```bash
+# Default: info level, with noisy dependencies suppressed
+./target/release/nanobot gateway
+
+# Debug logging
 RUST_LOG=debug ./target/release/nanobot gateway
 
-# Info level logging
-RUST_LOG=info ./target/release/nanobot gateway
+# Custom filtering
+RUST_LOG=info,whatsapp_rust=warn,nanobot::channels=debug ./target/release/nanobot gateway
 ```
 
 ## Model Configuration
@@ -263,57 +339,80 @@ For OAuth models, you need to:
    }
    ```
 
+## Tools
+
+The agent has access to the following built-in tools:
+
+| Tool | Description | Config Required |
+|------|-------------|-----------------|
+| `read_file` | Read files from disk | - |
+| `write_file` | Write files to disk | - |
+| `edit_file` | Edit files with find/replace | - |
+| `list_dir` | List directory contents | - |
+| `exec` | Execute shell commands | - |
+| `web_search` | Search the web (Brave) | `tools.web.search.apiKey` |
+| `web_fetch` | Fetch and extract web page content | - |
+| `http` | Make HTTP requests | - |
+| `message` | Send messages to chat channels | - |
+| `cron` | Schedule reminders and recurring tasks | - |
+| `spawn` | Spawn background subagents | - |
+| `tmux` | Manage tmux sessions | - |
+| `google_mail` | Read/send Gmail | `tools.google.*` + OAuth |
+| `google_calendar` | Manage Google Calendar events | `tools.google.*` + OAuth |
+| `github` | GitHub API (issues, PRs, repos) | `tools.github.token` |
+| `weather` | Get weather forecasts | `tools.weather.apiKey` |
+| `todoist` | Manage Todoist tasks | `tools.todoist.token` |
+
+## Workspace Structure
+
+```
+~/.nanobot/
+├── config.json              # Main configuration
+├── workspace/
+│   ├── IDENTITY.md          # Bot identity and adaptations
+│   ├── SOUL.md              # Personality and behavioural directives
+│   ├── USER.md              # User preferences
+│   ├── AGENTS.md            # Agent behaviour guide
+│   ├── TOOLS.md             # Tool usage guide
+│   ├── memory/
+│   │   ├── MEMORY.md        # Long-term memory
+│   │   └── YYYY-MM-DD.md    # Daily notes (auto-extracted facts)
+│   ├── sessions/            # Conversation sessions
+│   └── skills/              # Custom skills (SKILL.md per skill)
+├── cron/
+│   └── jobs.json            # Scheduled jobs
+└── whatsapp/
+    └── whatsapp.db          # WhatsApp session storage
+```
+
 ## Project Structure
 
 ```
 src/
-├── agent/          # Agent loop, context, memory, tools
+├── agent/          # Agent loop, context, memory, tools, subagents
 ├── auth/           # OAuth authentication (Google)
 ├── bus/            # Message bus for channel-agent communication
 ├── channels/       # Channel implementations (Telegram, Discord, Slack, WhatsApp)
 ├── cli/            # Command-line interface
 ├── config/         # Configuration schema and loader
-├── cron/           # Cron job scheduling
+├── cron/           # Cron job scheduling service
 ├── heartbeat/      # Heartbeat/daemon service
-├── providers/      # LLM provider implementations
-├── session/        # Session management
-└── utils/          # Utility functions
+├── providers/      # LLM provider implementations (Anthropic, OpenAI, Gemini)
+├── session/        # Session management with LRU cache
+└── utils/          # Utility functions (atomic writes, task tracking)
 ```
 
 ## Architecture
 
 - **Async-first**: Built on `tokio` for high-performance async I/O
-- **Message bus**: Decoupled channel-agent communication via message bus
-- **Session management**: LRU cache for conversation history
-- **Memory**: SQLite FTS5 for semantic memory indexing
-- **LLM providers**: Trait-based abstraction for multiple providers
-- **Tools**: Extensible tool system for agent capabilities
-
-## Troubleshooting
-
-### Slack Connection Issues
-
-- Verify Socket Mode is enabled in your Slack app settings
-- Ensure `appToken` starts with `xapp-` (Socket Mode token)
-- Ensure `botToken` starts with `xoxb-` (Bot User OAuth Token)
-- Verify bot has required scopes: `chat:write`, `channels:history`, `groups:history`, `im:history`, `mpim:history`, `users:read`
-
-### WhatsApp Connection Issues
-
-- Ensure `~/.nanobot/whatsapp/` directory exists and is writable
-- Scan QR code when prompted on first run
-- Verify phone numbers in `allowFrom` are in international format (no `+` prefix)
-
-### Telegram Connection Issues
-
-- Verify the bot token is correct
-- Ensure `allowFrom` contains valid Telegram user IDs
-
-### Discord Connection Issues
-
-- Verify the bot token is correct
-- Ensure "Message Content Intent" is enabled in Discord Developer Portal
-- Verify bot has been invited to your server with correct permissions
+- **Message bus**: Decoupled channel-agent communication via inbound/outbound message bus
+- **Session management**: File-backed sessions with automatic TTL cleanup
+- **Memory**: SQLite FTS5 for semantic memory indexing with background indexer
+- **Compaction**: Automatic conversation summarisation when context exceeds threshold
+- **Streaming**: SSE-based streaming for Anthropic provider responses
+- **Tool execution**: Panic-isolated via `tokio::task::spawn` with LRU result caching
+- **Cron**: File-backed job store with multi-channel target delivery
+- **Action integrity**: Hallucination detection prevents the LLM from claiming actions it didn't perform
 
 ## Development
 
@@ -338,22 +437,6 @@ rustup override set nightly
 cargo test
 ```
 
-### CI/CD
-
-This project uses GitHub Actions for continuous integration. The CI pipeline:
-- Builds on both stable and nightly Rust toolchains
-- Runs `cargo fmt` and `cargo clippy` checks
-- Runs test suite
-- Creates release artifacts on main branch pushes
-
 ## License
 
 MIT
-
-## Contributing
-
-Contributions welcome! Please ensure:
-- Code compiles without errors
-- All warnings are addressed (or justified)
-- Tests pass
-- Code follows Rust conventions
