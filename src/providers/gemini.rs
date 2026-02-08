@@ -1,5 +1,5 @@
 use crate::providers::base::{
-    LLMProvider, LLMResponse, Message, ProviderMetrics, ToolCallRequest, ToolDefinition,
+    ChatRequest, LLMProvider, LLMResponse, ProviderMetrics, ToolCallRequest,
 };
 use crate::providers::errors::ProviderErrorHandler;
 use anyhow::{Context, Result};
@@ -66,15 +66,9 @@ impl GeminiProvider {
 
 #[async_trait]
 impl LLMProvider for GeminiProvider {
-    async fn chat(
-        &self,
-        messages: Vec<Message>,
-        tools: Option<Vec<ToolDefinition>>,
-        model: Option<&str>,
-        max_tokens: u32,
-        temperature: f32,
-    ) -> Result<LLMResponse> {
-        let gemini_contents: Vec<Value> = messages
+    async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+        let gemini_contents: Vec<Value> = req
+            .messages
             .into_iter()
             .map(|msg| {
                 let role = match msg.role.as_str() {
@@ -95,12 +89,12 @@ impl LLMProvider for GeminiProvider {
         let mut payload = json!({
             "contents": gemini_contents,
             "generationConfig": {
-                "maxOutputTokens": max_tokens,
-                "temperature": temperature,
+                "maxOutputTokens": req.max_tokens,
+                "temperature": req.temperature,
             },
         });
 
-        if let Some(tools) = tools {
+        if let Some(tools) = req.tools {
             payload["tools"] = json!([{
                 "functionDeclarations": tools
                     .into_iter()
@@ -113,7 +107,7 @@ impl LLMProvider for GeminiProvider {
             }]);
         }
 
-        let model_name = model.unwrap_or(&self.default_model);
+        let model_name = req.model.unwrap_or(&self.default_model);
         let url = format!(
             "https://generativelanguage.googleapis.com/v1/models/{}:generateContent?key={}",
             model_name, self.api_key

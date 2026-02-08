@@ -316,13 +316,15 @@ async fn gateway(model: Option<String>) -> Result<()> {
     let typing_tx = Arc::new(typing_tx);
 
     let agent = setup_agent(
-        bus_for_channels.clone(),
-        provider,
+        SetupAgentParams {
+            bus: bus_for_channels.clone(),
+            provider,
+            model: model.clone(),
+            outbound_tx: outbound_tx.clone(),
+            cron: cron.clone(),
+            typing_tx: Some(typing_tx),
+        },
         &config,
-        model.clone(),
-        outbound_tx.clone(),
-        cron.clone(),
-        Some(typing_tx),
     )
     .await?;
     setup_cron_callbacks(cron.clone(), agent.clone(), bus_for_channels.clone()).await?;
@@ -401,15 +403,16 @@ fn setup_cron_service() -> Result<Arc<CronService>> {
     Ok(Arc::new(cron))
 }
 
-async fn setup_agent(
-    bus_for_channels: Arc<Mutex<MessageBus>>,
+struct SetupAgentParams {
+    bus: Arc<Mutex<MessageBus>>,
     provider: Arc<dyn crate::providers::base::LLMProvider>,
-    config: &Config,
     model: Option<String>,
     outbound_tx: Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
     cron: Arc<CronService>,
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
-) -> Result<Arc<AgentLoop>> {
+}
+
+async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<AgentLoop>> {
     tracing::info!("Initializing agent loop...");
     tracing::debug!(
         "  - Max tool iterations: {}",
@@ -426,18 +429,18 @@ async fn setup_agent(
     );
     let agent = Arc::new(
         AgentLoop::new(crate::agent::AgentLoopConfig {
-            bus: bus_for_channels,
-            provider,
+            bus: params.bus,
+            provider: params.provider,
             workspace: config.workspace_path(),
-            model,
+            model: params.model,
             max_iterations: config.agents.defaults.max_tool_iterations,
             brave_api_key: Some(config.tools.web.search.api_key.clone()),
             exec_timeout: config.tools.exec.timeout,
             restrict_to_workspace: config.tools.restrict_to_workspace,
             allowed_commands: config.tools.exec.allowed_commands.clone(),
             compaction_config: config.agents.defaults.compaction.clone(),
-            outbound_tx,
-            cron_service: Some(cron),
+            outbound_tx: params.outbound_tx,
+            cron_service: Some(params.cron),
             google_config: Some(config.tools.google.clone()),
             github_config: Some(config.tools.github.clone()),
             weather_config: Some(config.tools.weather.clone()),
@@ -445,7 +448,7 @@ async fn setup_agent(
             temperature: 0.7,
             tool_temperature: 0.0,
             session_ttl_days: config.agents.defaults.session_ttl_days,
-            typing_tx,
+            typing_tx: params.typing_tx,
             channels_config: Some(config.channels.clone()),
         })
         .await?,

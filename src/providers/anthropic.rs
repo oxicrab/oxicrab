@@ -1,6 +1,6 @@
 use crate::providers::anthropic_common;
 use crate::providers::base::{
-    LLMProvider, LLMResponse, Message, ProviderMetrics, ToolCallRequest, ToolDefinition,
+    ChatRequest, LLMProvider, LLMResponse, ProviderMetrics, ToolCallRequest,
 };
 use crate::providers::errors::ProviderErrorHandler;
 use crate::providers::sse::parse_sse_chunk;
@@ -33,28 +33,21 @@ impl AnthropicProvider {
 
 #[async_trait]
 impl LLMProvider for AnthropicProvider {
-    async fn chat(
-        &self,
-        messages: Vec<Message>,
-        tools: Option<Vec<ToolDefinition>>,
-        model: Option<&str>,
-        max_tokens: u32,
-        temperature: f32,
-    ) -> Result<LLMResponse> {
-        let (system, anthropic_messages) = anthropic_common::convert_messages(messages);
+    async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+        let (system, anthropic_messages) = anthropic_common::convert_messages(req.messages);
 
         let mut payload = json!({
-            "model": model.unwrap_or(&self.default_model),
+            "model": req.model.unwrap_or(&self.default_model),
             "messages": anthropic_messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
+            "max_tokens": req.max_tokens,
+            "temperature": req.temperature,
         });
 
         if let Some(system) = system {
             payload["system"] = json!(system);
         }
 
-        if let Some(tools) = tools {
+        if let Some(tools) = req.tools {
             payload["tools"] = json!(anthropic_common::convert_tools(tools));
             payload["tool_choice"] = json!({"type": "auto"});
         }
@@ -89,21 +82,14 @@ impl LLMProvider for AnthropicProvider {
         Ok(anthropic_common::parse_response(&json))
     }
 
-    async fn chat_stream(
-        &self,
-        messages: Vec<Message>,
-        tools: Option<Vec<ToolDefinition>>,
-        model: Option<&str>,
-        max_tokens: u32,
-        temperature: f32,
-    ) -> Result<LLMResponse> {
-        let (system, anthropic_messages) = anthropic_common::convert_messages(messages);
+    async fn chat_stream(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+        let (system, anthropic_messages) = anthropic_common::convert_messages(req.messages);
 
         let mut payload = json!({
-            "model": model.unwrap_or(&self.default_model),
+            "model": req.model.unwrap_or(&self.default_model),
             "messages": anthropic_messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
+            "max_tokens": req.max_tokens,
+            "temperature": req.temperature,
             "stream": true,
         });
 
@@ -111,7 +97,7 @@ impl LLMProvider for AnthropicProvider {
             payload["system"] = json!(system);
         }
 
-        if let Some(tools) = tools {
+        if let Some(tools) = req.tools {
             payload["tools"] = json!(anthropic_common::convert_tools(tools));
             payload["tool_choice"] = json!({"type": "auto"});
         }

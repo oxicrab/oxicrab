@@ -1,4 +1,4 @@
-use crate::providers::base::{LLMProvider, Message};
+use crate::providers::base::{ChatRequest, LLMProvider, Message};
 use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -91,7 +91,13 @@ impl MessageCompactor {
 
         let response = self
             .provider
-            .chat(llm_messages, None, self.model.as_deref(), 2000, 0.3)
+            .chat(ChatRequest {
+                messages: llm_messages,
+                tools: None,
+                model: self.model.as_deref(),
+                max_tokens: 2000,
+                temperature: 0.3,
+            })
             .await?;
 
         Ok(response.content.unwrap_or_default())
@@ -110,7 +116,13 @@ impl MessageCompactor {
 
         let response = self
             .provider
-            .chat(llm_messages, None, self.model.as_deref(), 500, 0.3)
+            .chat(ChatRequest {
+                messages: llm_messages,
+                tools: None,
+                model: self.model.as_deref(),
+                max_tokens: 500,
+                temperature: 0.3,
+            })
             .await?;
 
         let content = response.content.unwrap_or_default();

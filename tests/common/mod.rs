@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use nanobot::providers::base::{LLMProvider, LLMResponse, Message, ToolDefinition};
+use nanobot::providers::base::{ChatRequest, LLMProvider, LLMResponse, Message, ToolDefinition};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -54,20 +54,13 @@ impl MockLLMProvider {
 
 #[async_trait]
 impl LLMProvider for MockLLMProvider {
-    async fn chat(
-        &self,
-        messages: Vec<Message>,
-        tools: Option<Vec<ToolDefinition>>,
-        model: Option<&str>,
-        max_tokens: u32,
-        temperature: f32,
-    ) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
         self.calls.lock().unwrap().push(RecordedCall {
-            messages,
-            tools,
-            model: model.map(|s| s.to_string()),
-            max_tokens,
-            temperature,
+            messages: req.messages,
+            tools: req.tools,
+            model: req.model.map(|s| s.to_string()),
+            max_tokens: req.max_tokens,
+            temperature: req.temperature,
         });
 
         let response = self.responses.lock().unwrap().pop_front();

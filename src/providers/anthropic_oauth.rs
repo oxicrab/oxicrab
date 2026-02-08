@@ -1,5 +1,5 @@
 use crate::providers::anthropic_common;
-use crate::providers::base::{LLMProvider, LLMResponse, Message, ToolDefinition};
+use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
@@ -371,15 +371,9 @@ impl AnthropicOAuthProvider {
 
 #[async_trait]
 impl LLMProvider for AnthropicOAuthProvider {
-    async fn chat(
-        &self,
-        messages: Vec<Message>,
-        tools: Option<Vec<ToolDefinition>>,
-        model: Option<&str>,
-        max_tokens: u32,
-        temperature: f32,
-    ) -> Result<LLMResponse> {
-        let model = model
+    async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+        let model = req
+            .model
             .map(|m| {
                 // Strip provider prefix (e.g. "anthropic/claude-opus-4-6" -> "claude-opus-4-6")
                 if m.contains('/') {
@@ -392,20 +386,20 @@ impl LLMProvider for AnthropicOAuthProvider {
 
         let token = self.ensure_valid_token().await?;
 
-        let (system, anthropic_messages) = anthropic_common::convert_messages(messages);
+        let (system, anthropic_messages) = anthropic_common::convert_messages(req.messages);
 
         let mut payload = json!({
             "model": model,
             "messages": anthropic_messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
+            "max_tokens": req.max_tokens,
+            "temperature": req.temperature,
         });
 
         if let Some(system) = system {
             payload["system"] = json!(system);
         }
 
-        if let Some(tools) = tools {
+        if let Some(tools) = req.tools {
             payload["tools"] = json!(anthropic_common::convert_tools(tools));
             payload["tool_choice"] = json!({"type": "auto"});
         }

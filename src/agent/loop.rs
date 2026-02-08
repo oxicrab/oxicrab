@@ -493,11 +493,13 @@ impl AgentLoop {
             let response = self
                 .provider
                 .chat_with_retry(
-                    messages.clone(),
-                    Some(tools_defs.clone()),
-                    Some(&self.model),
-                    4096,
-                    current_temp,
+                    crate::providers::base::ChatRequest {
+                        messages: messages.clone(),
+                        tools: Some(tools_defs.clone()),
+                        model: Some(&self.model),
+                        max_tokens: 4096,
+                        temperature: current_temp,
+                    },
                     Some(crate::providers::base::RetryConfig::default()),
                 )
                 .await?;

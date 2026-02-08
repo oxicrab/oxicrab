@@ -1,5 +1,5 @@
 use crate::providers::base::{
-    LLMProvider, LLMResponse, Message, ProviderMetrics, ToolCallRequest, ToolDefinition,
+    ChatRequest, LLMProvider, LLMResponse, ProviderMetrics, ToolCallRequest,
 };
 use crate::providers::errors::ProviderErrorHandler;
 use anyhow::{Context, Result};
@@ -64,15 +64,9 @@ impl OpenAIProvider {
 
 #[async_trait]
 impl LLMProvider for OpenAIProvider {
-    async fn chat(
-        &self,
-        messages: Vec<Message>,
-        tools: Option<Vec<ToolDefinition>>,
-        model: Option<&str>,
-        max_tokens: u32,
-        temperature: f32,
-    ) -> Result<LLMResponse> {
-        let openai_messages: Vec<Value> = messages
+    async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+        let openai_messages: Vec<Value> = req
+            .messages
             .into_iter()
             .map(|msg| {
                 let mut m = json!({
@@ -103,13 +97,13 @@ impl LLMProvider for OpenAIProvider {
             .collect();
 
         let mut payload = json!({
-            "model": model.unwrap_or(&self.default_model),
+            "model": req.model.unwrap_or(&self.default_model),
             "messages": openai_messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
+            "max_tokens": req.max_tokens,
+            "temperature": req.temperature,
         });
 
-        if let Some(tools) = tools {
+        if let Some(tools) = req.tools {
             payload["tools"] = json!(tools
                 .into_iter()
                 .map(|t| json!({

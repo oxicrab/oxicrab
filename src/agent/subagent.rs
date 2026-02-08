@@ -193,13 +193,13 @@ impl SubagentManager {
 
             let response = self
                 .provider
-                .chat(
-                    messages.clone(),
-                    Some(tools.get_tool_definitions()),
-                    Some(&self.model),
-                    4096,
-                    0.7,
-                )
+                .chat(crate::providers::base::ChatRequest {
+                    messages: messages.clone(),
+                    tools: Some(tools.get_tool_definitions()),
+                    model: Some(&self.model),
+                    max_tokens: 4096,
+                    temperature: 0.7,
+                })
                 .await?;
 
             if response.has_tool_calls() {

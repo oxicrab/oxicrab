@@ -108,42 +108,32 @@ impl Default for RetryConfig {
     }
 }
 
+/// Parameters for a chat request to an LLM provider.
+#[derive(Debug, Clone)]
+pub struct ChatRequest<'a> {
+    pub messages: Vec<Message>,
+    pub tools: Option<Vec<ToolDefinition>>,
+    pub model: Option<&'a str>,
+    pub max_tokens: u32,
+    pub temperature: f32,
+}
+
 #[async_trait]
 pub trait LLMProvider: Send + Sync {
-    async fn chat(
-        &self,
-        messages: Vec<Message>,
-        tools: Option<Vec<ToolDefinition>>,
-        model: Option<&str>,
-        max_tokens: u32,
-        temperature: f32,
-    ) -> anyhow::Result<LLMResponse>;
+    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse>;
 
     fn default_model(&self) -> &str;
 
     /// Chat using streaming (SSE). Default implementation falls back to non-streaming.
     /// Implementations collect streamed events and return the assembled response.
-    async fn chat_stream(
-        &self,
-        messages: Vec<Message>,
-        tools: Option<Vec<ToolDefinition>>,
-        model: Option<&str>,
-        max_tokens: u32,
-        temperature: f32,
-    ) -> anyhow::Result<LLMResponse> {
-        // Default: fall back to non-streaming
-        self.chat(messages, tools, model, max_tokens, temperature)
-            .await
+    async fn chat_stream(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+        self.chat(req).await
     }
 
     /// Chat with automatic retry on transient errors
     async fn chat_with_retry(
         &self,
-        messages: Vec<Message>,
-        tools: Option<Vec<ToolDefinition>>,
-        model: Option<&str>,
-        max_tokens: u32,
-        temperature: f32,
+        req: ChatRequest<'_>,
         retry_config: Option<RetryConfig>,
     ) -> anyhow::Result<LLMResponse> {
         let config = retry_config.unwrap_or_default();
@@ -151,18 +141,18 @@ pub trait LLMProvider: Send + Sync {
 
         // Use Arc to avoid cloning messages and tools on each retry
         use std::sync::Arc;
-        let messages_arc = Arc::new(messages);
-        let tools_arc = tools.map(Arc::new);
+        let messages_arc = Arc::new(req.messages);
+        let tools_arc = req.tools.map(Arc::new);
 
         for attempt in 0..=config.max_retries {
             match self
-                .chat_stream(
-                    (*messages_arc).clone(),
-                    tools_arc.as_ref().map(|t| (**t).clone()),
-                    model,
-                    max_tokens,
-                    temperature,
-                )
+                .chat_stream(ChatRequest {
+                    messages: (*messages_arc).clone(),
+                    tools: tools_arc.as_ref().map(|t| (**t).clone()),
+                    model: req.model,
+                    max_tokens: req.max_tokens,
+                    temperature: req.temperature,
+                })
                 .await
             {
                 Ok(response) => return Ok(response),
