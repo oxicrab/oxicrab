@@ -49,8 +49,13 @@ jobs:
       - name: Build
         run: cargo build --verbose
 
-      - name: Run tests
-        run: cargo test --verbose
+      - name: Run unit tests
+        run: cargo test --lib --verbose
+
+      - name: Run integration tests
+        run: cargo test --test session_management --test cron_jobs --test tool_registry --test message_flow --verbose -- --test-threads=1
+        env:
+          NANOBOT_HOME: ${{ runner.temp }}/nanobot-test
 
   release:
     name: Release Build
