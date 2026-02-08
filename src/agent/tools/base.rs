@@ -91,6 +91,12 @@ pub trait Tool: Send + Sync {
         schema
     }
 
+    /// Whether this tool's results can be cached.
+    /// Only read-only tools should return true. Tools that mutate state must return false.
+    fn cacheable(&self) -> bool {
+        false
+    }
+
     /// Set context for tools that need it (`channel`, `chat_id`).
     /// Default implementation does nothing - tools that need context override this.
     async fn set_context(&self, _channel: &str, _chat_id: &str) {

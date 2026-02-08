@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::errors::NanobotError;
 use serde_json::Value;
 use tracing::{error, warn};
 
@@ -9,16 +9,16 @@ use tracing::{error, warn};
 pub struct ProviderErrorHandler;
 
 impl ProviderErrorHandler {
-    /// Parse API error response and return a user-friendly error message
-    pub fn parse_api_error(status: u16, error_text: &str) -> Result<()> {
+    /// Parse API error response and return a typed error
+    pub fn parse_api_error(status: u16, error_text: &str) -> Result<(), NanobotError> {
         // Try to parse error JSON if possible to provide better error messages
         if let Ok(error_json) = serde_json::from_str::<Value>(error_text) {
-            if let Some(error) = error_json.get("error") {
-                let error_type = error
+            if let Some(err) = error_json.get("error") {
+                let error_type = err
                     .get("type")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
-                let error_msg = error
+                let error_msg = err
                     .get("message")
                     .and_then(|v| v.as_str())
                     .unwrap_or("Unknown error");
@@ -26,23 +26,34 @@ impl ProviderErrorHandler {
                 // Provide helpful message for model not found errors
                 if error_type == "not_found_error" && error_msg.contains("model:") {
                     let model_name = error_msg.replace("model: ", "").trim().to_string();
-                    return Err(anyhow::anyhow!(
-                        "Model '{}' not found. This model may be deprecated or incorrect.\n\
-                        Please update your config file (~/.nanobot/config.json) to use a valid model:\n\
-                        - claude-sonnet-4-5-20250929 (recommended)\n\
-                        - claude-haiku-4-5-20251001 (fastest)\n\
-                        - claude-opus-4-5-20251101 (most capable)\n\
-                        \n\
-                        Or remove the 'model' field from your config to use the default.",
-                        model_name
-                    ));
+                    return Err(NanobotError::Provider {
+                        message: format!(
+                            "Model '{}' not found. This model may be deprecated or incorrect.\n\
+                            Please update your config file (~/.nanobot/config.json) to use a valid model:\n\
+                            - claude-sonnet-4-5-20250929 (recommended)\n\
+                            - claude-haiku-4-5-20251001 (fastest)\n\
+                            - claude-opus-4-5-20251101 (most capable)\n\
+                            \n\
+                            Or remove the 'model' field from your config to use the default.",
+                            model_name
+                        ),
+                        retryable: false,
+                    });
                 }
 
-                return Err(anyhow::anyhow!("API error ({}): {}", error_type, error_msg));
+                let retryable = status == 500 || status == 502 || status == 503;
+                return Err(NanobotError::Provider {
+                    message: format!("API error ({}): {}", error_type, error_msg),
+                    retryable,
+                });
             }
         }
 
-        Err(anyhow::anyhow!("API error ({}): {}", status, error_text))
+        let retryable = status == 500 || status == 502 || status == 503;
+        Err(NanobotError::Provider {
+            message: format!("API error ({}): {}", status, error_text),
+            retryable,
+        })
     }
 
     /// Log and handle provider errors consistently
@@ -54,25 +65,21 @@ impl ProviderErrorHandler {
     }
 
     /// Handle rate limiting errors
-    pub fn handle_rate_limit(status: u16, retry_after: Option<u64>) -> Result<()> {
+    pub fn handle_rate_limit(status: u16, retry_after: Option<u64>) -> Result<(), NanobotError> {
         if let Some(seconds) = retry_after {
             warn!("Rate limit hit. Retry after {} seconds", seconds);
-            Err(anyhow::anyhow!(
-                "Rate limit exceeded. Retry after {} seconds",
-                seconds
-            ))
         } else {
             warn!("Rate limit hit (status: {})", status);
-            Err(anyhow::anyhow!("Rate limit exceeded (status: {})", status))
         }
+        Err(NanobotError::RateLimit { retry_after })
     }
 
     /// Handle authentication errors
-    pub fn handle_auth_error(status: u16, error_text: &str) -> Result<()> {
+    pub fn handle_auth_error(status: u16, error_text: &str) -> Result<(), NanobotError> {
         warn!("Authentication error (status: {}): {}", status, error_text);
-        Err(anyhow::anyhow!(
+        Err(NanobotError::Auth(format!(
             "Authentication failed. Please check your API key or credentials. Error: {}",
             error_text
-        ))
+        )))
     }
 }

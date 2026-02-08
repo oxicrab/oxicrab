@@ -5,6 +5,7 @@ mod channels;
 mod cli;
 mod config;
 mod cron;
+mod errors;
 mod heartbeat;
 mod providers;
 mod session;

@@ -229,6 +229,49 @@ impl SessionManager {
         }))
     }
 
+    /// Delete session files older than `ttl_days` days.
+    /// Runs once at startup to prevent unbounded disk accumulation.
+    pub fn cleanup_old_sessions(&self, ttl_days: u32) -> Result<usize> {
+        use std::time::{Duration, SystemTime};
+        let cutoff = SystemTime::now() - Duration::from_secs(u64::from(ttl_days) * 86400);
+        let mut deleted = 0;
+
+        let entries = fs::read_dir(&self.sessions_dir).with_context(|| {
+            format!(
+                "Failed to read sessions dir: {}",
+                self.sessions_dir.display()
+            )
+        })?;
+
+        for entry in entries {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let modified = match entry.metadata().and_then(|m| m.modified()) {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            if modified < cutoff {
+                if let Err(e) = fs::remove_file(&path) {
+                    tracing::warn!("Failed to delete old session {}: {}", path.display(), e);
+                } else {
+                    tracing::info!("Cleaned up old session: {}", path.display());
+                    deleted += 1;
+                }
+            }
+        }
+
+        if deleted > 0 {
+            tracing::info!("Session cleanup: removed {} expired session(s)", deleted);
+        }
+        Ok(deleted)
+    }
+
     pub async fn save(&self, session: &Session) -> Result<()> {
         let path = self.get_session_path(&session.key);
         ensure_dir(path.parent().context("Session path has no parent")?)?;

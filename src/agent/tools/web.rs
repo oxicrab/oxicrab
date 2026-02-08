@@ -41,6 +41,10 @@ impl Tool for WebSearchTool {
         ToolVersion::new(1, 0, 0)
     }
 
+    fn cacheable(&self) -> bool {
+        true
+    }
+
     fn parameters(&self) -> Value {
         serde_json::json!({
             "type": "object",
@@ -143,6 +147,10 @@ impl Tool for WebFetchTool {
 
     fn version(&self) -> ToolVersion {
         ToolVersion::new(1, 0, 0)
+    }
+
+    fn cacheable(&self) -> bool {
+        true
     }
 
     fn parameters(&self) -> Value {

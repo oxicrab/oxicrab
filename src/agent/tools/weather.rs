@@ -136,6 +136,10 @@ impl Tool for WeatherTool {
         ToolVersion::new(1, 0, 0)
     }
 
+    fn cacheable(&self) -> bool {
+        true
+    }
+
     fn parameters(&self) -> Value {
         serde_json::json!({
             "type": "object",

@@ -298,6 +298,7 @@ This file stores important information that should persist across sessions.
 async fn gateway(model: Option<String>) -> Result<()> {
     tracing::info!("Loading configuration...");
     let config = load_config(None)?;
+    config.validate()?;
     let effective_model = model.as_deref().unwrap_or(&config.agents.defaults.model);
     tracing::info!("Configuration loaded. Using model: {}", effective_model);
     tracing::debug!("Workspace: {:?}", config.workspace_path());
@@ -432,6 +433,7 @@ async fn setup_agent(
             todoist_config: Some(config.tools.todoist.clone()),
             temperature: 0.7,
             tool_temperature: 0.0,
+            session_ttl_days: config.agents.defaults.session_ttl_days,
         })
         .await?,
     );
@@ -596,6 +598,7 @@ fn start_channels_loop(
 
 async fn agent(message: Option<String>, session: String) -> Result<()> {
     let config = load_config(None)?;
+    config.validate()?;
 
     // Create provider
     let provider = config.create_provider(None).await?;
@@ -624,6 +627,7 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
         todoist_config: Some(config.tools.todoist.clone()),
         temperature: 0.7,
         tool_temperature: 0.0,
+        session_ttl_days: config.agents.defaults.session_ttl_days,
     })
     .await?;
 

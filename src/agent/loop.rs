@@ -56,6 +56,8 @@ pub struct AgentLoopConfig {
     pub temperature: f32,
     /// Temperature for tool-calling iterations (default 0.0 for determinism)
     pub tool_temperature: f32,
+    /// Session TTL in days for cleanup (default 30)
+    pub session_ttl_days: u32,
 }
 
 pub struct AgentLoop {
@@ -99,6 +101,7 @@ impl AgentLoop {
             todoist_config,
             temperature,
             tool_temperature,
+            session_ttl_days,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -111,7 +114,20 @@ impl AgentLoop {
         }));
         let model = model.unwrap_or_else(|| provider.default_model().to_string());
         let context = Arc::new(Mutex::new(ContextBuilder::new(&workspace)?));
-        let sessions: Arc<dyn SessionStore> = Arc::new(SessionManager::new(workspace.clone())?);
+        let session_mgr = SessionManager::new(workspace.clone())?;
+
+        // Clean up expired sessions in background
+        if session_ttl_days > 0 {
+            let ttl = session_ttl_days;
+            let mgr_for_cleanup = SessionManager::new(workspace.clone())?;
+            tokio::spawn(async move {
+                if let Err(e) = mgr_for_cleanup.cleanup_old_sessions(ttl) {
+                    tracing::warn!("Session cleanup failed: {}", e);
+                }
+            });
+        }
+
+        let sessions: Arc<dyn SessionStore> = Arc::new(session_mgr);
         let memory = Arc::new(MemoryStore::new(&workspace)?);
         // Start background memory indexer
         memory.start_indexer().await?;
@@ -479,10 +495,18 @@ impl AgentLoop {
                             "Executing tool: {} with arguments: {}",
                             tool_call.name, tool_call.arguments
                         );
-                        let result = tools_guard
+                        match tools_guard
                             .execute(&tool_call.name, tool_call.arguments.clone())
-                            .await?;
-                        (truncate_tool_result(&result.content, 3000), result.is_error)
+                            .await
+                        {
+                            Ok(result) => {
+                                (truncate_tool_result(&result.content, 3000), result.is_error)
+                            }
+                            Err(e) => {
+                                warn!("Tool '{}' failed: {}", tool_call.name, e);
+                                (format!("Tool execution failed: {}", e), true)
+                            }
+                        }
                     };
 
                     // Drop lock before adding to messages

@@ -121,6 +121,21 @@ pub trait LLMProvider: Send + Sync {
 
     fn default_model(&self) -> &str;
 
+    /// Chat using streaming (SSE). Default implementation falls back to non-streaming.
+    /// Implementations collect streamed events and return the assembled response.
+    async fn chat_stream(
+        &self,
+        messages: Vec<Message>,
+        tools: Option<Vec<ToolDefinition>>,
+        model: Option<&str>,
+        max_tokens: u32,
+        temperature: f32,
+    ) -> anyhow::Result<LLMResponse> {
+        // Default: fall back to non-streaming
+        self.chat(messages, tools, model, max_tokens, temperature)
+            .await
+    }
+
     /// Chat with automatic retry on transient errors
     async fn chat_with_retry(
         &self,
@@ -141,8 +156,8 @@ pub trait LLMProvider: Send + Sync {
 
         for attempt in 0..=config.max_retries {
             match self
-                .chat(
-                    (*messages_arc).clone(), // Only clone on actual call
+                .chat_stream(
+                    (*messages_arc).clone(),
                     tools_arc.as_ref().map(|t| (**t).clone()),
                     model,
                     max_tokens,

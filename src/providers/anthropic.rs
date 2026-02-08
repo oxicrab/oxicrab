@@ -1,8 +1,12 @@
 use crate::providers::anthropic_common;
-use crate::providers::base::{LLMProvider, LLMResponse, Message, ProviderMetrics, ToolDefinition};
+use crate::providers::base::{
+    LLMProvider, LLMResponse, Message, ProviderMetrics, ToolCallRequest, ToolDefinition,
+};
 use crate::providers::errors::ProviderErrorHandler;
+use crate::providers::sse::parse_sse_chunk;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use reqwest::Client;
 use serde_json::{json, Value};
 
@@ -90,7 +94,8 @@ impl LLMProvider for AnthropicProvider {
                 );
                 return Err(
                     ProviderErrorHandler::handle_rate_limit(status.as_u16(), retry_after)
-                        .unwrap_err(),
+                        .unwrap_err()
+                        .into(),
                 );
             }
 
@@ -103,7 +108,8 @@ impl LLMProvider for AnthropicProvider {
                 );
                 return Err(
                     ProviderErrorHandler::handle_auth_error(status.as_u16(), &error_text)
-                        .unwrap_err(),
+                        .unwrap_err()
+                        .into(),
                 );
             }
 
@@ -114,7 +120,9 @@ impl LLMProvider for AnthropicProvider {
                 "chat",
             );
             return Err(
-                ProviderErrorHandler::parse_api_error(status.as_u16(), &error_text).unwrap_err(),
+                ProviderErrorHandler::parse_api_error(status.as_u16(), &error_text)
+                    .unwrap_err()
+                    .into(),
             );
         }
 
@@ -139,7 +147,9 @@ impl LLMProvider for AnthropicProvider {
                 "Anthropic",
                 "chat",
             );
-            return Err(ProviderErrorHandler::parse_api_error(200, &error_text).unwrap_err());
+            return Err(ProviderErrorHandler::parse_api_error(200, &error_text)
+                .unwrap_err()
+                .into());
         }
 
         // Update metrics on success
@@ -158,6 +168,191 @@ impl LLMProvider for AnthropicProvider {
         }
 
         Ok(anthropic_common::parse_response(&json))
+    }
+
+    async fn chat_stream(
+        &self,
+        messages: Vec<Message>,
+        tools: Option<Vec<ToolDefinition>>,
+        model: Option<&str>,
+        max_tokens: u32,
+        temperature: f32,
+    ) -> Result<LLMResponse> {
+        let (system, anthropic_messages) = anthropic_common::convert_messages(messages);
+
+        let mut payload = json!({
+            "model": model.unwrap_or(&self.default_model),
+            "messages": anthropic_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": true,
+        });
+
+        if let Some(system) = system {
+            payload["system"] = json!(system);
+        }
+
+        if let Some(tools) = tools {
+            payload["tools"] = json!(anthropic_common::convert_tools(tools));
+            payload["tool_choice"] = json!({"type": "auto"});
+        }
+
+        let resp = self
+            .client
+            .post(API_URL)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&payload)
+            .send()
+            .await
+            .context("Failed to send streaming request to Anthropic API")?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let retry_after = resp
+                .headers()
+                .get("retry-after")
+                .and_then(|h| h.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok());
+
+            let error_text = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "unknown error".to_string());
+
+            if status == 429 {
+                return Err(
+                    ProviderErrorHandler::handle_rate_limit(status.as_u16(), retry_after)
+                        .unwrap_err()
+                        .into(),
+                );
+            }
+            if status == 401 || status == 403 {
+                return Err(
+                    ProviderErrorHandler::handle_auth_error(status.as_u16(), &error_text)
+                        .unwrap_err()
+                        .into(),
+                );
+            }
+            return Err(
+                ProviderErrorHandler::parse_api_error(status.as_u16(), &error_text)
+                    .unwrap_err()
+                    .into(),
+            );
+        }
+
+        // Process SSE stream
+        let mut content_text = String::new();
+        let mut tool_calls: Vec<ToolCallRequest> = Vec::new();
+        let mut current_tool_id = String::new();
+        let mut current_tool_name = String::new();
+        let mut current_tool_json = String::new();
+        let mut buf = String::new();
+
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.context("Error reading stream chunk")?;
+            let text = String::from_utf8_lossy(&chunk);
+            buf.push_str(&text);
+
+            // Process complete SSE events from buffer
+            let events = parse_sse_chunk(&buf);
+            // Keep any incomplete event data (last line without trailing \n\n)
+            if let Some(last_double_newline) = buf.rfind("\n\n") {
+                buf = buf[last_double_newline + 2..].to_string();
+            }
+
+            for event in events {
+                let Some(data) = event.data else { continue };
+                let event_type = data["type"].as_str().unwrap_or("");
+
+                match event_type {
+                    "content_block_start" => {
+                        let block = &data["content_block"];
+                        if block["type"].as_str() == Some("tool_use") {
+                            current_tool_id = block["id"].as_str().unwrap_or("").to_string();
+                            current_tool_name = block["name"].as_str().unwrap_or("").to_string();
+                            current_tool_json.clear();
+                        }
+                    }
+                    "content_block_delta" => {
+                        let delta = &data["delta"];
+                        match delta["type"].as_str() {
+                            Some("text_delta") => {
+                                if let Some(text) = delta["text"].as_str() {
+                                    content_text.push_str(text);
+                                }
+                            }
+                            Some("input_json_delta") => {
+                                if let Some(json_str) = delta["partial_json"].as_str() {
+                                    current_tool_json.push_str(json_str);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    "content_block_stop" => {
+                        if !current_tool_id.is_empty() {
+                            let arguments: Value =
+                                serde_json::from_str(&current_tool_json).unwrap_or(Value::Null);
+                            tool_calls.push(ToolCallRequest {
+                                id: current_tool_id.clone(),
+                                name: current_tool_name.clone(),
+                                arguments,
+                            });
+                            current_tool_id.clear();
+                            current_tool_name.clear();
+                            current_tool_json.clear();
+                        }
+                    }
+                    "message_delta" => {
+                        // Could extract stop_reason and usage here if needed
+                        if let Some(usage) = data.get("usage").and_then(|u| u.as_object()) {
+                            if let Ok(mut metrics) = self.metrics.lock() {
+                                if let Some(tokens) =
+                                    usage.get("output_tokens").and_then(|t| t.as_u64())
+                                {
+                                    metrics.token_count += tokens;
+                                }
+                            }
+                        }
+                    }
+                    "message_start" => {
+                        if let Some(usage) = data
+                            .get("message")
+                            .and_then(|m| m.get("usage"))
+                            .and_then(|u| u.as_object())
+                        {
+                            if let Ok(mut metrics) = self.metrics.lock() {
+                                if let Some(tokens) =
+                                    usage.get("input_tokens").and_then(|t| t.as_u64())
+                                {
+                                    metrics.token_count += tokens;
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Update metrics
+        {
+            if let Ok(mut metrics) = self.metrics.lock() {
+                metrics.request_count += 1;
+            }
+        }
+
+        Ok(LLMResponse {
+            content: if content_text.is_empty() {
+                None
+            } else {
+                Some(content_text)
+            },
+            tool_calls,
+            reasoning_content: None,
+        })
     }
 
     fn default_model(&self) -> &str {

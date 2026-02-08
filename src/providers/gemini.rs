@@ -151,7 +151,8 @@ impl LLMProvider for GeminiProvider {
                 );
                 return Err(
                     ProviderErrorHandler::handle_rate_limit(status.as_u16(), retry_after)
-                        .unwrap_err(),
+                        .unwrap_err()
+                        .into(),
                 );
             }
 
@@ -164,7 +165,8 @@ impl LLMProvider for GeminiProvider {
                 );
                 return Err(
                     ProviderErrorHandler::handle_auth_error(status.as_u16(), &error_text)
-                        .unwrap_err(),
+                        .unwrap_err()
+                        .into(),
                 );
             }
 
@@ -175,7 +177,9 @@ impl LLMProvider for GeminiProvider {
                 "chat",
             );
             return Err(
-                ProviderErrorHandler::parse_api_error(status.as_u16(), &error_text).unwrap_err(),
+                ProviderErrorHandler::parse_api_error(status.as_u16(), &error_text)
+                    .unwrap_err()
+                    .into(),
             );
         }
 
@@ -200,7 +204,9 @@ impl LLMProvider for GeminiProvider {
                 "Gemini",
                 "chat",
             );
-            return Err(ProviderErrorHandler::parse_api_error(200, &error_text).unwrap_err());
+            return Err(ProviderErrorHandler::parse_api_error(200, &error_text)
+                .unwrap_err()
+                .into());
         }
 
         // Update metrics on success
