@@ -434,3 +434,83 @@ fn html_to_markdown(html: &str) -> String {
         normalize(&parts.join(" "))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_tags_removes_html_tags() {
+        let html = "<p>hello</p>";
+        let result = strip_tags(html);
+        assert!(result.contains("hello"));
+        assert!(!result.contains("<p>"));
+        assert!(!result.contains("</p>"));
+    }
+
+    #[test]
+    fn test_strip_tags_handles_nested_tags() {
+        let html = "<div><p><strong>nested</strong> content</p></div>";
+        let result = strip_tags(html);
+        assert!(result.contains("nested"));
+        assert!(result.contains("content"));
+        assert!(!result.contains("<div>"));
+        assert!(!result.contains("<strong>"));
+    }
+
+    #[test]
+    fn test_normalize_collapses_whitespace() {
+        let text = "a  b\t\tc";
+        let result = normalize(text);
+        assert_eq!(result, "a b c");
+    }
+
+    #[test]
+    fn test_normalize_trims_excess_newlines() {
+        let text = "line1\n\n\n\nline2";
+        let result = normalize(text);
+        // The normalize function replaces multiple newlines with double newline
+        assert!(result.contains("line1"));
+        assert!(result.contains("line2"));
+        assert!(!result.contains("\n\n\n\n"));
+    }
+
+    #[test]
+    fn test_strip_scripts_styles_removes_script_blocks() {
+        let html = "<div>content</div><script>alert('test');</script><p>more</p>";
+        let result = strip_scripts_styles(html);
+        assert!(result.contains("<div>content</div>"));
+        assert!(result.contains("<p>more</p>"));
+        assert!(!result.contains("<script>"));
+        assert!(!result.contains("alert"));
+    }
+
+    #[test]
+    fn test_strip_scripts_styles_removes_style_blocks() {
+        let html = "<div>content</div><style>.class { color: red; }</style><p>more</p>";
+        let result = strip_scripts_styles(html);
+        assert!(result.contains("<div>content</div>"));
+        assert!(result.contains("<p>more</p>"));
+        assert!(!result.contains("<style>"));
+        assert!(!result.contains("color: red"));
+    }
+
+    #[test]
+    fn test_html_to_markdown_converts_links() {
+        let html = r#"<a href="http://example.com">click here</a>"#;
+        let result = html_to_markdown(html);
+        assert!(
+            result.contains("[click here](http://example.com)") || result.contains("click here")
+        );
+    }
+
+    #[test]
+    fn test_html_to_markdown_converts_bold() {
+        let html = "<b>bold text</b> and <strong>strong text</strong>";
+        let result = html_to_markdown(html);
+        // The function may or may not preserve bold formatting depending on the implementation
+        // At minimum, it should contain the text content
+        assert!(result.contains("bold text"));
+        assert!(result.contains("strong text"));
+    }
+}

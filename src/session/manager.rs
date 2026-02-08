@@ -282,3 +282,97 @@ impl SessionStore for SessionManager {
         SessionManager::save(self, session).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_session_new_creates_empty_session() {
+        let session = Session::new("test_key".to_string());
+        assert_eq!(session.key, "test_key");
+        assert_eq!(session.messages.len(), 0);
+        assert!(session.metadata.is_empty());
+    }
+
+    #[test]
+    fn test_session_add_message() {
+        let mut session = Session::new("test_key".to_string());
+        let extra = HashMap::new();
+        session.add_message("user".to_string(), "Hello".to_string(), extra);
+
+        assert_eq!(session.messages.len(), 1);
+        assert_eq!(session.messages[0].role, "user");
+        assert_eq!(session.messages[0].content, "Hello");
+    }
+
+    #[test]
+    fn test_session_get_history_with_limit() {
+        let mut session = Session::new("test_key".to_string());
+        let extra = HashMap::new();
+
+        // Add 5 messages
+        for i in 0..5 {
+            session.add_message("user".to_string(), format!("Message {}", i), extra.clone());
+        }
+
+        let history = session.get_history(3);
+        assert_eq!(history.len(), 3);
+
+        // Should return last 3 messages (indices 2, 3, 4)
+        assert_eq!(
+            history[0]["content"],
+            Value::String("Message 2".to_string())
+        );
+        assert_eq!(
+            history[1]["content"],
+            Value::String("Message 3".to_string())
+        );
+        assert_eq!(
+            history[2]["content"],
+            Value::String("Message 4".to_string())
+        );
+    }
+
+    #[test]
+    fn test_session_get_full_history() {
+        let mut session = Session::new("test_key".to_string());
+        let extra = HashMap::new();
+
+        // Add 3 messages
+        for i in 0..3 {
+            session.add_message("user".to_string(), format!("Message {}", i), extra.clone());
+        }
+
+        let history = session.get_full_history();
+        assert_eq!(history.len(), 3);
+
+        for (i, entry) in history.iter().enumerate() {
+            assert_eq!(entry["content"], Value::String(format!("Message {}", i)));
+            assert_eq!(entry["role"], Value::String("user".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_session_add_message_prunes_at_capacity() {
+        let mut session = Session::new("test_key".to_string());
+        let extra = HashMap::new();
+
+        // Add MAX_SESSION_MESSAGES + 5 messages
+        for i in 0..(MAX_SESSION_MESSAGES + 5) {
+            session.add_message("user".to_string(), format!("Message {}", i), extra.clone());
+        }
+
+        // Should be capped at MAX_SESSION_MESSAGES
+        assert_eq!(session.messages.len(), MAX_SESSION_MESSAGES);
+
+        // First message should be the one at index 5 (0-4 should be pruned)
+        assert_eq!(session.messages[0].content, "Message 5");
+
+        // Last message should be the last one we added
+        assert_eq!(
+            session.messages[MAX_SESSION_MESSAGES - 1].content,
+            format!("Message {}", MAX_SESSION_MESSAGES + 4)
+        );
+    }
+}

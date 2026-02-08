@@ -166,3 +166,93 @@ pub trait LLMProvider: Send + Sync {
         Err(last_error.unwrap_or_else(|| anyhow::anyhow!("All retry attempts failed")))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_system() {
+        let msg = Message::system("hello");
+        assert_eq!(msg.role, "system");
+        assert_eq!(msg.content, "hello");
+        assert!(msg.tool_calls.is_none());
+        assert!(msg.tool_call_id.is_none());
+        assert!(!msg.is_error);
+    }
+
+    #[test]
+    fn message_user() {
+        let msg = Message::user("question");
+        assert_eq!(msg.role, "user");
+        assert_eq!(msg.content, "question");
+    }
+
+    #[test]
+    fn message_assistant_with_tool_calls() {
+        let tc = vec![ToolCallRequest {
+            id: "tc1".into(),
+            name: "weather".into(),
+            arguments: serde_json::json!({"city": "NYC"}),
+        }];
+        let msg = Message::assistant("thinking", Some(tc));
+        assert_eq!(msg.role, "assistant");
+        assert_eq!(msg.content, "thinking");
+        assert_eq!(msg.tool_calls.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn message_tool_result() {
+        let msg = Message::tool_result("tc1", "result data", false);
+        assert_eq!(msg.role, "tool");
+        assert_eq!(msg.content, "result data");
+        assert_eq!(msg.tool_call_id.as_deref(), Some("tc1"));
+        assert!(!msg.is_error);
+    }
+
+    #[test]
+    fn message_tool_result_error() {
+        let msg = Message::tool_result("tc2", "error msg", true);
+        assert!(msg.is_error);
+    }
+
+    #[test]
+    fn message_default() {
+        let msg = Message::default();
+        assert_eq!(msg.role, "");
+        assert_eq!(msg.content, "");
+        assert!(msg.tool_calls.is_none());
+        assert!(msg.tool_call_id.is_none());
+        assert!(!msg.is_error);
+    }
+
+    #[test]
+    fn llm_response_has_tool_calls() {
+        let empty = LLMResponse {
+            content: Some("hi".into()),
+            tool_calls: vec![],
+            reasoning_content: None,
+        };
+        assert!(!empty.has_tool_calls());
+
+        let with_tools = LLMResponse {
+            content: None,
+            tool_calls: vec![ToolCallRequest {
+                id: "1".into(),
+                name: "test".into(),
+                arguments: Value::Null,
+            }],
+            reasoning_content: None,
+        };
+        assert!(with_tools.has_tool_calls());
+    }
+
+    #[test]
+    fn retry_config_defaults() {
+        let cfg = RetryConfig::default();
+        assert_eq!(cfg.max_retries, 3);
+        assert_eq!(cfg.initial_delay_ms, 1000);
+        assert_eq!(cfg.max_delay_ms, 10000);
+        assert!((cfg.backoff_multiplier - 2.0).abs() < f64::EPSILON);
+    }
+}

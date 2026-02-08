@@ -621,3 +621,88 @@ impl Config {
         factory.create_provider(model).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config_validates() {
+        let config = Config::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_invalid_zero_max_tokens() {
+        let mut config = Config::default();
+        config.agents.defaults.max_tokens = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_invalid_temperature_negative() {
+        let mut config = Config::default();
+        config.agents.defaults.temperature = -1.0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_invalid_temperature_too_high() {
+        let mut config = Config::default();
+        config.agents.defaults.temperature = 3.0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_invalid_zero_max_tool_iterations() {
+        let mut config = Config::default();
+        config.agents.defaults.max_tool_iterations = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_invalid_zero_port() {
+        let mut config = Config::default();
+        config.gateway.port = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_invalid_zero_exec_timeout() {
+        let mut config = Config::default();
+        config.tools.exec.timeout = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_invalid_zero_max_results() {
+        let mut config = Config::default();
+        config.tools.web.search.max_results = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_get_api_key_with_anthropic_model() {
+        let mut config = Config::default();
+        config.providers.anthropic.api_key = "test-anthropic-key".to_string();
+        let api_key = config.get_api_key(Some("claude-sonnet-4-5-20250929"));
+        assert_eq!(api_key, Some("test-anthropic-key".to_string()));
+    }
+
+    #[test]
+    fn test_get_api_key_with_openai_model() {
+        let mut config = Config::default();
+        config.providers.openai.api_key = "test-openai-key".to_string();
+        let api_key = config.get_api_key(Some("gpt-4"));
+        assert_eq!(api_key, Some("test-openai-key".to_string()));
+    }
+
+    #[test]
+    fn test_get_api_key_fallback_order() {
+        let mut config = Config::default();
+        config.providers.anthropic.api_key = "test-anthropic-key".to_string();
+        // Call with no model parameter and no match - should fall back to first available
+        let api_key = config.get_api_key(Some("unknown-model"));
+        assert_eq!(api_key, Some("test-anthropic-key".to_string()));
+    }
+}
