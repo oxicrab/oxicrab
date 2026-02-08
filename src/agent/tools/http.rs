@@ -11,8 +11,8 @@ pub struct HttpTool {
     client: Client,
 }
 
-impl HttpTool {
-    pub fn new() -> Self {
+impl Default for HttpTool {
+    fn default() -> Self {
         Self {
             client: Client::builder()
                 .redirect(reqwest::redirect::Policy::limited(5))
@@ -20,6 +20,12 @@ impl HttpTool {
                 .build()
                 .unwrap_or_else(|_| Client::new()),
         }
+    }
+}
+
+impl HttpTool {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
