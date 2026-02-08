@@ -126,4 +126,15 @@ impl ChannelManager {
         );
         Ok(())
     }
+
+    pub async fn send_typing(&self, channel: &str, chat_id: &str) {
+        for ch in self.channels.iter() {
+            if ch.name() == channel {
+                if let Err(e) = ch.send_typing(chat_id).await {
+                    tracing::debug!("Typing indicator failed for {}: {}", channel, e);
+                }
+                return;
+            }
+        }
+    }
 }

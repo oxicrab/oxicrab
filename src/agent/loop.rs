@@ -58,6 +58,8 @@ pub struct AgentLoopConfig {
     pub tool_temperature: f32,
     /// Session TTL in days for cleanup (default 30)
     pub session_ttl_days: u32,
+    /// Sender for typing indicator events (channel, chat_id)
+    pub typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
 }
 
 pub struct AgentLoop {
@@ -79,6 +81,7 @@ pub struct AgentLoop {
     task_tracker: Arc<TaskTracker>,
     temperature: f32,
     tool_temperature: f32,
+    typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
 }
 
 impl AgentLoop {
@@ -102,6 +105,7 @@ impl AgentLoop {
             temperature,
             tool_temperature,
             session_ttl_days,
+            typing_tx,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -271,6 +275,7 @@ impl AgentLoop {
             task_tracker: Arc::new(TaskTracker::new()),
             temperature,
             tool_temperature,
+            typing_tx,
         })
     }
 
@@ -355,6 +360,11 @@ impl AgentLoop {
     ) -> Result<Option<OutboundMessage>> {
         if msg.channel == "system" {
             return self.process_system_message(msg).await;
+        }
+
+        // Send typing indicator before processing
+        if let Some(ref tx) = self.typing_tx {
+            let _ = tx.send((msg.channel.clone(), msg.chat_id.clone())).await;
         }
 
         info!("Processing message from {}:{}", msg.channel, msg.sender_id);

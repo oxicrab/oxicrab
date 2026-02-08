@@ -307,6 +307,10 @@ async fn gateway(model: Option<String>) -> Result<()> {
     let provider = setup_provider(&config, model.as_deref()).await?;
     let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) = setup_message_bus()?;
     let cron = setup_cron_service()?;
+    // Create typing indicator channel
+    let (typing_tx, typing_rx) = tokio::sync::mpsc::channel::<(String, String)>(100);
+    let typing_tx = Arc::new(typing_tx);
+
     let agent = setup_agent(
         bus_for_channels.clone(),
         provider,
@@ -314,6 +318,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
         model.clone(),
         outbound_tx.clone(),
         cron.clone(),
+        Some(typing_tx),
     )
     .await?;
     setup_cron_callbacks(cron.clone(), agent.clone(), bus_for_channels.clone()).await?;
@@ -328,7 +333,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
 
     // Run agent and channels
     let agent_task = start_agent_loop(agent.clone());
-    let channels_task = start_channels_loop(channels, outbound_rx);
+    let channels_task = start_channels_loop(channels, outbound_rx, typing_rx);
 
     tracing::info!("All services started. Gateway is running.");
 
@@ -399,6 +404,7 @@ async fn setup_agent(
     model: Option<String>,
     outbound_tx: Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
     cron: Arc<CronService>,
+    typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
 ) -> Result<Arc<AgentLoop>> {
     tracing::info!("Initializing agent loop...");
     tracing::debug!(
@@ -434,6 +440,7 @@ async fn setup_agent(
             temperature: 0.7,
             tool_temperature: 0.0,
             session_ttl_days: config.agents.defaults.session_ttl_days,
+            typing_tx,
         })
         .await?,
     );
@@ -557,6 +564,7 @@ fn start_agent_loop(agent: Arc<AgentLoop>) -> tokio::task::JoinHandle<()> {
 fn start_channels_loop(
     mut channels: ChannelManager,
     mut outbound_rx: tokio::sync::mpsc::Receiver<crate::bus::OutboundMessage>,
+    mut typing_rx: tokio::sync::mpsc::Receiver<(String, String)>,
 ) -> tokio::task::JoinHandle<()> {
     tracing::info!("Starting all channels...");
     tokio::spawn(async move {
@@ -565,8 +573,18 @@ fn start_channels_loop(
             Err(e) => tracing::error!("Error starting channels: {}", e),
         }
 
-        // Consume outbound messages and send to channels
-        // Receiver already extracted to avoid lock contention
+        // Consume outbound messages and typing events
+        // Use a shared reference for typing via Arc since we need it in a spawned task
+        let channels = Arc::new(channels);
+        let channels_for_typing = channels.clone();
+
+        // Spawn typing indicator consumer
+        tokio::spawn(async move {
+            while let Some((channel, chat_id)) = typing_rx.recv().await {
+                channels_for_typing.send_typing(&channel, &chat_id).await;
+            }
+        });
+
         loop {
             match outbound_rx.recv().await {
                 Some(msg) => {
@@ -590,8 +608,15 @@ fn start_channels_loop(
         }
 
         // Graceful shutdown - stop all channels when loop ends
-        if let Err(e) = channels.stop_all().await {
-            tracing::error!("Error stopping channels during shutdown: {}", e);
+        match Arc::try_unwrap(channels) {
+            Ok(mut ch) => {
+                if let Err(e) = ch.stop_all().await {
+                    tracing::error!("Error stopping channels during shutdown: {}", e);
+                }
+            }
+            Err(_) => {
+                tracing::debug!("Channels still referenced by typing task, will be dropped");
+            }
         }
     })
 }
@@ -628,6 +653,7 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
         temperature: 0.7,
         tool_temperature: 0.0,
         session_ttl_days: config.agents.defaults.session_ttl_days,
+        typing_tx: None,
     })
     .await?;
 

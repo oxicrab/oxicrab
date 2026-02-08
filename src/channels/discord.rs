@@ -145,6 +145,16 @@ impl BaseChannel for DiscordChannel {
         Ok(())
     }
 
+    async fn send_typing(&self, chat_id: &str) -> Result<()> {
+        let channel_id = chat_id
+            .parse::<u64>()
+            .map_err(|e| anyhow::anyhow!("Invalid Discord channel_id: {}", e))?;
+        let http = serenity::http::Http::new(&self.config.token);
+        let channel_id_typed = serenity::model::id::ChannelId::new(channel_id);
+        channel_id_typed.broadcast_typing(&http).await?;
+        Ok(())
+    }
+
     async fn send(&self, msg: &OutboundMessage) -> Result<()> {
         if msg.channel != "discord" {
             return Ok(());

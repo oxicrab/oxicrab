@@ -315,6 +315,34 @@ impl BaseChannel for WhatsAppChannel {
         Ok(())
     }
 
+    async fn send_typing(&self, chat_id: &str) -> Result<()> {
+        let client_guard = self.client.lock().await;
+        if let Some(client) = client_guard.as_ref() {
+            // Format JID same way as send_whatsapp_message
+            let jid_str = if chat_id.contains('@') {
+                let parts: Vec<&str> = chat_id.split('@').collect();
+                if parts.len() == 2 {
+                    let user_part = if parts[0].contains(':') {
+                        parts[0].split(':').next().unwrap_or(parts[0])
+                    } else {
+                        parts[0]
+                    };
+                    format!("{}@{}", user_part, parts[1])
+                } else {
+                    chat_id.to_string()
+                }
+            } else {
+                format!("{}@s.whatsapp.net", chat_id)
+            };
+
+            use std::str::FromStr;
+            if let Ok(jid) = whatsapp_rust::Jid::from_str(&jid_str) {
+                let _ = client.chatstate().send_composing(&jid).await;
+            }
+        }
+        Ok(())
+    }
+
     async fn send(&self, msg: &OutboundMessage) -> Result<()> {
         if msg.channel != "whatsapp" {
             debug!(

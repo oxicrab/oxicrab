@@ -40,6 +40,7 @@ async fn create_test_agent(provider: MockLLMProvider, tmp: &TempDir) -> AgentLoo
         temperature: 0.7,
         tool_temperature: 0.0,
         session_ttl_days: 0, // Disable cleanup in tests
+        typing_tx: None,
     };
 
     AgentLoop::new(config)

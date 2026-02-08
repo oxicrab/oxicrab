@@ -105,6 +105,16 @@ impl BaseChannel for TelegramChannel {
         Ok(())
     }
 
+    async fn send_typing(&self, chat_id: &str) -> Result<()> {
+        let chat_id = chat_id
+            .parse::<i64>()
+            .map_err(|e| anyhow::anyhow!("Invalid Telegram chat_id: {}", e))?;
+        self.bot
+            .send_chat_action(ChatId(chat_id), teloxide::types::ChatAction::Typing)
+            .await?;
+        Ok(())
+    }
+
     async fn send(&self, msg: &OutboundMessage) -> Result<()> {
         if msg.channel != "telegram" {
             return Ok(());

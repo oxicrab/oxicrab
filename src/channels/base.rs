@@ -8,6 +8,12 @@ pub trait BaseChannel: Send + Sync {
     async fn start(&mut self) -> anyhow::Result<()>;
     async fn stop(&mut self) -> anyhow::Result<()>;
     async fn send(&self, msg: &OutboundMessage) -> anyhow::Result<()>;
+
+    /// Send a typing indicator to signal the bot is processing.
+    /// Default is a no-op for channels that don't support typing indicators.
+    async fn send_typing(&self, _chat_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 /// Split a message into chunks respecting UTF-8 character boundaries.
