@@ -56,9 +56,9 @@ url = "2.5"
 urlencoding = "2.1"
 uuid = { version = "1.10", features = ["v4", "serde"] }
 walkdir = "2.4"
-whatsapp-rust = { git = "https://github.com/jlucaso1/whatsapp-rust", branch = "main" }
-whatsapp-rust-tokio-transport = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-tokio-transport", branch = "main" }
-whatsapp-rust-ureq-http-client = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-ureq-http-client", branch = "main" }
+whatsapp-rust = { git = "https://github.com/jlucaso1/whatsapp-rust", rev = "1cc15f7403441e4f151c559094a30472f6d359d8" }
+whatsapp-rust-tokio-transport = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-tokio-transport", rev = "1cc15f7403441e4f151c559094a30472f6d359d8" }
+whatsapp-rust-ureq-http-client = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-ureq-http-client", rev = "1cc15f7403441e4f151c559094a30472f6d359d8" }
 which = "6.0"
 
 # Security: Force minimum versions of transitive dependencies to resolve vulnerabilities

@@ -200,6 +200,16 @@ impl AnthropicOAuthProvider {
         ) {
             warn!("Failed to save OAuth credentials: {}", e);
         } else {
+            // Restrict permissions to owner-only (0o600) to protect tokens
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Err(e) =
+                    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+                {
+                    warn!("Failed to set credentials file permissions: {}", e);
+                }
+            }
             debug!("OAuth credentials saved to {}", path.display());
         }
     }

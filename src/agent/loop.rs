@@ -60,6 +60,7 @@ pub struct AgentLoopConfig {
     pub brave_api_key: Option<String>,
     pub exec_timeout: u64,
     pub restrict_to_workspace: bool,
+    pub allowed_commands: Vec<String>,
     pub compaction_config: crate::config::CompactionConfig,
     pub outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     pub cron_service: Option<Arc<CronService>>,
@@ -112,6 +113,7 @@ impl AgentLoop {
             brave_api_key,
             exec_timeout,
             restrict_to_workspace,
+            allowed_commands,
             compaction_config,
             outbound_tx,
             cron_service,
@@ -157,11 +159,13 @@ impl AgentLoop {
         let mut tools = ToolRegistry::new();
 
         // Register filesystem tools
+        // When restricted, allow workspace + specific config dirs (not entire home)
         let allowed_roots = if restrict_to_workspace {
-            Some(vec![
-                workspace.clone(),
-                dirs::home_dir().unwrap_or_default(),
-            ])
+            let mut roots = vec![workspace.clone()];
+            if let Some(home) = dirs::home_dir() {
+                roots.push(home.join(".nanobot"));
+            }
+            Some(roots)
         } else {
             None
         };
@@ -176,6 +180,7 @@ impl AgentLoop {
             exec_timeout,
             Some(workspace.clone()),
             restrict_to_workspace,
+            allowed_commands.clone(),
         )));
 
         // Register web tools
@@ -195,6 +200,7 @@ impl AgentLoop {
             brave_api_key.clone(),
             exec_timeout,
             restrict_to_workspace,
+            allowed_commands,
         ));
 
         // Register spawn and subagent control tools

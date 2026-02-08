@@ -4873,7 +4873,7 @@ checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 [[package]]
 name = "wacore"
 version = "0.2.0"
-source = "git+https://github.com/jlucaso1/whatsapp-rust?branch=main#1cc15f7403441e4f151c559094a30472f6d359d8"
+source = "git+https://github.com/jlucaso1/whatsapp-rust?rev=1cc15f7403441e4f151c559094a30472f6d359d8#1cc15f7403441e4f151c559094a30472f6d359d8"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -4913,7 +4913,7 @@ dependencies = [
 [[package]]
 name = "wacore-appstate"
 version = "0.2.0"
-source = "git+https://github.com/jlucaso1/whatsapp-rust?branch=main#1cc15f7403441e4f151c559094a30472f6d359d8"
+source = "git+https://github.com/jlucaso1/whatsapp-rust?rev=1cc15f7403441e4f151c559094a30472f6d359d8#1cc15f7403441e4f151c559094a30472f6d359d8"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -4934,7 +4934,7 @@ dependencies = [
 [[package]]
 name = "wacore-binary"
 version = "0.2.0"
-source = "git+https://github.com/jlucaso1/whatsapp-rust?branch=main#1cc15f7403441e4f151c559094a30472f6d359d8"
+source = "git+https://github.com/jlucaso1/whatsapp-rust?rev=1cc15f7403441e4f151c559094a30472f6d359d8#1cc15f7403441e4f151c559094a30472f6d359d8"
 dependencies = [
  "flate2",
  "phf 0.13.1",
@@ -4946,7 +4946,7 @@ dependencies = [
 [[package]]
 name = "wacore-derive"
 version = "0.2.0"
-source = "git+https://github.com/jlucaso1/whatsapp-rust?branch=main#1cc15f7403441e4f151c559094a30472f6d359d8"
+source = "git+https://github.com/jlucaso1/whatsapp-rust?rev=1cc15f7403441e4f151c559094a30472f6d359d8#1cc15f7403441e4f151c559094a30472f6d359d8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4956,7 +4956,7 @@ dependencies = [
 [[package]]
 name = "wacore-libsignal"
 version = "0.2.0"
-source = "git+https://github.com/jlucaso1/whatsapp-rust?branch=main#1cc15f7403441e4f151c559094a30472f6d359d8"
+source = "git+https://github.com/jlucaso1/whatsapp-rust?rev=1cc15f7403441e4f151c559094a30472f6d359d8#1cc15f7403441e4f151c559094a30472f6d359d8"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -4989,7 +4989,7 @@ dependencies = [
 [[package]]
 name = "wacore-noise"
 version = "0.2.0"
-source = "git+https://github.com/jlucaso1/whatsapp-rust?branch=main#1cc15f7403441e4f151c559094a30472f6d359d8"
+source = "git+https://github.com/jlucaso1/whatsapp-rust?rev=1cc15f7403441e4f151c559094a30472f6d359d8#1cc15f7403441e4f151c559094a30472f6d359d8"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -5028,7 +5028,7 @@ dependencies = [
 [[package]]
 name = "waproto"
 version = "0.2.0"
-source = "git+https://github.com/jlucaso1/whatsapp-rust?branch=main#1cc15f7403441e4f151c559094a30472f6d359d8"
+source = "git+https://github.com/jlucaso1/whatsapp-rust?rev=1cc15f7403441e4f151c559094a30472f6d359d8#1cc15f7403441e4f151c559094a30472f6d359d8"
 dependencies = [
  "prost",
  "prost-build",
@@ -5169,7 +5169,7 @@ dependencies = [
 [[package]]
 name = "whatsapp-rust"
 version = "0.2.0"
-source = "git+https://github.com/jlucaso1/whatsapp-rust?branch=main#1cc15f7403441e4f151c559094a30472f6d359d8"
+source = "git+https://github.com/jlucaso1/whatsapp-rust?rev=1cc15f7403441e4f151c559094a30472f6d359d8#1cc15f7403441e4f151c559094a30472f6d359d8"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -5201,7 +5201,7 @@ dependencies = [
 [[package]]
 name = "whatsapp-rust-sqlite-storage"
 version = "0.2.0"
-source = "git+https://github.com/jlucaso1/whatsapp-rust?branch=main#1cc15f7403441e4f151c559094a30472f6d359d8"
+source = "git+https://github.com/jlucaso1/whatsapp-rust?rev=1cc15f7403441e4f151c559094a30472f6d359d8#1cc15f7403441e4f151c559094a30472f6d359d8"
 dependencies = [
  "async-trait",
  "bincode",
@@ -5219,7 +5219,7 @@ dependencies = [
 [[package]]
 name = "whatsapp-rust-tokio-transport"
 version = "0.2.0"
-source = "git+https://github.com/jlucaso1/whatsapp-rust?branch=main#1cc15f7403441e4f151c559094a30472f6d359d8"
+source = "git+https://github.com/jlucaso1/whatsapp-rust?rev=1cc15f7403441e4f151c559094a30472f6d359d8#1cc15f7403441e4f151c559094a30472f6d359d8"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -5239,7 +5239,7 @@ dependencies = [
 [[package]]
 name = "whatsapp-rust-ureq-http-client"
 version = "0.2.0"
-source = "git+https://github.com/jlucaso1/whatsapp-rust?branch=main#1cc15f7403441e4f151c559094a30472f6d359d8"
+source = "git+https://github.com/jlucaso1/whatsapp-rust?rev=1cc15f7403441e4f151c559094a30472f6d359d8#1cc15f7403441e4f151c559094a30472f6d359d8"
 dependencies = [
  "anyhow",
  "async-trait",

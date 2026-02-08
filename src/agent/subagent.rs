@@ -28,6 +28,7 @@ pub struct SubagentManager {
     brave_api_key: Option<String>,
     exec_timeout: u64,
     restrict_to_workspace: bool,
+    allowed_commands: Vec<String>,
     running_tasks: Arc<tokio::sync::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 }
 
@@ -40,6 +41,7 @@ impl SubagentManager {
         brave_api_key: Option<String>,
         exec_timeout: u64,
         restrict_to_workspace: bool,
+        allowed_commands: Vec<String>,
     ) -> Self {
         let model = model.unwrap_or_else(|| provider.default_model().to_string());
         Self {
@@ -50,6 +52,7 @@ impl SubagentManager {
             brave_api_key,
             exec_timeout,
             restrict_to_workspace,
+            allowed_commands,
             running_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
@@ -83,6 +86,7 @@ impl SubagentManager {
             brave_api_key: self.brave_api_key.clone(),
             exec_timeout: self.exec_timeout,
             restrict_to_workspace: self.restrict_to_workspace,
+            allowed_commands: self.allowed_commands.clone(),
             running_tasks: self.running_tasks.clone(),
         };
 
@@ -166,6 +170,7 @@ impl SubagentManager {
             self.exec_timeout,
             Some(self.workspace.clone()),
             self.restrict_to_workspace,
+            self.allowed_commands.clone(),
         )));
         tools.register(Arc::new(WebSearchTool::new(self.brave_api_key.clone(), 5)));
         tools.register(Arc::new(WebFetchTool::new(50000)?));

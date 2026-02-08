@@ -149,10 +149,9 @@ impl BaseChannel for SlackChannel {
             loop {
                 debug!("Attempting to connect to Slack Socket Mode...");
                 debug!(
-                    "Token starts with: {}",
-                    app_token.chars().take(10).collect::<String>()
+                    "Slack app token configured (length: {} chars)",
+                    app_token.len()
                 );
-                debug!("Token length: {} characters", app_token.len());
 
                 // Get WebSocket URL from Slack API
                 let response = match ws_client

@@ -1,18 +1,15 @@
 //! Utility functions for channel implementations
 
-/// Check if a sender is allowed based on an allow list
+/// Check if a sender is allowed based on an allow list (exact match after normalization)
 pub fn check_allowed_sender(sender: &str, allow_list: &[String]) -> bool {
     if allow_list.is_empty() {
         return true;
     }
 
     let normalized_sender = normalize_sender_id(sender);
-    allow_list.iter().any(|allowed| {
-        let normalized_allowed = normalize_sender_id(allowed);
-        normalized_sender == normalized_allowed
-            || normalized_sender.contains(&normalized_allowed)
-            || normalized_allowed.contains(&normalized_sender)
-    })
+    allow_list
+        .iter()
+        .any(|allowed| normalized_sender == normalize_sender_id(allowed))
 }
 
 /// Normalize a sender ID by removing common prefixes and formatting

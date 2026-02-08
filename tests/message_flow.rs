@@ -24,6 +24,7 @@ async fn create_test_agent(provider: MockLLMProvider, tmp: &TempDir) -> AgentLoo
         brave_api_key: None,
         exec_timeout: 30,
         restrict_to_workspace: true,
+        allowed_commands: vec![],
         compaction_config: CompactionConfig {
             enabled: false,
             threshold_tokens: 40000,

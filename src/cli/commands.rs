@@ -434,6 +434,7 @@ async fn setup_agent(
             brave_api_key: Some(config.tools.web.search.api_key.clone()),
             exec_timeout: config.tools.exec.timeout,
             restrict_to_workspace: config.tools.restrict_to_workspace,
+            allowed_commands: config.tools.exec.allowed_commands.clone(),
             compaction_config: config.agents.defaults.compaction.clone(),
             outbound_tx,
             cron_service: Some(cron),
@@ -659,6 +660,7 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
         brave_api_key: Some(config.tools.web.search.api_key),
         exec_timeout: config.tools.exec.timeout,
         restrict_to_workspace: config.tools.restrict_to_workspace,
+        allowed_commands: config.tools.exec.allowed_commands,
         compaction_config: config.agents.defaults.compaction,
         outbound_tx,
         cron_service: None,
@@ -1040,9 +1042,15 @@ async fn channels_command(cmd: ChannelCommands) -> Result<()> {
                     "✗ disabled"
                 }
             );
-            if dc.enabled && !dc.token.is_empty() {
-                let token_preview: String = dc.token.chars().take(10).collect();
-                println!("  Token: {}...", token_preview);
+            if dc.enabled {
+                println!(
+                    "  Token: {}",
+                    if dc.token.is_empty() {
+                        "not set"
+                    } else {
+                        "configured"
+                    }
+                );
             }
 
             // Telegram
@@ -1055,9 +1063,15 @@ async fn channels_command(cmd: ChannelCommands) -> Result<()> {
                     "✗ disabled"
                 }
             );
-            if tg.enabled && !tg.token.is_empty() {
-                let token_preview: String = tg.token.chars().take(10).collect();
-                println!("  Token: {}...", token_preview);
+            if tg.enabled {
+                println!(
+                    "  Token: {}",
+                    if tg.token.is_empty() {
+                        "not set"
+                    } else {
+                        "configured"
+                    }
+                );
             }
 
             // Slack
@@ -1070,9 +1084,15 @@ async fn channels_command(cmd: ChannelCommands) -> Result<()> {
                     "✗ disabled"
                 }
             );
-            if sl.enabled && !sl.bot_token.is_empty() {
-                let token_preview: String = sl.bot_token.chars().take(10).collect();
-                println!("  Bot Token: {}...", token_preview);
+            if sl.enabled {
+                println!(
+                    "  Bot Token: {}",
+                    if sl.bot_token.is_empty() {
+                        "not set"
+                    } else {
+                        "configured"
+                    }
+                );
             }
         }
         ChannelCommands::Login => {

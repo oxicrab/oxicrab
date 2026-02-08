@@ -79,17 +79,9 @@ impl Tool for HttpTool {
             None => return Ok(ToolResult::error("Missing 'url' parameter".to_string())),
         };
 
-        // Validate URL scheme
-        match url::Url::parse(url) {
-            Ok(parsed) => {
-                if !matches!(parsed.scheme(), "http" | "https") {
-                    return Ok(ToolResult::error(format!(
-                        "Only http/https allowed, got '{}'",
-                        parsed.scheme()
-                    )));
-                }
-            }
-            Err(e) => return Ok(ToolResult::error(format!("Invalid URL: {}", e))),
+        // Validate URL scheme and block SSRF to internal networks
+        if let Err(e) = crate::utils::url_security::validate_url(url) {
+            return Ok(ToolResult::error(e));
         }
 
         let method = params["method"].as_str().unwrap_or("GET").to_uppercase();

@@ -12,14 +12,17 @@ pub struct ExecTool {
     timeout: u64,
     working_dir: Option<PathBuf>,
     deny_patterns: Vec<Regex>,
+    allowed_commands: Vec<String>,
     restrict_to_workspace: bool,
 }
 
 impl ExecTool {
-    pub fn new(timeout: u64, working_dir: Option<PathBuf>, restrict_to_workspace: bool) -> Self {
-        // Compile security patterns with proper error handling
-        // If compilation fails, we'll log a warning but continue with empty patterns
-        // This is a safety measure - in production, this should never fail
+    pub fn new(
+        timeout: u64,
+        working_dir: Option<PathBuf>,
+        restrict_to_workspace: bool,
+        allowed_commands: Vec<String>,
+    ) -> Self {
         let deny_patterns = compile_security_patterns().unwrap_or_else(|e| {
             tracing::warn!(
                 "Failed to compile security patterns: {}. Tool will have reduced security.",
@@ -32,11 +35,93 @@ impl ExecTool {
             timeout,
             working_dir,
             deny_patterns,
+            allowed_commands,
             restrict_to_workspace,
         }
     }
 
+    /// Extract the base command name from a shell command string.
+    /// Handles leading env vars (FOO=bar cmd), sudo/command prefixes,
+    /// and returns the first actual executable token.
+    fn extract_command_name(token: &str) -> &str {
+        let token = token.trim();
+        // Skip env var assignments (KEY=value)
+        let parts: Vec<&str> = token.split_whitespace().collect();
+        for part in &parts {
+            if part.contains('=') && !part.starts_with('-') {
+                continue;
+            }
+            // Get basename in case of full path like /usr/bin/ls
+            let name = part.rsplit('/').next().unwrap_or(part);
+            return name;
+        }
+        token
+    }
+
+    /// Extract all command names from a shell pipeline/chain.
+    /// Splits on |, &&, ||, and ; to find each command.
+    fn extract_all_commands(command: &str) -> Vec<&str> {
+        // Split on shell operators: |, &&, ||, ;
+        // We need to handle these carefully to extract command names
+        let mut commands = Vec::new();
+        let mut remaining = command;
+
+        while !remaining.is_empty() {
+            // Find the next shell operator
+            let next_split = remaining
+                .find("&&")
+                .map(|i| (i, 2))
+                .into_iter()
+                .chain(remaining.find("||").map(|i| (i, 2)))
+                .chain(remaining.find('|').map(|i| {
+                    // Make sure this isn't part of || (already handled)
+                    if remaining.get(i + 1..i + 2) == Some("|") {
+                        (usize::MAX, 1) // Skip, will be handled by ||
+                    } else {
+                        (i, 1)
+                    }
+                }))
+                .chain(remaining.find(';').map(|i| (i, 1)))
+                .filter(|(pos, _)| *pos != usize::MAX)
+                .min_by_key(|(pos, _)| *pos);
+
+            match next_split {
+                Some((pos, len)) => {
+                    let segment = &remaining[..pos];
+                    if !segment.trim().is_empty() {
+                        commands.push(Self::extract_command_name(segment));
+                    }
+                    remaining = &remaining[pos + len..];
+                }
+                None => {
+                    if !remaining.trim().is_empty() {
+                        commands.push(Self::extract_command_name(remaining));
+                    }
+                    break;
+                }
+            }
+        }
+
+        commands
+    }
+
     fn guard_command(&self, command: &str, cwd: &Path) -> Option<String> {
+        // Allowlist check: verify all commands in the pipeline are allowed
+        if !self.allowed_commands.is_empty() {
+            let cmd_names = Self::extract_all_commands(command);
+            for name in &cmd_names {
+                if !self.allowed_commands.iter().any(|a| a == name) {
+                    return Some(format!(
+                        "Error: Command '{}' is not in the allowed commands list. \
+                         Allowed: {}",
+                        name,
+                        self.allowed_commands.join(", ")
+                    ));
+                }
+            }
+        }
+
+        // Blocklist check (secondary safety layer)
         for pattern in &self.deny_patterns {
             if pattern.is_match(command) {
                 return Some(format!(
@@ -152,5 +237,123 @@ impl Tool for ExecTool {
                 self.timeout
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn allowed() -> Vec<String> {
+        [
+            "ls", "cat", "grep", "git", "echo", "curl", "python3", "cargo",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+    }
+
+    fn tool(cmds: Vec<String>) -> ExecTool {
+        ExecTool::new(60, Some(PathBuf::from("/tmp")), false, cmds)
+    }
+
+    #[test]
+    fn test_extract_simple_command() {
+        assert_eq!(ExecTool::extract_command_name("ls -la"), "ls");
+    }
+
+    #[test]
+    fn test_extract_full_path() {
+        assert_eq!(ExecTool::extract_command_name("/usr/bin/ls -la"), "ls");
+    }
+
+    #[test]
+    fn test_extract_with_env_vars() {
+        assert_eq!(
+            ExecTool::extract_command_name("FOO=bar BAZ=1 cargo test"),
+            "cargo"
+        );
+    }
+
+    #[test]
+    fn test_extract_all_pipe() {
+        let cmds = ExecTool::extract_all_commands("cat file.txt | grep foo | sort");
+        assert_eq!(cmds, vec!["cat", "grep", "sort"]);
+    }
+
+    #[test]
+    fn test_extract_all_and_chain() {
+        let cmds = ExecTool::extract_all_commands("mkdir -p dir && cd dir && ls");
+        assert_eq!(cmds, vec!["mkdir", "cd", "ls"]);
+    }
+
+    #[test]
+    fn test_extract_all_semicolons() {
+        let cmds = ExecTool::extract_all_commands("echo hello; echo world");
+        assert_eq!(cmds, vec!["echo", "echo"]);
+    }
+
+    #[test]
+    fn test_extract_all_or_chain() {
+        let cmds = ExecTool::extract_all_commands("ls /missing || echo fallback");
+        assert_eq!(cmds, vec!["ls", "echo"]);
+    }
+
+    #[test]
+    fn test_allowed_simple() {
+        let t = tool(allowed());
+        assert!(t.guard_command("ls -la", Path::new("/tmp")).is_none());
+    }
+
+    #[test]
+    fn test_allowed_pipe() {
+        let t = tool(allowed());
+        assert!(t
+            .guard_command("cat file | grep foo", Path::new("/tmp"))
+            .is_none());
+    }
+
+    #[test]
+    fn test_blocked_not_in_list() {
+        let t = tool(allowed());
+        let result = t.guard_command("rm -rf /", Path::new("/tmp"));
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("rm"));
+    }
+
+    #[test]
+    fn test_blocked_pipe_with_disallowed() {
+        let t = tool(allowed());
+        let result = t.guard_command("cat file | perl -e 'system(\"bad\")'", Path::new("/tmp"));
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("perl"));
+    }
+
+    #[test]
+    fn test_empty_allowlist_permits_all() {
+        let t = tool(vec![]);
+        assert!(t
+            .guard_command("anything_goes", Path::new("/tmp"))
+            .is_none());
+    }
+
+    #[test]
+    fn test_blocklist_still_applies() {
+        // Even if command is on the allowlist, the blocklist catches dangerous usage
+        let mut cmds = allowed();
+        cmds.push("rm".to_string());
+        let t = tool(cmds);
+        let result = t.guard_command("rm -rf /", Path::new("/tmp"));
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("security policy"));
+    }
+
+    #[test]
+    fn test_full_path_resolved() {
+        let t = tool(allowed());
+        // /usr/bin/ls should resolve to "ls" which is allowed
+        assert!(t
+            .guard_command("/usr/bin/ls -la", Path::new("/tmp"))
+            .is_none());
     }
 }

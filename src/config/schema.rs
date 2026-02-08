@@ -9,7 +9,7 @@ pub struct WhatsAppConfig {
     pub allow_from: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct TelegramConfig {
     pub enabled: bool,
     #[serde(default)]
@@ -19,7 +19,25 @@ pub struct TelegramConfig {
     pub proxy: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+impl std::fmt::Debug for TelegramConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TelegramConfig")
+            .field("enabled", &self.enabled)
+            .field(
+                "token",
+                &if self.token.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("allow_from", &self.allow_from)
+            .field("proxy", &self.proxy)
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct DiscordConfig {
     pub enabled: bool,
     #[serde(default)]
@@ -28,7 +46,24 @@ pub struct DiscordConfig {
     pub allow_from: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+impl std::fmt::Debug for DiscordConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DiscordConfig")
+            .field("enabled", &self.enabled)
+            .field(
+                "token",
+                &if self.token.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("allow_from", &self.allow_from)
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct SlackConfig {
     pub enabled: bool,
     #[serde(default, rename = "botToken")]
@@ -37,6 +72,31 @@ pub struct SlackConfig {
     pub app_token: String,
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
+}
+
+impl std::fmt::Debug for SlackConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SlackConfig")
+            .field("enabled", &self.enabled)
+            .field(
+                "bot_token",
+                &if self.bot_token.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field(
+                "app_token",
+                &if self.app_token.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("allow_from", &self.allow_from)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -208,7 +268,7 @@ pub struct AgentsConfig {
     pub defaults: AgentDefaults,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct ProviderConfig {
     #[serde(default, rename = "apiKey")]
     pub api_key: String,
@@ -216,7 +276,23 @@ pub struct ProviderConfig {
     pub api_base: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl std::fmt::Debug for ProviderConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderConfig")
+            .field(
+                "api_key",
+                &if self.api_key.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("api_base", &self.api_base)
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AnthropicOAuthConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -230,6 +306,33 @@ pub struct AnthropicOAuthConfig {
     pub credentials_path: Option<String>,
     #[serde(default = "default_true", rename = "autoDetect")]
     pub auto_detect: bool,
+}
+
+impl std::fmt::Debug for AnthropicOAuthConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AnthropicOAuthConfig")
+            .field("enabled", &self.enabled)
+            .field(
+                "access_token",
+                &if self.access_token.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field(
+                "refresh_token",
+                &if self.refresh_token.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("expires_at", &self.expires_at)
+            .field("credentials_path", &self.credentials_path)
+            .field("auto_detect", &self.auto_detect)
+            .finish()
+    }
 }
 
 impl Default for AnthropicOAuthConfig {
@@ -341,7 +444,7 @@ fn default_port() -> u16 {
     18790
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GoogleConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -351,6 +454,24 @@ pub struct GoogleConfig {
     pub client_secret: String,
     #[serde(default = "default_google_scopes")]
     pub scopes: Vec<String>,
+}
+
+impl std::fmt::Debug for GoogleConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GoogleConfig")
+            .field("enabled", &self.enabled)
+            .field("client_id", &self.client_id)
+            .field(
+                "client_secret",
+                &if self.client_secret.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("scopes", &self.scopes)
+            .finish()
+    }
 }
 
 impl Default for GoogleConfig {
@@ -373,12 +494,28 @@ fn default_google_scopes() -> Vec<String> {
     ]
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct WebSearchConfig {
     #[serde(default, rename = "apiKey")]
     pub api_key: String,
     #[serde(default = "default_max_results", rename = "maxResults")]
     pub max_results: usize,
+}
+
+impl std::fmt::Debug for WebSearchConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WebSearchConfig")
+            .field(
+                "api_key",
+                &if self.api_key.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("max_results", &self.max_results)
+            .finish()
+    }
 }
 
 impl Default for WebSearchConfig {
@@ -404,12 +541,15 @@ pub struct WebToolsConfig {
 pub struct ExecToolConfig {
     #[serde(default = "default_timeout")]
     pub timeout: u64,
+    #[serde(default = "default_allowed_commands", rename = "allowedCommands")]
+    pub allowed_commands: Vec<String>,
 }
 
 impl Default for ExecToolConfig {
     fn default() -> Self {
         Self {
             timeout: default_timeout(),
+            allowed_commands: default_allowed_commands(),
         }
     }
 }
@@ -418,7 +558,106 @@ fn default_timeout() -> u64 {
     60
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+fn default_allowed_commands() -> Vec<String> {
+    [
+        // File listing & navigation
+        "ls",
+        "find",
+        "tree",
+        "pwd",
+        "basename",
+        "dirname",
+        "realpath",
+        "stat",
+        "file",
+        // File reading
+        "cat",
+        "head",
+        "tail",
+        "less",
+        "wc",
+        "md5sum",
+        "sha256sum",
+        // Text processing
+        "grep",
+        "awk",
+        "sed",
+        "sort",
+        "uniq",
+        "cut",
+        "tr",
+        "diff",
+        "comm",
+        "paste",
+        // Search
+        "rg",
+        "ag",
+        "fd",
+        // JSON/YAML/data
+        "jq",
+        "yq",
+        // Git
+        "git",
+        // Development tools
+        "cargo",
+        "rustc",
+        "npm",
+        "npx",
+        "node",
+        "python3",
+        "pip3",
+        "make",
+        "go",
+        // System info
+        "date",
+        "cal",
+        "whoami",
+        "hostname",
+        "uname",
+        "uptime",
+        "df",
+        "du",
+        "free",
+        "ps",
+        "env",
+        "printenv",
+        "which",
+        "type",
+        // Networking (read-only)
+        "curl",
+        "wget",
+        "dig",
+        "nslookup",
+        "ping",
+        "host",
+        // Misc utilities
+        "echo",
+        "printf",
+        "test",
+        "true",
+        "false",
+        "yes",
+        "seq",
+        "xargs",
+        "tar",
+        "zip",
+        "unzip",
+        "gzip",
+        "gunzip",
+        "zcat",
+        "tee",
+        "touch",
+        "mkdir",
+        "cp",
+        "mv",
+        "ln",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct GitHubConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -426,7 +665,23 @@ pub struct GitHubConfig {
     pub token: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+impl std::fmt::Debug for GitHubConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GitHubConfig")
+            .field("enabled", &self.enabled)
+            .field(
+                "token",
+                &if self.token.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct WeatherConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -434,12 +689,44 @@ pub struct WeatherConfig {
     pub api_key: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+impl std::fmt::Debug for WeatherConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WeatherConfig")
+            .field("enabled", &self.enabled)
+            .field(
+                "api_key",
+                &if self.api_key.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct TodoistConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub token: String,
+}
+
+impl std::fmt::Debug for TodoistConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TodoistConfig")
+            .field("enabled", &self.enabled)
+            .field(
+                "token",
+                &if self.token.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

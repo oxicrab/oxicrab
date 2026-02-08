@@ -1,5 +1,6 @@
 pub mod regex;
 pub mod task_tracker;
+pub mod url_security;
 
 use anyhow::{Context, Result};
 use std::io::Write;

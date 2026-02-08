@@ -6,7 +6,6 @@ use reqwest::Client;
 use scraper::{Html, Selector};
 use serde_json::Value;
 use std::time::Duration;
-use url::Url;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36";
 const MAX_REDIRECTS: u32 = 5;
@@ -180,12 +179,9 @@ impl Tool for WebFetchTool {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'url' parameter"))?;
 
-        let url = Url::parse(url_str)?;
-        if !matches!(url.scheme(), "http" | "https") {
-            return Ok(ToolResult::error(format!(
-                "URL validation failed: Only http/https allowed, got '{}'",
-                url.scheme()
-            )));
+        // Validate URL scheme and block SSRF to internal networks
+        if let Err(e) = crate::utils::url_security::validate_url(url_str) {
+            return Ok(ToolResult::error(e));
         }
 
         let extract_mode = params["extractMode"].as_str().unwrap_or("markdown");
