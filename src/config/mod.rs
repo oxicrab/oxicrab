@@ -3,6 +3,6 @@ pub mod schema;
 
 pub use loader::{get_config_path, load_config, save_config};
 pub use schema::{
-    CompactionConfig, Config, DiscordConfig, GoogleConfig, SlackConfig, TelegramConfig,
-    WhatsAppConfig,
+    CompactionConfig, Config, DiscordConfig, GitHubConfig, GoogleConfig, SlackConfig,
+    TelegramConfig, TodoistConfig, WeatherConfig, WhatsAppConfig,
 };

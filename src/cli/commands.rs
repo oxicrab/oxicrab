@@ -427,6 +427,9 @@ async fn setup_agent(
             outbound_tx,
             cron_service: Some(cron),
             google_config: Some(config.tools.google.clone()),
+            github_config: Some(config.tools.github.clone()),
+            weather_config: Some(config.tools.weather.clone()),
+            todoist_config: Some(config.tools.todoist.clone()),
             temperature: 0.7,
             tool_temperature: 0.0,
         })
@@ -619,6 +622,9 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
         outbound_tx,
         cron_service: None,
         google_config: Some(config.tools.google.clone()),
+        github_config: Some(config.tools.github.clone()),
+        weather_config: Some(config.tools.weather.clone()),
+        todoist_config: Some(config.tools.todoist.clone()),
         temperature: 0.7,
         tool_temperature: 0.0,
     })

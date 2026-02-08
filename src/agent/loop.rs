@@ -5,13 +5,17 @@ use crate::agent::subagent::SubagentManager;
 use crate::agent::tools::{
     cron::CronTool,
     filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool},
+    github::GitHubTool,
     google_calendar::GoogleCalendarTool,
     google_mail::GoogleMailTool,
+    http::HttpTool,
     message::MessageTool,
     shell::ExecTool,
     spawn::SpawnTool,
     subagent_control::SubagentControlTool,
     tmux::TmuxTool,
+    todoist::TodoistTool,
+    weather::WeatherTool,
     web::{WebFetchTool, WebSearchTool},
     ToolRegistry,
 };
@@ -45,6 +49,9 @@ pub struct AgentLoopConfig {
     pub outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     pub cron_service: Option<Arc<CronService>>,
     pub google_config: Option<crate::config::GoogleConfig>,
+    pub github_config: Option<crate::config::GitHubConfig>,
+    pub weather_config: Option<crate::config::WeatherConfig>,
+    pub todoist_config: Option<crate::config::TodoistConfig>,
     /// Temperature for response generation (default 0.7)
     pub temperature: f32,
     /// Temperature for tool-calling iterations (default 0.0 for determinism)
@@ -87,6 +94,9 @@ impl AgentLoop {
             outbound_tx,
             cron_service,
             google_config,
+            github_config,
+            weather_config,
+            todoist_config,
             temperature,
             tool_temperature,
         } = config;
@@ -186,6 +196,33 @@ impl AgentLoop {
                 }
             }
         }
+
+        // Register GitHub tool if configured
+        if let Some(ref gh_cfg) = github_config {
+            if gh_cfg.enabled && !gh_cfg.token.is_empty() {
+                tools.register(Arc::new(GitHubTool::new(gh_cfg.token.clone())));
+                info!("GitHub tool registered");
+            }
+        }
+
+        // Register Weather tool if configured
+        if let Some(ref weather_cfg) = weather_config {
+            if weather_cfg.enabled && !weather_cfg.api_key.is_empty() {
+                tools.register(Arc::new(WeatherTool::new(weather_cfg.api_key.clone())));
+                info!("Weather tool registered");
+            }
+        }
+
+        // Register Todoist tool if configured
+        if let Some(ref todoist_cfg) = todoist_config {
+            if todoist_cfg.enabled && !todoist_cfg.token.is_empty() {
+                tools.register(Arc::new(TodoistTool::new(todoist_cfg.token.clone())));
+                info!("Todoist tool registered");
+            }
+        }
+
+        // Register HTTP tool (always available, no config needed)
+        tools.register(Arc::new(HttpTool::new()));
 
         let tools = Arc::new(Mutex::new(tools));
 

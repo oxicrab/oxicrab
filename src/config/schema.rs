@@ -275,6 +275,30 @@ fn default_timeout() -> u64 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GitHubConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WeatherConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, rename = "apiKey")]
+    pub api_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TodoistConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ToolsConfig {
     #[serde(default)]
     pub web: WebToolsConfig,
@@ -284,6 +308,12 @@ pub struct ToolsConfig {
     pub restrict_to_workspace: bool,
     #[serde(default)]
     pub google: GoogleConfig,
+    #[serde(default)]
+    pub github: GitHubConfig,
+    #[serde(default)]
+    pub weather: WeatherConfig,
+    #[serde(default)]
+    pub todoist: TodoistConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -423,6 +453,18 @@ impl Default for Config {
                     client_id: String::new(),
                     client_secret: String::new(),
                     scopes: default_google_scopes(),
+                },
+                github: GitHubConfig {
+                    enabled: false,
+                    token: String::new(),
+                },
+                weather: WeatherConfig {
+                    enabled: false,
+                    api_key: String::new(),
+                },
+                todoist: TodoistConfig {
+                    enabled: false,
+                    token: String::new(),
                 },
             },
         }
