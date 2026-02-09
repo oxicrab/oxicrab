@@ -3,6 +3,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use tracing::warn;
 
 fn check_path_allowed(file_path: &Path, allowed_roots: &Option<Vec<PathBuf>>) -> Result<()> {
     if let Some(roots) = allowed_roots {
@@ -28,6 +29,64 @@ fn check_path_allowed(file_path: &Path, allowed_roots: &Option<Vec<PathBuf>>) ->
         );
     }
     Ok(())
+}
+
+const MAX_BACKUPS: usize = 14;
+
+/// Create a timestamped backup of a file before overwriting it.
+/// Backups are stored in `backup_dir/{filename}.{timestamp}`.
+/// Keeps at most MAX_BACKUPS copies, deleting the oldest.
+fn backup_file(file_path: &Path, backup_dir: &Path) {
+    if !file_path.exists() {
+        return;
+    }
+    let filename = match file_path.file_name().and_then(|f| f.to_str()) {
+        Some(f) => f,
+        None => return,
+    };
+    if let Err(e) = std::fs::create_dir_all(backup_dir) {
+        warn!(
+            "Failed to create backup dir {}: {}",
+            backup_dir.display(),
+            e
+        );
+        return;
+    }
+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let backup_name = format!("{}.{}", filename, timestamp);
+    let backup_path = backup_dir.join(&backup_name);
+    if let Err(e) = std::fs::copy(file_path, &backup_path) {
+        warn!(
+            "Failed to backup {} → {}: {}",
+            file_path.display(),
+            backup_path.display(),
+            e
+        );
+        return;
+    }
+
+    // Prune old backups: list all files matching "{filename}.*", sort, remove oldest
+    let prefix = format!("{}.", filename);
+    let mut backups: Vec<PathBuf> = std::fs::read_dir(backup_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with(&prefix) && entry.path().is_file() {
+                Some(entry.path())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if backups.len() > MAX_BACKUPS {
+        backups.sort();
+        for old in &backups[..backups.len() - MAX_BACKUPS] {
+            let _ = std::fs::remove_file(old);
+        }
+    }
 }
 
 pub struct ReadFileTool {
@@ -110,11 +169,15 @@ impl Tool for ReadFileTool {
 
 pub struct WriteFileTool {
     allowed_roots: Option<Vec<PathBuf>>,
+    backup_dir: Option<PathBuf>,
 }
 
 impl WriteFileTool {
-    pub fn new(allowed_roots: Option<Vec<PathBuf>>) -> Self {
-        Self { allowed_roots }
+    pub fn new(allowed_roots: Option<Vec<PathBuf>>, backup_dir: Option<PathBuf>) -> Self {
+        Self {
+            allowed_roots,
+            backup_dir,
+        }
     }
 }
 
@@ -165,6 +228,10 @@ impl Tool for WriteFileTool {
             return Ok(ToolResult::error(err.to_string()));
         }
 
+        if let Some(ref backup_dir) = self.backup_dir {
+            backup_file(&expanded, backup_dir);
+        }
+
         if let Some(parent) = expanded.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -178,11 +245,15 @@ impl Tool for WriteFileTool {
 
 pub struct EditFileTool {
     allowed_roots: Option<Vec<PathBuf>>,
+    backup_dir: Option<PathBuf>,
 }
 
 impl EditFileTool {
-    pub fn new(allowed_roots: Option<Vec<PathBuf>>) -> Self {
-        Self { allowed_roots }
+    pub fn new(allowed_roots: Option<Vec<PathBuf>>, backup_dir: Option<PathBuf>) -> Self {
+        Self {
+            allowed_roots,
+            backup_dir,
+        }
     }
 }
 
@@ -261,6 +332,10 @@ impl Tool for EditFileTool {
                         "Warning: old_text appears {} times. Please provide more context to make it unique.",
                         count
                     )));
+                }
+
+                if let Some(ref backup_dir) = self.backup_dir {
+                    backup_file(&expanded, backup_dir);
                 }
 
                 let new_content = content.replacen(old_text, new_text, 1);
@@ -477,7 +552,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let file = dir.join("output.txt");
 
-        let tool = WriteFileTool::new(None);
+        let tool = WriteFileTool::new(None, None);
         let result = tool
             .execute(serde_json::json!({"path": file.to_str().unwrap(), "content": "test content"}))
             .await
@@ -494,7 +569,7 @@ mod tests {
         let dir = std::env::temp_dir().join("nanobot_test_write_nested/a/b/c");
         let file = dir.join("deep.txt");
 
-        let tool = WriteFileTool::new(None);
+        let tool = WriteFileTool::new(None, None);
         let result = tool
             .execute(serde_json::json!({"path": file.to_str().unwrap(), "content": "deep"}))
             .await
@@ -514,7 +589,7 @@ mod tests {
         let file = dir.join("edit.txt");
         fs::write(&file, "hello world").unwrap();
 
-        let tool = EditFileTool::new(None);
+        let tool = EditFileTool::new(None, None);
         let result = tool
             .execute(serde_json::json!({
                 "path": file.to_str().unwrap(),
@@ -536,7 +611,7 @@ mod tests {
         let file = dir.join("edit.txt");
         fs::write(&file, "hello world").unwrap();
 
-        let tool = EditFileTool::new(None);
+        let tool = EditFileTool::new(None, None);
         let result = tool
             .execute(serde_json::json!({
                 "path": file.to_str().unwrap(),
@@ -558,7 +633,7 @@ mod tests {
         let file = dir.join("edit.txt");
         fs::write(&file, "foo bar foo baz").unwrap();
 
-        let tool = EditFileTool::new(None);
+        let tool = EditFileTool::new(None, None);
         let result = tool
             .execute(serde_json::json!({
                 "path": file.to_str().unwrap(),
@@ -622,5 +697,133 @@ mod tests {
         assert!(result.content.contains("Not a directory"));
 
         fs::remove_file(&dir).unwrap();
+    }
+
+    // --- backup_file ---
+
+    #[test]
+    fn test_backup_creates_copy() {
+        let dir = std::env::temp_dir().join("nanobot_test_backup_basic");
+        let backup_dir = dir.join("backups");
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("test.md");
+        fs::write(&file, "original content").unwrap();
+
+        backup_file(&file, &backup_dir);
+
+        assert!(backup_dir.exists());
+        let backups: Vec<_> = fs::read_dir(&backup_dir).unwrap().flatten().collect();
+        assert_eq!(backups.len(), 1);
+        let backup_content = fs::read_to_string(backups[0].path()).unwrap();
+        assert_eq!(backup_content, "original content");
+        let name = backups[0].file_name().to_string_lossy().to_string();
+        assert!(
+            name.starts_with("test.md."),
+            "backup name should be prefixed: {}",
+            name
+        );
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_backup_skips_nonexistent_file() {
+        let dir = std::env::temp_dir().join("nanobot_test_backup_skip");
+        let backup_dir = dir.join("backups");
+        let _ = fs::remove_dir_all(&dir);
+
+        backup_file(&dir.join("nope.md"), &backup_dir);
+
+        assert!(!backup_dir.exists());
+    }
+
+    #[test]
+    fn test_backup_prunes_old_copies() {
+        let dir = std::env::temp_dir().join("nanobot_test_backup_prune");
+        let backup_dir = dir.join("backups");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&backup_dir).unwrap();
+
+        let file = dir.join("data.md");
+        fs::write(&file, "content").unwrap();
+
+        // Create 16 fake old backups (exceed MAX_BACKUPS of 14)
+        for i in 0..16 {
+            let name = format!("data.md.20250101-{:06}", i);
+            fs::write(backup_dir.join(&name), format!("v{}", i)).unwrap();
+        }
+
+        // Trigger backup which should prune to 14
+        backup_file(&file, &backup_dir);
+
+        let count = fs::read_dir(&backup_dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with("data.md."))
+            .count();
+        assert_eq!(
+            count, MAX_BACKUPS,
+            "should keep exactly {} backups",
+            MAX_BACKUPS
+        );
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_write_file_creates_backup() {
+        let dir = std::env::temp_dir().join("nanobot_test_write_backup");
+        let backup_dir = dir.join("backups");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let file = dir.join("target.md");
+        fs::write(&file, "before").unwrap();
+
+        let tool = WriteFileTool::new(None, Some(backup_dir.clone()));
+        let result = tool
+            .execute(serde_json::json!({"path": file.to_str().unwrap(), "content": "after"}))
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        assert_eq!(fs::read_to_string(&file).unwrap(), "after");
+
+        let backups: Vec<_> = fs::read_dir(&backup_dir).unwrap().flatten().collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(fs::read_to_string(backups[0].path()).unwrap(), "before");
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_edit_file_creates_backup() {
+        let dir = std::env::temp_dir().join("nanobot_test_edit_backup");
+        let backup_dir = dir.join("backups");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let file = dir.join("target.md");
+        fs::write(&file, "hello world").unwrap();
+
+        let tool = EditFileTool::new(None, Some(backup_dir.clone()));
+        let result = tool
+            .execute(serde_json::json!({
+                "path": file.to_str().unwrap(),
+                "old_text": "hello",
+                "new_text": "goodbye"
+            }))
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        assert_eq!(fs::read_to_string(&file).unwrap(), "goodbye world");
+
+        let backups: Vec<_> = fs::read_dir(&backup_dir).unwrap().flatten().collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(
+            fs::read_to_string(backups[0].path()).unwrap(),
+            "hello world"
+        );
+
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

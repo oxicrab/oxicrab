@@ -167,8 +167,13 @@ impl SubagentManager {
             None
         };
 
+        let backup_dir = dirs::home_dir().map(|h| h.join(".nanobot/backups"));
+
         tools.register(Arc::new(ReadFileTool::new(allowed_roots.clone())));
-        tools.register(Arc::new(WriteFileTool::new(allowed_roots.clone())));
+        tools.register(Arc::new(WriteFileTool::new(
+            allowed_roots.clone(),
+            backup_dir,
+        )));
         tools.register(Arc::new(ListDirTool::new(allowed_roots)));
         tools.register(Arc::new(ExecTool::new(
             self.exec_timeout,

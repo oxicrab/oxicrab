@@ -170,9 +170,17 @@ impl AgentLoop {
             None
         };
 
+        let backup_dir = dirs::home_dir().map(|h| h.join(".nanobot/backups"));
+
         tools.register(Arc::new(ReadFileTool::new(allowed_roots.clone())));
-        tools.register(Arc::new(WriteFileTool::new(allowed_roots.clone())));
-        tools.register(Arc::new(EditFileTool::new(allowed_roots.clone())));
+        tools.register(Arc::new(WriteFileTool::new(
+            allowed_roots.clone(),
+            backup_dir.clone(),
+        )));
+        tools.register(Arc::new(EditFileTool::new(
+            allowed_roots.clone(),
+            backup_dir,
+        )));
         tools.register(Arc::new(ListDirTool::new(allowed_roots)));
 
         // Register shell tool
