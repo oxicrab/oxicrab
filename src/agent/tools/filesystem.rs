@@ -155,7 +155,7 @@ impl Tool for ReadFileTool {
 
         if !expanded.is_file() {
             return Ok(ToolResult::error(format!(
-                "Error: Not a file: {}",
+                "Error: Not a file (path is a directory): {}. Use list_dir to list directory contents, or read_file with a file path.",
                 path_str
             )));
         }
@@ -519,7 +519,7 @@ mod tests {
             .await
             .unwrap();
         assert!(result.is_error);
-        assert!(result.content.contains("Not a file"));
+        assert!(result.content.contains("Not a file (path is a directory)"));
     }
 
     #[tokio::test]

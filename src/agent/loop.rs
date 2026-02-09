@@ -1087,7 +1087,7 @@ mod tests {
             })),
         ];
 
-        let calls = vec![
+        let calls = [
             make_tool_call("1", "slow"),
             make_tool_call("2", "fast"),
             make_tool_call("3", "medium"),
@@ -1154,7 +1154,7 @@ mod tests {
             })),
         ];
 
-        let calls = vec![
+        let calls = [
             make_tool_call("1", "good1"),
             make_tool_call("2", "panic_tool"),
             make_tool_call("3", "good2"),
@@ -1209,7 +1209,7 @@ mod tests {
             })),
         ];
 
-        let calls = vec![
+        let calls = [
             make_tool_call("1", "good"),
             make_tool_call("2", "error_tool"),
             make_tool_call("3", "also_good"),
