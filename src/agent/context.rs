@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
-const BOOTSTRAP_FILES: &[&str] = &["USER.md", "TOOLS.md", "IDENTITY.md"];
+const BOOTSTRAP_FILES: &[&str] = &["USER.md", "TOOLS.md", "AGENTS.md"];
 
 pub struct ContextBuilder {
     workspace: PathBuf,
@@ -125,8 +125,8 @@ impl ContextBuilder {
 
         let runtime = format!("Rust {}", env!("CARGO_PKG_VERSION"));
 
-        // Try to load identity from IDENTITY.md
-        let identity_file = self.workspace.join("IDENTITY.md");
+        // Try to load identity from AGENTS.md
+        let identity_file = self.workspace.join("AGENTS.md");
         if identity_file.exists() {
             if let Ok(content) = std::fs::read_to_string(&identity_file) {
                 return Ok(self.build_identity_with_context(
@@ -136,7 +136,7 @@ impl ContextBuilder {
                     &workspace_path,
                 ));
             }
-            warn!("Failed to load IDENTITY.md, using defaults");
+            warn!("Failed to load AGENTS.md, using defaults");
         }
 
         // Fallback to defaults
@@ -158,7 +158,7 @@ impl ContextBuilder {
 
     fn get_default_identity(&self, now: &str, runtime: &str, workspace_path: &str) -> String {
         format!(
-            "# nanobot\n\nYou are nanobot, a helpful AI assistant.\n\n## Capabilities\n\n- Read, write, and edit files\n- Execute shell commands\n- Search the web and fetch web pages\n- Send messages to users on chat channels\n- Spawn subagents for complex background tasks\n\n## Current Context\n\n**Date**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md\n\n## Behavioral Rules\n\n- Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel.\n- Be helpful, accurate, and concise.\n- Never invent or guess information — use tools to verify.\n- Never claim you performed an action unless you actually called a tool to do it.",
+            "# nanobot\n\nYou are nanobot, a helpful AI assistant.\n\n## Capabilities\n\n- Read, write, and edit files\n- Execute shell commands\n- Search the web and fetch web pages\n- Send messages to users on chat channels\n- Spawn subagents for complex background tasks\n\n## Current Context\n\n**Date**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md",
             now, runtime, workspace_path, workspace_path, workspace_path, workspace_path,
         )
     }
@@ -167,7 +167,7 @@ impl ContextBuilder {
         let mut current_mtimes = HashMap::new();
 
         for filename in BOOTSTRAP_FILES {
-            if *filename == "IDENTITY.md" {
+            if *filename == "AGENTS.md" {
                 continue; // Handled separately
             }
             let file_path = self.workspace.join(filename);
@@ -192,7 +192,7 @@ impl ContextBuilder {
         // Rebuild from disk
         let mut parts = Vec::new();
         for filename in BOOTSTRAP_FILES {
-            if *filename == "IDENTITY.md" {
+            if *filename == "AGENTS.md" {
                 continue;
             }
             let file_path = self.workspace.join(filename);
@@ -298,7 +298,10 @@ mod tests {
         assert!(identity.contains("# nanobot"), "missing heading");
         assert!(identity.contains("## Capabilities"), "missing capabilities");
         assert!(identity.contains("## Current Context"), "missing context");
-        assert!(identity.contains("## Behavioral Rules"), "missing rules");
+        assert!(
+            !identity.contains("## Behavioral Rules"),
+            "fallback should not contain behavioral rules — AGENTS.md is the single source"
+        );
         assert!(
             identity.contains("**Date**: 2026-02-09"),
             "missing date injection"
@@ -318,23 +321,15 @@ mod tests {
     }
 
     #[test]
-    fn test_default_identity_behavioral_rules() {
+    fn test_default_identity_has_no_behavioral_rules() {
         let tmp = tempfile::TempDir::new().unwrap();
         let ctx = create_test_context(tmp.path());
 
         let identity = ctx.get_default_identity("now", "Rust 0.1.3", "/ws");
 
         assert!(
-            identity.contains("Never invent or guess"),
-            "missing accuracy rule"
-        );
-        assert!(
-            identity.contains("Never claim you performed an action"),
-            "missing action integrity rule"
-        );
-        assert!(
-            identity.contains("message' tool"),
-            "missing message tool rule"
+            !identity.contains("## Behavioral Rules"),
+            "fallback should not contain behavioral rules — AGENTS.md is the single source"
         );
     }
 
@@ -358,7 +353,7 @@ mod tests {
         // Should NOT contain hardcoded behavioral rules
         assert!(
             !result.contains("## Behavioral Rules"),
-            "should not append behavioral rules when IDENTITY.md provides them"
+            "should not append behavioral rules when AGENTS.md provides them"
         );
     }
 
@@ -368,7 +363,7 @@ mod tests {
         let ctx = create_test_context(tmp.path());
 
         std::fs::write(
-            tmp.path().join("IDENTITY.md"),
+            tmp.path().join("AGENTS.md"),
             "# My Bot\n\nCustom identity content.",
         )
         .unwrap();
@@ -384,12 +379,15 @@ mod tests {
     fn test_identity_falls_back_when_no_file() {
         let tmp = tempfile::TempDir::new().unwrap();
         let ctx = create_test_context(tmp.path());
-        // No IDENTITY.md written
+        // No AGENTS.md written
 
         let identity = ctx.get_identity().unwrap();
 
         assert!(identity.contains("# nanobot"));
-        assert!(identity.contains("## Behavioral Rules"));
+        assert!(
+            !identity.contains("## Behavioral Rules"),
+            "fallback should not contain behavioral rules — AGENTS.md is the single source"
+        );
     }
 
     #[test]
@@ -419,12 +417,12 @@ mod tests {
     }
 
     #[test]
-    fn test_bootstrap_skips_identity_md() {
+    fn test_bootstrap_skips_agents_md() {
         let tmp = tempfile::TempDir::new().unwrap();
         let mut ctx = create_test_context(tmp.path());
 
         std::fs::write(
-            tmp.path().join("IDENTITY.md"),
+            tmp.path().join("AGENTS.md"),
             "# Identity\nShould not appear.",
         )
         .unwrap();
@@ -432,8 +430,8 @@ mod tests {
         let bootstrap = ctx.load_bootstrap_files().unwrap();
 
         assert!(
-            !bootstrap.contains("## IDENTITY.md"),
-            "IDENTITY.md should be handled separately, not in bootstrap"
+            !bootstrap.contains("## AGENTS.md"),
+            "AGENTS.md should be handled separately, not in bootstrap"
         );
     }
 
@@ -468,14 +466,14 @@ mod tests {
     fn test_bootstrap_files_constant() {
         assert!(BOOTSTRAP_FILES.contains(&"USER.md"));
         assert!(BOOTSTRAP_FILES.contains(&"TOOLS.md"));
-        assert!(BOOTSTRAP_FILES.contains(&"IDENTITY.md"));
-        assert!(
-            !BOOTSTRAP_FILES.contains(&"AGENTS.md"),
-            "AGENTS.md was consolidated"
-        );
+        assert!(BOOTSTRAP_FILES.contains(&"AGENTS.md"));
         assert!(
             !BOOTSTRAP_FILES.contains(&"SOUL.md"),
             "SOUL.md was consolidated"
+        );
+        assert!(
+            !BOOTSTRAP_FILES.contains(&"IDENTITY.md"),
+            "IDENTITY.md was renamed to AGENTS.md"
         );
     }
 }

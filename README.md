@@ -369,10 +369,8 @@ The agent has access to the following built-in tools:
 ~/.nanobot/
 ├── config.json              # Main configuration
 ├── workspace/
-│   ├── IDENTITY.md          # Bot identity and adaptations
-│   ├── SOUL.md              # Personality and behavioural directives
+│   ├── AGENTS.md            # Bot identity, personality, and behavioral rules
 │   ├── USER.md              # User preferences
-│   ├── AGENTS.md            # Agent behaviour guide
 │   ├── TOOLS.md             # Tool usage guide
 │   ├── memory/
 │   │   ├── MEMORY.md        # Long-term memory
