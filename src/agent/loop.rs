@@ -36,6 +36,55 @@ use tracing::{debug, error, info, warn};
 
 const EMPTY_RESPONSE_RETRIES: usize = 2;
 
+/// Core logic for executing a single tool call and producing (result_string, is_error).
+async fn execute_tool_call_inner(
+    _tc_id: &str,
+    tc_name: &str,
+    tc_args: &Value,
+    tool_opt: Option<Arc<dyn crate::agent::tools::base::Tool>>,
+) -> (String, bool) {
+    if let Some(tool) = tool_opt {
+        debug!("Executing tool: {} with arguments: {}", tc_name, tc_args);
+        let tool_name = tc_name.to_string();
+        let params = tc_args.clone();
+        match tool.execute(params).await {
+            Ok(result) => {
+                if result.is_error {
+                    warn!("Tool '{}' returned error: {}", tool_name, result.content);
+                }
+                (truncate_tool_result(&result.content, 3000), result.is_error)
+            }
+            Err(e) => {
+                warn!("Tool '{}' failed: {}", tool_name, e);
+                (format!("Tool execution failed: {}", e), true)
+            }
+        }
+    } else {
+        warn!("LLM called unknown tool: {}", tc_name);
+        (format!("Error: unknown tool '{}'", tc_name), true)
+    }
+}
+
+/// Execute a tool call with panic isolation (single-tool fast-path).
+async fn execute_tool_call(
+    tc: &crate::providers::base::ToolCallRequest,
+    tool_opt: Option<Arc<dyn crate::agent::tools::base::Tool>>,
+) -> (String, bool) {
+    let tc_id = tc.id.clone();
+    let tc_name = tc.name.clone();
+    let tc_args = tc.arguments.clone();
+    let handle = tokio::task::spawn(async move {
+        execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt).await
+    });
+    match handle.await {
+        Ok(result) => result,
+        Err(join_err) => {
+            error!("Tool '{}' panicked: {:?}", tc.name, join_err);
+            (format!("Tool '{}' crashed unexpectedly", tc.name), true)
+        }
+    }
+}
+
 /// Regex that matches phrases where the LLM claims to have performed an action.
 /// Used to detect hallucinated actions when no tools were actually called.
 static ACTION_CLAIM_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
@@ -541,50 +590,58 @@ impl AgentLoop {
                 // NOTE: We must NOT hold the tools lock across tool execution,
                 // because tools like cron `run` can re-enter the agent loop
                 // (via process_direct), which needs to acquire the tools lock.
-                for tool_call in &response.tool_calls {
-                    // Look up tool while holding lock, then drop lock before executing
-                    let tool_arc = {
-                        let tools_guard = self.tools.lock().await;
-                        tools_guard.get(&tool_call.name)
-                    };
 
-                    let (result_str, is_error) = if let Some(tool) = tool_arc {
-                        debug!(
-                            "Executing tool: {} with arguments: {}",
-                            tool_call.name, tool_call.arguments
-                        );
-                        // Execute in spawned task for panic isolation, without holding tools lock
-                        let tool_name = tool_call.name.clone();
-                        let params = tool_call.arguments.clone();
-                        let handle = tokio::task::spawn(async move { tool.execute(params).await });
-                        match handle.await {
-                            Ok(Ok(result)) => {
-                                if result.is_error {
-                                    warn!(
-                                        "Tool '{}' returned error: {}",
-                                        tool_name, result.content
-                                    );
-                                }
-                                (truncate_tool_result(&result.content, 3000), result.is_error)
-                            }
-                            Ok(Err(e)) => {
-                                warn!("Tool '{}' failed: {}", tool_name, e);
-                                (format!("Tool execution failed: {}", e), true)
-                            }
+                // Phase 1: Look up all tools with a single lock acquisition
+                let tool_lookups: Vec<_> = {
+                    let tools_guard = self.tools.lock().await;
+                    response
+                        .tool_calls
+                        .iter()
+                        .map(|tc| (tc, tools_guard.get(&tc.name)))
+                        .collect()
+                };
+                // Lock is dropped here — safe for tools that re-enter the agent loop
+
+                // Phase 2+3: Execute tools and collect results
+                let results = if tool_lookups.len() == 1 {
+                    // Single tool fast-path: avoid join_all overhead
+                    let (tc, tool_opt) = &tool_lookups[0];
+                    vec![execute_tool_call(tc, tool_opt.clone()).await]
+                } else {
+                    // Parallel execution: spawn all, await all
+                    let handles: Vec<_> = tool_lookups
+                        .iter()
+                        .map(|(tc, tool_opt)| {
+                            let tc_id = tc.id.clone();
+                            let tc_name = tc.name.clone();
+                            let tc_args = tc.arguments.clone();
+                            let tool_opt = tool_opt.clone();
+                            tokio::task::spawn(async move {
+                                execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt).await
+                            })
+                        })
+                        .collect();
+                    futures_util::future::join_all(handles)
+                        .await
+                        .into_iter()
+                        .map(|join_result| match join_result {
+                            Ok(result) => result,
                             Err(join_err) => {
-                                error!("Tool '{}' panicked: {:?}", tool_name, join_err);
-                                (format!("Tool '{}' crashed unexpectedly", tool_name), true)
+                                error!("Tool task panicked: {:?}", join_err);
+                                ("Tool crashed unexpectedly".to_string(), true)
                             }
-                        }
-                    } else {
-                        warn!("LLM called unknown tool: {}", tool_call.name);
-                        (format!("Error: unknown tool '{}'", tool_call.name), true)
-                    };
+                        })
+                        .collect()
+                };
 
+                // Phase 4: Add all results to messages in order
+                for ((tc, _), (result_str, is_error)) in
+                    tool_lookups.iter().zip(results.into_iter())
+                {
                     ContextBuilder::add_tool_result(
                         &mut messages,
-                        &tool_call.id,
-                        &tool_call.name,
+                        &tc.id,
+                        &tc.name,
                         &result_str,
                         is_error,
                     );
@@ -930,5 +987,261 @@ mod tests {
         assert!(contains_action_claims(
             "Updates were made to the database schema."
         ));
+    }
+
+    // --- Parallel tool execution tests ---
+
+    use crate::agent::tools::base::{Tool, ToolResult};
+    use crate::providers::base::ToolCallRequest;
+    use async_trait::async_trait;
+    use std::sync::Arc;
+
+    /// A mock tool that sleeps for a duration then returns a result.
+    struct MockTool {
+        tool_name: String,
+        delay_ms: u64,
+        response: String,
+    }
+
+    #[async_trait]
+    impl Tool for MockTool {
+        fn name(&self) -> &str {
+            &self.tool_name
+        }
+        fn description(&self) -> &str {
+            "mock"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn execute(&self, _params: serde_json::Value) -> anyhow::Result<ToolResult> {
+            tokio::time::sleep(std::time::Duration::from_millis(self.delay_ms)).await;
+            Ok(ToolResult::new(self.response.clone()))
+        }
+    }
+
+    /// A mock tool that returns an error.
+    struct ErrorTool;
+
+    #[async_trait]
+    impl Tool for ErrorTool {
+        fn name(&self) -> &str {
+            "error_tool"
+        }
+        fn description(&self) -> &str {
+            "mock"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn execute(&self, _params: serde_json::Value) -> anyhow::Result<ToolResult> {
+            Err(anyhow::anyhow!("intentional error"))
+        }
+    }
+
+    /// A mock tool that panics.
+    struct PanicTool;
+
+    #[async_trait]
+    impl Tool for PanicTool {
+        fn name(&self) -> &str {
+            "panic_tool"
+        }
+        fn description(&self) -> &str {
+            "mock"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn execute(&self, _params: serde_json::Value) -> anyhow::Result<ToolResult> {
+            panic!("intentional panic");
+        }
+    }
+
+    fn make_tool_call(id: &str, name: &str) -> ToolCallRequest {
+        ToolCallRequest {
+            id: id.to_string(),
+            name: name.to_string(),
+            arguments: serde_json::json!({}),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_parallel_tool_execution_ordering() {
+        // 3 tools with different delays — results must come back in call order
+        let tools: Vec<Option<Arc<dyn Tool>>> = vec![
+            Some(Arc::new(MockTool {
+                tool_name: "slow".into(),
+                delay_ms: 80,
+                response: "slow_result".into(),
+            })),
+            Some(Arc::new(MockTool {
+                tool_name: "fast".into(),
+                delay_ms: 10,
+                response: "fast_result".into(),
+            })),
+            Some(Arc::new(MockTool {
+                tool_name: "medium".into(),
+                delay_ms: 40,
+                response: "medium_result".into(),
+            })),
+        ];
+
+        let calls = vec![
+            make_tool_call("1", "slow"),
+            make_tool_call("2", "fast"),
+            make_tool_call("3", "medium"),
+        ];
+
+        // Spawn in parallel (same pattern as the production code)
+        let handles: Vec<_> = calls
+            .iter()
+            .zip(tools.iter())
+            .map(|(tc, tool_opt)| {
+                let tc_id = tc.id.clone();
+                let tc_name = tc.name.clone();
+                let tc_args = tc.arguments.clone();
+                let tool_opt = tool_opt.clone();
+                tokio::task::spawn(async move {
+                    execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt).await
+                })
+            })
+            .collect();
+
+        let results: Vec<_> = futures_util::future::join_all(handles)
+            .await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect();
+
+        // Results must be in the same order as the calls, not execution completion order
+        assert_eq!(results[0].0, "slow_result");
+        assert_eq!(results[1].0, "fast_result");
+        assert_eq!(results[2].0, "medium_result");
+        assert!(!results[0].1);
+        assert!(!results[1].1);
+        assert!(!results[2].1);
+    }
+
+    #[tokio::test]
+    async fn test_single_tool_no_parallel_overhead() {
+        let tool: Option<Arc<dyn Tool>> = Some(Arc::new(MockTool {
+            tool_name: "only".into(),
+            delay_ms: 0,
+            response: "only_result".into(),
+        }));
+
+        let tc = make_tool_call("1", "only");
+        let (result, is_error) = execute_tool_call(&tc, tool).await;
+
+        assert_eq!(result, "only_result");
+        assert!(!is_error);
+    }
+
+    #[tokio::test]
+    async fn test_parallel_tool_one_panics() {
+        let tools: Vec<Option<Arc<dyn Tool>>> = vec![
+            Some(Arc::new(MockTool {
+                tool_name: "good1".into(),
+                delay_ms: 0,
+                response: "result1".into(),
+            })),
+            Some(Arc::new(PanicTool)),
+            Some(Arc::new(MockTool {
+                tool_name: "good2".into(),
+                delay_ms: 0,
+                response: "result2".into(),
+            })),
+        ];
+
+        let calls = vec![
+            make_tool_call("1", "good1"),
+            make_tool_call("2", "panic_tool"),
+            make_tool_call("3", "good2"),
+        ];
+
+        let handles: Vec<_> = calls
+            .iter()
+            .zip(tools.iter())
+            .map(|(tc, tool_opt)| {
+                let tc_id = tc.id.clone();
+                let tc_name = tc.name.clone();
+                let tc_args = tc.arguments.clone();
+                let tool_opt = tool_opt.clone();
+                tokio::task::spawn(async move {
+                    execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt).await
+                })
+            })
+            .collect();
+
+        let results: Vec<_> = futures_util::future::join_all(handles)
+            .await
+            .into_iter()
+            .map(|join_result| match join_result {
+                Ok(result) => result,
+                Err(_) => ("Tool crashed unexpectedly".to_string(), true),
+            })
+            .collect();
+
+        // Good tools succeed
+        assert_eq!(results[0].0, "result1");
+        assert!(!results[0].1);
+        assert_eq!(results[2].0, "result2");
+        assert!(!results[2].1);
+        // Panicked tool gets error
+        assert!(results[1].0.contains("crashed unexpectedly"));
+        assert!(results[1].1);
+    }
+
+    #[tokio::test]
+    async fn test_parallel_tool_one_errors() {
+        let tools: Vec<Option<Arc<dyn Tool>>> = vec![
+            Some(Arc::new(MockTool {
+                tool_name: "good".into(),
+                delay_ms: 0,
+                response: "good_result".into(),
+            })),
+            Some(Arc::new(ErrorTool)),
+            Some(Arc::new(MockTool {
+                tool_name: "also_good".into(),
+                delay_ms: 0,
+                response: "also_good_result".into(),
+            })),
+        ];
+
+        let calls = vec![
+            make_tool_call("1", "good"),
+            make_tool_call("2", "error_tool"),
+            make_tool_call("3", "also_good"),
+        ];
+
+        let handles: Vec<_> = calls
+            .iter()
+            .zip(tools.iter())
+            .map(|(tc, tool_opt)| {
+                let tc_id = tc.id.clone();
+                let tc_name = tc.name.clone();
+                let tc_args = tc.arguments.clone();
+                let tool_opt = tool_opt.clone();
+                tokio::task::spawn(async move {
+                    execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt).await
+                })
+            })
+            .collect();
+
+        let results: Vec<_> = futures_util::future::join_all(handles)
+            .await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect();
+
+        // Good tools unaffected
+        assert_eq!(results[0].0, "good_result");
+        assert!(!results[0].1);
+        assert_eq!(results[2].0, "also_good_result");
+        assert!(!results[2].1);
+        // Error tool marked as error
+        assert!(results[1].0.contains("Tool execution failed"));
+        assert!(results[1].1);
     }
 }
