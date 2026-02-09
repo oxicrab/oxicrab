@@ -177,7 +177,7 @@ impl Tool for CronTool {
     }
 
     fn description(&self) -> &str {
-        "Schedule reminders and recurring tasks. Actions: add, list, remove. Jobs can target the current channel, specific channels, or all channels."
+        "Schedule recurring agent tasks. When a job fires, the message is processed as a full agent turn with access to all tools (todoist, weather, web search, etc.). The agent delivers results via the message tool. Actions: add, list, remove, run. Jobs can target the current channel, specific channels, or all channels."
     }
 
     fn parameters(&self) -> Value {
@@ -186,12 +186,12 @@ impl Tool for CronTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["add", "list", "remove"],
+                    "enum": ["add", "list", "remove", "run"],
                     "description": "Action to perform"
                 },
                 "message": {
                     "type": "string",
-                    "description": "Reminder message (for add)"
+                    "description": "Instruction or prompt for the agent when the job fires (for add). Can be a simple reminder or a complex task like 'fetch my todoist tasks due today and send them to me'."
                 },
                 "every_seconds": {
                     "type": "integer",
@@ -203,7 +203,7 @@ impl Tool for CronTool {
                 },
                 "job_id": {
                     "type": "string",
-                    "description": "Job ID (for remove)"
+                    "description": "Job ID (for remove or run)"
                 },
                 "channels": {
                     "type": "array",
@@ -378,6 +378,22 @@ impl Tool for CronTool {
                 match self.cron_service.remove_job(job_id).await? {
                     Some(_) => Ok(ToolResult::new(format!("Removed job {}", job_id))),
                     None => Ok(ToolResult::error(format!("Job {} not found", job_id))),
+                }
+            }
+            "run" => {
+                let job_id = params["job_id"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'job_id' parameter for run"))?;
+
+                match self.cron_service.run_job(job_id, true).await? {
+                    true => Ok(ToolResult::new(format!(
+                        "Job {} triggered successfully",
+                        job_id
+                    ))),
+                    false => Ok(ToolResult::error(format!(
+                        "Job {} not found or no callback configured",
+                        job_id
+                    ))),
                 }
             }
             _ => Ok(ToolResult::error(format!("Unknown action: {}", action))),

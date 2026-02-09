@@ -29,7 +29,7 @@ impl Tool for MessageTool {
     }
 
     fn description(&self) -> &str {
-        "Send a message to the user. Use this when you want to communicate something."
+        "Send a message to a user on any channel. Defaults to the current conversation's channel and chat, or specify 'channel' and 'chat_id' to target a different destination."
     }
 
     fn version(&self) -> ToolVersion {
