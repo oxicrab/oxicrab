@@ -174,8 +174,10 @@ mod tests {
 
     #[test]
     fn test_timeout_constants_are_sensible() {
-        assert!(CONNECT_TIMEOUT_SECS <= 60);
-        assert!(REQUEST_TIMEOUT_SECS >= 60);
-        assert!(REQUEST_TIMEOUT_SECS <= 300);
+        const {
+            assert!(CONNECT_TIMEOUT_SECS <= 60);
+            assert!(REQUEST_TIMEOUT_SECS >= 60);
+            assert!(REQUEST_TIMEOUT_SECS <= 300);
+        }
     }
 }

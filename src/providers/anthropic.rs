@@ -297,17 +297,19 @@ mod tests {
 
     #[test]
     fn test_timeout_constants_are_sensible() {
-        assert!(
-            CONNECT_TIMEOUT_SECS <= 60,
-            "Connect timeout should be reasonable"
-        );
-        assert!(
-            STREAM_CHUNK_TIMEOUT_SECS >= 60,
-            "Stream chunk timeout needs to allow for slow generation"
-        );
-        assert!(
-            STREAM_CHUNK_TIMEOUT_SECS <= 300,
-            "Stream chunk timeout shouldn't be too long"
-        );
+        const {
+            assert!(
+                CONNECT_TIMEOUT_SECS <= 60,
+                "Connect timeout should be reasonable"
+            );
+            assert!(
+                STREAM_CHUNK_TIMEOUT_SECS >= 60,
+                "Stream chunk timeout needs to allow for slow generation"
+            );
+            assert!(
+                STREAM_CHUNK_TIMEOUT_SECS <= 300,
+                "Stream chunk timeout shouldn't be too long"
+            );
+        }
     }
 }
