@@ -739,6 +739,9 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
                     every_ms: Some((every_sec * 1000) as i64),
                 }
             } else if let Some(expr) = cron_expr {
+                // Validate the expression parses
+                crate::cron::service::validate_cron_expr(&expr)?;
+                let tz = tz.or_else(crate::cron::service::detect_system_timezone);
                 CronSchedule::Cron {
                     expr: Some(expr),
                     tz,
@@ -822,6 +825,7 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
                     every_ms: Some((every_sec * 1000) as i64),
                 })
             } else if let Some(expr) = cron_expr {
+                crate::cron::service::validate_cron_expr(&expr)?;
                 Some(CronSchedule::Cron {
                     expr: Some(expr),
                     tz,

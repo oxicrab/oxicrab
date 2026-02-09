@@ -13,6 +13,26 @@ use tracing::{info, warn};
 
 const POLL_WHEN_EMPTY_SEC: u64 = 30;
 
+/// Normalize a cron expression to 6+ fields (prepend "0 " for seconds if 5-field).
+/// Then validate it parses. Returns Ok(normalized) or Err with a message.
+pub fn validate_cron_expr(expr: &str) -> Result<String> {
+    let normalized = if expr.split_whitespace().count() == 5 {
+        format!("0 {}", expr)
+    } else {
+        expr.to_string()
+    };
+    normalized
+        .parse::<Schedule>()
+        .map_err(|e| anyhow::anyhow!("Invalid cron expression '{}': {}", expr, e))?;
+    Ok(normalized)
+}
+
+/// Detect the system's IANA timezone (e.g. "America/New_York").
+/// Returns None if detection fails.
+pub fn detect_system_timezone() -> Option<String> {
+    iana_time_zone::get_timezone().ok()
+}
+
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -34,23 +54,22 @@ fn compute_next_run(schedule: &CronSchedule, now_ms: i64) -> Option<i64> {
         }),
         CronSchedule::Cron { expr, tz } => {
             if let Some(expr_str) = expr {
-                if let Ok(sched) = expr_str.parse::<Schedule>() {
-                    let now_sec = now_ms / 1000;
-                    let now_dt: Option<DateTime<Tz>> = if let Some(tz_str) = tz {
-                        if let Ok(tz_val) = tz_str.parse::<Tz>() {
-                            DateTime::from_timestamp(now_sec, 0).map(|dt| dt.with_timezone(&tz_val))
-                        } else {
-                            DateTime::from_timestamp(now_sec, 0)
-                                .map(|dt| dt.with_timezone(&Tz::UTC))
-                        }
+                let normalized = validate_cron_expr(expr_str).ok()?;
+                let sched = normalized.parse::<Schedule>().ok()?;
+                let now_sec = now_ms / 1000;
+                let now_dt: Option<DateTime<Tz>> = if let Some(tz_str) = tz {
+                    if let Ok(tz_val) = tz_str.parse::<Tz>() {
+                        DateTime::from_timestamp(now_sec, 0).map(|dt| dt.with_timezone(&tz_val))
                     } else {
+                        warn!("Invalid timezone '{}', falling back to UTC", tz_str);
                         DateTime::from_timestamp(now_sec, 0).map(|dt| dt.with_timezone(&Tz::UTC))
-                    };
-
-                    if let Some(now_dt) = now_dt {
-                        if let Some(next) = sched.after(&now_dt).next() {
-                            return Some(next.timestamp_millis());
-                        }
+                    }
+                } else {
+                    DateTime::from_timestamp(now_sec, 0).map(|dt| dt.with_timezone(&Tz::UTC))
+                };
+                if let Some(now_dt) = now_dt {
+                    if let Some(next) = sched.after(&now_dt).next() {
+                        return Some(next.timestamp_millis());
                     }
                 }
             }
@@ -202,7 +221,8 @@ impl CronService {
                             // Advance next_run_at_ms BEFORE executing so the job
                             // won't re-fire on the next tick.
                             job.state.last_run_at_ms = Some(now);
-                            job.state.last_status = Some("ok".to_string());
+                            job.state.last_status = Some("running".to_string());
+                            job.state.last_error = None;
                             job.state.next_run_at_ms = compute_next_run(&job.schedule, now);
                             job.updated_at_ms = now;
                             store_dirty = true;
@@ -216,27 +236,59 @@ impl CronService {
                                 let job_clone = job.clone();
                                 let callback = callback.clone();
                                 let job_id = job.id.clone();
-                                // Use spawn_auto_cleanup since cron jobs are one-off executions
+                                let store_path_for_cb = store_path.clone();
                                 let task_tracker_for_job = task_tracker_for_jobs.clone();
                                 let job_id_for_tracking = job_id.clone();
+                                info!("Firing cron job '{}' ({})", job.name, job.id);
                                 task_tracker_for_job
                                     .spawn_auto_cleanup(
                                         format!("cron_job_{}", job_id_for_tracking),
                                         async move {
-                                            match callback(job_clone).await {
+                                            let (status, error) = match callback(job_clone).await {
                                                 Ok(Some(result)) => {
-                                                    tracing::debug!(
-                                                        "Cron job completed successfully: {}",
-                                                        result
+                                                    info!(
+                                                        "Cron job '{}' completed: {} chars",
+                                                        job_id,
+                                                        result.len()
                                                     );
+                                                    ("ok".to_string(), None)
                                                 }
                                                 Ok(None) => {
-                                                    tracing::debug!(
-                                                        "Cron job completed (no result)"
+                                                    info!(
+                                                        "Cron job '{}' completed (no output)",
+                                                        job_id
                                                     );
+                                                    ("ok".to_string(), None)
                                                 }
                                                 Err(e) => {
-                                                    tracing::error!("Cron job failed: {}", e);
+                                                    tracing::error!(
+                                                        "Cron job '{}' failed: {}",
+                                                        job_id,
+                                                        e
+                                                    );
+                                                    ("error".to_string(), Some(e.to_string()))
+                                                }
+                                            };
+                                            // Write status back to store on disk
+                                            if let Ok(content) =
+                                                std::fs::read_to_string(&store_path_for_cb)
+                                            {
+                                                if let Ok(mut store) =
+                                                    serde_json::from_str::<CronStore>(&content)
+                                                {
+                                                    for j in &mut store.jobs {
+                                                        if j.id == job_id {
+                                                            j.state.last_status = Some(status);
+                                                            j.state.last_error = error;
+                                                            break;
+                                                        }
+                                                    }
+                                                    if let Ok(json) =
+                                                        serde_json::to_string_pretty(&store)
+                                                    {
+                                                        let _ =
+                                                            atomic_write(&store_path_for_cb, &json);
+                                                    }
                                                 }
                                             }
                                         },
@@ -285,7 +337,7 @@ impl CronService {
         self.task_tracker.cancel_all().await;
     }
 
-    pub async fn add_job(&self, job: CronJob) -> Result<()> {
+    pub async fn add_job(&self, mut job: CronJob) -> Result<()> {
         self.load_store(false).await?;
         let mut store_guard = self.store.lock().await;
         let store = store_guard
@@ -304,6 +356,11 @@ impl CronService {
                 existing.name,
                 existing.id
             ));
+        }
+
+        // Compute first run time eagerly so `list` shows it immediately
+        if job.state.next_run_at_ms.is_none() {
+            job.state.next_run_at_ms = compute_next_run(&job.schedule, now_ms());
         }
 
         store.jobs.push(job);
@@ -336,7 +393,9 @@ impl CronService {
     }
 
     pub async fn list_jobs(&self, include_disabled: bool) -> Result<Vec<CronJob>> {
-        let store = self.load_store(false).await?;
+        // Force reload from disk — the scheduler loop writes directly to disk
+        // bypassing the cached store, so cached data would be stale.
+        let store = self.load_store(true).await?;
         let mut jobs: Vec<CronJob> = if include_disabled {
             store.jobs
         } else {
@@ -355,10 +414,11 @@ impl CronService {
 
         for job in &mut store.jobs {
             if job.id == job_id {
+                let now = now_ms();
                 job.enabled = enabled;
-                job.updated_at_ms = now_ms();
+                job.updated_at_ms = now;
                 if enabled {
-                    job.state.next_run_at_ms = compute_next_run(&job.schedule, now_ms());
+                    job.state.next_run_at_ms = compute_next_run(&job.schedule, now);
                 } else {
                     job.state.next_run_at_ms = None;
                 }
@@ -430,13 +490,16 @@ impl CronService {
                 drop(on_job_guard);
                 let result = callback(job_clone).await?;
 
-                // Update last run time
+                // Update last run time and compute next run
+                let now = now_ms();
                 let mut store_guard = self.store.lock().await;
                 if let Some(ref mut store) = *store_guard {
                     for j in &mut store.jobs {
                         if j.id == job_id {
-                            j.state.last_run_at_ms = Some(now_ms());
+                            j.state.last_run_at_ms = Some(now);
                             j.state.last_status = Some("success".to_string());
+                            j.state.next_run_at_ms = compute_next_run(&j.schedule, now);
+                            j.updated_at_ms = now;
                             break;
                         }
                     }
@@ -451,5 +514,116 @@ impl CronService {
         } else {
             Ok(None)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_five_field_cron_needs_normalization() {
+        // The `cron` crate requires 6+ fields — raw 5-field expressions fail
+        let expr = "0 9 * * *";
+        assert!(expr.parse::<Schedule>().is_err());
+
+        // But normalized to 6-field (prepend seconds) it works
+        let normalized = format!("0 {}", expr);
+        assert!(normalized.parse::<Schedule>().is_ok());
+    }
+
+    #[test]
+    fn test_compute_next_run_five_field_cron() {
+        let schedule = CronSchedule::Cron {
+            expr: Some("0 9 * * *".to_string()),
+            tz: None,
+        };
+        let now = now_ms();
+        let result = compute_next_run(&schedule, now);
+        assert!(
+            result.is_some(),
+            "compute_next_run should normalize 5-field cron and return Some"
+        );
+    }
+
+    #[test]
+    fn test_compute_next_run_six_field_cron() {
+        let schedule = CronSchedule::Cron {
+            expr: Some("0 30 8 * * *".to_string()),
+            tz: None,
+        };
+        let result = compute_next_run(&schedule, now_ms());
+        assert!(result.is_some(), "6-field cron should work directly");
+    }
+
+    #[test]
+    fn test_compute_next_run_with_timezone() {
+        let schedule = CronSchedule::Cron {
+            expr: Some("0 9 * * *".to_string()),
+            tz: Some("America/New_York".to_string()),
+        };
+        let result = compute_next_run(&schedule, now_ms());
+        assert!(result.is_some(), "cron with timezone should return Some");
+    }
+
+    #[test]
+    fn test_compute_next_run_every() {
+        let schedule = CronSchedule::Every {
+            every_ms: Some(60_000),
+        };
+        let now = now_ms();
+        let result = compute_next_run(&schedule, now);
+        assert_eq!(result, Some(now + 60_000));
+    }
+
+    #[test]
+    fn test_compute_next_run_at_future() {
+        let future = now_ms() + 100_000;
+        let schedule = CronSchedule::At {
+            at_ms: Some(future),
+        };
+        assert_eq!(compute_next_run(&schedule, now_ms()), Some(future));
+    }
+
+    #[test]
+    fn test_compute_next_run_at_past() {
+        let past = now_ms() - 100_000;
+        let schedule = CronSchedule::At { at_ms: Some(past) };
+        assert_eq!(compute_next_run(&schedule, now_ms()), None);
+    }
+
+    #[test]
+    fn test_validate_cron_expr_five_field() {
+        let result = validate_cron_expr("0 9 * * *");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "0 0 9 * * *");
+    }
+
+    #[test]
+    fn test_validate_cron_expr_six_field() {
+        let result = validate_cron_expr("0 30 8 * * *");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "0 30 8 * * *");
+    }
+
+    #[test]
+    fn test_validate_cron_expr_invalid() {
+        let result = validate_cron_expr("not a cron");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Invalid cron expression"));
+    }
+
+    #[test]
+    fn test_detect_system_timezone() {
+        let tz = detect_system_timezone();
+        // Should succeed on any standard Linux/macOS system
+        assert!(tz.is_some(), "should detect system timezone");
+        let tz = tz.unwrap();
+        assert!(
+            tz.contains('/'),
+            "timezone should be IANA format like Area/City, got: {}",
+            tz
+        );
     }
 }

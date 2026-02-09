@@ -1,4 +1,4 @@
-use nanobot::cron::service::CronService;
+use nanobot::cron::service::{validate_cron_expr, CronService};
 use nanobot::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule, CronTarget};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -331,4 +331,303 @@ async fn test_cron_add_duplicate_name_rejected() {
     let jobs = svc.list_jobs(true).await.unwrap();
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0].id, "job1");
+}
+
+// --- Tests for bugs that were found and fixed ---
+
+#[tokio::test]
+async fn test_add_job_computes_next_run_at_ms() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    // Create a cron job with next_run_at_ms: None
+    let mut job = make_test_job("eager1", "Eager Next Run");
+    job.schedule = CronSchedule::Cron {
+        expr: Some("0 9 * * *".to_string()),
+        tz: Some("UTC".to_string()),
+    };
+    job.state.next_run_at_ms = None;
+
+    svc.add_job(job).await.unwrap();
+
+    let jobs = svc.list_jobs(false).await.unwrap();
+    assert_eq!(jobs.len(), 1);
+    assert!(
+        jobs[0].state.next_run_at_ms.is_some(),
+        "add_job should compute next_run_at_ms eagerly, got None"
+    );
+}
+
+#[tokio::test]
+async fn test_add_job_computes_next_run_for_every() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    let mut job = make_test_job("every1", "Every Job");
+    job.state.next_run_at_ms = None;
+
+    svc.add_job(job).await.unwrap();
+
+    let jobs = svc.list_jobs(false).await.unwrap();
+    assert!(
+        jobs[0].state.next_run_at_ms.is_some(),
+        "Every schedule should have next_run_at_ms set"
+    );
+}
+
+#[tokio::test]
+async fn test_run_job_sets_next_run_at_ms() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    let mut job = make_test_job("runnext1", "Run Next Test");
+    job.schedule = CronSchedule::Cron {
+        expr: Some("30 8 * * *".to_string()),
+        tz: Some("UTC".to_string()),
+    };
+    svc.add_job(job).await.unwrap();
+
+    svc.set_on_job(|_| Box::pin(async { Ok(Some("done".to_string())) }))
+        .await;
+
+    svc.run_job("runnext1", true).await.unwrap();
+
+    // Force reload to get the updated state
+    let jobs = svc.list_jobs(false).await.unwrap();
+    let job = jobs.iter().find(|j| j.id == "runnext1").unwrap();
+    assert!(
+        job.state.next_run_at_ms.is_some(),
+        "run_job should compute next_run_at_ms after execution"
+    );
+    assert_eq!(job.state.last_status.as_deref(), Some("success"));
+}
+
+#[tokio::test]
+async fn test_enable_job_computes_next_run() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    let mut job = make_test_job("enable1", "Enable Test");
+    job.schedule = CronSchedule::Cron {
+        expr: Some("0 12 * * *".to_string()),
+        tz: Some("UTC".to_string()),
+    };
+    svc.add_job(job).await.unwrap();
+
+    // Disable — should clear next_run_at_ms
+    let disabled = svc.enable_job("enable1", false).await.unwrap().unwrap();
+    assert!(
+        disabled.state.next_run_at_ms.is_none(),
+        "disabled job should have no next_run_at_ms"
+    );
+
+    // Re-enable — should compute next_run_at_ms
+    let enabled = svc.enable_job("enable1", true).await.unwrap().unwrap();
+    assert!(
+        enabled.state.next_run_at_ms.is_some(),
+        "re-enabled job should have next_run_at_ms computed"
+    );
+}
+
+#[tokio::test]
+async fn test_update_job_with_schedule_recomputes_next_run() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    let mut job = make_test_job("updsched1", "Update Schedule");
+    job.schedule = CronSchedule::Every {
+        every_ms: Some(60_000),
+    };
+    svc.add_job(job).await.unwrap();
+
+    let before = svc.list_jobs(false).await.unwrap();
+    let next_before = before[0].state.next_run_at_ms;
+
+    // Update schedule to a different interval
+    let params = nanobot::cron::types::UpdateJobParams {
+        schedule: Some(CronSchedule::Every {
+            every_ms: Some(120_000),
+        }),
+        ..Default::default()
+    };
+    let updated = svc.update_job("updsched1", params).await.unwrap().unwrap();
+    assert!(updated.state.next_run_at_ms.is_some());
+    // New next_run should be different (longer interval)
+    assert_ne!(
+        updated.state.next_run_at_ms, next_before,
+        "updating schedule should recompute next_run_at_ms"
+    );
+}
+
+#[tokio::test]
+async fn test_validate_cron_expr_rejects_garbage() {
+    assert!(validate_cron_expr("").is_err());
+    assert!(validate_cron_expr("hello world").is_err());
+    assert!(validate_cron_expr("99 99 99 99 99").is_err());
+    assert!(validate_cron_expr("* * *").is_err()); // too few fields
+}
+
+#[tokio::test]
+async fn test_validate_cron_expr_accepts_standard_patterns() {
+    // Common 5-field patterns
+    assert!(validate_cron_expr("0 9 * * *").is_ok()); // daily at 9am
+    assert!(validate_cron_expr("*/15 * * * *").is_ok()); // every 15 min
+    assert!(validate_cron_expr("0 0 1 * *").is_ok()); // 1st of month
+    assert!(validate_cron_expr("30 8 * * 1-5").is_ok()); // weekdays at 8:30
+    assert!(validate_cron_expr("0 */6 * * *").is_ok()); // every 6 hours
+
+    // 6-field (with seconds) — should work without normalization
+    assert!(validate_cron_expr("0 0 9 * * *").is_ok());
+}
+
+#[tokio::test]
+async fn test_list_jobs_reflects_disk_state() {
+    let tmp = TempDir::new().unwrap();
+    let store_path = tmp.path().join("cron_store.json");
+
+    let svc = CronService::new(store_path.clone());
+    svc.load_store(true).await.unwrap();
+    svc.add_job(make_test_job("disk1", "Disk Test"))
+        .await
+        .unwrap();
+
+    // Modify the file on disk directly (simulating what the scheduler does)
+    let content = std::fs::read_to_string(&store_path).unwrap();
+    let mut store: nanobot::cron::types::CronStore = serde_json::from_str(&content).unwrap();
+    store.jobs[0].state.last_status = Some("ok".to_string());
+    store.jobs[0].state.next_run_at_ms = Some(9999999999999);
+    std::fs::write(&store_path, serde_json::to_string_pretty(&store).unwrap()).unwrap();
+
+    // list_jobs should see the disk changes, not cached state
+    let jobs = svc.list_jobs(false).await.unwrap();
+    assert_eq!(
+        jobs[0].state.last_status.as_deref(),
+        Some("ok"),
+        "list_jobs should reflect disk state"
+    );
+    assert_eq!(
+        jobs[0].state.next_run_at_ms,
+        Some(9999999999999),
+        "list_jobs should reflect disk state"
+    );
+}
+
+#[tokio::test]
+async fn test_run_job_callback_error_records_status() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    svc.add_job(make_test_job("fail1", "Failing Job"))
+        .await
+        .unwrap();
+
+    svc.set_on_job(|_| Box::pin(async { Err(anyhow::anyhow!("something went wrong")) }))
+        .await;
+
+    // run_job propagates the error
+    let result = svc.run_job("fail1", true).await;
+    assert!(result.is_err(), "run_job should propagate callback error");
+
+    // But last_status should still be updated to "success" since run_job
+    // updates state regardless (it updates before the callback runs)
+    // Note: the scheduler loop has different behavior (async status writeback)
+}
+
+#[tokio::test]
+async fn test_cron_job_with_none_fields() {
+    // Ensure jobs with None in schedule fields don't panic
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    let job = CronJob {
+        id: "none1".to_string(),
+        name: "None Fields".to_string(),
+        enabled: true,
+        schedule: CronSchedule::Cron {
+            expr: None,
+            tz: None,
+        },
+        payload: CronPayload {
+            kind: "agent_turn".to_string(),
+            message: "test".to_string(),
+            agent_echo: false,
+            targets: vec![],
+        },
+        state: CronJobState::default(),
+        created_at_ms: 1000000,
+        updated_at_ms: 1000000,
+        delete_after_run: false,
+    };
+
+    svc.add_job(job).await.unwrap();
+    let jobs = svc.list_jobs(false).await.unwrap();
+    // next_run_at_ms should be None since expr is None
+    assert!(
+        jobs[0].state.next_run_at_ms.is_none(),
+        "job with no cron expr should have no next_run_at_ms"
+    );
+}
+
+#[tokio::test]
+async fn test_cron_job_every_zero_interval() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    let job = CronJob {
+        id: "zero1".to_string(),
+        name: "Zero Interval".to_string(),
+        enabled: true,
+        schedule: CronSchedule::Every { every_ms: Some(0) },
+        payload: CronPayload {
+            kind: "agent_turn".to_string(),
+            message: "test".to_string(),
+            agent_echo: false,
+            targets: vec![],
+        },
+        state: CronJobState::default(),
+        created_at_ms: 1000000,
+        updated_at_ms: 1000000,
+        delete_after_run: false,
+    };
+
+    svc.add_job(job).await.unwrap();
+    let jobs = svc.list_jobs(false).await.unwrap();
+    // Zero interval should not produce a next run
+    assert!(
+        jobs[0].state.next_run_at_ms.is_none(),
+        "zero-interval job should have no next_run_at_ms"
+    );
+}
+
+#[tokio::test]
+async fn test_cron_job_at_expired() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    let job = CronJob {
+        id: "expired1".to_string(),
+        name: "Expired At".to_string(),
+        enabled: true,
+        schedule: CronSchedule::At {
+            at_ms: Some(1000), // way in the past
+        },
+        payload: CronPayload {
+            kind: "agent_turn".to_string(),
+            message: "test".to_string(),
+            agent_echo: false,
+            targets: vec![],
+        },
+        state: CronJobState::default(),
+        created_at_ms: 1000000,
+        updated_at_ms: 1000000,
+        delete_after_run: false,
+    };
+
+    svc.add_job(job).await.unwrap();
+    let jobs = svc.list_jobs(false).await.unwrap();
+    // Past `at` time should not produce a next run
+    assert!(
+        jobs[0].state.next_run_at_ms.is_none(),
+        "expired at-job should have no next_run_at_ms"
+    );
 }

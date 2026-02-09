@@ -199,7 +199,11 @@ impl Tool for CronTool {
                 },
                 "cron_expr": {
                     "type": "string",
-                    "description": "Cron expression like '0 9 * * *' (for scheduled tasks)"
+                    "description": "Cron expression like '0 9 * * *' (for scheduled tasks). Standard 5-field format."
+                },
+                "tz": {
+                    "type": "string",
+                    "description": "IANA timezone for cron_expr (e.g. 'America/New_York'). Defaults to system timezone."
                 },
                 "job_id": {
                     "type": "string",
@@ -250,9 +254,18 @@ impl Tool for CronTool {
                         every_ms: Some((every_secs * 1000) as i64),
                     }
                 } else if let Some(cron_expr) = params["cron_expr"].as_str() {
+                    // Validate the expression parses before storing
+                    if let Err(e) = crate::cron::service::validate_cron_expr(cron_expr) {
+                        return Ok(ToolResult::error(format!("Error: {}", e)));
+                    }
+                    // Use explicit tz param, or detect system timezone
+                    let tz = params["tz"]
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .or_else(crate::cron::service::detect_system_timezone);
                     CronSchedule::Cron {
                         expr: Some(cron_expr.to_string()),
-                        tz: None,
+                        tz,
                     }
                 } else {
                     return Ok(ToolResult::error(
