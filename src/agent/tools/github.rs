@@ -381,3 +381,68 @@ impl Tool for GitHubTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool() -> GitHubTool {
+        GitHubTool::new("fake_token".to_string())
+    }
+
+    #[tokio::test]
+    async fn test_missing_action() {
+        let result = tool().execute(serde_json::json!({})).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_unknown_action() {
+        let result = tool()
+            .execute(serde_json::json!({"action": "bogus"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("Unknown action"));
+    }
+
+    #[tokio::test]
+    async fn test_list_issues_missing_owner() {
+        let result = tool()
+            .execute(serde_json::json!({"action": "list_issues", "repo": "nanobot"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("owner"));
+    }
+
+    #[tokio::test]
+    async fn test_list_issues_missing_repo() {
+        let result = tool()
+            .execute(serde_json::json!({"action": "list_issues", "owner": "alice"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("repo"));
+    }
+
+    #[tokio::test]
+    async fn test_create_issue_missing_title() {
+        let result = tool()
+            .execute(serde_json::json!({"action": "create_issue", "owner": "a", "repo": "b"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("title"));
+    }
+
+    #[tokio::test]
+    async fn test_get_pr_missing_number() {
+        let result = tool()
+            .execute(serde_json::json!({"action": "get_pr", "owner": "a", "repo": "b"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("number"));
+    }
+}

@@ -286,6 +286,7 @@ impl CronService {
     }
 
     pub async fn add_job(&self, job: CronJob) -> Result<()> {
+        self.load_store(false).await?;
         let mut store_guard = self.store.lock().await;
         let store = store_guard
             .as_mut()
@@ -312,6 +313,7 @@ impl CronService {
     }
 
     pub async fn remove_job(&self, job_id: &str) -> Result<Option<CronJob>> {
+        self.load_store(false).await?;
         let mut store_guard = self.store.lock().await;
         let store = store_guard
             .as_mut()
@@ -345,6 +347,7 @@ impl CronService {
     }
 
     pub async fn enable_job(&self, job_id: &str, enabled: bool) -> Result<Option<CronJob>> {
+        self.load_store(false).await?;
         let mut store_guard = self.store.lock().await;
         let store = store_guard
             .as_mut()
@@ -373,6 +376,7 @@ impl CronService {
         job_id: &str,
         params: UpdateJobParams,
     ) -> Result<Option<CronJob>> {
+        self.load_store(false).await?;
         let mut store_guard = self.store.lock().await;
         let store = store_guard
             .as_mut()

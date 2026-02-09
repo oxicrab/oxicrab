@@ -304,3 +304,48 @@ impl Tool for TodoistTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool() -> TodoistTool {
+        TodoistTool::new("fake_token".to_string())
+    }
+
+    #[tokio::test]
+    async fn test_missing_action() {
+        let result = tool().execute(serde_json::json!({})).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_unknown_action() {
+        let result = tool()
+            .execute(serde_json::json!({"action": "bogus"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("Unknown action"));
+    }
+
+    #[tokio::test]
+    async fn test_create_task_missing_content() {
+        let result = tool()
+            .execute(serde_json::json!({"action": "create_task"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("content"));
+    }
+
+    #[tokio::test]
+    async fn test_complete_task_missing_id() {
+        let result = tool()
+            .execute(serde_json::json!({"action": "complete_task"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("task_id"));
+    }
+}

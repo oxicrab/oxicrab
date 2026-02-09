@@ -190,3 +190,32 @@ impl Tool for WeatherTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool() -> WeatherTool {
+        WeatherTool::new("fake_key".to_string())
+    }
+
+    #[tokio::test]
+    async fn test_missing_location() {
+        let result = tool()
+            .execute(serde_json::json!({"action": "current"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("location"));
+    }
+
+    #[tokio::test]
+    async fn test_unknown_action() {
+        let result = tool()
+            .execute(serde_json::json!({"action": "bogus", "location": "NYC"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("Unknown action"));
+    }
+}

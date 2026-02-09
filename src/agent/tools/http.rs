@@ -176,3 +176,60 @@ impl Tool for HttpTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_missing_url() {
+        let tool = HttpTool::new();
+        let result = tool
+            .execute(serde_json::json!({"method": "GET"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("url"));
+    }
+
+    #[tokio::test]
+    async fn test_ssrf_blocked_localhost() {
+        let tool = HttpTool::new();
+        let result = tool
+            .execute(serde_json::json!({"url": "http://127.0.0.1/admin"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+    }
+
+    #[tokio::test]
+    async fn test_ssrf_blocked_private_ip() {
+        let tool = HttpTool::new();
+        let result = tool
+            .execute(serde_json::json!({"url": "http://192.168.1.1/secret"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+    }
+
+    #[tokio::test]
+    async fn test_ssrf_blocked_metadata() {
+        let tool = HttpTool::new();
+        let result = tool
+            .execute(serde_json::json!({"url": "http://169.254.169.254/latest/meta-data/"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+    }
+
+    #[tokio::test]
+    async fn test_unsupported_method() {
+        let tool = HttpTool::new();
+        let result = tool
+            .execute(serde_json::json!({"url": "https://example.com", "method": "TRACE"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("Unsupported method"));
+    }
+}
