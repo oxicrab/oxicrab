@@ -394,21 +394,29 @@ impl AgentLoop {
         info!("Processing message from {}:{}", msg.channel, msg.sender_id);
 
         // Set tool contexts
+        debug!("Setting tool contexts");
         self.set_tool_contexts(&msg.channel, &msg.chat_id).await;
 
         let session_key = msg.session_key();
         // Reuse session to avoid repeated lookups
+        debug!("Loading session: {}", session_key);
         let mut session = self.sessions.get_or_create(&session_key).await?;
 
+        debug!("Getting compacted history");
         let history = self.get_compacted_history(&session).await?;
+        debug!("Got {} history messages", history.len());
 
-        let mut context = self.context.lock().await;
-        let messages = context.build_messages(
-            &history,
-            &msg.content,
-            Some(&msg.channel),
-            Some(&msg.chat_id),
-        )?;
+        debug!("Acquiring context lock");
+        let messages = {
+            let mut context = self.context.lock().await;
+            context.build_messages(
+                &history,
+                &msg.content,
+                Some(&msg.channel),
+                Some(&msg.chat_id),
+            )?
+        };
+        debug!("Built {} messages, starting agent loop", messages.len());
 
         let final_content = self.run_agent_loop(messages).await?;
 
@@ -441,7 +449,7 @@ impl AgentLoop {
                                         warn!("Failed to save facts to daily note: {}", e);
                                     } else {
                                         debug!(
-                                            "Successfully saved {} facts to daily note",
+                                            "Saved extracted facts to daily note ({} bytes)",
                                             facts.len()
                                         );
                                     }
@@ -522,33 +530,42 @@ impl AgentLoop {
                 );
 
                 // Execute tools with validation
+                // NOTE: We must NOT hold the tools lock across tool execution,
+                // because tools like cron `run` can re-enter the agent loop
+                // (via process_direct), which needs to acquire the tools lock.
                 for tool_call in &response.tool_calls {
-                    let tools_guard = self.tools.lock().await;
+                    // Look up tool while holding lock, then drop lock before executing
+                    let tool_arc = {
+                        let tools_guard = self.tools.lock().await;
+                        tools_guard.get(&tool_call.name)
+                    };
 
-                    let (result_str, is_error) = if tools_guard.get(&tool_call.name).is_none() {
-                        warn!("LLM called unknown tool: {}", tool_call.name);
-                        (format!("Error: unknown tool '{}'", tool_call.name), true)
-                    } else {
+                    let (result_str, is_error) = if let Some(tool) = tool_arc {
                         debug!(
                             "Executing tool: {} with arguments: {}",
                             tool_call.name, tool_call.arguments
                         );
-                        match tools_guard
-                            .execute(&tool_call.name, tool_call.arguments.clone())
-                            .await
-                        {
-                            Ok(result) => {
+                        // Execute in spawned task for panic isolation, without holding tools lock
+                        let tool_name = tool_call.name.clone();
+                        let params = tool_call.arguments.clone();
+                        let handle = tokio::task::spawn(async move { tool.execute(params).await });
+                        match handle.await {
+                            Ok(Ok(result)) => {
                                 (truncate_tool_result(&result.content, 3000), result.is_error)
                             }
-                            Err(e) => {
-                                warn!("Tool '{}' failed: {}", tool_call.name, e);
+                            Ok(Err(e)) => {
+                                warn!("Tool '{}' failed: {}", tool_name, e);
                                 (format!("Tool execution failed: {}", e), true)
                             }
+                            Err(join_err) => {
+                                error!("Tool '{}' panicked: {:?}", tool_name, join_err);
+                                (format!("Tool '{}' crashed unexpectedly", tool_name), true)
+                            }
                         }
+                    } else {
+                        warn!("LLM called unknown tool: {}", tool_call.name);
+                        (format!("Error: unknown tool '{}'", tool_call.name), true)
                     };
-
-                    // Drop lock before adding to messages
-                    drop(tools_guard);
 
                     ContextBuilder::add_tool_result(
                         &mut messages,
@@ -750,8 +767,10 @@ impl AgentLoop {
         let session = self.sessions.get_or_create(session_key).await?;
         let history = self.get_compacted_history(&session).await?;
 
-        let mut ctx = self.context.lock().await;
-        let messages = ctx.build_messages(&history, content, Some(channel), Some(chat_id))?;
+        let messages = {
+            let mut ctx = self.context.lock().await;
+            ctx.build_messages(&history, content, Some(channel), Some(chat_id))?
+        };
 
         let response = self
             .run_agent_loop(messages)

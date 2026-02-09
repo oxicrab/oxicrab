@@ -925,13 +925,17 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
                 }
             }
         }
-        CronCommands::Run { id, force } => {
-            if cron.run_job(&id, force).await? {
+        CronCommands::Run { id, force } => match cron.run_job(&id, force).await? {
+            Some(result) => {
                 println!("Job executed successfully.");
-            } else {
+                if let Some(output) = result {
+                    println!("{}", output);
+                }
+            }
+            None => {
                 println!("Failed to run job {} (not found or disabled)", id);
             }
-        }
+        },
     }
 
     Ok(())

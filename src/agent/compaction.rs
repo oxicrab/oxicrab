@@ -126,7 +126,9 @@ impl MessageCompactor {
             .await?;
 
         let content = response.content.unwrap_or_default();
-        if content.trim().eq_ignore_ascii_case("NOTHING") {
+        // The LLM sometimes returns "NOTHING" with an explanation in parens.
+        // Treat any response starting with "NOTHING" as no facts extracted.
+        if content.trim().to_ascii_uppercase().starts_with("NOTHING") {
             Ok(String::new())
         } else {
             Ok(content)

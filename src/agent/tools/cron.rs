@@ -386,11 +386,15 @@ impl Tool for CronTool {
                     .ok_or_else(|| anyhow::anyhow!("Missing 'job_id' parameter for run"))?;
 
                 match self.cron_service.run_job(job_id, true).await? {
-                    true => Ok(ToolResult::new(format!(
-                        "Job {} triggered successfully",
+                    Some(Some(result)) => Ok(ToolResult::new(format!(
+                        "Job {} completed. Result:\n{}",
+                        job_id, result
+                    ))),
+                    Some(None) => Ok(ToolResult::new(format!(
+                        "Job {} completed (no output)",
                         job_id
                     ))),
-                    false => Ok(ToolResult::error(format!(
+                    None => Ok(ToolResult::error(format!(
                         "Job {} not found or no callback configured",
                         job_id
                     ))),

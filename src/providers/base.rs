@@ -145,6 +145,18 @@ pub trait LLMProvider: Send + Sync {
         let tools_arc = req.tools.map(Arc::new);
 
         for attempt in 0..=config.max_retries {
+            if attempt > 0 {
+                tracing::warn!(
+                    "Provider retry attempt {}/{} after error: {}",
+                    attempt,
+                    config.max_retries,
+                    last_error
+                        .as_ref()
+                        .map(|e: &anyhow::Error| e.to_string())
+                        .unwrap_or_default()
+                );
+            }
+            tracing::debug!("Sending chat request (attempt {})", attempt);
             match self
                 .chat_stream(ChatRequest {
                     messages: (*messages_arc).clone(),
@@ -155,13 +167,18 @@ pub trait LLMProvider: Send + Sync {
                 })
                 .await
             {
-                Ok(response) => return Ok(response),
+                Ok(response) => {
+                    tracing::debug!("Chat request succeeded on attempt {}", attempt);
+                    return Ok(response);
+                }
                 Err(e) => {
+                    tracing::warn!("Chat request failed on attempt {}: {}", attempt, e);
                     last_error = Some(e);
                     if attempt < config.max_retries {
                         let delay = (config.initial_delay_ms as f64
                             * config.backoff_multiplier.powi(attempt as i32))
                         .min(config.max_delay_ms as f64) as u64;
+                        tracing::debug!("Waiting {}ms before retry", delay);
                         tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
                     }
                 }

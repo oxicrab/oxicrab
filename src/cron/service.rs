@@ -412,13 +412,15 @@ impl CronService {
         Ok(None)
     }
 
-    pub async fn run_job(&self, job_id: &str, force: bool) -> Result<bool> {
+    /// Run a job by ID. Returns `None` if job not found or no callback configured.
+    /// Returns `Some(result)` with the callback's output on success.
+    pub async fn run_job(&self, job_id: &str, force: bool) -> Result<Option<Option<String>>> {
         let store = self.load_store(false).await?;
         let job = store.jobs.iter().find(|j| j.id == job_id);
 
         if let Some(job) = job {
             if !force && !job.enabled {
-                return Ok(false);
+                return Ok(None);
             }
 
             let on_job_guard = self.on_job.lock().await;
@@ -426,7 +428,7 @@ impl CronService {
                 let job_clone = job.clone();
                 let callback = callback.clone();
                 drop(on_job_guard);
-                callback(job_clone).await?;
+                let result = callback(job_clone).await?;
 
                 // Update last run time
                 let mut store_guard = self.store.lock().await;
@@ -441,13 +443,13 @@ impl CronService {
                 }
                 drop(store_guard);
                 self.save_store().await?;
-                Ok(true)
+                Ok(Some(result))
             } else {
                 warn!("Cron job callback not set, cannot run job");
-                Ok(false)
+                Ok(None)
             }
         } else {
-            Ok(false)
+            Ok(None)
         }
     }
 }

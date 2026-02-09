@@ -45,6 +45,7 @@ impl AnthropicOAuthProvider {
         credentials_path: Option<PathBuf>,
     ) -> Result<Self> {
         let client = Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(30))
             .timeout(std::time::Duration::from_secs(120))
             .build()
             .context("Failed to create HTTP client for AnthropicOAuthProvider")?;

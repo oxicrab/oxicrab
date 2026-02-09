@@ -167,7 +167,8 @@ async fn test_cron_manual_trigger() {
     .await;
 
     let ran = svc.run_job("trigger1", true).await.unwrap();
-    assert!(ran);
+    assert!(ran.is_some());
+    assert_eq!(ran.unwrap(), Some("Job executed".to_string()));
     assert!(*invoked.lock().await);
 }
 
@@ -194,12 +195,12 @@ async fn test_cron_run_disabled_job_without_force() {
 
     // Without force, disabled job should not run
     let ran = svc.run_job("disabled1", false).await.unwrap();
-    assert!(!ran);
+    assert!(ran.is_none());
     assert!(!*invoked.lock().await);
 
     // With force, it should run even though disabled
     let ran = svc.run_job("disabled1", true).await.unwrap();
-    assert!(ran);
+    assert!(ran.is_some());
     assert!(*invoked.lock().await);
 }
 
