@@ -37,7 +37,7 @@ impl GoogleCredentials {
                 .map(|d| d.as_secs() < expiry)
                 .unwrap_or(false)
         } else {
-            true // No expiry means it's valid
+            false // No expiry means we don't know — refresh to be safe
         }
     }
 

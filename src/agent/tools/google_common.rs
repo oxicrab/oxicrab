@@ -34,22 +34,50 @@ impl GoogleApiClient {
         let token = self.get_access_token().await?;
         let url = format!("{}/{}", self.base_url, endpoint);
 
+        let response = self
+            .send_request(&url, method, &token, body.as_ref())
+            .await?;
+
+        // On 401, force token refresh and retry once
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            tracing::info!("Google API returned 401, refreshing token and retrying");
+            let new_token = {
+                let mut creds = self.credentials.lock().await;
+                creds.refresh().await?;
+                creds.get_access_token().to_string()
+            };
+            let retry_response = self
+                .send_request(&url, method, &new_token, body.as_ref())
+                .await?;
+            let data: Value = retry_response.error_for_status()?.json().await?;
+            return Ok(data);
+        }
+
+        let data: Value = response.error_for_status()?.json().await?;
+        Ok(data)
+    }
+
+    async fn send_request(
+        &self,
+        url: &str,
+        method: &str,
+        token: &str,
+        body: Option<&Value>,
+    ) -> Result<reqwest::Response> {
         let mut request = match method {
-            "GET" => self.client.get(&url),
-            "POST" => self.client.post(&url),
-            "PUT" => self.client.put(&url),
-            "DELETE" => self.client.delete(&url),
+            "GET" => self.client.get(url),
+            "POST" => self.client.post(url),
+            "PUT" => self.client.put(url),
+            "DELETE" => self.client.delete(url),
             _ => return Err(anyhow::anyhow!("Unsupported HTTP method: {}", method)),
         };
 
         request = request.header("Authorization", format!("Bearer {}", token));
 
         if let Some(body) = body {
-            request = request.json(&body);
+            request = request.json(body);
         }
 
-        let response = request.send().await?;
-        let data: Value = response.error_for_status()?.json().await?;
-        Ok(data)
+        Ok(request.send().await?)
     }
 }

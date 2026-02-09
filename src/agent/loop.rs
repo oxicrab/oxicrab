@@ -551,6 +551,12 @@ impl AgentLoop {
                         let handle = tokio::task::spawn(async move { tool.execute(params).await });
                         match handle.await {
                             Ok(Ok(result)) => {
+                                if result.is_error {
+                                    warn!(
+                                        "Tool '{}' returned error: {}",
+                                        tool_name, result.content
+                                    );
+                                }
                                 (truncate_tool_result(&result.content, 3000), result.is_error)
                             }
                             Ok(Err(e)) => {
