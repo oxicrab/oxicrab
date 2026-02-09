@@ -217,43 +217,9 @@ fn onboard() -> Result<()> {
 }
 
 fn create_workspace_templates(workspace: &std::path::Path) -> Result<()> {
-    let templates = vec![
-        (
-            "AGENTS.md",
-            r"# Agent Instructions
-
-You are a helpful AI assistant. Be concise, accurate, and friendly.
-
-## Guidelines
-
-- Always explain what you're doing before taking actions
-- Ask for clarification when the request is ambiguous
-- Use tools to help accomplish tasks
-- Remember important information in your memory files
-",
-        ),
-        (
-            "SOUL.md",
-            r"# Soul
-
-I am nanobot, a lightweight AI assistant.
-
-## Personality
-
-- Helpful and friendly
-- Concise and to the point
-- Curious and eager to learn
-
-## Values
-
-- Accuracy over speed
-- User privacy and safety
-- Transparency in actions
-",
-        ),
-        (
-            "USER.md",
-            r"# User
+    let templates = vec![(
+        "USER.md",
+        r"# User
 
 Information about the user goes here.
 
@@ -263,8 +229,7 @@ Information about the user goes here.
 - Timezone: (your timezone)
 - Language: (your preferred language)
 ",
-        ),
-    ];
+    )];
 
     for (filename, content) in templates {
         let file_path = workspace.join(filename);

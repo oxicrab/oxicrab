@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
-const BOOTSTRAP_FILES: &[&str] = &["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"];
+const BOOTSTRAP_FILES: &[&str] = &["USER.md", "TOOLS.md", "IDENTITY.md"];
 
 pub struct ContextBuilder {
     workspace: PathBuf,
@@ -151,24 +151,15 @@ impl ContextBuilder {
         workspace_path: &str,
     ) -> String {
         format!(
-            "{}\n\n## Current Context\n\n**Date**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md\n\n{}",
+            "{}\n\n## Current Context\n\n**Date**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md",
             identity_content, now, runtime, workspace_path, workspace_path, workspace_path, workspace_path,
-            self.get_behavioural_notes(workspace_path)
         )
     }
 
     fn get_default_identity(&self, now: &str, runtime: &str, workspace_path: &str) -> String {
         format!(
-            "# nanobot\n\nYou are nanobot, a helpful AI assistant. You have access to tools that allow you to:\n- Read, write, and edit files\n- Execute shell commands\n- Search the web and fetch web pages\n- Send messages to users on chat channels\n- Spawn subagents for complex background tasks\n\n## Current Date\n{}\n\n## Runtime\n{}\n\n## Workspace\nYour workspace is at: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md\n\n{}",
+            "# nanobot\n\nYou are nanobot, a helpful AI assistant.\n\n## Capabilities\n\n- Read, write, and edit files\n- Execute shell commands\n- Search the web and fetch web pages\n- Send messages to users on chat channels\n- Spawn subagents for complex background tasks\n\n## Current Context\n\n**Date**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md\n\n## Behavioral Rules\n\n- Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel.\n- Be helpful, accurate, and concise.\n- Never invent or guess information — use tools to verify.\n- Never claim you performed an action unless you actually called a tool to do it.",
             now, runtime, workspace_path, workspace_path, workspace_path, workspace_path,
-            self.get_behavioural_notes(workspace_path)
-        )
-    }
-
-    fn get_behavioural_notes(&self, workspace_path: &str) -> String {
-        format!(
-            "IMPORTANT: When responding to direct questions or conversations, reply directly with your text response.\nOnly use the 'message' tool when you need to send a message to a specific chat channel (like WhatsApp).\nFor normal conversation, just respond with text - do not call the message tool.\n\nAlways be helpful, accurate, and concise. When using tools, explain what you're doing.\nWhen remembering something, write to {}/memory/MEMORY.md\n\nCRITICAL: Never invent, guess, or make up information. If you don't know something:\n- Say \"I don't know\" or \"I'm not sure\" clearly\n- Use tools (web_search, read_file) to find accurate information before answering\n- Never guess file paths, command syntax, API details, or factual claims\n- When uncertain, ask the user for clarification rather than assuming\n\n## Action Integrity\nNever claim you performed an action (created, updated, wrote, deleted, configured, set up, etc.) unless you actually called a tool to do it in this conversation turn. If you cannot perform the requested action, explain what you would need to do and offer to do it. Do not say \"I've updated the file\" or \"Done!\" without having used the appropriate tool.\n\nWhen asked to retry, re-run, or re-check something, you MUST actually call the tool again. Never repeat a previous result from conversation history — conditions may have changed.",
-            workspace_path
         )
     }
 
@@ -285,5 +276,206 @@ impl ContextBuilder {
     ) {
         let msg = crate::providers::base::Message::assistant(content.unwrap_or(""), tool_calls);
         messages.push(msg);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_context(workspace: &Path) -> ContextBuilder {
+        std::fs::create_dir_all(workspace.join("memory")).unwrap();
+        ContextBuilder::new(workspace).unwrap()
+    }
+
+    #[test]
+    fn test_default_identity_contains_required_sections() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ctx = create_test_context(tmp.path());
+
+        let identity = ctx.get_default_identity("2026-02-09", "Rust 0.1.3", "/workspace");
+
+        assert!(identity.contains("# nanobot"), "missing heading");
+        assert!(identity.contains("## Capabilities"), "missing capabilities");
+        assert!(identity.contains("## Current Context"), "missing context");
+        assert!(identity.contains("## Behavioral Rules"), "missing rules");
+        assert!(
+            identity.contains("**Date**: 2026-02-09"),
+            "missing date injection"
+        );
+        assert!(
+            identity.contains("**Runtime**: Rust 0.1.3"),
+            "missing runtime injection"
+        );
+        assert!(
+            identity.contains("**Workspace**: /workspace"),
+            "missing workspace injection"
+        );
+        assert!(
+            identity.contains("/workspace/memory/MEMORY.md"),
+            "missing memory path"
+        );
+    }
+
+    #[test]
+    fn test_default_identity_behavioral_rules() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ctx = create_test_context(tmp.path());
+
+        let identity = ctx.get_default_identity("now", "Rust 0.1.3", "/ws");
+
+        assert!(
+            identity.contains("Never invent or guess"),
+            "missing accuracy rule"
+        );
+        assert!(
+            identity.contains("Never claim you performed an action"),
+            "missing action integrity rule"
+        );
+        assert!(
+            identity.contains("message' tool"),
+            "missing message tool rule"
+        );
+    }
+
+    #[test]
+    fn test_build_identity_with_context_appends_context() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ctx = create_test_context(tmp.path());
+
+        let result = ctx.build_identity_with_context(
+            "# Custom Bot\n\nI am a custom bot.",
+            "2026-02-09",
+            "Rust 0.1.3",
+            "/my/workspace",
+        );
+
+        assert!(result.starts_with("# Custom Bot"));
+        assert!(result.contains("I am a custom bot."));
+        assert!(result.contains("## Current Context"));
+        assert!(result.contains("**Date**: 2026-02-09"));
+        assert!(result.contains("/my/workspace/memory/MEMORY.md"));
+        // Should NOT contain hardcoded behavioral rules
+        assert!(
+            !result.contains("## Behavioral Rules"),
+            "should not append behavioral rules when IDENTITY.md provides them"
+        );
+    }
+
+    #[test]
+    fn test_identity_uses_file_when_present() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ctx = create_test_context(tmp.path());
+
+        std::fs::write(
+            tmp.path().join("IDENTITY.md"),
+            "# My Bot\n\nCustom identity content.",
+        )
+        .unwrap();
+
+        let identity = ctx.get_identity().unwrap();
+
+        assert!(identity.contains("# My Bot"));
+        assert!(identity.contains("Custom identity content."));
+        assert!(identity.contains("## Current Context"));
+    }
+
+    #[test]
+    fn test_identity_falls_back_when_no_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ctx = create_test_context(tmp.path());
+        // No IDENTITY.md written
+
+        let identity = ctx.get_identity().unwrap();
+
+        assert!(identity.contains("# nanobot"));
+        assert!(identity.contains("## Behavioral Rules"));
+    }
+
+    #[test]
+    fn test_bootstrap_loads_user_md() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut ctx = create_test_context(tmp.path());
+
+        std::fs::write(tmp.path().join("USER.md"), "# User\nTimezone: ET").unwrap();
+
+        let bootstrap = ctx.load_bootstrap_files().unwrap();
+
+        assert!(bootstrap.contains("## USER.md"));
+        assert!(bootstrap.contains("Timezone: ET"));
+    }
+
+    #[test]
+    fn test_bootstrap_loads_tools_md() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut ctx = create_test_context(tmp.path());
+
+        std::fs::write(tmp.path().join("TOOLS.md"), "# Tools\nUse bash for shell.").unwrap();
+
+        let bootstrap = ctx.load_bootstrap_files().unwrap();
+
+        assert!(bootstrap.contains("## TOOLS.md"));
+        assert!(bootstrap.contains("Use bash for shell."));
+    }
+
+    #[test]
+    fn test_bootstrap_skips_identity_md() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut ctx = create_test_context(tmp.path());
+
+        std::fs::write(
+            tmp.path().join("IDENTITY.md"),
+            "# Identity\nShould not appear.",
+        )
+        .unwrap();
+
+        let bootstrap = ctx.load_bootstrap_files().unwrap();
+
+        assert!(
+            !bootstrap.contains("## IDENTITY.md"),
+            "IDENTITY.md should be handled separately, not in bootstrap"
+        );
+    }
+
+    #[test]
+    fn test_bootstrap_skips_missing_files() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut ctx = create_test_context(tmp.path());
+        // No files created
+
+        let bootstrap = ctx.load_bootstrap_files().unwrap();
+
+        assert!(bootstrap.is_empty());
+    }
+
+    #[test]
+    fn test_bootstrap_caching() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut ctx = create_test_context(tmp.path());
+
+        std::fs::write(tmp.path().join("USER.md"), "# User\nv1").unwrap();
+
+        let first = ctx.load_bootstrap_files().unwrap();
+        assert!(first.contains("v1"));
+        assert!(ctx.bootstrap_cache.is_some());
+
+        // Second call should return cached version (same mtime)
+        let second = ctx.load_bootstrap_files().unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn test_bootstrap_files_constant() {
+        assert!(BOOTSTRAP_FILES.contains(&"USER.md"));
+        assert!(BOOTSTRAP_FILES.contains(&"TOOLS.md"));
+        assert!(BOOTSTRAP_FILES.contains(&"IDENTITY.md"));
+        assert!(
+            !BOOTSTRAP_FILES.contains(&"AGENTS.md"),
+            "AGENTS.md was consolidated"
+        );
+        assert!(
+            !BOOTSTRAP_FILES.contains(&"SOUL.md"),
+            "SOUL.md was consolidated"
+        );
     }
 }
