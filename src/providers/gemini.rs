@@ -7,6 +7,10 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::sync::Mutex;
+use std::time::Duration;
+
+const CONNECT_TIMEOUT_SECS: u64 = 30;
+const REQUEST_TIMEOUT_SECS: u64 = 120;
 
 pub struct GeminiProvider {
     api_key: String,
@@ -20,7 +24,11 @@ impl GeminiProvider {
         Self {
             api_key,
             default_model: default_model.unwrap_or_else(|| "gemini-pro".to_string()),
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
         }
     }
@@ -140,5 +148,30 @@ impl LLMProvider for GeminiProvider {
 
     fn default_model(&self) -> &str {
         &self.default_model
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_provider_construction() {
+        let provider = GeminiProvider::new("test_key".to_string(), None);
+        assert_eq!(provider.default_model(), "gemini-pro");
+    }
+
+    #[test]
+    fn test_provider_custom_model() {
+        let provider =
+            GeminiProvider::new("test_key".to_string(), Some("gemini-2.0-flash".to_string()));
+        assert_eq!(provider.default_model(), "gemini-2.0-flash");
+    }
+
+    #[test]
+    fn test_timeout_constants_are_sensible() {
+        assert!(CONNECT_TIMEOUT_SECS <= 60);
+        assert!(REQUEST_TIMEOUT_SECS >= 60);
+        assert!(REQUEST_TIMEOUT_SECS <= 300);
     }
 }

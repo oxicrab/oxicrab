@@ -9,8 +9,11 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde_json::{json, Value};
+use std::time::Duration;
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
+const CONNECT_TIMEOUT_SECS: u64 = 30;
+const STREAM_CHUNK_TIMEOUT_SECS: u64 = 120;
 
 pub struct AnthropicProvider {
     api_key: String,
@@ -25,7 +28,10 @@ impl AnthropicProvider {
             api_key,
             default_model: default_model
                 .unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             metrics: std::sync::Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),
         }
     }
@@ -58,6 +64,7 @@ impl LLMProvider for AnthropicProvider {
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .json(&payload)
+            .timeout(Duration::from_secs(STREAM_CHUNK_TIMEOUT_SECS))
             .send()
             .await
             .context("Failed to send request to Anthropic API")?;
@@ -123,7 +130,15 @@ impl LLMProvider for AnthropicProvider {
         let mut buf = String::new();
 
         let mut stream = resp.bytes_stream();
-        while let Some(chunk) = stream.next().await {
+        loop {
+            let chunk = tokio::time::timeout(
+                Duration::from_secs(STREAM_CHUNK_TIMEOUT_SECS),
+                stream.next(),
+            )
+            .await
+            .context("Anthropic stream timed out waiting for next chunk")?;
+
+            let Some(chunk) = chunk else { break };
             let chunk = chunk.context("Error reading stream chunk")?;
             let text = String::from_utf8_lossy(&chunk);
             buf.push_str(&text);
@@ -230,5 +245,69 @@ impl LLMProvider for AnthropicProvider {
 
     fn default_model(&self) -> &str {
         &self.default_model
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::stream;
+
+    #[test]
+    fn test_provider_construction() {
+        let provider = AnthropicProvider::new("test_key".to_string(), None);
+        assert_eq!(provider.default_model(), "claude-sonnet-4-5-20250929");
+    }
+
+    #[test]
+    fn test_provider_custom_model() {
+        let provider =
+            AnthropicProvider::new("test_key".to_string(), Some("claude-opus-4-6".to_string()));
+        assert_eq!(provider.default_model(), "claude-opus-4-6");
+    }
+
+    #[tokio::test]
+    async fn test_stream_chunk_timeout_fires() {
+        // Simulate a stream that stalls forever
+        let mut stalled: futures_util::stream::Pending<Option<String>> = stream::pending();
+
+        let result = tokio::time::timeout(
+            Duration::from_millis(50),
+            futures_util::StreamExt::next(&mut stalled),
+        )
+        .await;
+
+        assert!(result.is_err(), "Timeout should fire on stalled stream");
+    }
+
+    #[tokio::test]
+    async fn test_stream_chunk_timeout_does_not_fire_on_data() {
+        let items: Vec<String> = vec!["chunk1".to_string()];
+        let mut ready_stream = stream::iter(items);
+
+        let result = tokio::time::timeout(
+            Duration::from_millis(500),
+            futures_util::StreamExt::next(&mut ready_stream),
+        )
+        .await;
+
+        assert!(result.is_ok(), "Timeout should not fire when data arrives");
+        assert_eq!(result.unwrap().unwrap(), "chunk1");
+    }
+
+    #[test]
+    fn test_timeout_constants_are_sensible() {
+        assert!(
+            CONNECT_TIMEOUT_SECS <= 60,
+            "Connect timeout should be reasonable"
+        );
+        assert!(
+            STREAM_CHUNK_TIMEOUT_SECS >= 60,
+            "Stream chunk timeout needs to allow for slow generation"
+        );
+        assert!(
+            STREAM_CHUNK_TIMEOUT_SECS <= 300,
+            "Stream chunk timeout shouldn't be too long"
+        );
     }
 }

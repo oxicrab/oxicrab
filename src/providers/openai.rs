@@ -7,8 +7,11 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::sync::Mutex;
+use std::time::Duration;
 
 const API_URL: &str = "https://api.openai.com/v1/chat/completions";
+const CONNECT_TIMEOUT_SECS: u64 = 30;
+const REQUEST_TIMEOUT_SECS: u64 = 120;
 
 pub struct OpenAIProvider {
     api_key: String,
@@ -22,7 +25,11 @@ impl OpenAIProvider {
         Self {
             api_key,
             default_model: default_model.unwrap_or_else(|| "gpt-4o".to_string()),
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
         }
     }
@@ -146,5 +153,29 @@ impl LLMProvider for OpenAIProvider {
 
     fn default_model(&self) -> &str {
         &self.default_model
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_provider_construction() {
+        let provider = OpenAIProvider::new("test_key".to_string(), None);
+        assert_eq!(provider.default_model(), "gpt-4o");
+    }
+
+    #[test]
+    fn test_provider_custom_model() {
+        let provider = OpenAIProvider::new("test_key".to_string(), Some("gpt-4-turbo".to_string()));
+        assert_eq!(provider.default_model(), "gpt-4-turbo");
+    }
+
+    #[test]
+    fn test_timeout_constants_are_sensible() {
+        assert!(CONNECT_TIMEOUT_SECS <= 60);
+        assert!(REQUEST_TIMEOUT_SECS >= 60);
+        assert!(REQUEST_TIMEOUT_SECS <= 300);
     }
 }
