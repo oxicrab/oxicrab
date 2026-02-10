@@ -9,6 +9,7 @@ use crate::agent::tools::{
     google_calendar::GoogleCalendarTool,
     google_mail::GoogleMailTool,
     http::HttpTool,
+    media::MediaTool,
     message::MessageTool,
     reddit::RedditTool,
     shell::ExecTool,
@@ -219,6 +220,7 @@ pub struct AgentLoopConfig {
     pub github_config: Option<crate::config::GitHubConfig>,
     pub weather_config: Option<crate::config::WeatherConfig>,
     pub todoist_config: Option<crate::config::TodoistConfig>,
+    pub media_config: Option<crate::config::MediaConfig>,
     /// Temperature for response generation (default 0.7)
     pub temperature: f32,
     /// Temperature for tool-calling iterations (default 0.0 for determinism)
@@ -272,6 +274,7 @@ impl AgentLoop {
             github_config,
             weather_config,
             todoist_config,
+            media_config,
             temperature,
             tool_temperature,
             session_ttl_days,
@@ -422,6 +425,14 @@ impl AgentLoop {
             if todoist_cfg.enabled && !todoist_cfg.token.is_empty() {
                 tools.register(Arc::new(TodoistTool::new(todoist_cfg.token.clone())));
                 info!("Todoist tool registered");
+            }
+        }
+
+        // Register Media tool (Radarr/Sonarr) if configured
+        if let Some(ref media_cfg) = media_config {
+            if media_cfg.enabled {
+                tools.register(Arc::new(MediaTool::new(media_cfg)));
+                info!("Media tool registered (Radarr/Sonarr)");
             }
         }
 

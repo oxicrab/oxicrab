@@ -415,6 +415,7 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
             github_config: Some(config.tools.github.clone()),
             weather_config: Some(config.tools.weather.clone()),
             todoist_config: Some(config.tools.todoist.clone()),
+            media_config: Some(config.tools.media.clone()),
             temperature: config.agents.defaults.temperature,
             tool_temperature: TOOL_TEMPERATURE,
             session_ttl_days: config.agents.defaults.session_ttl_days,

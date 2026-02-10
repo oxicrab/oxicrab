@@ -729,6 +729,40 @@ impl std::fmt::Debug for TodoistConfig {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct MediaServiceConfig {
+    #[serde(default)]
+    pub url: String,
+    #[serde(default, rename = "apiKey")]
+    pub api_key: String,
+}
+
+impl std::fmt::Debug for MediaServiceConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MediaServiceConfig")
+            .field("url", &self.url)
+            .field(
+                "api_key",
+                &if self.api_key.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MediaConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub radarr: MediaServiceConfig,
+    #[serde(default)]
+    pub sonarr: MediaServiceConfig,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ToolsConfig {
     #[serde(default)]
@@ -745,6 +779,8 @@ pub struct ToolsConfig {
     pub weather: WeatherConfig,
     #[serde(default)]
     pub todoist: TodoistConfig,
+    #[serde(default)]
+    pub media: MediaConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
