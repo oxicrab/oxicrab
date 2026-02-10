@@ -109,11 +109,11 @@ impl Tool for GoogleCalendarTool {
                 let now = Utc::now();
                 let time_min = params["time_min"]
                     .as_str()
-                    .map(|s| s.to_string())
+                    .map(|s| ensure_rfc3339_tz(s))
                     .unwrap_or_else(|| now.to_rfc3339());
                 let time_max = params["time_max"]
                     .as_str()
-                    .map(|s| s.to_string())
+                    .map(|s| ensure_rfc3339_tz(s))
                     .unwrap_or_else(|| (now + chrono::Duration::days(7)).to_rfc3339());
                 let max_results = params["max_results"].as_u64().unwrap_or(20) as u32;
 
@@ -192,7 +192,7 @@ impl Tool for GoogleCalendarTool {
                 let summary = params["summary"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'summary' parameter"))?;
-                let start = params["start"]
+                let start_raw = params["start"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'start' parameter"))?;
 
@@ -211,20 +211,22 @@ impl Tool for GoogleCalendarTool {
                 }
 
                 if all_day {
-                    body["start"] = serde_json::json!({"date": &start[..10.min(start.len())]});
-                    let end = params["end"].as_str().unwrap_or(start);
+                    body["start"] =
+                        serde_json::json!({"date": &start_raw[..10.min(start_raw.len())]});
+                    let end = params["end"].as_str().unwrap_or(start_raw);
                     body["end"] = serde_json::json!({"date": &end[..10.min(end.len())]});
                 } else {
-                    body["start"] = serde_json::json!({"dateTime": start, "timeZone": tz});
+                    let start = ensure_rfc3339_tz(start_raw);
+                    body["start"] = serde_json::json!({"dateTime": &start, "timeZone": tz});
                     let end = params["end"]
                         .as_str()
-                        .map(|s| s.to_string())
+                        .map(|s| ensure_rfc3339_tz(s))
                         .unwrap_or_else(|| {
-                            DateTime::parse_from_rfc3339(start)
+                            DateTime::parse_from_rfc3339(&start)
                                 .map(|dt| (dt + chrono::Duration::hours(1)).to_rfc3339())
-                                .unwrap_or_else(|_| start.to_string())
+                                .unwrap_or_else(|_| start.clone())
                         });
-                    body["end"] = serde_json::json!({"dateTime": end, "timeZone": tz});
+                    body["end"] = serde_json::json!({"dateTime": &end, "timeZone": tz});
                 }
 
                 if let Some(attendees) = params["attendees"].as_array() {
@@ -273,14 +275,16 @@ impl Tool for GoogleCalendarTool {
                     if params["all_day"].as_bool().unwrap_or(false) {
                         ev["start"] = serde_json::json!({"date": &s[..10.min(s.len())]});
                     } else {
-                        ev["start"] = serde_json::json!({"dateTime": s, "timeZone": tz});
+                        let s = ensure_rfc3339_tz(s);
+                        ev["start"] = serde_json::json!({"dateTime": &s, "timeZone": tz});
                     }
                 }
                 if let Some(e) = params["end"].as_str() {
                     if params["all_day"].as_bool().unwrap_or(false) {
                         ev["end"] = serde_json::json!({"date": &e[..10.min(e.len())]});
                     } else {
-                        ev["end"] = serde_json::json!({"dateTime": e, "timeZone": tz});
+                        let e = ensure_rfc3339_tz(e);
+                        ev["end"] = serde_json::json!({"dateTime": &e, "timeZone": tz});
                     }
                 }
                 if let Some(attendees) = params["attendees"].as_array() {
@@ -341,6 +345,31 @@ impl Tool for GoogleCalendarTool {
     }
 }
 
+/// Ensure a timestamp string has a timezone suffix for RFC 3339 compliance.
+/// If the string already ends with 'Z' or has an offset like '+00:00'/'-05:00', return as-is.
+/// Otherwise, append 'Z' (UTC) so the Google Calendar API accepts it.
+fn ensure_rfc3339_tz(s: &str) -> String {
+    let trimmed = s.trim();
+    // Already has 'Z' suffix
+    if trimmed.ends_with('Z') || trimmed.ends_with('z') {
+        return trimmed.to_string();
+    }
+    // Already has a +HH:MM or -HH:MM offset (e.g. "2026-03-07T10:00:00+05:00")
+    let bytes = trimmed.as_bytes();
+    if bytes.len() >= 6 {
+        let tail = &trimmed[trimmed.len() - 6..];
+        if (tail.starts_with('+') || tail.starts_with('-'))
+            && tail[1..3].chars().all(|c| c.is_ascii_digit())
+            && tail.as_bytes()[3] == b':'
+            && tail[4..6].chars().all(|c| c.is_ascii_digit())
+        {
+            return trimmed.to_string();
+        }
+    }
+    // No timezone info — append Z
+    format!("{}Z", trimmed)
+}
+
 fn format_event_detail(ev: &Value) -> String {
     let start = ev["start"]["dateTime"]
         .as_str()
@@ -379,4 +408,50 @@ fn format_event_detail(ev: &Value) -> String {
         parts.push(format!("Status: {}", status));
     }
     parts.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ensure_rfc3339_tz_bare_timestamp() {
+        assert_eq!(
+            ensure_rfc3339_tz("2026-03-07T00:00:00"),
+            "2026-03-07T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn test_ensure_rfc3339_tz_already_z() {
+        assert_eq!(
+            ensure_rfc3339_tz("2026-03-07T00:00:00Z"),
+            "2026-03-07T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn test_ensure_rfc3339_tz_already_offset() {
+        assert_eq!(
+            ensure_rfc3339_tz("2026-03-07T10:00:00+05:00"),
+            "2026-03-07T10:00:00+05:00"
+        );
+        assert_eq!(
+            ensure_rfc3339_tz("2026-03-07T10:00:00-08:00"),
+            "2026-03-07T10:00:00-08:00"
+        );
+    }
+
+    #[test]
+    fn test_ensure_rfc3339_tz_with_whitespace() {
+        assert_eq!(
+            ensure_rfc3339_tz("  2026-03-07T00:00:00  "),
+            "2026-03-07T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn test_ensure_rfc3339_tz_date_only() {
+        assert_eq!(ensure_rfc3339_tz("2026-03-07"), "2026-03-07Z");
+    }
 }
