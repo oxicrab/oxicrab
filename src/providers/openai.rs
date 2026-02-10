@@ -122,6 +122,9 @@ impl LLMProvider for OpenAIProvider {
                     }
                 }))
                 .collect::<Vec<_>>());
+            if let Some(ref choice) = req.tool_choice {
+                payload["tool_choice"] = json!(choice);
+            }
         }
 
         let resp = self

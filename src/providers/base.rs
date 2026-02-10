@@ -116,6 +116,8 @@ pub struct ChatRequest<'a> {
     pub model: Option<&'a str>,
     pub max_tokens: u32,
     pub temperature: f32,
+    /// Tool choice mode: "auto" (default), "any" (force tool use), or "none".
+    pub tool_choice: Option<String>,
 }
 
 #[async_trait]
@@ -164,6 +166,7 @@ pub trait LLMProvider: Send + Sync {
                     model: req.model,
                     max_tokens: req.max_tokens,
                     temperature: req.temperature,
+                    tool_choice: req.tool_choice.clone(),
                 })
                 .await
             {

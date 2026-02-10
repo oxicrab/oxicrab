@@ -55,7 +55,8 @@ impl LLMProvider for AnthropicProvider {
 
         if let Some(tools) = req.tools {
             payload["tools"] = json!(anthropic_common::convert_tools(tools));
-            payload["tool_choice"] = json!({"type": "auto"});
+            let choice = req.tool_choice.as_deref().unwrap_or("auto");
+            payload["tool_choice"] = json!({"type": choice});
         }
 
         let resp = self
@@ -106,7 +107,8 @@ impl LLMProvider for AnthropicProvider {
 
         if let Some(tools) = req.tools {
             payload["tools"] = json!(anthropic_common::convert_tools(tools));
-            payload["tool_choice"] = json!({"type": "auto"});
+            let choice = req.tool_choice.as_deref().unwrap_or("auto");
+            payload["tool_choice"] = json!({"type": choice});
         }
 
         let resp = self

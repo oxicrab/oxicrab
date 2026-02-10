@@ -97,6 +97,7 @@ impl MessageCompactor {
                 model: self.model.as_deref(),
                 max_tokens: 2000,
                 temperature: 0.3,
+                tool_choice: None,
             })
             .await?;
 
@@ -122,6 +123,7 @@ impl MessageCompactor {
                 model: self.model.as_deref(),
                 max_tokens: 500,
                 temperature: 0.3,
+                tool_choice: None,
             })
             .await?;
 

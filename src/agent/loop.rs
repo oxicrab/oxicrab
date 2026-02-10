@@ -90,7 +90,7 @@ async fn execute_tool_call(
 /// Used to detect hallucinated actions when no tools were actually called.
 static ACTION_CLAIM_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
     Regex::new(
-        r"(?i)\b(?:I(?:'ve| have) (?:updated|written|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled)|I (?:updated|wrote|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled)|(?:Changes|Updates|Modifications) (?:have been|were) (?:made|applied|saved|committed)|(?:File|Config|Settings?) (?:has been|was) (?:updated|written|created|modified|saved|deleted))\b"
+        r"(?i)\b(?:I(?:'ve| have) (?:updated|written|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled|tested|ran|executed|fetched|searched|checked|verified|completed|performed|called|started|listed|read)|I (?:updated|wrote|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled|tested|ran|executed|fetched|searched|checked|verified|completed|performed|called|started|listed|read)|(?:Changes|Updates|Modifications) (?:have been|were) (?:made|applied|saved|committed)|(?:File|Config|Settings?) (?:has been|was) (?:updated|written|created|modified|saved|deleted)|All (?:tools?|tests?|checks?) (?:are |were |have been )?(?:fully )?(?:working|functional|successful|passing|passed|completed)|(?:Successfully|Already) (?:tested|executed|completed|verified|fetched|ran|performed|called|created|updated|sent|deleted))\b"
     )
     .expect("Invalid action claim regex")
 });
@@ -98,6 +98,18 @@ static ACTION_CLAIM_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(||
 /// Returns `true` if the text contains phrases claiming actions were performed.
 pub fn contains_action_claims(text: &str) -> bool {
     ACTION_CLAIM_RE.is_match(text)
+}
+
+/// Returns `true` if the text mentions 3+ tool names, suggesting hallucinated tool results.
+/// When the LLM lists tool names with "results" but never actually called them, this catches
+/// the pattern that the action-claim regex might miss.
+pub fn mentions_multiple_tools(text: &str, tool_names: &[String]) -> bool {
+    let text_lower = text.to_lowercase();
+    let count = tool_names
+        .iter()
+        .filter(|name| text_lower.contains(name.as_str()))
+        .count();
+    count >= 3
 }
 
 /// Configuration for creating an [`AgentLoop`] instance.
@@ -570,6 +582,9 @@ impl AgentLoop {
             tools_guard.get_tool_definitions()
         };
 
+        // Extract tool names for hallucination detection
+        let tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
+
         for iteration in 1..=self.max_iterations {
             // Send typing indicator before LLM call
             send_typing();
@@ -582,6 +597,13 @@ impl AgentLoop {
             } else {
                 self.tool_temperature
             };
+            // Force tool use on first iteration to prevent text-only hallucinated responses
+            let tool_choice = if iteration == 1 && !tools_defs.is_empty() {
+                Some("any".to_string())
+            } else {
+                None // defaults to "auto" in provider
+            };
+
             let response = self
                 .provider
                 .chat_with_retry(
@@ -591,6 +613,7 @@ impl AgentLoop {
                         model: Some(&self.model),
                         max_tokens: 4096,
                         temperature: current_temp,
+                        tool_choice,
                     },
                     Some(crate::providers::base::RetryConfig::default()),
                 )
@@ -678,7 +701,10 @@ impl AgentLoop {
                 }
             } else if let Some(content) = response.content {
                 // Detect hallucinated actions: LLM claims it did something but never called tools
-                if !any_tools_called && contains_action_claims(&content) {
+                if !any_tools_called
+                    && (contains_action_claims(&content)
+                        || mentions_multiple_tools(&content, &tool_names))
+                {
                     warn!(
                         "Action hallucination detected: LLM claims actions but no tools were called"
                     );
@@ -1019,6 +1045,111 @@ mod tests {
         assert!(contains_action_claims(
             "Updates were made to the database schema."
         ));
+    }
+
+    // --- Expanded hallucination detection tests ---
+
+    #[test]
+    fn test_detects_i_tested() {
+        assert!(contains_action_claims("I tested all the tools."));
+    }
+
+    #[test]
+    fn test_detects_ive_executed() {
+        assert!(contains_action_claims("I've executed the commands."));
+    }
+
+    #[test]
+    fn test_detects_ive_fetched() {
+        assert!(contains_action_claims("I've fetched the latest data."));
+    }
+
+    #[test]
+    fn test_detects_i_verified() {
+        assert!(contains_action_claims("I verified all the results."));
+    }
+
+    #[test]
+    fn test_detects_i_searched() {
+        assert!(contains_action_claims("I searched for the information."));
+    }
+
+    #[test]
+    fn test_detects_i_listed() {
+        assert!(contains_action_claims(
+            "I listed all the directory contents."
+        ));
+    }
+
+    #[test]
+    fn test_detects_all_tools_working() {
+        assert!(contains_action_claims("All Tools Working:"));
+    }
+
+    #[test]
+    fn test_detects_all_tools_fully_functional() {
+        assert!(contains_action_claims("All tools are fully functional!"));
+    }
+
+    #[test]
+    fn test_detects_all_tests_passed() {
+        assert!(contains_action_claims("All tests passed successfully."));
+    }
+
+    #[test]
+    fn test_detects_all_tests_successful() {
+        assert!(contains_action_claims("All tests were successful."));
+    }
+
+    #[test]
+    fn test_detects_successfully_executed() {
+        assert!(contains_action_claims("Successfully executed the command."));
+    }
+
+    #[test]
+    fn test_detects_successfully_tested() {
+        assert!(contains_action_claims("Successfully tested all endpoints."));
+    }
+
+    #[test]
+    fn test_detects_already_completed() {
+        assert!(contains_action_claims("Already completed the migration."));
+    }
+
+    #[test]
+    fn test_tool_name_mentions_detects_hallucination() {
+        let tool_names = vec![
+            "web_search".to_string(),
+            "weather".to_string(),
+            "cron".to_string(),
+            "reddit".to_string(),
+            "exec".to_string(),
+        ];
+        let text = "## Tool Test Results\n- web_search - Found news\n- weather - 45°F\n- cron - 5 jobs\n- reddit - 10 posts";
+        assert!(mentions_multiple_tools(text, &tool_names));
+    }
+
+    #[test]
+    fn test_tool_name_mentions_no_false_positive() {
+        let tool_names = vec![
+            "web_search".to_string(),
+            "weather".to_string(),
+            "cron".to_string(),
+        ];
+        // Only mentions 1 tool name — should not trigger
+        let text = "I can help you with web_search if you'd like.";
+        assert!(!mentions_multiple_tools(text, &tool_names));
+    }
+
+    #[test]
+    fn test_tool_name_mentions_exactly_two_no_trigger() {
+        let tool_names = vec![
+            "web_search".to_string(),
+            "weather".to_string(),
+            "cron".to_string(),
+        ];
+        let text = "The web_search and weather tools are available.";
+        assert!(!mentions_multiple_tools(text, &tool_names));
     }
 
     // --- Parallel tool execution tests ---

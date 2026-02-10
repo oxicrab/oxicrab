@@ -204,6 +204,7 @@ impl SubagentManager {
                     model: Some(&self.model),
                     max_tokens: 4096,
                     temperature: 0.7,
+                    tool_choice: None,
                 })
                 .await?;
 

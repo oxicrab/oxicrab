@@ -402,7 +402,8 @@ impl LLMProvider for AnthropicOAuthProvider {
 
         if let Some(tools) = req.tools {
             payload["tools"] = json!(anthropic_common::convert_tools(tools));
-            payload["tool_choice"] = json!({"type": "auto"});
+            let choice = req.tool_choice.as_deref().unwrap_or("auto");
+            payload["tool_choice"] = json!({"type": choice});
         }
 
         let mut request = self
