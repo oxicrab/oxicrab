@@ -40,6 +40,10 @@ impl ToolRegistry {
         self.tools.get(name).cloned()
     }
 
+    pub fn tool_names(&self) -> Vec<String> {
+        self.tools.keys().cloned().collect()
+    }
+
     pub fn get_tool_definitions(&self) -> Vec<crate::providers::base::ToolDefinition> {
         self.tools
             .values()

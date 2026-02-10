@@ -37,14 +37,95 @@ use tracing::{debug, error, info, warn};
 
 const EMPTY_RESPONSE_RETRIES: usize = 2;
 
+/// Validate tool arguments against the tool's JSON schema.
+/// Checks: (1) required fields are present, (2) field types match schema.
+/// Returns None if valid, Some(error_message) if invalid.
+fn validate_tool_params(
+    tool: &dyn crate::agent::tools::base::Tool,
+    params: &Value,
+) -> Option<String> {
+    let schema = tool.parameters();
+    let mut errors = Vec::new();
+
+    // Check required fields
+    if let Some(required) = schema["required"].as_array() {
+        for field in required {
+            if let Some(field_name) = field.as_str() {
+                if params.get(field_name).is_none() || params[field_name].is_null() {
+                    errors.push(format!("missing required parameter '{}'", field_name));
+                }
+            }
+        }
+    }
+
+    // Check types of provided fields
+    if let Some(properties) = schema["properties"].as_object() {
+        for (field_name, field_schema) in properties {
+            if let Some(value) = params.get(field_name) {
+                if !value.is_null() {
+                    if let Some(expected_type) = field_schema["type"].as_str() {
+                        let type_ok = match expected_type {
+                            "string" => value.is_string(),
+                            "number" | "integer" => value.is_number(),
+                            "boolean" => value.is_boolean(),
+                            "array" => value.is_array(),
+                            "object" => value.is_object(),
+                            _ => true,
+                        };
+                        if !type_ok {
+                            errors.push(format!(
+                                "parameter '{}' should be {} but got {}",
+                                field_name,
+                                expected_type,
+                                value_type_name(value)
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "Invalid arguments for tool '{}': {}",
+            tool.name(),
+            errors.join("; ")
+        ))
+    }
+}
+
+fn value_type_name(v: &Value) -> &'static str {
+    match v {
+        Value::String(_) => "string",
+        Value::Number(_) => "number",
+        Value::Bool(_) => "boolean",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+        Value::Null => "null",
+    }
+}
+
 /// Core logic for executing a single tool call and producing (result_string, is_error).
 async fn execute_tool_call_inner(
     _tc_id: &str,
     tc_name: &str,
     tc_args: &Value,
     tool_opt: Option<Arc<dyn crate::agent::tools::base::Tool>>,
+    available_tools: &[String],
 ) -> (String, bool) {
     if let Some(tool) = tool_opt {
+        // Validate params against schema before execution
+        if let Some(validation_error) = validate_tool_params(tool.as_ref(), tc_args) {
+            warn!(
+                "Tool '{}' param validation failed: {}",
+                tc_name, validation_error
+            );
+            return (validation_error, true);
+        }
+
         debug!("Executing tool: {} with arguments: {}", tc_name, tc_args);
         let tool_name = tc_name.to_string();
         let params = tc_args.clone();
@@ -62,7 +143,14 @@ async fn execute_tool_call_inner(
         }
     } else {
         warn!("LLM called unknown tool: {}", tc_name);
-        (format!("Error: unknown tool '{}'", tc_name), true)
+        (
+            format!(
+                "Error: tool '{}' does not exist. Available tools: {}",
+                tc_name,
+                available_tools.join(", ")
+            ),
+            true,
+        )
     }
 }
 
@@ -70,12 +158,13 @@ async fn execute_tool_call_inner(
 async fn execute_tool_call(
     tc: &crate::providers::base::ToolCallRequest,
     tool_opt: Option<Arc<dyn crate::agent::tools::base::Tool>>,
+    available_tools: Vec<String>,
 ) -> (String, bool) {
     let tc_id = tc.id.clone();
     let tc_name = tc.name.clone();
     let tc_args = tc.arguments.clone();
     let handle = tokio::task::spawn(async move {
-        execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt).await
+        execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt, &available_tools).await
     });
     match handle.await {
         Ok(result) => result,
@@ -621,13 +710,14 @@ impl AgentLoop {
 
             if response.has_tool_calls() {
                 any_tools_called = true;
-                let tool_names: Vec<&str> = response
+                let called_tool_names: Vec<&str> = response
                     .tool_calls
                     .iter()
                     .map(|tc| tc.name.as_str())
                     .collect();
-                last_used_delivery_tool =
-                    tool_names.iter().any(|n| *n == "message" || *n == "spawn");
+                last_used_delivery_tool = called_tool_names
+                    .iter()
+                    .any(|n| *n == "message" || *n == "spawn");
 
                 ContextBuilder::add_assistant_message(
                     &mut messages,
@@ -659,7 +749,7 @@ impl AgentLoop {
                 let results = if tool_lookups.len() == 1 {
                     // Single tool fast-path: avoid join_all overhead
                     let (tc, tool_opt) = &tool_lookups[0];
-                    vec![execute_tool_call(tc, tool_opt.clone()).await]
+                    vec![execute_tool_call(tc, tool_opt.clone(), tool_names.clone()).await]
                 } else {
                     // Parallel execution: spawn all, await all
                     let handles: Vec<_> = tool_lookups
@@ -669,8 +759,12 @@ impl AgentLoop {
                             let tc_name = tc.name.clone();
                             let tc_args = tc.arguments.clone();
                             let tool_opt = tool_opt.clone();
+                            let available = tool_names.clone();
                             tokio::task::spawn(async move {
-                                execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt).await
+                                execute_tool_call_inner(
+                                    &tc_id, &tc_name, &tc_args, tool_opt, &available,
+                                )
+                                .await
                             })
                         })
                         .collect();
@@ -1229,6 +1323,10 @@ mod tests {
         }
     }
 
+    fn empty_tools() -> Vec<String> {
+        vec![]
+    }
+
     #[tokio::test]
     async fn test_parallel_tool_execution_ordering() {
         // 3 tools with different delays — results must come back in call order
@@ -1265,8 +1363,9 @@ mod tests {
                 let tc_name = tc.name.clone();
                 let tc_args = tc.arguments.clone();
                 let tool_opt = tool_opt.clone();
+                let available = empty_tools();
                 tokio::task::spawn(async move {
-                    execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt).await
+                    execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt, &available).await
                 })
             })
             .collect();
@@ -1295,7 +1394,7 @@ mod tests {
         }));
 
         let tc = make_tool_call("1", "only");
-        let (result, is_error) = execute_tool_call(&tc, tool).await;
+        let (result, is_error) = execute_tool_call(&tc, tool, empty_tools()).await;
 
         assert_eq!(result, "only_result");
         assert!(!is_error);
@@ -1331,8 +1430,9 @@ mod tests {
                 let tc_name = tc.name.clone();
                 let tc_args = tc.arguments.clone();
                 let tool_opt = tool_opt.clone();
+                let available = empty_tools();
                 tokio::task::spawn(async move {
-                    execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt).await
+                    execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt, &available).await
                 })
             })
             .collect();
@@ -1386,8 +1486,9 @@ mod tests {
                 let tc_name = tc.name.clone();
                 let tc_args = tc.arguments.clone();
                 let tool_opt = tool_opt.clone();
+                let available = empty_tools();
                 tokio::task::spawn(async move {
-                    execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt).await
+                    execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt, &available).await
                 })
             })
             .collect();
@@ -1406,5 +1507,127 @@ mod tests {
         // Error tool marked as error
         assert!(results[1].0.contains("Tool execution failed"));
         assert!(results[1].1);
+    }
+
+    // --- Unknown tool error improvement tests ---
+
+    #[tokio::test]
+    async fn test_unknown_tool_lists_available() {
+        let available = vec![
+            "read_file".to_string(),
+            "write_file".to_string(),
+            "exec".to_string(),
+        ];
+        let (result, is_error) = execute_tool_call_inner(
+            "id1",
+            "nonexistent_tool",
+            &serde_json::json!({}),
+            None,
+            &available,
+        )
+        .await;
+        assert!(is_error);
+        assert!(result.contains("does not exist"));
+        assert!(result.contains("read_file"));
+        assert!(result.contains("write_file"));
+        assert!(result.contains("exec"));
+    }
+
+    // --- Schema validation tests ---
+
+    /// A mock tool with a defined parameter schema for validation tests.
+    struct SchemaTestTool;
+
+    #[async_trait]
+    impl Tool for SchemaTestTool {
+        fn name(&self) -> &str {
+            "schema_test"
+        }
+        fn description(&self) -> &str {
+            "test tool with schema"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string" },
+                    "count": { "type": "integer" },
+                    "verbose": { "type": "boolean" },
+                    "tags": { "type": "array" },
+                    "options": { "type": "object" }
+                },
+                "required": ["query"]
+            })
+        }
+        async fn execute(&self, _params: serde_json::Value) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("ok".to_string()))
+        }
+    }
+
+    #[test]
+    fn test_validate_params_missing_required() {
+        let tool = SchemaTestTool;
+        let params = serde_json::json!({});
+        let result = validate_tool_params(&tool, &params);
+        assert!(result.is_some());
+        let msg = result.unwrap();
+        assert!(msg.contains("missing required parameter 'query'"));
+    }
+
+    #[test]
+    fn test_validate_params_wrong_type() {
+        let tool = SchemaTestTool;
+        // query should be string, but we pass a number
+        let params = serde_json::json!({"query": 42});
+        let result = validate_tool_params(&tool, &params);
+        assert!(result.is_some());
+        let msg = result.unwrap();
+        assert!(msg.contains("parameter 'query' should be string but got number"));
+    }
+
+    #[test]
+    fn test_validate_params_valid() {
+        let tool = SchemaTestTool;
+        let params = serde_json::json!({"query": "hello", "count": 5, "verbose": true});
+        let result = validate_tool_params(&tool, &params);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_validate_params_no_required() {
+        // MockTool has empty schema (no required array) — should always pass
+        let tool = MockTool {
+            tool_name: "no_schema".into(),
+            delay_ms: 0,
+            response: "ok".into(),
+        };
+        let params = serde_json::json!({});
+        let result = validate_tool_params(&tool, &params);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_validate_params_optional_missing_ok() {
+        let tool = SchemaTestTool;
+        // Only required field "query" is provided; optional fields omitted — should pass
+        let params = serde_json::json!({"query": "test"});
+        let result = validate_tool_params(&tool, &params);
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_validation_rejects_before_execution() {
+        // Tool with required param "query" — call without it, should get validation error
+        let tool: Option<Arc<dyn Tool>> = Some(Arc::new(SchemaTestTool));
+        let (result, is_error) = execute_tool_call_inner(
+            "id1",
+            "schema_test",
+            &serde_json::json!({}),
+            tool,
+            &empty_tools(),
+        )
+        .await;
+        assert!(is_error);
+        assert!(result.contains("missing required parameter 'query'"));
     }
 }
