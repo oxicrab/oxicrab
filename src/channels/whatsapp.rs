@@ -136,29 +136,21 @@ impl BaseChannel for WhatsAppChannel {
                                 whatsapp_rust::types::events::Event::Message(msg, info) => {
                                     // In linked-device mode the bot IS the user's phone,
                                     // so is_from_me is true for ALL messages from this account.
-                                    // To distinguish "user talking to bot" from "user sent a
-                                    // message to someone else (device-synced)", check if the
-                                    // recipient is a different person not in allowFrom.
-                                    // Self-chat (recipient = own number) should be processed.
+                                    // Use should_skip_own_message() to filter out messages
+                                    // sent to other people while letting self-chat through.
                                     if info.source.is_from_me {
-                                        if let Some(ref recipient) = info.source.recipient {
-                                            let recip_str = recipient.to_string();
-                                            let recip_phone = recip_str
-                                                .split('@')
-                                                .next()
-                                                .unwrap_or(&recip_str)
-                                                .split(':')
-                                                .next()
-                                                .unwrap_or(&recip_str);
-                                            // If recipient is not in allowFrom, it's an outgoing
-                                            // message to someone else — skip it
-                                            if !check_allowed_sender(recip_phone, &config_allow) {
-                                                debug!(
-                                                    "Ignoring device-synced outgoing message to {}",
-                                                    recip_phone
-                                                );
-                                                return;
-                                            }
+                                        let recip_str = info.source.recipient
+                                            .as_ref()
+                                            .map(|r| r.to_string());
+                                        if should_skip_own_message(
+                                            recip_str.as_deref(),
+                                            &config_allow,
+                                        ) {
+                                            debug!(
+                                                "Ignoring device-synced outgoing message to {:?}",
+                                                recip_str
+                                            );
+                                            return;
                                         }
                                     }
 
@@ -481,4 +473,113 @@ async fn send_whatsapp_message(
         }
     }
     Ok(())
+}
+
+/// Determine whether an is_from_me message should be skipped.
+///
+/// In linked-device mode ALL messages from the user's account have
+/// `is_from_me == true`, including messages the user sends to the bot
+/// (self-chat). We distinguish by looking at the `recipient` field:
+///
+/// - `recipient` absent → no routing info, process the message
+/// - `recipient` present and phone in `allow_from` → self-chat, process it
+/// - `recipient` present and phone NOT in `allow_from` → outgoing to
+///   someone else (device-synced), skip it
+fn should_skip_own_message(recipient_jid: Option<&str>, allow_from: &[String]) -> bool {
+    let Some(recip) = recipient_jid else {
+        return false;
+    };
+    let recip_phone = recip
+        .split('@')
+        .next()
+        .unwrap_or(recip)
+        .split(':')
+        .next()
+        .unwrap_or(recip);
+    !check_allowed_sender(recip_phone, allow_from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn allow_list(nums: &[&str]) -> Vec<String> {
+        nums.iter().map(|s| s.to_string()).collect()
+    }
+
+    // --- should_skip_own_message tests ---
+
+    #[test]
+    fn test_skip_own_msg_to_other_person() {
+        // User sent a message to someone NOT in allowFrom — skip
+        let allow = allow_list(&["15037348571"]);
+        assert!(should_skip_own_message(
+            Some("19876543210@s.whatsapp.net"),
+            &allow,
+        ));
+    }
+
+    #[test]
+    fn test_no_skip_self_chat() {
+        // User sent a message to themselves (self-chat) — process
+        let allow = allow_list(&["15037348571"]);
+        assert!(!should_skip_own_message(
+            Some("15037348571@s.whatsapp.net"),
+            &allow,
+        ));
+    }
+
+    #[test]
+    fn test_no_skip_self_chat_with_device_id() {
+        // Recipient JID has device suffix like "15037348571:20@s.whatsapp.net"
+        let allow = allow_list(&["15037348571"]);
+        assert!(!should_skip_own_message(
+            Some("15037348571:20@s.whatsapp.net"),
+            &allow,
+        ));
+    }
+
+    #[test]
+    fn test_no_skip_when_no_recipient() {
+        // No recipient field at all — process the message
+        let allow = allow_list(&["15037348571"]);
+        assert!(!should_skip_own_message(None, &allow));
+    }
+
+    #[test]
+    fn test_no_skip_when_allow_from_empty() {
+        // Empty allowFrom means allow everyone — process
+        let allow: Vec<String> = vec![];
+        assert!(!should_skip_own_message(
+            Some("19876543210@s.whatsapp.net"),
+            &allow,
+        ));
+    }
+
+    #[test]
+    fn test_skip_own_msg_lid_recipient() {
+        // Recipient uses LID format instead of phone number
+        let allow = allow_list(&["15037348571"]);
+        assert!(should_skip_own_message(Some("194506284601577@lid"), &allow,));
+    }
+
+    #[test]
+    fn test_no_skip_multiple_allow_from() {
+        // Multiple numbers in allowFrom, recipient matches one
+        let allow = allow_list(&["15037348571", "15551234567"]);
+        assert!(!should_skip_own_message(
+            Some("15551234567@s.whatsapp.net"),
+            &allow,
+        ));
+    }
+
+    #[test]
+    fn test_skip_other_with_multiple_allow_from() {
+        // Multiple numbers in allowFrom, recipient matches none
+        let allow = allow_list(&["15037348571", "15551234567"]);
+        assert!(should_skip_own_message(
+            Some("19999999999@s.whatsapp.net"),
+            &allow,
+        ));
+    }
 }

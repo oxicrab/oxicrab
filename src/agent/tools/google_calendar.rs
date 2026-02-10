@@ -109,11 +109,11 @@ impl Tool for GoogleCalendarTool {
                 let now = Utc::now();
                 let time_min = params["time_min"]
                     .as_str()
-                    .map(|s| ensure_rfc3339_tz(s))
+                    .map(ensure_rfc3339_tz)
                     .unwrap_or_else(|| now.to_rfc3339());
                 let time_max = params["time_max"]
                     .as_str()
-                    .map(|s| ensure_rfc3339_tz(s))
+                    .map(ensure_rfc3339_tz)
                     .unwrap_or_else(|| (now + chrono::Duration::days(7)).to_rfc3339());
                 let max_results = params["max_results"].as_u64().unwrap_or(20) as u32;
 
@@ -216,25 +216,10 @@ impl Tool for GoogleCalendarTool {
                     let end = params["end"].as_str().unwrap_or(start_raw);
                     body["end"] = serde_json::json!({"date": &end[..10.min(end.len())]});
                 } else {
-                    // Don't add Z to bare timestamps here — the timeZone field
-                    // tells Google Calendar how to interpret them. Adding Z would
-                    // force UTC and the timeZone would be ignored.
-                    body["start"] = serde_json::json!({"dateTime": start_raw, "timeZone": tz});
-                    let end = params["end"]
-                        .as_str()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| {
-                            // Try parsing with Z appended for the +1hr default calculation
-                            DateTime::parse_from_rfc3339(&ensure_rfc3339_tz(start_raw))
-                                .map(|dt| {
-                                    // Return bare timestamp (no Z) to match start format
-                                    (dt + chrono::Duration::hours(1))
-                                        .format("%Y-%m-%dT%H:%M:%S")
-                                        .to_string()
-                                })
-                                .unwrap_or_else(|_| start_raw.to_string())
-                        });
-                    body["end"] = serde_json::json!({"dateTime": &end, "timeZone": tz});
+                    let (start_obj, end_obj) =
+                        build_event_times(start_raw, params["end"].as_str(), tz);
+                    body["start"] = start_obj;
+                    body["end"] = end_obj;
                 }
 
                 if let Some(attendees) = params["attendees"].as_array() {
@@ -351,6 +336,25 @@ impl Tool for GoogleCalendarTool {
     }
 }
 
+/// Build the start/end JSON objects for a timed (non all-day) event.
+/// Bare timestamps are passed through without appending Z so that the
+/// timeZone field controls interpretation. If no end time is provided,
+/// defaults to start + 1 hour.
+fn build_event_times(start_raw: &str, end_raw: Option<&str>, tz: &str) -> (Value, Value) {
+    let start_obj = serde_json::json!({"dateTime": start_raw, "timeZone": tz});
+    let end_str = end_raw.map(|s| s.to_string()).unwrap_or_else(|| {
+        DateTime::parse_from_rfc3339(&ensure_rfc3339_tz(start_raw))
+            .map(|dt| {
+                (dt + chrono::Duration::hours(1))
+                    .format("%Y-%m-%dT%H:%M:%S")
+                    .to_string()
+            })
+            .unwrap_or_else(|_| start_raw.to_string())
+    });
+    let end_obj = serde_json::json!({"dateTime": &end_str, "timeZone": tz});
+    (start_obj, end_obj)
+}
+
 /// Ensure a timestamp string has a timezone suffix for RFC 3339 compliance.
 /// If the string already ends with 'Z' or has an offset like '+00:00'/'-05:00', return as-is.
 /// Otherwise, append 'Z' (UTC) so the Google Calendar API accepts it.
@@ -459,5 +463,47 @@ mod tests {
     #[test]
     fn test_ensure_rfc3339_tz_date_only() {
         assert_eq!(ensure_rfc3339_tz("2026-03-07"), "2026-03-07Z");
+    }
+
+    #[test]
+    fn test_build_event_times_bare_timestamp_not_z_suffixed() {
+        // The core bug: bare timestamps must NOT get Z appended, otherwise
+        // the timeZone field is ignored and the event lands at the wrong time.
+        let (start, end) = build_event_times(
+            "2026-02-15T14:00:00",
+            Some("2026-02-15T15:00:00"),
+            "America/New_York",
+        );
+        assert_eq!(start["dateTime"], "2026-02-15T14:00:00");
+        assert_eq!(start["timeZone"], "America/New_York");
+        assert_eq!(end["dateTime"], "2026-02-15T15:00:00");
+        assert_eq!(end["timeZone"], "America/New_York");
+    }
+
+    #[test]
+    fn test_build_event_times_preserves_existing_offset() {
+        let (start, _) = build_event_times(
+            "2026-02-15T14:00:00-05:00",
+            Some("2026-02-15T15:00:00-05:00"),
+            "America/New_York",
+        );
+        // Offset already present — passed through as-is
+        assert_eq!(start["dateTime"], "2026-02-15T14:00:00-05:00");
+    }
+
+    #[test]
+    fn test_build_event_times_default_end_plus_one_hour() {
+        let (start, end) = build_event_times("2026-02-15T14:00:00", None, "America/New_York");
+        assert_eq!(start["dateTime"], "2026-02-15T14:00:00");
+        // Default end = start + 1hr, also bare (no Z)
+        assert_eq!(end["dateTime"], "2026-02-15T15:00:00");
+        assert_eq!(end["timeZone"], "America/New_York");
+    }
+
+    #[test]
+    fn test_build_event_times_utc_default_tz() {
+        let (start, _) =
+            build_event_times("2026-02-15T14:00:00", Some("2026-02-15T15:00:00"), "UTC");
+        assert_eq!(start["timeZone"], "UTC");
     }
 }
