@@ -111,10 +111,39 @@ impl ChannelManager {
         for channel in self.channels.iter() {
             if channel.name() == msg.channel {
                 tracing::info!("Found matching channel: {}", channel.name());
-                if let Err(e) = channel.send(msg).await {
-                    tracing::error!("Error sending message to {} channel: {}", msg.channel, e);
-                } else {
-                    tracing::info!("Successfully sent message to {} channel", msg.channel);
+                let max_attempts = 3;
+                let mut last_err = None;
+                for attempt in 1..=max_attempts {
+                    match channel.send(msg).await {
+                        Ok(()) => {
+                            tracing::info!("Successfully sent message to {} channel", msg.channel);
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            if attempt < max_attempts {
+                                tracing::warn!(
+                                    "Send to {} failed (attempt {}/{}): {}, retrying...",
+                                    msg.channel,
+                                    attempt,
+                                    max_attempts,
+                                    e
+                                );
+                                tokio::time::sleep(tokio::time::Duration::from_secs(
+                                    attempt as u64,
+                                ))
+                                .await;
+                            }
+                            last_err = Some(e);
+                        }
+                    }
+                }
+                if let Some(e) = last_err {
+                    tracing::error!(
+                        "Error sending message to {} channel after {} attempts: {}",
+                        msg.channel,
+                        max_attempts,
+                        e
+                    );
                 }
                 return Ok(());
             }

@@ -201,6 +201,10 @@ impl Tool for CronTool {
                     "type": "string",
                     "description": "Cron expression like '0 9 * * *' (for scheduled tasks). Standard 5-field format."
                 },
+                "at_time": {
+                    "type": "string",
+                    "description": "ISO 8601 datetime for a one-shot job (e.g. '2025-01-15T09:00:00-05:00'). The job runs once at this time and is automatically deleted afterward."
+                },
                 "tz": {
                     "type": "string",
                     "description": "IANA timezone for cron_expr (e.g. 'America/New_York'). Defaults to system timezone."
@@ -267,11 +271,29 @@ impl Tool for CronTool {
                         expr: Some(cron_expr.to_string()),
                         tz,
                     }
+                } else if let Some(at_time_str) = params["at_time"].as_str() {
+                    let dt = chrono::DateTime::parse_from_rfc3339(at_time_str)
+                        .or_else(|_| chrono::DateTime::parse_from_str(at_time_str, "%Y-%m-%dT%H:%M:%S%z"))
+                        .map_err(|_| anyhow::anyhow!("Invalid at_time format. Use ISO 8601 (e.g. '2025-01-15T09:00:00-05:00')"))?;
+                    let at_ms = dt.timestamp_millis();
+                    let now_ms_check = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(0);
+                    if at_ms <= now_ms_check {
+                        return Ok(ToolResult::error(
+                            "Error: at_time must be in the future".to_string(),
+                        ));
+                    }
+                    CronSchedule::At { at_ms: Some(at_ms) }
                 } else {
                     return Ok(ToolResult::error(
-                        "Error: either every_seconds or cron_expr is required".to_string(),
+                        "Error: either every_seconds, cron_expr, or at_time is required"
+                            .to_string(),
                     ));
                 };
+
+                let delete_after_run = matches!(&schedule, CronSchedule::At { .. });
 
                 let now_ms = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -306,7 +328,7 @@ impl Tool for CronTool {
                     },
                     created_at_ms: now_ms,
                     updated_at_ms: now_ms,
-                    delete_after_run: false,
+                    delete_after_run,
                 };
 
                 self.cron_service.add_job(job.clone()).await?;

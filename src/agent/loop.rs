@@ -10,6 +10,7 @@ use crate::agent::tools::{
     google_mail::GoogleMailTool,
     http::HttpTool,
     message::MessageTool,
+    reddit::RedditTool,
     shell::ExecTool,
     spawn::SpawnTool,
     subagent_control::SubagentControlTool,
@@ -326,6 +327,9 @@ impl AgentLoop {
         // Register HTTP tool (always available, no config needed)
         tools.register(Arc::new(HttpTool::new()));
 
+        // Register Reddit tool (always available, no auth needed)
+        tools.register(Arc::new(RedditTool::new()));
+
         let tools = Arc::new(Mutex::new(tools));
 
         let compactor = if compaction_config.enabled {
@@ -475,7 +479,8 @@ impl AgentLoop {
         };
         debug!("Built {} messages, starting agent loop", messages.len());
 
-        let final_content = self.run_agent_loop(messages).await?;
+        let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
+        let final_content = self.run_agent_loop(messages, typing_ctx).await?;
 
         // Save conversation (reuse session variable)
         let extra = HashMap::new();
@@ -535,10 +540,29 @@ impl AgentLoop {
         }
     }
 
-    async fn run_agent_loop(&self, mut messages: Vec<Message>) -> Result<Option<String>> {
+    async fn run_agent_loop(
+        &self,
+        mut messages: Vec<Message>,
+        typing_context: Option<(String, String)>,
+    ) -> Result<Option<String>> {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut last_used_delivery_tool = false;
         let mut any_tools_called = false;
+
+        // Fire-and-forget typing indicator helper
+        let send_typing = {
+            let typing_tx = self.typing_tx.clone();
+            let ctx = typing_context.clone();
+            move || {
+                if let (Some(ref tx), Some(ref ctx)) = (&typing_tx, &ctx) {
+                    let tx = tx.clone();
+                    let ctx = ctx.clone();
+                    tokio::spawn(async move {
+                        let _ = tx.send(ctx).await;
+                    });
+                }
+            }
+        };
 
         // Cache tool definitions to avoid repeated lock acquisition
         let tools_defs = {
@@ -547,6 +571,9 @@ impl AgentLoop {
         };
 
         for iteration in 1..=self.max_iterations {
+            // Send typing indicator before LLM call
+            send_typing();
+
             // Use retry logic for provider calls
             // Use low temperature for tool-calling iterations (determinism),
             // normal temperature for final text responses
@@ -585,6 +612,9 @@ impl AgentLoop {
                     Some(response.tool_calls.clone()),
                     response.reasoning_content.as_deref(),
                 );
+
+                // Send typing indicator before tool execution
+                send_typing();
 
                 // Execute tools with validation
                 // NOTE: We must NOT hold the tools lock across tool execution,
@@ -803,8 +833,9 @@ impl AgentLoop {
             Some(origin_chat_id.as_str()),
         )?;
 
+        let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
         let final_content = self
-            .run_agent_loop(messages)
+            .run_agent_loop(messages, typing_ctx)
             .await?
             .unwrap_or_else(|| "Background task completed.".to_string());
 
@@ -843,8 +874,9 @@ impl AgentLoop {
             ctx.build_messages(&history, content, Some(channel), Some(chat_id))?
         };
 
+        let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
         let response = self
-            .run_agent_loop(messages)
+            .run_agent_loop(messages, typing_ctx)
             .await?
             .unwrap_or_else(|| "No response generated.".to_string());
 
