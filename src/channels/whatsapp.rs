@@ -134,10 +134,32 @@ impl BaseChannel for WhatsAppChannel {
                             debug!("WhatsApp event received: type={:?}", std::mem::discriminant(&event));
                             match &event {
                                 whatsapp_rust::types::events::Event::Message(msg, info) => {
-                                    // Skip messages sent by ourselves (own device)
+                                    // In linked-device mode the bot IS the user's phone,
+                                    // so is_from_me is true for ALL messages from this account.
+                                    // To distinguish "user talking to bot" from "user sent a
+                                    // message to someone else (device-synced)", check if the
+                                    // recipient is a different person not in allowFrom.
+                                    // Self-chat (recipient = own number) should be processed.
                                     if info.source.is_from_me {
-                                        debug!("Ignoring own outgoing WhatsApp message");
-                                        return;
+                                        if let Some(ref recipient) = info.source.recipient {
+                                            let recip_str = recipient.to_string();
+                                            let recip_phone = recip_str
+                                                .split('@')
+                                                .next()
+                                                .unwrap_or(&recip_str)
+                                                .split(':')
+                                                .next()
+                                                .unwrap_or(&recip_str);
+                                            // If recipient is not in allowFrom, it's an outgoing
+                                            // message to someone else — skip it
+                                            if !check_allowed_sender(recip_phone, &config_allow) {
+                                                debug!(
+                                                    "Ignoring device-synced outgoing message to {}",
+                                                    recip_phone
+                                                );
+                                                return;
+                                            }
+                                        }
                                     }
 
                                     // Handle message event (organized inline to avoid type issues)

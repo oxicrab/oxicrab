@@ -216,15 +216,23 @@ impl Tool for GoogleCalendarTool {
                     let end = params["end"].as_str().unwrap_or(start_raw);
                     body["end"] = serde_json::json!({"date": &end[..10.min(end.len())]});
                 } else {
-                    let start = ensure_rfc3339_tz(start_raw);
-                    body["start"] = serde_json::json!({"dateTime": &start, "timeZone": tz});
+                    // Don't add Z to bare timestamps here — the timeZone field
+                    // tells Google Calendar how to interpret them. Adding Z would
+                    // force UTC and the timeZone would be ignored.
+                    body["start"] = serde_json::json!({"dateTime": start_raw, "timeZone": tz});
                     let end = params["end"]
                         .as_str()
-                        .map(|s| ensure_rfc3339_tz(s))
+                        .map(|s| s.to_string())
                         .unwrap_or_else(|| {
-                            DateTime::parse_from_rfc3339(&start)
-                                .map(|dt| (dt + chrono::Duration::hours(1)).to_rfc3339())
-                                .unwrap_or_else(|_| start.clone())
+                            // Try parsing with Z appended for the +1hr default calculation
+                            DateTime::parse_from_rfc3339(&ensure_rfc3339_tz(start_raw))
+                                .map(|dt| {
+                                    // Return bare timestamp (no Z) to match start format
+                                    (dt + chrono::Duration::hours(1))
+                                        .format("%Y-%m-%dT%H:%M:%S")
+                                        .to_string()
+                                })
+                                .unwrap_or_else(|_| start_raw.to_string())
                         });
                     body["end"] = serde_json::json!({"dateTime": &end, "timeZone": tz});
                 }
@@ -275,16 +283,14 @@ impl Tool for GoogleCalendarTool {
                     if params["all_day"].as_bool().unwrap_or(false) {
                         ev["start"] = serde_json::json!({"date": &s[..10.min(s.len())]});
                     } else {
-                        let s = ensure_rfc3339_tz(s);
-                        ev["start"] = serde_json::json!({"dateTime": &s, "timeZone": tz});
+                        ev["start"] = serde_json::json!({"dateTime": s, "timeZone": tz});
                     }
                 }
                 if let Some(e) = params["end"].as_str() {
                     if params["all_day"].as_bool().unwrap_or(false) {
                         ev["end"] = serde_json::json!({"date": &e[..10.min(e.len())]});
                     } else {
-                        let e = ensure_rfc3339_tz(e);
-                        ev["end"] = serde_json::json!({"dateTime": &e, "timeZone": tz});
+                        ev["end"] = serde_json::json!({"dateTime": e, "timeZone": tz});
                     }
                 }
                 if let Some(attendees) = params["attendees"].as_array() {
