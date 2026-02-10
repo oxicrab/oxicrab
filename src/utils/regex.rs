@@ -130,6 +130,7 @@ pub fn compile_slack_mention(bot_id: &str) -> Result<Regex> {
 pub fn compile_security_patterns() -> Result<Vec<Regex>> {
     let patterns = vec![
         r"\brm\s+-[rf]{1,2}\b",
+        r"\brm\s+--(?:recursive|force)\b",
         r"\bdel\s+/[fq]\b",
         r"\brmdir\s+/s\b",
         r"\b(format|mkfs|diskpart)\b",
@@ -144,6 +145,10 @@ pub fn compile_security_patterns() -> Result<Vec<Regex>> {
         r"\bchmod\b.*\bo?[0-7]*7[0-7]{0,2}\b",
         r"\bchown\b",
         r"\b(useradd|userdel|usermod|passwd|adduser|deluser)\b",
+        // Shell metacharacter injection: command substitution and variable expansion
+        r"\$\(",        // $(command) substitution
+        r"`[^`]+`",     // `command` backtick substitution
+        r"\$\{[^}]+\}", // ${VAR} variable expansion
     ];
 
     let mut compiled = Vec::new();
@@ -224,6 +229,37 @@ mod tests {
     }
 
     #[test]
+    fn security_patterns_block_long_options() {
+        let patterns = compile_security_patterns().unwrap();
+        let dangerous = vec![
+            "rm --recursive --force /",
+            "rm --force /tmp/data",
+            "rm --recursive /important",
+        ];
+        for cmd in dangerous {
+            let blocked = patterns.iter().any(|p| p.is_match(cmd));
+            assert!(blocked, "Should block: {}", cmd);
+        }
+    }
+
+    #[test]
+    fn security_patterns_block_command_substitution() {
+        let patterns = compile_security_patterns().unwrap();
+        let dangerous = vec![
+            "$(echo rm) -rf /",
+            "echo $(cat /etc/passwd)",
+            "ls `whoami`",
+            "cat `echo /etc/shadow`",
+            "echo ${HOME}",
+            "cat ${PATH}/secret",
+        ];
+        for cmd in dangerous {
+            let blocked = patterns.iter().any(|p| p.is_match(cmd));
+            assert!(blocked, "Should block: {}", cmd);
+        }
+    }
+
+    #[test]
     fn security_patterns_allow_safe() {
         let patterns = compile_security_patterns().unwrap();
         let safe = vec![
@@ -231,6 +267,7 @@ mod tests {
             "cat file.txt",
             "grep pattern file",
             "mkdir -p foo/bar",
+            ".venv/bin/python scripts/run.py",
         ];
         for cmd in safe {
             let blocked = patterns.iter().any(|p| p.is_match(cmd));

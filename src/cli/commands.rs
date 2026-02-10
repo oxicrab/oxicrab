@@ -440,7 +440,33 @@ async fn setup_cron_callbacks(
         let agent = agent_clone.clone();
         let bus = bus_clone.clone();
         Box::pin(async move {
-            // Use first target for process_direct context, fall back to cli/direct
+            if job.payload.kind == "echo" {
+                // Echo mode: deliver message directly without invoking the LLM
+                for target in &job.payload.targets {
+                    let bus_guard = bus.lock().await;
+                    if let Err(e) = bus_guard
+                        .publish_outbound(crate::bus::OutboundMessage {
+                            channel: target.channel.clone(),
+                            chat_id: target.to.clone(),
+                            content: job.payload.message.clone(),
+                            reply_to: None,
+                            media: vec![],
+                            metadata: std::collections::HashMap::new(),
+                        })
+                        .await
+                    {
+                        tracing::error!(
+                            "Failed to publish echo message from cron to {}:{}: {}",
+                            target.channel,
+                            target.to,
+                            e
+                        );
+                    }
+                }
+                return Ok(Some(job.payload.message.clone()));
+            }
+
+            // Agent mode: process as a full agent turn
             let (ctx_channel, ctx_chat_id) = job
                 .payload
                 .targets

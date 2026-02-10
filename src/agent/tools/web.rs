@@ -24,6 +24,76 @@ impl WebSearchTool {
             client: Client::new(),
         }
     }
+
+    /// Fallback search using DuckDuckGo HTML when no Brave API key is configured.
+    async fn search_duckduckgo(&self, query: &str, count: usize) -> Result<ToolResult> {
+        let resp = self
+            .client
+            .get("https://html.duckduckgo.com/html/")
+            .query(&[("q", query)])
+            .header("User-Agent", USER_AGENT)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await;
+
+        match resp {
+            Ok(resp) => {
+                let html = resp.text().await?;
+                let document = Html::parse_document(&html);
+
+                let result_sel = Selector::parse(".result")
+                    .map_err(|e| anyhow::anyhow!("Failed to parse selector: {:?}", e))?;
+                let title_sel = Selector::parse(".result__a")
+                    .map_err(|e| anyhow::anyhow!("Failed to parse selector: {:?}", e))?;
+                let snippet_sel = Selector::parse(".result__snippet")
+                    .map_err(|e| anyhow::anyhow!("Failed to parse selector: {:?}", e))?;
+
+                let mut lines = vec![format!("Results for: {} (via DuckDuckGo)\n", query)];
+                let mut found = 0;
+
+                for result in document.select(&result_sel) {
+                    if found >= count {
+                        break;
+                    }
+
+                    let title = result
+                        .select(&title_sel)
+                        .next()
+                        .map(|e| e.text().collect::<String>())
+                        .unwrap_or_default();
+                    let url = result
+                        .select(&title_sel)
+                        .next()
+                        .and_then(|e| e.value().attr("href"))
+                        .unwrap_or("");
+                    let snippet = result
+                        .select(&snippet_sel)
+                        .next()
+                        .map(|e| e.text().collect::<String>())
+                        .unwrap_or_default();
+
+                    let title = title.trim();
+                    let snippet = snippet.trim();
+                    if title.is_empty() {
+                        continue;
+                    }
+
+                    found += 1;
+                    lines.push(format!("{}. {}\n   {}", found, title, url));
+                    if !snippet.is_empty() {
+                        lines.push(format!("   {}", snippet));
+                    }
+                }
+
+                if found == 0 {
+                    return Ok(ToolResult::new(format!("No results for: {}", query)));
+                }
+
+                Ok(ToolResult::new(lines.join("\n")))
+            }
+            Err(e) => Ok(ToolResult::error(format!("DuckDuckGo search error: {}", e))),
+        }
+    }
 }
 
 #[async_trait]
@@ -33,7 +103,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the web. Returns titles, URLs, and snippets."
+        "Search the web. Returns titles, URLs, and snippets. Uses Brave Search if API key is configured, otherwise falls back to DuckDuckGo."
     }
 
     fn version(&self) -> ToolVersion {
@@ -64,12 +134,6 @@ impl Tool for WebSearchTool {
     }
 
     async fn execute(&self, params: Value) -> Result<ToolResult> {
-        if self.api_key.is_empty() {
-            return Ok(ToolResult::error(
-                "Error: BRAVE_API_KEY not configured".to_string(),
-            ));
-        }
-
         let query = params["query"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
@@ -78,6 +142,10 @@ impl Tool for WebSearchTool {
             .as_u64()
             .map(|n| n.clamp(1, 10) as usize)
             .unwrap_or(self.max_results);
+
+        if self.api_key.is_empty() {
+            return self.search_duckduckgo(query, count).await;
+        }
 
         match self
             .client

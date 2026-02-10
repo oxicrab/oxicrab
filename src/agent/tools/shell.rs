@@ -351,4 +351,47 @@ mod tests {
             .guard_command("/usr/bin/ls -la", Path::new("/tmp"))
             .is_none());
     }
+
+    #[test]
+    fn test_relative_path_not_rejected() {
+        let t = tool(allowed());
+        // Relative paths like .venv/bin/python should work if python3 is allowed
+        // Here "python3" is in the allowlist but "python" is not
+        let result = t.guard_command(".venv/bin/python3 scripts/run.py", Path::new("/tmp"));
+        // extract_command_name strips the path prefix, leaving "python3"
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_blocklist_blocks_command_substitution() {
+        // Even with an empty allowlist, command substitution is blocked
+        let t = tool(vec![]);
+        let result = t.guard_command("$(echo rm) -rf /", Path::new("/tmp"));
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("security policy"));
+    }
+
+    #[test]
+    fn test_blocklist_blocks_backtick_substitution() {
+        let t = tool(vec![]);
+        let result = t.guard_command("echo `cat /etc/passwd`", Path::new("/tmp"));
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("security policy"));
+    }
+
+    #[test]
+    fn test_blocklist_blocks_variable_expansion() {
+        let t = tool(vec![]);
+        let result = t.guard_command("echo ${HOME}", Path::new("/tmp"));
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("security policy"));
+    }
+
+    #[test]
+    fn test_blocklist_blocks_rm_long_options() {
+        let t = tool(vec![]);
+        let result = t.guard_command("rm --recursive --force /tmp", Path::new("/tmp"));
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("security policy"));
+    }
 }

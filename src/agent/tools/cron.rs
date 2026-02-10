@@ -177,7 +177,7 @@ impl Tool for CronTool {
     }
 
     fn description(&self) -> &str {
-        "Schedule recurring agent tasks. When a job fires, the message is processed as a full agent turn with access to all tools (todoist, weather, web search, etc.). The agent delivers results via the message tool. Actions: add, list, remove, run. Jobs can target the current channel, specific channels, or all channels."
+        "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Actions: add, list, remove, run."
     }
 
     fn parameters(&self) -> Value {
@@ -189,9 +189,14 @@ impl Tool for CronTool {
                     "enum": ["add", "list", "remove", "run"],
                     "description": "Action to perform"
                 },
+                "type": {
+                    "type": "string",
+                    "enum": ["agent", "echo"],
+                    "description": "Job type: 'agent' (default) runs a full agent turn with tools; 'echo' delivers the message directly without LLM (saves tokens, good for simple reminders)"
+                },
                 "message": {
                     "type": "string",
-                    "description": "Instruction or prompt for the agent when the job fires (for add). Can be a simple reminder or a complex task like 'fetch my todoist tasks due today and send them to me'."
+                    "description": "For 'agent' type: instruction/prompt for the agent (e.g. 'fetch my todoist tasks'). For 'echo' type: the exact text to deliver (e.g. 'Standup in 5 minutes!')."
                 },
                 "every_seconds": {
                     "type": "integer",
@@ -230,6 +235,14 @@ impl Tool for CronTool {
 
         match action {
             "add" => {
+                let job_type = params["type"].as_str().unwrap_or("agent");
+                if job_type != "agent" && job_type != "echo" {
+                    return Ok(ToolResult::error(format!(
+                        "Error: invalid type '{}'. Must be 'agent' or 'echo'.",
+                        job_type
+                    )));
+                }
+
                 let message = params["message"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'message' parameter for add"))?
@@ -315,9 +328,13 @@ impl Tool for CronTool {
                     enabled: true,
                     schedule,
                     payload: CronPayload {
-                        kind: "agent_turn".to_string(),
+                        kind: if job_type == "echo" {
+                            "echo".to_string()
+                        } else {
+                            "agent_turn".to_string()
+                        },
                         message,
-                        agent_echo: false,
+                        agent_echo: job_type == "agent",
                         targets,
                     },
                     state: CronJobState {
@@ -394,9 +411,14 @@ impl Tool for CronTool {
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         };
+                        let type_label = if j.payload.kind == "echo" {
+                            "echo"
+                        } else {
+                            "agent"
+                        };
                         format!(
-                            "- [{}] {} | schedule: {} | {} | targets: [{}] | message: \"{}\"",
-                            j.id, j.name, schedule_desc, next_run, targets_desc, j.payload.message
+                            "- [{}] {} | type: {} | schedule: {} | {} | targets: [{}] | message: \"{}\"",
+                            j.id, j.name, type_label, schedule_desc, next_run, targets_desc, j.payload.message
                         )
                     })
                     .collect();

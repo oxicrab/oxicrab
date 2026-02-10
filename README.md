@@ -6,9 +6,9 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 
 - **Multi-channel support**: Telegram, Discord, Slack, WhatsApp
 - **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), with OAuth support
-- **Agent capabilities**: Tool calling, memory, context management, subagents
-- **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions with multi-channel delivery
-- **Integrations**: Google (Gmail, Calendar), GitHub, Todoist, Weather, Web search
+- **Agent capabilities**: Tool calling, memory, context management, subagents, schema validation
+- **Cron scheduling**: Recurring jobs, one-shot timers (`at_time`), cron expressions, echo mode (LLM-free delivery), multi-channel targeting
+- **Integrations**: Google (Gmail, Calendar), GitHub, Todoist, Weather, Web search (Brave + DuckDuckGo fallback)
 - **Streaming**: SSE-based streaming for Anthropic responses
 - **Session management**: Persistent sessions with automatic compaction and fact extraction
 - **Async-first**: Built on Tokio for high-performance async I/O
@@ -350,11 +350,11 @@ The agent has access to the following built-in tools:
 | `edit_file` | Edit files with find/replace | - |
 | `list_dir` | List directory contents | - |
 | `exec` | Execute shell commands | - |
-| `web_search` | Search the web (Brave) | `tools.web.search.apiKey` |
+| `web_search` | Search the web (Brave, DuckDuckGo fallback) | Optional: `tools.web.search.apiKey` |
 | `web_fetch` | Fetch and extract web page content | - |
 | `http` | Make HTTP requests | - |
 | `message` | Send messages to chat channels | - |
-| `cron` | Schedule reminders and recurring tasks | - |
+| `cron` | Schedule tasks: agent mode (full LLM) or echo mode (direct delivery) | - |
 | `spawn` | Spawn background subagents | - |
 | `tmux` | Manage tmux sessions | - |
 | `google_mail` | Read/send Gmail | `tools.google.*` + OAuth |
@@ -408,9 +408,10 @@ src/
 - **Memory**: SQLite FTS5 for semantic memory indexing with background indexer
 - **Compaction**: Automatic conversation summarisation when context exceeds threshold
 - **Streaming**: SSE-based streaming for Anthropic provider responses
-- **Tool execution**: Panic-isolated via `tokio::task::spawn` with LRU result caching
-- **Cron**: File-backed job store with multi-channel target delivery
-- **Action integrity**: Hallucination detection prevents the LLM from claiming actions it didn't perform
+- **Tool execution**: Panic-isolated via `tokio::task::spawn` with LRU result caching, pre-execution schema validation
+- **Cron**: File-backed job store with multi-channel target delivery, echo mode for LLM-free reminders
+- **Action integrity**: Hallucination detection prevents the LLM from claiming actions it didn't perform; unknown tool calls list available tools for self-correction
+- **Security**: Shell command allowlist + blocklist with command substitution / variable expansion blocking; SSRF protection; path traversal prevention
 
 ## Development
 
