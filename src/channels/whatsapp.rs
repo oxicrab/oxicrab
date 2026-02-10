@@ -134,6 +134,12 @@ impl BaseChannel for WhatsAppChannel {
                             debug!("WhatsApp event received: type={:?}", std::mem::discriminant(&event));
                             match &event {
                                 whatsapp_rust::types::events::Event::Message(msg, info) => {
+                                    // Skip messages sent by ourselves (own device)
+                                    if info.source.is_from_me {
+                                        debug!("Ignoring own outgoing WhatsApp message");
+                                        return;
+                                    }
+
                                     // Handle message event (organized inline to avoid type issues)
                                     let sender = info.source.sender.to_string();
 
