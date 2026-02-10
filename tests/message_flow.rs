@@ -258,7 +258,7 @@ async fn test_unknown_tool_handled() {
     let recorded = calls.lock().unwrap();
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
-    assert!(tool_msg.content.contains("unknown tool"));
+    assert!(tool_msg.content.contains("does not exist"));
     assert!(tool_msg.is_error);
 }
 
