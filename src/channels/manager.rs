@@ -166,4 +166,36 @@ impl ChannelManager {
             }
         }
     }
+
+    pub async fn send_and_get_id(&self, msg: &OutboundMessage) -> Option<String> {
+        for ch in self.channels.iter() {
+            if ch.name() == msg.channel {
+                match ch.send_and_get_id(msg).await {
+                    Ok(id) => return id,
+                    Err(e) => {
+                        tracing::error!("Failed to send_and_get_id on {}: {}", msg.channel, e);
+                        return None;
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub async fn edit_message(
+        &self,
+        channel: &str,
+        chat_id: &str,
+        message_id: &str,
+        content: &str,
+    ) {
+        for ch in self.channels.iter() {
+            if ch.name() == channel {
+                if let Err(e) = ch.edit_message(chat_id, message_id, content).await {
+                    tracing::debug!("edit_message failed for {}:{}: {}", channel, message_id, e);
+                }
+                return;
+            }
+        }
+    }
 }

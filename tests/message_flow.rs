@@ -44,6 +44,7 @@ async fn create_test_agent(provider: MockLLMProvider, tmp: &TempDir) -> AgentLoo
         session_ttl_days: 0, // Disable cleanup in tests
         typing_tx: None,
         channels_config: None,
+        streaming_edit_tx: None,
     };
 
     AgentLoop::new(config)

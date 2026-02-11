@@ -14,6 +14,24 @@ pub trait BaseChannel: Send + Sync {
     async fn send_typing(&self, _chat_id: &str) -> anyhow::Result<()> {
         Ok(())
     }
+
+    /// Send a message and return its platform-specific ID for later editing.
+    /// Default falls back to `send()` with no ID tracking.
+    async fn send_and_get_id(&self, msg: &OutboundMessage) -> anyhow::Result<Option<String>> {
+        self.send(msg).await?;
+        Ok(None)
+    }
+
+    /// Edit a previously sent message by its platform-specific ID.
+    /// Default is a no-op for channels that don't support editing.
+    async fn edit_message(
+        &self,
+        _chat_id: &str,
+        _message_id: &str,
+        _new_content: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 /// Split a message into chunks respecting UTF-8 character boundaries.
@@ -64,4 +82,50 @@ pub fn split_message(text: &str, limit: usize) -> Vec<String> {
     }
 
     chunks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    struct MockChannel;
+
+    #[async_trait]
+    impl BaseChannel for MockChannel {
+        fn name(&self) -> &str {
+            "mock"
+        }
+        async fn start(&mut self) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn stop(&mut self) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn send(&self, _msg: &OutboundMessage) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_send_and_get_id_default_returns_none() {
+        let ch = MockChannel;
+        let msg = OutboundMessage {
+            channel: "mock".into(),
+            chat_id: "123".into(),
+            content: "hi".into(),
+            reply_to: None,
+            media: vec![],
+            metadata: HashMap::new(),
+        };
+        let id = ch.send_and_get_id(&msg).await.unwrap();
+        assert!(id.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_edit_message_default_is_noop() {
+        let ch = MockChannel;
+        let result = ch.edit_message("123", "msg1", "new content").await;
+        assert!(result.is_ok());
+    }
 }

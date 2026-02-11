@@ -7,6 +7,7 @@ pub mod google_common;
 pub mod google_mail;
 pub mod http;
 pub mod media;
+pub mod memory_search;
 pub mod message;
 pub mod reddit;
 pub mod registry;

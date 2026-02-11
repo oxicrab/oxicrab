@@ -215,16 +215,19 @@ impl ContextBuilder {
         current_message: &str,
         channel: Option<&str>,
         chat_id: Option<&str>,
+        sender_id: Option<&str>,
     ) -> Result<Vec<crate::providers::base::Message>> {
         let mut messages = Vec::new();
 
         // System prompt
         let mut system_prompt = self.build_system_prompt(None, Some(current_message))?;
         if let (Some(ch), Some(cid)) = (channel, chat_id) {
-            system_prompt.push_str(&format!(
-                "\n\n## Current Session\nChannel: {}\nChat ID: {}",
-                ch, cid
-            ));
+            let mut session_info =
+                format!("\n\n## Current Session\nChannel: {}\nChat ID: {}", ch, cid);
+            if let Some(sid) = sender_id {
+                session_info.push_str(&format!("\nSender: {}", sid));
+            }
+            system_prompt.push_str(&session_info);
         }
         messages.push(crate::providers::base::Message::system(system_prompt));
 
@@ -460,6 +463,38 @@ mod tests {
         // Second call should return cached version (same mtime)
         let second = ctx.load_bootstrap_files().unwrap();
         assert_eq!(first, second);
+    }
+
+    #[tokio::test]
+    async fn test_build_messages_includes_sender_id() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut ctx = create_test_context(tmp.path());
+
+        let messages = ctx
+            .build_messages(&[], "hello", Some("telegram"), Some("123"), Some("user42"))
+            .unwrap();
+
+        let system_msg = &messages[0];
+        assert!(
+            system_msg.content.contains("Sender: user42"),
+            "system prompt should include sender ID"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_build_messages_no_sender_id() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut ctx = create_test_context(tmp.path());
+
+        let messages = ctx
+            .build_messages(&[], "hello", Some("telegram"), Some("123"), None)
+            .unwrap();
+
+        let system_msg = &messages[0];
+        assert!(
+            !system_msg.content.contains("Sender:"),
+            "system prompt should not include sender line when None"
+        );
     }
 
     #[test]

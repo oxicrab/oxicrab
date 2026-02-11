@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallRequest {
@@ -108,6 +109,9 @@ impl Default for RetryConfig {
     }
 }
 
+/// Callback invoked with each text delta during streaming.
+pub type StreamCallback = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// Parameters for a chat request to an LLM provider.
 #[derive(Debug, Clone)]
 pub struct ChatRequest<'a> {
@@ -132,11 +136,24 @@ pub trait LLMProvider: Send + Sync {
         self.chat(req).await
     }
 
-    /// Chat with automatic retry on transient errors
+    /// Chat with streaming and a callback invoked on each text delta.
+    /// Default implementation ignores the callback and falls back to `chat_stream`.
+    async fn chat_stream_with_callback(
+        &self,
+        req: ChatRequest<'_>,
+        _callback: Option<StreamCallback>,
+    ) -> anyhow::Result<LLMResponse> {
+        self.chat_stream(req).await
+    }
+
+    /// Chat with automatic retry on transient errors.
+    /// If a `stream_callback` is provided, it is passed to `chat_stream_with_callback`
+    /// so the caller receives text deltas as they arrive.
     async fn chat_with_retry(
         &self,
         req: ChatRequest<'_>,
         retry_config: Option<RetryConfig>,
+        stream_callback: Option<StreamCallback>,
     ) -> anyhow::Result<LLMResponse> {
         let config = retry_config.unwrap_or_default();
         let mut last_error = None;
@@ -159,17 +176,21 @@ pub trait LLMProvider: Send + Sync {
                 );
             }
             tracing::debug!("Sending chat request (attempt {})", attempt);
-            match self
-                .chat_stream(ChatRequest {
-                    messages: (*messages_arc).clone(),
-                    tools: tools_arc.as_ref().map(|t| (**t).clone()),
-                    model: req.model,
-                    max_tokens: req.max_tokens,
-                    temperature: req.temperature,
-                    tool_choice: req.tool_choice.clone(),
-                })
-                .await
-            {
+            let chat_req = ChatRequest {
+                messages: (*messages_arc).clone(),
+                tools: tools_arc.as_ref().map(|t| (**t).clone()),
+                model: req.model,
+                max_tokens: req.max_tokens,
+                temperature: req.temperature,
+                tool_choice: req.tool_choice.clone(),
+            };
+            let result = if stream_callback.is_some() {
+                self.chat_stream_with_callback(chat_req, stream_callback.clone())
+                    .await
+            } else {
+                self.chat_stream(chat_req).await
+            };
+            match result {
                 Ok(response) => {
                     tracing::debug!("Chat request succeeded on attempt {}", attempt);
                     return Ok(response);

@@ -1,6 +1,6 @@
 use crate::providers::anthropic_common;
 use crate::providers::base::{
-    ChatRequest, LLMProvider, LLMResponse, ProviderMetrics, ToolCallRequest,
+    ChatRequest, LLMProvider, LLMResponse, ProviderMetrics, StreamCallback, ToolCallRequest,
 };
 use crate::providers::errors::ProviderErrorHandler;
 use crate::providers::sse::parse_sse_chunk;
@@ -91,6 +91,14 @@ impl LLMProvider for AnthropicProvider {
     }
 
     async fn chat_stream(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+        self.chat_stream_with_callback(req, None).await
+    }
+
+    async fn chat_stream_with_callback(
+        &self,
+        req: ChatRequest<'_>,
+        callback: Option<StreamCallback>,
+    ) -> Result<LLMResponse> {
         let (system, anthropic_messages) = anthropic_common::convert_messages(req.messages);
 
         let mut payload = json!({
@@ -171,6 +179,9 @@ impl LLMProvider for AnthropicProvider {
                             Some("text_delta") => {
                                 if let Some(text) = delta["text"].as_str() {
                                     content_text.push_str(text);
+                                    if let Some(ref cb) = callback {
+                                        cb(text);
+                                    }
                                 }
                             }
                             Some("input_json_delta") => {
