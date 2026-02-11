@@ -384,4 +384,71 @@ mod tests {
         assert!(result.is_error);
         assert!(result.content.contains("task_id"));
     }
+
+    #[test]
+    fn test_api_base_url() {
+        assert_eq!(TODOIST_API, "https://api.todoist.com/api/v1");
+    }
+
+    #[test]
+    fn test_task_format_with_string_id() {
+        // v1 API returns string IDs like "6fxQ8VwjqXf5gPcC"
+        let task = serde_json::json!({
+            "id": "6fxQ8VwjqXf5gPcC",
+            "content": "Buy milk",
+            "priority": 3,
+            "due": {"string": "tomorrow"},
+            "labels": ["groceries", "urgent"]
+        });
+        let id = task["id"].as_str().unwrap();
+        assert_eq!(id, "6fxQ8VwjqXf5gPcC");
+        let labels: Vec<&str> = task["labels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|l| l.as_str())
+            .collect();
+        assert_eq!(labels, vec!["groceries", "urgent"]);
+    }
+
+    #[test]
+    fn test_paginated_response_parsing() {
+        // v1 API wraps results in {"results": [...], "next_cursor": ...}
+        let response = serde_json::json!({
+            "results": [
+                {"id": "abc123", "content": "Task 1"},
+                {"id": "def456", "content": "Task 2"}
+            ],
+            "next_cursor": "cursor_xyz"
+        });
+        let results = response["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0]["id"].as_str().unwrap(), "abc123");
+
+        let cursor = response["next_cursor"].as_str().unwrap();
+        assert_eq!(cursor, "cursor_xyz");
+    }
+
+    #[test]
+    fn test_paginated_response_no_cursor() {
+        // Last page has no next_cursor
+        let response = serde_json::json!({
+            "results": [{"id": "abc", "content": "Last task"}],
+            "next_cursor": null
+        });
+        assert!(response["next_cursor"].as_str().is_none());
+    }
+
+    #[test]
+    fn test_project_format_with_is_favorite() {
+        // v1 API uses is_favorite (not favorite)
+        let project = serde_json::json!({
+            "id": "proj123",
+            "name": "Shopping",
+            "color": "berry_red",
+            "is_favorite": true
+        });
+        assert!(project["is_favorite"].as_bool().unwrap());
+        assert_eq!(project["color"].as_str().unwrap(), "berry_red");
+    }
 }

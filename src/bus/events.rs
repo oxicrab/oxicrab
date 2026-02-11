@@ -69,4 +69,20 @@ mod tests {
         };
         assert!(edit.message_id.is_empty());
     }
+
+    #[test]
+    fn test_streaming_edit_reset_sentinel() {
+        // Empty content signals the consumer to reset its tracked message ID
+        let edit = StreamingEdit {
+            channel: "telegram".into(),
+            chat_id: "123".into(),
+            message_id: String::new(),
+            content: String::new(),
+        };
+        assert!(edit.content.is_empty(), "Reset sentinel has empty content");
+        assert!(
+            edit.message_id.is_empty(),
+            "Reset sentinel has empty message_id"
+        );
+    }
 }

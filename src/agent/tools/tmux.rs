@@ -236,3 +236,81 @@ impl Tool for TmuxTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_session_missing_no_such_file() {
+        assert!(TmuxTool::is_session_missing(
+            "error connecting to /tmp/nanobot-tmux-sockets/nanobot.sock (No such file or directory)"
+        ));
+    }
+
+    #[test]
+    fn test_is_session_missing_no_server() {
+        assert!(TmuxTool::is_session_missing(
+            "no server running on /tmp/nanobot-tmux-sockets/nanobot.sock"
+        ));
+    }
+
+    #[test]
+    fn test_is_session_missing_cant_find() {
+        assert!(TmuxTool::is_session_missing("can't find session: test"));
+    }
+
+    #[test]
+    fn test_is_session_missing_other_error() {
+        assert!(!TmuxTool::is_session_missing("some other error"));
+    }
+
+    #[test]
+    fn test_socket_path() {
+        let path = get_socket_path();
+        assert!(path.ends_with("nanobot-tmux-sockets/nanobot.sock"));
+    }
+
+    #[tokio::test]
+    async fn test_missing_action() {
+        let tool = TmuxTool::new();
+        let result = tool.execute(serde_json::json!({})).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_unknown_action() {
+        let tool = TmuxTool::new();
+        let result = tool
+            .execute(serde_json::json!({"action": "bogus"}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("Unknown action"));
+    }
+
+    #[tokio::test]
+    async fn test_send_missing_session_name() {
+        let tool = TmuxTool::new();
+        let result = tool
+            .execute(serde_json::json!({"action": "send", "command": "echo hi"}))
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_send_missing_command() {
+        let tool = TmuxTool::new();
+        let result = tool
+            .execute(serde_json::json!({"action": "send", "session_name": "test"}))
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_read_missing_session_name() {
+        let tool = TmuxTool::new();
+        let result = tool.execute(serde_json::json!({"action": "read"})).await;
+        assert!(result.is_err());
+    }
+}
