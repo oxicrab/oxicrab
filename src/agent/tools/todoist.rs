@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
-use tracing::debug;
 
 const TODOIST_API: &str = "https://api.todoist.com/api/v1";
 
@@ -31,18 +30,13 @@ impl TodoistTool {
         let mut cursor: Option<String> = None;
         const MAX_PAGES: usize = 10; // Safety limit
 
-        for page_num in 0..MAX_PAGES {
+        for _ in 0..MAX_PAGES {
             let mut query: Vec<(&str, &str)> = base_query.to_vec();
             let cursor_val;
             if let Some(ref c) = cursor {
                 cursor_val = c.clone();
                 query.push(("cursor", &cursor_val));
             }
-
-            debug!(
-                "Todoist request: GET {} query={:?} page={}",
-                url, query, page_num
-            );
 
             let resp = self
                 .client
@@ -54,15 +48,7 @@ impl TodoistTool {
                 .await?;
 
             let status = resp.status();
-            let final_url = resp.url().to_string();
             let text = resp.text().await.unwrap_or_default();
-            debug!(
-                "Todoist response: status={}, url={}, body_len={}, body_preview={}",
-                status,
-                final_url,
-                text.len(),
-                &text[..text.len().min(500)]
-            );
             if !status.is_success() {
                 anyhow::bail!("Todoist API {}: {}", status, text);
             }
@@ -75,42 +61,17 @@ impl TodoistTool {
             })?;
 
             // v1 API returns {"results": [...], "next_cursor": ...}
-            let page_count;
             if let Some(results) = body["results"].as_array() {
-                page_count = results.len();
                 all_items.extend(results.iter().cloned());
             } else if let Some(arr) = body.as_array() {
-                // Fallback for bare arrays
-                page_count = arr.len();
                 all_items.extend(arr.iter().cloned());
-                debug!(
-                    "Todoist returned bare array ({} items), no pagination",
-                    page_count
-                );
                 break;
             } else {
-                debug!(
-                    "Todoist unexpected response shape: {}",
-                    &text[..text.len().min(300)]
-                );
                 break;
             }
 
-            let next_raw = &body["next_cursor"];
-            let next_type = if next_raw.is_null() {
-                "null"
-            } else if next_raw.is_string() {
-                "string"
-            } else {
-                "other"
-            };
-            debug!(
-                "Todoist page {}: {} items, next_cursor type={}, next_cursor raw={}, total so far={}",
-                page_num, page_count, next_type, next_raw, all_items.len()
-            );
-
-            match next_raw.as_str() {
-                Some(c) if !c.is_empty() && c != "null" => cursor = Some(c.to_string()),
+            match body["next_cursor"].as_str() {
+                Some(c) if !c.is_empty() => cursor = Some(c.to_string()),
                 _ => break,
             }
         }
