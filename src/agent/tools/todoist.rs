@@ -201,8 +201,7 @@ impl TodoistTool {
         })?;
 
         let id = body["id"].as_str().unwrap_or("?");
-        let url = body["url"].as_str().unwrap_or("");
-        Ok(format!("Created task ({}): {} — {}", id, content, url))
+        Ok(format!("Created task ({}): {}", id, content))
     }
 
     async fn complete_task(&self, task_id: &str) -> Result<String> {
