@@ -24,6 +24,60 @@ impl TodoistTool {
         format!("Bearer {}", self.token)
     }
 
+    /// Fetch all pages from a paginated v1 endpoint.
+    async fn paginated_get(&self, url: &str, base_query: &[(&str, &str)]) -> Result<Vec<Value>> {
+        let mut all_items: Vec<Value> = Vec::new();
+        let mut cursor: Option<String> = None;
+        const MAX_PAGES: usize = 10; // Safety limit
+
+        for _ in 0..MAX_PAGES {
+            let mut query: Vec<(&str, &str)> = base_query.to_vec();
+            let cursor_val;
+            if let Some(ref c) = cursor {
+                cursor_val = c.clone();
+                query.push(("cursor", &cursor_val));
+            }
+
+            let resp = self
+                .client
+                .get(url)
+                .query(&query)
+                .header("Authorization", self.auth_header())
+                .timeout(Duration::from_secs(15))
+                .send()
+                .await?;
+
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            if !status.is_success() {
+                anyhow::bail!("Todoist API {}: {}", status, text);
+            }
+            let body: Value = serde_json::from_str(&text).map_err(|e| {
+                anyhow::anyhow!(
+                    "Invalid JSON from Todoist: {} (body: {})",
+                    e,
+                    &text[..text.len().min(200)]
+                )
+            })?;
+
+            // v1 API returns {"results": [...], "next_cursor": ...}
+            if let Some(results) = body["results"].as_array() {
+                all_items.extend(results.iter().cloned());
+            } else if let Some(arr) = body.as_array() {
+                // Fallback for bare arrays
+                all_items.extend(arr.iter().cloned());
+                break;
+            }
+
+            match body["next_cursor"].as_str() {
+                Some(c) if !c.is_empty() && c != "null" => cursor = Some(c.to_string()),
+                _ => break,
+            }
+        }
+
+        Ok(all_items)
+    }
+
     async fn list_tasks(&self, project_id: Option<&str>, filter: Option<&str>) -> Result<String> {
         let mut query: Vec<(&str, &str)> = Vec::new();
         if let Some(pid) = project_id {
@@ -33,34 +87,9 @@ impl TodoistTool {
             query.push(("filter", f));
         }
 
-        let resp = self
-            .client
-            .get(format!("{}/tasks", TODOIST_API))
-            .query(&query)
-            .header("Authorization", self.auth_header())
-            .timeout(Duration::from_secs(15))
-            .send()
+        let tasks = self
+            .paginated_get(&format!("{}/tasks", TODOIST_API), &query)
             .await?;
-
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        if !status.is_success() {
-            anyhow::bail!("Todoist API {}: {}", status, text);
-        }
-        let body: Value = serde_json::from_str(&text).map_err(|e| {
-            anyhow::anyhow!(
-                "Invalid JSON from Todoist: {} (body: {})",
-                e,
-                &text[..text.len().min(200)]
-            )
-        })?;
-
-        // v1 API returns paginated response: {"results": [...], "next_cursor": ...}
-        let tasks = body["results"]
-            .as_array()
-            .or_else(|| body.as_array())
-            .map(|a| a.as_slice())
-            .unwrap_or(&[]);
         if tasks.is_empty() {
             return Ok("No tasks found.".to_string());
         }
@@ -173,33 +202,9 @@ impl TodoistTool {
     }
 
     async fn list_projects(&self) -> Result<String> {
-        let resp = self
-            .client
-            .get(format!("{}/projects", TODOIST_API))
-            .header("Authorization", self.auth_header())
-            .timeout(Duration::from_secs(15))
-            .send()
+        let projects = self
+            .paginated_get(&format!("{}/projects", TODOIST_API), &[])
             .await?;
-
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        if !status.is_success() {
-            anyhow::bail!("Todoist API {}: {}", status, text);
-        }
-        let body: Value = serde_json::from_str(&text).map_err(|e| {
-            anyhow::anyhow!(
-                "Invalid JSON from Todoist: {} (body: {})",
-                e,
-                &text[..text.len().min(200)]
-            )
-        })?;
-
-        // v1 API returns paginated response: {"results": [...], "next_cursor": ...}
-        let projects = body["results"]
-            .as_array()
-            .or_else(|| body.as_array())
-            .map(|a| a.as_slice())
-            .unwrap_or(&[]);
         if projects.is_empty() {
             return Ok("No projects found.".to_string());
         }
