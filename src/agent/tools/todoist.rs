@@ -5,7 +5,7 @@ use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
 
-const TODOIST_API: &str = "https://api.todoist.com/rest/v2";
+const TODOIST_API: &str = "https://api.todoist.com/rest/v1";
 
 pub struct TodoistTool {
     token: String,
