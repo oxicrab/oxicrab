@@ -426,6 +426,7 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
             temperature: config.agents.defaults.temperature,
             tool_temperature: TOOL_TEMPERATURE,
             session_ttl_days: config.agents.defaults.session_ttl_days,
+            max_tokens: config.agents.defaults.max_tokens,
             typing_tx: params.typing_tx,
             channels_config: params.channels_config,
             streaming_edit_tx: params.streaming_edit_tx,

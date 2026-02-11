@@ -136,7 +136,10 @@ async fn execute_tool_call_inner(
                 if result.is_error {
                     warn!("Tool '{}' returned error: {}", tool_name, result.content);
                 }
-                (truncate_tool_result(&result.content, 3000), result.is_error)
+                (
+                    truncate_tool_result(&result.content, 10000),
+                    result.is_error,
+                )
             }
             Err(e) => {
                 warn!("Tool '{}' failed: {}", tool_name, e);
@@ -228,6 +231,8 @@ pub struct AgentLoopConfig {
     pub tool_temperature: f32,
     /// Session TTL in days for cleanup (default 30)
     pub session_ttl_days: u32,
+    /// Max tokens for LLM responses (default 8192)
+    pub max_tokens: u32,
     /// Sender for typing indicator events (channel, chat_id)
     pub typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     /// Channel configurations for multi-channel cron target resolution
@@ -255,6 +260,7 @@ pub struct AgentLoop {
     task_tracker: Arc<TaskTracker>,
     temperature: f32,
     tool_temperature: f32,
+    max_tokens: u32,
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     streaming_edit_tx: Option<Arc<tokio::sync::mpsc::Sender<StreamingEdit>>>,
 }
@@ -282,6 +288,7 @@ impl AgentLoop {
             temperature,
             tool_temperature,
             session_ttl_days,
+            max_tokens,
             typing_tx,
             channels_config,
             streaming_edit_tx,
@@ -480,6 +487,7 @@ impl AgentLoop {
             task_tracker: Arc::new(TaskTracker::new()),
             temperature,
             tool_temperature,
+            max_tokens,
             typing_tx,
             streaming_edit_tx,
         })
@@ -799,7 +807,7 @@ impl AgentLoop {
                         messages: messages.clone(),
                         tools: Some(tools_defs.clone()),
                         model: Some(&self.model),
-                        max_tokens: 4096,
+                        max_tokens: self.max_tokens,
                         temperature: current_temp,
                         tool_choice,
                     },
