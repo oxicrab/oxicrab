@@ -55,7 +55,12 @@ impl TodoistTool {
             )
         })?;
 
-        let tasks = body.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        // v1 API returns paginated response: {"results": [...], "next_cursor": ...}
+        let tasks = body["results"]
+            .as_array()
+            .or_else(|| body.as_array())
+            .map(|a| a.as_slice())
+            .unwrap_or(&[]);
         if tasks.is_empty() {
             return Ok("No tasks found.".to_string());
         }
@@ -189,7 +194,12 @@ impl TodoistTool {
             )
         })?;
 
-        let projects = body.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        // v1 API returns paginated response: {"results": [...], "next_cursor": ...}
+        let projects = body["results"]
+            .as_array()
+            .or_else(|| body.as_array())
+            .map(|a| a.as_slice())
+            .unwrap_or(&[]);
         if projects.is_empty() {
             return Ok("No projects found.".to_string());
         }
