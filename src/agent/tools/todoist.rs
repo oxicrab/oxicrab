@@ -101,17 +101,19 @@ impl TodoistTool {
     }
 
     async fn list_tasks(&self, project_id: Option<&str>, filter: Option<&str>) -> Result<String> {
-        let mut query: Vec<(&str, &str)> = Vec::new();
-        if let Some(pid) = project_id {
-            query.push(("project_id", pid));
-        }
-        if let Some(f) = filter {
-            query.push(("filter", f));
-        }
-
-        let tasks = self
-            .paginated_get(&format!("{}/tasks", TODOIST_API), &query)
-            .await?;
+        // v1 API has separate endpoints: /tasks (list all) and /tasks/filter (query)
+        let tasks = if let Some(f) = filter {
+            let query = vec![("query", f)];
+            self.paginated_get(&format!("{}/tasks/filter", TODOIST_API), &query)
+                .await?
+        } else {
+            let mut query: Vec<(&str, &str)> = Vec::new();
+            if let Some(pid) = project_id {
+                query.push(("project_id", pid));
+            }
+            self.paginated_get(&format!("{}/tasks", TODOIST_API), &query)
+                .await?
+        };
         if tasks.is_empty() {
             return Ok("No tasks found.".to_string());
         }
