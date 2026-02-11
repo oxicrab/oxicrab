@@ -205,7 +205,9 @@ impl TodoistTool {
         })?;
 
         let id = body["id"].as_str().unwrap_or("?");
-        Ok(format!("Created task ({}): {}", id, content))
+        // v1 API removed url from response; construct it per migration guide
+        let url = format!("https://app.todoist.com/app/task/{}", id);
+        Ok(format!("Created task ({}): {} — {}", id, content, url))
     }
 
     async fn complete_task(&self, task_id: &str) -> Result<String> {
