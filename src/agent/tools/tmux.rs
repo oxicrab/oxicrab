@@ -46,6 +46,22 @@ impl TmuxTool {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         Ok((output.status.code().unwrap_or(1), stdout, stderr))
     }
+
+    fn is_session_missing(stderr: &str) -> bool {
+        stderr.contains("No such file or directory")
+            || stderr.contains("no server running")
+            || stderr.contains("can't find session")
+    }
+
+    async fn ensure_session(&self, session_name: &str) -> Result<()> {
+        let (code, _, stderr) = self.run_tmux(&["has-session", "-t", session_name]).await?;
+        if code != 0 && Self::is_session_missing(&stderr) {
+            debug!("Auto-creating missing tmux session '{}'", session_name);
+            self.run_tmux(&["new-session", "-d", "-s", session_name])
+                .await?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -129,19 +145,12 @@ impl Tool for TmuxTool {
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter for send"))?;
 
+                self.ensure_session(session_name).await?;
+
                 let (code, _, stderr) = self
                     .run_tmux(&["send-keys", "-t", session_name, command, "Enter"])
                     .await?;
                 if code != 0 {
-                    if stderr.contains("No such file or directory")
-                        || stderr.contains("no server running")
-                        || stderr.contains("can't find session")
-                    {
-                        return Ok(ToolResult::error(format!(
-                            "Error: Session '{}' does not exist. Use action 'create' first to create it.",
-                            session_name
-                        )));
-                    }
                     return Ok(ToolResult::error(format!(
                         "Error: Failed to send command to '{}': {}",
                         session_name, stderr
@@ -158,6 +167,8 @@ impl Tool for TmuxTool {
                     .ok_or_else(|| anyhow::anyhow!("Missing 'session_name' parameter for read"))?;
                 let lines = params["lines"].as_u64().unwrap_or(50) as i32;
 
+                self.ensure_session(session_name).await?;
+
                 let (code, stdout, stderr) = self
                     .run_tmux(&[
                         "capture-pane",
@@ -169,15 +180,6 @@ impl Tool for TmuxTool {
                     ])
                     .await?;
                 if code != 0 {
-                    if stderr.contains("No such file or directory")
-                        || stderr.contains("no server running")
-                        || stderr.contains("can't find session")
-                    {
-                        return Ok(ToolResult::error(format!(
-                            "Error: Session '{}' does not exist. Use action 'create' first to create it.",
-                            session_name
-                        )));
-                    }
                     return Ok(ToolResult::error(format!(
                         "Error: Failed to read session '{}': {}",
                         session_name, stderr
