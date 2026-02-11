@@ -137,7 +137,8 @@ impl Tool for ReadFileTool {
 
         let file_path = PathBuf::from(path_str);
         let expanded = file_path.canonicalize().or_else(|_| {
-            let home = dirs::home_dir().unwrap_or_default();
+            let home = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
             let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
             Ok::<PathBuf, anyhow::Error>(home.join(stripped))
         })?;
@@ -218,7 +219,8 @@ impl Tool for WriteFileTool {
 
         let file_path = PathBuf::from(path_str);
         let expanded = file_path.canonicalize().or_else(|_| {
-            let home = dirs::home_dir().unwrap_or_default();
+            let home = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
             let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
             Ok::<PathBuf, anyhow::Error>(home.join(stripped))
         })?;
@@ -301,7 +303,8 @@ impl Tool for EditFileTool {
 
         let file_path = PathBuf::from(path_str);
         let expanded = file_path.canonicalize().or_else(|_| {
-            let home = dirs::home_dir().unwrap_or_default();
+            let home = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
             let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
             Ok::<PathBuf, anyhow::Error>(home.join(stripped))
         })?;
@@ -393,7 +396,8 @@ impl Tool for ListDirTool {
 
         let dir_path = PathBuf::from(path_str);
         let expanded = dir_path.canonicalize().or_else(|_| {
-            let home = dirs::home_dir().unwrap_or_default();
+            let home = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
             let stripped = dir_path.strip_prefix("~").unwrap_or(dir_path.as_path());
             Ok::<PathBuf, anyhow::Error>(home.join(stripped))
         })?;

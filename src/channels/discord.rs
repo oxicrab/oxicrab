@@ -14,7 +14,8 @@ use tokio::sync::mpsc;
 
 struct Handler {
     inbound_tx: mpsc::Sender<InboundMessage>,
-    allow_list: Vec<String>,
+    allow_set: std::collections::HashSet<String>,
+    has_allow_list: bool,
 }
 
 #[serenity_async_trait]
@@ -29,13 +30,8 @@ impl EventHandler for Handler {
         }
 
         let sender_id = msg.author.id.to_string();
-        let normalized: std::collections::HashSet<String> = self
-            .allow_list
-            .iter()
-            .map(|a| a.trim_start_matches('+').to_string())
-            .collect();
 
-        if !self.allow_list.is_empty() && !normalized.contains(&sender_id) {
+        if self.has_allow_list && !self.allow_set.contains(&sender_id) {
             return;
         }
 
@@ -95,9 +91,16 @@ impl BaseChannel for DiscordChannel {
         tracing::info!("Initializing Discord client...");
         *self._running.lock().await = true;
 
+        let allow_set: std::collections::HashSet<String> = self
+            .config
+            .allow_from
+            .iter()
+            .map(|a| a.trim_start_matches('+').to_string())
+            .collect();
         let handler = Handler {
             inbound_tx: self.inbound_tx.clone(),
-            allow_list: self.config.allow_from.clone(),
+            has_allow_list: !self.config.allow_from.is_empty(),
+            allow_set,
         };
 
         tracing::info!("Connecting to Discord gateway...");
@@ -180,9 +183,10 @@ impl BaseChannel for DiscordChannel {
         };
 
         for chunk in chunks {
-            if let Err(e) = target_channel_id.say(&http, &chunk).await {
-                tracing::error!("Failed to send Discord message: {}", e);
-            }
+            target_channel_id
+                .say(&http, &chunk)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {}", e))?;
         }
 
         Ok(())

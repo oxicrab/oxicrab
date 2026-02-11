@@ -14,6 +14,13 @@ pub struct MemoryStore {
 
 impl MemoryStore {
     pub fn new(workspace: impl AsRef<Path>) -> Result<Self> {
+        Self::with_indexer_interval(workspace, 300)
+    }
+
+    pub fn with_indexer_interval(
+        workspace: impl AsRef<Path>,
+        indexer_interval_secs: u64,
+    ) -> Result<Self> {
         let workspace = workspace.as_ref();
         let memory_dir = workspace.join("memory");
 
@@ -41,9 +48,13 @@ impl MemoryStore {
             )
         })?);
 
-        // Create background indexer (runs every 5 minutes)
+        // Create background indexer
         // Note: Indexer will be started separately via start_indexer() to allow sync initialization
-        let indexer = Arc::new(MemoryIndexer::new(db.clone(), memory_dir.clone(), 300));
+        let indexer = Arc::new(MemoryIndexer::new(
+            db.clone(),
+            memory_dir.clone(),
+            indexer_interval_secs,
+        ));
 
         Ok(Self {
             _workspace: workspace.to_path_buf(),

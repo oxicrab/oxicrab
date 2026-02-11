@@ -1,5 +1,6 @@
 use crate::providers::anthropic_common;
 use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse};
+use crate::providers::errors::ProviderErrorHandler;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
@@ -421,16 +422,7 @@ impl LLMProvider for AnthropicOAuthProvider {
             .await
             .context("Failed to send request to Anthropic OAuth API")?;
 
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            warn!("Anthropic OAuth API error {}: {}", status, body);
-            return Err(anyhow::anyhow!(
-                "Anthropic OAuth API error {}: {}",
-                status,
-                body
-            ));
-        }
+        let resp = ProviderErrorHandler::check_http_status(resp, "AnthropicOAuth").await?;
 
         let json: Value = resp.json().await.context("Failed to parse response")?;
         Ok(anthropic_common::parse_response(&json))

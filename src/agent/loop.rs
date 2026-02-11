@@ -38,11 +38,16 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 const EMPTY_RESPONSE_RETRIES: usize = 2;
+const TOOL_EXECUTION_TIMEOUT_SECS: u64 = 120;
+const MAX_TOOL_RESULT_CHARS: usize = 10000;
+const AGENT_POLL_INTERVAL_MS: u64 = 100;
+const STREAMING_THROTTLE_MS: u64 = 500;
+const STREAMING_BUFFER_CHARS: usize = 50;
 
 /// Validate tool arguments against the tool's JSON schema.
 /// Checks: (1) required fields are present, (2) field types match schema.
 /// Returns None if valid, Some(error_message) if invalid.
-fn validate_tool_params(
+pub(crate) fn validate_tool_params(
     tool: &dyn crate::agent::tools::base::Tool,
     params: &Value,
 ) -> Option<String> {
@@ -131,19 +136,35 @@ async fn execute_tool_call_inner(
         debug!("Executing tool: {} with arguments: {}", tc_name, tc_args);
         let tool_name = tc_name.to_string();
         let params = tc_args.clone();
-        match tool.execute(params).await {
-            Ok(result) => {
+        let timeout_duration = std::time::Duration::from_secs(TOOL_EXECUTION_TIMEOUT_SECS);
+        match tokio::time::timeout(timeout_duration, tool.execute(params)).await {
+            Ok(Ok(result)) => {
                 if result.is_error {
                     warn!("Tool '{}' returned error: {}", tool_name, result.content);
                 }
                 (
-                    truncate_tool_result(&result.content, 10000),
+                    truncate_tool_result(&result.content, MAX_TOOL_RESULT_CHARS),
                     result.is_error,
                 )
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 warn!("Tool '{}' failed: {}", tool_name, e);
                 (format!("Tool execution failed: {}", e), true)
+            }
+            Err(_) => {
+                warn!(
+                    "Tool '{}' timed out after {}s",
+                    tool_name,
+                    timeout_duration.as_secs()
+                );
+                (
+                    format!(
+                        "Tool '{}' timed out after {}s",
+                        tool_name,
+                        timeout_duration.as_secs()
+                    ),
+                    true,
+                )
             }
         }
     } else {
@@ -239,6 +260,8 @@ pub struct AgentLoopConfig {
     pub channels_config: Option<crate::config::ChannelsConfig>,
     /// Sender for streaming edit events (channel manager consumes these)
     pub streaming_edit_tx: Option<Arc<tokio::sync::mpsc::Sender<StreamingEdit>>>,
+    /// Memory indexer interval in seconds (default 300)
+    pub memory_indexer_interval: u64,
 }
 
 pub struct AgentLoop {
@@ -292,6 +315,7 @@ impl AgentLoop {
             typing_tx,
             channels_config,
             streaming_edit_tx,
+            memory_indexer_interval,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -318,7 +342,10 @@ impl AgentLoop {
         }
 
         let sessions: Arc<dyn SessionStore> = Arc::new(session_mgr);
-        let memory = Arc::new(MemoryStore::new(&workspace)?);
+        let memory = Arc::new(MemoryStore::with_indexer_interval(
+            &workspace,
+            memory_indexer_interval,
+        )?);
         // Start background memory indexer
         memory.start_indexer().await?;
 
@@ -375,6 +402,8 @@ impl AgentLoop {
             exec_timeout,
             restrict_to_workspace,
             allowed_commands,
+            max_tokens,
+            tool_temperature,
         }));
 
         // Register spawn and subagent control tools
@@ -537,7 +566,8 @@ impl AgentLoop {
                     }
                 }
             } else {
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(AGENT_POLL_INTERVAL_MS))
+                    .await;
             }
         }
 
@@ -755,8 +785,10 @@ impl AgentLoop {
 
                     let mut last = last_send.lock().unwrap();
                     let elapsed = last.elapsed();
-                    // Throttle: send at most every 500ms or every 50 chars
-                    if elapsed >= std::time::Duration::from_millis(500) || buf.len() >= 50 {
+                    // Throttle: send at most every STREAMING_THROTTLE_MS or every STREAMING_BUFFER_CHARS
+                    if elapsed >= std::time::Duration::from_millis(STREAMING_THROTTLE_MS)
+                        || buf.len() >= STREAMING_BUFFER_CHARS
+                    {
                         let content = buf.clone();
                         *last = std::time::Instant::now();
                         drop(buf);

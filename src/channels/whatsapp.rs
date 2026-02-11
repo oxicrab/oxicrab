@@ -25,11 +25,7 @@ pub struct WhatsAppChannel {
 }
 
 impl WhatsAppChannel {
-    pub fn new(
-        config: WhatsAppConfig,
-        inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
-        _outbound_rx: mpsc::Receiver<OutboundMessage>,
-    ) -> Self {
+    pub fn new(config: WhatsAppConfig, inbound_tx: Arc<mpsc::Sender<InboundMessage>>) -> Self {
         // Determine session path for WhatsApp session storage
         let session_path = get_nanobot_home()
             .map(|home| home.join("whatsapp"))
@@ -357,6 +353,27 @@ impl BaseChannel for WhatsAppChannel {
             }
         }
         Ok(())
+    }
+
+    async fn send_and_get_id(&self, msg: &OutboundMessage) -> Result<Option<String>> {
+        if msg.channel != "whatsapp" {
+            return Ok(None);
+        }
+
+        let client_guard = self.client.lock().await;
+        if let Some(client) = client_guard.as_ref() {
+            match send_whatsapp_message(client, msg).await {
+                Ok(()) => {
+                    // WhatsApp message IDs are returned per-chunk; return None
+                    // since we can't reliably track multi-chunk messages for editing
+                    Ok(None)
+                }
+                Err(e) => Err(e),
+            }
+        } else {
+            warn!("WhatsApp client not available for send_and_get_id");
+            Ok(None)
+        }
     }
 
     async fn send(&self, msg: &OutboundMessage) -> Result<()> {

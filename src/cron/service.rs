@@ -12,6 +12,8 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 const POLL_WHEN_EMPTY_SEC: u64 = 30;
+const MIN_SLEEP_MS: i64 = 1000;
+const MAX_SLEEP_MS: u64 = 30000;
 
 /// Normalize a cron expression to 6+ fields (prepend "0 " for seconds if 5-field).
 /// Then validate it parses. Returns Ok(normalized) or Err with a message.
@@ -313,12 +315,13 @@ impl CronService {
                 }
 
                 let delay = if let Some(next) = next_run {
-                    (next - now).max(1000) as u64
+                    (next - now).max(MIN_SLEEP_MS) as u64
                 } else {
                     POLL_WHEN_EMPTY_SEC * 1000
                 };
 
-                tokio::time::sleep(tokio::time::Duration::from_millis(delay.min(30000))).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(delay.min(MAX_SLEEP_MS)))
+                    .await;
             }
         });
 

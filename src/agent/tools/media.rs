@@ -593,14 +593,14 @@ fn format_movie_search_results(results: &[Value]) -> String {
             let year = m["year"].as_i64().unwrap_or(0);
             let tmdb_id = m["tmdbId"].as_i64().unwrap_or(0);
             let overview = m["overview"].as_str().unwrap_or("No overview available.");
-            let overview_short = if overview.len() > 150 {
+            let overview_short = if overview.len() > 500 {
                 // Find a safe char boundary
                 let end = overview
                     .char_indices()
-                    .take_while(|(idx, _)| *idx <= 150)
+                    .take_while(|(idx, _)| *idx <= 500)
                     .last()
                     .map(|(idx, _)| idx)
-                    .unwrap_or(150);
+                    .unwrap_or(500);
                 format!("{}...", &overview[..end])
             } else {
                 overview.to_string()
@@ -646,13 +646,13 @@ fn format_series_search_results(results: &[Value]) -> String {
             let year = s["year"].as_i64().unwrap_or(0);
             let tvdb_id = s["tvdbId"].as_i64().unwrap_or(0);
             let overview = s["overview"].as_str().unwrap_or("No overview available.");
-            let overview_short = if overview.len() > 150 {
+            let overview_short = if overview.len() > 500 {
                 let end = overview
                     .char_indices()
-                    .take_while(|(idx, _)| *idx <= 150)
+                    .take_while(|(idx, _)| *idx <= 500)
                     .last()
                     .map(|(idx, _)| idx)
-                    .unwrap_or(150);
+                    .unwrap_or(500);
                 format!("{}...", &overview[..end])
             } else {
                 overview.to_string()
@@ -1007,7 +1007,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_movie_search_truncates_long_overview() {
-        let long_overview = "A".repeat(300);
+        let long_overview = "A".repeat(600);
         let results = vec![serde_json::json!({
             "title": "Test",
             "year": 2020,
@@ -1017,7 +1017,7 @@ mod tests {
         })];
         let output = format_movie_search_results(&results);
         assert!(output.contains("..."));
-        // The overview should be truncated, not full 300 chars
+        // The overview should be truncated, not full 600 chars
         assert!(!output.contains(&long_overview));
     }
 }

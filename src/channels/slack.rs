@@ -375,6 +375,15 @@ impl BaseChannel for SlackChannel {
         Ok(())
     }
 
+    async fn send_typing(&self, chat_id: &str) -> Result<()> {
+        // Slack doesn't have a dedicated typing indicator API for bots,
+        // but posting an ephemeral "typing" status can be simulated via
+        // a short-lived message. For now we simply no-op successfully
+        // so the agent loop doesn't treat it as an error.
+        debug!("Slack typing indicator requested for {}", chat_id);
+        Ok(())
+    }
+
     async fn send(&self, msg: &OutboundMessage) -> Result<()> {
         if msg.channel != "slack" {
             return Ok(());
@@ -472,13 +481,16 @@ async fn handle_slack_event(
             debug!("Ignoring duplicate Slack message: {}", msg_key);
             return Ok(());
         }
-        seen.insert(msg_key);
-        // Prune when set grows too large to bound memory.
-        // HashSet has no ordering so we just clear and accept some
-        // re-processing of very recent messages (harmless - they're
-        // idempotent channel messages).
+        seen.insert(msg_key.clone());
+        // Evict oldest entries when set grows too large (keep ~500 most recent).
+        // HashSet has no ordering; we remove a random half to avoid unbounded growth
+        // while retaining enough entries to catch most duplicates.
         if seen.len() > 1000 {
-            seen.clear();
+            let to_remove: Vec<String> = seen.iter().take(500).cloned().collect();
+            for key in to_remove {
+                seen.remove(&key);
+            }
+            debug!("Pruned Slack dedup set to {} entries", seen.len());
         }
     }
 

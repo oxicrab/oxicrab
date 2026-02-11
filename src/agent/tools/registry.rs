@@ -9,8 +9,8 @@ use std::time::Instant;
 use tokio::sync::Mutex;
 use tracing::{debug, error};
 
-const CACHE_MAX_ENTRIES: usize = 128;
-const CACHE_TTL_SECS: u64 = 300; // 5 minutes
+const DEFAULT_CACHE_MAX_ENTRIES: usize = 128;
+const DEFAULT_CACHE_TTL_SECS: u64 = 300; // 5 minutes
 
 struct CachedResult {
     result: ToolResult,
@@ -20,15 +20,21 @@ struct CachedResult {
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn Tool>>,
     cache: Mutex<LruCache<String, CachedResult>>,
+    cache_ttl_secs: u64,
 }
 
 impl ToolRegistry {
     pub fn new() -> Self {
+        Self::with_cache_config(DEFAULT_CACHE_MAX_ENTRIES, DEFAULT_CACHE_TTL_SECS)
+    }
+
+    pub fn with_cache_config(max_entries: usize, ttl_secs: u64) -> Self {
         Self {
             tools: HashMap::new(),
             cache: Mutex::new(LruCache::new(
-                NonZeroUsize::new(CACHE_MAX_ENTRIES).expect("CACHE_MAX_ENTRIES must be > 0"),
+                NonZeroUsize::new(max_entries).expect("cache max_entries must be > 0"),
             )),
+            cache_ttl_secs: ttl_secs,
         }
     }
 
@@ -77,7 +83,7 @@ impl ToolRegistry {
             {
                 let mut cache = self.cache.lock().await;
                 if let Some(cached) = cache.get(&cache_key) {
-                    if cached.cached_at.elapsed().as_secs() < CACHE_TTL_SECS {
+                    if cached.cached_at.elapsed().as_secs() < self.cache_ttl_secs {
                         debug!(
                             "Cache hit for tool '{}' (age: {:?})",
                             name,

@@ -17,8 +17,10 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-const MAX_TOOL_RESULT_CHARS: usize = 2000;
+const MAX_TOOL_RESULT_CHARS: usize = 10000;
 const EMPTY_RESPONSE_RETRIES: usize = 2;
+const MAX_WEB_FETCH_CHARS: usize = 50000;
+const MAX_SUBAGENT_ITERATIONS: usize = 15;
 
 pub struct SubagentConfig {
     pub provider: Arc<dyn LLMProvider>,
@@ -29,6 +31,8 @@ pub struct SubagentConfig {
     pub exec_timeout: u64,
     pub restrict_to_workspace: bool,
     pub allowed_commands: Vec<String>,
+    pub max_tokens: u32,
+    pub tool_temperature: f32,
 }
 
 pub struct SubagentManager {
@@ -40,6 +44,8 @@ pub struct SubagentManager {
     exec_timeout: u64,
     restrict_to_workspace: bool,
     allowed_commands: Vec<String>,
+    max_tokens: u32,
+    tool_temperature: f32,
     running_tasks: Arc<tokio::sync::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 }
 
@@ -57,6 +63,8 @@ impl SubagentManager {
             exec_timeout: config.exec_timeout,
             restrict_to_workspace: config.restrict_to_workspace,
             allowed_commands: config.allowed_commands,
+            max_tokens: config.max_tokens,
+            tool_temperature: config.tool_temperature,
             running_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
@@ -91,6 +99,8 @@ impl SubagentManager {
             exec_timeout: self.exec_timeout,
             restrict_to_workspace: self.restrict_to_workspace,
             allowed_commands: self.allowed_commands.clone(),
+            max_tokens: self.max_tokens,
+            tool_temperature: self.tool_temperature,
             running_tasks: self.running_tasks.clone(),
         };
 
@@ -158,16 +168,14 @@ impl SubagentManager {
     ) -> Result<String> {
         // Build tools
         let mut tools = ToolRegistry::new();
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
         let allowed_roots = if self.restrict_to_workspace {
-            Some(vec![
-                self.workspace.clone(),
-                dirs::home_dir().unwrap_or_default(),
-            ])
+            Some(vec![self.workspace.clone(), home.clone()])
         } else {
             None
         };
 
-        let backup_dir = dirs::home_dir().map(|h| h.join(".nanobot/backups"));
+        let backup_dir = Some(home.join(".nanobot/backups"));
 
         tools.register(Arc::new(ReadFileTool::new(allowed_roots.clone())));
         tools.register(Arc::new(WriteFileTool::new(
@@ -182,14 +190,14 @@ impl SubagentManager {
             self.allowed_commands.clone(),
         )?));
         tools.register(Arc::new(WebSearchTool::new(self.brave_api_key.clone(), 5)));
-        tools.register(Arc::new(WebFetchTool::new(50000)?));
+        tools.register(Arc::new(WebFetchTool::new(MAX_WEB_FETCH_CHARS)?));
 
         // Build messages
         let system_prompt = self.build_subagent_prompt(task);
         let mut messages = vec![Message::system(system_prompt), Message::user(task)];
 
         // Run agent loop
-        let max_iterations = 15;
+        let max_iterations = MAX_SUBAGENT_ITERATIONS;
         let mut iteration = 0;
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
 
@@ -202,8 +210,8 @@ impl SubagentManager {
                     messages: messages.clone(),
                     tools: Some(tools.get_tool_definitions()),
                     model: Some(&self.model),
-                    max_tokens: 4096,
-                    temperature: 0.7,
+                    max_tokens: self.max_tokens,
+                    temperature: self.tool_temperature,
                     tool_choice: None,
                 })
                 .await?;
@@ -221,6 +229,28 @@ impl SubagentManager {
                         "Subagent [{}] executing: {} with arguments: {}",
                         task_id, tool_call.name, tool_call.arguments
                     );
+
+                    // Validate params before execution
+                    if let Some(tool) = tools.get(&tool_call.name) {
+                        if let Some(validation_error) =
+                            crate::agent::agent_loop::validate_tool_params(
+                                tool.as_ref(),
+                                &tool_call.arguments,
+                            )
+                        {
+                            warn!(
+                                "Subagent [{}] tool '{}' param validation failed: {}",
+                                task_id, tool_call.name, validation_error
+                            );
+                            messages.push(Message::tool_result(
+                                tool_call.id.clone(),
+                                validation_error,
+                                true,
+                            ));
+                            continue;
+                        }
+                    }
+
                     let result = tools
                         .execute(&tool_call.name, tool_call.arguments.clone())
                         .await?;

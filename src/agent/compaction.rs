@@ -31,9 +31,15 @@ Assistant: {assistant_message}
 
 If there are notable facts, respond with a short bullet list (one line per fact). If nothing is worth remembering, respond with exactly: NOTHING";
 
+const COMPACTION_MAX_TOKENS: u32 = 2000;
+const EXTRACTION_MAX_TOKENS: u32 = 500;
+const COMPACTION_TEMPERATURE: f32 = 0.3;
+const EXTRACTION_TEMPERATURE: f32 = 0.0;
+const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+
 pub fn estimate_tokens(text: &str) -> usize {
     // Use char count for better accuracy with non-ASCII text
-    text.chars().count() / 4
+    text.chars().count() / CHARS_PER_TOKEN_ESTIMATE
 }
 
 pub fn estimate_messages_tokens(messages: &[HashMap<String, Value>]) -> usize {
@@ -95,8 +101,8 @@ impl MessageCompactor {
                 messages: llm_messages,
                 tools: None,
                 model: self.model.as_deref(),
-                max_tokens: 2000,
-                temperature: 0.3,
+                max_tokens: COMPACTION_MAX_TOKENS,
+                temperature: COMPACTION_TEMPERATURE,
                 tool_choice: None,
             })
             .await?;
@@ -121,8 +127,8 @@ impl MessageCompactor {
                 messages: llm_messages,
                 tools: None,
                 model: self.model.as_deref(),
-                max_tokens: 500,
-                temperature: 0.3,
+                max_tokens: EXTRACTION_MAX_TOKENS,
+                temperature: EXTRACTION_TEMPERATURE,
                 tool_choice: None,
             })
             .await?;

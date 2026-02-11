@@ -46,6 +46,7 @@ async fn create_test_agent(provider: MockLLMProvider, tmp: &TempDir) -> AgentLoo
         typing_tx: None,
         channels_config: None,
         streaming_edit_tx: None,
+        memory_indexer_interval: 300,
     };
 
     AgentLoop::new(config)

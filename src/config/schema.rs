@@ -155,10 +155,6 @@ pub struct DaemonConfig {
     pub enabled: bool,
     #[serde(default = "default_interval")]
     pub interval: u64,
-    #[serde(default, rename = "triageModel")]
-    pub triage_model: Option<String>,
-    #[serde(default, rename = "triageProvider")]
-    pub triage_provider: Option<String>,
     #[serde(default, rename = "executionModel")]
     pub execution_model: Option<String>,
     #[serde(default, rename = "executionProvider")]
@@ -167,8 +163,6 @@ pub struct DaemonConfig {
     pub strategy_file: String,
     #[serde(default = "default_max_iterations", rename = "maxIterations")]
     pub max_iterations: usize,
-    #[serde(default = "default_cooldown", rename = "cooldownAfterAction")]
-    pub cooldown_after_action: u64,
 }
 
 impl Default for DaemonConfig {
@@ -176,13 +170,10 @@ impl Default for DaemonConfig {
         Self {
             enabled: true,
             interval: default_interval(),
-            triage_model: None,
-            triage_provider: None,
             execution_model: None,
             execution_provider: None,
             strategy_file: default_strategy_file(),
             max_iterations: default_max_iterations(),
-            cooldown_after_action: default_cooldown(),
         }
     }
 }
@@ -197,10 +188,6 @@ fn default_strategy_file() -> String {
 
 fn default_max_iterations() -> usize {
     25
-}
-
-fn default_cooldown() -> u64 {
-    600
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -221,6 +208,11 @@ pub struct AgentDefaults {
     pub daemon: DaemonConfig,
     #[serde(default = "default_session_ttl_days", rename = "sessionTtlDays")]
     pub session_ttl_days: u32,
+    #[serde(
+        default = "default_memory_indexer_interval",
+        rename = "memoryIndexerInterval"
+    )]
+    pub memory_indexer_interval: u64,
 }
 
 impl Default for AgentDefaults {
@@ -234,8 +226,13 @@ impl Default for AgentDefaults {
             compaction: CompactionConfig::default(),
             daemon: DaemonConfig::default(),
             session_ttl_days: default_session_ttl_days(),
+            memory_indexer_interval: default_memory_indexer_interval(),
         }
     }
+}
+
+fn default_memory_indexer_interval() -> u64 {
+    300
 }
 
 fn default_session_ttl_days() -> u32 {

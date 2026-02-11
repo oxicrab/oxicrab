@@ -19,9 +19,6 @@ impl ChannelManager {
         let mut channels: Vec<Box<dyn BaseChannel>> = Vec::new();
         let mut enabled = Vec::new();
 
-        // For WhatsApp, create a separate channel for outbound messages
-        let (_, outbound_rx) = tokio::sync::mpsc::channel::<OutboundMessage>(1000);
-
         if config.channels.telegram.enabled && !config.channels.telegram.token.is_empty() {
             tracing::debug!("Initializing Telegram channel...");
             channels.push(Box::new(TelegramChannel::new(
@@ -57,7 +54,6 @@ impl ChannelManager {
             channels.push(Box::new(WhatsAppChannel::new(
                 config.channels.whatsapp.clone(),
                 inbound_tx.clone(),
-                outbound_rx,
             )));
             enabled.push("whatsapp".to_string());
             tracing::info!("WhatsApp channel enabled");
