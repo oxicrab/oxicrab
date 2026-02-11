@@ -31,13 +31,18 @@ impl TodoistTool {
         let mut cursor: Option<String> = None;
         const MAX_PAGES: usize = 10; // Safety limit
 
-        for _ in 0..MAX_PAGES {
+        for page_num in 0..MAX_PAGES {
             let mut query: Vec<(&str, &str)> = base_query.to_vec();
             let cursor_val;
             if let Some(ref c) = cursor {
                 cursor_val = c.clone();
                 query.push(("cursor", &cursor_val));
             }
+
+            debug!(
+                "Todoist request: GET {} query={:?} page={}",
+                url, query, page_num
+            );
 
             let resp = self
                 .client
@@ -49,7 +54,15 @@ impl TodoistTool {
                 .await?;
 
             let status = resp.status();
+            let final_url = resp.url().to_string();
             let text = resp.text().await.unwrap_or_default();
+            debug!(
+                "Todoist response: status={}, url={}, body_len={}, body_preview={}",
+                status,
+                final_url,
+                text.len(),
+                &text[..text.len().min(500)]
+            );
             if !status.is_success() {
                 anyhow::bail!("Todoist API {}: {}", status, text);
             }
@@ -83,15 +96,20 @@ impl TodoistTool {
                 break;
             }
 
-            let next = &body["next_cursor"];
+            let next_raw = &body["next_cursor"];
+            let next_type = if next_raw.is_null() {
+                "null"
+            } else if next_raw.is_string() {
+                "string"
+            } else {
+                "other"
+            };
             debug!(
-                "Todoist page: {} items, next_cursor={}, total so far={}",
-                page_count,
-                next,
-                all_items.len()
+                "Todoist page {}: {} items, next_cursor type={}, next_cursor raw={}, total so far={}",
+                page_num, page_count, next_type, next_raw, all_items.len()
             );
 
-            match next.as_str() {
+            match next_raw.as_str() {
                 Some(c) if !c.is_empty() && c != "null" => cursor = Some(c.to_string()),
                 _ => break,
             }
