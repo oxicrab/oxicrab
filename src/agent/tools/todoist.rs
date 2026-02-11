@@ -101,19 +101,17 @@ impl TodoistTool {
     }
 
     async fn list_tasks(&self, project_id: Option<&str>, filter: Option<&str>) -> Result<String> {
-        // v1 API has separate endpoints: /tasks (list all) and /tasks/filter (query)
-        let tasks = if let Some(f) = filter {
-            let query = vec![("query", f)];
-            self.paginated_get(&format!("{}/tasks/filter", TODOIST_API), &query)
-                .await?
-        } else {
-            let mut query: Vec<(&str, &str)> = Vec::new();
-            if let Some(pid) = project_id {
-                query.push(("project_id", pid));
-            }
-            self.paginated_get(&format!("{}/tasks", TODOIST_API), &query)
-                .await?
-        };
+        // v1 API: /tasks accepts optional `query` param for filter, `project_id`, `limit`, `cursor`
+        let mut query: Vec<(&str, &str)> = vec![("limit", "200")];
+        if let Some(f) = filter {
+            query.push(("query", f));
+        }
+        if let Some(pid) = project_id {
+            query.push(("project_id", pid));
+        }
+        let tasks = self
+            .paginated_get(&format!("{}/tasks", TODOIST_API), &query)
+            .await?;
         if tasks.is_empty() {
             return Ok("No tasks found.".to_string());
         }
@@ -227,7 +225,7 @@ impl TodoistTool {
 
     async fn list_projects(&self) -> Result<String> {
         let projects = self
-            .paginated_get(&format!("{}/projects", TODOIST_API), &[])
+            .paginated_get(&format!("{}/projects", TODOIST_API), &[("limit", "200")])
             .await?;
         if projects.is_empty() {
             return Ok("No projects found.".to_string());
