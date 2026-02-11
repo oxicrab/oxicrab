@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
+use tracing::debug;
 
 const TODOIST_API: &str = "https://api.todoist.com/api/v1";
 
@@ -61,15 +62,36 @@ impl TodoistTool {
             })?;
 
             // v1 API returns {"results": [...], "next_cursor": ...}
+            let page_count;
             if let Some(results) = body["results"].as_array() {
+                page_count = results.len();
                 all_items.extend(results.iter().cloned());
             } else if let Some(arr) = body.as_array() {
                 // Fallback for bare arrays
+                page_count = arr.len();
                 all_items.extend(arr.iter().cloned());
+                debug!(
+                    "Todoist returned bare array ({} items), no pagination",
+                    page_count
+                );
+                break;
+            } else {
+                debug!(
+                    "Todoist unexpected response shape: {}",
+                    &text[..text.len().min(300)]
+                );
                 break;
             }
 
-            match body["next_cursor"].as_str() {
+            let next = &body["next_cursor"];
+            debug!(
+                "Todoist page: {} items, next_cursor={}, total so far={}",
+                page_count,
+                next,
+                all_items.len()
+            );
+
+            match next.as_str() {
                 Some(c) if !c.is_empty() && c != "null" => cursor = Some(c.to_string()),
                 _ => break,
             }
