@@ -101,17 +101,20 @@ impl TodoistTool {
     }
 
     async fn list_tasks(&self, project_id: Option<&str>, filter: Option<&str>) -> Result<String> {
-        // v1 API: /tasks accepts optional `query` param for filter, `project_id`, `limit`, `cursor`
-        let mut query: Vec<(&str, &str)> = vec![("limit", "200")];
-        if let Some(f) = filter {
-            query.push(("query", f));
-        }
-        if let Some(pid) = project_id {
-            query.push(("project_id", pid));
-        }
-        let tasks = self
-            .paginated_get(&format!("{}/tasks", TODOIST_API), &query)
-            .await?;
+        // v1 API: /tasks for listing, /tasks/filter for filter queries
+        // limit max=200, default=50
+        let tasks = if let Some(f) = filter {
+            let query = vec![("query", f), ("limit", "200")];
+            self.paginated_get(&format!("{}/tasks/filter", TODOIST_API), &query)
+                .await?
+        } else {
+            let mut query: Vec<(&str, &str)> = vec![("limit", "200")];
+            if let Some(pid) = project_id {
+                query.push(("project_id", pid));
+            }
+            self.paginated_get(&format!("{}/tasks", TODOIST_API), &query)
+                .await?
+        };
         if tasks.is_empty() {
             return Ok("No tasks found.".to_string());
         }
@@ -132,10 +135,11 @@ impl TodoistTool {
                 } else {
                     format!(" [{}]", labels.join(", "))
                 };
+                // v1 API: priority 1=highest(urgent), 4=lowest(normal)
                 let priority_str = match priority {
-                    4 => " !!!",
-                    3 => " !!",
-                    2 => " !",
+                    1 => " !!!",
+                    2 => " !!",
+                    3 => " !",
                     _ => "",
                 };
                 format!(
@@ -300,7 +304,7 @@ impl Tool for TodoistTool {
                 "priority": {
                     "type": "integer",
                     "enum": [1, 2, 3, 4],
-                    "description": "Task priority (1=normal, 4=urgent)"
+                    "description": "Task priority (1=urgent, 4=normal)"
                 },
                 "labels": {
                     "type": "array",
