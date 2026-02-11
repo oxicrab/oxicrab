@@ -626,6 +626,12 @@ fn start_channels_loop(
                     current_key = Some(edit_key);
                 }
 
+                // Empty content is a reset sentinel — new response starting
+                if edit.content.is_empty() {
+                    current_message_id = None;
+                    continue;
+                }
+
                 if let Some(ref msg_id) = current_message_id {
                     // Edit existing message
                     channels_for_streaming

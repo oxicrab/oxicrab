@@ -716,6 +716,20 @@ impl AgentLoop {
         // Extract tool names for hallucination detection
         let tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
 
+        // Reset streaming consumer state so a new message is created (not an edit of the old one)
+        if let (Some(ref edit_tx), Some((ref ch, ref cid))) =
+            (&self.streaming_edit_tx, &streaming_context)
+        {
+            let _ = edit_tx
+                .send(StreamingEdit {
+                    channel: ch.clone(),
+                    chat_id: cid.clone(),
+                    message_id: String::new(),
+                    content: String::new(), // Empty content = reset sentinel
+                })
+                .await;
+        }
+
         // Build streaming callback if streaming context is available
         let stream_callback: Option<StreamCallback> =
             if let (Some(ref edit_tx), Some((ref s_channel, ref s_chat_id))) =
