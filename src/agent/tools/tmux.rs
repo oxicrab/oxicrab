@@ -133,6 +133,15 @@ impl Tool for TmuxTool {
                     .run_tmux(&["send-keys", "-t", session_name, command, "Enter"])
                     .await?;
                 if code != 0 {
+                    if stderr.contains("No such file or directory")
+                        || stderr.contains("no server running")
+                        || stderr.contains("can't find session")
+                    {
+                        return Ok(ToolResult::error(format!(
+                            "Error: Session '{}' does not exist. Use action 'create' first to create it.",
+                            session_name
+                        )));
+                    }
                     return Ok(ToolResult::error(format!(
                         "Error: Failed to send command to '{}': {}",
                         session_name, stderr
@@ -160,6 +169,15 @@ impl Tool for TmuxTool {
                     ])
                     .await?;
                 if code != 0 {
+                    if stderr.contains("No such file or directory")
+                        || stderr.contains("no server running")
+                        || stderr.contains("can't find session")
+                    {
+                        return Ok(ToolResult::error(format!(
+                            "Error: Session '{}' does not exist. Use action 'create' first to create it.",
+                            session_name
+                        )));
+                    }
                     return Ok(ToolResult::error(format!(
                         "Error: Failed to read session '{}': {}",
                         session_name, stderr

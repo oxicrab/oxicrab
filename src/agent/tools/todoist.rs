@@ -43,10 +43,17 @@ impl TodoistTool {
             .await?;
 
         let status = resp.status();
-        let body: Value = resp.json().await?;
+        let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            anyhow::bail!("Todoist API {}: {}", status, body);
+            anyhow::bail!("Todoist API {}: {}", status, text);
         }
+        let body: Value = serde_json::from_str(&text).map_err(|e| {
+            anyhow::anyhow!(
+                "Invalid JSON from Todoist: {} (body: {})",
+                e,
+                &text[..text.len().min(200)]
+            )
+        })?;
 
         let tasks = body.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
         if tasks.is_empty() {
@@ -125,10 +132,17 @@ impl TodoistTool {
             .await?;
 
         let status = resp.status();
-        let body: Value = resp.json().await?;
+        let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            anyhow::bail!("Todoist API {}: {}", status, body);
+            anyhow::bail!("Todoist API {}: {}", status, text);
         }
+        let body: Value = serde_json::from_str(&text).map_err(|e| {
+            anyhow::anyhow!(
+                "Invalid JSON from Todoist: {} (body: {})",
+                e,
+                &text[..text.len().min(200)]
+            )
+        })?;
 
         let id = body["id"].as_str().unwrap_or("?");
         let url = body["url"].as_str().unwrap_or("");
@@ -163,10 +177,17 @@ impl TodoistTool {
             .await?;
 
         let status = resp.status();
-        let body: Value = resp.json().await?;
+        let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            anyhow::bail!("Todoist API {}: {}", status, body);
+            anyhow::bail!("Todoist API {}: {}", status, text);
         }
+        let body: Value = serde_json::from_str(&text).map_err(|e| {
+            anyhow::anyhow!(
+                "Invalid JSON from Todoist: {} (body: {})",
+                e,
+                &text[..text.len().min(200)]
+            )
+        })?;
 
         let projects = body.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
         if projects.is_empty() {
