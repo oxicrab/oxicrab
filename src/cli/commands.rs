@@ -431,6 +431,7 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
             channels_config: params.channels_config,
             streaming_edit_tx: params.streaming_edit_tx,
             memory_indexer_interval: config.agents.defaults.memory_indexer_interval,
+            media_ttl_days: config.agents.defaults.media_ttl_days,
         })
         .await?,
     );

@@ -88,9 +88,21 @@ impl LLMProvider for GeminiProvider {
                     _ => "user",
                 };
 
+                let mut parts = vec![json!({"text": msg.content})];
+                if msg.role == "user" {
+                    for img in &msg.images {
+                        parts.push(json!({
+                            "inline_data": {
+                                "mime_type": img.media_type,
+                                "data": img.data
+                            }
+                        }));
+                    }
+                }
+
                 json!({
                     "role": role,
-                    "parts": [{"text": msg.content}]
+                    "parts": parts
                 })
             })
             .collect();

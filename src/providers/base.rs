@@ -26,6 +26,12 @@ impl LLMResponse {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ImageData {
+    pub media_type: String, // "image/jpeg", "image/png", etc.
+    pub data: String,       // base64-encoded
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Message {
     pub role: String,
@@ -34,6 +40,8 @@ pub struct Message {
     pub tool_call_id: Option<String>,
     /// Whether this tool result represents an error (for role="tool" messages)
     pub is_error: bool,
+    /// Base64-encoded images attached to this message
+    pub images: Vec<ImageData>,
 }
 
 impl Message {
@@ -49,6 +57,15 @@ impl Message {
         Self {
             role: "user".into(),
             content: content.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn user_with_images(content: impl Into<String>, images: Vec<ImageData>) -> Self {
+        Self {
+            role: "user".into(),
+            content: content.into(),
+            images,
             ..Default::default()
         }
     }
@@ -273,6 +290,26 @@ mod tests {
         assert!(msg.tool_calls.is_none());
         assert!(msg.tool_call_id.is_none());
         assert!(!msg.is_error);
+        assert!(msg.images.is_empty());
+    }
+
+    #[test]
+    fn message_user_with_images() {
+        let images = vec![ImageData {
+            media_type: "image/jpeg".to_string(),
+            data: "base64data".to_string(),
+        }];
+        let msg = Message::user_with_images("describe this", images);
+        assert_eq!(msg.role, "user");
+        assert_eq!(msg.content, "describe this");
+        assert_eq!(msg.images.len(), 1);
+        assert_eq!(msg.images[0].media_type, "image/jpeg");
+    }
+
+    #[test]
+    fn message_user_has_no_images() {
+        let msg = Message::user("hello");
+        assert!(msg.images.is_empty());
     }
 
     #[test]

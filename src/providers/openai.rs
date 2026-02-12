@@ -77,9 +77,29 @@ impl LLMProvider for OpenAIProvider {
             .messages
             .into_iter()
             .map(|msg| {
+                let content_value = if !msg.images.is_empty() && msg.role == "user" {
+                    let mut parts = Vec::new();
+                    if !msg.content.is_empty() {
+                        parts.push(json!({
+                            "type": "text",
+                            "text": msg.content
+                        }));
+                    }
+                    for img in &msg.images {
+                        parts.push(json!({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": format!("data:{};base64,{}", img.media_type, img.data)
+                            }
+                        }));
+                    }
+                    json!(parts)
+                } else {
+                    json!(msg.content)
+                };
                 let mut m = json!({
                     "role": msg.role,
-                    "content": msg.content,
+                    "content": content_value,
                 });
 
                 if let Some(tool_calls) = msg.tool_calls {

@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
+use teloxide::net::Download;
 use teloxide::prelude::*;
 use teloxide::types::{Message as TgMessage, MessageKind, Update};
 use tokio::sync::mpsc;
@@ -47,24 +48,91 @@ impl BaseChannel for TelegramChannel {
         let inbound_tx = self.inbound_tx.clone();
         let allow_list = self.config.allow_from.clone();
 
-        let handler = Update::filter_message().endpoint(move |msg: TgMessage| {
+        let handler = Update::filter_message().endpoint(move |bot: Bot, msg: TgMessage| {
             let inbound_tx = inbound_tx.clone();
             let allow_list = allow_list.clone();
             async move {
                 if let MessageKind::Common(_msg_common) = &msg.kind {
-                    let text = msg.text();
-                    if let Some(text) = text {
-                        let sender_id = msg
-                            .from
-                            .as_ref()
-                            .map(|u| u.id.to_string())
-                            .unwrap_or_default();
+                    let sender_id = msg
+                        .from
+                        .as_ref()
+                        .map(|u| u.id.to_string())
+                        .unwrap_or_default();
 
-                        // Check allowlist using utility function
-                        if !check_allowed_sender(&sender_id, &allow_list) {
+                    // Check allowlist using utility function
+                    if !check_allowed_sender(&sender_id, &allow_list) {
+                        return Ok(());
+                    }
+
+                    // Handle photos
+                    if let Some(photos) = msg.photo() {
+                        if let Some(photo) = photos.last() {
+                            let text = msg.caption().unwrap_or("").to_string();
+                            let mut media_paths = Vec::new();
+                            let mut content = text.clone();
+
+                            // Download the photo
+                            match bot.get_file(&photo.file.id).await {
+                                Ok(file) => {
+                                    let media_dir = dirs::home_dir()
+                                        .unwrap_or_else(|| std::path::PathBuf::from("."))
+                                        .join(".nanobot")
+                                        .join("media");
+                                    let _ = std::fs::create_dir_all(&media_dir);
+                                    let file_path = media_dir
+                                        .join(format!("telegram_{}.jpg", photo.file.unique_id));
+
+                                    let mut dst =
+                                        tokio::fs::File::create(&file_path).await.map_err(|e| {
+                                            tracing::warn!(
+                                                "Failed to create file for Telegram photo: {}",
+                                                e
+                                            );
+                                            e
+                                        });
+                                    if let Ok(ref mut dst_file) = dst {
+                                        if let Err(e) =
+                                            bot.download_file(&file.path, dst_file).await
+                                        {
+                                            tracing::warn!(
+                                                "Failed to download Telegram photo: {}",
+                                                e
+                                            );
+                                        } else {
+                                            let path_str = file_path.to_string_lossy().to_string();
+                                            media_paths.push(path_str.clone());
+                                            content = format!("{}\n[image: {}]", content, path_str);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Failed to get Telegram file info: {}", e);
+                                }
+                            }
+
+                            if !content.trim().is_empty() || !media_paths.is_empty() {
+                                let inbound_msg = InboundMessage {
+                                    channel: "telegram".to_string(),
+                                    sender_id,
+                                    chat_id: msg.chat.id.to_string(),
+                                    content,
+                                    timestamp: Utc::now(),
+                                    media: media_paths,
+                                    metadata: HashMap::new(),
+                                };
+                                if let Err(e) = inbound_tx.send(inbound_msg).await {
+                                    tracing::error!(
+                                        "Failed to send Telegram inbound message: {}",
+                                        e
+                                    );
+                                }
+                            }
                             return Ok(());
                         }
+                    }
 
+                    // Handle text-only messages
+                    if let Some(text) = msg.text() {
                         let inbound_msg = InboundMessage {
                             channel: "telegram".to_string(),
                             sender_id,

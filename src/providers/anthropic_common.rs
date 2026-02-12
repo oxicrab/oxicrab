@@ -28,9 +28,31 @@ pub fn convert_messages(messages: Vec<Message>) -> (Option<String>, Vec<Anthropi
                 system_parts.push(msg.content);
             }
             "user" => {
+                let content = if msg.images.is_empty() {
+                    Value::String(msg.content)
+                } else {
+                    let mut parts = Vec::new();
+                    if !msg.content.is_empty() {
+                        parts.push(json!({
+                            "type": "text",
+                            "text": msg.content
+                        }));
+                    }
+                    for img in &msg.images {
+                        parts.push(json!({
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": img.media_type,
+                                "data": img.data
+                            }
+                        }));
+                    }
+                    Value::Array(parts)
+                };
                 anthropic_messages.push(AnthropicMessage {
                     role: "user".to_string(),
-                    content: Value::String(msg.content),
+                    content,
                 });
             }
             "assistant" => {
@@ -100,6 +122,112 @@ pub fn convert_tools(tools: Vec<ToolDefinition>) -> Vec<AnthropicTool> {
             input_schema: t.parameters,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::base::ImageData;
+
+    #[test]
+    fn test_convert_user_message_text_only() {
+        let messages = vec![Message::user("hello")];
+        let (_, result) = convert_messages(messages);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].role, "user");
+        // Text-only should be a plain string, not an array
+        assert!(result[0].content.is_string());
+        assert_eq!(result[0].content.as_str().unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_convert_user_message_with_images() {
+        let msg = Message::user_with_images(
+            "describe this",
+            vec![ImageData {
+                media_type: "image/jpeg".to_string(),
+                data: "base64data".to_string(),
+            }],
+        );
+        let (_, result) = convert_messages(vec![msg]);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].role, "user");
+        // Should be an array with text + image blocks
+        let content = result[0].content.as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "describe this");
+        assert_eq!(content[1]["type"], "image");
+        assert_eq!(content[1]["source"]["type"], "base64");
+        assert_eq!(content[1]["source"]["media_type"], "image/jpeg");
+        assert_eq!(content[1]["source"]["data"], "base64data");
+    }
+
+    #[test]
+    fn test_convert_user_message_with_multiple_images() {
+        let msg = Message::user_with_images(
+            "compare these",
+            vec![
+                ImageData {
+                    media_type: "image/jpeg".to_string(),
+                    data: "jpg_data".to_string(),
+                },
+                ImageData {
+                    media_type: "image/png".to_string(),
+                    data: "png_data".to_string(),
+                },
+            ],
+        );
+        let (_, result) = convert_messages(vec![msg]);
+
+        let content = result[0].content.as_array().unwrap();
+        assert_eq!(content.len(), 3); // 1 text + 2 images
+        assert_eq!(content[1]["source"]["media_type"], "image/jpeg");
+        assert_eq!(content[2]["source"]["media_type"], "image/png");
+    }
+
+    #[test]
+    fn test_convert_user_message_image_with_empty_text() {
+        let msg = Message::user_with_images(
+            "",
+            vec![ImageData {
+                media_type: "image/png".to_string(),
+                data: "data".to_string(),
+            }],
+        );
+        let (_, result) = convert_messages(vec![msg]);
+
+        let content = result[0].content.as_array().unwrap();
+        // Empty text should be omitted, only image block
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"], "image");
+    }
+
+    #[test]
+    fn test_convert_mixed_messages_images_only_on_user() {
+        let messages = vec![
+            Message::system("system prompt"),
+            Message::user_with_images(
+                "look at this",
+                vec![ImageData {
+                    media_type: "image/jpeg".to_string(),
+                    data: "img".to_string(),
+                }],
+            ),
+            Message::assistant("I see an image", None),
+            Message::user("follow up with no image"),
+        ];
+        let (system, result) = convert_messages(messages);
+
+        assert!(system.is_some());
+        assert_eq!(result.len(), 3); // user, assistant, user
+                                     // First user has image (array)
+        assert!(result[0].content.is_array());
+        // Second user is text-only (string)
+        assert!(result[2].content.is_string());
+    }
 }
 
 /// Parse an Anthropic API response into a generic [`LLMResponse`].

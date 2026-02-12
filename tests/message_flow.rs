@@ -47,6 +47,7 @@ async fn create_test_agent(provider: MockLLMProvider, tmp: &TempDir) -> AgentLoo
         channels_config: None,
         streaming_edit_tx: None,
         memory_indexer_interval: 300,
+        media_ttl_days: 0, // Disable cleanup in tests
     };
 
     AgentLoop::new(config)

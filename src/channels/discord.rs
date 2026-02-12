@@ -35,13 +35,53 @@ impl EventHandler for Handler {
             return;
         }
 
+        // Download image attachments
+        let mut media_paths = Vec::new();
+        let mut content = msg.content.clone();
+        for attachment in &msg.attachments {
+            let is_image = attachment
+                .content_type
+                .as_deref()
+                .map(|ct| ct.starts_with("image/"))
+                .unwrap_or(false);
+            if !is_image {
+                continue;
+            }
+            let ext = match attachment.content_type.as_deref().unwrap_or("") {
+                "image/jpeg" => "jpg",
+                "image/png" => "png",
+                "image/gif" => "gif",
+                "image/webp" => "webp",
+                _ => "bin",
+            };
+            let media_dir = dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join(".nanobot")
+                .join("media");
+            let _ = std::fs::create_dir_all(&media_dir);
+            let file_path = media_dir.join(format!("discord_{}.{}", attachment.id, ext));
+
+            match reqwest::Client::new().get(&attachment.url).send().await {
+                Ok(resp) => match resp.bytes().await {
+                    Ok(bytes) => {
+                        let _ = std::fs::write(&file_path, &bytes);
+                        let path_str = file_path.to_string_lossy().to_string();
+                        media_paths.push(path_str.clone());
+                        content = format!("{}\n[image: {}]", content, path_str);
+                    }
+                    Err(e) => tracing::warn!("Failed to download Discord attachment: {}", e),
+                },
+                Err(e) => tracing::warn!("Failed to download Discord attachment: {}", e),
+            }
+        }
+
         let inbound_msg = InboundMessage {
             channel: "discord".to_string(),
             sender_id,
             chat_id: msg.channel_id.to_string(),
-            content: msg.content,
+            content,
             timestamp: Utc::now(),
-            media: vec![],
+            media: media_paths,
             metadata: HashMap::new(),
         };
 

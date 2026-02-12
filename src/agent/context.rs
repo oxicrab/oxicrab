@@ -216,6 +216,7 @@ impl ContextBuilder {
         channel: Option<&str>,
         chat_id: Option<&str>,
         sender_id: Option<&str>,
+        images: Vec<crate::providers::base::ImageData>,
     ) -> Result<Vec<crate::providers::base::Message>> {
         let mut messages = Vec::new();
 
@@ -249,10 +250,15 @@ impl ContextBuilder {
 
         // Current message with local time prefix
         let time_prefix = format!("[{}] ", Local::now().format("%H:%M"));
-        messages.push(crate::providers::base::Message::user(format!(
-            "{}{}",
-            time_prefix, current_message
-        )));
+        let user_content = format!("{}{}", time_prefix, current_message);
+        if images.is_empty() {
+            messages.push(crate::providers::base::Message::user(user_content));
+        } else {
+            messages.push(crate::providers::base::Message::user_with_images(
+                user_content,
+                images,
+            ));
+        }
 
         Ok(messages)
     }
@@ -471,7 +477,14 @@ mod tests {
         let mut ctx = create_test_context(tmp.path());
 
         let messages = ctx
-            .build_messages(&[], "hello", Some("telegram"), Some("123"), Some("user42"))
+            .build_messages(
+                &[],
+                "hello",
+                Some("telegram"),
+                Some("123"),
+                Some("user42"),
+                vec![],
+            )
             .unwrap();
 
         let system_msg = &messages[0];
@@ -487,7 +500,7 @@ mod tests {
         let mut ctx = create_test_context(tmp.path());
 
         let messages = ctx
-            .build_messages(&[], "hello", Some("telegram"), Some("123"), None)
+            .build_messages(&[], "hello", Some("telegram"), Some("123"), None, vec![])
             .unwrap();
 
         let system_msg = &messages[0];
@@ -495,6 +508,49 @@ mod tests {
             !system_msg.content.contains("Sender:"),
             "system prompt should not include sender line when None"
         );
+    }
+
+    #[tokio::test]
+    async fn test_build_messages_with_images() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut ctx = create_test_context(tmp.path());
+
+        let images = vec![crate::providers::base::ImageData {
+            media_type: "image/jpeg".to_string(),
+            data: "base64encodeddata".to_string(),
+        }];
+        let messages = ctx
+            .build_messages(
+                &[],
+                "what is this",
+                Some("telegram"),
+                Some("123"),
+                Some("user42"),
+                images,
+            )
+            .unwrap();
+
+        // Last message should be user with images
+        let user_msg = messages.last().unwrap();
+        assert_eq!(user_msg.role, "user");
+        assert_eq!(user_msg.images.len(), 1);
+        assert_eq!(user_msg.images[0].media_type, "image/jpeg");
+        assert_eq!(user_msg.images[0].data, "base64encodeddata");
+        assert!(user_msg.content.contains("what is this"));
+    }
+
+    #[tokio::test]
+    async fn test_build_messages_without_images() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut ctx = create_test_context(tmp.path());
+
+        let messages = ctx
+            .build_messages(&[], "hello", Some("telegram"), Some("123"), None, vec![])
+            .unwrap();
+
+        let user_msg = messages.last().unwrap();
+        assert_eq!(user_msg.role, "user");
+        assert!(user_msg.images.is_empty());
     }
 
     #[test]

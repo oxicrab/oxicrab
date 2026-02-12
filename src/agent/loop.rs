@@ -25,7 +25,7 @@ use crate::agent::tools::{
 use crate::agent::truncation::truncate_tool_result;
 use crate::bus::{InboundMessage, MessageBus, OutboundMessage, StreamingEdit};
 use crate::cron::service::CronService;
-use crate::providers::base::{LLMProvider, Message, StreamCallback};
+use crate::providers::base::{ImageData, LLMProvider, Message, StreamCallback};
 use crate::session::{Session, SessionManager, SessionStore};
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
@@ -227,6 +227,94 @@ pub fn mentions_multiple_tools(text: &str, tool_names: &[String]) -> bool {
     count >= 3
 }
 
+const MAX_IMAGE_SIZE: usize = 20 * 1024 * 1024; // 20MB (Anthropic limit)
+const MAX_IMAGES: usize = 5;
+
+/// Load image files from disk and base64-encode them for LLM consumption.
+/// Skips files that are missing, too large, or have unsupported formats.
+fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
+    use base64::Engine;
+
+    let mut images = Vec::new();
+    for path in media_paths.iter().take(MAX_IMAGES) {
+        let file_path = std::path::Path::new(path);
+        if !file_path.exists() {
+            warn!("Image file not found: {}", path);
+            continue;
+        }
+        let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let media_type = match ext {
+            "jpg" | "jpeg" => "image/jpeg",
+            "png" => "image/png",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            _ => {
+                warn!("Unsupported image format: {}", ext);
+                continue;
+            }
+        };
+        match std::fs::read(file_path) {
+            Ok(data) => {
+                if data.len() > MAX_IMAGE_SIZE {
+                    warn!(
+                        "Image too large ({} bytes, max {}): {}",
+                        data.len(),
+                        MAX_IMAGE_SIZE,
+                        path
+                    );
+                    continue;
+                }
+                let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
+                images.push(ImageData {
+                    media_type: media_type.to_string(),
+                    data: encoded,
+                });
+                debug!(
+                    "Loaded image: {} ({}, {} bytes)",
+                    path,
+                    media_type,
+                    data.len()
+                );
+            }
+            Err(e) => {
+                warn!("Failed to read image file {}: {}", path, e);
+            }
+        }
+    }
+    images
+}
+
+/// Delete media files older than the given TTL (in days).
+fn cleanup_old_media(ttl_days: u32) -> Result<()> {
+    let media_dir = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
+        .join(".nanobot")
+        .join("media");
+    if !media_dir.exists() {
+        return Ok(());
+    }
+    let cutoff =
+        std::time::SystemTime::now() - std::time::Duration::from_secs(u64::from(ttl_days) * 86400);
+    let mut removed = 0u32;
+    for entry in std::fs::read_dir(&media_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() {
+            if let Ok(metadata) = std::fs::metadata(&path) {
+                if let Ok(modified) = metadata.modified() {
+                    if modified < cutoff && std::fs::remove_file(&path).is_ok() {
+                        removed += 1;
+                    }
+                }
+            }
+        }
+    }
+    if removed > 0 {
+        info!("Cleaned up {} old media files", removed);
+    }
+    Ok(())
+}
+
 /// Configuration for creating an [`AgentLoop`] instance.
 pub struct AgentLoopConfig {
     pub bus: Arc<Mutex<MessageBus>>,
@@ -262,6 +350,8 @@ pub struct AgentLoopConfig {
     pub streaming_edit_tx: Option<Arc<tokio::sync::mpsc::Sender<StreamingEdit>>>,
     /// Memory indexer interval in seconds (default 300)
     pub memory_indexer_interval: u64,
+    /// Media file TTL in days for cleanup (default 7)
+    pub media_ttl_days: u32,
 }
 
 pub struct AgentLoop {
@@ -316,6 +406,7 @@ impl AgentLoop {
             channels_config,
             streaming_edit_tx,
             memory_indexer_interval,
+            media_ttl_days,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -337,6 +428,16 @@ impl AgentLoop {
             tokio::spawn(async move {
                 if let Err(e) = mgr_for_cleanup.cleanup_old_sessions(ttl) {
                     tracing::warn!("Session cleanup failed: {}", e);
+                }
+            });
+        }
+
+        // Clean up old media files in background
+        if media_ttl_days > 0 {
+            let ttl = media_ttl_days;
+            tokio::spawn(async move {
+                if let Err(e) = cleanup_old_media(ttl) {
+                    tracing::warn!("Media cleanup failed: {}", e);
                 }
             });
         }
@@ -626,6 +727,13 @@ impl AgentLoop {
         let history = self.get_compacted_history(&session).await?;
         debug!("Got {} history messages", history.len());
 
+        // Load and encode any attached images
+        let images = if !msg.media.is_empty() {
+            load_and_encode_images(&msg.media)
+        } else {
+            vec![]
+        };
+
         debug!("Acquiring context lock");
         let messages = {
             let mut context = self.context.lock().await;
@@ -635,6 +743,7 @@ impl AgentLoop {
                 Some(&msg.channel),
                 Some(&msg.chat_id),
                 Some(&msg.sender_id),
+                images,
             )?
         };
         debug!("Built {} messages, starting agent loop", messages.len());
@@ -1136,6 +1245,7 @@ impl AgentLoop {
             Some(origin_channel.as_str()),
             Some(origin_chat_id.as_str()),
             None,
+            vec![],
         )?;
 
         let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
@@ -1175,7 +1285,14 @@ impl AgentLoop {
 
         let messages = {
             let mut ctx = self.context.lock().await;
-            ctx.build_messages(&history, content, Some(channel), Some(chat_id), None)?
+            ctx.build_messages(
+                &history,
+                content,
+                Some(channel),
+                Some(chat_id),
+                None,
+                vec![],
+            )?
         };
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
@@ -1832,5 +1949,114 @@ mod tests {
         .await;
         assert!(is_error);
         assert!(result.contains("missing required parameter 'query'"));
+    }
+
+    // --- Image loading tests ---
+
+    #[test]
+    fn test_load_and_encode_images_valid_jpg() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let img_path = tmp.path().join("test.jpg");
+        // Write a small fake JPEG (content doesn't matter for encoding)
+        std::fs::write(&img_path, b"fake jpeg data").unwrap();
+
+        let paths = vec![img_path.to_string_lossy().to_string()];
+        let images = load_and_encode_images(&paths);
+
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].media_type, "image/jpeg");
+        assert!(!images[0].data.is_empty());
+    }
+
+    #[test]
+    fn test_load_and_encode_images_multiple_formats() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        for ext in &["jpg", "png", "gif", "webp"] {
+            let path = tmp.path().join(format!("test.{}", ext));
+            std::fs::write(&path, b"data").unwrap();
+        }
+
+        let paths: Vec<String> = ["jpg", "png", "gif", "webp"]
+            .iter()
+            .map(|ext| {
+                tmp.path()
+                    .join(format!("test.{}", ext))
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
+        let images = load_and_encode_images(&paths);
+
+        assert_eq!(images.len(), 4);
+        assert_eq!(images[0].media_type, "image/jpeg");
+        assert_eq!(images[1].media_type, "image/png");
+        assert_eq!(images[2].media_type, "image/gif");
+        assert_eq!(images[3].media_type, "image/webp");
+    }
+
+    #[test]
+    fn test_load_and_encode_images_skips_missing() {
+        let images = load_and_encode_images(&["/nonexistent/path/image.jpg".to_string()]);
+        assert!(images.is_empty());
+    }
+
+    #[test]
+    fn test_load_and_encode_images_skips_unsupported_format() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("test.bmp");
+        std::fs::write(&path, b"bmp data").unwrap();
+
+        let images = load_and_encode_images(&[path.to_string_lossy().to_string()]);
+        assert!(images.is_empty());
+    }
+
+    #[test]
+    fn test_load_and_encode_images_max_limit() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut paths = Vec::new();
+        for i in 0..8 {
+            let path = tmp.path().join(format!("img{}.png", i));
+            std::fs::write(&path, b"data").unwrap();
+            paths.push(path.to_string_lossy().to_string());
+        }
+
+        let images = load_and_encode_images(&paths);
+        assert_eq!(images.len(), MAX_IMAGES); // Capped at 5
+    }
+
+    #[test]
+    fn test_load_and_encode_images_empty_input() {
+        let images = load_and_encode_images(&[]);
+        assert!(images.is_empty());
+    }
+
+    #[test]
+    fn test_load_and_encode_images_base64_roundtrip() {
+        use base64::Engine;
+        let tmp = tempfile::TempDir::new().unwrap();
+        let img_path = tmp.path().join("test.png");
+        let original_data = b"PNG image content here";
+        std::fs::write(&img_path, original_data).unwrap();
+
+        let images = load_and_encode_images(&[img_path.to_string_lossy().to_string()]);
+        assert_eq!(images.len(), 1);
+
+        // Decode and verify roundtrip
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&images[0].data)
+            .unwrap();
+        assert_eq!(decoded, original_data);
+    }
+
+    // --- Media cleanup tests ---
+
+    #[test]
+    fn test_cleanup_old_media_no_dir() {
+        // Should not error when media dir doesn't exist
+        // cleanup_old_media uses home_dir, so we can't easily test with a custom path.
+        // Instead, test the no-op case: TTL=0 is never called, and missing dir returns Ok.
+        // This is a smoke test that the function doesn't panic.
+        let result = cleanup_old_media(9999);
+        assert!(result.is_ok());
     }
 }

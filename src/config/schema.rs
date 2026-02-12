@@ -213,6 +213,8 @@ pub struct AgentDefaults {
         rename = "memoryIndexerInterval"
     )]
     pub memory_indexer_interval: u64,
+    #[serde(default = "default_media_ttl_days", rename = "mediaTtlDays")]
+    pub media_ttl_days: u32,
 }
 
 impl Default for AgentDefaults {
@@ -227,12 +229,17 @@ impl Default for AgentDefaults {
             daemon: DaemonConfig::default(),
             session_ttl_days: default_session_ttl_days(),
             memory_indexer_interval: default_memory_indexer_interval(),
+            media_ttl_days: default_media_ttl_days(),
         }
     }
 }
 
 fn default_memory_indexer_interval() -> u64 {
     300
+}
+
+fn default_media_ttl_days() -> u32 {
+    7
 }
 
 fn default_session_ttl_days() -> u32 {
