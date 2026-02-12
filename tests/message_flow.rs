@@ -61,6 +61,7 @@ async fn test_simple_message_response() {
         content: Some("Hello from the agent!".to_string()),
         tool_calls: vec![],
         reasoning_content: None,
+        input_tokens: None,
     }]);
 
     let agent = create_test_agent(provider, &tmp).await;
@@ -80,6 +81,7 @@ async fn test_empty_message_handled() {
         content: Some("I received an empty message.".to_string()),
         tool_calls: vec![],
         reasoning_content: None,
+        input_tokens: None,
     }]);
 
     let agent = create_test_agent(provider, &tmp).await;
@@ -100,11 +102,13 @@ async fn test_session_persists_across_messages() {
             content: Some("First response".to_string()),
             tool_calls: vec![],
             reasoning_content: None,
+            input_tokens: None,
         },
         LLMResponse {
             content: Some("Second response".to_string()),
             tool_calls: vec![],
             reasoning_content: None,
+            input_tokens: None,
         },
     ]);
     let calls = provider.calls.clone();
@@ -145,11 +149,13 @@ async fn test_different_sessions_isolated() {
             content: Some("Response A".to_string()),
             tool_calls: vec![],
             reasoning_content: None,
+            input_tokens: None,
         },
         LLMResponse {
             content: Some("Response B".to_string()),
             tool_calls: vec![],
             reasoning_content: None,
+            input_tokens: None,
         },
     ]);
     let calls = provider.calls.clone();
@@ -198,11 +204,13 @@ async fn test_tool_call_and_result() {
                 arguments: json!({"path": tmp.path().to_str().unwrap()}),
             }],
             reasoning_content: None,
+            input_tokens: None,
         },
         LLMResponse {
             content: Some("I listed the directory for you.".to_string()),
             tool_calls: vec![],
             reasoning_content: None,
+            input_tokens: None,
         },
     ]);
     let calls = provider.calls.clone();
@@ -240,11 +248,13 @@ async fn test_unknown_tool_handled() {
                 arguments: json!({}),
             }],
             reasoning_content: None,
+            input_tokens: None,
         },
         LLMResponse {
             content: Some("Sorry, that tool wasn't available.".to_string()),
             tool_calls: vec![],
             reasoning_content: None,
+            input_tokens: None,
         },
     ]);
     let calls = provider.calls.clone();
@@ -326,12 +336,14 @@ async fn test_multiple_tool_calls_in_sequence() {
                 },
             ],
             reasoning_content: None,
+            input_tokens: None,
         },
         // Second iteration: final response
         LLMResponse {
             content: Some("Done reading files.".to_string()),
             tool_calls: vec![],
             reasoning_content: None,
+            input_tokens: None,
         },
     ]);
 
@@ -356,6 +368,7 @@ async fn test_hallucination_detection_triggers_retry() {
             content: Some("I've updated the configuration file for you.".to_string()),
             tool_calls: vec![],
             reasoning_content: None,
+            input_tokens: None,
         },
         LLMResponse {
             content: Some(
@@ -364,6 +377,7 @@ async fn test_hallucination_detection_triggers_retry() {
             ),
             tool_calls: vec![],
             reasoning_content: None,
+            input_tokens: None,
         },
     ]);
     let calls = provider.calls.clone();
@@ -415,11 +429,13 @@ async fn test_no_hallucination_when_tools_used() {
                 arguments: json!({"path": tmp.path().to_str().unwrap()}),
             }],
             reasoning_content: None,
+            input_tokens: None,
         },
         LLMResponse {
             content: Some("I've listed the directory for you.".to_string()),
             tool_calls: vec![],
             reasoning_content: None,
+            input_tokens: None,
         },
     ]);
     let calls = provider.calls.clone();
@@ -453,6 +469,7 @@ async fn test_no_hallucination_for_informational_response() {
         content: Some("To update the config, you need to edit the settings.json file.".to_string()),
         tool_calls: vec![],
         reasoning_content: None,
+        input_tokens: None,
     }]);
     let calls = provider.calls.clone();
 

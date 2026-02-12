@@ -645,7 +645,7 @@ impl AgentLoop {
         } else {
             None
         };
-        let (final_content, was_streamed) = self
+        let (final_content, was_streamed, input_tokens) = self
             .run_agent_loop(messages, typing_ctx, streaming_ctx)
             .await?;
 
@@ -654,6 +654,13 @@ impl AgentLoop {
         session.add_message("user".to_string(), msg.content.clone(), extra.clone());
         if let Some(ref content) = final_content {
             session.add_message("assistant".to_string(), content.clone(), extra);
+        }
+        // Store provider-reported input tokens for precise compaction threshold checks
+        if let Some(tokens) = input_tokens {
+            session.metadata.insert(
+                "last_input_tokens".to_string(),
+                Value::Number(serde_json::Number::from(tokens)),
+            );
         }
         self.sessions.save(&session).await?;
 
@@ -717,18 +724,20 @@ impl AgentLoop {
         }
     }
 
-    /// Returns `(final_content, was_streamed)`. When `was_streamed` is true,
+    /// Returns `(final_content, was_streamed, input_tokens)`. When `was_streamed` is true,
     /// the caller should skip sending via `outbound_tx` because the content
-    /// was already delivered through streaming edits.
+    /// was already delivered through streaming edits. `input_tokens` is the
+    /// provider-reported input token count from the most recent LLM call (if available).
     async fn run_agent_loop(
         &self,
         mut messages: Vec<Message>,
         typing_context: Option<(String, String)>,
         streaming_context: Option<(String, String)>, // (channel, chat_id) for streaming edits
-    ) -> Result<(Option<String>, bool)> {
+    ) -> Result<(Option<String>, bool, Option<u64>)> {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut last_used_delivery_tool = false;
         let mut any_tools_called = false;
+        let mut last_input_tokens: Option<u64> = None;
 
         // Fire-and-forget typing indicator helper
         let send_typing = {
@@ -851,6 +860,11 @@ impl AgentLoop {
                     },
                 )
                 .await?;
+
+            // Track provider-reported input token count for precise compaction decisions
+            if response.input_tokens.is_some() {
+                last_input_tokens = response.input_tokens;
+            }
 
             if response.has_tool_calls() {
                 any_tools_called = true;
@@ -984,12 +998,12 @@ impl AgentLoop {
                 } else {
                     false
                 };
-                return Ok((Some(content), was_streamed));
+                return Ok((Some(content), was_streamed, last_input_tokens));
             } else {
                 // Empty response
                 if last_used_delivery_tool {
                     debug!("LLM returned empty after delivery tool — treating as successful completion");
-                    return Ok((None, false));
+                    return Ok((None, false, last_input_tokens));
                 }
                 if empty_retries_left > 0 {
                     empty_retries_left -= 1;
@@ -1007,7 +1021,7 @@ impl AgentLoop {
             }
         }
 
-        Ok((None, false))
+        Ok((None, false, last_input_tokens))
     }
 
     async fn set_tool_contexts(&self, channel: &str, chat_id: &str) {
@@ -1038,10 +1052,16 @@ impl AgentLoop {
         }
 
         let keep_recent = self.compaction_config.keep_recent;
-        let threshold = self.compaction_config.threshold_tokens;
-        let token_est = estimate_messages_tokens(&full_history);
+        let threshold = self.compaction_config.threshold_tokens as u64;
 
-        if token_est < threshold as usize {
+        // Prefer provider-reported input tokens (precise), fall back to heuristic
+        let token_est = session
+            .metadata
+            .get("last_input_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_else(|| estimate_messages_tokens(&full_history) as u64);
+
+        if token_est < threshold {
             return Ok(session.get_history(50));
         }
 
@@ -1119,7 +1139,7 @@ impl AgentLoop {
         )?;
 
         let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
-        let (final_content, _) = self.run_agent_loop(messages, typing_ctx, None).await?;
+        let (final_content, _, _) = self.run_agent_loop(messages, typing_ctx, None).await?;
         let final_content =
             final_content.unwrap_or_else(|| "Background task completed.".to_string());
 
@@ -1159,7 +1179,7 @@ impl AgentLoop {
         };
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
-        let (response, _) = self.run_agent_loop(messages, typing_ctx, None).await?;
+        let (response, _, _) = self.run_agent_loop(messages, typing_ctx, None).await?;
         let response = response.unwrap_or_else(|| "No response generated.".to_string());
 
         let mut session = self.sessions.get_or_create(session_key).await?;

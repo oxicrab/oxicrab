@@ -64,7 +64,8 @@ impl OpenAIProvider {
         Ok(LLMResponse {
             content,
             tool_calls,
-            reasoning_content: None, // OpenAI doesn't expose reasoning content separately
+            reasoning_content: None,
+            input_tokens: None,
         })
     }
 }

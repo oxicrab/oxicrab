@@ -15,6 +15,9 @@ pub struct LLMResponse {
     pub content: Option<String>,
     pub tool_calls: Vec<ToolCallRequest>,
     pub reasoning_content: Option<String>,
+    /// Input token count reported by the provider (if available).
+    /// Used for precise compaction threshold checks.
+    pub input_tokens: Option<u64>,
 }
 
 impl LLMResponse {
@@ -278,6 +281,7 @@ mod tests {
             content: Some("hi".into()),
             tool_calls: vec![],
             reasoning_content: None,
+            input_tokens: None,
         };
         assert!(!empty.has_tool_calls());
 
@@ -289,6 +293,7 @@ mod tests {
                 arguments: Value::Null,
             }],
             reasoning_content: None,
+            input_tokens: None,
         };
         assert!(with_tools.has_tool_calls());
     }

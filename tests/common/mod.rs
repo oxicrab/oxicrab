@@ -68,6 +68,7 @@ impl LLMProvider for MockLLMProvider {
             content: Some(self.default_response.clone()),
             tool_calls: vec![],
             reasoning_content: None,
+            input_tokens: None,
         }))
     }
 

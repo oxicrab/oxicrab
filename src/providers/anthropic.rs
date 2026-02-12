@@ -138,6 +138,7 @@ impl LLMProvider for AnthropicProvider {
         let mut current_tool_name = String::new();
         let mut current_tool_json = String::new();
         let mut buf = String::new();
+        let mut stream_input_tokens: Option<u64> = None;
 
         let mut stream = resp.bytes_stream();
         loop {
@@ -224,10 +225,10 @@ impl LLMProvider for AnthropicProvider {
                             .and_then(|m| m.get("usage"))
                             .and_then(|u| u.as_object())
                         {
-                            if let Ok(mut metrics) = self.metrics.lock() {
-                                if let Some(tokens) =
-                                    usage.get("input_tokens").and_then(|t| t.as_u64())
-                                {
+                            if let Some(tokens) = usage.get("input_tokens").and_then(|t| t.as_u64())
+                            {
+                                stream_input_tokens = Some(tokens);
+                                if let Ok(mut metrics) = self.metrics.lock() {
                                     metrics.token_count += tokens;
                                 }
                             }
@@ -253,6 +254,7 @@ impl LLMProvider for AnthropicProvider {
             },
             tool_calls,
             reasoning_content: None,
+            input_tokens: stream_input_tokens,
         })
     }
 

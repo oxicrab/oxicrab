@@ -135,9 +135,15 @@ pub fn parse_response(json: &Value) -> LLMResponse {
         }
     }
 
+    let input_tokens = json
+        .get("usage")
+        .and_then(|u| u.get("input_tokens"))
+        .and_then(|t| t.as_u64());
+
     LLMResponse {
         content,
         tool_calls,
         reasoning_content,
+        input_tokens,
     }
 }
