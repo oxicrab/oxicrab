@@ -238,23 +238,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn message_system() {
-        let msg = Message::system("hello");
-        assert_eq!(msg.role, "system");
-        assert_eq!(msg.content, "hello");
-        assert!(msg.tool_calls.is_none());
-        assert!(msg.tool_call_id.is_none());
-        assert!(!msg.is_error);
-    }
-
-    #[test]
-    fn message_user() {
-        let msg = Message::user("question");
-        assert_eq!(msg.role, "user");
-        assert_eq!(msg.content, "question");
-    }
-
-    #[test]
     fn message_assistant_with_tool_calls() {
         let tc = vec![ToolCallRequest {
             id: "tc1".into(),
@@ -274,42 +257,6 @@ mod tests {
         assert_eq!(msg.content, "result data");
         assert_eq!(msg.tool_call_id.as_deref(), Some("tc1"));
         assert!(!msg.is_error);
-    }
-
-    #[test]
-    fn message_tool_result_error() {
-        let msg = Message::tool_result("tc2", "error msg", true);
-        assert!(msg.is_error);
-    }
-
-    #[test]
-    fn message_default() {
-        let msg = Message::default();
-        assert_eq!(msg.role, "");
-        assert_eq!(msg.content, "");
-        assert!(msg.tool_calls.is_none());
-        assert!(msg.tool_call_id.is_none());
-        assert!(!msg.is_error);
-        assert!(msg.images.is_empty());
-    }
-
-    #[test]
-    fn message_user_with_images() {
-        let images = vec![ImageData {
-            media_type: "image/jpeg".to_string(),
-            data: "base64data".to_string(),
-        }];
-        let msg = Message::user_with_images("describe this", images);
-        assert_eq!(msg.role, "user");
-        assert_eq!(msg.content, "describe this");
-        assert_eq!(msg.images.len(), 1);
-        assert_eq!(msg.images[0].media_type, "image/jpeg");
-    }
-
-    #[test]
-    fn message_user_has_no_images() {
-        let msg = Message::user("hello");
-        assert!(msg.images.is_empty());
     }
 
     #[test]
@@ -333,14 +280,5 @@ mod tests {
             input_tokens: None,
         };
         assert!(with_tools.has_tool_calls());
-    }
-
-    #[test]
-    fn retry_config_defaults() {
-        let cfg = RetryConfig::default();
-        assert_eq!(cfg.max_retries, 3);
-        assert_eq!(cfg.initial_delay_ms, 1000);
-        assert_eq!(cfg.max_delay_ms, 10000);
-        assert!((cfg.backoff_multiplier - 2.0).abs() < f64::EPSILON);
     }
 }

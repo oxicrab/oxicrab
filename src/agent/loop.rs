@@ -264,17 +264,37 @@ fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
                     );
                     continue;
                 }
+                // Validate magic bytes match claimed format
+                let valid = match ext {
+                    "png" => data.starts_with(&[0x89, 0x50, 0x4E, 0x47]),
+                    "jpg" | "jpeg" => data.starts_with(&[0xFF, 0xD8, 0xFF]),
+                    "gif" => data.starts_with(b"GIF8"),
+                    "webp" => {
+                        data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WEBP"
+                    }
+                    _ => false,
+                };
+                if !valid {
+                    warn!(
+                        "Image file {} has invalid magic bytes for format '{}' (first bytes: {:02x?}). File may be corrupted or not an image.",
+                        path,
+                        ext,
+                        &data[..8.min(data.len())]
+                    );
+                    continue;
+                }
                 let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
+                info!(
+                    "Encoded image for LLM: {} ({}, {} raw bytes, {} base64 chars)",
+                    path,
+                    media_type,
+                    data.len(),
+                    encoded.len()
+                );
                 images.push(ImageData {
                     media_type: media_type.to_string(),
                     data: encoded,
                 });
-                debug!(
-                    "Loaded image: {} ({}, {} bytes)",
-                    path,
-                    media_type,
-                    data.len()
-                );
             }
             Err(e) => {
                 warn!("Failed to read image file {}: {}", path, e);
@@ -1960,12 +1980,23 @@ mod tests {
 
     // --- Image loading tests ---
 
+    // Minimal valid magic bytes for each format
+    const JPEG_MAGIC: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F'];
+    const PNG_MAGIC: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    const GIF_MAGIC: &[u8] = b"GIF89a";
+    fn webp_magic() -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"RIFF");
+        data.extend_from_slice(&[0x00; 4]); // file size placeholder
+        data.extend_from_slice(b"WEBP");
+        data
+    }
+
     #[test]
     fn test_load_and_encode_images_valid_jpg() {
         let tmp = tempfile::TempDir::new().unwrap();
         let img_path = tmp.path().join("test.jpg");
-        // Write a small fake JPEG (content doesn't matter for encoding)
-        std::fs::write(&img_path, b"fake jpeg data").unwrap();
+        std::fs::write(&img_path, JPEG_MAGIC).unwrap();
 
         let paths = vec![img_path.to_string_lossy().to_string()];
         let images = load_and_encode_images(&paths);
@@ -1978,10 +2009,11 @@ mod tests {
     #[test]
     fn test_load_and_encode_images_multiple_formats() {
         let tmp = tempfile::TempDir::new().unwrap();
-        for ext in &["jpg", "png", "gif", "webp"] {
-            let path = tmp.path().join(format!("test.{}", ext));
-            std::fs::write(&path, b"data").unwrap();
-        }
+
+        std::fs::write(tmp.path().join("test.jpg"), JPEG_MAGIC).unwrap();
+        std::fs::write(tmp.path().join("test.png"), PNG_MAGIC).unwrap();
+        std::fs::write(tmp.path().join("test.gif"), GIF_MAGIC).unwrap();
+        std::fs::write(tmp.path().join("test.webp"), webp_magic()).unwrap();
 
         let paths: Vec<String> = ["jpg", "png", "gif", "webp"]
             .iter()
@@ -2018,12 +2050,34 @@ mod tests {
     }
 
     #[test]
+    fn test_load_and_encode_images_rejects_bad_magic_bytes() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Write a .png file with JPEG content
+        let path = tmp.path().join("fake.png");
+        std::fs::write(&path, JPEG_MAGIC).unwrap();
+
+        let images = load_and_encode_images(&[path.to_string_lossy().to_string()]);
+        assert!(images.is_empty(), "should reject mismatched magic bytes");
+    }
+
+    #[test]
+    fn test_load_and_encode_images_rejects_html_as_image() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Simulate Slack returning HTML instead of image
+        let path = tmp.path().join("download.png");
+        std::fs::write(&path, b"<html><body>Error</body></html>").unwrap();
+
+        let images = load_and_encode_images(&[path.to_string_lossy().to_string()]);
+        assert!(images.is_empty(), "should reject HTML content");
+    }
+
+    #[test]
     fn test_load_and_encode_images_max_limit() {
         let tmp = tempfile::TempDir::new().unwrap();
         let mut paths = Vec::new();
         for i in 0..8 {
             let path = tmp.path().join(format!("img{}.png", i));
-            std::fs::write(&path, b"data").unwrap();
+            std::fs::write(&path, PNG_MAGIC).unwrap();
             paths.push(path.to_string_lossy().to_string());
         }
 
@@ -2042,8 +2096,10 @@ mod tests {
         use base64::Engine;
         let tmp = tempfile::TempDir::new().unwrap();
         let img_path = tmp.path().join("test.png");
-        let original_data = b"PNG image content here";
-        std::fs::write(&img_path, original_data).unwrap();
+        // Use valid PNG magic + extra data
+        let mut original_data = PNG_MAGIC.to_vec();
+        original_data.extend_from_slice(b"extra png data here");
+        std::fs::write(&img_path, &original_data).unwrap();
 
         let images = load_and_encode_images(&[img_path.to_string_lossy().to_string()]);
         assert_eq!(images.len(), 1);

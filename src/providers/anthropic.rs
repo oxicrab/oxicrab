@@ -18,6 +18,7 @@ const STREAM_CHUNK_TIMEOUT_SECS: u64 = 120;
 pub struct AnthropicProvider {
     api_key: String,
     default_model: String,
+    base_url: String,
     client: Client,
     metrics: std::sync::Arc<std::sync::Mutex<ProviderMetrics>>,
 }
@@ -28,6 +29,22 @@ impl AnthropicProvider {
             api_key,
             default_model: default_model
                 .unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
+            base_url: API_URL.to_string(),
+            client: Client::builder()
+                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
+            metrics: std::sync::Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_base_url(api_key: String, default_model: Option<String>, base_url: String) -> Self {
+        Self {
+            api_key,
+            default_model: default_model
+                .unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
+            base_url,
             client: Client::builder()
                 .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
                 .build()
@@ -61,7 +78,7 @@ impl LLMProvider for AnthropicProvider {
 
         let resp = self
             .client
-            .post(API_URL)
+            .post(&self.base_url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .json(&payload)
@@ -121,7 +138,7 @@ impl LLMProvider for AnthropicProvider {
 
         let resp = self
             .client
-            .post(API_URL)
+            .post(&self.base_url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .json(&payload)
@@ -266,20 +283,10 @@ impl LLMProvider for AnthropicProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::base::Message;
     use futures_util::stream;
-
-    #[test]
-    fn test_provider_construction() {
-        let provider = AnthropicProvider::new("test_key".to_string(), None);
-        assert_eq!(provider.default_model(), "claude-sonnet-4-5-20250929");
-    }
-
-    #[test]
-    fn test_provider_custom_model() {
-        let provider =
-            AnthropicProvider::new("test_key".to_string(), Some("claude-opus-4-6".to_string()));
-        assert_eq!(provider.default_model(), "claude-opus-4-6");
-    }
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
     async fn test_stream_chunk_timeout_fires() {
@@ -310,21 +317,187 @@ mod tests {
         assert_eq!(result.unwrap().unwrap(), "chunk1");
     }
 
-    #[test]
-    fn test_timeout_constants_are_sensible() {
-        const {
-            assert!(
-                CONNECT_TIMEOUT_SECS <= 60,
-                "Connect timeout should be reasonable"
-            );
-            assert!(
-                STREAM_CHUNK_TIMEOUT_SECS >= 60,
-                "Stream chunk timeout needs to allow for slow generation"
-            );
-            assert!(
-                STREAM_CHUNK_TIMEOUT_SECS <= 300,
-                "Stream chunk timeout shouldn't be too long"
-            );
+    // --- Wiremock tests ---
+
+    fn simple_chat_request(content: &str) -> ChatRequest<'_> {
+        ChatRequest {
+            messages: vec![Message::user(content)],
+            tools: None,
+            model: None,
+            max_tokens: 1024,
+            temperature: 0.7,
+            tool_choice: None,
         }
+    }
+
+    #[tokio::test]
+    async fn test_chat_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(header("x-api-key", "test_key"))
+            .and(header("anthropic-version", "2023-06-01"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "content": [{"type": "text", "text": "Hello! How can I help?"}],
+                "model": "claude-sonnet-4-5-20250929",
+                "role": "assistant",
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 10, "output_tokens": 8}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = AnthropicProvider::with_base_url("test_key".to_string(), None, server.uri());
+        let result = provider.chat(simple_chat_request("Hi")).await.unwrap();
+
+        assert_eq!(result.content.unwrap(), "Hello! How can I help?");
+        assert!(result.tool_calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_tool_calls() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "content": [
+                    {"type": "tool_use", "id": "tc_1", "name": "weather", "input": {"city": "NYC"}}
+                ],
+                "model": "claude-sonnet-4-5-20250929",
+                "role": "assistant",
+                "stop_reason": "tool_use",
+                "usage": {"input_tokens": 20, "output_tokens": 15}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = AnthropicProvider::with_base_url("test_key".to_string(), None, server.uri());
+        let result = provider
+            .chat(simple_chat_request("What's the weather in NYC?"))
+            .await
+            .unwrap();
+
+        // Non-streaming chat() uses anthropic_common::parse_response which extracts tool calls
+        assert!(result.has_tool_calls());
+        assert_eq!(result.tool_calls[0].name, "weather");
+        assert_eq!(result.tool_calls[0].id, "tc_1");
+    }
+
+    #[tokio::test]
+    async fn test_chat_unauthorized() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+                "error": {"type": "authentication_error", "message": "Invalid API key"}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = AnthropicProvider::with_base_url("bad_key".to_string(), None, server.uri());
+        let result = provider.chat(simple_chat_request("Hi")).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Authentication"), "Error: {}", err);
+    }
+
+    #[tokio::test]
+    async fn test_chat_rate_limit() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(
+                ResponseTemplate::new(429)
+                    .insert_header("retry-after", "30")
+                    .set_body_json(json!({
+                        "error": {"type": "rate_limit_error", "message": "Rate limit exceeded"}
+                    })),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = AnthropicProvider::with_base_url("test_key".to_string(), None, server.uri());
+        let result = provider.chat(simple_chat_request("Hi")).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Rate limit") || err.contains("rate limit"),
+            "Error: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_chat_server_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(500).set_body_json(json!({
+                "error": {"type": "api_error", "message": "Internal server error"}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = AnthropicProvider::with_base_url("test_key".to_string(), None, server.uri());
+        let result = provider.chat(simple_chat_request("Hi")).await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_system_message() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "content": [{"type": "text", "text": "I am a helpful assistant."}],
+                "model": "claude-sonnet-4-5-20250929",
+                "role": "assistant",
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 25, "output_tokens": 10}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = AnthropicProvider::with_base_url("test_key".to_string(), None, server.uri());
+        let req = ChatRequest {
+            messages: vec![
+                Message::system("You are a helpful assistant."),
+                Message::user("Hello"),
+            ],
+            tools: None,
+            model: None,
+            max_tokens: 1024,
+            temperature: 0.7,
+            tool_choice: None,
+        };
+        let result = provider.chat(req).await.unwrap();
+
+        assert_eq!(result.content.unwrap(), "I am a helpful assistant.");
+    }
+
+    #[tokio::test]
+    async fn test_chat_metrics_updated() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "content": [{"type": "text", "text": "Hi"}],
+                "model": "claude-sonnet-4-5-20250929",
+                "role": "assistant",
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 5, "output_tokens": 3}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = AnthropicProvider::with_base_url("test_key".to_string(), None, server.uri());
+        provider.chat(simple_chat_request("Hi")).await.unwrap();
+
+        let metrics = provider.metrics.lock().unwrap();
+        assert_eq!(metrics.request_count, 1);
+        assert_eq!(metrics.token_count, 8); // 5 input + 3 output
     }
 }

@@ -12,9 +12,12 @@ use std::time::Duration;
 const CONNECT_TIMEOUT_SECS: u64 = 30;
 const REQUEST_TIMEOUT_SECS: u64 = 120;
 
+const BASE_URL: &str = "https://generativelanguage.googleapis.com/v1";
+
 pub struct GeminiProvider {
     api_key: String,
     default_model: String,
+    base_url: String,
     client: Client,
     metrics: std::sync::Arc<Mutex<ProviderMetrics>>,
 }
@@ -24,6 +27,22 @@ impl GeminiProvider {
         Self {
             api_key,
             default_model: default_model.unwrap_or_else(|| "gemini-pro".to_string()),
+            base_url: BASE_URL.to_string(),
+            client: Client::builder()
+                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
+            metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_base_url(api_key: String, default_model: Option<String>, base_url: String) -> Self {
+        Self {
+            api_key,
+            default_model: default_model.unwrap_or_else(|| "gemini-pro".to_string()),
+            base_url,
             client: Client::builder()
                 .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
                 .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
@@ -130,8 +149,8 @@ impl LLMProvider for GeminiProvider {
 
         let model_name = req.model.unwrap_or(&self.default_model);
         let url = format!(
-            "https://generativelanguage.googleapis.com/v1/models/{}:generateContent?key={}",
-            model_name, self.api_key
+            "{}/models/{}:generateContent?key={}",
+            self.base_url, model_name, self.api_key
         );
 
         let resp = self
@@ -167,26 +186,226 @@ impl LLMProvider for GeminiProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::base::Message;
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    #[test]
-    fn test_provider_construction() {
-        let provider = GeminiProvider::new("test_key".to_string(), None);
-        assert_eq!(provider.default_model(), "gemini-pro");
-    }
+    // --- Wiremock tests ---
 
-    #[test]
-    fn test_provider_custom_model() {
-        let provider =
-            GeminiProvider::new("test_key".to_string(), Some("gemini-2.0-flash".to_string()));
-        assert_eq!(provider.default_model(), "gemini-2.0-flash");
-    }
-
-    #[test]
-    fn test_timeout_constants_are_sensible() {
-        const {
-            assert!(CONNECT_TIMEOUT_SECS <= 60);
-            assert!(REQUEST_TIMEOUT_SECS >= 60);
-            assert!(REQUEST_TIMEOUT_SECS <= 300);
+    fn simple_chat_request(content: &str) -> ChatRequest<'_> {
+        ChatRequest {
+            messages: vec![Message::user(content)],
+            tools: None,
+            model: None,
+            max_tokens: 1024,
+            temperature: 0.7,
+            tool_choice: None,
         }
+    }
+
+    #[tokio::test]
+    async fn test_chat_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/models/gemini-pro:generateContent"))
+            .and(query_param("key", "test_key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{"text": "Hello! How can I help you?"}],
+                        "role": "model"
+                    },
+                    "finishReason": "STOP"
+                }],
+                "usageMetadata": {"totalTokenCount": 15}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
+        let result = provider.chat(simple_chat_request("Hi")).await.unwrap();
+
+        assert_eq!(result.content.unwrap(), "Hello! How can I help you?");
+        assert!(result.tool_calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_tool_calls() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/models/gemini-pro:generateContent"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "functionCalls": [{
+                                "id": "fc_1",
+                                "name": "weather",
+                                "args": {"city": "London"}
+                            }]
+                        }],
+                        "role": "model"
+                    },
+                    "finishReason": "STOP"
+                }],
+                "usageMetadata": {"totalTokenCount": 20}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
+        let result = provider
+            .chat(simple_chat_request("Weather in London?"))
+            .await
+            .unwrap();
+
+        assert!(result.has_tool_calls());
+        assert_eq!(result.tool_calls[0].name, "weather");
+        assert_eq!(result.tool_calls[0].arguments["city"], "London");
+    }
+
+    #[tokio::test]
+    async fn test_chat_unauthorized() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/models/gemini-pro:generateContent"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+                "error": {"type": "auth_error", "message": "API key not valid"}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = GeminiProvider::with_base_url("bad_key".to_string(), None, server.uri());
+        let result = provider.chat(simple_chat_request("Hi")).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Authentication"), "Error: {}", err);
+    }
+
+    #[tokio::test]
+    async fn test_chat_rate_limit() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/models/gemini-pro:generateContent"))
+            .respond_with(ResponseTemplate::new(429).set_body_json(json!({
+                "error": {"type": "rate_limit", "message": "Quota exceeded"}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
+        let result = provider.chat(simple_chat_request("Hi")).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Rate limit") || err.contains("rate limit"),
+            "Error: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_chat_server_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/models/gemini-pro:generateContent"))
+            .respond_with(ResponseTemplate::new(500).set_body_json(json!({
+                "error": {"type": "server_error", "message": "Internal error"}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
+        let result = provider.chat(simple_chat_request("Hi")).await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_chat_metrics_updated() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/models/gemini-pro:generateContent"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{"text": "Hi"}],
+                        "role": "model"
+                    },
+                    "finishReason": "STOP"
+                }],
+                "usageMetadata": {"totalTokenCount": 12}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
+        provider.chat(simple_chat_request("Hi")).await.unwrap();
+
+        let metrics = provider.metrics.lock().unwrap();
+        assert_eq!(metrics.request_count, 1);
+        assert_eq!(metrics.token_count, 12);
+    }
+
+    #[tokio::test]
+    async fn test_chat_custom_model() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/models/gemini-2.0-flash:generateContent"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{"text": "Flash response"}],
+                        "role": "model"
+                    },
+                    "finishReason": "STOP"
+                }],
+                "usageMetadata": {"totalTokenCount": 8}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = GeminiProvider::with_base_url(
+            "test_key".to_string(),
+            Some("gemini-2.0-flash".to_string()),
+            server.uri(),
+        );
+        let result = provider.chat(simple_chat_request("Hi")).await.unwrap();
+
+        assert_eq!(result.content.unwrap(), "Flash response");
+    }
+
+    #[tokio::test]
+    async fn test_system_message_mapped_to_user() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/models/gemini-pro:generateContent"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{"text": "I'm a helpful bot."}],
+                        "role": "model"
+                    },
+                    "finishReason": "STOP"
+                }],
+                "usageMetadata": {"totalTokenCount": 10}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
+        let req = ChatRequest {
+            messages: vec![Message::system("You are helpful."), Message::user("Hello")],
+            tools: None,
+            model: None,
+            max_tokens: 1024,
+            temperature: 0.7,
+            tool_choice: None,
+        };
+        let result = provider.chat(req).await.unwrap();
+
+        assert_eq!(result.content.unwrap(), "I'm a helpful bot.");
     }
 }

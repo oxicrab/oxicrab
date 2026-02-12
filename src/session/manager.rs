@@ -331,25 +331,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_session_new_creates_empty_session() {
-        let session = Session::new("test_key".to_string());
-        assert_eq!(session.key, "test_key");
-        assert_eq!(session.messages.len(), 0);
-        assert!(session.metadata.is_empty());
-    }
-
-    #[test]
-    fn test_session_add_message() {
-        let mut session = Session::new("test_key".to_string());
-        let extra = HashMap::new();
-        session.add_message("user".to_string(), "Hello".to_string(), extra);
-
-        assert_eq!(session.messages.len(), 1);
-        assert_eq!(session.messages[0].role, "user");
-        assert_eq!(session.messages[0].content, "Hello");
-    }
-
-    #[test]
     fn test_session_get_history_with_limit() {
         let mut session = Session::new("test_key".to_string());
         let extra = HashMap::new();

@@ -438,6 +438,138 @@ impl BaseChannel for SlackChannel {
     }
 }
 
+/// Download a file from Slack, following redirects manually to preserve auth.
+///
+/// Slack's file download redirects through multiple hops:
+///   files.slack.com → workspace.slack.com/?redir=/files-pri/... → CDN
+/// Standard HTTP clients strip the Authorization header on cross-origin redirects,
+/// so we follow the chain manually, re-adding auth at each hop.
+///
+/// **Requires `files:read` scope** on the bot token. Without it, Slack returns
+/// an infinite redirect loop between files.slack.com and the workspace domain.
+async fn download_slack_file(
+    client: &reqwest::Client,
+    bot_token: &str,
+    initial_url: &str,
+) -> Result<Vec<u8>> {
+    let no_redirect_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap_or_else(|_| client.clone());
+
+    let mut url = initial_url.to_string();
+    let mut seen_urls = std::collections::HashSet::new();
+    let max_redirects = 5;
+
+    for hop in 0..max_redirects {
+        if !seen_urls.insert(url.clone()) {
+            return Err(anyhow::anyhow!(
+                "Slack file download redirect loop detected at: {}. \
+                 This usually means the bot token is missing the 'files:read' scope. \
+                 Add it in your Slack app's OAuth settings and reinstall.",
+                url
+            ));
+        }
+
+        let resp = no_redirect_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", bot_token))
+            .send()
+            .await?;
+
+        let status = resp.status();
+        let content_type = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("unknown")
+            .to_string();
+
+        info!(
+            "Slack file download hop {}: status={}, content-type={}",
+            hop, status, content_type
+        );
+
+        if status.is_redirection() {
+            let location = resp
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok())
+                .ok_or_else(|| anyhow::anyhow!("Redirect with no Location header"))?;
+
+            // Resolve ?redir= parameters to direct file paths
+            url = resolve_slack_redirect(location);
+            continue;
+        }
+
+        if !status.is_success() {
+            return Err(anyhow::anyhow!(
+                "Slack file download failed: status={}, content-type={}",
+                status,
+                content_type
+            ));
+        }
+
+        let bytes = resp.bytes().await?.to_vec();
+        if bytes.is_empty() {
+            return Err(anyhow::anyhow!("Slack file download returned empty body"));
+        }
+        return Ok(bytes);
+    }
+
+    Err(anyhow::anyhow!(
+        "Slack file download exceeded {} redirects",
+        max_redirects
+    ))
+}
+
+/// Resolve a Slack redirect URL to a direct file URL.
+///
+/// Slack redirects `files.slack.com/files-pri/...` to
+/// `workspace.slack.com/?redir=%2Ffiles-pri%2F...` — a login page.
+/// This extracts the file path from the `redir` param and constructs
+/// a direct URL: `https://workspace.slack.com/files-pri/...`
+fn resolve_slack_redirect(location: &str) -> String {
+    if let Ok(url) = url::Url::parse(location) {
+        // Look for ?redir= parameter
+        for (key, value) in url.query_pairs() {
+            if key == "redir" {
+                // Construct direct URL: scheme + host + redir path
+                let host = url.host_str().unwrap_or("files.slack.com");
+                let scheme = url.scheme();
+                let direct = format!("{}://{}{}", scheme, host, value);
+                return direct;
+            }
+        }
+    }
+    // No redir param — use the location as-is
+    location.to_string()
+}
+
+/// Check if bytes start with known image magic bytes.
+fn is_image_magic_bytes(data: &[u8]) -> bool {
+    if data.len() < 4 {
+        return false;
+    }
+    // PNG: 89 50 4E 47
+    if data.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        return true;
+    }
+    // JPEG: FF D8 FF
+    if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return true;
+    }
+    // GIF: GIF87a or GIF89a
+    if data.starts_with(b"GIF8") {
+        return true;
+    }
+    // WebP: RIFF....WEBP
+    if data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WEBP" {
+        return true;
+    }
+    false
+}
+
 /// Standalone message handler that uses shared state instead of constructing a new `SlackChannel`.
 async fn handle_slack_event(
     event: &Value,
@@ -568,23 +700,27 @@ async fn handle_slack_event(
                         let _ = std::fs::create_dir_all(&media_dir);
                         let file_path = media_dir.join(format!("slack_{}{}", file_id, ext));
 
-                        match client
-                            .get(file_url)
-                            .header("Authorization", format!("Bearer {}", bot_token))
-                            .send()
-                            .await
-                        {
-                            Ok(resp) => match resp.error_for_status() {
-                                Ok(resp) => {
-                                    if let Ok(bytes) = resp.bytes().await {
-                                        let _ = std::fs::write(&file_path, bytes);
-                                        let path_str = file_path.to_string_lossy().to_string();
-                                        media_paths.push(path_str.clone());
-                                        content_parts.push(format!("[image: {}]", path_str));
-                                    }
+                        // Download with manual redirect following.
+                        // Slack redirects through multiple hops (files.slack.com
+                        // -> workspace.slack.com/?redir=... -> CDN). We follow
+                        // each hop manually, re-adding auth and resolving
+                        // Slack's ?redir= login-page URLs to direct file paths.
+                        match download_slack_file(client, bot_token, file_url).await {
+                            Ok(bytes) => {
+                                if !is_image_magic_bytes(&bytes) {
+                                    warn!(
+                                        "Slack file doesn't look like an image (first bytes: {:02x?}, {} bytes)",
+                                        &bytes[..8.min(bytes.len())],
+                                        bytes.len()
+                                    );
+                                } else {
+                                    info!("Downloaded Slack image: {} bytes", bytes.len());
+                                    let _ = std::fs::write(&file_path, &bytes);
+                                    let path_str = file_path.to_string_lossy().to_string();
+                                    media_paths.push(path_str.clone());
+                                    content_parts.push(format!("[image: {}]", path_str));
                                 }
-                                Err(e) => warn!("Failed to download Slack file: {}", e),
-                            },
+                            }
                             Err(e) => warn!("Failed to download Slack file: {}", e),
                         }
                     }
@@ -627,4 +763,443 @@ async fn handle_slack_event(
         .await
         .map_err(|e| anyhow::anyhow!("Send error: {}", e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    // --- resolve_slack_redirect tests ---
+
+    #[test]
+    fn test_resolve_slack_redirect_with_redir_param() {
+        let location =
+            "https://myworkspace.slack.com/?redir=%2Ffiles-pri%2FT123-F456%2Fdownload%2Fimage.png";
+        let result = resolve_slack_redirect(location);
+        assert_eq!(
+            result,
+            "https://myworkspace.slack.com/files-pri/T123-F456/download/image.png"
+        );
+    }
+
+    #[test]
+    fn test_resolve_slack_redirect_no_redir_param() {
+        let location = "https://cdn.slack.com/files/image.png";
+        let result = resolve_slack_redirect(location);
+        assert_eq!(result, "https://cdn.slack.com/files/image.png");
+    }
+
+    #[test]
+    fn test_resolve_slack_redirect_invalid_url() {
+        let location = "not-a-url";
+        let result = resolve_slack_redirect(location);
+        assert_eq!(result, "not-a-url");
+    }
+
+    #[test]
+    fn test_resolve_slack_redirect_encoded_special_chars() {
+        let location = "https://ws.slack.com/?redir=%2Ffiles-pri%2FT1-F2%2Fdownload%2Fscreenshot%202026%4016.45.png";
+        let result = resolve_slack_redirect(location);
+        assert_eq!(
+            result,
+            "https://ws.slack.com/files-pri/T1-F2/download/screenshot 2026@16.45.png"
+        );
+    }
+
+    #[test]
+    fn test_resolve_slack_redirect_with_extra_query_params() {
+        let location =
+            "https://ws.slack.com/?foo=bar&redir=%2Ffiles-pri%2FT1-F2%2Fdownload%2Fimg.png&baz=1";
+        let result = resolve_slack_redirect(location);
+        assert_eq!(
+            result,
+            "https://ws.slack.com/files-pri/T1-F2/download/img.png"
+        );
+    }
+
+    #[test]
+    fn test_resolve_slack_redirect_preserves_scheme() {
+        let location = "http://ws.slack.com/?redir=%2Ffiles-pri%2FT1-F2%2Fdownload%2Fimg.png";
+        let result = resolve_slack_redirect(location);
+        assert!(result.starts_with("http://"), "should preserve http scheme");
+    }
+
+    // --- is_image_magic_bytes tests ---
+
+    #[test]
+    fn test_is_image_magic_bytes_png() {
+        assert!(is_image_magic_bytes(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A]));
+    }
+
+    #[test]
+    fn test_is_image_magic_bytes_jpeg() {
+        assert!(is_image_magic_bytes(&[0xFF, 0xD8, 0xFF, 0xE0]));
+    }
+
+    #[test]
+    fn test_is_image_magic_bytes_gif87a() {
+        assert!(is_image_magic_bytes(b"GIF87a..."));
+    }
+
+    #[test]
+    fn test_is_image_magic_bytes_gif89a() {
+        assert!(is_image_magic_bytes(b"GIF89a..."));
+    }
+
+    #[test]
+    fn test_is_image_magic_bytes_webp() {
+        let mut webp = Vec::new();
+        webp.extend_from_slice(b"RIFF");
+        webp.extend_from_slice(&[0x00; 4]);
+        webp.extend_from_slice(b"WEBP");
+        assert!(is_image_magic_bytes(&webp));
+    }
+
+    #[test]
+    fn test_is_image_magic_bytes_html() {
+        assert!(!is_image_magic_bytes(b"<!DOCTYPE html>"));
+    }
+
+    #[test]
+    fn test_is_image_magic_bytes_json() {
+        assert!(!is_image_magic_bytes(b"{\"error\": \"missing_scope\"}"));
+    }
+
+    #[test]
+    fn test_is_image_magic_bytes_too_short() {
+        assert!(!is_image_magic_bytes(&[0x89]));
+        assert!(!is_image_magic_bytes(&[0xFF, 0xD8]));
+        assert!(!is_image_magic_bytes(&[]));
+    }
+
+    #[test]
+    fn test_is_image_magic_bytes_webp_too_short() {
+        assert!(!is_image_magic_bytes(b"RIFF\x00\x00\x00\x00WEB"));
+    }
+
+    // --- download_slack_file tests (wiremock) ---
+
+    #[tokio::test]
+    async fn test_download_slack_file_success() {
+        let server = MockServer::start().await;
+        let png_body: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+        Mock::given(method("GET"))
+            .and(path("/files-pri/T1-F2/download/image.png"))
+            .and(header("Authorization", "Bearer xoxb-test"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(png_body.clone())
+                    .insert_header("Content-Type", "image/png"),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/files-pri/T1-F2/download/image.png", server.uri());
+        let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+        assert!(result.is_ok());
+        let bytes = result.unwrap();
+        assert_eq!(bytes, png_body);
+    }
+
+    #[tokio::test]
+    async fn test_download_slack_file_sends_auth_header() {
+        let server = MockServer::start().await;
+
+        // Only match requests with the correct auth header
+        Mock::given(method("GET"))
+            .and(path("/file.png"))
+            .and(header("Authorization", "Bearer my-secret-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![0x89, 0x50, 0x4E, 0x47]))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/file.png", server.uri());
+        let result = download_slack_file(&client, "my-secret-token", &url).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_download_slack_file_error_status() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/file.png"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/file.png", server.uri());
+        let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("403"));
+    }
+
+    #[tokio::test]
+    async fn test_download_slack_file_empty_body_is_error() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/file.png"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(Vec::<u8>::new()))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/file.png", server.uri());
+        let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("empty body"));
+    }
+
+    #[tokio::test]
+    async fn test_download_slack_file_follows_single_redirect() {
+        let server = MockServer::start().await;
+        let jpeg_body: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+
+        // First request: redirect
+        Mock::given(method("GET"))
+            .and(path("/start"))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("Location", format!("{}/actual.jpg", server.uri())),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Second request: file content
+        Mock::given(method("GET"))
+            .and(path("/actual.jpg"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(jpeg_body.clone())
+                    .insert_header("Content-Type", "image/jpeg"),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/start", server.uri());
+        let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), jpeg_body);
+    }
+
+    #[tokio::test]
+    async fn test_download_slack_file_follows_multiple_redirects() {
+        let server = MockServer::start().await;
+        let png_body: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47];
+
+        // Hop 0 -> Hop 1
+        Mock::given(method("GET"))
+            .and(path("/hop0"))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("Location", format!("{}/hop1", server.uri())),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Hop 1 -> Hop 2
+        Mock::given(method("GET"))
+            .and(path("/hop1"))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("Location", format!("{}/hop2", server.uri())),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Hop 2 -> final file
+        Mock::given(method("GET"))
+            .and(path("/hop2"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(png_body.clone()))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/hop0", server.uri());
+        let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), png_body);
+    }
+
+    #[tokio::test]
+    async fn test_download_slack_file_redirect_preserves_auth_on_each_hop() {
+        let server = MockServer::start().await;
+
+        // Both hops require the correct auth header
+        Mock::given(method("GET"))
+            .and(path("/hop0"))
+            .and(header("Authorization", "Bearer xoxb-hop-test"))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("Location", format!("{}/hop1", server.uri())),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/hop1"))
+            .and(header("Authorization", "Bearer xoxb-hop-test"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![0x89, 0x50, 0x4E, 0x47]))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/hop0", server.uri());
+        let result = download_slack_file(&client, "xoxb-hop-test", &url).await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_download_slack_file_redirect_loop_detection() {
+        let server = MockServer::start().await;
+
+        // Always redirect to self
+        Mock::given(method("GET"))
+            .and(path("/loop"))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("Location", format!("{}/loop", server.uri())),
+            )
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/loop", server.uri());
+        let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("redirect loop"),
+            "Expected redirect loop error, got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_download_slack_file_redirect_loop_mentions_files_read() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/loop"))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("Location", format!("{}/loop", server.uri())),
+            )
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/loop", server.uri());
+        let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("files:read"),
+            "Error should mention missing files:read scope, got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_download_slack_file_exceeds_max_redirects() {
+        let server = MockServer::start().await;
+
+        // Chain of unique redirects that exceeds max_redirects=5.
+        // No .expect() — some hops may not be reached before the limit.
+        for i in 0..6 {
+            Mock::given(method("GET"))
+                .and(path(format!("/hop{}", i)))
+                .respond_with(
+                    ResponseTemplate::new(302)
+                        .insert_header("Location", format!("{}/hop{}", server.uri(), i + 1)),
+                )
+                .mount(&server)
+                .await;
+        }
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/hop0", server.uri());
+        let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("exceeded"));
+    }
+
+    #[tokio::test]
+    async fn test_download_slack_file_500_error() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/file.png"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/file.png", server.uri());
+        let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("500"));
+    }
+
+    // --- format_for_slack tests ---
+
+    #[test]
+    fn test_format_for_slack_bold() {
+        assert_eq!(SlackChannel::format_for_slack("**bold**"), "*bold*");
+    }
+
+    #[test]
+    fn test_format_for_slack_link() {
+        assert_eq!(
+            SlackChannel::format_for_slack("[text](https://example.com)"),
+            "<https://example.com|text>"
+        );
+    }
+
+    #[test]
+    fn test_format_for_slack_strikethrough() {
+        assert_eq!(SlackChannel::format_for_slack("~~strike~~"), "~strike~");
+    }
+
+    #[test]
+    fn test_format_for_slack_empty() {
+        assert_eq!(SlackChannel::format_for_slack(""), "");
+    }
+
+    #[test]
+    fn test_format_for_slack_plain_text() {
+        assert_eq!(
+            SlackChannel::format_for_slack("no formatting here"),
+            "no formatting here"
+        );
+    }
 }

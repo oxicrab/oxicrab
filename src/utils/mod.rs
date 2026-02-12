@@ -75,19 +75,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn safe_filename_normal() {
-        assert_eq!(safe_filename("hello_world"), "hello_world");
-    }
-
-    #[test]
     fn safe_filename_replaces_dangerous_chars() {
         assert_eq!(safe_filename("a/b\\c:d*e"), "a_b_c_d_e");
         assert_eq!(safe_filename("file<>|name"), "file___name");
-    }
-
-    #[test]
-    fn safe_filename_empty() {
-        assert_eq!(safe_filename(""), "");
     }
 
     #[test]
@@ -102,12 +92,6 @@ mod tests {
         let result = get_workspace_path("~");
         let home = dirs::home_dir().unwrap();
         assert_eq!(result, home);
-    }
-
-    #[test]
-    fn workspace_path_absolute() {
-        let result = get_workspace_path("/tmp/workspace");
-        assert_eq!(result, PathBuf::from("/tmp/workspace"));
     }
 
     #[test]

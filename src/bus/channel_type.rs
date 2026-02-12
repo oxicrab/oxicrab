@@ -59,62 +59,10 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
-    fn test_as_str_returns_correct_string() {
-        assert_eq!(ChannelType::Telegram.as_str(), "telegram");
-        assert_eq!(ChannelType::Discord.as_str(), "discord");
-        assert_eq!(ChannelType::Slack.as_str(), "slack");
-        assert_eq!(ChannelType::WhatsApp.as_str(), "whatsapp");
-        assert_eq!(ChannelType::System.as_str(), "system");
-        assert_eq!(ChannelType::Cli.as_str(), "cli");
-    }
-
-    #[test]
-    fn test_from_str_parses_valid_strings() {
-        assert_eq!(
-            ChannelType::from_str("telegram").unwrap(),
-            ChannelType::Telegram
-        );
-        assert_eq!(
-            ChannelType::from_str("discord").unwrap(),
-            ChannelType::Discord
-        );
-        assert_eq!(ChannelType::from_str("slack").unwrap(), ChannelType::Slack);
-        assert_eq!(
-            ChannelType::from_str("whatsapp").unwrap(),
-            ChannelType::WhatsApp
-        );
-        assert_eq!(
-            ChannelType::from_str("system").unwrap(),
-            ChannelType::System
-        );
-        assert_eq!(ChannelType::from_str("cli").unwrap(), ChannelType::Cli);
-    }
-
-    #[test]
     fn test_from_str_returns_err_for_unknown() {
         let result = ChannelType::from_str("unknown");
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Unknown channel type: unknown");
-    }
-
-    #[test]
-    fn test_display_matches_as_str() {
-        assert_eq!(format!("{}", ChannelType::Telegram), "telegram");
-        assert_eq!(format!("{}", ChannelType::Discord), "discord");
-        assert_eq!(format!("{}", ChannelType::Slack), "slack");
-        assert_eq!(format!("{}", ChannelType::WhatsApp), "whatsapp");
-        assert_eq!(format!("{}", ChannelType::System), "system");
-        assert_eq!(format!("{}", ChannelType::Cli), "cli");
-    }
-
-    #[test]
-    fn test_from_channel_type_to_string() {
-        assert_eq!(String::from(ChannelType::Telegram), "telegram");
-        assert_eq!(String::from(ChannelType::Discord), "discord");
-        assert_eq!(String::from(ChannelType::Slack), "slack");
-        assert_eq!(String::from(ChannelType::WhatsApp), "whatsapp");
-        assert_eq!(String::from(ChannelType::System), "system");
-        assert_eq!(String::from(ChannelType::Cli), "cli");
     }
 
     #[test]

@@ -9,6 +9,7 @@ const TODOIST_API: &str = "https://api.todoist.com/api/v1";
 
 pub struct TodoistTool {
     token: String,
+    base_url: String,
     client: Client,
 }
 
@@ -16,6 +17,16 @@ impl TodoistTool {
     pub fn new(token: String) -> Self {
         Self {
             token,
+            base_url: TODOIST_API.to_string(),
+            client: Client::new(),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_base_url(token: String, base_url: String) -> Self {
+        Self {
+            token,
+            base_url,
             client: Client::new(),
         }
     }
@@ -84,14 +95,14 @@ impl TodoistTool {
         // limit max=200, default=50
         let tasks = if let Some(f) = filter {
             let query = vec![("query", f), ("limit", "200")];
-            self.paginated_get(&format!("{}/tasks/filter", TODOIST_API), &query)
+            self.paginated_get(&format!("{}/tasks/filter", self.base_url), &query)
                 .await?
         } else {
             let mut query: Vec<(&str, &str)> = vec![("limit", "200")];
             if let Some(pid) = project_id {
                 query.push(("project_id", pid));
             }
-            self.paginated_get(&format!("{}/tasks", TODOIST_API), &query)
+            self.paginated_get(&format!("{}/tasks", self.base_url), &query)
                 .await?
         };
         if tasks.is_empty() {
@@ -163,7 +174,7 @@ impl TodoistTool {
 
         let resp = self
             .client
-            .post(format!("{}/tasks", TODOIST_API))
+            .post(format!("{}/tasks", self.base_url))
             .json(&payload)
             .header("Authorization", self.auth_header())
             .timeout(Duration::from_secs(15))
@@ -192,7 +203,7 @@ impl TodoistTool {
     async fn complete_task(&self, task_id: &str) -> Result<String> {
         let resp = self
             .client
-            .post(format!("{}/tasks/{}/close", TODOIST_API, task_id))
+            .post(format!("{}/tasks/{}/close", self.base_url, task_id))
             .header("Authorization", self.auth_header())
             .timeout(Duration::from_secs(15))
             .send()
@@ -209,7 +220,7 @@ impl TodoistTool {
 
     async fn list_projects(&self) -> Result<String> {
         let projects = self
-            .paginated_get(&format!("{}/projects", TODOIST_API), &[("limit", "200")])
+            .paginated_get(&format!("{}/projects", self.base_url), &[("limit", "200")])
             .await?;
         if projects.is_empty() {
             return Ok("No projects found.".to_string());
@@ -350,10 +361,14 @@ impl Tool for TodoistTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{header, method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn tool() -> TodoistTool {
         TodoistTool::new("fake_token".to_string())
     }
+
+    // --- Validation tests ---
 
     #[tokio::test]
     async fn test_missing_action() {
@@ -391,70 +406,326 @@ mod tests {
         assert!(result.content.contains("task_id"));
     }
 
-    #[test]
-    fn test_api_base_url() {
-        assert_eq!(TODOIST_API, "https://api.todoist.com/api/v1");
+    // --- Wiremock tests ---
+
+    #[tokio::test]
+    async fn test_list_tasks_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/tasks"))
+            .and(header("Authorization", "Bearer test_token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [
+                    {
+                        "id": "abc123",
+                        "content": "Buy groceries",
+                        "priority": 1,
+                        "due": {"string": "today"},
+                        "labels": ["shopping"]
+                    },
+                    {
+                        "id": "def456",
+                        "content": "Write tests",
+                        "priority": 4,
+                        "due": null,
+                        "labels": []
+                    }
+                ],
+                "next_cursor": null
+            })))
+            .mount(&server)
+            .await;
+
+        let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+        let result = tool
+            .execute(serde_json::json!({"action": "list_tasks"}))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("Buy groceries"));
+        assert!(result.content.contains("!!!"));
+        assert!(result.content.contains("Write tests"));
+        assert!(result.content.contains("[shopping]"));
+        assert!(result.content.contains("Tasks (2)"));
     }
 
-    #[test]
-    fn test_task_format_with_string_id() {
-        // v1 API returns string IDs like "6fxQ8VwjqXf5gPcC"
-        let task = serde_json::json!({
-            "id": "6fxQ8VwjqXf5gPcC",
-            "content": "Buy milk",
-            "priority": 3,
-            "due": {"string": "tomorrow"},
-            "labels": ["groceries", "urgent"]
-        });
-        let id = task["id"].as_str().unwrap();
-        assert_eq!(id, "6fxQ8VwjqXf5gPcC");
-        let labels: Vec<&str> = task["labels"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|l| l.as_str())
-            .collect();
-        assert_eq!(labels, vec!["groceries", "urgent"]);
+    #[tokio::test]
+    async fn test_list_tasks_with_filter() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/tasks/filter"))
+            .and(query_param("query", "today"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [
+                    {
+                        "id": "t1",
+                        "content": "Morning standup",
+                        "priority": 2,
+                        "due": {"string": "today"},
+                        "labels": ["work"]
+                    }
+                ],
+                "next_cursor": null
+            })))
+            .mount(&server)
+            .await;
+
+        let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+        let result = tool
+            .execute(serde_json::json!({"action": "list_tasks", "filter": "today"}))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("Morning standup"));
+        assert!(result.content.contains("!!"));
     }
 
-    #[test]
-    fn test_paginated_response_parsing() {
-        // v1 API wraps results in {"results": [...], "next_cursor": ...}
-        let response = serde_json::json!({
-            "results": [
-                {"id": "abc123", "content": "Task 1"},
-                {"id": "def456", "content": "Task 2"}
-            ],
-            "next_cursor": "cursor_xyz"
-        });
-        let results = response["results"].as_array().unwrap();
-        assert_eq!(results.len(), 2);
-        assert_eq!(results[0]["id"].as_str().unwrap(), "abc123");
+    #[tokio::test]
+    async fn test_list_tasks_with_project_id() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/tasks"))
+            .and(query_param("project_id", "proj_abc"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [
+                    {"id": "t1", "content": "Project task", "priority": 3, "due": null, "labels": []}
+                ],
+                "next_cursor": null
+            })))
+            .mount(&server)
+            .await;
 
-        let cursor = response["next_cursor"].as_str().unwrap();
-        assert_eq!(cursor, "cursor_xyz");
+        let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+        let result = tool
+            .execute(serde_json::json!({"action": "list_tasks", "project_id": "proj_abc"}))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("Project task"));
     }
 
-    #[test]
-    fn test_paginated_response_no_cursor() {
-        // Last page has no next_cursor
-        let response = serde_json::json!({
-            "results": [{"id": "abc", "content": "Last task"}],
-            "next_cursor": null
-        });
-        assert!(response["next_cursor"].as_str().is_none());
+    #[tokio::test]
+    async fn test_list_tasks_empty() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/tasks"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [],
+                "next_cursor": null
+            })))
+            .mount(&server)
+            .await;
+
+        let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+        let result = tool
+            .execute(serde_json::json!({"action": "list_tasks"}))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("No tasks found"));
     }
 
-    #[test]
-    fn test_project_format_with_is_favorite() {
-        // v1 API uses is_favorite (not favorite)
-        let project = serde_json::json!({
-            "id": "proj123",
-            "name": "Shopping",
-            "color": "berry_red",
-            "is_favorite": true
-        });
-        assert!(project["is_favorite"].as_bool().unwrap());
-        assert_eq!(project["color"].as_str().unwrap(), "berry_red");
+    #[tokio::test]
+    async fn test_list_tasks_paginated() {
+        let server = MockServer::start().await;
+        // Page 1
+        Mock::given(method("GET"))
+            .and(path("/tasks"))
+            .and(wiremock::matchers::query_param_is_missing("cursor"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [
+                    {"id": "t1", "content": "Task 1", "priority": 4, "due": null, "labels": []}
+                ],
+                "next_cursor": "page2cursor"
+            })))
+            .mount(&server)
+            .await;
+        // Page 2
+        Mock::given(method("GET"))
+            .and(path("/tasks"))
+            .and(query_param("cursor", "page2cursor"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [
+                    {"id": "t2", "content": "Task 2", "priority": 4, "due": null, "labels": []}
+                ],
+                "next_cursor": null
+            })))
+            .mount(&server)
+            .await;
+
+        let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+        let result = tool
+            .execute(serde_json::json!({"action": "list_tasks"}))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("Task 1"));
+        assert!(result.content.contains("Task 2"));
+        assert!(result.content.contains("Tasks (2)"));
+    }
+
+    #[tokio::test]
+    async fn test_create_task_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/tasks"))
+            .and(header("Authorization", "Bearer test_token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "new_task_123",
+                "content": "Write documentation",
+                "priority": 2
+            })))
+            .mount(&server)
+            .await;
+
+        let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+        let result = tool
+            .execute(serde_json::json!({
+                "action": "create_task",
+                "content": "Write documentation",
+                "priority": 2,
+                "due_string": "tomorrow",
+                "labels": ["docs"]
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("Created task"));
+        assert!(result.content.contains("new_task_123"));
+        assert!(result.content.contains("Write documentation"));
+    }
+
+    #[tokio::test]
+    async fn test_complete_task_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/tasks/task_xyz/close"))
+            .and(header("Authorization", "Bearer test_token"))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+
+        let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+        let result = tool
+            .execute(serde_json::json!({"action": "complete_task", "task_id": "task_xyz"}))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("task_xyz"));
+        assert!(result.content.contains("completed"));
+    }
+
+    #[tokio::test]
+    async fn test_list_projects_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/projects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [
+                    {"id": "p1", "name": "Inbox", "color": "grey", "is_favorite": false},
+                    {"id": "p2", "name": "Work", "color": "blue", "is_favorite": true}
+                ],
+                "next_cursor": null
+            })))
+            .mount(&server)
+            .await;
+
+        let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+        let result = tool
+            .execute(serde_json::json!({"action": "list_projects"}))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("Inbox"));
+        assert!(result.content.contains("Work"));
+        assert!(result.content.contains(" *")); // favorite marker
+        assert!(result.content.contains("Projects (2)"));
+    }
+
+    #[tokio::test]
+    async fn test_list_projects_empty() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/projects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [],
+                "next_cursor": null
+            })))
+            .mount(&server)
+            .await;
+
+        let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+        let result = tool
+            .execute(serde_json::json!({"action": "list_projects"}))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("No projects found"));
+    }
+
+    #[tokio::test]
+    async fn test_api_error_unauthorized() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/tasks"))
+            .respond_with(ResponseTemplate::new(401).set_body_string("Unauthorized"))
+            .mount(&server)
+            .await;
+
+        let tool = TodoistTool::with_base_url("bad_token".to_string(), server.uri());
+        let result = tool
+            .execute(serde_json::json!({"action": "list_tasks"}))
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("401"));
+    }
+
+    #[tokio::test]
+    async fn test_api_error_server_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/tasks"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("Internal Server Error"))
+            .mount(&server)
+            .await;
+
+        let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+        let result = tool
+            .execute(serde_json::json!({"action": "create_task", "content": "test"}))
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("500"));
+    }
+
+    #[tokio::test]
+    async fn test_complete_task_not_found() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/tasks/nonexistent/close"))
+            .respond_with(ResponseTemplate::new(404).set_body_string("Task not found"))
+            .mount(&server)
+            .await;
+
+        let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+        let result = tool
+            .execute(serde_json::json!({"action": "complete_task", "task_id": "nonexistent"}))
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("404"));
     }
 }

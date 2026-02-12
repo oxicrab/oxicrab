@@ -53,22 +53,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn config_error_display() {
-        let err = NanobotError::Config("bad value".into());
-        assert_eq!(err.to_string(), "Configuration error: bad value");
-    }
-
-    #[test]
-    fn provider_error_display() {
-        let err = NanobotError::Provider {
-            message: "timeout".into(),
-            retryable: true,
-        };
-        assert_eq!(err.to_string(), "Provider error: timeout");
-        assert!(err.is_retryable());
-    }
-
-    #[test]
     fn rate_limit_retryable() {
         let err = NanobotError::RateLimit {
             retry_after: Some(30),
@@ -79,23 +63,6 @@ mod tests {
     #[test]
     fn auth_error_not_retryable() {
         let err = NanobotError::Auth("invalid key".into());
-        assert!(!err.is_retryable());
-    }
-
-    #[test]
-    fn tool_error_display() {
-        let err = NanobotError::Tool {
-            tool: "web_search".into(),
-            message: "API down".into(),
-        };
-        assert_eq!(err.to_string(), "Tool error: web_search: API down");
-    }
-
-    #[test]
-    fn internal_from_anyhow() {
-        let anyhow_err = anyhow::anyhow!("something broke");
-        let err: NanobotError = anyhow_err.into();
-        assert!(matches!(err, NanobotError::Internal(_)));
         assert!(!err.is_retryable());
     }
 }

@@ -9,6 +9,7 @@ const REDDIT_BASE: &str = "https://www.reddit.com";
 const MAX_LIMIT: u64 = 25;
 
 pub struct RedditTool {
+    base_url: String,
     client: Client,
 }
 
@@ -21,6 +22,19 @@ impl Default for RedditTool {
 impl RedditTool {
     pub fn new() -> Self {
         Self {
+            base_url: REDDIT_BASE.to_string(),
+            client: Client::builder()
+                .user_agent("nanobot-rust/1.0")
+                .timeout(Duration::from_secs(15))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_base_url(base_url: String) -> Self {
+        Self {
+            base_url,
             client: Client::builder()
                 .user_agent("nanobot-rust/1.0")
                 .timeout(Duration::from_secs(15))
@@ -36,7 +50,7 @@ impl RedditTool {
         limit: u64,
         query_params: &[(&str, &str)],
     ) -> Result<String> {
-        let url = format!("{}/r/{}/{}.json", REDDIT_BASE, subreddit, endpoint);
+        let url = format!("{}/r/{}/{}.json", self.base_url, subreddit, endpoint);
         let limit_str = limit.to_string();
         let mut params: Vec<(&str, &str)> = vec![("limit", &limit_str), ("raw_json", "1")];
         params.extend_from_slice(query_params);
@@ -103,7 +117,7 @@ impl RedditTool {
     }
 
     async fn search(&self, subreddit: &str, query: &str, limit: u64) -> Result<String> {
-        let url = format!("{}/r/{}/search.json", REDDIT_BASE, subreddit);
+        let url = format!("{}/r/{}/search.json", self.base_url, subreddit);
         let limit_str = limit.to_string();
         let params = [
             ("q", query),
@@ -253,10 +267,14 @@ impl Tool for RedditTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn tool() -> RedditTool {
         RedditTool::new()
     }
+
+    // --- Validation tests ---
 
     #[tokio::test]
     async fn test_missing_subreddit() {
@@ -288,16 +306,205 @@ mod tests {
         assert!(result.content.contains("query"));
     }
 
-    #[test]
-    fn test_cacheable() {
-        assert!(tool().cacheable());
+    // --- Wiremock tests ---
+
+    fn reddit_listing(posts: Vec<serde_json::Value>) -> serde_json::Value {
+        serde_json::json!({
+            "data": {
+                "children": posts.into_iter().map(|p| serde_json::json!({"data": p})).collect::<Vec<_>>()
+            }
+        })
     }
 
-    #[test]
-    fn test_strips_r_prefix() {
-        // The execute method should strip "r/" prefix
-        // We test the trim logic directly
-        let sub = "r/rust".trim_start_matches("r/");
-        assert_eq!(sub, "rust");
+    #[tokio::test]
+    async fn test_hot_posts_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/r/rust/hot.json"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(reddit_listing(vec![serde_json::json!({
+                    "title": "Rust 2026 edition released!",
+                    "score": 1500,
+                    "num_comments": 200,
+                    "author": "rustacean",
+                    "url": "https://blog.rust-lang.org/2026",
+                    "selftext": ""
+                })])),
+            )
+            .mount(&server)
+            .await;
+
+        let tool = RedditTool::with_base_url(server.uri());
+        let result = tool
+            .execute(serde_json::json!({"subreddit": "rust", "action": "hot"}))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("Rust 2026 edition released!"));
+        assert!(result.content.contains("score: 1500"));
+        assert!(result.content.contains("u/rustacean"));
+    }
+
+    #[tokio::test]
+    async fn test_top_posts_with_selftext() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/r/programming/top.json"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(reddit_listing(vec![serde_json::json!({
+                    "title": "Best practices for async Rust",
+                    "score": 500,
+                    "num_comments": 80,
+                    "author": "dev123",
+                    "url": "https://reddit.com/r/programming/...",
+                    "selftext": "Here are my tips for writing async Rust code effectively..."
+                })])),
+            )
+            .mount(&server)
+            .await;
+
+        let tool = RedditTool::with_base_url(server.uri());
+        let result = tool
+            .execute(
+                serde_json::json!({"subreddit": "programming", "action": "top", "time": "week"}),
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("Best practices"));
+        assert!(result.content.contains("async Rust code"));
+    }
+
+    #[tokio::test]
+    async fn test_empty_subreddit() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/r/emptysub/hot.json"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(reddit_listing(vec![])))
+            .mount(&server)
+            .await;
+
+        let tool = RedditTool::with_base_url(server.uri());
+        let result = tool
+            .execute(serde_json::json!({"subreddit": "emptysub"}))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("No posts found"));
+    }
+
+    #[tokio::test]
+    async fn test_subreddit_not_found() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/r/nonexistent/hot.json"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let tool = RedditTool::with_base_url(server.uri());
+        let result = tool
+            .execute(serde_json::json!({"subreddit": "nonexistent"}))
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_subreddit_private() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/r/secret/hot.json"))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(&server)
+            .await;
+
+        let tool = RedditTool::with_base_url(server.uri());
+        let result = tool
+            .execute(serde_json::json!({"subreddit": "secret"}))
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("private or quarantined"));
+    }
+
+    #[tokio::test]
+    async fn test_search_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/r/rust/search.json"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(reddit_listing(vec![serde_json::json!({
+                    "title": "Tokio tutorial",
+                    "score": 300,
+                    "num_comments": 45,
+                    "author": "async_fan",
+                    "url": "https://tokio.rs/tutorial"
+                })])),
+            )
+            .mount(&server)
+            .await;
+
+        let tool = RedditTool::with_base_url(server.uri());
+        let result = tool
+            .execute(serde_json::json!({"subreddit": "rust", "action": "search", "query": "tokio"}))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("Tokio tutorial"));
+    }
+
+    #[tokio::test]
+    async fn test_search_no_results() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/r/rust/search.json"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(reddit_listing(vec![])))
+            .mount(&server)
+            .await;
+
+        let tool = RedditTool::with_base_url(server.uri());
+        let result = tool
+            .execute(serde_json::json!({"subreddit": "rust", "action": "search", "query": "xyznotfound"}))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("No results"));
+    }
+
+    #[tokio::test]
+    async fn test_new_posts_action() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/r/rust/new.json"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(reddit_listing(vec![serde_json::json!({
+                    "title": "Just published my first crate",
+                    "score": 10,
+                    "num_comments": 3,
+                    "author": "newbie",
+                    "url": "https://crates.io/crates/...",
+                    "selftext": ""
+                })])),
+            )
+            .mount(&server)
+            .await;
+
+        let tool = RedditTool::with_base_url(server.uri());
+        let result = tool
+            .execute(serde_json::json!({"subreddit": "rust", "action": "new"}))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("first crate"));
     }
 }
