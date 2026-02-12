@@ -1,9 +1,13 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::BaseChannel;
-use crate::channels::{
-    discord::DiscordChannel, slack::SlackChannel, telegram::TelegramChannel,
-    whatsapp::WhatsAppChannel,
-};
+#[cfg(feature = "channel-discord")]
+use crate::channels::discord::DiscordChannel;
+#[cfg(feature = "channel-slack")]
+use crate::channels::slack::SlackChannel;
+#[cfg(feature = "channel-telegram")]
+use crate::channels::telegram::TelegramChannel;
+#[cfg(feature = "channel-whatsapp")]
+use crate::channels::whatsapp::WhatsAppChannel;
 use crate::config::Config;
 use anyhow::Result;
 use std::sync::Arc;
@@ -19,6 +23,7 @@ impl ChannelManager {
         let mut channels: Vec<Box<dyn BaseChannel>> = Vec::new();
         let mut enabled = Vec::new();
 
+        #[cfg(feature = "channel-telegram")]
         if config.channels.telegram.enabled && !config.channels.telegram.token.is_empty() {
             tracing::debug!("Initializing Telegram channel...");
             channels.push(Box::new(TelegramChannel::new(
@@ -28,7 +33,12 @@ impl ChannelManager {
             enabled.push("telegram".to_string());
             tracing::info!("Telegram channel enabled");
         }
+        #[cfg(not(feature = "channel-telegram"))]
+        if config.channels.telegram.enabled {
+            tracing::warn!("Telegram is enabled in config but not compiled (missing 'channel-telegram' feature)");
+        }
 
+        #[cfg(feature = "channel-discord")]
         if config.channels.discord.enabled && !config.channels.discord.token.is_empty() {
             tracing::debug!("Initializing Discord channel...");
             channels.push(Box::new(DiscordChannel::new(
@@ -38,7 +48,14 @@ impl ChannelManager {
             enabled.push("discord".to_string());
             tracing::info!("Discord channel enabled");
         }
+        #[cfg(not(feature = "channel-discord"))]
+        if config.channels.discord.enabled {
+            tracing::warn!(
+                "Discord is enabled in config but not compiled (missing 'channel-discord' feature)"
+            );
+        }
 
+        #[cfg(feature = "channel-slack")]
         if config.channels.slack.enabled && !config.channels.slack.bot_token.is_empty() {
             tracing::debug!("Initializing Slack channel...");
             channels.push(Box::new(SlackChannel::new(
@@ -48,7 +65,14 @@ impl ChannelManager {
             enabled.push("slack".to_string());
             tracing::info!("Slack channel enabled");
         }
+        #[cfg(not(feature = "channel-slack"))]
+        if config.channels.slack.enabled {
+            tracing::warn!(
+                "Slack is enabled in config but not compiled (missing 'channel-slack' feature)"
+            );
+        }
 
+        #[cfg(feature = "channel-whatsapp")]
         if config.channels.whatsapp.enabled {
             tracing::debug!("Initializing WhatsApp channel...");
             channels.push(Box::new(WhatsAppChannel::new(
@@ -57,6 +81,10 @@ impl ChannelManager {
             )));
             enabled.push("whatsapp".to_string());
             tracing::info!("WhatsApp channel enabled");
+        }
+        #[cfg(not(feature = "channel-whatsapp"))]
+        if config.channels.whatsapp.enabled {
+            tracing::warn!("WhatsApp is enabled in config but not compiled (missing 'channel-whatsapp' feature)");
         }
 
         Self {

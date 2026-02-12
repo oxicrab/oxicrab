@@ -7,7 +7,6 @@ use crate::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule};
 use crate::heartbeat::service::HeartbeatService;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
@@ -448,13 +447,17 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
 /// Channels that support message editing for streaming responses.
 /// Channels not in this list will receive the complete response as a single message.
 fn editable_channels_from_config(config: &Config) -> Vec<String> {
+    let _ = config; // suppress unused warning when no channel features compiled
     let mut editable = Vec::new();
+    #[cfg(feature = "channel-telegram")]
     if config.channels.telegram.enabled {
         editable.push("telegram".to_string());
     }
+    #[cfg(feature = "channel-discord")]
     if config.channels.discord.enabled {
         editable.push("discord".to_string());
     }
+    #[cfg(feature = "channel-slack")]
     if config.channels.slack.enabled {
         editable.push("slack".to_string());
     }
@@ -1082,101 +1085,127 @@ async fn channels_command(cmd: ChannelCommands) -> Result<()> {
     match cmd {
         ChannelCommands::Status => {
             let config = load_config(None)?;
+            let _ = &config; // suppress unused warning when no channel features compiled
 
             println!("Channel Status");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
             // WhatsApp
-            let wa = &config.channels.whatsapp;
-            println!(
-                "WhatsApp: {}",
-                if wa.enabled {
-                    "✓ enabled"
-                } else {
-                    "✗ disabled"
-                }
-            );
-            if wa.enabled {
-                let session_path = crate::utils::get_nanobot_home()
-                    .map(|h| h.join("whatsapp").join("whatsapp.db"))
-                    .unwrap_or_else(|_| PathBuf::from(".nanobot/whatsapp/whatsapp.db"));
-                let session_exists = session_path.exists();
+            #[cfg(feature = "channel-whatsapp")]
+            {
+                let wa = &config.channels.whatsapp;
                 println!(
-                    "  Session: {} ({})",
-                    session_path.display(),
-                    if session_exists {
-                        "exists"
+                    "WhatsApp: {}",
+                    if wa.enabled {
+                        "✓ enabled"
                     } else {
-                        "not paired - run 'nanobot channels login'"
+                        "✗ disabled"
                     }
                 );
+                if wa.enabled {
+                    let session_path = crate::utils::get_nanobot_home()
+                        .map(|h| h.join("whatsapp").join("whatsapp.db"))
+                        .unwrap_or_else(|_| {
+                            std::path::PathBuf::from(".nanobot/whatsapp/whatsapp.db")
+                        });
+                    let session_exists = session_path.exists();
+                    println!(
+                        "  Session: {} ({})",
+                        session_path.display(),
+                        if session_exists {
+                            "exists"
+                        } else {
+                            "not paired - run 'nanobot channels login'"
+                        }
+                    );
+                }
             }
+            #[cfg(not(feature = "channel-whatsapp"))]
+            println!("WhatsApp: not compiled (enable 'channel-whatsapp' feature)");
 
             // Discord
-            let dc = &config.channels.discord;
-            println!(
-                "Discord: {}",
-                if dc.enabled {
-                    "✓ enabled"
-                } else {
-                    "✗ disabled"
-                }
-            );
-            if dc.enabled {
+            #[cfg(feature = "channel-discord")]
+            {
+                let dc = &config.channels.discord;
                 println!(
-                    "  Token: {}",
-                    if dc.token.is_empty() {
-                        "not set"
+                    "Discord: {}",
+                    if dc.enabled {
+                        "✓ enabled"
                     } else {
-                        "configured"
+                        "✗ disabled"
                     }
                 );
+                if dc.enabled {
+                    println!(
+                        "  Token: {}",
+                        if dc.token.is_empty() {
+                            "not set"
+                        } else {
+                            "configured"
+                        }
+                    );
+                }
             }
+            #[cfg(not(feature = "channel-discord"))]
+            println!("Discord: not compiled (enable 'channel-discord' feature)");
 
             // Telegram
-            let tg = &config.channels.telegram;
-            println!(
-                "Telegram: {}",
-                if tg.enabled {
-                    "✓ enabled"
-                } else {
-                    "✗ disabled"
-                }
-            );
-            if tg.enabled {
+            #[cfg(feature = "channel-telegram")]
+            {
+                let tg = &config.channels.telegram;
                 println!(
-                    "  Token: {}",
-                    if tg.token.is_empty() {
-                        "not set"
+                    "Telegram: {}",
+                    if tg.enabled {
+                        "✓ enabled"
                     } else {
-                        "configured"
+                        "✗ disabled"
                     }
                 );
+                if tg.enabled {
+                    println!(
+                        "  Token: {}",
+                        if tg.token.is_empty() {
+                            "not set"
+                        } else {
+                            "configured"
+                        }
+                    );
+                }
             }
+            #[cfg(not(feature = "channel-telegram"))]
+            println!("Telegram: not compiled (enable 'channel-telegram' feature)");
 
             // Slack
-            let sl = &config.channels.slack;
-            println!(
-                "Slack: {}",
-                if sl.enabled {
-                    "✓ enabled"
-                } else {
-                    "✗ disabled"
-                }
-            );
-            if sl.enabled {
+            #[cfg(feature = "channel-slack")]
+            {
+                let sl = &config.channels.slack;
                 println!(
-                    "  Bot Token: {}",
-                    if sl.bot_token.is_empty() {
-                        "not set"
+                    "Slack: {}",
+                    if sl.enabled {
+                        "✓ enabled"
                     } else {
-                        "configured"
+                        "✗ disabled"
                     }
                 );
+                if sl.enabled {
+                    println!(
+                        "  Bot Token: {}",
+                        if sl.bot_token.is_empty() {
+                            "not set"
+                        } else {
+                            "configured"
+                        }
+                    );
+                }
             }
+            #[cfg(not(feature = "channel-slack"))]
+            println!("Slack: not compiled (enable 'channel-slack' feature)");
         }
         ChannelCommands::Login => {
+            #[cfg(feature = "channel-whatsapp")]
             whatsapp_login().await?;
+            #[cfg(not(feature = "channel-whatsapp"))]
+            anyhow::bail!("WhatsApp support not compiled (enable 'channel-whatsapp' feature)");
         }
     }
     Ok(())
@@ -1257,6 +1286,7 @@ fn status_command() -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "channel-whatsapp")]
 async fn whatsapp_login() -> Result<()> {
     use crate::utils::get_nanobot_home;
     use std::sync::Arc;

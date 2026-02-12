@@ -16,6 +16,13 @@ path = "src/lib.rs"
 name = "nanobot"
 path = "src/main.rs"
 
+[features]
+default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp"]
+channel-telegram = ["dep:teloxide"]
+channel-discord = ["dep:serenity"]
+channel-slack = ["dep:tokio-tungstenite"]
+channel-whatsapp = ["dep:whatsapp-rust", "dep:whatsapp-rust-tokio-transport", "dep:whatsapp-rust-ureq-http-client", "dep:qr2term", "dep:qrcode"]
+
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
@@ -33,22 +40,22 @@ html-escape = "0.2"
 lru = "0.16"
 oauth2 = "4.4"
 open = "5.0"
-qr2term = "0.3"
-qrcode = "0.14"
+qr2term = { version = "0.3", optional = true }
+qrcode = { version = "0.14", optional = true }
 regex = "1.10"
-reqwest = { version = "0.12", features = ["json", "multipart"] }
+reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 scraper = "0.19"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
-serenity = "0.12"
+serenity = { version = "0.12", optional = true }
 sha2 = "0.10"
-teloxide = "0.13"
+teloxide = { version = "0.13", optional = true }
 tempfile = "3.10"
 tokio = { version = "1.40", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 # tokio-process = "0.2"  # Removed: unused and pulls in vulnerable crossbeam-queue 0.1.2
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"], optional = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Note: Ensure >= 0.3.20 for RUSTSEC-2025-0055 (ANSI escape sequence injection) - current: 0.3.22
@@ -56,9 +63,9 @@ url = "2.5"
 urlencoding = "2.1"
 uuid = { version = "1.10", features = ["v4", "serde"] }
 walkdir = "2.4"
-whatsapp-rust = { git = "https://github.com/jlucaso1/whatsapp-rust", rev = "1cc15f7403441e4f151c559094a30472f6d359d8" }
-whatsapp-rust-tokio-transport = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-tokio-transport", rev = "1cc15f7403441e4f151c559094a30472f6d359d8" }
-whatsapp-rust-ureq-http-client = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-ureq-http-client", rev = "1cc15f7403441e4f151c559094a30472f6d359d8" }
+whatsapp-rust = { git = "https://github.com/jlucaso1/whatsapp-rust", rev = "1cc15f7403441e4f151c559094a30472f6d359d8", optional = true }
+whatsapp-rust-tokio-transport = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-tokio-transport", rev = "1cc15f7403441e4f151c559094a30472f6d359d8", optional = true }
+whatsapp-rust-ureq-http-client = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-ureq-http-client", rev = "1cc15f7403441e4f151c559094a30472f6d359d8", optional = true }
 which = "6.0"
 
 # Security: Force minimum versions of transitive dependencies to resolve vulnerabilities

@@ -1,7 +1,11 @@
 pub mod base;
+#[cfg(feature = "channel-discord")]
 pub mod discord;
 pub mod manager;
+#[cfg(feature = "channel-slack")]
 pub mod slack;
+#[cfg(feature = "channel-telegram")]
 pub mod telegram;
 pub mod utils;
+#[cfg(feature = "channel-whatsapp")]
 pub mod whatsapp;

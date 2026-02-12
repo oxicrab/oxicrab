@@ -51,6 +51,9 @@ jobs:
       - name: Build
         run: cargo build --verbose
 
+      - name: Build without optional channels
+        run: cargo build --no-default-features --verbose
+
       - name: Run unit tests
         run: cargo test --lib --verbose
 
