@@ -1,5 +1,5 @@
 use crate::session::store::SessionStore;
-use crate::utils::{atomic_write, ensure_dir, get_nanobot_home, safe_filename};
+use crate::utils::{atomic_write, ensure_dir, safe_filename};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -108,7 +108,7 @@ pub struct SessionManager {
 
 impl SessionManager {
     pub fn new(workspace: PathBuf) -> Result<Self> {
-        let sessions_dir = ensure_dir(get_nanobot_home()?.join("sessions"))?;
+        let sessions_dir = ensure_dir(workspace.join("sessions"))?;
         Ok(Self {
             _workspace: workspace,
             sessions_dir,

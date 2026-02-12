@@ -50,6 +50,7 @@ async fn create_test_agent(provider: MockLLMProvider, tmp: &TempDir) -> AgentLoo
         editable_channels: vec![],
         memory_indexer_interval: 300,
         media_ttl_days: 0, // Disable cleanup in tests
+        max_concurrent_subagents: 5,
     };
 
     AgentLoop::new(config)

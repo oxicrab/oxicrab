@@ -396,6 +396,8 @@ pub struct AgentLoopConfig {
     pub memory_indexer_interval: u64,
     /// Media file TTL in days for cleanup (default 7)
     pub media_ttl_days: u32,
+    /// Maximum concurrent subagents (default 5)
+    pub max_concurrent_subagents: usize,
 }
 
 pub struct AgentLoop {
@@ -454,6 +456,7 @@ impl AgentLoop {
             editable_channels,
             memory_indexer_interval,
             media_ttl_days,
+            max_concurrent_subagents,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -541,18 +544,21 @@ impl AgentLoop {
         tools.register(Arc::new(MessageTool::new(Some(outbound_tx_for_tool))));
 
         // Create subagent manager
-        let subagents = Arc::new(SubagentManager::new(SubagentConfig {
-            provider: provider.clone(),
-            workspace: workspace.clone(),
-            bus: bus.clone(),
-            model: Some(model.clone()),
-            brave_api_key: brave_api_key.clone(),
-            exec_timeout,
-            restrict_to_workspace,
-            allowed_commands,
-            max_tokens,
-            tool_temperature,
-        }));
+        let subagents = Arc::new(SubagentManager::new(
+            SubagentConfig {
+                provider: provider.clone(),
+                workspace: workspace.clone(),
+                model: Some(model.clone()),
+                brave_api_key: brave_api_key.clone(),
+                exec_timeout,
+                restrict_to_workspace,
+                allowed_commands,
+                max_tokens,
+                tool_temperature,
+                max_concurrent: max_concurrent_subagents,
+            },
+            bus.clone(),
+        ));
 
         // Register spawn and subagent control tools
         let spawn_tool = Arc::new(SpawnTool::new(subagents.clone()));
@@ -793,14 +799,20 @@ impl AgentLoop {
 
         info!("Processing message from {}:{}", msg.channel, msg.sender_id);
 
-        // Set tool contexts
-        debug!("Setting tool contexts");
-        self.set_tool_contexts(&msg.channel, &msg.chat_id).await;
-
         let session_key = msg.session_key();
         // Reuse session to avoid repeated lookups
         debug!("Loading session: {}", session_key);
         let mut session = self.sessions.get_or_create(&session_key).await?;
+
+        // Set tool contexts (pass compaction summary for subagent context injection)
+        let context_summary = session
+            .metadata
+            .get("compaction_summary")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        debug!("Setting tool contexts");
+        self.set_tool_contexts(&msg.channel, &msg.chat_id, context_summary.as_deref())
+            .await;
 
         debug!("Getting compacted history");
         let history = self.get_compacted_history(&session).await?;
@@ -1229,7 +1241,7 @@ impl AgentLoop {
         Ok((None, false, last_input_tokens))
     }
 
-    async fn set_tool_contexts(&self, channel: &str, chat_id: &str) {
+    async fn set_tool_contexts(&self, channel: &str, chat_id: &str, context_summary: Option<&str>) {
         let tools_guard = self.tools.lock().await;
         // Set context on tools that support it
         if let Some(msg_tool) = tools_guard.get("message") {
@@ -1240,6 +1252,9 @@ impl AgentLoop {
         }
         if let Some(spawn_tool) = tools_guard.get("spawn") {
             spawn_tool.set_context(channel, chat_id).await;
+            if let Some(summary) = context_summary {
+                spawn_tool.set_context_summary(summary).await;
+            }
         }
     }
 

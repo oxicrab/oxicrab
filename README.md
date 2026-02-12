@@ -6,11 +6,14 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 
 - **Multi-channel support**: Telegram, Discord, Slack, WhatsApp
 - **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), with OAuth support
-- **Agent capabilities**: Tool calling, memory, context management, subagents, schema validation
-- **Cron scheduling**: Recurring jobs, one-shot timers (`at_time`), cron expressions, echo mode (LLM-free delivery), multi-channel targeting
-- **Integrations**: Google (Gmail, Calendar), GitHub, Todoist, Weather, Web search (Brave + DuckDuckGo fallback)
-- **Streaming**: SSE-based streaming for Anthropic responses
-- **Session management**: Persistent sessions with automatic compaction and fact extraction
+- **24 built-in tools**: Filesystem, shell, web, HTTP, Google Workspace, GitHub, scheduling, memory, media management, and more
+- **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
+- **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode (LLM-free delivery), multi-channel targeting
+- **Streaming responses**: SSE-based streaming with live message editing on Telegram, Discord, and Slack
+- **Memory system**: SQLite FTS5-backed long-term memory with background indexing and automatic fact extraction
+- **Session management**: Persistent sessions with automatic compaction and context summarization
+- **Hallucination detection**: Prevents the LLM from claiming actions it didn't perform
+- **Security**: Shell command allowlist/blocklist, SSRF protection, path traversal prevention, secret redaction
 - **Async-first**: Built on Tokio for high-performance async I/O
 
 ## Building
@@ -35,7 +38,23 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
       "model": "claude-sonnet-4-5-20250929",
       "maxTokens": 8192,
       "temperature": 0.7,
-      "maxToolIterations": 20
+      "maxToolIterations": 20,
+      "sessionTtlDays": 30,
+      "memoryIndexerInterval": 300,
+      "mediaTtlDays": 7,
+      "maxConcurrentSubagents": 5,
+      "compaction": {
+        "enabled": true,
+        "thresholdTokens": 40000,
+        "keepRecent": 10,
+        "extractionEnabled": true
+      },
+      "daemon": {
+        "enabled": true,
+        "interval": 300,
+        "strategyFile": "HEARTBEAT.md",
+        "maxIterations": 25
+      }
     }
   },
   "providers": {
@@ -93,7 +112,31 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
       "search": {
         "apiKey": "your-brave-search-api-key"
       }
-    }
+    },
+    "media": {
+      "enabled": true,
+      "radarr": {
+        "url": "http://localhost:7878",
+        "apiKey": "your-radarr-api-key"
+      },
+      "sonarr": {
+        "url": "http://localhost:8989",
+        "apiKey": "your-sonarr-api-key"
+      }
+    },
+    "obsidian": {
+      "enabled": true,
+      "apiUrl": "http://localhost:27123",
+      "apiKey": "your-obsidian-local-rest-api-key",
+      "vaultName": "MyVault",
+      "syncInterval": 300,
+      "timeout": 15
+    },
+    "exec": {
+      "timeout": 60,
+      "allowedCommands": ["ls", "grep", "git", "cargo"]
+    },
+    "restrictToWorkspace": true
   }
 }
 ```
@@ -341,27 +384,50 @@ For OAuth models, you need to:
 
 ## Tools
 
-The agent has access to the following built-in tools:
+The agent has access to 24 built-in tools:
+
+### Core Tools (always available)
+
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read files from disk |
+| `write_file` | Write files to disk (with automatic versioned backups) |
+| `edit_file` | Edit files with find/replace diffs |
+| `list_dir` | List directory contents |
+| `exec` | Execute shell commands (allowlist/blocklist secured) |
+| `tmux` | Manage persistent tmux shell sessions (create, send, read, list, kill) |
+| `web_search` | Search the web (Brave API with DuckDuckGo fallback) |
+| `web_fetch` | Fetch and extract web page content |
+| `http` | Make HTTP requests (GET, POST, PUT, PATCH, DELETE) |
+| `message` | Send messages to chat channels |
+| `spawn` | Spawn background subagents for parallel task execution |
+| `subagent_control` | List running subagents, check capacity, or cancel by ID |
+| `cron` | Schedule tasks: agent mode (full LLM turn) or echo mode (direct delivery) |
+| `memory_search` | Search long-term memory and daily notes (FTS5) |
+| `reddit` | Fetch posts from Reddit subreddits (hot, new, top) |
+
+### Configurable Tools (require setup)
 
 | Tool | Description | Config Required |
 |------|-------------|-----------------|
-| `read_file` | Read files from disk | - |
-| `write_file` | Write files to disk | - |
-| `edit_file` | Edit files with find/replace | - |
-| `list_dir` | List directory contents | - |
-| `exec` | Execute shell commands | - |
-| `web_search` | Search the web (Brave, DuckDuckGo fallback) | Optional: `tools.web.search.apiKey` |
-| `web_fetch` | Fetch and extract web page content | - |
-| `http` | Make HTTP requests | - |
-| `message` | Send messages to chat channels | - |
-| `cron` | Schedule tasks: agent mode (full LLM) or echo mode (direct delivery) | - |
-| `spawn` | Spawn background subagents | - |
-| `tmux` | Manage tmux sessions | - |
-| `google_mail` | Read/send Gmail | `tools.google.*` + OAuth |
-| `google_calendar` | Manage Google Calendar events | `tools.google.*` + OAuth |
-| `github` | GitHub API (issues, PRs, repos) | `tools.github.token` |
-| `weather` | Get weather forecasts | `tools.weather.apiKey` |
-| `todoist` | Manage Todoist tasks | `tools.todoist.token` |
+| `google_mail` | Gmail: search, read, send, reply, label | `tools.google.*` + OAuth |
+| `google_calendar` | Google Calendar: list, create, update, delete events | `tools.google.*` + OAuth |
+| `github` | GitHub API: issues, PRs, repos | `tools.github.token` |
+| `weather` | Weather forecasts via OpenWeatherMap | `tools.weather.apiKey` |
+| `todoist` | Todoist task management: list, create, complete, update | `tools.todoist.token` |
+| `media` | Radarr/Sonarr: search, add, monitor movies & TV | `tools.media.*` |
+| `obsidian` | Obsidian vault: read, write, append, search, list notes | `tools.obsidian.*` |
+
+### Subagent System
+
+The agent can spawn background subagents to handle complex tasks in parallel:
+
+- **Concurrency limiting**: Configurable max concurrent subagents (default 5) via semaphore
+- **Context injection**: Subagents receive the parent conversation's compaction summary so they understand what was discussed
+- **Silent mode**: Internal spawns (from cron/daemon) can skip user-facing announcements
+- **Lifecycle management**: List running subagents, check capacity, cancel by ID
+- **Tool isolation**: Subagents get filesystem, shell, and web tools but cannot message users or spawn more subagents
+- **Parallel tool execution**: Subagent tool calls run in parallel (same pattern as the main agent loop)
 
 ## Workspace Structure
 
@@ -374,11 +440,14 @@ The agent has access to the following built-in tools:
 │   ├── TOOLS.md             # Tool usage guide
 │   ├── memory/
 │   │   ├── MEMORY.md        # Long-term memory
+│   │   ├── memory.sqlite3   # FTS5 search index
 │   │   └── YYYY-MM-DD.md    # Daily notes (auto-extracted facts)
-│   ├── sessions/            # Conversation sessions
+│   ├── sessions/            # Conversation sessions (per channel:chat_id)
 │   └── skills/              # Custom skills (SKILL.md per skill)
+├── backups/                 # Automatic file backups (up to 14 versions)
 ├── cron/
 │   └── jobs.json            # Scheduled jobs
+├── google_tokens.json       # Google OAuth tokens
 └── whatsapp/
     └── whatsapp.db          # WhatsApp session storage
 ```
@@ -387,7 +456,7 @@ The agent has access to the following built-in tools:
 
 ```
 src/
-├── agent/          # Agent loop, context, memory, tools, subagents
+├── agent/          # Agent loop, context, memory, tools, subagents, compaction, skills
 ├── auth/           # OAuth authentication (Google)
 ├── bus/            # Message bus for channel-agent communication
 ├── channels/       # Channel implementations (Telegram, Discord, Slack, WhatsApp)
@@ -396,22 +465,26 @@ src/
 ├── cron/           # Cron job scheduling service
 ├── heartbeat/      # Heartbeat/daemon service
 ├── providers/      # LLM provider implementations (Anthropic, OpenAI, Gemini)
-├── session/        # Session management with LRU cache
-└── utils/          # Utility functions (atomic writes, task tracking)
+├── session/        # Session management with SQLite backend
+├── errors.rs       # NanobotError typed error enum
+└── utils/          # URL security, atomic writes, task tracking
 ```
 
 ## Architecture
 
 - **Async-first**: Built on `tokio` for high-performance async I/O
 - **Message bus**: Decoupled channel-agent communication via inbound/outbound message bus
-- **Session management**: File-backed sessions with automatic TTL cleanup
-- **Memory**: SQLite FTS5 for semantic memory indexing with background indexer
-- **Compaction**: Automatic conversation summarisation when context exceeds threshold
-- **Streaming**: SSE-based streaming for Anthropic provider responses
-- **Tool execution**: Panic-isolated via `tokio::task::spawn` with LRU result caching, pre-execution schema validation
-- **Cron**: File-backed job store with multi-channel target delivery, echo mode for LLM-free reminders
-- **Action integrity**: Hallucination detection prevents the LLM from claiming actions it didn't perform; unknown tool calls list available tools for self-correction
-- **Security**: Shell command allowlist + blocklist with command substitution / variable expansion blocking; SSRF protection; path traversal prevention
+- **Session management**: SQLite-backed sessions with automatic TTL cleanup
+- **Memory**: SQLite FTS5 for semantic memory indexing with background indexer and automatic fact extraction
+- **Compaction**: Automatic conversation summarization when context exceeds token threshold
+- **Streaming**: SSE-based streaming with live message editing on supported channels (Telegram, Discord, Slack)
+- **Tool execution**: Panic-isolated via `tokio::task::spawn`, parallel execution via `join_all`, LRU result caching for read-only tools, pre-execution JSON schema validation
+- **Subagents**: Semaphore-limited background task execution with conversation context injection and parallel tool calls
+- **Cron**: File-backed job store with multi-channel target delivery, agent mode and echo mode, timezone auto-detection
+- **Heartbeat/Daemon**: Periodic background check-ins driven by a strategy file (`HEARTBEAT.md`)
+- **Skills**: Extensible via workspace SKILL.md files with YAML frontmatter, dependency checking, and auto-include
+- **Hallucination detection**: Regex-based action claim detection and tool-name mention counting prevent the LLM from claiming actions it didn't perform; first-iteration forced tool use prevents text-only hallucinations
+- **Security**: Shell command allowlist + blocklist with pipe/chain operator parsing; SSRF protection blocking private IPs, loopback, and metadata endpoints; path traversal prevention; OAuth credential file permissions (0o600); config secret redaction in Debug impls
 
 ## Development
 

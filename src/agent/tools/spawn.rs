@@ -9,6 +9,7 @@ pub struct SpawnTool {
     manager: Arc<SubagentManager>,
     origin_channel: Arc<tokio::sync::Mutex<String>>,
     origin_chat_id: Arc<tokio::sync::Mutex<String>>,
+    context_summary: Arc<tokio::sync::Mutex<Option<String>>>,
 }
 
 impl SpawnTool {
@@ -17,6 +18,7 @@ impl SpawnTool {
             manager,
             origin_channel: Arc::new(tokio::sync::Mutex::new("cli".to_string())),
             origin_chat_id: Arc::new(tokio::sync::Mutex::new("direct".to_string())),
+            context_summary: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 }
@@ -58,13 +60,25 @@ impl Tool for SpawnTool {
 
         let channel = self.origin_channel.lock().await.clone();
         let chat_id = self.origin_chat_id.lock().await.clone();
+        let context = self.context_summary.lock().await.clone();
 
-        let result = self.manager.spawn(task, label, channel, chat_id).await?;
+        let result = self
+            .manager
+            .spawn(task, label, channel, chat_id, false, context)
+            .await?;
         Ok(ToolResult::new(result))
     }
 
     async fn set_context(&self, channel: &str, chat_id: &str) {
         *self.origin_channel.lock().await = channel.to_string();
         *self.origin_chat_id.lock().await = chat_id.to_string();
+    }
+
+    async fn set_context_summary(&self, summary: &str) {
+        *self.context_summary.lock().await = if summary.is_empty() {
+            None
+        } else {
+            Some(summary.to_string())
+        };
     }
 }

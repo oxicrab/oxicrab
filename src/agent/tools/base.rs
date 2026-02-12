@@ -102,4 +102,10 @@ pub trait Tool: Send + Sync {
     async fn set_context(&self, _channel: &str, _chat_id: &str) {
         // Default: no-op
     }
+
+    /// Set a conversation context summary for tools that can use it (e.g., spawn).
+    /// Called before tool execution with a compressed summary of the current conversation.
+    async fn set_context_summary(&self, _summary: &str) {
+        // Default: no-op
+    }
 }

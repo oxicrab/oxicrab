@@ -215,6 +215,11 @@ pub struct AgentDefaults {
     pub memory_indexer_interval: u64,
     #[serde(default = "default_media_ttl_days", rename = "mediaTtlDays")]
     pub media_ttl_days: u32,
+    #[serde(
+        default = "default_max_concurrent_subagents",
+        rename = "maxConcurrentSubagents"
+    )]
+    pub max_concurrent_subagents: usize,
 }
 
 impl Default for AgentDefaults {
@@ -230,6 +235,7 @@ impl Default for AgentDefaults {
             session_ttl_days: default_session_ttl_days(),
             memory_indexer_interval: default_memory_indexer_interval(),
             media_ttl_days: default_media_ttl_days(),
+            max_concurrent_subagents: default_max_concurrent_subagents(),
         }
     }
 }
@@ -240,6 +246,10 @@ fn default_memory_indexer_interval() -> u64 {
 
 fn default_media_ttl_days() -> u32 {
     7
+}
+
+fn default_max_concurrent_subagents() -> usize {
+    5
 }
 
 fn default_session_ttl_days() -> u32 {

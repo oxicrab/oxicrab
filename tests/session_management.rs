@@ -3,13 +3,8 @@ use std::collections::HashMap;
 use tempfile::TempDir;
 
 /// Create a SessionManager that uses an isolated temp directory.
-/// Sets NANOBOT_HOME so `get_nanobot_home()` returns the temp dir,
-/// ensuring sessions are stored in `<tmp>/sessions/` instead of `~/.nanobot/sessions/`.
 fn create_test_session_manager() -> (SessionManager, TempDir) {
     let tmp = TempDir::new().expect("Failed to create temp dir");
-    // SessionManager::new() uses get_nanobot_home() for the sessions dir.
-    // Setting NANOBOT_HOME makes it use our temp dir.
-    std::env::set_var("NANOBOT_HOME", tmp.path());
     let mgr =
         SessionManager::new(tmp.path().to_path_buf()).expect("Failed to create SessionManager");
     (mgr, tmp)
@@ -33,7 +28,6 @@ async fn test_session_save_and_load() {
     mgr.save(&session).await.unwrap();
 
     // Create a new manager pointing at the same directory to force load from disk
-    std::env::set_var("NANOBOT_HOME", tmp.path());
     let mgr2 =
         SessionManager::new(tmp.path().to_path_buf()).expect("Failed to create second manager");
     let loaded = mgr2.get_or_create("test:chat1").await.unwrap();
@@ -144,7 +138,6 @@ async fn test_sessions_are_isolated() {
     mgr.save(&session_b).await.unwrap();
 
     // Reload and verify isolation
-    std::env::set_var("NANOBOT_HOME", tmp.path());
     let mgr2 =
         SessionManager::new(tmp.path().to_path_buf()).expect("Failed to create second manager");
     let loaded_a = mgr2.get_or_create("chan_a:chat_1").await.unwrap();
@@ -171,7 +164,6 @@ async fn test_session_metadata_persists() {
     mgr.save(&session).await.unwrap();
 
     // Load from disk via new manager
-    std::env::set_var("NANOBOT_HOME", tmp.path());
     let mgr2 =
         SessionManager::new(tmp.path().to_path_buf()).expect("Failed to create second manager");
     let loaded = mgr2.get_or_create("test:meta").await.unwrap();

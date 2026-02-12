@@ -52,8 +52,17 @@ impl Tool for SubagentControlTool {
         match action.as_str() {
             "list" => {
                 let tasks = self.manager.list_running().await;
+                let (running, max, available) = self.manager.capacity().await;
+                let capacity_line = format!(
+                    "Capacity: {}/{} running, {} slots available",
+                    running, max, available
+                );
+
                 if tasks.is_empty() {
-                    return Ok(ToolResult::new("No running subagents.".to_string()));
+                    return Ok(ToolResult::new(format!(
+                        "No running subagents.\n{}",
+                        capacity_line
+                    )));
                 }
                 let lines: Vec<String> = tasks
                     .iter()
@@ -75,8 +84,9 @@ impl Tool for SubagentControlTool {
                     })
                     .collect();
                 Ok(ToolResult::new(format!(
-                    "Running subagents:\n{}",
-                    lines.join("\n")
+                    "Running subagents:\n{}\n{}",
+                    lines.join("\n"),
+                    capacity_line
                 )))
             }
             "cancel" => {
