@@ -4,7 +4,7 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 
 ## Features
 
-- **Multi-channel support**: Telegram, Discord, Slack, WhatsApp
+- **Multi-channel support**: Telegram, Discord, Slack, WhatsApp — each behind a Cargo feature flag for slim builds
 - **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), with OAuth support
 - **24 built-in tools**: Filesystem, shell, web, HTTP, Google Workspace, GitHub, scheduling, memory, media management, and more
 - **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
@@ -12,18 +12,31 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 - **Streaming responses**: SSE-based streaming with live message editing on Telegram, Discord, and Slack
 - **Memory system**: SQLite FTS5-backed long-term memory with background indexing and automatic fact extraction
 - **Session management**: Persistent sessions with automatic compaction and context summarization
-- **Hallucination detection**: Prevents the LLM from claiming actions it didn't perform
+- **Hallucination detection**: Action claim detection, false no-tools-claim retry, tool facts injection, and reflection turns
+- **Connection resilience**: All channels auto-reconnect with exponential backoff
 - **Security**: Shell command allowlist/blocklist, SSRF protection, path traversal prevention, secret redaction
 - **Async-first**: Built on Tokio for high-performance async I/O
 
 ## Building
 
-```bash
-# Debug build
-cargo build
+Each channel is behind a Cargo feature flag, so you can compile only what you need:
 
-# Release build
+| Feature | Channel | Default |
+|---------|---------|---------|
+| `channel-telegram` | Telegram (teloxide) | Yes |
+| `channel-discord` | Discord (serenity) | Yes |
+| `channel-slack` | Slack (tokio-tungstenite) | Yes |
+| `channel-whatsapp` | WhatsApp (whatsapp-rust) | Yes |
+
+```bash
+# Full build (all channels)
 cargo build --release
+
+# Slim build — only Telegram and Slack
+cargo build --release --no-default-features --features channel-telegram,channel-slack
+
+# No channels (agent CLI only)
+cargo build --release --no-default-features
 ```
 
 ## Configuration
@@ -110,6 +123,7 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
     },
     "web": {
       "search": {
+        "provider": "brave",
         "apiKey": "your-brave-search-api-key"
       }
     },
@@ -415,7 +429,7 @@ The agent has access to 24 built-in tools:
 | `list_dir` | List directory contents |
 | `exec` | Execute shell commands (allowlist/blocklist secured) |
 | `tmux` | Manage persistent tmux shell sessions (create, send, read, list, kill) |
-| `web_search` | Search the web (Brave API with DuckDuckGo fallback) |
+| `web_search` | Search the web (configurable: Brave API or DuckDuckGo) |
 | `web_fetch` | Fetch and extract web page content |
 | `http` | Make HTTP requests (GET, POST, PUT, PATCH, DELETE) |
 | `message` | Send messages to chat channels |
@@ -492,17 +506,21 @@ src/
 ## Architecture
 
 - **Async-first**: Built on `tokio` for high-performance async I/O
+- **Cargo feature flags**: Each channel is a compile-time feature (`channel-telegram`, `channel-discord`, `channel-slack`, `channel-whatsapp`), allowing slim builds without unused dependencies
 - **Message bus**: Decoupled channel-agent communication via inbound/outbound message bus
+- **Connection resilience**: All channels (Telegram, Discord, Slack, WhatsApp) use exponential backoff retry loops for automatic reconnection after disconnects
 - **Session management**: SQLite-backed sessions with automatic TTL cleanup
 - **Memory**: SQLite FTS5 for semantic memory indexing with background indexer and automatic fact extraction
 - **Compaction**: Automatic conversation summarization when context exceeds token threshold
 - **Streaming**: SSE-based streaming with live message editing on supported channels (Telegram, Discord, Slack)
 - **Tool execution**: Panic-isolated via `tokio::task::spawn`, parallel execution via `join_all`, LRU result caching for read-only tools, pre-execution JSON schema validation
+- **Tool facts injection**: Each agent turn injects a reminder listing all available tools, preventing the LLM from falsely claiming tools are unavailable
+- **Reflection turns**: After tool results are returned, a reflection prompt forces deliberative reasoning about next steps
 - **Subagents**: Semaphore-limited background task execution with conversation context injection and parallel tool calls
-- **Cron**: File-backed job store with multi-channel target delivery, agent mode and echo mode, timezone auto-detection, auto-expiry (`expires_at`), and run limits (`max_runs`)
+- **Cron**: File-backed job store with multi-channel target delivery, agent mode and echo mode, timezone auto-detection, auto-expiry (`expires_at`), run limits (`max_runs`), and automatic name deduplication
 - **Heartbeat/Daemon**: Periodic background check-ins driven by a strategy file (`HEARTBEAT.md`)
 - **Skills**: Extensible via workspace SKILL.md files with YAML frontmatter, dependency checking, and auto-include
-- **Hallucination detection**: Regex-based action claim detection and tool-name mention counting prevent the LLM from claiming actions it didn't perform; first-iteration forced tool use prevents text-only hallucinations
+- **Hallucination detection**: Regex-based action claim detection, tool-name mention counting, and false no-tools-claim detection with automatic retry prevent the LLM from fabricating actions or denying tool access; first-iteration forced tool use prevents text-only hallucinations
 - **Security**: Shell command allowlist + blocklist with pipe/chain operator parsing; SSRF protection blocking private IPs, loopback, and metadata endpoints; path traversal prevention; OAuth credential file permissions (0o600); config secret redaction in Debug impls
 
 ## Development
