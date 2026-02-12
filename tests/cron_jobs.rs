@@ -312,7 +312,7 @@ async fn test_cron_update_targets() {
 }
 
 #[tokio::test]
-async fn test_cron_add_duplicate_name_rejected() {
+async fn test_cron_add_duplicate_name_deduplicates() {
     let (svc, _tmp) = create_test_cron_service();
     svc.load_store(true).await.unwrap();
 
@@ -320,21 +320,15 @@ async fn test_cron_add_duplicate_name_rejected() {
         .await
         .unwrap();
 
-    // Same name, different case — should be rejected
-    let err = svc
-        .add_job(make_test_job("job2", "morning briefing"))
+    // Same name, different case — should auto-deduplicate with suffix
+    svc.add_job(make_test_job("job2", "morning briefing"))
         .await
-        .unwrap_err();
-    assert!(
-        err.to_string().contains("already exists"),
-        "Expected duplicate name error, got: {}",
-        err
-    );
+        .unwrap();
 
-    // Only the original job should exist
     let jobs = svc.list_jobs(true).await.unwrap();
-    assert_eq!(jobs.len(), 1);
-    assert_eq!(jobs[0].id, "job1");
+    assert_eq!(jobs.len(), 2);
+    assert_eq!(jobs[0].name, "Morning Briefing");
+    assert_eq!(jobs[1].name, "morning briefing (2)");
 }
 
 // --- Tests for bugs that were found and fixed ---
