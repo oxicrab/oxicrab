@@ -8,16 +8,16 @@ pub struct ToolResult {
 }
 
 impl ToolResult {
-    pub fn new(content: String) -> Self {
+    pub fn new(content: impl Into<String>) -> Self {
         Self {
-            content,
+            content: content.into(),
             is_error: false,
         }
     }
 
-    pub fn error(content: String) -> Self {
+    pub fn error(content: impl Into<String>) -> Self {
         Self {
-            content,
+            content: content.into(),
             is_error: true,
         }
     }

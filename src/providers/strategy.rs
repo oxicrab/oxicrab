@@ -148,7 +148,7 @@ impl ProviderStrategy for ApiKeyProviderStrategy {
 
 impl ApiKeyProviderStrategy {
     fn get_api_key(&self, model: &str) -> Option<String> {
-        self.config.get_api_key(model)
+        self.config.get_api_key(model).map(str::to_owned)
     }
 }
 

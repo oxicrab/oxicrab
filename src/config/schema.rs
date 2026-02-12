@@ -381,42 +381,42 @@ pub struct ProvidersConfig {
 impl ProvidersConfig {
     /// Get the API key for a given model name by matching provider keywords,
     /// falling back to the first available key.
-    pub fn get_api_key(&self, model: &str) -> Option<String> {
+    pub fn get_api_key(&self, model: &str) -> Option<&str> {
         let model_lower = model.to_lowercase();
 
         // Match provider by model name
         if model_lower.contains("openrouter") && !self.openrouter.api_key.is_empty() {
-            return Some(self.openrouter.api_key.clone());
+            return Some(&self.openrouter.api_key);
         }
         if model_lower.contains("deepseek") && !self.deepseek.api_key.is_empty() {
-            return Some(self.deepseek.api_key.clone());
+            return Some(&self.deepseek.api_key);
         }
         if (model_lower.contains("anthropic") || model_lower.contains("claude"))
             && !self.anthropic.api_key.is_empty()
         {
-            return Some(self.anthropic.api_key.clone());
+            return Some(&self.anthropic.api_key);
         }
         if (model_lower.contains("openai") || model_lower.contains("gpt"))
             && !self.openai.api_key.is_empty()
         {
-            return Some(self.openai.api_key.clone());
+            return Some(&self.openai.api_key);
         }
         if model_lower.contains("gemini") && !self.gemini.api_key.is_empty() {
-            return Some(self.gemini.api_key.clone());
+            return Some(&self.gemini.api_key);
         }
 
         // Fallback: first available key
         if !self.openrouter.api_key.is_empty() {
-            return Some(self.openrouter.api_key.clone());
+            return Some(&self.openrouter.api_key);
         }
         if !self.anthropic.api_key.is_empty() {
-            return Some(self.anthropic.api_key.clone());
+            return Some(&self.anthropic.api_key);
         }
         if !self.openai.api_key.is_empty() {
-            return Some(self.openai.api_key.clone());
+            return Some(&self.openai.api_key);
         }
         if !self.gemini.api_key.is_empty() {
-            return Some(self.gemini.api_key.clone());
+            return Some(&self.gemini.api_key);
         }
 
         None
@@ -970,7 +970,7 @@ impl Config {
     }
 
     #[allow(dead_code)]
-    pub fn get_api_key(&self, model: Option<&str>) -> Option<String> {
+    pub fn get_api_key(&self, model: Option<&str>) -> Option<&str> {
         let model = model.unwrap_or(&self.agents.defaults.model);
         self.providers.get_api_key(model)
     }
@@ -1077,7 +1077,7 @@ mod tests {
         let mut config = Config::default();
         config.providers.anthropic.api_key = "test-anthropic-key".to_string();
         let api_key = config.get_api_key(Some("claude-sonnet-4-5-20250929"));
-        assert_eq!(api_key, Some("test-anthropic-key".to_string()));
+        assert_eq!(api_key, Some("test-anthropic-key"));
     }
 
     #[test]
@@ -1085,7 +1085,7 @@ mod tests {
         let mut config = Config::default();
         config.providers.openai.api_key = "test-openai-key".to_string();
         let api_key = config.get_api_key(Some("gpt-4"));
-        assert_eq!(api_key, Some("test-openai-key".to_string()));
+        assert_eq!(api_key, Some("test-openai-key"));
     }
 
     #[test]
@@ -1094,6 +1094,6 @@ mod tests {
         config.providers.anthropic.api_key = "test-anthropic-key".to_string();
         // Call with no model parameter and no match - should fall back to first available
         let api_key = config.get_api_key(Some("unknown-model"));
-        assert_eq!(api_key, Some("test-anthropic-key".to_string()));
+        assert_eq!(api_key, Some("test-anthropic-key"));
     }
 }

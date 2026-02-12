@@ -84,7 +84,7 @@ impl Tool for ObsidianTool {
             "read" => {
                 let path = match params["path"].as_str() {
                     Some(p) if !p.is_empty() => p,
-                    _ => return Ok(ToolResult::error("'path' is required for read".into())),
+                    _ => return Ok(ToolResult::error("'path' is required for read")),
                 };
                 match self.cache.read_cached(path).await {
                     Some(content) => Ok(ToolResult::new(content)),
@@ -97,11 +97,11 @@ impl Tool for ObsidianTool {
             "write" => {
                 let path = match params["path"].as_str() {
                     Some(p) if !p.is_empty() => p,
-                    _ => return Ok(ToolResult::error("'path' is required for write".into())),
+                    _ => return Ok(ToolResult::error("'path' is required for write")),
                 };
                 let content = match params["content"].as_str() {
                     Some(c) => c,
-                    None => return Ok(ToolResult::error("'content' is required for write".into())),
+                    None => return Ok(ToolResult::error("'content' is required for write")),
                 };
                 match self.cache.write_file(path, content).await {
                     Ok(msg) => Ok(ToolResult::new(msg)),
@@ -111,13 +111,11 @@ impl Tool for ObsidianTool {
             "append" => {
                 let path = match params["path"].as_str() {
                     Some(p) if !p.is_empty() => p,
-                    _ => return Ok(ToolResult::error("'path' is required for append".into())),
+                    _ => return Ok(ToolResult::error("'path' is required for append")),
                 };
                 let content = match params["content"].as_str() {
                     Some(c) => c,
-                    None => {
-                        return Ok(ToolResult::error("'content' is required for append".into()))
-                    }
+                    None => return Ok(ToolResult::error("'content' is required for append")),
                 };
                 match self.cache.append_file(path, content).await {
                     Ok(msg) => Ok(ToolResult::new(msg)),
@@ -127,7 +125,7 @@ impl Tool for ObsidianTool {
             "search" => {
                 let query = match params["query"].as_str() {
                     Some(q) if !q.is_empty() => q,
-                    _ => return Ok(ToolResult::error("'query' is required for search".into())),
+                    _ => return Ok(ToolResult::error("'query' is required for search")),
                 };
                 let results = self.cache.search_cached(query).await;
                 if results.is_empty() {

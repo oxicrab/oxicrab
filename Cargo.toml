@@ -46,7 +46,7 @@ serenity = "0.12"
 sha2 = "0.10"
 teloxide = "0.13"
 tempfile = "3.10"
-tokio = { version = "1.40", features = ["full"] }
+tokio = { version = "1.40", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 # tokio-process = "0.2"  # Removed: unused and pulls in vulnerable crossbeam-queue 0.1.2
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 tracing = "0.1"

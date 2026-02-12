@@ -37,9 +37,9 @@ pub struct MessageData {
 }
 
 impl Session {
-    pub fn new(key: String) -> Self {
+    pub fn new(key: impl Into<String>) -> Self {
         Self {
-            key,
+            key: key.into(),
             messages: Vec::new(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -47,10 +47,15 @@ impl Session {
         }
     }
 
-    pub fn add_message(&mut self, role: String, content: String, extra: HashMap<String, Value>) {
+    pub fn add_message(
+        &mut self,
+        role: impl Into<String>,
+        content: impl Into<String>,
+        extra: HashMap<String, Value>,
+    ) {
         let msg = MessageData {
-            role,
-            content,
+            role: role.into(),
+            content: content.into(),
             timestamp: Utc::now().to_rfc3339(),
             extra,
         };
@@ -105,7 +110,7 @@ impl SessionManager {
     pub fn new(workspace: PathBuf) -> Result<Self> {
         let sessions_dir = ensure_dir(get_nanobot_home()?.join("sessions"))?;
         Ok(Self {
-            _workspace: workspace.clone(),
+            _workspace: workspace,
             sessions_dir,
             cache: Mutex::new(LruCache::new(
                 NonZeroUsize::new(MAX_CACHED_SESSIONS).expect("MAX_CACHED_SESSIONS must be > 0"),
