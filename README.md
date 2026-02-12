@@ -211,7 +211,22 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
 3. **Get Bot Token**:
    - Go to "OAuth & Permissions" in the left sidebar
    - Scroll to "Scopes" > "Bot Token Scopes"
-   - Add scopes: `chat:write`, `channels:history`, `groups:history`, `im:history`, `mpim:history`, `users:read`
+   - Add the following scopes:
+
+   | Scope | Purpose |
+   |-------|---------|
+   | `chat:write` | Send and edit messages |
+   | `channels:history` | Read messages in public channels |
+   | `groups:history` | Read messages in private channels |
+   | `im:history` | Read direct messages |
+   | `mpim:history` | Read group direct messages |
+   | `users:read` | Look up usernames from user IDs |
+   | `files:read` | Download image attachments from messages |
+   | `reactions:write` | Add emoji reactions to acknowledge messages |
+
+   Optional (not required but recommended):
+   | `users:write` | Set bot presence to "active" on startup |
+
    - Scroll up and click "Install to Workspace"
    - Copy the "Bot User OAuth Token" (starts with `xoxb-`)
 

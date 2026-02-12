@@ -741,6 +741,26 @@ async fn handle_slack_event(
         text
     };
 
+    // Add "eyes" reaction to acknowledge receipt (fire-and-forget)
+    if let Some(ts) = event.get("ts").and_then(|v| v.as_str()) {
+        let react_client = client.clone();
+        let react_token = bot_token.to_string();
+        let react_channel = channel_id.to_string();
+        let react_ts = ts.to_string();
+        tokio::spawn(async move {
+            let _ = react_client
+                .post("https://slack.com/api/reactions.add")
+                .form(&[
+                    ("token", react_token.as_str()),
+                    ("channel", react_channel.as_str()),
+                    ("timestamp", react_ts.as_str()),
+                    ("name", "eyes"),
+                ])
+                .send()
+                .await;
+        });
+    }
+
     let inbound_msg = InboundMessage {
         channel: "slack".to_string(),
         sender_id,
