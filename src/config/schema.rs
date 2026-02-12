@@ -510,6 +510,9 @@ fn default_google_scopes() -> Vec<String> {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct WebSearchConfig {
+    /// Search provider: "brave" (default) or "duckduckgo"
+    #[serde(default = "default_search_provider")]
+    pub provider: String,
     #[serde(default, rename = "apiKey")]
     pub api_key: String,
     #[serde(default = "default_max_results", rename = "maxResults")]
@@ -519,6 +522,7 @@ pub struct WebSearchConfig {
 impl std::fmt::Debug for WebSearchConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WebSearchConfig")
+            .field("provider", &self.provider)
             .field(
                 "api_key",
                 &if self.api_key.is_empty() {
@@ -535,10 +539,15 @@ impl std::fmt::Debug for WebSearchConfig {
 impl Default for WebSearchConfig {
     fn default() -> Self {
         Self {
+            provider: default_search_provider(),
             api_key: String::new(),
             max_results: default_max_results(),
         }
     }
+}
+
+fn default_search_provider() -> String {
+    "brave".to_string()
 }
 
 fn default_max_results() -> usize {

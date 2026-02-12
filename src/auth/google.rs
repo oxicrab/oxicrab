@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use oauth2::{
-    basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
-    ClientSecret, CsrfToken, RedirectUrl, Scope, TokenResponse, TokenUrl,
+    basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl,
+    Scope, TokenResponse, TokenUrl,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -155,17 +155,17 @@ pub async fn run_oauth_flow(
             .unwrap_or_else(|| PathBuf::from(DEFAULT_TOKEN_PATH))
     });
 
-    let client = BasicClient::new(
-        ClientId::new(client_id.to_string()),
-        Some(ClientSecret::new(client_secret.to_string())),
-        AuthUrl::new("https://accounts.google.com/o/oauth2/auth".to_string())?,
-        Some(TokenUrl::new(
+    let client = BasicClient::new(ClientId::new(client_id.to_string()))
+        .set_client_secret(ClientSecret::new(client_secret.to_string()))
+        .set_auth_uri(AuthUrl::new(
+            "https://accounts.google.com/o/oauth2/auth".to_string(),
+        )?)
+        .set_token_uri(TokenUrl::new(
             "https://oauth2.googleapis.com/token".to_string(),
-        )?),
-    )
-    .set_redirect_uri(RedirectUrl::new(format!("http://localhost:{}", port))?);
+        )?)
+        .set_redirect_uri(RedirectUrl::new(format!("http://localhost:{}", port))?);
 
-    let (auth_url, csrf_token) = client
+    let (auth_url, _csrf_token) = client
         .authorize_url(CsrfToken::new_random)
         .add_scopes(scopes.iter().map(|s| Scope::new(s.to_string())))
         .url();
@@ -181,27 +181,53 @@ pub async fn run_oauth_flow(
         .await;
     }
 
-    // Try browser flow, fall back to manual if it fails
-    match run_browser_flow(&client, client_secret, auth_url.clone(), csrf_token, port).await {
-        Ok(creds) => {
-            save_credentials(&creds, &token_path)?;
-            info!("Google credentials saved to {}", token_path.display());
-            Ok(creds)
-        }
+    // Try browser flow to get auth code, fall back to manual if it fails
+    let code = match get_code_via_browser(auth_url.clone(), port).await {
+        Ok(code) => code,
         Err(e) => {
             warn!("Browser flow failed ({}), falling back to manual flow", e);
-            run_manual_flow(client_id, client_secret, &scopes, &token_path, auth_url).await
+            return run_manual_flow(client_id, client_secret, &scopes, &token_path, auth_url).await;
         }
-    }
+    };
+
+    // Exchange code for token using oauth2 crate
+    let http_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .context("Failed to build HTTP client for token exchange")?;
+    let token_result = client
+        .exchange_code(AuthorizationCode::new(code))
+        .request_async(&http_client)
+        .await
+        .map_err(|e| anyhow::anyhow!("Token exchange failed: {}", e))?;
+
+    let creds = GoogleCredentials {
+        token: token_result.access_token().secret().clone(),
+        refresh_token: token_result.refresh_token().map(|rt| rt.secret().clone()),
+        token_uri: "https://oauth2.googleapis.com/token".to_string(),
+        client_id: client_id.to_string(),
+        client_secret: client_secret.to_string(),
+        scopes: token_result
+            .scopes()
+            .map(|s| s.iter().map(|scope| scope.to_string()).collect::<Vec<_>>())
+            .unwrap_or_default(),
+        expiry: token_result
+            .expires_in()
+            .map(|d: std::time::Duration| d.as_secs())
+            .and_then(|secs| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .ok()
+                    .map(|now| now.as_secs() + secs)
+            }),
+    };
+
+    save_credentials(&creds, &token_path)?;
+    info!("Google credentials saved to {}", token_path.display());
+    Ok(creds)
 }
 
-async fn run_browser_flow(
-    client: &BasicClient,
-    client_secret: &str,
-    auth_url: url::Url,
-    _csrf_token: CsrfToken,
-    port: u16,
-) -> Result<GoogleCredentials> {
+async fn get_code_via_browser(auth_url: url::Url, port: u16) -> Result<String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
@@ -227,31 +253,7 @@ async fn run_browser_flow(
     let response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
     stream.write_all(response.as_bytes()).await?;
 
-    // Exchange code for token using oauth2 crate
-    let token_result = client
-        .exchange_code(AuthorizationCode::new(code))
-        .request_async(async_http_client)
-        .await?;
-
-    let creds = GoogleCredentials {
-        token: token_result.access_token().secret().clone(),
-        refresh_token: token_result.refresh_token().map(|rt| rt.secret().clone()),
-        token_uri: "https://oauth2.googleapis.com/token".to_string(),
-        client_id: client.client_id().to_string(),
-        client_secret: client_secret.to_string(),
-        scopes: token_result
-            .scopes()
-            .map(|s| s.iter().map(|s| s.to_string()).collect())
-            .unwrap_or_default(),
-        expiry: token_result.expires_in().and_then(|d| {
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .ok()
-                .map(|now| now.as_secs() + d.as_secs())
-        }),
-    };
-
-    Ok(creds)
+    Ok(code)
 }
 
 async fn run_manual_flow(

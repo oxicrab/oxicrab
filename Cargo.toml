@@ -28,9 +28,8 @@ anyhow = "1.0"
 async-trait = "0.1"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.9"
+chrono-tz = "0.10"
 clap = { version = "4.5", features = ["derive"] }
-config = "0.14"
 cron = "0.15"
 dirs = "5.0"
 fastrand = "2.0"
@@ -38,35 +37,35 @@ futures-util = "0.3"
 hex = "0.4"
 html-escape = "0.2"
 lru = "0.16"
-oauth2 = "4.4"
+oauth2 = "5.0"
 open = "5.0"
 qr2term = { version = "0.3", optional = true }
 qrcode = { version = "0.14", optional = true }
-regex = "1.10"
+regex = "1.12"
 reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
-rusqlite = { version = "0.31", features = ["bundled"] }
-scraper = "0.19"
+rusqlite = { version = "0.37", features = ["bundled"] }
+scraper = "0.25"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_yaml = "0.9"
+serde_yaml_ng = "0.10"
 serenity = { version = "0.12", optional = true }
 sha2 = "0.10"
-teloxide = { version = "0.13", optional = true }
-tempfile = "3.10"
-tokio = { version = "1.40", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+teloxide = { version = "0.17", optional = true }
+tempfile = "3.25"
+tokio = { version = "1.49", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 # tokio-process = "0.2"  # Removed: unused and pulls in vulnerable crossbeam-queue 0.1.2
-tokio-tungstenite = { version = "0.24", features = ["native-tls"], optional = true }
+tokio-tungstenite = { version = "0.28", features = ["native-tls"], optional = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Note: Ensure >= 0.3.20 for RUSTSEC-2025-0055 (ANSI escape sequence injection) - current: 0.3.22
 url = "2.5"
 urlencoding = "2.1"
-uuid = { version = "1.10", features = ["v4", "serde"] }
-walkdir = "2.4"
-whatsapp-rust = { git = "https://github.com/jlucaso1/whatsapp-rust", rev = "1cc15f7403441e4f151c559094a30472f6d359d8", optional = true }
-whatsapp-rust-tokio-transport = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-tokio-transport", rev = "1cc15f7403441e4f151c559094a30472f6d359d8", optional = true }
-whatsapp-rust-ureq-http-client = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-ureq-http-client", rev = "1cc15f7403441e4f151c559094a30472f6d359d8", optional = true }
-which = "6.0"
+uuid = { version = "1.20", features = ["v4", "serde"] }
+walkdir = "2.5"
+whatsapp-rust = { git = "https://github.com/jlucaso1/whatsapp-rust", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
+whatsapp-rust-tokio-transport = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-tokio-transport", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
+whatsapp-rust-ureq-http-client = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-ureq-http-client", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
+which = "8.0"
 
 # Security: Force minimum versions of transitive dependencies to resolve vulnerabilities
 # - CVE-2022-23639 / GHSA-qc84-gqf4-9926: crossbeam-utils AtomicCell unsoundness (fixed in >= 0.8.7)

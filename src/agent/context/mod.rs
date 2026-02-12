@@ -115,6 +115,7 @@ impl ContextBuilder {
             now.format("%A"),
             now.format("%H:%M %Z")
         );
+        let tz_str = now.format("%Z").to_string();
 
         let workspace_path = self
             .workspace
@@ -132,6 +133,7 @@ impl ContextBuilder {
                 return Ok(self.build_identity_with_context(
                     &content,
                     &date_str,
+                    &tz_str,
                     &runtime,
                     &workspace_path,
                 ));
@@ -140,26 +142,33 @@ impl ContextBuilder {
         }
 
         // Fallback to defaults
-        Ok(self.get_default_identity(&date_str, &runtime, &workspace_path))
+        Ok(self.get_default_identity(&date_str, &tz_str, &runtime, &workspace_path))
     }
 
     fn build_identity_with_context(
         &self,
         identity_content: &str,
         now: &str,
+        tz: &str,
         runtime: &str,
         workspace_path: &str,
     ) -> String {
         format!(
-            "{}\n\n## Current Context\n\n**Date**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md",
-            identity_content, now, runtime, workspace_path, workspace_path, workspace_path, workspace_path,
+            "{}\n\n## Current Context\n\n**Date**: {}\n**Timezone**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md",
+            identity_content, now, tz, runtime, workspace_path, workspace_path, workspace_path, workspace_path,
         )
     }
 
-    fn get_default_identity(&self, now: &str, runtime: &str, workspace_path: &str) -> String {
+    fn get_default_identity(
+        &self,
+        now: &str,
+        tz: &str,
+        runtime: &str,
+        workspace_path: &str,
+    ) -> String {
         format!(
-            "# nanobot\n\nYou are nanobot, a helpful AI assistant.\n\n## Capabilities\n\n- Read, write, and edit files\n- Execute shell commands\n- Search the web and fetch web pages\n- Send messages to users on chat channels\n- Spawn subagents for complex background tasks\n\n## Tool Usage Rules\n\n- NEVER claim to have called a tool or report tool results unless you actually invoked the tool in this conversation.\n- NEVER fabricate or simulate tool output. If you need data, call the tool.\n- If asked to test or run tools, you MUST call each tool individually and report the real results.\n- If a tool is unavailable or fails, say so explicitly — do not invent results.\n\n## Current Context\n\n**Date**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md",
-            now, runtime, workspace_path, workspace_path, workspace_path, workspace_path,
+            "# nanobot\n\nYou are nanobot, a helpful AI assistant.\n\n## Capabilities\n\n- Read, write, and edit files\n- Execute shell commands\n- Search the web and fetch web pages\n- Send messages to users on chat channels\n- Spawn subagents for complex background tasks\n\n## Tool Usage Rules\n\n- NEVER claim to have called a tool or report tool results unless you actually invoked the tool in this conversation.\n- NEVER fabricate or simulate tool output. If you need data, call the tool.\n- If asked to test or run tools, you MUST call each tool individually and report the real results.\n- If a tool is unavailable or fails, say so explicitly — do not invent results.\n\n## Current Context\n\n**Date**: {}\n**Timezone**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md",
+            now, tz, runtime, workspace_path, workspace_path, workspace_path, workspace_path,
         )
     }
 

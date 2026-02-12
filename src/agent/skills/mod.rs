@@ -245,7 +245,7 @@ impl SkillsLoader {
         {
             let end_idx = rest.find("\n---")?;
             let yaml_content = rest[..end_idx].trim();
-            match serde_yaml::from_str::<Value>(yaml_content) {
+            match serde_yaml_ng::from_str::<Value>(yaml_content) {
                 Ok(val) => Some(val),
                 Err(e) => {
                     tracing::debug!("Failed to parse skill YAML frontmatter: {}", e);

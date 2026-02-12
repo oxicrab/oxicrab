@@ -22,6 +22,7 @@ async fn create_test_agent(provider: MockLLMProvider, tmp: &TempDir) -> AgentLoo
         model: Some("mock-model".to_string()),
         max_iterations: 10,
         brave_api_key: None,
+        web_search_config: None,
         exec_timeout: 30,
         restrict_to_workspace: true,
         allowed_commands: vec![],

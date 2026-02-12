@@ -414,6 +414,7 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
             model: params.model,
             max_iterations: config.agents.defaults.max_tool_iterations,
             brave_api_key: Some(config.tools.web.search.api_key.clone()),
+            web_search_config: Some(config.tools.web.search.clone()),
             exec_timeout: config.tools.exec.timeout,
             restrict_to_workspace: config.tools.restrict_to_workspace,
             allowed_commands: config.tools.exec.allowed_commands.clone(),

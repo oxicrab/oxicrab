@@ -1,5 +1,6 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{split_message, BaseChannel};
+use crate::channels::utils::exponential_backoff_delay;
 use crate::config::DiscordConfig;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -102,7 +103,7 @@ impl EventHandler for Handler {
 pub struct DiscordChannel {
     config: DiscordConfig,
     inbound_tx: mpsc::Sender<InboundMessage>,
-    _running: Arc<tokio::sync::Mutex<bool>>,
+    running: Arc<tokio::sync::Mutex<bool>>,
     _client_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -111,7 +112,7 @@ impl DiscordChannel {
         Self {
             config,
             inbound_tx,
-            _running: Arc::new(tokio::sync::Mutex::new(false)),
+            running: Arc::new(tokio::sync::Mutex::new(false)),
             _client_handle: None,
         }
     }
@@ -129,45 +130,62 @@ impl BaseChannel for DiscordChannel {
         }
 
         tracing::info!("Initializing Discord client...");
-        *self._running.lock().await = true;
+        *self.running.lock().await = true;
 
-        let allow_set: std::collections::HashSet<String> = self
-            .config
-            .allow_from
-            .iter()
-            .map(|a| a.trim_start_matches('+').to_string())
-            .collect();
-        let handler = Handler {
-            inbound_tx: self.inbound_tx.clone(),
-            has_allow_list: !self.config.allow_from.is_empty(),
-            allow_set,
-        };
+        let token = self.config.token.clone();
+        let allow_from = self.config.allow_from.clone();
+        let inbound_tx = self.inbound_tx.clone();
+        let running = self.running.clone();
 
-        tracing::info!("Connecting to Discord gateway...");
-        let mut client = Client::builder(
-            &self.config.token,
-            GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT,
-        )
-        .event_handler(handler)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to create Discord client: {}", e);
-            anyhow::anyhow!("Failed to create Discord client: {}", e)
-        })?;
-
-        let shard_manager = client.shard_manager.clone();
-        tokio::spawn(async move {
-            tokio::signal::ctrl_c().await.ok();
-            shard_manager.shutdown_all().await;
-        });
-
-        // Start the client - this actually connects to Discord
-        // Keep the client alive by running start() in a spawned task
-        let shard_manager_for_error = client.shard_manager.clone();
         let handle = tokio::spawn(async move {
-            if let Err(why) = client.start().await {
-                tracing::error!("Discord client connection error: {:?}", why);
-                shard_manager_for_error.shutdown_all().await;
+            let mut reconnect_attempt = 0u32;
+            loop {
+                if !*running.lock().await {
+                    tracing::info!("Discord channel stopped, exiting retry loop");
+                    break;
+                }
+
+                let allow_set: std::collections::HashSet<String> = allow_from
+                    .iter()
+                    .map(|a| a.trim_start_matches('+').to_string())
+                    .collect();
+                let handler = Handler {
+                    inbound_tx: inbound_tx.clone(),
+                    has_allow_list: !allow_from.is_empty(),
+                    allow_set,
+                };
+
+                tracing::info!("Connecting to Discord gateway...");
+                match Client::builder(
+                    &token,
+                    GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT,
+                )
+                .event_handler(handler)
+                .await
+                {
+                    Ok(mut client) => {
+                        reconnect_attempt = 0; // Reset on successful client creation
+                        if let Err(why) = client.start().await {
+                            tracing::error!("Discord client connection error: {:?}", why);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to create Discord client: {}", e);
+                    }
+                }
+
+                // Check if we should reconnect
+                if !*running.lock().await {
+                    break;
+                }
+
+                let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                reconnect_attempt += 1;
+                tracing::warn!(
+                    "Discord client exited, reconnecting in {} seconds...",
+                    delay
+                );
+                tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
             }
         });
 
@@ -180,7 +198,7 @@ impl BaseChannel for DiscordChannel {
     }
 
     async fn stop(&mut self) -> Result<()> {
-        *self._running.lock().await = false;
+        *self.running.lock().await = false;
         // Client will be dropped when handle completes
         if let Some(handle) = self._client_handle.take() {
             handle.abort();

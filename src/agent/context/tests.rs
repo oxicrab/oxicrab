@@ -10,7 +10,7 @@ fn test_default_identity_contains_required_sections() {
     let tmp = tempfile::TempDir::new().unwrap();
     let ctx = create_test_context(tmp.path());
 
-    let identity = ctx.get_default_identity("2026-02-09", "Rust 0.1.3", "/workspace");
+    let identity = ctx.get_default_identity("2026-02-09", "EST", "Rust 0.1.3", "/workspace");
 
     assert!(identity.contains("# nanobot"), "missing heading");
     assert!(identity.contains("## Capabilities"), "missing capabilities");
@@ -28,6 +28,10 @@ fn test_default_identity_contains_required_sections() {
         "missing runtime injection"
     );
     assert!(
+        identity.contains("**Timezone**: EST"),
+        "missing timezone injection"
+    );
+    assert!(
         identity.contains("**Workspace**: /workspace"),
         "missing workspace injection"
     );
@@ -42,7 +46,7 @@ fn test_default_identity_has_no_behavioral_rules() {
     let tmp = tempfile::TempDir::new().unwrap();
     let ctx = create_test_context(tmp.path());
 
-    let identity = ctx.get_default_identity("now", "Rust 0.1.3", "/ws");
+    let identity = ctx.get_default_identity("now", "UTC", "Rust 0.1.3", "/ws");
 
     assert!(
         !identity.contains("## Behavioral Rules"),
@@ -58,6 +62,7 @@ fn test_build_identity_with_context_appends_context() {
     let result = ctx.build_identity_with_context(
         "# Custom Bot\n\nI am a custom bot.",
         "2026-02-09",
+        "EST",
         "Rust 0.1.3",
         "/my/workspace",
     );

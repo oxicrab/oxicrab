@@ -1,6 +1,6 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{split_message, BaseChannel};
-use crate::channels::utils::check_allowed_sender;
+use crate::channels::utils::{check_allowed_sender, exponential_backoff_delay};
 use crate::config::TelegramConfig;
 use crate::utils::regex::RegexPatterns;
 use anyhow::Result;
@@ -17,7 +17,7 @@ pub struct TelegramChannel {
     config: TelegramConfig,
     inbound_tx: mpsc::Sender<InboundMessage>,
     bot: Bot,
-    _running: Arc<tokio::sync::Mutex<bool>>,
+    running: Arc<tokio::sync::Mutex<bool>>,
     dispatcher_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -28,7 +28,7 @@ impl TelegramChannel {
             config,
             inbound_tx,
             bot,
-            _running: Arc::new(tokio::sync::Mutex::new(false)),
+            running: Arc::new(tokio::sync::Mutex::new(false)),
             dispatcher_handle: None,
         }
     }
@@ -42,122 +42,148 @@ impl BaseChannel for TelegramChannel {
 
     async fn start(&mut self) -> Result<()> {
         tracing::info!("Initializing Telegram bot...");
-        *self._running.lock().await = true;
+        *self.running.lock().await = true;
 
         let bot = self.bot.clone();
         let inbound_tx = self.inbound_tx.clone();
         let allow_list = self.config.allow_from.clone();
+        let running = self.running.clone();
 
-        let handler = Update::filter_message().endpoint(move |bot: Bot, msg: TgMessage| {
-            let inbound_tx = inbound_tx.clone();
-            let allow_list = allow_list.clone();
-            async move {
-                if let MessageKind::Common(_msg_common) = &msg.kind {
-                    let sender_id = msg
-                        .from
-                        .as_ref()
-                        .map(|u| u.id.to_string())
-                        .unwrap_or_default();
+        // Spawn dispatcher in background task with retry loop
+        let handle = tokio::spawn(async move {
+            let mut reconnect_attempt = 0u32;
+            loop {
+                // Check if we should still be running
+                if !*running.lock().await {
+                    tracing::info!("Telegram channel stopped, exiting retry loop");
+                    break;
+                }
 
-                    // Check allowlist using utility function
-                    if !check_allowed_sender(&sender_id, &allow_list) {
-                        return Ok(());
-                    }
+                let bot_clone = bot.clone();
+                let inbound_tx_clone = inbound_tx.clone();
+                let allow_list_clone = allow_list.clone();
 
-                    // Handle photos
-                    if let Some(photos) = msg.photo() {
-                        if let Some(photo) = photos.last() {
-                            let text = msg.caption().unwrap_or("").to_string();
-                            let mut media_paths = Vec::new();
-                            let mut content = text.clone();
+                let handler = Update::filter_message().endpoint(move |bot: Bot, msg: TgMessage| {
+                    let inbound_tx = inbound_tx_clone.clone();
+                    let allow_list = allow_list_clone.clone();
+                    async move {
+                        if let MessageKind::Common(_msg_common) = &msg.kind {
+                            let sender_id = msg
+                                .from
+                                .as_ref()
+                                .map(|u| u.id.to_string())
+                                .unwrap_or_default();
 
-                            // Download the photo
-                            match bot.get_file(&photo.file.id).await {
-                                Ok(file) => {
-                                    let media_dir = dirs::home_dir()
-                                        .unwrap_or_else(|| std::path::PathBuf::from("."))
-                                        .join(".nanobot")
-                                        .join("media");
-                                    let _ = std::fs::create_dir_all(&media_dir);
-                                    let file_path = media_dir
-                                        .join(format!("telegram_{}.jpg", photo.file.unique_id));
+                            // Check allowlist using utility function
+                            if !check_allowed_sender(&sender_id, &allow_list) {
+                                return Ok(());
+                            }
 
-                                    let mut dst =
-                                        tokio::fs::File::create(&file_path).await.map_err(|e| {
-                                            tracing::warn!(
-                                                "Failed to create file for Telegram photo: {}",
-                                                e
-                                            );
-                                            e
-                                        });
-                                    if let Ok(ref mut dst_file) = dst {
-                                        if let Err(e) =
-                                            bot.download_file(&file.path, dst_file).await
-                                        {
-                                            tracing::warn!(
-                                                "Failed to download Telegram photo: {}",
-                                                e
-                                            );
-                                        } else {
-                                            let path_str = file_path.to_string_lossy().to_string();
-                                            media_paths.push(path_str.clone());
-                                            content = format!("{}\n[image: {}]", content, path_str);
+                            // Handle photos
+                            if let Some(photos) = msg.photo() {
+                                if let Some(photo) = photos.last() {
+                                    let text = msg.caption().unwrap_or("").to_string();
+                                    let mut media_paths = Vec::new();
+                                    let mut content = text.clone();
+
+                                    // Download the photo
+                                    match bot.get_file(photo.file.id.clone()).await {
+                                        Ok(file) => {
+                                            let media_dir = dirs::home_dir()
+                                                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                                                .join(".nanobot")
+                                                .join("media");
+                                            let _ = std::fs::create_dir_all(&media_dir);
+                                            let file_path = media_dir
+                                                .join(format!("telegram_{}.jpg", photo.file.unique_id));
+
+                                            let mut dst =
+                                                tokio::fs::File::create(&file_path).await.map_err(|e| {
+                                                    tracing::warn!(
+                                                        "Failed to create file for Telegram photo: {}",
+                                                        e
+                                                    );
+                                                    e
+                                                });
+                                            if let Ok(ref mut dst_file) = dst {
+                                                if let Err(e) =
+                                                    bot.download_file(&file.path, dst_file).await
+                                                {
+                                                    tracing::warn!(
+                                                        "Failed to download Telegram photo: {}",
+                                                        e
+                                                    );
+                                                } else {
+                                                    let path_str = file_path.to_string_lossy().to_string();
+                                                    media_paths.push(path_str.clone());
+                                                    content = format!("{}\n[image: {}]", content, path_str);
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!("Failed to get Telegram file info: {}", e);
                                         }
                                     }
-                                }
-                                Err(e) => {
-                                    tracing::warn!("Failed to get Telegram file info: {}", e);
+
+                                    if !content.trim().is_empty() || !media_paths.is_empty() {
+                                        let inbound_msg = InboundMessage {
+                                            channel: "telegram".to_string(),
+                                            sender_id,
+                                            chat_id: msg.chat.id.to_string(),
+                                            content,
+                                            timestamp: Utc::now(),
+                                            media: media_paths,
+                                            metadata: HashMap::new(),
+                                        };
+                                        if let Err(e) = inbound_tx.send(inbound_msg).await {
+                                            tracing::error!(
+                                                "Failed to send Telegram inbound message: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+                                    return Ok(());
                                 }
                             }
 
-                            if !content.trim().is_empty() || !media_paths.is_empty() {
+                            // Handle text-only messages
+                            if let Some(text) = msg.text() {
                                 let inbound_msg = InboundMessage {
                                     channel: "telegram".to_string(),
                                     sender_id,
                                     chat_id: msg.chat.id.to_string(),
-                                    content,
+                                    content: text.to_string(),
                                     timestamp: Utc::now(),
-                                    media: media_paths,
+                                    media: vec![],
                                     metadata: HashMap::new(),
                                 };
+
                                 if let Err(e) = inbound_tx.send(inbound_msg).await {
-                                    tracing::error!(
-                                        "Failed to send Telegram inbound message: {}",
-                                        e
-                                    );
+                                    tracing::error!("Failed to send Telegram inbound message: {}", e);
                                 }
                             }
-                            return Ok(());
                         }
+                        Ok::<(), anyhow::Error>(())
                     }
+                });
 
-                    // Handle text-only messages
-                    if let Some(text) = msg.text() {
-                        let inbound_msg = InboundMessage {
-                            channel: "telegram".to_string(),
-                            sender_id,
-                            chat_id: msg.chat.id.to_string(),
-                            content: text.to_string(),
-                            timestamp: Utc::now(),
-                            media: vec![],
-                            metadata: HashMap::new(),
-                        };
+                tracing::info!("Starting Telegram dispatcher...");
+                let mut dispatcher = Dispatcher::builder(bot_clone, handler).build();
+                dispatcher.dispatch().await;
 
-                        if let Err(e) = inbound_tx.send(inbound_msg).await {
-                            tracing::error!("Failed to send Telegram inbound message: {}", e);
-                        }
-                    }
+                // Dispatcher returned — check if we should reconnect
+                if !*running.lock().await {
+                    break;
                 }
-                Ok::<(), anyhow::Error>(())
+
+                let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                reconnect_attempt += 1;
+                tracing::warn!(
+                    "Telegram dispatcher exited, reconnecting in {} seconds...",
+                    delay
+                );
+                tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
             }
-        });
-
-        tracing::info!("Starting Telegram dispatcher...");
-        let mut dispatcher = Dispatcher::builder(bot, handler).build();
-
-        // Spawn dispatcher in background task and track handle
-        let handle = tokio::spawn(async move {
-            dispatcher.dispatch().await;
         });
         self.dispatcher_handle = Some(handle);
 
@@ -166,7 +192,7 @@ impl BaseChannel for TelegramChannel {
     }
 
     async fn stop(&mut self) -> Result<()> {
-        *self._running.lock().await = false;
+        *self.running.lock().await = false;
         if let Some(handle) = self.dispatcher_handle.take() {
             handle.abort();
         }

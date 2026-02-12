@@ -216,6 +216,19 @@ pub fn contains_action_claims(text: &str) -> bool {
     ACTION_CLAIM_RE.is_match(text)
 }
 
+/// Regex that matches phrases where the LLM falsely claims it has no tools.
+static FALSE_NO_TOOLS_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    Regex::new(
+        r"(?i)(?:I (?:don't|do not|cannot|can't) have (?:access to )?(?:any )?tools|(?:no tools|tools (?:are|aren't) (?:not )?available)|I(?:'m| am) (?:not able|unable) to (?:use|access|call) tools)"
+    )
+    .expect("Invalid false-no-tools regex")
+});
+
+/// Returns `true` if the text falsely claims tools are unavailable.
+pub fn is_false_no_tools_claim(text: &str) -> bool {
+    FALSE_NO_TOOLS_RE.is_match(text)
+}
+
 /// Returns `true` if the text mentions 3+ tool names, suggesting hallucinated tool results.
 /// When the LLM lists tool names with "results" but never actually called them, this catches
 /// the pattern that the action-claim regex might miss.
@@ -364,6 +377,7 @@ pub struct AgentLoopConfig {
     pub model: Option<String>,
     pub max_iterations: usize,
     pub brave_api_key: Option<String>,
+    pub web_search_config: Option<crate::config::WebSearchConfig>,
     pub exec_timeout: u64,
     pub restrict_to_workspace: bool,
     pub allowed_commands: Vec<String>,
@@ -434,6 +448,7 @@ impl AgentLoop {
             model,
             max_iterations,
             brave_api_key,
+            web_search_config,
             exec_timeout,
             restrict_to_workspace,
             allowed_commands,
@@ -536,7 +551,11 @@ impl AgentLoop {
         )?));
 
         // Register web tools
-        tools.register(Arc::new(WebSearchTool::new(brave_api_key.clone(), 5)));
+        if let Some(ref ws_cfg) = web_search_config {
+            tools.register(Arc::new(WebSearchTool::from_config(ws_cfg)));
+        } else {
+            tools.register(Arc::new(WebSearchTool::new(brave_api_key.clone(), 5)));
+        }
         tools.register(Arc::new(WebFetchTool::new(50000)?));
 
         // Register message tool with outbound sender
@@ -980,6 +999,23 @@ impl AgentLoop {
         // Extract tool names for hallucination detection
         let tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
 
+        // Inject tool facts reminder so the LLM knows exactly what tools are available
+        if !tool_names.is_empty() {
+            let tool_list = tool_names.join(", ");
+            let tool_facts = format!(
+                "## Available Tools\n\nYou have access to the following tools: {}\n\n\
+                 If a user asks for external actions, do not claim tools are unavailable — \
+                 call the matching tool directly.",
+                tool_list
+            );
+            // Insert as second message (after system prompt, before history/user message)
+            if messages.len() > 1 {
+                messages.insert(1, Message::user(tool_facts));
+            } else {
+                messages.push(Message::user(tool_facts));
+            }
+        }
+
         // Reset streaming consumer state so a new message is created (not an edit of the old one)
         if let (Some(ref edit_tx), Some((ref ch, ref cid))) =
             (&self.streaming_edit_tx, &streaming_context)
@@ -1168,7 +1204,31 @@ impl AgentLoop {
                         is_error,
                     );
                 }
+
+                // Inject reflection prompt to encourage deliberative reasoning
+                messages.push(Message::user(
+                    "Reflect on the tool results above. What do you now know, and what should you do next?".to_string()
+                ));
             } else if let Some(content) = response.content {
+                // Detect false "no tools" claims and retry with correction
+                if !tool_names.is_empty() && is_false_no_tools_claim(&content) {
+                    warn!("False no-tools claim detected: LLM claims tools unavailable but {} tools are registered", tool_names.len());
+                    ContextBuilder::add_assistant_message(
+                        &mut messages,
+                        Some(&content),
+                        None,
+                        response.reasoning_content.as_deref(),
+                    );
+                    let tool_list = tool_names.join(", ");
+                    messages.push(Message::user(format!(
+                        "You DO have tools available. Your available tools are: {}. \
+                         Please use the appropriate tool to fulfill the request.",
+                        tool_list
+                    )));
+                    any_tools_called = true; // Prevent infinite correction loop
+                    continue;
+                }
+
                 // Detect hallucinated actions: LLM claims it did something but never called tools
                 if !any_tools_called
                     && (contains_action_claims(&content)
@@ -2196,6 +2256,46 @@ mod tests {
     }
 
     // --- Media cleanup tests ---
+
+    // --- False no-tools claim detection tests ---
+
+    #[test]
+    fn test_false_no_tools_claim_dont_have_tools() {
+        assert!(is_false_no_tools_claim(
+            "I don't have access to tools to help with that."
+        ));
+    }
+
+    #[test]
+    fn test_false_no_tools_claim_cannot_have_tools() {
+        assert!(is_false_no_tools_claim(
+            "I cannot have access to any tools."
+        ));
+    }
+
+    #[test]
+    fn test_false_no_tools_claim_unable_to_use() {
+        assert!(is_false_no_tools_claim("I'm unable to use tools directly."));
+    }
+
+    #[test]
+    fn test_false_no_tools_claim_no_tools_available() {
+        assert!(is_false_no_tools_claim("No tools are available to me."));
+    }
+
+    #[test]
+    fn test_false_no_tools_claim_not_triggered_by_normal_text() {
+        assert!(!is_false_no_tools_claim(
+            "Here's how to use the tools in this project."
+        ));
+    }
+
+    #[test]
+    fn test_false_no_tools_claim_not_triggered_by_tool_usage() {
+        assert!(!is_false_no_tools_claim(
+            "I'll use the exec tool to run that command."
+        ));
+    }
 
     #[test]
     fn test_cleanup_old_media_no_dir() {

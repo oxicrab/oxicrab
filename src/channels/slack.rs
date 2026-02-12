@@ -278,7 +278,7 @@ impl BaseChannel for SlackChannel {
                                                 });
                                                 debug!("Sending Socket Mode acknowledgment for envelope_id: {}", envelope_id_str);
                                                 if let Err(e) = write
-                                                    .send(Message::Text(ack_msg.to_string()))
+                                                    .send(Message::text(ack_msg.to_string()))
                                                     .await
                                                 {
                                                     error!("Failed to send Socket Mode acknowledgment: {}", e);
@@ -323,8 +323,8 @@ impl BaseChannel for SlackChannel {
                                     reconnect_attempt = 0; // Reset on successful connection
                                     break;
                                 }
-                                Ok(Message::Ping(_)) => {
-                                    if let Err(e) = write.send(Message::Pong(vec![])).await {
+                                Ok(Message::Ping(data)) => {
+                                    if let Err(e) = write.send(Message::Pong(data)).await {
                                         error!("Failed to send Slack WebSocket pong: {}", e);
                                     }
                                 }
