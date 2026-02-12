@@ -13,8 +13,10 @@ pub struct HttpTool {
 
 impl Default for HttpTool {
     fn default() -> Self {
+        let user_agent = format!("nanobot-rust/{}", env!("CARGO_PKG_VERSION"));
         Self {
             client: Client::builder()
+                .user_agent(user_agent)
                 .redirect(reqwest::redirect::Policy::limited(5))
                 .timeout(Duration::from_secs(30))
                 .build()

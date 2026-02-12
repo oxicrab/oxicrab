@@ -365,18 +365,28 @@ impl CronService {
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("CronService store is not initialized"))?;
 
-        // Reject duplicate names (case-insensitive)
-        let name_lower = job.name.to_lowercase();
-        if let Some(existing) = store
+        // Auto-deduplicate names (case-insensitive) by appending suffix
+        let base_lower = job.name.to_lowercase();
+        let has_dup = store
             .jobs
             .iter()
-            .find(|j| j.name.to_lowercase() == name_lower)
-        {
-            return Err(anyhow::anyhow!(
-                "A job named '{}' already exists (id: {})",
-                existing.name,
-                existing.id
-            ));
+            .any(|j| j.name.to_lowercase() == base_lower);
+        if has_dup {
+            // Find next available suffix
+            let mut n = 2u32;
+            loop {
+                let candidate = format!("{} ({})", job.name, n);
+                let cand_lower = candidate.to_lowercase();
+                if !store
+                    .jobs
+                    .iter()
+                    .any(|j| j.name.to_lowercase() == cand_lower)
+                {
+                    job.name = candidate;
+                    break;
+                }
+                n += 1;
+            }
         }
 
         // Compute first run time eagerly so `list` shows it immediately
@@ -734,6 +744,48 @@ mod tests {
         let jobs = svc.list_jobs(true).await.unwrap();
         let j = jobs.iter().find(|j| j.id == "max-1").unwrap();
         assert!(!j.enabled, "job at max runs should be disabled");
+    }
+
+    #[tokio::test]
+    async fn test_add_job_deduplicates_names() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store_path = tmp.path().join("cron_jobs.json");
+        let svc = CronService::new(store_path.clone());
+
+        let now = now_ms();
+        let make_job = |id: &str| CronJob {
+            id: id.to_string(),
+            name: "Daily Reminder".to_string(),
+            enabled: true,
+            schedule: CronSchedule::Every {
+                every_ms: Some(60_000),
+            },
+            payload: CronPayload {
+                kind: "echo".to_string(),
+                message: "ping".to_string(),
+                agent_echo: false,
+                targets: vec![],
+            },
+            state: CronJobState::default(),
+            created_at_ms: now,
+            updated_at_ms: now,
+            delete_after_run: false,
+            expires_at_ms: None,
+            max_runs: None,
+        };
+
+        // First job keeps its name
+        svc.add_job(make_job("a1")).await.unwrap();
+        // Second job with same name gets "(2)" suffix
+        svc.add_job(make_job("a2")).await.unwrap();
+        // Third gets "(3)"
+        svc.add_job(make_job("a3")).await.unwrap();
+
+        let jobs = svc.list_jobs(false).await.unwrap();
+        let names: Vec<&str> = jobs.iter().map(|j| j.name.as_str()).collect();
+        assert!(names.contains(&"Daily Reminder"));
+        assert!(names.contains(&"Daily Reminder (2)"));
+        assert!(names.contains(&"Daily Reminder (3)"));
     }
 
     #[tokio::test]
