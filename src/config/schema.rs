@@ -767,6 +767,63 @@ pub struct MediaConfig {
     pub sonarr: MediaServiceConfig,
 }
 
+fn default_obsidian_sync_interval() -> u64 {
+    300
+}
+
+fn default_obsidian_timeout() -> u64 {
+    15
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ObsidianConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, rename = "apiUrl")]
+    pub api_url: String,
+    #[serde(default, rename = "apiKey")]
+    pub api_key: String,
+    #[serde(default, rename = "vaultName")]
+    pub vault_name: String,
+    #[serde(default = "default_obsidian_sync_interval", rename = "syncInterval")]
+    pub sync_interval: u64,
+    #[serde(default = "default_obsidian_timeout")]
+    pub timeout: u64,
+}
+
+impl Default for ObsidianConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            api_url: String::new(),
+            api_key: String::new(),
+            vault_name: String::new(),
+            sync_interval: default_obsidian_sync_interval(),
+            timeout: default_obsidian_timeout(),
+        }
+    }
+}
+
+impl std::fmt::Debug for ObsidianConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ObsidianConfig")
+            .field("enabled", &self.enabled)
+            .field("api_url", &self.api_url)
+            .field(
+                "api_key",
+                &if self.api_key.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("vault_name", &self.vault_name)
+            .field("sync_interval", &self.sync_interval)
+            .field("timeout", &self.timeout)
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ToolsConfig {
     #[serde(default)]
@@ -785,6 +842,8 @@ pub struct ToolsConfig {
     pub todoist: TodoistConfig,
     #[serde(default)]
     pub media: MediaConfig,
+    #[serde(default)]
+    pub obsidian: ObsidianConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -876,6 +935,25 @@ impl Config {
         }
         if self.tools.exec.timeout > 3600 {
             warn!("tools.exec.timeout is very long (> 3600s). This may cause timeouts.");
+        }
+
+        // Validate obsidian config
+        if self.tools.obsidian.enabled {
+            if self.tools.obsidian.api_url.is_empty() {
+                return Err(NanobotError::Config(
+                    "tools.obsidian.apiUrl is required when obsidian is enabled".into(),
+                ));
+            }
+            if self.tools.obsidian.api_key.is_empty() {
+                return Err(NanobotError::Config(
+                    "tools.obsidian.apiKey is required when obsidian is enabled".into(),
+                ));
+            }
+            if self.tools.obsidian.vault_name.is_empty() {
+                return Err(NanobotError::Config(
+                    "tools.obsidian.vaultName is required when obsidian is enabled".into(),
+                ));
+            }
         }
 
         // Validate web search config

@@ -1,8 +1,8 @@
 [package]
 name = "nanobot"
-version = "0.1.3"
+version = "0.9.5"
 edition = "2021"
-authors = ["James Turnbull <james@example.com>"]
+authors = ["James Turnbull <james@ltl.so>"]
 description = "A high-performance Rust implementation of the nanobot AI assistant framework"
 license = "MIT"
 repository = "https://github.com/jamtur01/nanobot-rust"

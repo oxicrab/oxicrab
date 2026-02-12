@@ -39,6 +39,7 @@ async fn create_test_agent(provider: MockLLMProvider, tmp: &TempDir) -> AgentLoo
         weather_config: None,
         todoist_config: None,
         media_config: None,
+        obsidian_config: None,
         temperature: 0.7,
         tool_temperature: 0.0,
         session_ttl_days: 0, // Disable cleanup in tests

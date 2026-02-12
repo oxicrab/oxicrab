@@ -12,6 +12,7 @@ use crate::agent::tools::{
     media::MediaTool,
     memory_search::MemorySearchTool,
     message::MessageTool,
+    obsidian::{ObsidianSyncService, ObsidianTool},
     reddit::RedditTool,
     shell::ExecTool,
     spawn::SpawnTool,
@@ -374,6 +375,7 @@ pub struct AgentLoopConfig {
     pub weather_config: Option<crate::config::WeatherConfig>,
     pub todoist_config: Option<crate::config::TodoistConfig>,
     pub media_config: Option<crate::config::MediaConfig>,
+    pub obsidian_config: Option<crate::config::ObsidianConfig>,
     /// Temperature for response generation (default 0.7)
     pub temperature: f32,
     /// Temperature for tool-calling iterations (default 0.0 for determinism)
@@ -441,6 +443,7 @@ impl AgentLoop {
             weather_config,
             todoist_config,
             media_config,
+            obsidian_config,
             temperature,
             tool_temperature,
             session_ttl_days,
@@ -619,6 +622,37 @@ impl AgentLoop {
             if media_cfg.enabled {
                 tools.register(Arc::new(MediaTool::new(media_cfg)));
                 info!("Media tool registered (Radarr/Sonarr)");
+            }
+        }
+
+        // Register Obsidian tool if configured
+        if let Some(ref obsidian_cfg) = obsidian_config {
+            if obsidian_cfg.enabled
+                && !obsidian_cfg.api_url.is_empty()
+                && !obsidian_cfg.api_key.is_empty()
+            {
+                match ObsidianTool::new(
+                    &obsidian_cfg.api_url,
+                    &obsidian_cfg.api_key,
+                    &obsidian_cfg.vault_name,
+                    obsidian_cfg.timeout,
+                )
+                .await
+                {
+                    Ok((tool, cache)) => {
+                        tools.register(Arc::new(tool));
+                        let sync_svc = ObsidianSyncService::new(cache, obsidian_cfg.sync_interval);
+                        tokio::spawn(async move {
+                            if let Err(e) = sync_svc.start().await {
+                                tracing::error!("Obsidian sync failed to start: {}", e);
+                            }
+                        });
+                        info!("Obsidian tool registered");
+                    }
+                    Err(e) => {
+                        warn!("Obsidian tool not available: {}", e);
+                    }
+                }
             }
         }
 

@@ -426,6 +426,7 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
             weather_config: Some(config.tools.weather.clone()),
             todoist_config: Some(config.tools.todoist.clone()),
             media_config: Some(config.tools.media.clone()),
+            obsidian_config: Some(config.tools.obsidian.clone()),
             temperature: config.agents.defaults.temperature,
             tool_temperature: TOOL_TEMPERATURE,
             session_ttl_days: config.agents.defaults.session_ttl_days,
