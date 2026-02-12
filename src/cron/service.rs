@@ -198,6 +198,23 @@ impl CronService {
                         continue;
                     }
 
+                    // Check expiry: disable job if past its expires_at or max_runs
+                    let expired = job.expires_at_ms.is_some_and(|exp| exp <= now);
+                    let exhausted = job.max_runs.is_some_and(|max| job.state.run_count >= max);
+                    if expired || exhausted {
+                        let reason = if expired {
+                            "expired"
+                        } else {
+                            "max runs reached"
+                        };
+                        info!("Disabling cron job '{}' ({}): {}", job.name, job.id, reason);
+                        job.enabled = false;
+                        job.state.next_run_at_ms = None;
+                        job.updated_at_ms = now;
+                        store_dirty = true;
+                        continue;
+                    }
+
                     let job_next = job
                         .state
                         .next_run_at_ms
@@ -225,6 +242,7 @@ impl CronService {
                             job.state.last_run_at_ms = Some(now);
                             job.state.last_status = Some("running".to_string());
                             job.state.last_error = None;
+                            job.state.run_count += 1;
                             job.state.next_run_at_ms = compute_next_run(&job.schedule, now);
                             job.updated_at_ms = now;
                             store_dirty = true;
@@ -501,6 +519,7 @@ impl CronService {
                         if j.id == job_id {
                             j.state.last_run_at_ms = Some(now);
                             j.state.last_status = Some("success".to_string());
+                            j.state.run_count += 1;
                             j.state.next_run_at_ms = compute_next_run(&j.schedule, now);
                             j.updated_at_ms = now;
                             break;
@@ -523,6 +542,7 @@ impl CronService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule};
 
     #[test]
     fn test_five_field_cron_needs_normalization() {
@@ -627,6 +647,135 @@ mod tests {
             tz.contains('/'),
             "timezone should be IANA format like Area/City, got: {}",
             tz
+        );
+    }
+
+    #[tokio::test]
+    async fn test_expired_job_auto_disables() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store_path = tmp.path().join("cron_jobs.json");
+        let svc = CronService::new(store_path.clone());
+
+        let now = now_ms();
+        let job = CronJob {
+            id: "exp-1".to_string(),
+            name: "Expired Job".to_string(),
+            enabled: true,
+            schedule: CronSchedule::Every {
+                every_ms: Some(1000),
+            },
+            payload: CronPayload {
+                kind: "echo".to_string(),
+                message: "ping".to_string(),
+                agent_echo: false,
+                targets: vec![],
+            },
+            state: CronJobState {
+                next_run_at_ms: Some(now + 5000),
+                ..Default::default()
+            },
+            created_at_ms: now,
+            updated_at_ms: now,
+            delete_after_run: false,
+            expires_at_ms: Some(now - 1000), // already expired
+            max_runs: None,
+        };
+
+        svc.add_job(job).await.unwrap();
+
+        // Start the service — it should disable the expired job on first tick
+        svc.start().await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        svc.stop().await;
+
+        let jobs = svc.list_jobs(true).await.unwrap();
+        let j = jobs.iter().find(|j| j.id == "exp-1").unwrap();
+        assert!(!j.enabled, "expired job should be disabled");
+    }
+
+    #[tokio::test]
+    async fn test_max_runs_auto_disables() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store_path = tmp.path().join("cron_jobs.json");
+        let svc = CronService::new(store_path.clone());
+
+        let now = now_ms();
+        let job = CronJob {
+            id: "max-1".to_string(),
+            name: "Max Runs Job".to_string(),
+            enabled: true,
+            schedule: CronSchedule::Every {
+                every_ms: Some(1000),
+            },
+            payload: CronPayload {
+                kind: "echo".to_string(),
+                message: "ping".to_string(),
+                agent_echo: false,
+                targets: vec![],
+            },
+            state: CronJobState {
+                next_run_at_ms: Some(now + 5000),
+                run_count: 5,
+                ..Default::default()
+            },
+            created_at_ms: now,
+            updated_at_ms: now,
+            delete_after_run: false,
+            expires_at_ms: None,
+            max_runs: Some(5), // already at max
+        };
+
+        svc.add_job(job).await.unwrap();
+
+        svc.start().await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        svc.stop().await;
+
+        let jobs = svc.list_jobs(true).await.unwrap();
+        let j = jobs.iter().find(|j| j.id == "max-1").unwrap();
+        assert!(!j.enabled, "job at max runs should be disabled");
+    }
+
+    #[tokio::test]
+    async fn test_run_job_increments_run_count() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store_path = tmp.path().join("cron_jobs.json");
+        let svc = CronService::new(store_path.clone());
+
+        let now = now_ms();
+        let job = CronJob {
+            id: "cnt-1".to_string(),
+            name: "Counter Job".to_string(),
+            enabled: true,
+            schedule: CronSchedule::Every {
+                every_ms: Some(60_000),
+            },
+            payload: CronPayload {
+                kind: "echo".to_string(),
+                message: "ping".to_string(),
+                agent_echo: false,
+                targets: vec![],
+            },
+            state: CronJobState::default(),
+            created_at_ms: now,
+            updated_at_ms: now,
+            delete_after_run: false,
+            expires_at_ms: None,
+            max_runs: None,
+        };
+
+        svc.add_job(job).await.unwrap();
+        svc.set_on_job(|_job| Box::pin(async { Ok(Some("done".to_string())) }))
+            .await;
+
+        svc.run_job("cnt-1", false).await.unwrap();
+        svc.run_job("cnt-1", false).await.unwrap();
+
+        let jobs = svc.list_jobs(false).await.unwrap();
+        let j = jobs.iter().find(|j| j.id == "cnt-1").unwrap();
+        assert_eq!(
+            j.state.run_count, 2,
+            "run_count should be 2 after 2 manual runs"
         );
     }
 }

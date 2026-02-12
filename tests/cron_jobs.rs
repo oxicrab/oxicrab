@@ -25,6 +25,8 @@ fn make_test_job(id: &str, name: &str) -> CronJob {
         created_at_ms: 1000000,
         updated_at_ms: 1000000,
         delete_after_run: false,
+        expires_at_ms: None,
+        max_runs: None,
     }
 }
 
@@ -261,6 +263,8 @@ async fn test_cron_multi_target_job() {
         created_at_ms: 1000000,
         updated_at_ms: 1000000,
         delete_after_run: false,
+        expires_at_ms: None,
+        max_runs: None,
     };
 
     svc.add_job(job).await.unwrap();
@@ -557,6 +561,8 @@ async fn test_cron_job_with_none_fields() {
         created_at_ms: 1000000,
         updated_at_ms: 1000000,
         delete_after_run: false,
+        expires_at_ms: None,
+        max_runs: None,
     };
 
     svc.add_job(job).await.unwrap();
@@ -588,6 +594,8 @@ async fn test_cron_job_every_zero_interval() {
         created_at_ms: 1000000,
         updated_at_ms: 1000000,
         delete_after_run: false,
+        expires_at_ms: None,
+        max_runs: None,
     };
 
     svc.add_job(job).await.unwrap();
@@ -621,6 +629,8 @@ async fn test_cron_job_at_expired() {
         created_at_ms: 1000000,
         updated_at_ms: 1000000,
         delete_after_run: false,
+        expires_at_ms: None,
+        max_runs: None,
     };
 
     svc.add_job(job).await.unwrap();

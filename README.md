@@ -8,7 +8,7 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 - **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), with OAuth support
 - **24 built-in tools**: Filesystem, shell, web, HTTP, Google Workspace, GitHub, scheduling, memory, media management, and more
 - **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
-- **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode (LLM-free delivery), multi-channel targeting
+- **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode (LLM-free delivery), multi-channel targeting, auto-expiry (`expires_at`) and run limits (`max_runs`)
 - **Streaming responses**: SSE-based streaming with live message editing on Telegram, Discord, and Slack
 - **Memory system**: SQLite FTS5-backed long-term memory with background indexing and automatic fact extraction
 - **Session management**: Persistent sessions with automatic compaction and context summarization
@@ -312,6 +312,10 @@ Manage scheduled jobs from the CLI:
 ./target/release/nanobot cron run --id abc12345 --force
 ```
 
+Jobs support optional auto-stop limits via the LLM tool interface:
+- **`expires_at`**: ISO 8601 datetime after which the job auto-disables (e.g. stop a recurring ping after 5 minutes)
+- **`max_runs`**: Maximum number of executions before auto-disabling (e.g. "ping 7 times then stop")
+
 ### Authentication
 
 ```bash
@@ -402,7 +406,7 @@ The agent has access to 24 built-in tools:
 | `message` | Send messages to chat channels |
 | `spawn` | Spawn background subagents for parallel task execution |
 | `subagent_control` | List running subagents, check capacity, or cancel by ID |
-| `cron` | Schedule tasks: agent mode (full LLM turn) or echo mode (direct delivery) |
+| `cron` | Schedule tasks: agent or echo mode, with optional `expires_at` and `max_runs` auto-stop |
 | `memory_search` | Search long-term memory and daily notes (FTS5) |
 | `reddit` | Fetch posts from Reddit subreddits (hot, new, top) |
 
@@ -480,7 +484,7 @@ src/
 - **Streaming**: SSE-based streaming with live message editing on supported channels (Telegram, Discord, Slack)
 - **Tool execution**: Panic-isolated via `tokio::task::spawn`, parallel execution via `join_all`, LRU result caching for read-only tools, pre-execution JSON schema validation
 - **Subagents**: Semaphore-limited background task execution with conversation context injection and parallel tool calls
-- **Cron**: File-backed job store with multi-channel target delivery, agent mode and echo mode, timezone auto-detection
+- **Cron**: File-backed job store with multi-channel target delivery, agent mode and echo mode, timezone auto-detection, auto-expiry (`expires_at`), and run limits (`max_runs`)
 - **Heartbeat/Daemon**: Periodic background check-ins driven by a strategy file (`HEARTBEAT.md`)
 - **Skills**: Extensible via workspace SKILL.md files with YAML frontmatter, dependency checking, and auto-include
 - **Hallucination detection**: Regex-based action claim detection and tool-name mention counting prevent the LLM from claiming actions it didn't perform; first-iteration forced tool use prevents text-only hallucinations

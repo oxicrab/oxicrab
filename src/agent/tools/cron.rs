@@ -177,7 +177,7 @@ impl Tool for CronTool {
     }
 
     fn description(&self) -> &str {
-        "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Actions: add, list, remove, run."
+        "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, remove, run."
     }
 
     fn parameters(&self) -> Value {
@@ -222,6 +222,14 @@ impl Tool for CronTool {
                     "type": "array",
                     "items": { "type": "string" },
                     "description": "Target channels: [\"all\"] for all enabled channels, [\"slack\", \"discord\"] for specific ones, or omit for current channel only"
+                },
+                "expires_at": {
+                    "type": "string",
+                    "description": "ISO 8601 datetime after which the job auto-disables (e.g. '2025-01-15T17:00:00-05:00'). For recurring jobs that should stop at a certain date/time."
+                },
+                "max_runs": {
+                    "type": "integer",
+                    "description": "Maximum number of times the job should run before auto-disabling. E.g. 7 for '7 pings then stop'."
                 }
             },
             "required": ["action"]
@@ -308,6 +316,30 @@ impl Tool for CronTool {
 
                 let delete_after_run = matches!(&schedule, CronSchedule::At { .. });
 
+                // Parse optional expiry
+                let expires_at_ms = if let Some(exp_str) = params["expires_at"].as_str() {
+                    let dt = chrono::DateTime::parse_from_rfc3339(exp_str)
+                        .or_else(|_| {
+                            chrono::DateTime::parse_from_str(exp_str, "%Y-%m-%dT%H:%M:%S%z")
+                        })
+                        .map_err(|_| anyhow::anyhow!("Invalid expires_at format. Use ISO 8601."))?;
+                    let ms = dt.timestamp_millis();
+                    let now_check = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(0);
+                    if ms <= now_check {
+                        return Ok(ToolResult::error(
+                            "Error: expires_at must be in the future".to_string(),
+                        ));
+                    }
+                    Some(ms)
+                } else {
+                    None
+                };
+
+                let max_runs = params["max_runs"].as_u64().map(|n| n as u32);
+
                 let now_ms = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .context("System time is before UNIX epoch")
@@ -342,10 +374,13 @@ impl Tool for CronTool {
                         last_run_at_ms: None,
                         last_status: None,
                         last_error: None,
+                        run_count: 0,
                     },
                     created_at_ms: now_ms,
                     updated_at_ms: now_ms,
                     delete_after_run,
+                    expires_at_ms,
+                    max_runs,
                 };
 
                 self.cron_service.add_job(job.clone()).await?;
@@ -416,9 +451,29 @@ impl Tool for CronTool {
                         } else {
                             "agent"
                         };
+                        let mut limits = Vec::new();
+                        if let Some(exp) = j.expires_at_ms.and_then(|ms| {
+                            chrono::DateTime::from_timestamp(ms / 1000, 0)
+                        }) {
+                            limits.push(format!(
+                                "expires: {}",
+                                exp.format("%Y-%m-%d %H:%M UTC")
+                            ));
+                        }
+                        if let Some(max) = j.max_runs {
+                            limits.push(format!(
+                                "runs: {}/{}",
+                                j.state.run_count, max
+                            ));
+                        }
+                        let limits_str = if limits.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" | {}", limits.join(", "))
+                        };
                         format!(
-                            "- [{}] {} | type: {} | schedule: {} | {} | targets: [{}] | message: \"{}\"",
-                            j.id, j.name, type_label, schedule_desc, next_run, targets_desc, j.payload.message
+                            "- [{}] {} | type: {} | schedule: {} | {} | targets: [{}]{} | message: \"{}\"",
+                            j.id, j.name, type_label, schedule_desc, next_run, targets_desc, limits_str, j.payload.message
                         )
                     })
                     .collect();

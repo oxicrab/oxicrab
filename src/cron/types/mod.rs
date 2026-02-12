@@ -52,6 +52,8 @@ pub struct CronJobState {
     pub last_status: Option<String>,
     #[serde(rename = "lastError")]
     pub last_error: Option<String>,
+    #[serde(rename = "runCount", default)]
+    pub run_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +72,14 @@ pub struct CronJob {
     pub updated_at_ms: i64,
     #[serde(rename = "deleteAfterRun", default)]
     pub delete_after_run: bool,
+    #[serde(
+        rename = "expiresAtMs",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub expires_at_ms: Option<i64>,
+    #[serde(rename = "maxRuns", default, skip_serializing_if = "Option::is_none")]
+    pub max_runs: Option<u32>,
 }
 
 fn default_true() -> bool {
