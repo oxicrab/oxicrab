@@ -288,6 +288,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
         tokio::sync::mpsc::channel::<crate::bus::StreamingEdit>(100);
     let streaming_edit_tx = Arc::new(streaming_edit_tx);
 
+    let editable_channels = editable_channels_from_config(&config);
     let agent = setup_agent(
         SetupAgentParams {
             bus: bus_for_channels.clone(),
@@ -298,6 +299,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
             typing_tx: Some(typing_tx),
             channels_config: Some(config.channels.clone()),
             streaming_edit_tx: Some(streaming_edit_tx),
+            editable_channels,
         },
         &config,
     )
@@ -387,6 +389,7 @@ struct SetupAgentParams {
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     channels_config: Option<crate::config::ChannelsConfig>,
     streaming_edit_tx: Option<Arc<tokio::sync::mpsc::Sender<crate::bus::StreamingEdit>>>,
+    editable_channels: Vec<String>,
 }
 
 async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<AgentLoop>> {
@@ -430,6 +433,7 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
             typing_tx: params.typing_tx,
             channels_config: params.channels_config,
             streaming_edit_tx: params.streaming_edit_tx,
+            editable_channels: params.editable_channels,
             memory_indexer_interval: config.agents.defaults.memory_indexer_interval,
             media_ttl_days: config.agents.defaults.media_ttl_days,
         })
@@ -437,6 +441,23 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
     );
     tracing::info!("Agent loop initialized");
     Ok(agent)
+}
+
+/// Channels that support message editing for streaming responses.
+/// Channels not in this list will receive the complete response as a single message.
+fn editable_channels_from_config(config: &Config) -> Vec<String> {
+    let mut editable = Vec::new();
+    if config.channels.telegram.enabled {
+        editable.push("telegram".to_string());
+    }
+    if config.channels.discord.enabled {
+        editable.push("discord".to_string());
+    }
+    if config.channels.slack.enabled {
+        editable.push("slack".to_string());
+    }
+    // WhatsApp intentionally excluded — no message editing support
+    editable
 }
 
 async fn setup_cron_callbacks(
@@ -711,6 +732,7 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
             typing_tx: None,
             channels_config: None,
             streaming_edit_tx: None,
+            editable_channels: vec![],
         },
         &config,
     )

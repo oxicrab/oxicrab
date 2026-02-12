@@ -304,6 +304,26 @@ fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
     images
 }
 
+/// Strip `[image: /path/to/file]` tags from message content.
+/// These tags are added by channels when images are downloaded, but become
+/// redundant (and misleading) once images are base64-encoded into content blocks.
+fn strip_image_tags(content: &str) -> String {
+    let mut result = String::with_capacity(content.len());
+    let mut remaining = content;
+    while let Some(start) = remaining.find("[image: ") {
+        result.push_str(&remaining[..start]);
+        if let Some(end) = remaining[start..].find(']') {
+            remaining = &remaining[start + end + 1..];
+        } else {
+            // No closing bracket — keep the rest as-is
+            remaining = &remaining[start..];
+            break;
+        }
+    }
+    result.push_str(remaining);
+    result.trim().to_string()
+}
+
 /// Delete media files older than the given TTL (in days).
 fn cleanup_old_media(ttl_days: u32) -> Result<()> {
     let media_dir = dirs::home_dir()
@@ -368,6 +388,8 @@ pub struct AgentLoopConfig {
     pub channels_config: Option<crate::config::ChannelsConfig>,
     /// Sender for streaming edit events (channel manager consumes these)
     pub streaming_edit_tx: Option<Arc<tokio::sync::mpsc::Sender<StreamingEdit>>>,
+    /// Channel names that support message editing (for streaming edits)
+    pub editable_channels: Vec<String>,
     /// Memory indexer interval in seconds (default 300)
     pub memory_indexer_interval: u64,
     /// Media file TTL in days for cleanup (default 7)
@@ -396,6 +418,7 @@ pub struct AgentLoop {
     max_tokens: u32,
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     streaming_edit_tx: Option<Arc<tokio::sync::mpsc::Sender<StreamingEdit>>>,
+    editable_channels: Vec<String>,
 }
 
 impl AgentLoop {
@@ -425,6 +448,7 @@ impl AgentLoop {
             typing_tx,
             channels_config,
             streaming_edit_tx,
+            editable_channels,
             memory_indexer_interval,
             media_ttl_days,
         } = config;
@@ -640,6 +664,7 @@ impl AgentLoop {
             max_tokens,
             typing_tx,
             streaming_edit_tx,
+            editable_channels,
         })
     }
 
@@ -761,12 +786,21 @@ impl AgentLoop {
             vec![]
         };
 
+        // Strip [image: ...] tags from content when images were successfully encoded,
+        // since the LLM receives them as content blocks and doesn't need the file paths
+        // (which can cause it to try read_file on binary image data).
+        let content = if !images.is_empty() {
+            strip_image_tags(&msg.content)
+        } else {
+            msg.content.clone()
+        };
+
         debug!("Acquiring context lock");
         let messages = {
             let mut context = self.context.lock().await;
             context.build_messages(
                 &history,
-                &msg.content,
+                &content,
                 Some(&msg.channel),
                 Some(&msg.chat_id),
                 Some(&msg.sender_id),
@@ -776,11 +810,12 @@ impl AgentLoop {
         debug!("Built {} messages, starting agent loop", messages.len());
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
-        let streaming_ctx = if self.streaming_edit_tx.is_some() {
-            Some((msg.channel.clone(), msg.chat_id.clone()))
-        } else {
-            None
-        };
+        let streaming_ctx =
+            if self.streaming_edit_tx.is_some() && self.editable_channels.contains(&msg.channel) {
+                Some((msg.channel.clone(), msg.chat_id.clone()))
+            } else {
+                None
+            };
         let (final_content, was_streamed, input_tokens) = self
             .run_agent_loop(messages, typing_ctx, streaming_ctx)
             .await?;

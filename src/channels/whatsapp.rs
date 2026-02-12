@@ -176,14 +176,52 @@ impl BaseChannel for WhatsAppChannel {
                                         return;
                                     }
 
-                                    // Extract message content
-                                    let content: String = match msg.text_content() {
-                                        Some(text) => text.to_string(),
-                                        None => {
-                                            warn!("WhatsApp message has no text content, using fallback");
-                                            "[Media Message]".to_string()
+                                    // Extract message content and media
+                                    let base_msg = msg.get_base_message();
+                                    let mut content: String;
+                                    let mut media_paths: Vec<String> = vec![];
+
+                                    // Try to extract downloadable image from message fields
+                                    let image_download: Option<(&dyn whatsapp_rust::download::Downloadable, Option<&str>)> =
+                                        if let Some(ref img) = base_msg.image_message {
+                                            Some((&**img, img.mimetype.as_deref()))
+                                        } else if let Some(ref doc) = base_msg.document_message {
+                                            if is_image_mime(doc.mimetype.as_deref()) {
+                                                Some((&**doc, doc.mimetype.as_deref()))
+                                            } else {
+                                                None
+                                            }
+                                        } else {
+                                            None
+                                        };
+
+                                    if let Some((downloadable, mimetype)) = image_download {
+                                        content = msg.get_caption().unwrap_or("").to_string();
+                                        match download_whatsapp_media(&client, downloadable, mimetype, &info.id).await {
+                                            Ok(path) => {
+                                                media_paths.push(path.clone());
+                                                if content.is_empty() {
+                                                    content = format!("[image: {}]", path);
+                                                } else {
+                                                    content = format!("{}\n[image: {}]", content, path);
+                                                }
+                                            }
+                                            Err(e) => {
+                                                warn!("Failed to download WhatsApp media: {}", e);
+                                                if content.is_empty() {
+                                                    content = "[Media Message - download failed]".to_string();
+                                                }
+                                            }
                                         }
-                                    };
+                                    } else {
+                                        content = match msg.text_content() {
+                                            Some(text) => text.to_string(),
+                                            None => {
+                                                warn!("WhatsApp message has no text content, using fallback");
+                                                "[Media Message]".to_string()
+                                            }
+                                        };
+                                    }
 
                                     if content.trim().is_empty() {
                                         warn!("WhatsApp message content is empty, skipping");
@@ -200,7 +238,7 @@ impl BaseChannel for WhatsAppChannel {
                                         chat_id: sender.clone(),
                                         content,
                                         timestamp: Utc::now(),
-                                        media: vec![],
+                                        media: media_paths,
                                         metadata: {
                                             let mut meta = HashMap::new();
                                             meta.insert("message_id".to_string(),
@@ -490,6 +528,47 @@ async fn send_whatsapp_message(
         }
     }
     Ok(())
+}
+
+/// Download a WhatsApp media file and save to ~/.nanobot/media/.
+async fn download_whatsapp_media(
+    client: &Arc<whatsapp_rust::client::Client>,
+    downloadable: &dyn whatsapp_rust::download::Downloadable,
+    mimetype: Option<&str>,
+    message_id: &str,
+) -> Result<String> {
+    let media_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".nanobot")
+        .join("media");
+    std::fs::create_dir_all(&media_dir)?;
+
+    // Infer extension from mimetype
+    let ext = match mimetype {
+        Some("image/png") => "png",
+        Some("image/webp") => "webp",
+        Some("image/gif") => "gif",
+        Some("image/jpeg") | Some("image/jpg") => "jpg",
+        Some(m) if m.starts_with("image/") => m.strip_prefix("image/").unwrap_or("bin"),
+        _ => "jpg",
+    };
+    let file_path = media_dir.join(format!(
+        "whatsapp_{}.{}",
+        crate::utils::safe_filename(message_id),
+        ext
+    ));
+
+    let data = client.download(downloadable).await?;
+    tokio::fs::write(&file_path, &data).await?;
+
+    let path_str = file_path.to_string_lossy().to_string();
+    info!("WhatsApp media saved: {} ({} bytes)", path_str, data.len());
+    Ok(path_str)
+}
+
+/// Check if a MIME type is an image type.
+fn is_image_mime(mime: Option<&str>) -> bool {
+    mime.is_some_and(|m| m.starts_with("image/"))
 }
 
 /// Determine whether an is_from_me message should be skipped.
