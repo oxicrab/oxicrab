@@ -124,6 +124,52 @@ pub fn convert_tools(tools: Vec<ToolDefinition>) -> Vec<AnthropicTool> {
         .collect()
 }
 
+/// Parse an Anthropic API response into a generic [`LLMResponse`].
+pub fn parse_response(json: &Value) -> LLMResponse {
+    let content = json["content"].as_array().and_then(|arr| {
+        arr.iter().find_map(|block| {
+            if block["type"] == "text" {
+                block["text"].as_str().map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+    });
+
+    let mut tool_calls = Vec::new();
+    let mut reasoning_content = None;
+
+    if let Some(content_array) = json["content"].as_array() {
+        for block in content_array {
+            match block["type"].as_str() {
+                Some("tool_use") => {
+                    tool_calls.push(ToolCallRequest {
+                        id: block["id"].as_str().unwrap_or("").to_string(),
+                        name: block["name"].as_str().unwrap_or("").to_string(),
+                        arguments: block.get("input").cloned().unwrap_or(json!({})),
+                    });
+                }
+                Some("thinking") => {
+                    reasoning_content = block["thinking"].as_str().map(|s| s.to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let input_tokens = json
+        .get("usage")
+        .and_then(|u| u.get("input_tokens"))
+        .and_then(|t| t.as_u64());
+
+    LLMResponse {
+        content,
+        tool_calls,
+        reasoning_content,
+        input_tokens,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,51 +273,5 @@ mod tests {
         assert!(result[0].content.is_array());
         // Second user is text-only (string)
         assert!(result[2].content.is_string());
-    }
-}
-
-/// Parse an Anthropic API response into a generic [`LLMResponse`].
-pub fn parse_response(json: &Value) -> LLMResponse {
-    let content = json["content"].as_array().and_then(|arr| {
-        arr.iter().find_map(|block| {
-            if block["type"] == "text" {
-                block["text"].as_str().map(|s| s.to_string())
-            } else {
-                None
-            }
-        })
-    });
-
-    let mut tool_calls = Vec::new();
-    let mut reasoning_content = None;
-
-    if let Some(content_array) = json["content"].as_array() {
-        for block in content_array {
-            match block["type"].as_str() {
-                Some("tool_use") => {
-                    tool_calls.push(ToolCallRequest {
-                        id: block["id"].as_str().unwrap_or("").to_string(),
-                        name: block["name"].as_str().unwrap_or("").to_string(),
-                        arguments: block.get("input").cloned().unwrap_or(json!({})),
-                    });
-                }
-                Some("thinking") => {
-                    reasoning_content = block["thinking"].as_str().map(|s| s.to_string());
-                }
-                _ => {}
-            }
-        }
-    }
-
-    let input_tokens = json
-        .get("usage")
-        .and_then(|u| u.get("input_tokens"))
-        .and_then(|t| t.as_u64());
-
-    LLMResponse {
-        content,
-        tool_calls,
-        reasoning_content,
-        input_tokens,
     }
 }

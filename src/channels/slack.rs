@@ -448,9 +448,11 @@ async fn handle_slack_event(
     bot_token: &str,
     client: &reqwest::Client,
 ) -> Result<()> {
-    // Ignore bot messages and message_changed subtypes
-    if event.get("subtype").is_some() {
-        return Ok(());
+    // Ignore bot messages and message_changed subtypes, but allow file_share
+    if let Some(subtype) = event.get("subtype").and_then(|v| v.as_str()) {
+        if subtype != "file_share" {
+            return Ok(());
+        }
     }
 
     let user_id = event.get("user").and_then(|v| v.as_str()).unwrap_or("");
@@ -508,11 +510,17 @@ async fn handle_slack_event(
         }
     }
 
-    if text.trim().is_empty() {
+    if !check_allowed_sender(user_id, allow_from) {
         return Ok(());
     }
 
-    if !check_allowed_sender(user_id, allow_from) {
+    let has_files = event
+        .get("files")
+        .and_then(|v| v.as_array())
+        .map(|a| !a.is_empty())
+        .unwrap_or(false);
+
+    if text.trim().is_empty() && !has_files {
         return Ok(());
     }
 

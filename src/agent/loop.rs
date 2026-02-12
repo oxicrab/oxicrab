@@ -729,7 +729,14 @@ impl AgentLoop {
 
         // Load and encode any attached images
         let images = if !msg.media.is_empty() {
-            load_and_encode_images(&msg.media)
+            info!(
+                "Loading {} media files for LLM: {:?}",
+                msg.media.len(),
+                msg.media
+            );
+            let imgs = load_and_encode_images(&msg.media);
+            info!("Encoded {} images for LLM", imgs.len());
+            imgs
         } else {
             vec![]
         };
