@@ -1,9 +1,30 @@
-use crate::config::schema::{AnthropicOAuthConfig, ProvidersConfig};
+use crate::config::schema::{AnthropicOAuthConfig, ProviderConfig, ProvidersConfig};
 use crate::providers::base::LLMProvider;
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::info;
+
+/// Default base URLs for OpenAI-compatible providers.
+/// Each entry maps a provider keyword (matched against model name) to its default chat completions endpoint.
+const OPENAI_COMPAT_PROVIDERS: &[(&str, &str)] = &[
+    (
+        "openrouter",
+        "https://openrouter.ai/api/v1/chat/completions",
+    ),
+    ("deepseek", "https://api.deepseek.com/v1/chat/completions"),
+    ("groq", "https://api.groq.com/openai/v1/chat/completions"),
+    ("moonshot", "https://api.moonshot.cn/v1/chat/completions"),
+    (
+        "zhipu",
+        "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    ),
+    (
+        "dashscope",
+        "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    ),
+    ("vllm", "http://localhost:8000/v1/chat/completions"),
+];
 
 /// Strategy for creating LLM providers based on model name
 #[async_trait]
@@ -114,6 +135,11 @@ impl ProviderStrategy for ApiKeyProviderStrategy {
 
         let model_lower = model.to_lowercase();
 
+        // Try OpenAI-compatible providers first (deepseek, groq, openrouter, etc.)
+        if let Some(provider) = self.try_openai_compat(model) {
+            return Ok(Some(provider));
+        }
+
         // For Claude models, try Anthropic API key directly
         if (model_lower.contains("anthropic") || model_lower.contains("claude"))
             && !self.config.anthropic.api_key.is_empty()
@@ -150,6 +176,60 @@ impl ProviderStrategy for ApiKeyProviderStrategy {
 impl ApiKeyProviderStrategy {
     fn get_api_key(&self, model: &str) -> Option<String> {
         self.config.get_api_key(model).map(str::to_owned)
+    }
+
+    /// Look up the `ProviderConfig` for a given keyword from the providers config.
+    fn get_provider_config(&self, keyword: &str) -> Option<&ProviderConfig> {
+        match keyword {
+            "openrouter" => Some(&self.config.openrouter),
+            "deepseek" => Some(&self.config.deepseek),
+            "groq" => Some(&self.config.groq),
+            "moonshot" => Some(&self.config.moonshot),
+            "zhipu" => Some(&self.config.zhipu),
+            "dashscope" => Some(&self.config.dashscope),
+            "vllm" => Some(&self.config.vllm),
+            _ => None,
+        }
+    }
+
+    /// Try to create an OpenAI-compatible provider if the model name matches a known keyword.
+    fn try_openai_compat(&self, model: &str) -> Option<Arc<dyn LLMProvider>> {
+        use crate::providers::openai::OpenAIProvider;
+
+        let model_lower = model.to_lowercase();
+
+        for &(keyword, default_url) in OPENAI_COMPAT_PROVIDERS {
+            if !model_lower.contains(keyword) {
+                continue;
+            }
+
+            let provider_config = self.get_provider_config(keyword)?;
+            if provider_config.api_key.is_empty() {
+                return None;
+            }
+
+            let base_url = provider_config
+                .api_base
+                .as_deref()
+                .unwrap_or(default_url)
+                .to_string();
+
+            let provider_name = keyword[..1].to_uppercase() + &keyword[1..];
+
+            info!(
+                "Using OpenAI-compatible provider ({}) for model: {}",
+                provider_name, model
+            );
+
+            return Some(Arc::new(OpenAIProvider::with_config(
+                provider_config.api_key.clone(),
+                model.to_string(),
+                base_url,
+                provider_name,
+            )));
+        }
+
+        None
     }
 }
 
@@ -197,5 +277,85 @@ impl ProviderFactory {
         }
 
         anyhow::bail!("No API key configured for model: {}", model);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::schema::ProvidersConfig;
+
+    fn config_with_deepseek() -> ProvidersConfig {
+        let mut config = ProvidersConfig::default();
+        config.deepseek.api_key = "sk-deepseek-test".to_string();
+        config
+    }
+
+    #[test]
+    fn test_openai_compat_deepseek_routing() {
+        let strategy = ApiKeyProviderStrategy::new(config_with_deepseek());
+        let provider = strategy.try_openai_compat("deepseek-chat");
+        assert!(
+            provider.is_some(),
+            "deepseek-chat should route to OpenAI-compat provider"
+        );
+        assert_eq!(provider.unwrap().default_model(), "deepseek-chat");
+    }
+
+    #[test]
+    fn test_openai_compat_uses_custom_api_base() {
+        let mut config = config_with_deepseek();
+        config.deepseek.api_base =
+            Some("https://custom.endpoint.com/v1/chat/completions".to_string());
+        let strategy = ApiKeyProviderStrategy::new(config);
+        let provider = strategy.try_openai_compat("deepseek-coder");
+        assert!(
+            provider.is_some(),
+            "deepseek-coder should route with custom api_base"
+        );
+    }
+
+    #[test]
+    fn test_openai_compat_no_api_key() {
+        let config = ProvidersConfig::default();
+        let strategy = ApiKeyProviderStrategy::new(config);
+        let provider = strategy.try_openai_compat("deepseek-chat");
+        assert!(
+            provider.is_none(),
+            "should return None when no API key is configured"
+        );
+    }
+
+    #[test]
+    fn test_native_providers_not_affected() {
+        let mut config = ProvidersConfig::default();
+        config.anthropic.api_key = "sk-ant-test".to_string();
+        config.openai.api_key = "sk-openai-test".to_string();
+        let strategy = ApiKeyProviderStrategy::new(config);
+
+        // Native providers should not match OpenAI-compat keywords
+        assert!(strategy
+            .try_openai_compat("claude-sonnet-4-5-20250929")
+            .is_none());
+        assert!(strategy.try_openai_compat("gpt-4o").is_none());
+        assert!(strategy.try_openai_compat("gemini-pro").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_deepseek_routes_through_create_provider() {
+        let strategy = ApiKeyProviderStrategy::new(config_with_deepseek());
+        let result = strategy.create_provider("deepseek-chat").await.unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().default_model(), "deepseek-chat");
+    }
+
+    #[test]
+    fn test_groq_routing() {
+        let mut config = ProvidersConfig::default();
+        config.groq.api_key = "gsk-test".to_string();
+        let strategy = ApiKeyProviderStrategy::new(config);
+        let provider = strategy.try_openai_compat("groq/llama-3.1-70b");
+        assert!(provider.is_some());
+        assert_eq!(provider.unwrap().default_model(), "groq/llama-3.1-70b");
     }
 }

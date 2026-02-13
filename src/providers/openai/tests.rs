@@ -1,5 +1,5 @@
 use super::*;
-use crate::providers::base::Message;
+use crate::providers::base::{LLMProvider, Message};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -189,4 +189,33 @@ async fn test_chat_custom_model() {
     let result = provider.chat(simple_chat_request("Hi")).await.unwrap();
 
     assert_eq!(result.content.unwrap(), "Response from custom model");
+}
+
+#[tokio::test]
+async fn test_with_config_custom_provider() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(header("Authorization", "Bearer deepseek_key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "DeepSeek response"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"total_tokens": 12}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_config(
+        "deepseek_key".to_string(),
+        "deepseek-chat".to_string(),
+        server.uri(),
+        "DeepSeek".to_string(),
+    );
+
+    assert_eq!(provider.default_model(), "deepseek-chat");
+
+    let result = provider.chat(simple_chat_request("Hi")).await.unwrap();
+    assert_eq!(result.content.unwrap(), "DeepSeek response");
 }

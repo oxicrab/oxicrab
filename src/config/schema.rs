@@ -414,6 +414,21 @@ impl ProvidersConfig {
         if model_lower.contains("gemini") && !self.gemini.api_key.is_empty() {
             return Some(&self.gemini.api_key);
         }
+        if model_lower.contains("groq") && !self.groq.api_key.is_empty() {
+            return Some(&self.groq.api_key);
+        }
+        if model_lower.contains("moonshot") && !self.moonshot.api_key.is_empty() {
+            return Some(&self.moonshot.api_key);
+        }
+        if model_lower.contains("zhipu") && !self.zhipu.api_key.is_empty() {
+            return Some(&self.zhipu.api_key);
+        }
+        if model_lower.contains("dashscope") && !self.dashscope.api_key.is_empty() {
+            return Some(&self.dashscope.api_key);
+        }
+        if model_lower.contains("vllm") && !self.vllm.api_key.is_empty() {
+            return Some(&self.vllm.api_key);
+        }
 
         // Fallback: first available key
         if !self.openrouter.api_key.is_empty() {

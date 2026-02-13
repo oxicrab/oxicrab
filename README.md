@@ -5,7 +5,7 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 ## Features
 
 - **Multi-channel support**: Telegram, Discord, Slack, WhatsApp — each behind a Cargo feature flag for slim builds
-- **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), with OAuth support
+- **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), plus OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Moonshot, Zhipu, DashScope, vLLM), with OAuth support
 - **24 built-in tools**: Filesystem, shell, web, HTTP, Google Workspace, GitHub, scheduling, memory, media management, and more
 - **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
 - **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode (LLM-free delivery), multi-channel targeting, auto-expiry (`expires_at`) and run limits (`max_runs`)
@@ -79,6 +79,15 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
     },
     "gemini": {
       "apiKey": "your-gemini-api-key"
+    },
+    "deepseek": {
+      "apiKey": "your-deepseek-api-key"
+    },
+    "groq": {
+      "apiKey": "your-groq-api-key"
+    },
+    "openrouter": {
+      "apiKey": "your-openrouter-api-key"
     }
   },
   "channels": {
@@ -393,6 +402,50 @@ Available API key models:
 - `gpt-4`, `gpt-3.5-turbo` (OpenAI)
 - `gemini-pro` (Google)
 
+### OpenAI-Compatible Models
+
+Any model whose name contains a supported provider keyword is automatically routed to that provider's OpenAI-compatible API. Just set the API key in the config — no other setup needed:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "deepseek-chat"
+    }
+  },
+  "providers": {
+    "deepseek": {
+      "apiKey": "sk-..."
+    }
+  }
+}
+```
+
+Supported providers and their default endpoints:
+
+| Provider | Keyword | Default Base URL |
+|----------|---------|------------------|
+| OpenRouter | `openrouter` | `https://openrouter.ai/api/v1/chat/completions` |
+| DeepSeek | `deepseek` | `https://api.deepseek.com/v1/chat/completions` |
+| Groq | `groq` | `https://api.groq.com/openai/v1/chat/completions` |
+| Moonshot | `moonshot` | `https://api.moonshot.cn/v1/chat/completions` |
+| Zhipu | `zhipu` | `https://open.bigmodel.cn/api/paas/v4/chat/completions` |
+| DashScope | `dashscope` | `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions` |
+| vLLM | `vllm` | `http://localhost:8000/v1/chat/completions` |
+
+To override the default endpoint, set `apiBase` on the provider:
+
+```json
+{
+  "providers": {
+    "vllm": {
+      "apiKey": "token-abc123",
+      "apiBase": "http://my-server:8080/v1/chat/completions"
+    }
+  }
+}
+```
+
 ### OAuth Models
 
 Some Anthropic models require OAuth authentication (models starting with `anthropic/`):
@@ -497,7 +550,7 @@ src/
 ├── config/         # Configuration schema and loader
 ├── cron/           # Cron job scheduling service
 ├── heartbeat/      # Heartbeat/daemon service
-├── providers/      # LLM provider implementations (Anthropic, OpenAI, Gemini)
+├── providers/      # LLM provider implementations (Anthropic, OpenAI, Gemini, OpenAI-compatible)
 ├── session/        # Session management with SQLite backend
 ├── errors.rs       # NanobotError typed error enum
 └── utils/          # URL security, atomic writes, task tracking

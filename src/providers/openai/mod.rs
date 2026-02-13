@@ -17,6 +17,7 @@ pub struct OpenAIProvider {
     api_key: String,
     default_model: String,
     base_url: String,
+    provider_name: String,
     client: Client,
     metrics: std::sync::Arc<Mutex<ProviderMetrics>>,
 }
@@ -27,6 +28,27 @@ impl OpenAIProvider {
             api_key,
             default_model: default_model.unwrap_or_else(|| "gpt-4o".to_string()),
             base_url: API_URL.to_string(),
+            provider_name: "OpenAI".to_string(),
+            client: Client::builder()
+                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
+            metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
+        }
+    }
+
+    pub fn with_config(
+        api_key: String,
+        default_model: String,
+        base_url: String,
+        provider_name: String,
+    ) -> Self {
+        Self {
+            api_key,
+            default_model,
+            base_url,
+            provider_name,
             client: Client::builder()
                 .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
                 .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
@@ -42,6 +64,7 @@ impl OpenAIProvider {
             api_key,
             default_model: default_model.unwrap_or_else(|| "gpt-4o".to_string()),
             base_url,
+            provider_name: "OpenAI".to_string(),
             client: Client::builder()
                 .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
                 .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
@@ -175,9 +198,13 @@ impl LLMProvider for OpenAIProvider {
             .json(&payload)
             .send()
             .await
-            .context("Failed to send request to OpenAI API")?;
+            .context(format!(
+                "Failed to send request to {} API",
+                self.provider_name
+            ))?;
 
-        let json = ProviderErrorHandler::check_response(resp, "OpenAI", &self.metrics).await?;
+        let json =
+            ProviderErrorHandler::check_response(resp, &self.provider_name, &self.metrics).await?;
 
         // Update metrics on success
         {
