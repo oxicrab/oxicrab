@@ -1,6 +1,7 @@
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use tracing::debug;
 use walkdir::WalkDir;
 
 pub struct SkillsLoader {
@@ -248,7 +249,7 @@ impl SkillsLoader {
             match serde_yaml_ng::from_str::<Value>(yaml_content) {
                 Ok(val) => Some(val),
                 Err(e) => {
-                    tracing::debug!("Failed to parse skill YAML frontmatter: {}", e);
+                    debug!("Failed to parse skill YAML frontmatter: {}", e);
                     None
                 }
             }

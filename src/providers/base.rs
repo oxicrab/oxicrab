@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallRequest {
@@ -162,7 +163,7 @@ pub trait LLMProvider: Send + Sync {
 
         for attempt in 0..=config.max_retries {
             if attempt > 0 {
-                tracing::warn!(
+                warn!(
                     "Provider retry attempt {}/{} after error: {}",
                     attempt,
                     config.max_retries,
@@ -172,7 +173,7 @@ pub trait LLMProvider: Send + Sync {
                         .unwrap_or_default()
                 );
             }
-            tracing::debug!("Sending chat request (attempt {})", attempt);
+            debug!("Sending chat request (attempt {})", attempt);
             let chat_req = ChatRequest {
                 messages: (*messages_arc).clone(),
                 tools: tools_arc.as_ref().map(|t| (**t).clone()),
@@ -184,17 +185,17 @@ pub trait LLMProvider: Send + Sync {
             let result = self.chat(chat_req).await;
             match result {
                 Ok(response) => {
-                    tracing::debug!("Chat request succeeded on attempt {}", attempt);
+                    debug!("Chat request succeeded on attempt {}", attempt);
                     return Ok(response);
                 }
                 Err(e) => {
-                    tracing::warn!("Chat request failed on attempt {}: {}", attempt, e);
+                    warn!("Chat request failed on attempt {}: {}", attempt, e);
                     last_error = Some(e);
                     if attempt < config.max_retries {
                         let delay = (config.initial_delay_ms as f64
                             * config.backoff_multiplier.powi(attempt as i32))
                         .min(config.max_delay_ms as f64) as u64;
-                        tracing::debug!("Waiting {}ms before retry", delay);
+                        debug!("Waiting {}ms before retry", delay);
                         tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
                     }
                 }

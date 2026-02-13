@@ -3,6 +3,7 @@ use crate::providers::base::LLMProvider;
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
+use tracing::info;
 
 /// Strategy for creating LLM providers based on model name
 #[async_trait]
@@ -117,7 +118,7 @@ impl ProviderStrategy for ApiKeyProviderStrategy {
         if (model_lower.contains("anthropic") || model_lower.contains("claude"))
             && !self.config.anthropic.api_key.is_empty()
         {
-            tracing::info!("Using Anthropic API key provider for model: {}", model);
+            info!("Using Anthropic API key provider for model: {}", model);
             return Ok(Some(Arc::new(AnthropicProvider::new(
                 self.config.anthropic.api_key.clone(),
                 Some(model.to_string()),
@@ -129,7 +130,7 @@ impl ProviderStrategy for ApiKeyProviderStrategy {
         let model_str = model.to_string();
 
         if let Some(key) = api_key {
-            tracing::info!("Using API key provider for model: {}", model);
+            info!("Using API key provider for model: {}", model);
             if model_lower.contains("anthropic") || model_lower.contains("claude") {
                 Ok(Some(Arc::new(AnthropicProvider::new(key, Some(model_str)))))
             } else if model_lower.contains("openai") || model_lower.contains("gpt") {

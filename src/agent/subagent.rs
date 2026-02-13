@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 const MAX_TOOL_RESULT_CHARS: usize = 10000;
@@ -341,7 +341,7 @@ async fn run_subagent_inner(
                     .map(|join_result| match join_result {
                         Ok(result) => result,
                         Err(join_err) => {
-                            tracing::error!("Subagent tool task panicked: {:?}", join_err);
+                            error!("Subagent tool task panicked: {:?}", join_err);
                             ("Tool crashed unexpectedly".to_string(), true)
                         }
                     })

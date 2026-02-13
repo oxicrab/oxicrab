@@ -542,7 +542,7 @@ impl AgentLoop {
             let mgr_for_cleanup = SessionManager::new(workspace.clone())?;
             tokio::spawn(async move {
                 if let Err(e) = mgr_for_cleanup.cleanup_old_sessions(ttl) {
-                    tracing::warn!("Session cleanup failed: {}", e);
+                    warn!("Session cleanup failed: {}", e);
                 }
             });
         }
@@ -552,7 +552,7 @@ impl AgentLoop {
             let ttl = media_ttl_days;
             tokio::spawn(async move {
                 if let Err(e) = cleanup_old_media(ttl) {
-                    tracing::warn!("Media cleanup failed: {}", e);
+                    warn!("Media cleanup failed: {}", e);
                 }
             });
         }
@@ -719,7 +719,7 @@ impl AgentLoop {
                         let sync_svc = ObsidianSyncService::new(cache, obsidian_cfg.sync_interval);
                         tokio::spawn(async move {
                             if let Err(e) = sync_svc.start().await {
-                                tracing::error!("Obsidian sync failed to start: {}", e);
+                                error!("Obsidian sync failed to start: {}", e);
                             }
                         });
                         info!("Obsidian tool registered");
@@ -776,7 +776,7 @@ impl AgentLoop {
     }
 
     pub async fn run(&self) -> Result<()> {
-        tracing::info!("Agent loop started, waiting for messages...");
+        info!("Agent loop started, waiting for messages...");
         *self.running.lock().await = true;
         info!("Agent loop started");
 

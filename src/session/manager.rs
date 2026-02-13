@@ -11,6 +11,7 @@ use std::fs;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use tokio::sync::Mutex;
+use tracing::{info, warn};
 
 const MAX_CACHED_SESSIONS: usize = 64;
 const MAX_SESSION_MESSAGES: usize = 200;
@@ -263,16 +264,16 @@ impl SessionManager {
             };
             if modified < cutoff {
                 if let Err(e) = fs::remove_file(&path) {
-                    tracing::warn!("Failed to delete old session {}: {}", path.display(), e);
+                    warn!("Failed to delete old session {}: {}", path.display(), e);
                 } else {
-                    tracing::info!("Cleaned up old session: {}", path.display());
+                    info!("Cleaned up old session: {}", path.display());
                     deleted += 1;
                 }
             }
         }
 
         if deleted > 0 {
-            tracing::info!("Session cleanup: removed {} expired session(s)", deleted);
+            info!("Session cleanup: removed {} expired session(s)", deleted);
         }
         Ok(deleted)
     }

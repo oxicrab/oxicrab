@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 const POLL_WHEN_EMPTY_SEC: u64 = 30;
 const MIN_SLEEP_MS: i64 = 1000;
@@ -281,11 +281,7 @@ impl CronService {
                                                     ("ok".to_string(), None)
                                                 }
                                                 Err(e) => {
-                                                    tracing::error!(
-                                                        "Cron job '{}' failed: {}",
-                                                        job_id,
-                                                        e
-                                                    );
+                                                    error!("Cron job '{}' failed: {}", job_id, e);
                                                     ("error".to_string(), Some(e.to_string()))
                                                 }
                                             };

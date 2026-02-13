@@ -12,6 +12,7 @@ use crate::config::Config;
 use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tracing::{debug, error, info, warn};
 
 pub struct ChannelManager {
     channels: Vec<Box<dyn BaseChannel>>,
@@ -25,66 +26,64 @@ impl ChannelManager {
 
         #[cfg(feature = "channel-telegram")]
         if config.channels.telegram.enabled && !config.channels.telegram.token.is_empty() {
-            tracing::debug!("Initializing Telegram channel...");
+            debug!("Initializing Telegram channel...");
             channels.push(Box::new(TelegramChannel::new(
                 config.channels.telegram.clone(),
                 (*inbound_tx).clone(),
             )));
             enabled.push("telegram".to_string());
-            tracing::info!("Telegram channel enabled");
+            info!("Telegram channel enabled");
         }
         #[cfg(not(feature = "channel-telegram"))]
         if config.channels.telegram.enabled {
-            tracing::warn!("Telegram is enabled in config but not compiled (missing 'channel-telegram' feature)");
+            warn!("Telegram is enabled in config but not compiled (missing 'channel-telegram' feature)");
         }
 
         #[cfg(feature = "channel-discord")]
         if config.channels.discord.enabled && !config.channels.discord.token.is_empty() {
-            tracing::debug!("Initializing Discord channel...");
+            debug!("Initializing Discord channel...");
             channels.push(Box::new(DiscordChannel::new(
                 config.channels.discord.clone(),
                 (*inbound_tx).clone(),
             )));
             enabled.push("discord".to_string());
-            tracing::info!("Discord channel enabled");
+            info!("Discord channel enabled");
         }
         #[cfg(not(feature = "channel-discord"))]
         if config.channels.discord.enabled {
-            tracing::warn!(
+            warn!(
                 "Discord is enabled in config but not compiled (missing 'channel-discord' feature)"
             );
         }
 
         #[cfg(feature = "channel-slack")]
         if config.channels.slack.enabled && !config.channels.slack.bot_token.is_empty() {
-            tracing::debug!("Initializing Slack channel...");
+            debug!("Initializing Slack channel...");
             channels.push(Box::new(SlackChannel::new(
                 config.channels.slack.clone(),
                 inbound_tx.clone(),
             )));
             enabled.push("slack".to_string());
-            tracing::info!("Slack channel enabled");
+            info!("Slack channel enabled");
         }
         #[cfg(not(feature = "channel-slack"))]
         if config.channels.slack.enabled {
-            tracing::warn!(
-                "Slack is enabled in config but not compiled (missing 'channel-slack' feature)"
-            );
+            warn!("Slack is enabled in config but not compiled (missing 'channel-slack' feature)");
         }
 
         #[cfg(feature = "channel-whatsapp")]
         if config.channels.whatsapp.enabled {
-            tracing::debug!("Initializing WhatsApp channel...");
+            debug!("Initializing WhatsApp channel...");
             channels.push(Box::new(WhatsAppChannel::new(
                 config.channels.whatsapp.clone(),
                 inbound_tx.clone(),
             )));
             enabled.push("whatsapp".to_string());
-            tracing::info!("WhatsApp channel enabled");
+            info!("WhatsApp channel enabled");
         }
         #[cfg(not(feature = "channel-whatsapp"))]
         if config.channels.whatsapp.enabled {
-            tracing::warn!("WhatsApp is enabled in config but not compiled (missing 'channel-whatsapp' feature)");
+            warn!("WhatsApp is enabled in config but not compiled (missing 'channel-whatsapp' feature)");
         }
 
         Self {
@@ -104,16 +103,16 @@ impl ChannelManager {
                 .get(idx)
                 .map(|s| s.as_str())
                 .unwrap_or("unknown");
-            tracing::info!("Starting channel: {}", channel_name);
+            info!("Starting channel: {}", channel_name);
             if let Err(e) = channel.start().await {
-                tracing::error!("Failed to start channel {}: {}", channel_name, e);
+                error!("Failed to start channel {}: {}", channel_name, e);
                 return Err(anyhow::anyhow!(
                     "Failed to start channel {}: {}",
                     channel_name,
                     e
                 ));
             }
-            tracing::info!("Channel {} started successfully", channel_name);
+            info!("Channel {} started successfully", channel_name);
         }
         Ok(())
     }
@@ -126,7 +125,7 @@ impl ChannelManager {
     }
 
     pub async fn send(&self, msg: &OutboundMessage) -> Result<()> {
-        tracing::info!(
+        info!(
             "ChannelManager.send: channel={}, chat_id={}, content_len={}",
             msg.channel,
             msg.chat_id,
@@ -134,23 +133,20 @@ impl ChannelManager {
         );
         for channel in self.channels.iter() {
             if channel.name() == msg.channel {
-                tracing::info!("Found matching channel: {}", channel.name());
+                info!("Found matching channel: {}", channel.name());
                 let max_attempts = 3;
                 let mut last_err = None;
                 for attempt in 1..=max_attempts {
                     match channel.send(msg).await {
                         Ok(()) => {
-                            tracing::info!("Successfully sent message to {} channel", msg.channel);
+                            info!("Successfully sent message to {} channel", msg.channel);
                             return Ok(());
                         }
                         Err(e) => {
                             if attempt < max_attempts {
-                                tracing::warn!(
+                                warn!(
                                     "Send to {} failed (attempt {}/{}): {}, retrying...",
-                                    msg.channel,
-                                    attempt,
-                                    max_attempts,
-                                    e
+                                    msg.channel, attempt, max_attempts, e
                                 );
                                 tokio::time::sleep(tokio::time::Duration::from_secs(
                                     attempt as u64,
@@ -183,7 +179,7 @@ impl ChannelManager {
         for ch in self.channels.iter() {
             if ch.name() == channel {
                 if let Err(e) = ch.send_typing(chat_id).await {
-                    tracing::debug!("Typing indicator failed for {}: {}", channel, e);
+                    debug!("Typing indicator failed for {}: {}", channel, e);
                 }
                 return;
             }

@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
+use tracing::{debug, error, info, warn};
 
 /// Temperature used for tool-calling iterations (low for determinism)
 const TOOL_TEMPERATURE: f32 = 0.0;
@@ -268,12 +269,12 @@ This file stores important information that should persist across sessions.
 }
 
 async fn gateway(model: Option<String>) -> Result<()> {
-    tracing::info!("Loading configuration...");
+    info!("Loading configuration...");
     let config = load_config(None)?;
     config.validate()?;
     let effective_model = model.as_deref().unwrap_or(&config.agents.defaults.model);
-    tracing::info!("Configuration loaded. Using model: {}", effective_model);
-    tracing::debug!("Workspace: {:?}", config.workspace_path());
+    info!("Configuration loaded. Using model: {}", effective_model);
+    debug!("Workspace: {:?}", config.workspace_path());
 
     // Setup components
     let provider = setup_provider(&config, model.as_deref()).await?;
@@ -310,7 +311,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
     let agent_task = start_agent_loop(agent.clone());
     let channels_task = start_channels_loop(channels, outbound_rx, typing_rx);
 
-    tracing::info!("All services started. Gateway is running.");
+    info!("All services started, gateway is running");
 
     // Handle shutdown
     tokio::select! {
@@ -333,9 +334,9 @@ async fn setup_provider(
     model: Option<&str>,
 ) -> Result<Arc<dyn crate::providers::base::LLMProvider>> {
     let effective_model = model.unwrap_or(&config.agents.defaults.model);
-    tracing::info!("Creating LLM provider for model: {}", effective_model);
+    info!("Creating LLM provider for model: {}", effective_model);
     let provider = config.create_provider(model).await?;
-    tracing::info!(
+    info!(
         "Provider created successfully. Default model: {}",
         provider.default_model()
     );
@@ -350,7 +351,7 @@ type MessageBusSetup = (
 );
 
 fn setup_message_bus() -> Result<MessageBusSetup> {
-    tracing::debug!("Creating message bus...");
+    debug!("Creating message bus...");
     let mut bus = MessageBus::default();
     let inbound_tx = bus.inbound_tx.clone();
     let outbound_tx = Arc::new(bus.outbound_tx.clone());
@@ -358,17 +359,17 @@ fn setup_message_bus() -> Result<MessageBusSetup> {
         .take_outbound_rx()
         .ok_or_else(|| anyhow::anyhow!("Outbound receiver already taken"))?;
     let bus_for_channels = Arc::new(Mutex::new(bus));
-    tracing::debug!("Message bus initialized");
+    debug!("Message bus initialized");
     Ok((inbound_tx, outbound_tx, outbound_rx, bus_for_channels))
 }
 
 fn setup_cron_service() -> Result<Arc<CronService>> {
-    tracing::debug!("Initializing cron service...");
+    debug!("Initializing cron service...");
     let cron_store_path = crate::utils::get_nanobot_home()?
         .join("cron")
         .join("jobs.json");
     let cron = CronService::new(cron_store_path);
-    tracing::debug!("Cron service initialized");
+    debug!("Cron service initialized");
     Ok(Arc::new(cron))
 }
 
@@ -383,17 +384,17 @@ struct SetupAgentParams {
 }
 
 async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<AgentLoop>> {
-    tracing::info!("Initializing agent loop...");
-    tracing::debug!(
+    info!("Initializing agent loop...");
+    debug!(
         "  - Max tool iterations: {}",
         config.agents.defaults.max_tool_iterations
     );
-    tracing::debug!("  - Exec timeout: {}s", config.tools.exec.timeout);
-    tracing::debug!(
+    debug!("  - Exec timeout: {}s", config.tools.exec.timeout);
+    debug!(
         "  - Restrict to workspace: {}",
         config.tools.restrict_to_workspace
     );
-    tracing::debug!(
+    debug!(
         "  - Compaction enabled: {}",
         config.agents.defaults.compaction.enabled
     );
@@ -430,7 +431,7 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
         })
         .await?,
     );
-    tracing::info!("Agent loop initialized");
+    info!("Agent loop initialized");
     Ok(agent)
 }
 
@@ -439,11 +440,11 @@ async fn setup_cron_callbacks(
     agent: Arc<AgentLoop>,
     bus: Arc<Mutex<MessageBus>>,
 ) -> Result<()> {
-    tracing::debug!("Setting up cron job callback...");
+    debug!("Setting up cron job callback...");
     let agent_clone = agent.clone();
     let bus_clone = bus.clone();
     cron.set_on_job(move |job| {
-        tracing::debug!("Cron job triggered: {} - {}", job.id, job.payload.message);
+        debug!("Cron job triggered: {} - {}", job.id, job.payload.message);
         let agent = agent_clone.clone();
         let bus = bus_clone.clone();
         Box::pin(async move {
@@ -462,11 +463,9 @@ async fn setup_cron_callbacks(
                         })
                         .await
                     {
-                        tracing::error!(
+                        error!(
                             "Failed to publish echo message from cron to {}:{}: {}",
-                            target.channel,
-                            target.to,
-                            e
+                            target.channel, target.to, e
                         );
                     }
                 }
@@ -504,11 +503,9 @@ async fn setup_cron_callbacks(
                         })
                         .await
                     {
-                        tracing::error!(
+                        error!(
                             "Failed to publish outbound message from cron to {}:{}: {}",
-                            target.channel,
-                            target.to,
-                            e
+                            target.channel, target.to, e
                         );
                     }
                 }
@@ -522,10 +519,10 @@ async fn setup_cron_callbacks(
 }
 
 fn setup_heartbeat(config: &Config, agent: Arc<AgentLoop>) -> Result<Arc<HeartbeatService>> {
-    tracing::debug!("Initializing heartbeat service...");
-    tracing::debug!("  - Enabled: {}", config.agents.defaults.daemon.enabled);
-    tracing::debug!("  - Interval: {}s", config.agents.defaults.daemon.interval);
-    tracing::debug!(
+    debug!("Initializing heartbeat service...");
+    debug!("  - Enabled: {}", config.agents.defaults.daemon.enabled);
+    debug!("  - Interval: {}s", config.agents.defaults.daemon.interval);
+    debug!(
         "  - Strategy file: {}",
         config.agents.defaults.daemon.strategy_file
     );
@@ -533,7 +530,7 @@ fn setup_heartbeat(config: &Config, agent: Arc<AgentLoop>) -> Result<Arc<Heartbe
     let heartbeat = HeartbeatService::new(
         config.workspace_path(),
         Some(Arc::new(move |prompt| {
-            tracing::debug!("Heartbeat triggered with prompt: {}", prompt);
+            debug!("Heartbeat triggered with prompt: {}", prompt);
             let agent = agent_for_heartbeat.clone();
             Box::pin(async move {
                 agent
@@ -545,7 +542,7 @@ fn setup_heartbeat(config: &Config, agent: Arc<AgentLoop>) -> Result<Arc<Heartbe
         config.agents.defaults.daemon.enabled,
         config.agents.defaults.daemon.strategy_file.clone(),
     );
-    tracing::debug!("Heartbeat service initialized");
+    debug!("Heartbeat service initialized");
     Ok(Arc::new(heartbeat))
 }
 
@@ -553,9 +550,9 @@ fn setup_channels(
     config: &Config,
     inbound_tx: tokio::sync::mpsc::Sender<crate::bus::InboundMessage>,
 ) -> Result<ChannelManager> {
-    tracing::info!("Initializing channels...");
+    info!("Initializing channels...");
     let channels = ChannelManager::new(config.clone(), Arc::new(inbound_tx));
-    tracing::info!(
+    info!(
         "Channels initialized. Enabled: {:?}",
         channels.enabled_channels()
     );
@@ -563,23 +560,23 @@ fn setup_channels(
 }
 
 async fn start_services(cron: Arc<CronService>, heartbeat: Arc<HeartbeatService>) -> Result<()> {
-    tracing::info!("Starting cron service...");
+    info!("Starting cron service...");
     cron.start().await?;
-    tracing::info!("Cron service started");
+    info!("Cron service started");
 
-    tracing::info!("Starting heartbeat service...");
+    info!("Starting heartbeat service...");
     heartbeat.start().await?;
-    tracing::info!("Heartbeat service started");
+    info!("Heartbeat service started");
     Ok(())
 }
 
 fn start_agent_loop(agent: Arc<AgentLoop>) -> tokio::task::JoinHandle<()> {
-    tracing::info!("Starting agent loop...");
+    info!("Starting agent loop...");
     tokio::spawn(async move {
-        tracing::info!("Agent loop running");
+        info!("Agent loop running");
         match agent.run().await {
-            Ok(_) => tracing::info!("Agent loop completed successfully"),
-            Err(e) => tracing::error!("Agent loop exited with error: {}", e),
+            Ok(_) => info!("Agent loop completed successfully"),
+            Err(e) => error!("Agent loop exited with error: {}", e),
         }
     })
 }
@@ -589,11 +586,11 @@ fn start_channels_loop(
     mut outbound_rx: tokio::sync::mpsc::Receiver<crate::bus::OutboundMessage>,
     mut typing_rx: tokio::sync::mpsc::Receiver<(String, String)>,
 ) -> tokio::task::JoinHandle<()> {
-    tracing::info!("Starting all channels...");
+    info!("Starting all channels...");
     tokio::spawn(async move {
         match channels.start_all().await {
-            Ok(_) => tracing::info!("All channels started successfully"),
-            Err(e) => tracing::error!("Error starting channels: {}", e),
+            Ok(_) => info!("All channels started successfully"),
+            Err(e) => error!("Error starting channels: {}", e),
         }
 
         // Consume outbound messages and typing events
@@ -615,7 +612,7 @@ fn start_channels_loop(
         loop {
             match outbound_rx.recv().await {
                 Some(msg) => {
-                    tracing::info!(
+                    info!(
                         "Consumed outbound message: channel={}, chat_id={}, content_len={}",
                         msg.channel,
                         msg.chat_id,
@@ -646,7 +643,7 @@ fn start_channels_loop(
                                 .edit_message(&key.0, &key.1, existing_id, &content_snapshot)
                                 .await
                             {
-                                tracing::debug!("Status edit failed, sending new: {}", e);
+                                debug!("Status edit failed, sending new: {}", e);
                                 status_msg_ids.remove(&key);
                                 status_content.remove(&key);
                             } else {
@@ -674,7 +671,7 @@ fn start_channels_loop(
                                     // Channel doesn't support IDs (WhatsApp) — already sent
                                 }
                                 Err(err) => {
-                                    tracing::error!("Status send failed: {}", err);
+                                    error!("Status send failed: {}", err);
                                 }
                             }
                         }
@@ -682,20 +679,20 @@ fn start_channels_loop(
                         // Regular message — delete status message if one exists, then send
                         if let Some(msg_id) = status_msg_ids.remove(&key) {
                             if let Err(e) = channels.delete_message(&key.0, &key.1, &msg_id).await {
-                                tracing::debug!("Status delete failed: {}", e);
+                                debug!("Status delete failed: {}", e);
                             }
                         }
                         status_content.remove(&key);
 
                         if let Err(e) = channels.send(&msg).await {
-                            tracing::error!("Error sending message to channels: {}", e);
+                            error!("Error sending message to channels: {}", e);
                         } else {
-                            tracing::info!("Successfully sent outbound message to channel manager");
+                            info!("Successfully sent outbound message to channel manager");
                         }
                     }
                 }
                 None => {
-                    tracing::warn!("Outbound message receiver closed");
+                    warn!("Outbound message receiver closed");
                     break;
                 }
             }
@@ -705,11 +702,11 @@ fn start_channels_loop(
         match Arc::try_unwrap(channels) {
             Ok(mut ch) => {
                 if let Err(e) = ch.stop_all().await {
-                    tracing::error!("Error stopping channels during shutdown: {}", e);
+                    error!("Error stopping channels during shutdown: {}", e);
                 }
             }
             Err(_) => {
-                tracing::debug!("Channels still referenced by typing task, will be dropped");
+                debug!("Channels still referenced by typing task, will be dropped");
             }
         }
     })

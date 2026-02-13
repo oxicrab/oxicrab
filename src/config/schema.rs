@@ -937,7 +937,7 @@ impl Config {
                 ));
             }
             if self.agents.defaults.daemon.interval < 60 {
-                warn!("Daemon interval is very short (< 60s). This may cause high resource usage.");
+                warn!("Daemon interval is very short (< 60s), this may cause high resource usage");
             }
         }
 
@@ -953,7 +953,7 @@ impl Config {
             ));
         }
         if self.tools.exec.timeout > 3600 {
-            warn!("tools.exec.timeout is very long (> 3600s). This may cause timeouts.");
+            warn!("tools.exec.timeout is very long (> 3600s), this may cause timeouts");
         }
 
         // Validate obsidian config
@@ -982,7 +982,7 @@ impl Config {
             ));
         }
         if self.tools.web.search.max_results > 100 {
-            warn!("tools.web.search.maxResults is very large (> 100). This may be slow.");
+            warn!("tools.web.search.maxResults is very large (> 100), this may be slow");
         }
 
         Ok(())

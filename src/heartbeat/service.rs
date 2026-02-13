@@ -2,6 +2,7 @@ use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tracing::{debug, error, info};
 
 const HEARTBEAT_PROMPT: &str = "Read HEARTBEAT.md in your workspace (if it exists).\nFollow any instructions or tasks listed there.\nIf nothing needs attention, reply with just: HEARTBEAT_OK";
 
@@ -71,10 +72,10 @@ impl HeartbeatService {
                     );
                     match callback(prompt).await {
                         Ok(result) => {
-                            tracing::debug!("Heartbeat completed: {}", result);
+                            debug!("Heartbeat completed: {}", result);
                         }
                         Err(e) => {
-                            tracing::error!("Heartbeat failed: {}", e);
+                            error!("Heartbeat failed: {}", e);
                         }
                     }
                 }
@@ -84,7 +85,7 @@ impl HeartbeatService {
         // Track the heartbeat task
         task_tracker.spawn("heartbeat".to_string(), handle).await;
 
-        tracing::info!("Heartbeat service started (every {}s)", interval);
+        info!("Heartbeat service started (every {}s)", interval);
         Ok(())
     }
 

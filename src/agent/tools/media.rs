@@ -21,7 +21,11 @@ impl MediaTool {
             radarr_api_key: config.radarr.api_key.clone(),
             sonarr_url: config.sonarr.url.trim_end_matches('/').to_string(),
             sonarr_api_key: config.sonarr.api_key.clone(),
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
         }
     }
 

@@ -12,17 +12,19 @@ use serenity::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tracing::{error, info, warn};
 
 struct Handler {
     inbound_tx: mpsc::Sender<InboundMessage>,
     allow_set: std::collections::HashSet<String>,
     has_allow_list: bool,
+    http_client: reqwest::Client,
 }
 
 #[serenity_async_trait]
 impl EventHandler for Handler {
     async fn cache_ready(&self, _ctx: Context, _guilds: Vec<serenity::model::id::GuildId>) {
-        tracing::info!("Discord cache is ready");
+        info!("Discord cache is ready");
     }
 
     async fn message(&self, _ctx: Context, msg: DiscordMessage) {
@@ -60,23 +62,23 @@ impl EventHandler for Handler {
                 .join(".nanobot")
                 .join("media");
             if let Err(e) = std::fs::create_dir_all(&media_dir) {
-                tracing::warn!("Failed to create media directory: {}", e);
+                warn!("Failed to create media directory: {}", e);
             }
             let file_path = media_dir.join(format!("discord_{}.{}", attachment.id, ext));
 
-            match reqwest::Client::new().get(&attachment.url).send().await {
+            match self.http_client.get(&attachment.url).send().await {
                 Ok(resp) => match resp.bytes().await {
                     Ok(bytes) => {
                         if let Err(e) = std::fs::write(&file_path, &bytes) {
-                            tracing::warn!("Failed to write Discord media file: {}", e);
+                            warn!("Failed to write Discord media file: {}", e);
                         }
                         let path_str = file_path.to_string_lossy().to_string();
                         media_paths.push(path_str.clone());
                         content = format!("{}\n[image: {}]", content, path_str);
                     }
-                    Err(e) => tracing::warn!("Failed to download Discord attachment: {}", e),
+                    Err(e) => warn!("Failed to download Discord attachment: {}", e),
                 },
-                Err(e) => tracing::warn!("Failed to download Discord attachment: {}", e),
+                Err(e) => warn!("Failed to download Discord attachment: {}", e),
             }
         }
 
@@ -91,15 +93,14 @@ impl EventHandler for Handler {
         };
 
         if let Err(e) = self.inbound_tx.send(inbound_msg).await {
-            tracing::error!("Failed to send Discord inbound message: {}", e);
+            error!("Failed to send Discord inbound message: {}", e);
         }
     }
 
     async fn ready(&self, _: Context, ready: Ready) {
-        tracing::info!(
+        info!(
             "Discord bot connected as {} (id: {})",
-            ready.user.name,
-            ready.user.id
+            ready.user.name, ready.user.id
         );
     }
 }
@@ -133,7 +134,7 @@ impl BaseChannel for DiscordChannel {
             return Err(anyhow::anyhow!("Discord token is empty"));
         }
 
-        tracing::info!("Initializing Discord client...");
+        info!("Initializing Discord client...");
         *self.running.lock().await = true;
 
         let token = self.config.token.clone();
@@ -145,7 +146,7 @@ impl BaseChannel for DiscordChannel {
             let mut reconnect_attempt = 0u32;
             loop {
                 if !*running.lock().await {
-                    tracing::info!("Discord channel stopped, exiting retry loop");
+                    info!("Discord channel stopped, exiting retry loop");
                     break;
                 }
 
@@ -157,9 +158,14 @@ impl BaseChannel for DiscordChannel {
                     inbound_tx: inbound_tx.clone(),
                     has_allow_list: !allow_from.is_empty(),
                     allow_set,
+                    http_client: reqwest::Client::builder()
+                        .connect_timeout(std::time::Duration::from_secs(10))
+                        .timeout(std::time::Duration::from_secs(30))
+                        .build()
+                        .unwrap_or_else(|_| reqwest::Client::new()),
                 };
 
-                tracing::info!("Connecting to Discord gateway...");
+                info!("Connecting to Discord gateway...");
                 match Client::builder(
                     &token,
                     GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT,
@@ -170,11 +176,11 @@ impl BaseChannel for DiscordChannel {
                     Ok(mut client) => {
                         reconnect_attempt = 0; // Reset on successful client creation
                         if let Err(why) = client.start().await {
-                            tracing::error!("Discord client connection error: {:?}", why);
+                            error!("Discord client connection error: {:?}", why);
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Failed to create Discord client: {}", e);
+                        error!("Failed to create Discord client: {}", e);
                     }
                 }
 
@@ -185,7 +191,7 @@ impl BaseChannel for DiscordChannel {
 
                 let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                 reconnect_attempt += 1;
-                tracing::warn!(
+                warn!(
                     "Discord client exited, reconnecting in {} seconds...",
                     delay
                 );
@@ -195,7 +201,7 @@ impl BaseChannel for DiscordChannel {
 
         self._client_handle = Some(handle);
 
-        tracing::info!(
+        info!(
             "Discord channel started successfully - connection will be established in background"
         );
         Ok(())

@@ -32,7 +32,11 @@ impl SlackChannel {
             running: Arc::new(tokio::sync::Mutex::new(false)),
             ws_handle: None,
             seen_messages: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
         }
     }
 

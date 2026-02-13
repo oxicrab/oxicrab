@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::Command;
+use tracing::warn;
 
 pub struct ExecTool {
     timeout: u64,
@@ -186,7 +187,7 @@ impl Tool for ExecTool {
             std::env::current_dir()
                 .context("Failed to get current directory")
                 .unwrap_or_else(|e| {
-                    tracing::warn!("Failed to get current directory: {}, using '.'", e);
+                    warn!("Failed to get current directory: {}, using '.'", e);
                     PathBuf::from(".")
                 })
         });

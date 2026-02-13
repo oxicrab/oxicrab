@@ -4,6 +4,7 @@ use reqwest::Client;
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::info;
 
 /// Shared Google API client that handles authentication and HTTP requests.
 /// Reuses a single `reqwest::Client` for connection pooling.
@@ -17,7 +18,11 @@ impl GoogleApiClient {
     pub fn new(credentials: GoogleCredentials, base_url: &str) -> Self {
         Self {
             credentials: Arc::new(Mutex::new(credentials)),
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             base_url: base_url.to_string(),
         }
     }
@@ -40,7 +45,7 @@ impl GoogleApiClient {
 
         // On 401, force token refresh and retry once
         if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-            tracing::info!("Google API returned 401, refreshing token and retrying");
+            info!("Google API returned 401, refreshing token and retrying");
             let new_token = {
                 let mut creds = self.credentials.lock().await;
                 creds.refresh().await?;

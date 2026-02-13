@@ -94,11 +94,42 @@ JSON at `~/.nanobot/config.json` (or `NANOBOT_HOME` env var). Uses camelCase in 
 
 ### Error Handling
 
-`NanobotError` in `src/errors.rs` — typed variants: `Config`, `Provider { retryable }`, `RateLimit { retry_after }`, `Auth`, `Internal(anyhow::Error)`. Internal functions use `anyhow::Result`; module boundaries use `NanobotError`.
+`NanobotError` in `src/errors.rs` — typed variants: `Config`, `Provider { retryable }`, `RateLimit { retry_after }`, `Auth`, `Internal(anyhow::Error)`. See [Code Style & Patterns](#code-style--patterns) for usage conventions.
 
 ### CLI Commands
 
 `nanobot gateway` — full multi-channel daemon. `nanobot agent -m "message"` — single-turn CLI. `nanobot onboard` — first-time setup. `nanobot cron` — manage cron jobs. `nanobot auth` — OAuth flows.
+
+## Code Style & Patterns
+
+### Logging
+- Use explicit imports: `use tracing::{debug, error, info, warn};` — not inline `tracing::info!()`
+- Log messages: lowercase start, no trailing periods — `info!("agent loop started")`
+- Error messages (`anyhow!`, `bail!`): no trailing periods — `bail!("missing config key")`
+
+### HTTP Clients
+- Each tool stores its own `reqwest::Client` as a struct field (connection pooling)
+- Google tools share a `GoogleApiClient` wrapper (`src/agent/tools/google_common.rs`)
+- Standard timeouts: **10s connect**, **30s overall**, with `unwrap_or_else(|_| Client::new())` fallback:
+  ```rust
+  client: Client::builder()
+      .connect_timeout(Duration::from_secs(10))
+      .timeout(Duration::from_secs(30))
+      .build()
+      .unwrap_or_else(|_| Client::new()),
+  ```
+- Per-request overrides use `.timeout(Duration::from_secs(15))` on the request builder
+
+### Tool Structs
+- Constructor: `pub fn new(...)` builds the client with timeouts
+- Test constructor: `#[cfg(test)] fn with_base_url(...)` for mock server testing
+- Implement `Tool` trait: `name()`, `description()`, `version()`, `parameters()`, `execute()`
+- Action-based tools use `params["action"].as_str()` dispatch pattern
+
+### Error Handling
+- Internal functions use `anyhow::Result`; module boundaries use `NanobotError`
+- Return `ToolResult::error(...)` for user-facing tool errors (not `Err(...)`)
+- Use `Err(anyhow::anyhow!(...))` or `anyhow::bail!(...)` for internal failures
 
 ## Common Pitfalls
 

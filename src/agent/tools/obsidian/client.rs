@@ -1,6 +1,7 @@
 use anyhow::Result;
 use reqwest::Client;
 use std::time::Duration;
+use tracing::warn;
 
 /// REST API client for the Obsidian Local REST API plugin.
 pub struct ObsidianApiClient {
@@ -69,7 +70,7 @@ impl ObsidianApiClient {
             let status = resp.status();
             if !status.is_success() {
                 let body = resp.text().await.unwrap_or_default();
-                tracing::warn!("Obsidian API {} listing '{}': {}", status, dir, body);
+                warn!("Obsidian API {} listing '{}': {}", status, dir, body);
                 continue;
             }
 

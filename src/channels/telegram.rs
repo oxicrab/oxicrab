@@ -12,6 +12,7 @@ use teloxide::net::Download;
 use teloxide::prelude::*;
 use teloxide::types::{Message as TgMessage, MessageKind, Update};
 use tokio::sync::mpsc;
+use tracing::{error, info, warn};
 
 pub struct TelegramChannel {
     config: TelegramConfig,
@@ -41,7 +42,7 @@ impl BaseChannel for TelegramChannel {
     }
 
     async fn start(&mut self) -> Result<()> {
-        tracing::info!("Initializing Telegram bot...");
+        info!("Initializing Telegram bot...");
         *self.running.lock().await = true;
 
         let bot = self.bot.clone();
@@ -55,7 +56,7 @@ impl BaseChannel for TelegramChannel {
             loop {
                 // Check if we should still be running
                 if !*running.lock().await {
-                    tracing::info!("Telegram channel stopped, exiting retry loop");
+                    info!("Telegram channel stopped, exiting retry loop");
                     break;
                 }
 
@@ -94,14 +95,14 @@ impl BaseChannel for TelegramChannel {
                                                 .join(".nanobot")
                                                 .join("media");
                                             if let Err(e) = std::fs::create_dir_all(&media_dir) {
-                                                tracing::warn!("Failed to create media directory: {}", e);
+                                                warn!("Failed to create media directory: {}", e);
                                             }
                                             let file_path = media_dir
                                                 .join(format!("telegram_{}.jpg", photo.file.unique_id));
 
                                             let mut dst =
                                                 tokio::fs::File::create(&file_path).await.map_err(|e| {
-                                                    tracing::warn!(
+                                                    warn!(
                                                         "Failed to create file for Telegram photo: {}",
                                                         e
                                                     );
@@ -111,7 +112,7 @@ impl BaseChannel for TelegramChannel {
                                                 if let Err(e) =
                                                     bot.download_file(&file.path, dst_file).await
                                                 {
-                                                    tracing::warn!(
+                                                    warn!(
                                                         "Failed to download Telegram photo: {}",
                                                         e
                                                     );
@@ -123,7 +124,7 @@ impl BaseChannel for TelegramChannel {
                                             }
                                         }
                                         Err(e) => {
-                                            tracing::warn!("Failed to get Telegram file info: {}", e);
+                                            warn!("Failed to get Telegram file info: {}", e);
                                         }
                                     }
 
@@ -138,7 +139,7 @@ impl BaseChannel for TelegramChannel {
                                             metadata: HashMap::new(),
                                         };
                                         if let Err(e) = inbound_tx.send(inbound_msg).await {
-                                            tracing::error!(
+                                            error!(
                                                 "Failed to send Telegram inbound message: {}",
                                                 e
                                             );
@@ -161,7 +162,7 @@ impl BaseChannel for TelegramChannel {
                                 };
 
                                 if let Err(e) = inbound_tx.send(inbound_msg).await {
-                                    tracing::error!("Failed to send Telegram inbound message: {}", e);
+                                    error!("Failed to send Telegram inbound message: {}", e);
                                 }
                             }
                         }
@@ -169,7 +170,7 @@ impl BaseChannel for TelegramChannel {
                     }
                 });
 
-                tracing::info!("Starting Telegram dispatcher...");
+                info!("Starting Telegram dispatcher...");
                 let mut dispatcher = Dispatcher::builder(bot_clone, handler).build();
                 dispatcher.dispatch().await;
 
@@ -180,7 +181,7 @@ impl BaseChannel for TelegramChannel {
 
                 let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                 reconnect_attempt += 1;
-                tracing::warn!(
+                warn!(
                     "Telegram dispatcher exited, reconnecting in {} seconds...",
                     delay
                 );
@@ -189,7 +190,7 @@ impl BaseChannel for TelegramChannel {
         });
         self.dispatcher_handle = Some(handle);
 
-        tracing::info!("Telegram channel started successfully");
+        info!("Telegram channel started successfully");
         Ok(())
     }
 
