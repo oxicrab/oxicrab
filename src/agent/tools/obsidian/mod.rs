@@ -49,16 +49,49 @@ fn generate_frontmatter(params: Option<&Value>) -> String {
             })
             .to_string()
     };
+
+    // Format tags as a YAML list (Obsidian expects `tags:\n  - tag1\n  - tag2`)
+    let tags_yaml = format_tags_yaml(params);
+
     format!(
-        "---\ncreate-date: {}\ntype: {}\ntags: {}\nlink: {}\nstatus: {}\norder: {}\nparent: {}\n---\n",
+        "---\ncreate-date: {}\ntype: {}\n{}link: {}\nstatus: {}\norder: {}\nparent: {}\n---\n",
         now,
         get("type"),
-        get("tags"),
+        tags_yaml,
         get("link"),
         get("status"),
         get("order"),
         get("parent")
     )
+}
+
+/// Parse tags from frontmatter params and format as a YAML list.
+/// Accepts either a JSON array `["tag1", "tag2"]` or a comma/space-separated string.
+fn format_tags_yaml(params: Option<&Value>) -> String {
+    let tags_val = params.and_then(|p| p.get("tags"));
+    let tags: Vec<String> = match tags_val {
+        Some(Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        Some(Value::String(s)) if !s.is_empty() => s
+            .split(|c: char| c == ',' || c == ' ')
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect(),
+        _ => vec![],
+    };
+    if tags.is_empty() {
+        "tags:\n".to_string()
+    } else {
+        let mut out = "tags:\n".to_string();
+        for tag in &tags {
+            out.push_str(&format!("  - {}\n", tag));
+        }
+        out
+    }
 }
 
 #[async_trait]
@@ -101,7 +134,7 @@ impl Tool for ObsidianTool {
                     "description": "Optional frontmatter fields for new notes. Supported: type, tags, link, status, order, parent. create-date is auto-filled. Only used on write when the note doesn't already exist.",
                     "properties": {
                         "type": { "type": "string" },
-                        "tags": { "type": "string" },
+                        "tags": { "description": "Tags as an array [\"tag1\", \"tag2\"] or comma/space-separated string" },
                         "link": { "type": "string" },
                         "status": { "type": "string" },
                         "order": { "type": "string" },

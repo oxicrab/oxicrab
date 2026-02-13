@@ -376,11 +376,10 @@ impl BaseChannel for SlackChannel {
     }
 
     async fn send_typing(&self, chat_id: &str) -> Result<()> {
-        // Slack doesn't have a dedicated typing indicator API for bots,
-        // but posting an ephemeral "typing" status can be simulated via
-        // a short-lived message. For now we simply no-op successfully
-        // so the agent loop doesn't treat it as an error.
-        debug!("Slack typing indicator requested for {}", chat_id);
+        // Slack has no typing indicator API for bots (only legacy RTM supported it).
+        // Visible progress is provided via editable status messages instead
+        // ("Thinking...", tool status lines, "Composing response...").
+        debug!("Slack typing indicator requested for {} (no-op)", chat_id);
         Ok(())
     }
 

@@ -12,6 +12,7 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 - **Memory system**: SQLite FTS5-backed long-term memory with background indexing and automatic fact extraction
 - **Session management**: Persistent sessions with automatic compaction and context summarization
 - **Hallucination detection**: Action claim detection, false no-tools-claim retry, tool facts injection, and reflection turns
+- **Editable status messages**: Tool progress shown as a single message that edits in-place (Telegram, Discord, Slack), with composing indicator and automatic cleanup
 - **Connection resilience**: All channels auto-reconnect with exponential backoff
 - **Security**: Shell command allowlist/blocklist, SSRF protection, path traversal prevention, secret redaction
 - **Async-first**: Built on Tokio for high-performance async I/O
@@ -508,12 +509,14 @@ src/
 - **Cargo feature flags**: Each channel is a compile-time feature (`channel-telegram`, `channel-discord`, `channel-slack`, `channel-whatsapp`), allowing slim builds without unused dependencies
 - **Message bus**: Decoupled channel-agent communication via inbound/outbound message bus
 - **Connection resilience**: All channels (Telegram, Discord, Slack, WhatsApp) use exponential backoff retry loops for automatic reconnection after disconnects
+- **Channel edit/delete**: `BaseChannel` trait provides `send_and_get_id`, `edit_message`, and `delete_message` with default no-ops; implemented for Telegram, Discord, and Slack
 - **Session management**: SQLite-backed sessions with automatic TTL cleanup
 - **Memory**: SQLite FTS5 for semantic memory indexing with background indexer and automatic fact extraction
 - **Compaction**: Automatic conversation summarization when context exceeds token threshold
 - **Tool execution**: Panic-isolated via `tokio::task::spawn`, parallel execution via `join_all`, LRU result caching for read-only tools, pre-execution JSON schema validation
 - **Tool facts injection**: Each agent turn injects a reminder listing all available tools, preventing the LLM from falsely claiming tools are unavailable
 - **Reflection turns**: After tool results are returned, a reflection prompt forces deliberative reasoning about next steps
+- **Editable status messages**: Tool execution progress shown as a single message that edits in-place rather than flooding the chat. Tracks status per (channel, chat_id), accumulates tool status lines with emoji prefixes, adds a "Composing response..." indicator during LLM thinking, and deletes the status message when the final response arrives. Channels without edit support (WhatsApp) fall back to separate messages.
 - **Subagents**: Semaphore-limited background task execution with conversation context injection and parallel tool calls
 - **Cron**: File-backed job store with multi-channel target delivery, agent mode and echo mode, timezone auto-detection, auto-expiry (`expires_at`), run limits (`max_runs`), and automatic name deduplication
 - **Heartbeat/Daemon**: Periodic background check-ins driven by a strategy file (`HEARTBEAT.md`)
