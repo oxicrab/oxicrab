@@ -1036,27 +1036,6 @@ impl AgentLoop {
         }
 
         for iteration in 1..=self.max_iterations {
-            // Send thinking status on first iteration so channels without native
-            // typing indicators (e.g. Slack) still show visible progress.
-            if iteration == 1 {
-                if let Some(ref ctx) = typing_context {
-                    let _ = self
-                        .outbound_tx
-                        .send(OutboundMessage {
-                            channel: ctx.0.clone(),
-                            chat_id: ctx.1.clone(),
-                            content: "\u{1f4ad} Thinking...".to_string(),
-                            reply_to: None,
-                            media: vec![],
-                            metadata: HashMap::from([(
-                                "status".to_string(),
-                                serde_json::Value::Bool(true),
-                            )]),
-                        })
-                        .await;
-                }
-            }
-
             // Start periodic typing indicator before LLM call
             let typing_handle = start_typing(&self.typing_tx, &typing_context);
 
