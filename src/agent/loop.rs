@@ -915,13 +915,21 @@ impl AgentLoop {
         debug!("Built {} messages, starting agent loop", messages.len());
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
-        let (final_content, input_tokens) = self.run_agent_loop(messages, typing_ctx).await?;
+        let (final_content, input_tokens, tools_used) =
+            self.run_agent_loop(messages, typing_ctx).await?;
 
         // Save conversation (reuse session variable)
         let extra = HashMap::new();
         session.add_message("user".to_string(), msg.content.clone(), extra.clone());
         if let Some(ref content) = final_content {
-            session.add_message("assistant".to_string(), content.clone(), extra);
+            let mut assistant_extra = HashMap::new();
+            if !tools_used.is_empty() {
+                assistant_extra.insert(
+                    "tools_used".to_string(),
+                    Value::Array(tools_used.into_iter().map(Value::String).collect()),
+                );
+            }
+            session.add_message("assistant".to_string(), content.clone(), assistant_extra);
         }
         // Store provider-reported input tokens for precise compaction threshold checks
         if let Some(tokens) = input_tokens {
@@ -987,17 +995,19 @@ impl AgentLoop {
         }
     }
 
-    /// Returns `(final_content, input_tokens)`. `input_tokens` is the
+    /// Returns `(final_content, input_tokens, tools_used)`. `input_tokens` is the
     /// provider-reported input token count from the most recent LLM call (if available).
+    /// `tools_used` lists all tool names invoked during the loop (with duplicates).
     async fn run_agent_loop(
         &self,
         mut messages: Vec<Message>,
         typing_context: Option<(String, String)>,
-    ) -> Result<(Option<String>, Option<u64>)> {
+    ) -> Result<(Option<String>, Option<u64>, Vec<String>)> {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut last_used_delivery_tool = false;
         let mut any_tools_called = false;
         let mut last_input_tokens: Option<u64> = None;
+        let mut tools_used: Vec<String> = Vec::new();
 
         // Cache tool definitions to avoid repeated lock acquisition
         let tools_defs = {
@@ -1099,6 +1109,7 @@ impl AgentLoop {
                     .iter()
                     .map(|tc| tc.name.as_str())
                     .collect();
+                tools_used.extend(called_tool_names.iter().map(|s| s.to_string()));
                 last_used_delivery_tool = called_tool_names
                     .iter()
                     .any(|n| *n == "message" || *n == "spawn");
@@ -1276,12 +1287,12 @@ impl AgentLoop {
                     any_tools_called = true; // Prevent infinite correction loop
                     continue;
                 }
-                return Ok((Some(content), last_input_tokens));
+                return Ok((Some(content), last_input_tokens, tools_used));
             } else {
                 // Empty response
                 if last_used_delivery_tool {
                     debug!("LLM returned empty after delivery tool — treating as successful completion");
-                    return Ok((None, last_input_tokens));
+                    return Ok((None, last_input_tokens, tools_used));
                 }
                 if empty_retries_left > 0 {
                     empty_retries_left -= 1;
@@ -1321,12 +1332,12 @@ impl AgentLoop {
                 .await
             {
                 if let Some(content) = response.content {
-                    return Ok((Some(content), last_input_tokens));
+                    return Ok((Some(content), last_input_tokens, tools_used));
                 }
             }
         }
 
-        Ok((None, last_input_tokens))
+        Ok((None, last_input_tokens, tools_used))
     }
 
     async fn set_tool_contexts(&self, channel: &str, chat_id: &str, context_summary: Option<&str>) {
@@ -1448,7 +1459,7 @@ impl AgentLoop {
         )?;
 
         let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
-        let (final_content, _) = self.run_agent_loop(messages, typing_ctx).await?;
+        let (final_content, _, tools_used) = self.run_agent_loop(messages, typing_ctx).await?;
         let final_content =
             final_content.unwrap_or_else(|| "Background task completed.".to_string());
 
@@ -1459,7 +1470,18 @@ impl AgentLoop {
             format!("[System: {}] {}", msg.sender_id, msg.content),
             extra.clone(),
         );
-        session.add_message("assistant".to_string(), final_content.clone(), extra);
+        let mut assistant_extra = HashMap::new();
+        if !tools_used.is_empty() {
+            assistant_extra.insert(
+                "tools_used".to_string(),
+                Value::Array(tools_used.into_iter().map(Value::String).collect()),
+            );
+        }
+        session.add_message(
+            "assistant".to_string(),
+            final_content.clone(),
+            assistant_extra,
+        );
         self.sessions.save(&session).await?;
 
         Ok(Some(OutboundMessage {
@@ -1495,13 +1517,20 @@ impl AgentLoop {
         };
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
-        let (response, _) = self.run_agent_loop(messages, typing_ctx).await?;
+        let (response, _, tools_used) = self.run_agent_loop(messages, typing_ctx).await?;
         let response = response.unwrap_or_else(|| "No response generated.".to_string());
 
         let mut session = self.sessions.get_or_create(session_key).await?;
         let extra = HashMap::new();
         session.add_message("user".to_string(), content.to_string(), extra.clone());
-        session.add_message("assistant".to_string(), response.clone(), extra);
+        let mut assistant_extra = HashMap::new();
+        if !tools_used.is_empty() {
+            assistant_extra.insert(
+                "tools_used".to_string(),
+                Value::Array(tools_used.into_iter().map(Value::String).collect()),
+            );
+        }
+        session.add_message("assistant".to_string(), response.clone(), assistant_extra);
         self.sessions.save(&session).await?;
 
         Ok(response)
