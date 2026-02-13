@@ -655,7 +655,9 @@ fn start_channels_loop(
                         }
 
                         // Send new status message (first time or after edit failure)
-                        if !status_msg_ids.contains_key(&key) {
+                        if let std::collections::hash_map::Entry::Vacant(e) =
+                            status_msg_ids.entry(key)
+                        {
                             let status_msg = crate::bus::OutboundMessage {
                                 content: content_snapshot,
                                 channel: msg.channel.clone(),
@@ -666,13 +668,13 @@ fn start_channels_loop(
                             };
                             match channels.send_and_get_id(&status_msg).await {
                                 Ok(Some(id)) => {
-                                    status_msg_ids.insert(key, id);
+                                    e.insert(id);
                                 }
                                 Ok(None) => {
                                     // Channel doesn't support IDs (WhatsApp) — already sent
                                 }
-                                Err(e) => {
-                                    tracing::error!("Status send failed: {}", e);
+                                Err(err) => {
+                                    tracing::error!("Status send failed: {}", err);
                                 }
                             }
                         }

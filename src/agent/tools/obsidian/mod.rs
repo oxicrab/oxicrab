@@ -77,7 +77,7 @@ fn format_tags_yaml(params: Option<&Value>) -> String {
             .filter(|s| !s.is_empty())
             .collect(),
         Some(Value::String(s)) if !s.is_empty() => s
-            .split(|c: char| c == ',' || c == ' ')
+            .split([',', ' '])
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty())
             .collect(),

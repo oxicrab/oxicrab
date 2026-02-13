@@ -407,7 +407,7 @@ fn format_tool_status(name: &str, args: &serde_json::Value) -> String {
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             format!("\u{1f4d3} Obsidian {}: {}", action, path)
         }
-        "exec" => format!("\u{2699}\u{fe0f} Running command"),
+        "exec" => "\u{2699}\u{fe0f} Running command".to_string(),
         "read_file" | "write_file" | "edit_file" => {
             let p = args.get("path").and_then(|v| v.as_str()).unwrap_or("...");
             format!("\u{1f4c1} {}: {}", name, p)
