@@ -249,40 +249,4 @@ impl BaseChannel for DiscordChannel {
 
         Ok(())
     }
-
-    async fn send_and_get_id(&self, msg: &OutboundMessage) -> Result<Option<String>> {
-        if msg.channel != "discord" {
-            return Ok(None);
-        }
-
-        let id_val = msg.chat_id.parse::<u64>()?;
-        let http = serenity::http::Http::new(&self.config.token);
-        let channel_id = serenity::model::id::ChannelId::new(id_val);
-        let sent = channel_id.say(&http, &msg.content).await?;
-
-        Ok(Some(sent.id.to_string()))
-    }
-
-    async fn edit_message(&self, chat_id: &str, message_id: &str, new_content: &str) -> Result<()> {
-        let channel_id = chat_id
-            .parse::<u64>()
-            .map_err(|e| anyhow::anyhow!("Invalid Discord channel_id: {}", e))?;
-        let msg_id = message_id
-            .parse::<u64>()
-            .map_err(|e| anyhow::anyhow!("Invalid Discord message_id: {}", e))?;
-
-        let http = serenity::http::Http::new(&self.config.token);
-        let channel_id = serenity::model::id::ChannelId::new(channel_id);
-        let msg_id = serenity::model::id::MessageId::new(msg_id);
-
-        channel_id
-            .edit_message(
-                &http,
-                msg_id,
-                serenity::builder::EditMessage::new().content(new_content),
-            )
-            .await?;
-
-        Ok(())
-    }
 }

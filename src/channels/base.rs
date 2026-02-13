@@ -14,24 +14,6 @@ pub trait BaseChannel: Send + Sync {
     async fn send_typing(&self, _chat_id: &str) -> anyhow::Result<()> {
         Ok(())
     }
-
-    /// Send a message and return its platform-specific ID for later editing.
-    /// Default falls back to `send()` with no ID tracking.
-    async fn send_and_get_id(&self, msg: &OutboundMessage) -> anyhow::Result<Option<String>> {
-        self.send(msg).await?;
-        Ok(None)
-    }
-
-    /// Edit a previously sent message by its platform-specific ID.
-    /// Default is a no-op for channels that don't support editing.
-    async fn edit_message(
-        &self,
-        _chat_id: &str,
-        _message_id: &str,
-        _new_content: &str,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
 }
 
 /// Split a message into chunks respecting UTF-8 character boundaries.

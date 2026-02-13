@@ -24,9 +24,9 @@ use crate::agent::tools::{
     ToolRegistry,
 };
 use crate::agent::truncation::truncate_tool_result;
-use crate::bus::{InboundMessage, MessageBus, OutboundMessage, StreamingEdit};
+use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
 use crate::cron::service::CronService;
-use crate::providers::base::{ImageData, LLMProvider, Message, StreamCallback};
+use crate::providers::base::{ImageData, LLMProvider, Message};
 use crate::session::{Session, SessionManager, SessionStore};
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
@@ -42,8 +42,6 @@ const EMPTY_RESPONSE_RETRIES: usize = 2;
 const TOOL_EXECUTION_TIMEOUT_SECS: u64 = 120;
 const MAX_TOOL_RESULT_CHARS: usize = 10000;
 const AGENT_POLL_INTERVAL_MS: u64 = 100;
-const STREAMING_THROTTLE_MS: u64 = 500;
-const STREAMING_BUFFER_CHARS: usize = 50;
 
 /// Validate tool arguments against the tool's JSON schema.
 /// Checks: (1) required fields are present, (2) field types match schema.
@@ -402,10 +400,6 @@ pub struct AgentLoopConfig {
     pub typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     /// Channel configurations for multi-channel cron target resolution
     pub channels_config: Option<crate::config::ChannelsConfig>,
-    /// Sender for streaming edit events (channel manager consumes these)
-    pub streaming_edit_tx: Option<Arc<tokio::sync::mpsc::Sender<StreamingEdit>>>,
-    /// Channel names that support message editing (for streaming edits)
-    pub editable_channels: Vec<String>,
     /// Memory indexer interval in seconds (default 300)
     pub memory_indexer_interval: u64,
     /// Media file TTL in days for cleanup (default 7)
@@ -435,8 +429,6 @@ pub struct AgentLoop {
     tool_temperature: f32,
     max_tokens: u32,
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
-    streaming_edit_tx: Option<Arc<tokio::sync::mpsc::Sender<StreamingEdit>>>,
-    editable_channels: Vec<String>,
 }
 
 impl AgentLoop {
@@ -467,8 +459,6 @@ impl AgentLoop {
             max_tokens,
             typing_tx,
             channels_config,
-            streaming_edit_tx,
-            editable_channels,
             memory_indexer_interval,
             media_ttl_days,
             max_concurrent_subagents,
@@ -722,8 +712,6 @@ impl AgentLoop {
             tool_temperature,
             max_tokens,
             typing_tx,
-            streaming_edit_tx,
-            editable_channels,
         })
     }
 
@@ -764,7 +752,9 @@ impl AgentLoop {
                     }
                     Ok(None) => {
                         // No response (e.g., empty after delivery tool)
-                        warn!("No response generated for message (process_message returned None)");
+                        debug!(
+                            "No outbound message needed (content delivered via tool or suppressed)"
+                        );
                     }
                     Err(e) => {
                         error!("Error processing message: {}", e);
@@ -875,15 +865,7 @@ impl AgentLoop {
         debug!("Built {} messages, starting agent loop", messages.len());
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
-        let streaming_ctx =
-            if self.streaming_edit_tx.is_some() && self.editable_channels.contains(&msg.channel) {
-                Some((msg.channel.clone(), msg.chat_id.clone()))
-            } else {
-                None
-            };
-        let (final_content, was_streamed, input_tokens) = self
-            .run_agent_loop(messages, typing_ctx, streaming_ctx)
-            .await?;
+        let (final_content, input_tokens) = self.run_agent_loop(messages, typing_ctx).await?;
 
         // Save conversation (reuse session variable)
         let extra = HashMap::new();
@@ -942,11 +924,6 @@ impl AgentLoop {
                 debug!("Suppressing silent response");
                 return Ok(None);
             }
-            // Skip outbound send if content was already streamed to the channel
-            if was_streamed {
-                debug!("Response already streamed to channel, skipping outbound send");
-                return Ok(None);
-            }
             Ok(Some(OutboundMessage {
                 channel: msg.channel,
                 chat_id: msg.chat_id,
@@ -960,16 +937,13 @@ impl AgentLoop {
         }
     }
 
-    /// Returns `(final_content, was_streamed, input_tokens)`. When `was_streamed` is true,
-    /// the caller should skip sending via `outbound_tx` because the content
-    /// was already delivered through streaming edits. `input_tokens` is the
+    /// Returns `(final_content, input_tokens)`. `input_tokens` is the
     /// provider-reported input token count from the most recent LLM call (if available).
     async fn run_agent_loop(
         &self,
         mut messages: Vec<Message>,
         typing_context: Option<(String, String)>,
-        streaming_context: Option<(String, String)>, // (channel, chat_id) for streaming edits
-    ) -> Result<(Option<String>, bool, Option<u64>)> {
+    ) -> Result<(Option<String>, Option<u64>)> {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut last_used_delivery_tool = false;
         let mut any_tools_called = false;
@@ -1016,61 +990,6 @@ impl AgentLoop {
             }
         }
 
-        // Reset streaming consumer state so a new message is created (not an edit of the old one)
-        if let (Some(ref edit_tx), Some((ref ch, ref cid))) =
-            (&self.streaming_edit_tx, &streaming_context)
-        {
-            let _ = edit_tx
-                .send(StreamingEdit {
-                    channel: ch.clone(),
-                    chat_id: cid.clone(),
-                    message_id: String::new(),
-                    content: String::new(), // Empty content = reset sentinel
-                })
-                .await;
-        }
-
-        // Build streaming callback if streaming context is available
-        let stream_callback: Option<StreamCallback> =
-            if let (Some(ref edit_tx), Some((ref s_channel, ref s_chat_id))) =
-                (&self.streaming_edit_tx, &streaming_context)
-            {
-                let edit_tx = edit_tx.clone();
-                let channel = s_channel.clone();
-                let chat_id = s_chat_id.clone();
-                let buffer = Arc::new(std::sync::Mutex::new(String::new()));
-                let last_send = Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
-
-                Some(Arc::new(move |delta: &str| {
-                    let mut buf = buffer.lock().unwrap();
-                    buf.push_str(delta);
-
-                    let mut last = last_send.lock().unwrap();
-                    let elapsed = last.elapsed();
-                    // Throttle: send at most every STREAMING_THROTTLE_MS or every STREAMING_BUFFER_CHARS
-                    if elapsed >= std::time::Duration::from_millis(STREAMING_THROTTLE_MS)
-                        || buf.len() >= STREAMING_BUFFER_CHARS
-                    {
-                        let content = buf.clone();
-                        *last = std::time::Instant::now();
-                        drop(buf);
-                        drop(last);
-
-                        let edit = StreamingEdit {
-                            channel: channel.clone(),
-                            chat_id: chat_id.clone(),
-                            message_id: String::new(), // Consumer handles ID tracking
-                            content,
-                        };
-                        let tx = edit_tx.clone();
-                        // Fire-and-forget send (we're in a sync callback)
-                        let _ = tx.try_send(edit);
-                    }
-                }))
-            } else {
-                None
-            };
-
         for iteration in 1..=self.max_iterations {
             // Send typing indicator before LLM call
             send_typing();
@@ -1090,10 +1009,6 @@ impl AgentLoop {
                 None // defaults to "auto" in provider
             };
 
-            // Use streaming callback only for non-forced-tool iterations
-            // (iteration > 1 or no tools), where a text response is expected
-            let use_callback = stream_callback.is_some() && tool_choice.is_none();
-
             let response = self
                 .provider
                 .chat_with_retry(
@@ -1106,11 +1021,6 @@ impl AgentLoop {
                         tool_choice,
                     },
                     Some(crate::providers::base::RetryConfig::default()),
-                    if use_callback {
-                        stream_callback.clone()
-                    } else {
-                        None
-                    },
                 )
                 .await?;
 
@@ -1205,9 +1115,9 @@ impl AgentLoop {
                     );
                 }
 
-                // Inject reflection prompt to encourage deliberative reasoning
+                // Inject reflection prompt to guide next action
                 messages.push(Message::user(
-                    "Reflect on the tool results above. What do you now know, and what should you do next?".to_string()
+                    "Review the results and continue. Use more tools if needed, or provide your final response to the user.".to_string()
                 ));
             } else if let Some(content) = response.content {
                 // Detect false "no tools" claims and retry with correction
@@ -1255,32 +1165,12 @@ impl AgentLoop {
                     any_tools_called = true; // Prevent infinite correction loop
                     continue;
                 }
-                // Send final streaming edit with complete content
-                let was_streamed = if use_callback {
-                    if let (Some(ref edit_tx), Some((ref ch, ref cid))) =
-                        (&self.streaming_edit_tx, &streaming_context)
-                    {
-                        let _ = edit_tx
-                            .send(StreamingEdit {
-                                channel: ch.clone(),
-                                chat_id: cid.clone(),
-                                message_id: String::new(),
-                                content: content.clone(),
-                            })
-                            .await;
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
-                return Ok((Some(content), was_streamed, last_input_tokens));
+                return Ok((Some(content), last_input_tokens));
             } else {
                 // Empty response
                 if last_used_delivery_tool {
                     debug!("LLM returned empty after delivery tool — treating as successful completion");
-                    return Ok((None, false, last_input_tokens));
+                    return Ok((None, last_input_tokens));
                 }
                 if empty_retries_left > 0 {
                     empty_retries_left -= 1;
@@ -1298,7 +1188,34 @@ impl AgentLoop {
             }
         }
 
-        Ok((None, false, last_input_tokens))
+        // If tools were called but the loop ended without final content,
+        // make one more LLM call with no tools to force a text summary.
+        if any_tools_called {
+            messages.push(Message::user(
+                "Provide a brief summary of what you accomplished for the user.".to_string(),
+            ));
+            if let Ok(response) = self
+                .provider
+                .chat_with_retry(
+                    crate::providers::base::ChatRequest {
+                        messages: messages.clone(),
+                        tools: None,
+                        model: Some(&self.model),
+                        max_tokens: self.max_tokens,
+                        temperature: self.temperature,
+                        tool_choice: None,
+                    },
+                    Some(crate::providers::base::RetryConfig::default()),
+                )
+                .await
+            {
+                if let Some(content) = response.content {
+                    return Ok((Some(content), last_input_tokens));
+                }
+            }
+        }
+
+        Ok((None, last_input_tokens))
     }
 
     async fn set_tool_contexts(&self, channel: &str, chat_id: &str, context_summary: Option<&str>) {
@@ -1420,7 +1337,7 @@ impl AgentLoop {
         )?;
 
         let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
-        let (final_content, _, _) = self.run_agent_loop(messages, typing_ctx, None).await?;
+        let (final_content, _) = self.run_agent_loop(messages, typing_ctx).await?;
         let final_content =
             final_content.unwrap_or_else(|| "Background task completed.".to_string());
 
@@ -1467,7 +1384,7 @@ impl AgentLoop {
         };
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
-        let (response, _, _) = self.run_agent_loop(messages, typing_ctx, None).await?;
+        let (response, _) = self.run_agent_loop(messages, typing_ctx).await?;
         let response = response.unwrap_or_else(|| "No response generated.".to_string());
 
         let mut session = self.sessions.get_or_create(session_key).await?;

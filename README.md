@@ -9,7 +9,6 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 - **24 built-in tools**: Filesystem, shell, web, HTTP, Google Workspace, GitHub, scheduling, memory, media management, and more
 - **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
 - **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode (LLM-free delivery), multi-channel targeting, auto-expiry (`expires_at`) and run limits (`max_runs`)
-- **Streaming responses**: SSE-based streaming with live message editing on Telegram, Discord, and Slack
 - **Memory system**: SQLite FTS5-backed long-term memory with background indexing and automatic fact extraction
 - **Session management**: Persistent sessions with automatic compaction and context summarization
 - **Hallucination detection**: Action claim detection, false no-tools-claim retry, tool facts injection, and reflection turns
@@ -512,7 +511,6 @@ src/
 - **Session management**: SQLite-backed sessions with automatic TTL cleanup
 - **Memory**: SQLite FTS5 for semantic memory indexing with background indexer and automatic fact extraction
 - **Compaction**: Automatic conversation summarization when context exceeds token threshold
-- **Streaming**: SSE-based streaming with live message editing on supported channels (Telegram, Discord, Slack)
 - **Tool execution**: Panic-isolated via `tokio::task::spawn`, parallel execution via `join_all`, LRU result caching for read-only tools, pre-execution JSON schema validation
 - **Tool facts injection**: Each agent turn injects a reminder listing all available tools, preventing the LLM from falsely claiming tools are unavailable
 - **Reflection turns**: After tool results are returned, a reflection prompt forces deliberative reasoning about next steps

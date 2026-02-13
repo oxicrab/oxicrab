@@ -464,7 +464,17 @@ impl ObsidianSyncService {
                         warn!("Obsidian sync failed: {}", e);
                     }
                 } else {
-                    debug!("Obsidian API unreachable, skipping sync tick");
+                    let queue = cache.write_queue.lock().await;
+                    let pending = queue.len();
+                    drop(queue);
+                    if pending > 0 {
+                        warn!(
+                            "Obsidian API unreachable — {} queued writes waiting to sync",
+                            pending
+                        );
+                    } else {
+                        debug!("Obsidian API unreachable, skipping sync tick");
+                    }
                 }
             }
         });

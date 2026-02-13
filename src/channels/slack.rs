@@ -406,36 +406,6 @@ impl BaseChannel for SlackChannel {
 
         Ok(())
     }
-
-    async fn send_and_get_id(&self, msg: &OutboundMessage) -> Result<Option<String>> {
-        if msg.channel != "slack" {
-            return Ok(None);
-        }
-
-        let content = Self::format_for_slack(&msg.content);
-        let mut params = HashMap::new();
-        params.insert("channel", Value::String(msg.chat_id.clone()));
-        params.insert("text", Value::String(content));
-        params.insert("mrkdwn", Value::Bool(true));
-
-        let response = self.send_slack_api("chat.postMessage", &params).await?;
-        let ts = response
-            .get("ts")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        Ok(ts)
-    }
-
-    async fn edit_message(&self, chat_id: &str, message_id: &str, new_content: &str) -> Result<()> {
-        let content = Self::format_for_slack(new_content);
-        let mut params = HashMap::new();
-        params.insert("channel", Value::String(chat_id.to_string()));
-        params.insert("ts", Value::String(message_id.to_string()));
-        params.insert("text", Value::String(content));
-
-        self.send_slack_api("chat.update", &params).await?;
-        Ok(())
-    }
 }
 
 /// Download a file from Slack, following redirects manually to preserve auth.

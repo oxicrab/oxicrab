@@ -282,12 +282,6 @@ async fn gateway(model: Option<String>) -> Result<()> {
     let (typing_tx, typing_rx) = tokio::sync::mpsc::channel::<(String, String)>(100);
     let typing_tx = Arc::new(typing_tx);
 
-    // Create streaming edit channel
-    let (streaming_edit_tx, streaming_edit_rx) =
-        tokio::sync::mpsc::channel::<crate::bus::StreamingEdit>(100);
-    let streaming_edit_tx = Arc::new(streaming_edit_tx);
-
-    let editable_channels = editable_channels_from_config(&config);
     let agent = setup_agent(
         SetupAgentParams {
             bus: bus_for_channels.clone(),
@@ -297,8 +291,6 @@ async fn gateway(model: Option<String>) -> Result<()> {
             cron: Some(cron.clone()),
             typing_tx: Some(typing_tx),
             channels_config: Some(config.channels.clone()),
-            streaming_edit_tx: Some(streaming_edit_tx),
-            editable_channels,
         },
         &config,
     )
@@ -315,7 +307,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
 
     // Run agent and channels
     let agent_task = start_agent_loop(agent.clone());
-    let channels_task = start_channels_loop(channels, outbound_rx, typing_rx, streaming_edit_rx);
+    let channels_task = start_channels_loop(channels, outbound_rx, typing_rx);
 
     tracing::info!("All services started. Gateway is running.");
 
@@ -387,8 +379,6 @@ struct SetupAgentParams {
     cron: Option<Arc<CronService>>,
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     channels_config: Option<crate::config::ChannelsConfig>,
-    streaming_edit_tx: Option<Arc<tokio::sync::mpsc::Sender<crate::bus::StreamingEdit>>>,
-    editable_channels: Vec<String>,
 }
 
 async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<AgentLoop>> {
@@ -433,8 +423,6 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
             max_tokens: config.agents.defaults.max_tokens,
             typing_tx: params.typing_tx,
             channels_config: params.channels_config,
-            streaming_edit_tx: params.streaming_edit_tx,
-            editable_channels: params.editable_channels,
             memory_indexer_interval: config.agents.defaults.memory_indexer_interval,
             media_ttl_days: config.agents.defaults.media_ttl_days,
             max_concurrent_subagents: config.agents.defaults.max_concurrent_subagents,
@@ -443,27 +431,6 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
     );
     tracing::info!("Agent loop initialized");
     Ok(agent)
-}
-
-/// Channels that support message editing for streaming responses.
-/// Channels not in this list will receive the complete response as a single message.
-fn editable_channels_from_config(config: &Config) -> Vec<String> {
-    let _ = config; // suppress unused warning when no channel features compiled
-    let mut editable = Vec::new();
-    #[cfg(feature = "channel-telegram")]
-    if config.channels.telegram.enabled {
-        editable.push("telegram".to_string());
-    }
-    #[cfg(feature = "channel-discord")]
-    if config.channels.discord.enabled {
-        editable.push("discord".to_string());
-    }
-    #[cfg(feature = "channel-slack")]
-    if config.channels.slack.enabled {
-        editable.push("slack".to_string());
-    }
-    // WhatsApp intentionally excluded — no message editing support
-    editable
 }
 
 async fn setup_cron_callbacks(
@@ -620,7 +587,6 @@ fn start_channels_loop(
     mut channels: ChannelManager,
     mut outbound_rx: tokio::sync::mpsc::Receiver<crate::bus::OutboundMessage>,
     mut typing_rx: tokio::sync::mpsc::Receiver<(String, String)>,
-    mut streaming_edit_rx: tokio::sync::mpsc::Receiver<crate::bus::StreamingEdit>,
 ) -> tokio::task::JoinHandle<()> {
     tracing::info!("Starting all channels...");
     tokio::spawn(async move {
@@ -633,52 +599,11 @@ fn start_channels_loop(
         // Use a shared reference for typing via Arc since we need it in a spawned task
         let channels = Arc::new(channels);
         let channels_for_typing = channels.clone();
-        let channels_for_streaming = channels.clone();
 
         // Spawn typing indicator consumer
         tokio::spawn(async move {
             while let Some((channel, chat_id)) = typing_rx.recv().await {
                 channels_for_typing.send_typing(&channel, &chat_id).await;
-            }
-        });
-
-        // Spawn streaming edit consumer
-        tokio::spawn(async move {
-            let mut current_message_id: Option<String> = None;
-            let mut current_key: Option<(String, String)> = None; // (channel, chat_id)
-
-            while let Some(edit) = streaming_edit_rx.recv().await {
-                let edit_key = (edit.channel.clone(), edit.chat_id.clone());
-
-                // Reset tracking if we're streaming to a different channel/chat
-                if current_key.as_ref() != Some(&edit_key) {
-                    current_message_id = None;
-                    current_key = Some(edit_key);
-                }
-
-                // Empty content is a reset sentinel — new response starting
-                if edit.content.is_empty() {
-                    current_message_id = None;
-                    continue;
-                }
-
-                if let Some(ref msg_id) = current_message_id {
-                    // Edit existing message
-                    channels_for_streaming
-                        .edit_message(&edit.channel, &edit.chat_id, msg_id, &edit.content)
-                        .await;
-                } else {
-                    // Send initial message and track ID
-                    let placeholder = crate::bus::OutboundMessage {
-                        channel: edit.channel.clone(),
-                        chat_id: edit.chat_id.clone(),
-                        content: edit.content,
-                        reply_to: None,
-                        media: vec![],
-                        metadata: std::collections::HashMap::new(),
-                    };
-                    current_message_id = channels_for_streaming.send_and_get_id(&placeholder).await;
-                }
             }
         });
 
@@ -737,8 +662,6 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
             cron: None,
             typing_tx: None,
             channels_config: None,
-            streaming_edit_tx: None,
-            editable_channels: vec![],
         },
         &config,
     )

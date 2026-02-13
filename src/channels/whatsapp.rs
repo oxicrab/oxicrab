@@ -393,27 +393,6 @@ impl BaseChannel for WhatsAppChannel {
         Ok(())
     }
 
-    async fn send_and_get_id(&self, msg: &OutboundMessage) -> Result<Option<String>> {
-        if msg.channel != "whatsapp" {
-            return Ok(None);
-        }
-
-        let client_guard = self.client.lock().await;
-        if let Some(client) = client_guard.as_ref() {
-            match send_whatsapp_message(client, msg).await {
-                Ok(()) => {
-                    // WhatsApp message IDs are returned per-chunk; return None
-                    // since we can't reliably track multi-chunk messages for editing
-                    Ok(None)
-                }
-                Err(e) => Err(e),
-            }
-        } else {
-            warn!("WhatsApp client not available for send_and_get_id");
-            Ok(None)
-        }
-    }
-
     async fn send(&self, msg: &OutboundMessage) -> Result<()> {
         if msg.channel != "whatsapp" {
             debug!(

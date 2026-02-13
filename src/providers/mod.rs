@@ -5,5 +5,4 @@ pub mod base;
 pub mod errors;
 pub mod gemini;
 pub mod openai;
-pub mod sse;
 pub mod strategy;

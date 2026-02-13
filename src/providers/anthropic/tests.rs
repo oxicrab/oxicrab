@@ -1,39 +1,7 @@
 use super::*;
 use crate::providers::base::Message;
-use futures_util::stream;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-
-#[tokio::test]
-async fn test_stream_chunk_timeout_fires() {
-    // Simulate a stream that stalls forever
-    let mut stalled: futures_util::stream::Pending<Option<String>> = stream::pending();
-
-    let result = tokio::time::timeout(
-        Duration::from_millis(50),
-        futures_util::StreamExt::next(&mut stalled),
-    )
-    .await;
-
-    assert!(result.is_err(), "Timeout should fire on stalled stream");
-}
-
-#[tokio::test]
-async fn test_stream_chunk_timeout_does_not_fire_on_data() {
-    let items: Vec<String> = vec!["chunk1".to_string()];
-    let mut ready_stream = stream::iter(items);
-
-    let result = tokio::time::timeout(
-        Duration::from_millis(500),
-        futures_util::StreamExt::next(&mut ready_stream),
-    )
-    .await;
-
-    assert!(result.is_ok(), "Timeout should not fire when data arrives");
-    assert_eq!(result.unwrap().unwrap(), "chunk1");
-}
-
-// --- Wiremock tests ---
 
 fn simple_chat_request(content: &str) -> ChatRequest<'_> {
     ChatRequest {
@@ -93,7 +61,6 @@ async fn test_chat_with_tool_calls() {
         .await
         .unwrap();
 
-    // Non-streaming chat() uses anthropic_common::parse_response which extracts tool calls
     assert!(result.has_tool_calls());
     assert_eq!(result.tool_calls[0].name, "weather");
     assert_eq!(result.tool_calls[0].id, "tc_1");
