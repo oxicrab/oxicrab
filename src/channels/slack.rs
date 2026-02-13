@@ -406,6 +406,40 @@ impl BaseChannel for SlackChannel {
 
         Ok(())
     }
+
+    async fn send_and_get_id(&self, msg: &OutboundMessage) -> Result<Option<String>> {
+        if msg.channel != "slack" {
+            return Ok(None);
+        }
+        let content = Self::format_for_slack(&msg.content);
+        let mut params = HashMap::new();
+        params.insert("channel", Value::String(msg.chat_id.clone()));
+        params.insert("text", Value::String(content));
+        params.insert("mrkdwn", Value::Bool(true));
+        let response = self.send_slack_api("chat.postMessage", &params).await?;
+        Ok(response
+            .get("ts")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()))
+    }
+
+    async fn edit_message(&self, chat_id: &str, message_id: &str, content: &str) -> Result<()> {
+        let content = Self::format_for_slack(content);
+        let mut params = HashMap::new();
+        params.insert("channel", Value::String(chat_id.to_string()));
+        params.insert("ts", Value::String(message_id.to_string()));
+        params.insert("text", Value::String(content));
+        self.send_slack_api("chat.update", &params).await?;
+        Ok(())
+    }
+
+    async fn delete_message(&self, chat_id: &str, message_id: &str) -> Result<()> {
+        let mut params = HashMap::new();
+        params.insert("channel", Value::String(chat_id.to_string()));
+        params.insert("ts", Value::String(message_id.to_string()));
+        self.send_slack_api("chat.delete", &params).await?;
+        Ok(())
+    }
 }
 
 /// Download a file from Slack, following redirects manually to preserve auth.

@@ -14,6 +14,30 @@ pub trait BaseChannel: Send + Sync {
     async fn send_typing(&self, _chat_id: &str) -> anyhow::Result<()> {
         Ok(())
     }
+
+    /// Send a message and return its platform-specific ID for later editing.
+    /// Default: sends normally, returns None (no editing support).
+    async fn send_and_get_id(&self, msg: &OutboundMessage) -> anyhow::Result<Option<String>> {
+        self.send(msg).await?;
+        Ok(None)
+    }
+
+    /// Edit a previously sent message by its platform-specific ID.
+    /// Default: no-op for channels that don't support editing.
+    async fn edit_message(
+        &self,
+        _chat_id: &str,
+        _message_id: &str,
+        _content: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Delete a previously sent message by its platform-specific ID.
+    /// Default: no-op for channels that don't support deletion.
+    async fn delete_message(&self, _chat_id: &str, _message_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 /// Split a message into chunks respecting UTF-8 character boundaries.

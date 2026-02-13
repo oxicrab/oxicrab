@@ -229,6 +229,40 @@ impl BaseChannel for TelegramChannel {
 
         Ok(())
     }
+
+    async fn send_and_get_id(&self, msg: &OutboundMessage) -> Result<Option<String>> {
+        if msg.channel != "telegram" {
+            return Ok(None);
+        }
+        let chat_id = msg.chat_id.parse::<i64>()?;
+        let html = markdown_to_telegram_html(&msg.content);
+        let sent = self
+            .bot
+            .send_message(ChatId(chat_id), &html)
+            .parse_mode(teloxide::types::ParseMode::Html)
+            .await?;
+        Ok(Some(sent.id.0.to_string()))
+    }
+
+    async fn edit_message(&self, chat_id: &str, message_id: &str, content: &str) -> Result<()> {
+        let chat_id = chat_id.parse::<i64>()?;
+        let msg_id = message_id.parse::<i32>()?;
+        let html = markdown_to_telegram_html(content);
+        self.bot
+            .edit_message_text(ChatId(chat_id), teloxide::types::MessageId(msg_id), &html)
+            .parse_mode(teloxide::types::ParseMode::Html)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_message(&self, chat_id: &str, message_id: &str) -> Result<()> {
+        let chat_id = chat_id.parse::<i64>()?;
+        let msg_id = message_id.parse::<i32>()?;
+        self.bot
+            .delete_message(ChatId(chat_id), teloxide::types::MessageId(msg_id))
+            .await?;
+        Ok(())
+    }
 }
 
 fn markdown_to_telegram_html(text: &str) -> String {

@@ -7,6 +7,7 @@ use crate::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule};
 use crate::heartbeat::service::HeartbeatService;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
@@ -607,6 +608,10 @@ fn start_channels_loop(
             }
         });
 
+        // Track status messages for in-place editing
+        let mut status_msg_ids: HashMap<(String, String), String> = HashMap::new();
+        let mut status_content: HashMap<(String, String), String> = HashMap::new();
+
         loop {
             match outbound_rx.recv().await {
                 Some(msg) => {
@@ -616,10 +621,75 @@ fn start_channels_loop(
                         msg.chat_id,
                         msg.content.len()
                     );
-                    if let Err(e) = channels.send(&msg).await {
-                        tracing::error!("Error sending message to channels: {}", e);
+
+                    let is_status = msg
+                        .metadata
+                        .get("status")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let key = (msg.channel.clone(), msg.chat_id.clone());
+
+                    if is_status {
+                        // Accumulate status lines and snapshot for use after borrow ends
+                        let content_snapshot = {
+                            let accumulated = status_content.entry(key.clone()).or_default();
+                            if !accumulated.is_empty() {
+                                accumulated.push('\n');
+                            }
+                            accumulated.push_str(&msg.content);
+                            accumulated.clone()
+                        };
+
+                        if let Some(existing_id) = status_msg_ids.get(&key) {
+                            // Try to edit existing status message
+                            if let Err(e) = channels
+                                .edit_message(&key.0, &key.1, existing_id, &content_snapshot)
+                                .await
+                            {
+                                tracing::debug!("Status edit failed, sending new: {}", e);
+                                status_msg_ids.remove(&key);
+                                status_content.remove(&key);
+                            } else {
+                                continue; // Edit succeeded
+                            }
+                        }
+
+                        // Send new status message (first time or after edit failure)
+                        if !status_msg_ids.contains_key(&key) {
+                            let status_msg = crate::bus::OutboundMessage {
+                                content: content_snapshot,
+                                channel: msg.channel.clone(),
+                                chat_id: msg.chat_id.clone(),
+                                reply_to: msg.reply_to.clone(),
+                                media: vec![],
+                                metadata: msg.metadata.clone(),
+                            };
+                            match channels.send_and_get_id(&status_msg).await {
+                                Ok(Some(id)) => {
+                                    status_msg_ids.insert(key, id);
+                                }
+                                Ok(None) => {
+                                    // Channel doesn't support IDs (WhatsApp) — already sent
+                                }
+                                Err(e) => {
+                                    tracing::error!("Status send failed: {}", e);
+                                }
+                            }
+                        }
                     } else {
-                        tracing::info!("Successfully sent outbound message to channel manager");
+                        // Regular message — delete status message if one exists, then send
+                        if let Some(msg_id) = status_msg_ids.remove(&key) {
+                            if let Err(e) = channels.delete_message(&key.0, &key.1, &msg_id).await {
+                                tracing::debug!("Status delete failed: {}", e);
+                            }
+                        }
+                        status_content.remove(&key);
+
+                        if let Err(e) = channels.send(&msg).await {
+                            tracing::error!("Error sending message to channels: {}", e);
+                        } else {
+                            tracing::info!("Successfully sent outbound message to channel manager");
+                        }
                     }
                 }
                 None => {

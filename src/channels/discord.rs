@@ -249,4 +249,43 @@ impl BaseChannel for DiscordChannel {
 
         Ok(())
     }
+
+    async fn send_and_get_id(&self, msg: &OutboundMessage) -> Result<Option<String>> {
+        if msg.channel != "discord" {
+            return Ok(None);
+        }
+        let id_val = msg.chat_id.parse::<u64>()?;
+        let http = serenity::http::Http::new(&self.config.token);
+        let target = serenity::model::id::ChannelId::new(id_val);
+        let sent = target
+            .say(&http, &msg.content)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {}", e))?;
+        Ok(Some(sent.id.to_string()))
+    }
+
+    async fn edit_message(&self, chat_id: &str, message_id: &str, content: &str) -> Result<()> {
+        let channel_id = chat_id.parse::<u64>()?;
+        let msg_id = message_id.parse::<u64>()?;
+        let http = serenity::http::Http::new(&self.config.token);
+        let channel = serenity::model::id::ChannelId::new(channel_id);
+        let builder = serenity::builder::EditMessage::new().content(content);
+        channel
+            .edit_message(&http, serenity::model::id::MessageId::new(msg_id), builder)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to edit Discord message: {}", e))?;
+        Ok(())
+    }
+
+    async fn delete_message(&self, chat_id: &str, message_id: &str) -> Result<()> {
+        let channel_id = chat_id.parse::<u64>()?;
+        let msg_id = message_id.parse::<u64>()?;
+        let http = serenity::http::Http::new(&self.config.token);
+        let channel = serenity::model::id::ChannelId::new(channel_id);
+        channel
+            .delete_message(&http, serenity::model::id::MessageId::new(msg_id))
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to delete Discord message: {}", e))?;
+        Ok(())
+    }
 }

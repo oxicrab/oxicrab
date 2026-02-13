@@ -190,4 +190,42 @@ impl ChannelManager {
             }
         }
     }
+
+    pub async fn send_and_get_id(&self, msg: &OutboundMessage) -> Result<Option<String>> {
+        for channel in self.channels.iter() {
+            if channel.name() == msg.channel {
+                return channel.send_and_get_id(msg).await;
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn edit_message(
+        &self,
+        channel: &str,
+        chat_id: &str,
+        message_id: &str,
+        content: &str,
+    ) -> Result<()> {
+        for ch in self.channels.iter() {
+            if ch.name() == channel {
+                return ch.edit_message(chat_id, message_id, content).await;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_message(
+        &self,
+        channel: &str,
+        chat_id: &str,
+        message_id: &str,
+    ) -> Result<()> {
+        for ch in self.channels.iter() {
+            if ch.name() == channel {
+                return ch.delete_message(chat_id, message_id).await;
+            }
+        }
+        Ok(())
+    }
 }

@@ -395,24 +395,24 @@ fn format_tool_status(name: &str, args: &serde_json::Value) -> String {
     match name {
         "web_search" => {
             let q = args.get("query").and_then(|v| v.as_str()).unwrap_or("...");
-            format!("[searching: {}]", q)
+            format!("\u{1f50d} Searching: {}", q)
         }
         "web_fetch" => {
             let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("...");
             let domain = url.split('/').nth(2).unwrap_or(url);
-            format!("[fetching: {}]", domain)
+            format!("\u{1f310} Fetching: {}", domain)
         }
         "obsidian" => {
             let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("...");
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            format!("[obsidian {}: {}]", action, path)
+            format!("\u{1f4d3} Obsidian {}: {}", action, path)
         }
-        "exec" => format!("[running command]"),
+        "exec" => format!("\u{2699}\u{fe0f} Running command"),
         "read_file" | "write_file" | "edit_file" => {
             let p = args.get("path").and_then(|v| v.as_str()).unwrap_or("...");
-            format!("[{}: {}]", name, p)
+            format!("\u{1f4c1} {}: {}", name, p)
         }
-        _ => format!("[{}]", name),
+        _ => format!("\u{1f527} {}", name),
     }
 }
 
@@ -1190,6 +1190,24 @@ impl AgentLoop {
                 messages.push(Message::user(
                     "Review the results and continue. Use more tools if needed, or provide your final response to the user.".to_string()
                 ));
+
+                // Send composing indicator so the user sees progress during LLM thinking
+                if let Some(ref ctx) = typing_context {
+                    let _ = self
+                        .outbound_tx
+                        .send(OutboundMessage {
+                            channel: ctx.0.clone(),
+                            chat_id: ctx.1.clone(),
+                            content: "\u{270d}\u{fe0f} Composing response...".to_string(),
+                            reply_to: None,
+                            media: vec![],
+                            metadata: HashMap::from([(
+                                "status".to_string(),
+                                serde_json::Value::Bool(true),
+                            )]),
+                        })
+                        .await;
+                }
             } else if let Some(content) = response.content {
                 // Detect false "no tools" claims and retry with correction
                 if !tool_names.is_empty() && is_false_no_tools_claim(&content) {
