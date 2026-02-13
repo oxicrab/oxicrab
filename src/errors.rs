@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use thiserror::Error;
 
 /// Typed error hierarchy for nanobot.
@@ -21,31 +19,8 @@ pub enum NanobotError {
     #[error("Authentication failed: {0}")]
     Auth(String),
 
-    #[error("Tool error: {tool}: {message}")]
-    Tool { tool: String, message: String },
-
-    #[error("Session error: {0}")]
-    Session(String),
-
-    #[error("Channel error: {channel}: {message}")]
-    Channel { channel: String, message: String },
-
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
-}
-
-/// Convenience alias for results using NanobotError.
-pub type NanobotResult<T> = std::result::Result<T, NanobotError>;
-
-impl NanobotError {
-    /// Whether this error is retryable (rate limits, transient provider errors).
-    pub fn is_retryable(&self) -> bool {
-        match self {
-            NanobotError::RateLimit { .. } => true,
-            NanobotError::Provider { retryable, .. } => *retryable,
-            _ => false,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -53,16 +28,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rate_limit_retryable() {
+    fn rate_limit_is_provider_error() {
         let err = NanobotError::RateLimit {
             retry_after: Some(30),
         };
-        assert!(err.is_retryable());
+        assert!(matches!(err, NanobotError::RateLimit { .. }));
     }
 
     #[test]
-    fn auth_error_not_retryable() {
+    fn auth_error_variant() {
         let err = NanobotError::Auth("invalid key".into());
-        assert!(!err.is_retryable());
+        assert!(matches!(err, NanobotError::Auth(..)));
     }
 }

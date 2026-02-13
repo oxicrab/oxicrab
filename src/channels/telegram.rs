@@ -93,7 +93,9 @@ impl BaseChannel for TelegramChannel {
                                                 .unwrap_or_else(|| std::path::PathBuf::from("."))
                                                 .join(".nanobot")
                                                 .join("media");
-                                            let _ = std::fs::create_dir_all(&media_dir);
+                                            if let Err(e) = std::fs::create_dir_all(&media_dir) {
+                                                tracing::warn!("Failed to create media directory: {}", e);
+                                            }
                                             let file_path = media_dir
                                                 .join(format!("telegram_{}.jpg", photo.file.unique_id));
 

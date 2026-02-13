@@ -988,33 +988,9 @@ impl Config {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn get_api_key(&self, model: Option<&str>) -> Option<&str> {
         let model = model.unwrap_or(&self.agents.defaults.model);
         self.providers.get_api_key(model)
-    }
-
-    #[allow(dead_code)]
-    pub fn get_api_base(&self, model: Option<&str>) -> Option<String> {
-        let model = model.unwrap_or(&self.agents.defaults.model).to_lowercase();
-
-        if model.contains("openrouter") {
-            return Some(
-                self.providers
-                    .openrouter
-                    .api_base
-                    .clone()
-                    .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
-            );
-        }
-        if model.contains("zhipu") && self.providers.zhipu.api_base.is_some() {
-            return self.providers.zhipu.api_base.clone();
-        }
-        if model.contains("vllm") && self.providers.vllm.api_base.is_some() {
-            return self.providers.vllm.api_base.clone();
-        }
-
-        None
     }
 
     /// Create an LLM provider instance based on configuration.

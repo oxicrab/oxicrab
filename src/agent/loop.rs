@@ -137,8 +137,15 @@ async fn execute_tool_call_inner(
         let tool_name = tc_name.to_string();
         let params = tc_args.clone();
         let timeout_duration = std::time::Duration::from_secs(TOOL_EXECUTION_TIMEOUT_SECS);
-        match tokio::time::timeout(timeout_duration, tool.execute(params)).await {
-            Ok(Ok(result)) => {
+
+        // Spawn in a separate task for panic isolation — a panicking tool won't crash the agent
+        let tool_clone = tool.clone();
+        let handle = tokio::task::spawn(async move {
+            tokio::time::timeout(timeout_duration, tool_clone.execute(params)).await
+        });
+
+        match handle.await {
+            Ok(Ok(Ok(result))) => {
                 if result.is_error {
                     warn!("Tool '{}' returned error: {}", tool_name, result.content);
                 }
@@ -147,11 +154,11 @@ async fn execute_tool_call_inner(
                     result.is_error,
                 )
             }
-            Ok(Err(e)) => {
+            Ok(Ok(Err(e))) => {
                 warn!("Tool '{}' failed: {}", tool_name, e);
                 (format!("Tool execution failed: {}", e), true)
             }
-            Err(_) => {
+            Ok(Err(_)) => {
                 warn!(
                     "Tool '{}' timed out after {}s",
                     tool_name,
@@ -165,6 +172,10 @@ async fn execute_tool_call_inner(
                     ),
                     true,
                 )
+            }
+            Err(join_err) => {
+                error!("Tool '{}' panicked: {:?}", tool_name, join_err);
+                (format!("Tool '{}' crashed unexpectedly", tool_name), true)
             }
         }
     } else {

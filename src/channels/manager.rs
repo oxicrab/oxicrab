@@ -162,22 +162,21 @@ impl ChannelManager {
                     }
                 }
                 if let Some(e) = last_err {
-                    tracing::error!(
-                        "Error sending message to {} channel after {} attempts: {}",
+                    return Err(anyhow::anyhow!(
+                        "Failed to send message to {} channel after {} attempts: {}",
                         msg.channel,
                         max_attempts,
                         e
-                    );
+                    ));
                 }
                 return Ok(());
             }
         }
-        tracing::error!(
+        Err(anyhow::anyhow!(
             "No channel found for: {} (available channels: {:?})",
             msg.channel,
             self.channels.iter().map(|c| c.name()).collect::<Vec<_>>()
-        );
-        Ok(())
+        ))
     }
 
     pub async fn send_typing(&self, channel: &str, chat_id: &str) {

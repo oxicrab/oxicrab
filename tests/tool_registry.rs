@@ -34,15 +34,6 @@ struct CacheableTool {
     call_count: Arc<std::sync::Mutex<usize>>,
 }
 
-impl CacheableTool {
-    #[allow(dead_code)]
-    fn new() -> Self {
-        Self {
-            call_count: Arc::new(std::sync::Mutex::new(0)),
-        }
-    }
-}
-
 #[async_trait]
 impl Tool for CacheableTool {
     fn name(&self) -> &str {

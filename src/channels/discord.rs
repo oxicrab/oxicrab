@@ -59,13 +59,17 @@ impl EventHandler for Handler {
                 .unwrap_or_else(|| std::path::PathBuf::from("."))
                 .join(".nanobot")
                 .join("media");
-            let _ = std::fs::create_dir_all(&media_dir);
+            if let Err(e) = std::fs::create_dir_all(&media_dir) {
+                tracing::warn!("Failed to create media directory: {}", e);
+            }
             let file_path = media_dir.join(format!("discord_{}.{}", attachment.id, ext));
 
             match reqwest::Client::new().get(&attachment.url).send().await {
                 Ok(resp) => match resp.bytes().await {
                     Ok(bytes) => {
-                        let _ = std::fs::write(&file_path, &bytes);
+                        if let Err(e) = std::fs::write(&file_path, &bytes) {
+                            tracing::warn!("Failed to write Discord media file: {}", e);
+                        }
                         let path_str = file_path.to_string_lossy().to_string();
                         media_paths.push(path_str.clone());
                         content = format!("{}\n[image: {}]", content, path_str);

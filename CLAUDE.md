@@ -94,7 +94,7 @@ JSON at `~/.nanobot/config.json` (or `NANOBOT_HOME` env var). Uses camelCase in 
 
 ### Error Handling
 
-`NanobotError` in `src/errors.rs` — typed variants: `Config`, `Provider { retryable }`, `RateLimit { retry_after }`, `Auth`, `Tool { tool }`, `Session`, `Channel { channel }`, `Internal(anyhow::Error)`. Internal functions use `anyhow::Result`; module boundaries use `NanobotError`.
+`NanobotError` in `src/errors.rs` — typed variants: `Config`, `Provider { retryable }`, `RateLimit { retry_after }`, `Auth`, `Internal(anyhow::Error)`. Internal functions use `anyhow::Result`; module boundaries use `NanobotError`.
 
 ### CLI Commands
 
@@ -110,3 +110,4 @@ JSON at `~/.nanobot/config.json` (or `NANOBOT_HOME` env var). Uses camelCase in 
 - **Tool execution**: wrapped in `tokio::task::spawn` for panic isolation — panics in tools don't crash the agent.
 - **MemoryDB**: holds a persistent `std::sync::Mutex<Connection>`, not per-operation connections.
 - **Cron 5-field expressions**: `compute_next_run()` normalizes by prepending "0 " for the seconds field.
+- **No `#[allow(dead_code)]`**: Do not add `#[allow(dead_code)]` or `#![allow(dead_code)]` anywhere. If code is unused, remove it. CI runs `clippy -D warnings` which catches dead code.

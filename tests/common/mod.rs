@@ -4,13 +4,9 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct RecordedCall {
     pub messages: Vec<Message>,
     pub tools: Option<Vec<ToolDefinition>>,
-    pub model: Option<String>,
-    pub max_tokens: u32,
-    pub temperature: f32,
 }
 
 pub struct MockLLMProvider {
@@ -35,21 +31,6 @@ impl MockLLMProvider {
             default_response: "Mock response".to_string(),
         }
     }
-
-    #[allow(dead_code)]
-    pub fn call_count(&self) -> usize {
-        self.calls.lock().unwrap().len()
-    }
-
-    #[allow(dead_code)]
-    pub fn last_call(&self) -> Option<RecordedCall> {
-        self.calls.lock().unwrap().last().cloned()
-    }
-
-    #[allow(dead_code)]
-    pub fn get_call(&self, index: usize) -> Option<RecordedCall> {
-        self.calls.lock().unwrap().get(index).cloned()
-    }
 }
 
 #[async_trait]
@@ -58,9 +39,6 @@ impl LLMProvider for MockLLMProvider {
         self.calls.lock().unwrap().push(RecordedCall {
             messages: req.messages,
             tools: req.tools,
-            model: req.model.map(|s| s.to_string()),
-            max_tokens: req.max_tokens,
-            temperature: req.temperature,
         });
 
         let response = self.responses.lock().unwrap().pop_front();

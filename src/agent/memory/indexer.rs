@@ -85,24 +85,9 @@ impl MemoryIndexer {
     }
 
     /// Stop the background indexing service
-    #[allow(dead_code)] // May be used for graceful shutdown in future
     pub async fn stop(&self) {
         let mut running = self.running.lock().await;
         *running = false;
-    }
-
-    /// Check if indexer is running
-    #[allow(dead_code)] // May be used for monitoring in future
-    pub async fn is_running(&self) -> bool {
-        let running = self.running.lock().await;
-        *running
-    }
-
-    /// Get the last index time
-    #[allow(dead_code)] // May be used for monitoring in future
-    pub async fn last_index_time(&self) -> Option<std::time::Instant> {
-        let last_index = self.last_index_time.lock().await;
-        *last_index
     }
 
     /// Perform indexing (can be called manually)

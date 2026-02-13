@@ -700,7 +700,9 @@ async fn handle_slack_event(
                             .unwrap_or_else(|| std::path::PathBuf::from("."))
                             .join(".nanobot")
                             .join("media");
-                        let _ = std::fs::create_dir_all(&media_dir);
+                        if let Err(e) = std::fs::create_dir_all(&media_dir) {
+                            warn!("Failed to create media directory: {}", e);
+                        }
                         let file_path = media_dir.join(format!("slack_{}{}", file_id, ext));
 
                         // Download with manual redirect following.
@@ -718,7 +720,9 @@ async fn handle_slack_event(
                                     );
                                 } else {
                                     info!("Downloaded Slack image: {} bytes", bytes.len());
-                                    let _ = std::fs::write(&file_path, &bytes);
+                                    if let Err(e) = std::fs::write(&file_path, &bytes) {
+                                        warn!("Failed to write Slack media file: {}", e);
+                                    }
                                     let path_str = file_path.to_string_lossy().to_string();
                                     media_paths.push(path_str.clone());
                                     content_parts.push(format!("[image: {}]", path_str));

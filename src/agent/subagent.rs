@@ -93,8 +93,8 @@ impl SubagentManager {
     ) -> Result<String> {
         let task_id = Uuid::new_v4().to_string()[..8].to_string();
         let display_label = label.unwrap_or_else(|| {
-            let truncated: String = task.chars().take(30).collect();
-            if truncated.len() < task.len() {
+            if task.chars().count() > 30 {
+                let truncated: String = task.chars().take(30).collect();
                 format!("{}...", truncated)
             } else {
                 task.clone()

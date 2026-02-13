@@ -15,6 +15,9 @@ const TOKEN_URL: &str = "https://console.anthropic.com/v1/oauth/token";
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
+/// Default expires_in when the OAuth response omits the field (1 hour).
+const DEFAULT_EXPIRES_IN_SECS: u64 = 3600;
+
 // Headers that identify the request as a Claude Code client
 fn claude_code_headers() -> Vec<(&'static str, &'static str)> {
     vec![
@@ -30,7 +33,7 @@ fn claude_code_headers() -> Vec<(&'static str, &'static str)> {
 
 pub struct AnthropicOAuthProvider {
     access_token: Arc<Mutex<String>>,
-    refresh_token: String,
+    refresh_token: Arc<Mutex<String>>,
     expires_at: Arc<Mutex<i64>>,
     default_model: String,
     credentials_path: Option<PathBuf>,
@@ -53,14 +56,15 @@ impl AnthropicOAuthProvider {
 
         let provider = Self {
             access_token: Arc::new(Mutex::new(access_token)),
-            refresh_token,
+            refresh_token: Arc::new(Mutex::new(refresh_token)),
             expires_at: Arc::new(Mutex::new(expires_at)),
             default_model: default_model.unwrap_or_else(|| "anthropic/claude-opus-4-6".to_string()),
             credentials_path,
             client,
         };
 
-        // Load cached tokens if available
+        // Load cached tokens if available (synchronous — called before tokio runtime
+        // is running for this provider, so std::sync primitives are fine)
         if let Some(ref path) = provider.credentials_path {
             provider.load_cached_tokens(path);
         }
@@ -77,14 +81,26 @@ impl AnthropicOAuthProvider {
             Ok(content) => match serde_json::from_str::<Value>(&content) {
                 Ok(data) => {
                     if let Some(cached_at) = data.get("expires_at").and_then(|v| v.as_i64()) {
-                        let current_expires = *self.expires_at.blocking_lock();
+                        // Use try_lock since we're in a sync context during construction.
+                        // These locks are uncontested at this point (single-threaded init).
+                        let current_expires = match self.expires_at.try_lock() {
+                            Ok(guard) => *guard,
+                            Err(_) => return,
+                        };
                         if cached_at > current_expires {
-                            if let (Some(access), Some(_refresh)) = (
+                            if let (Some(access), Some(refresh)) = (
                                 data.get("access_token").and_then(|v| v.as_str()),
                                 data.get("refresh_token").and_then(|v| v.as_str()),
                             ) {
-                                *self.access_token.blocking_lock() = access.to_string();
-                                *self.expires_at.blocking_lock() = cached_at;
+                                if let Ok(mut guard) = self.access_token.try_lock() {
+                                    *guard = access.to_string();
+                                }
+                                if let Ok(mut guard) = self.refresh_token.try_lock() {
+                                    *guard = refresh.to_string();
+                                }
+                                if let Ok(mut guard) = self.expires_at.try_lock() {
+                                    *guard = cached_at;
+                                }
                                 info!("Loaded refreshed OAuth tokens from cache");
                             }
                         }
@@ -101,23 +117,25 @@ impl AnthropicOAuthProvider {
     }
 
     async fn ensure_valid_token(&self) -> Result<String> {
-        let refresh_token = self.refresh_token.clone();
         let expires_at = *self.expires_at.lock().await;
 
-        if !refresh_token.is_empty() && expires_at > 0 {
+        if expires_at > 0 {
             let now_ms = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .context("System time is before UNIX epoch")
                 .map(|d| d.as_millis() as i64)?;
 
             if now_ms > expires_at {
-                info!("OAuth token expired, refreshing...");
-                match self.refresh_token_internal().await {
-                    Ok(_) => {
-                        info!("OAuth token refreshed successfully");
-                    }
-                    Err(e) => {
-                        warn!("Token refresh failed: {}, using existing token", e);
+                let refresh_token = self.refresh_token.lock().await.clone();
+                if !refresh_token.is_empty() {
+                    info!("OAuth token expired, refreshing...");
+                    match self.refresh_token_internal(&refresh_token).await {
+                        Ok(_) => {
+                            info!("OAuth token refreshed successfully");
+                        }
+                        Err(e) => {
+                            warn!("Token refresh failed: {}, using existing token", e);
+                        }
                     }
                 }
             }
@@ -126,20 +144,15 @@ impl AnthropicOAuthProvider {
         Ok(self.access_token.lock().await.clone())
     }
 
-    async fn refresh_token_internal(&self) -> Result<()> {
-        let refresh_token = self.refresh_token.clone();
-
-        let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()?;
-
+    async fn refresh_token_internal(&self, refresh_token: &str) -> Result<()> {
         let payload = json!({
             "grant_type": "refresh_token",
             "client_id": CLIENT_ID,
             "refresh_token": refresh_token,
         });
 
-        let resp = client
+        let resp = self
+            .client
             .post(TOKEN_URL)
             .header("Content-Type", "application/json")
             .json(&payload)
@@ -157,14 +170,16 @@ impl AnthropicOAuthProvider {
             .ok_or_else(|| anyhow::anyhow!("Missing access_token in refresh response"))?
             .to_string();
 
-        let _new_refresh_token = data
+        let new_refresh_token = data
             .get("refresh_token")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| self.refresh_token.clone());
+            .unwrap_or_else(|| refresh_token.to_string());
 
         // expires_in is in seconds, store as ms with 5min buffer
-        let expires_in_secs = data["expires_in"].as_u64().unwrap_or(0);
+        let expires_in_secs = data["expires_in"]
+            .as_u64()
+            .unwrap_or(DEFAULT_EXPIRES_IN_SECS);
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .context("System time is before UNIX epoch")
@@ -172,6 +187,7 @@ impl AnthropicOAuthProvider {
         let expires_at = now_ms + (expires_in_secs * 1000) as i64 - 300_000;
 
         *self.access_token.lock().await = access_token;
+        *self.refresh_token.lock().await = new_refresh_token;
         *self.expires_at.lock().await = expires_at;
 
         // Persist refreshed credentials if path is configured
@@ -192,7 +208,7 @@ impl AnthropicOAuthProvider {
 
         let data = json!({
             "access_token": *self.access_token.lock().await,
-            "refresh_token": self.refresh_token,
+            "refresh_token": *self.refresh_token.lock().await,
             "expires_at": *self.expires_at.lock().await,
         });
 
