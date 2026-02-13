@@ -1,3 +1,29 @@
+//! ## Remote Obsidian Access via SSH Tunnel
+//!
+//! When nanobot runs on a remote Linux server and Obsidian runs on a local
+//! macOS machine, the Obsidian Local REST API (127.0.0.1:27124) is made
+//! accessible via an SSH reverse tunnel:
+//!
+//! ```text
+//! macOS (Obsidian) ──autossh──> Linux server
+//!   127.0.0.1:27124              127.0.0.1:27124 (RemoteForward)
+//! ```
+//!
+//! SSH config (~/.ssh/config on macOS):
+//!   Host nanobot-tunnel
+//!     HostName <linux-server>
+//!     User james
+//!     RemoteForward 27124 127.0.0.1:27124
+//!     ServerAliveInterval 30
+//!     ServerAliveCountMax 3
+//!     ExitOnForwardFailure yes
+//!
+//! Kept alive with: `autossh -M 0 -f -N nanobot-tunnel`
+//!
+//! When the tunnel drops, writes are queued locally and flushed
+//! automatically when connectivity resumes (checked every 30s with
+//! pending writes, or every sync_interval otherwise).
+
 use super::client::ObsidianApiClient;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -169,7 +195,17 @@ impl ObsidianCache {
 
         if self.client.is_reachable().await {
             match self.client.write_file(path, content).await {
-                Ok(()) => Ok(format!("Written to '{}'.", path)),
+                Ok(()) => {
+                    // Opportunistic: flush any pending queued writes since API is reachable
+                    let queue_len = self.write_queue.lock().await.len();
+                    if queue_len > 0 {
+                        info!("API reachable — flushing {} queued writes", queue_len);
+                        if let Err(e) = self.flush_write_queue().await {
+                            warn!("Opportunistic queue flush failed: {}", e);
+                        }
+                    }
+                    Ok(format!("Written to '{}'.", path))
+                }
                 Err(e) => {
                     warn!("API write failed, queueing: {}", e);
                     self.enqueue_write(path, content, "write").await?;
@@ -200,7 +236,17 @@ impl ObsidianCache {
 
         if self.client.is_reachable().await {
             match self.client.append_file(path, content).await {
-                Ok(()) => Ok(format!("Appended to '{}'.", path)),
+                Ok(()) => {
+                    // Opportunistic: flush any pending queued writes since API is reachable
+                    let queue_len = self.write_queue.lock().await.len();
+                    if queue_len > 0 {
+                        info!("API reachable — flushing {} queued writes", queue_len);
+                        if let Err(e) = self.flush_write_queue().await {
+                            warn!("Opportunistic queue flush failed: {}", e);
+                        }
+                    }
+                    Ok(format!("Appended to '{}'.", path))
+                }
                 Err(e) => {
                     warn!("API append failed, queueing: {}", e);
                     self.enqueue_write(path, content, "append").await?;
@@ -453,8 +499,9 @@ impl ObsidianSyncService {
         }
 
         tokio::spawn(async move {
+            let mut sleep_secs = interval;
             loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(interval)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(sleep_secs)).await;
 
                 if cache.client.is_reachable().await {
                     if let Err(e) = cache.flush_write_queue().await {
@@ -463,6 +510,7 @@ impl ObsidianSyncService {
                     if let Err(e) = cache.full_sync().await {
                         warn!("Obsidian sync failed: {}", e);
                     }
+                    sleep_secs = interval; // Reset to normal interval on success
                 } else {
                     let queue = cache.write_queue.lock().await;
                     let pending = queue.len();
@@ -472,8 +520,10 @@ impl ObsidianSyncService {
                             "Obsidian API unreachable — {} queued writes waiting to sync",
                             pending
                         );
+                        sleep_secs = 30; // Retry every 30s when queue has pending writes
                     } else {
                         debug!("Obsidian API unreachable, skipping sync tick");
+                        sleep_secs = interval; // Normal interval when nothing queued
                     }
                 }
             }

@@ -179,9 +179,11 @@ async fn test_write_through_to_api() {
     assert!(!result.is_error);
     assert!(result.content.contains("Written"));
 
-    // Verify it's in cache
-    let cached = cache.read_cached("notes/hello.md").await;
-    assert_eq!(cached, Some("# Hello".to_string()));
+    // Verify it's in cache — new notes get frontmatter prepended
+    let cached = cache.read_cached("notes/hello.md").await.unwrap();
+    assert!(cached.contains("---\ncreate-date:"));
+    assert!(cached.contains("type: note"));
+    assert!(cached.contains("# Hello"));
 }
 
 #[tokio::test]
@@ -207,9 +209,11 @@ async fn test_write_queued_when_offline() {
     assert!(!result.is_error);
     assert!(result.content.contains("queued"));
 
-    // Verify it's in cache
-    let cached = cache.read_cached("offline.md").await;
-    assert_eq!(cached, Some("queued content".to_string()));
+    // Verify it's in cache — new notes get frontmatter prepended
+    let cached = cache.read_cached("offline.md").await.unwrap();
+    assert!(cached.contains("---\ncreate-date:"));
+    assert!(cached.contains("type: note"));
+    assert!(cached.contains("queued content"));
 }
 
 // --- Append tests ---

@@ -35,6 +35,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
@@ -365,6 +366,54 @@ fn cleanup_old_media(ttl_days: u32) -> Result<()> {
         info!("Cleaned up {} old media files", removed);
     }
     Ok(())
+}
+
+/// Periodic typing indicator: sends every 4s until the returned handle is aborted.
+fn start_typing(
+    typing_tx: &Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
+    ctx: &Option<(String, String)>,
+) -> Option<tokio::task::JoinHandle<()>> {
+    if let (Some(tx), Some(ctx)) = (typing_tx, ctx) {
+        let tx = tx.clone();
+        let ctx = ctx.clone();
+        Some(tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(4));
+            loop {
+                interval.tick().await;
+                if tx.send(ctx.clone()).await.is_err() {
+                    break;
+                }
+            }
+        }))
+    } else {
+        None
+    }
+}
+
+/// Format a human-readable status line for a tool call about to execute.
+fn format_tool_status(name: &str, args: &serde_json::Value) -> String {
+    match name {
+        "web_search" => {
+            let q = args.get("query").and_then(|v| v.as_str()).unwrap_or("...");
+            format!("[searching: {}]", q)
+        }
+        "web_fetch" => {
+            let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("...");
+            let domain = url.split('/').nth(2).unwrap_or(url);
+            format!("[fetching: {}]", domain)
+        }
+        "obsidian" => {
+            let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("...");
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            format!("[obsidian {}: {}]", action, path)
+        }
+        "exec" => format!("[running command]"),
+        "read_file" | "write_file" | "edit_file" => {
+            let p = args.get("path").and_then(|v| v.as_str()).unwrap_or("...");
+            format!("[{}: {}]", name, p)
+        }
+        _ => format!("[{}]", name),
+    }
 }
 
 /// Configuration for creating an [`AgentLoop`] instance.
@@ -949,21 +998,6 @@ impl AgentLoop {
         let mut any_tools_called = false;
         let mut last_input_tokens: Option<u64> = None;
 
-        // Fire-and-forget typing indicator helper
-        let send_typing = {
-            let typing_tx = self.typing_tx.clone();
-            let ctx = typing_context.clone();
-            move || {
-                if let (Some(ref tx), Some(ref ctx)) = (&typing_tx, &ctx) {
-                    let tx = tx.clone();
-                    let ctx = ctx.clone();
-                    tokio::spawn(async move {
-                        let _ = tx.send(ctx).await;
-                    });
-                }
-            }
-        };
-
         // Cache tool definitions to avoid repeated lock acquisition
         let tools_defs = {
             let tools_guard = self.tools.lock().await;
@@ -991,8 +1025,8 @@ impl AgentLoop {
         }
 
         for iteration in 1..=self.max_iterations {
-            // Send typing indicator before LLM call
-            send_typing();
+            // Start periodic typing indicator before LLM call
+            let typing_handle = start_typing(&self.typing_tx, &typing_context);
 
             // Use retry logic for provider calls
             // Use low temperature for tool-calling iterations (determinism),
@@ -1022,7 +1056,14 @@ impl AgentLoop {
                     },
                     Some(crate::providers::base::RetryConfig::default()),
                 )
-                .await?;
+                .await;
+
+            // Stop typing indicator after LLM call returns
+            if let Some(h) = typing_handle {
+                h.abort();
+            }
+
+            let response = response?;
 
             // Track provider-reported input token count for precise compaction decisions
             if response.input_tokens.is_some() {
@@ -1047,8 +1088,33 @@ impl AgentLoop {
                     response.reasoning_content.as_deref(),
                 );
 
-                // Send typing indicator before tool execution
-                send_typing();
+                // Send status update showing which tools are about to run
+                let status_parts: Vec<String> = response
+                    .tool_calls
+                    .iter()
+                    .map(|tc| format_tool_status(&tc.name, &tc.arguments))
+                    .collect();
+                let status_msg = status_parts.join("\n");
+
+                if let Some(ref ctx) = typing_context {
+                    let _ = self
+                        .outbound_tx
+                        .send(OutboundMessage {
+                            channel: ctx.0.clone(),
+                            chat_id: ctx.1.clone(),
+                            content: status_msg,
+                            reply_to: None,
+                            media: vec![],
+                            metadata: HashMap::from([(
+                                "status".to_string(),
+                                serde_json::Value::Bool(true),
+                            )]),
+                        })
+                        .await;
+                }
+
+                // Start periodic typing indicator before tool execution
+                let typing_handle = start_typing(&self.typing_tx, &typing_context);
 
                 // Execute tools with validation
                 // NOTE: We must NOT hold the tools lock across tool execution,
@@ -1101,6 +1167,11 @@ impl AgentLoop {
                         })
                         .collect()
                 };
+
+                // Stop typing indicator after tool execution
+                if let Some(h) = typing_handle {
+                    h.abort();
+                }
 
                 // Phase 4: Add all results to messages in order
                 for ((tc, _), (result_str, is_error)) in

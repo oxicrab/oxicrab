@@ -37,6 +37,30 @@ impl ObsidianTool {
     }
 }
 
+fn generate_frontmatter(params: Option<&Value>) -> String {
+    let now = chrono::Local::now().format("%Y-%m-%d, %H:%M:%S");
+    let get = |field: &str| -> String {
+        params
+            .and_then(|p| p.get(field))
+            .and_then(|v| v.as_str())
+            .unwrap_or(match field {
+                "type" => "note",
+                _ => "",
+            })
+            .to_string()
+    };
+    format!(
+        "---\ncreate-date: {}\ntype: {}\ntags: {}\nlink: {}\nstatus: {}\norder: {}\nparent: {}\n---\n",
+        now,
+        get("type"),
+        get("tags"),
+        get("link"),
+        get("status"),
+        get("order"),
+        get("parent")
+    )
+}
+
 #[async_trait]
 impl Tool for ObsidianTool {
     fn name(&self) -> &str {
@@ -44,7 +68,7 @@ impl Tool for ObsidianTool {
     }
 
     fn description(&self) -> &str {
-        "Read, write, search, and list notes in an Obsidian vault. Actions: read (read a note), write (create/overwrite a note), append (append to a note), search (full-text search), list (list notes, optionally in a folder)."
+        "Read, write, search, and list notes in an Obsidian vault. Actions: read (read a note), write (create/overwrite a note, auto-generates YAML frontmatter for new notes), append (append to a note), search (full-text search), list (list notes, optionally in a folder)."
     }
 
     fn parameters(&self) -> Value {
@@ -71,6 +95,18 @@ impl Tool for ObsidianTool {
                 "folder": {
                     "type": "string",
                     "description": "Optional folder prefix to filter when listing notes."
+                },
+                "frontmatter": {
+                    "type": "object",
+                    "description": "Optional frontmatter fields for new notes. Supported: type, tags, link, status, order, parent. create-date is auto-filled. Only used on write when the note doesn't already exist.",
+                    "properties": {
+                        "type": { "type": "string" },
+                        "tags": { "type": "string" },
+                        "link": { "type": "string" },
+                        "status": { "type": "string" },
+                        "order": { "type": "string" },
+                        "parent": { "type": "string" }
+                    }
                 }
             },
             "required": ["action"]
@@ -103,7 +139,13 @@ impl Tool for ObsidianTool {
                     Some(c) => c,
                     None => return Ok(ToolResult::error("'content' is required for write")),
                 };
-                match self.cache.write_file(path, content).await {
+                let content = if self.cache.read_cached(path).await.is_none() {
+                    let fm = generate_frontmatter(params.get("frontmatter"));
+                    format!("{}\n{}", fm, content)
+                } else {
+                    content.to_string()
+                };
+                match self.cache.write_file(path, &content).await {
                     Ok(msg) => Ok(ToolResult::new(msg)),
                     Err(e) => Ok(ToolResult::error(format!("Write failed: {}", e))),
                 }
