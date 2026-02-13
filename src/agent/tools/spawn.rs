@@ -25,11 +25,11 @@ impl SpawnTool {
 
 #[async_trait]
 impl Tool for SpawnTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "spawn"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Spawn a subagent to handle a task in the background. Use this for complex or time-consuming tasks that can run independently. The subagent will complete the task and report back when done."
     }
 
@@ -56,7 +56,9 @@ impl Tool for SpawnTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'task' parameter"))?
             .to_string();
 
-        let label = params["label"].as_str().map(|s| s.to_string());
+        let label = params["label"]
+            .as_str()
+            .map(std::string::ToString::to_string);
 
         let channel = self.origin_channel.lock().await.clone();
         let chat_id = self.origin_chat_id.lock().await.clone();

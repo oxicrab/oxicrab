@@ -42,6 +42,7 @@ pub fn estimate_tokens(text: &str) -> usize {
     text.chars().count() / CHARS_PER_TOKEN_ESTIMATE
 }
 
+#[allow(clippy::implicit_hasher)]
 pub fn estimate_messages_tokens(messages: &[HashMap<String, Value>]) -> usize {
     let mut total = 0;
     for m in messages {

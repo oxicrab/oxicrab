@@ -17,11 +17,11 @@ impl MemorySearchTool {
 
 #[async_trait]
 impl Tool for MemorySearchTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "memory_search"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Search long-term memory and daily notes. Use to recall user preferences, past conversations, important facts."
     }
 

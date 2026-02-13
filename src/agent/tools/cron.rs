@@ -42,7 +42,7 @@ impl CronTool {
             Some(channels) => {
                 let channel_names: Vec<String> = channels
                     .iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                    .filter_map(|v| v.as_str().map(str::to_lowercase))
                     .collect();
 
                 if channel_names.iter().any(|c| c == "all") {
@@ -110,7 +110,7 @@ impl CronTool {
     }
 }
 
-/// Format a WhatsApp target: append @s.whatsapp.net if not already present.
+/// Format a `WhatsApp` target: append @s.whatsapp.net if not already present.
 fn format_whatsapp_target(phone: &str) -> String {
     if phone.contains("@s.whatsapp.net") {
         phone.to_string()
@@ -120,8 +120,8 @@ fn format_whatsapp_target(phone: &str) -> String {
     }
 }
 
-/// Resolve all enabled channel targets from a ChannelsConfig.
-/// Used by both CronTool and CLI commands.
+/// Resolve all enabled channel targets from a `ChannelsConfig`.
+/// Used by both `CronTool` and CLI commands.
 pub fn resolve_all_channel_targets_from_config(cfg: Option<&ChannelsConfig>) -> Vec<CronTarget> {
     let Some(cfg) = cfg else {
         return vec![];
@@ -172,11 +172,11 @@ pub fn resolve_all_channel_targets_from_config(cfg: Option<&ChannelsConfig>) -> 
 
 #[async_trait]
 impl Tool for CronTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "cron"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, remove, run."
     }
 
@@ -286,7 +286,7 @@ impl Tool for CronTool {
                     // Use explicit tz param, or detect system timezone
                     let tz = params["tz"]
                         .as_str()
-                        .map(|s| s.to_string())
+                        .map(std::string::ToString::to_string)
                         .or_else(crate::cron::service::detect_system_timezone);
                     CronSchedule::Cron {
                         expr: Some(cron_expr.to_string()),
@@ -299,8 +299,7 @@ impl Tool for CronTool {
                     let at_ms = dt.timestamp_millis();
                     let now_ms_check = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_millis() as i64)
-                        .unwrap_or(0);
+                        .map_or(0, |d| d.as_millis() as i64);
                     if at_ms <= now_ms_check {
                         return Ok(ToolResult::error(
                             "Error: at_time must be in the future".to_string(),
@@ -326,8 +325,7 @@ impl Tool for CronTool {
                     let ms = dt.timestamp_millis();
                     let now_check = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_millis() as i64)
-                        .unwrap_or(0);
+                        .map_or(0, |d| d.as_millis() as i64);
                     if ms <= now_check {
                         return Ok(ToolResult::error(
                             "Error: expires_at must be in the future".to_string(),
@@ -407,8 +405,7 @@ impl Tool for CronTool {
                                     })
                                 })
                                 .unwrap_or_else(|| "once (no time set)".to_string()),
-                            CronSchedule::Every { every_ms } => every_ms
-                                .map(|ms| {
+                            CronSchedule::Every { every_ms } => every_ms.map_or_else(|| "recurring (no interval set)".to_string(), |ms| {
                                     let secs = ms / 1000;
                                     if secs >= 86400 {
                                         format!("every {}d", secs / 86400)
@@ -419,13 +416,10 @@ impl Tool for CronTool {
                                     } else {
                                         format!("every {}s", secs)
                                     }
-                                })
-                                .unwrap_or_else(|| "recurring (no interval set)".to_string()),
+                                }),
                             CronSchedule::Cron { expr, tz } => {
                                 let tz_str = tz.as_deref().unwrap_or("UTC");
-                                expr.as_deref()
-                                    .map(|e| format!("cron '{}' ({})", e, tz_str))
-                                    .unwrap_or_else(|| "cron (no expression)".to_string())
+                                expr.as_deref().map_or_else(|| "cron (no expression)".to_string(), |e| format!("cron '{}' ({})", e, tz_str))
                             }
                         };
                         let next_run = j

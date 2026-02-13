@@ -37,7 +37,7 @@ impl TelegramChannel {
 
 #[async_trait]
 impl BaseChannel for TelegramChannel {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "telegram"
     }
 

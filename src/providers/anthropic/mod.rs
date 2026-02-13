@@ -90,10 +90,16 @@ impl LLMProvider for AnthropicProvider {
             if let Ok(mut metrics) = self.metrics.lock() {
                 metrics.request_count += 1;
                 if let Some(usage) = json.get("usage").and_then(|u| u.as_object()) {
-                    if let Some(tokens) = usage.get("input_tokens").and_then(|t| t.as_u64()) {
+                    if let Some(tokens) = usage
+                        .get("input_tokens")
+                        .and_then(serde_json::Value::as_u64)
+                    {
                         metrics.token_count += tokens;
                     }
-                    if let Some(tokens) = usage.get("output_tokens").and_then(|t| t.as_u64()) {
+                    if let Some(tokens) = usage
+                        .get("output_tokens")
+                        .and_then(serde_json::Value::as_u64)
+                    {
                         metrics.token_count += tokens;
                     }
                 }

@@ -27,9 +27,10 @@ pub struct WhatsAppChannel {
 impl WhatsAppChannel {
     pub fn new(config: WhatsAppConfig, inbound_tx: Arc<mpsc::Sender<InboundMessage>>) -> Self {
         // Determine session path for WhatsApp session storage
-        let session_path = get_nanobot_home()
-            .map(|home| home.join("whatsapp"))
-            .unwrap_or_else(|_| PathBuf::from(".nanobot/whatsapp"));
+        let session_path = get_nanobot_home().map_or_else(
+            |_| PathBuf::from(".nanobot/whatsapp"),
+            |home| home.join("whatsapp"),
+        );
 
         Self {
             config,
@@ -45,10 +46,11 @@ impl WhatsAppChannel {
 
 #[async_trait]
 impl BaseChannel for WhatsAppChannel {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "whatsapp"
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn start(&mut self) -> Result<()> {
         if !self.config.enabled {
             return Ok(());
@@ -137,7 +139,7 @@ impl BaseChannel for WhatsAppChannel {
                                     if info.source.is_from_me {
                                         let recip_str = info.source.recipient
                                             .as_ref()
-                                            .map(|r| r.to_string());
+                                            .map(std::string::ToString::to_string);
                                         if should_skip_own_message(
                                             recip_str.as_deref(),
                                             &config_allow,
@@ -214,12 +216,9 @@ impl BaseChannel for WhatsAppChannel {
                                             }
                                         }
                                     } else {
-                                        content = match msg.text_content() {
-                                            Some(text) => text.to_string(),
-                                            None => {
-                                                warn!("WhatsApp message has no text content, using fallback");
-                                                "[Media Message]".to_string()
-                                            }
+                                        content = if let Some(text) = msg.text_content() { text.to_string() } else {
+                                            warn!("WhatsApp message has no text content, using fallback");
+                                            "[Media Message]".to_string()
                                         };
                                     }
 
@@ -242,7 +241,7 @@ impl BaseChannel for WhatsAppChannel {
                                         metadata: {
                                             let mut meta = HashMap::new();
                                             meta.insert("message_id".to_string(),
-                                                Value::String(info.id.to_string()));
+                                                Value::String(info.id.clone()));
                                             meta.insert("whatsapp_timestamp".to_string(),
                                                 Value::Number(serde_json::Number::from(info.timestamp.timestamp_millis())));
                                             meta.insert("is_group".to_string(),
@@ -259,7 +258,7 @@ impl BaseChannel for WhatsAppChannel {
                                     // Display QR code (organized inline)
                                     println!("\n🤖 WhatsApp QR Code:");
                                     match qr2term::print_qr(code) {
-                                        Ok(_) => {
+                                        Ok(()) => {
                                             println!("\nScan with WhatsApp: Settings > Linked Devices > Link a Device");
                                         }
                                         Err(e) => {
@@ -366,6 +365,8 @@ impl BaseChannel for WhatsAppChannel {
     }
 
     async fn send_typing(&self, chat_id: &str) -> Result<()> {
+        use std::str::FromStr;
+
         let client_guard = self.client.lock().await;
         if let Some(client) = client_guard.as_ref() {
             // Format JID same way as send_whatsapp_message
@@ -385,7 +386,6 @@ impl BaseChannel for WhatsAppChannel {
                 format!("{}@s.whatsapp.net", chat_id)
             };
 
-            use std::str::FromStr;
             if let Ok(jid) = whatsapp_rust::Jid::from_str(&jid_str) {
                 let _ = client.chatstate().send_composing(&jid).await;
             }
@@ -422,14 +422,14 @@ impl BaseChannel for WhatsAppChannel {
 
             // Send queued messages
             for queued_msg in queued {
-                if let Err(e) = send_whatsapp_message(client, &queued_msg).await {
+                if let Err(e) = Box::pin(send_whatsapp_message(client, &queued_msg)).await {
                     error!("Failed to send queued WhatsApp message: {}", e);
                 }
             }
 
             // Send current message
-            match send_whatsapp_message(client, msg).await {
-                Ok(_) => Ok(()),
+            match Box::pin(send_whatsapp_message(client, msg)).await {
+                Ok(()) => Ok(()),
                 Err(e) => {
                     error!("WhatsApp send failed: {}", e);
                     Err(e)
@@ -449,6 +449,8 @@ async fn send_whatsapp_message(
     client: &Arc<whatsapp_rust::client::Client>,
     msg: &OutboundMessage,
 ) -> Result<()> {
+    use std::str::FromStr;
+
     // Format chat_id - ensure it has @s.whatsapp.net suffix if it's a phone number
     // Note: WhatsApp JIDs should NOT include device ID when sending (e.g., use "15037348571@s.whatsapp.net" not "15037348571:20@s.whatsapp.net")
     let chat_id_str = if msg.chat_id.contains('@') {
@@ -477,7 +479,6 @@ async fn send_whatsapp_message(
     );
 
     // Parse chat_id as JID (whatsapp-rust re-exports Jid)
-    use std::str::FromStr;
     let jid = whatsapp_rust::Jid::from_str(&chat_id_str)
         .map_err(|e| anyhow::anyhow!("Invalid WhatsApp chat_id '{}': {}", chat_id_str, e))?;
 
@@ -496,7 +497,7 @@ async fn send_whatsapp_message(
             ..Default::default()
         };
 
-        match client.send_message(jid.clone(), text_message).await {
+        match Box::pin(client.send_message(jid.clone(), text_message)).await {
             Ok(msg_id) => {
                 info!("WhatsApp message sent to {}: id={}", jid, msg_id);
             }
@@ -509,7 +510,7 @@ async fn send_whatsapp_message(
     Ok(())
 }
 
-/// Download a WhatsApp media file and save to ~/.nanobot/media/.
+/// Download a `WhatsApp` media file and save to ~/.nanobot/media/.
 async fn download_whatsapp_media(
     client: &Arc<whatsapp_rust::client::Client>,
     downloadable: &dyn whatsapp_rust::download::Downloadable,
@@ -527,7 +528,7 @@ async fn download_whatsapp_media(
         Some("image/png") => "png",
         Some("image/webp") => "webp",
         Some("image/gif") => "gif",
-        Some("image/jpeg") | Some("image/jpg") => "jpg",
+        Some("image/jpeg" | "image/jpg") => "jpg",
         Some(m) if m.starts_with("image/") => m.strip_prefix("image/").unwrap_or("bin"),
         _ => "jpg",
     };
@@ -550,7 +551,7 @@ fn is_image_mime(mime: Option<&str>) -> bool {
     mime.is_some_and(|m| m.starts_with("image/"))
 }
 
-/// Determine whether an is_from_me message should be skipped.
+/// Determine whether an `is_from_me` message should be skipped.
 ///
 /// In linked-device mode ALL messages from the user's account have
 /// `is_from_me == true`, including messages the user sends to the bot
@@ -579,7 +580,7 @@ mod tests {
     use super::*;
 
     fn allow_list(nums: &[&str]) -> Vec<String> {
-        nums.iter().map(|s| s.to_string()).collect()
+        nums.iter().map(ToString::to_string).collect()
     }
 
     // --- should_skip_own_message tests ---

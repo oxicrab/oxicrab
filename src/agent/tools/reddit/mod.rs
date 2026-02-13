@@ -71,8 +71,8 @@ impl RedditTool {
         let json: Value = resp.json().await?;
         let posts = json["data"]["children"]
             .as_array()
-            .map(|a| a.as_slice())
-            .unwrap_or(&[]);
+            .map(Vec::as_slice)
+            .unwrap_or_default();
 
         if posts.is_empty() {
             return Ok(format!("No posts found in r/{}.", subreddit));
@@ -136,8 +136,8 @@ impl RedditTool {
         let json: Value = resp.json().await?;
         let posts = json["data"]["children"]
             .as_array()
-            .map(|a| a.as_slice())
-            .unwrap_or(&[]);
+            .map(Vec::as_slice)
+            .unwrap_or_default();
 
         if posts.is_empty() {
             return Ok(format!("No results for '{}' in r/{}.", query, subreddit));
@@ -172,11 +172,11 @@ impl RedditTool {
 
 #[async_trait]
 impl Tool for RedditTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "reddit"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Browse Reddit. Get hot, new, or top posts from a subreddit, or search within a subreddit. Read-only, no authentication required."
     }
 
@@ -244,13 +244,10 @@ impl Tool for RedditTool {
                     .await
             }
             "search" => {
-                let query = match params["query"].as_str() {
-                    Some(q) => q,
-                    None => {
-                        return Ok(ToolResult::error(
-                            "Missing 'query' parameter for search action".to_string(),
-                        ))
-                    }
+                let Some(query) = params["query"].as_str() else {
+                    return Ok(ToolResult::error(
+                        "Missing 'query' parameter for search action".to_string(),
+                    ));
                 };
                 self.search(subreddit, query, limit).await
             }

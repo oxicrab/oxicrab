@@ -129,7 +129,7 @@ pub fn parse_response(json: &Value) -> LLMResponse {
     let content = json["content"].as_array().and_then(|arr| {
         arr.iter().find_map(|block| {
             if block["type"] == "text" {
-                block["text"].as_str().map(|s| s.to_string())
+                block["text"].as_str().map(std::string::ToString::to_string)
             } else {
                 None
             }
@@ -150,7 +150,9 @@ pub fn parse_response(json: &Value) -> LLMResponse {
                     });
                 }
                 Some("thinking") => {
-                    reasoning_content = block["thinking"].as_str().map(|s| s.to_string());
+                    reasoning_content = block["thinking"]
+                        .as_str()
+                        .map(std::string::ToString::to_string);
                 }
                 _ => {}
             }
@@ -160,7 +162,7 @@ pub fn parse_response(json: &Value) -> LLMResponse {
     let input_tokens = json
         .get("usage")
         .and_then(|u| u.get("input_tokens"))
-        .and_then(|t| t.as_u64());
+        .and_then(serde_json::Value::as_u64);
 
     LLMResponse {
         content,

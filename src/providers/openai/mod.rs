@@ -51,14 +51,16 @@ impl OpenAIProvider {
         }
     }
 
-    fn parse_response(&self, json: Value) -> Result<LLMResponse> {
+    fn parse_response(json: &Value) -> Result<LLMResponse> {
         let choice = json["choices"]
             .as_array()
             .and_then(|arr| arr.first())
             .context("No choices in OpenAI response")?;
 
         let message = &choice["message"];
-        let content = message["content"].as_str().map(|s| s.to_string());
+        let content = message["content"]
+            .as_str()
+            .map(std::string::ToString::to_string);
 
         let mut tool_calls = Vec::new();
         if let Some(tool_calls_array) = message["tool_calls"].as_array() {
@@ -182,14 +184,17 @@ impl LLMProvider for OpenAIProvider {
             if let Ok(mut metrics) = self.metrics.lock() {
                 metrics.request_count += 1;
                 if let Some(usage) = json.get("usage").and_then(|u| u.as_object()) {
-                    if let Some(tokens) = usage.get("total_tokens").and_then(|t| t.as_u64()) {
+                    if let Some(tokens) = usage
+                        .get("total_tokens")
+                        .and_then(serde_json::Value::as_u64)
+                    {
                         metrics.token_count += tokens;
                     }
                 }
             }
         }
 
-        self.parse_response(json)
+        Self::parse_response(&json)
     }
 
     fn default_model(&self) -> &str {

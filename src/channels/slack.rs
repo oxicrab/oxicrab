@@ -61,10 +61,10 @@ impl SlackChannel {
         let response = self.client.post(&url).form(&form).send().await?;
 
         let json: Value = response.json().await?;
-        if json.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+        if json.get("ok").and_then(Value::as_bool) != Some(true) {
             let error = json
                 .get("error")
-                .and_then(|v| v.as_str())
+                .and_then(Value::as_str)
                 .unwrap_or("unknown");
             return Err(anyhow::anyhow!("Slack API error: {}", error));
         }
@@ -74,10 +74,11 @@ impl SlackChannel {
 
 #[async_trait]
 impl BaseChannel for SlackChannel {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "slack"
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn start(&mut self) -> Result<()> {
         info!("Initializing Slack channel...");
         if self.config.bot_token.is_empty() {
@@ -97,14 +98,14 @@ impl BaseChannel for SlackChannel {
             Ok(auth) => {
                 let bot_id = auth
                     .get("user_id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string);
                 *self.bot_user_id.lock().await = bot_id;
                 let user = auth
                     .get("user")
-                    .and_then(|v| v.as_str())
+                    .and_then(Value::as_str)
                     .unwrap_or("unknown");
-                let user_id = auth.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
+                let user_id = auth.get("user_id").and_then(Value::as_str).unwrap_or("");
                 info!("Slack bot connected as {} (ID: {})", user, user_id);
             }
             Err(e) => {
@@ -122,10 +123,10 @@ impl BaseChannel for SlackChannel {
         {
             // Only warn if it's not a missing scope error (which is expected if scope not granted)
             let error_msg = e.to_string();
-            if !error_msg.contains("missing_scope") {
-                warn!("Failed to set Slack presence: {}", e);
-            } else {
+            if error_msg.contains("missing_scope") {
                 debug!("Slack presence setting skipped (missing users:write scope)");
+            } else {
+                warn!("Failed to set Slack presence: {}", e);
             }
         }
 
@@ -193,10 +194,10 @@ impl BaseChannel for SlackChannel {
                     }
                 };
 
-                if json.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+                if json.get("ok").and_then(Value::as_bool) != Some(true) {
                     let error = json
                         .get("error")
-                        .and_then(|v| v.as_str())
+                        .and_then(Value::as_str)
                         .unwrap_or("unknown");
                     error!("Slack apps.connections.open error: {}", error);
                     if error == "invalid_auth" {
@@ -212,19 +213,16 @@ impl BaseChannel for SlackChannel {
                     continue;
                 }
 
-                let ws_url = match json.get("url").and_then(|v| v.as_str()) {
-                    Some(url) => url,
-                    None => {
-                        error!("No 'url' field in apps.connections.open response");
-                        let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
-                        reconnect_attempt += 1;
-                        warn!(
-                            "Retrying Slack Socket Mode connection in {} seconds...",
-                            delay
-                        );
-                        tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
-                        continue;
-                    }
+                let Some(ws_url) = json.get("url").and_then(Value::as_str) else {
+                    error!("No 'url' field in apps.connections.open response");
+                    let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
+                    reconnect_attempt += 1;
+                    warn!(
+                        "Retrying Slack Socket Mode connection in {} seconds...",
+                        delay
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                    continue;
                 };
 
                 debug!(
@@ -259,10 +257,8 @@ impl BaseChannel for SlackChannel {
                             match msg {
                                 Ok(Message::Text(text)) => {
                                     if let Ok(event) = serde_json::from_str::<Value>(&text) {
-                                        let event_type = event
-                                            .get("type")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("");
+                                        let event_type =
+                                            event.get("type").and_then(Value::as_str).unwrap_or("");
 
                                         // Handle hello message
                                         if event_type == "hello" {
@@ -296,7 +292,7 @@ impl BaseChannel for SlackChannel {
                                                 if let Some(event_data) = payload.get("event") {
                                                     let inner_event_type = event_data
                                                         .get("type")
-                                                        .and_then(|v| v.as_str())
+                                                        .and_then(Value::as_str)
                                                         .unwrap_or("");
 
                                                     match inner_event_type {
@@ -422,8 +418,8 @@ impl BaseChannel for SlackChannel {
         let response = self.send_slack_api("chat.postMessage", &params).await?;
         Ok(response
             .get("ts")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()))
+            .and_then(Value::as_str)
+            .map(ToString::to_string))
     }
 
     async fn edit_message(&self, chat_id: &str, message_id: &str, content: &str) -> Result<()> {
@@ -578,6 +574,7 @@ fn is_image_magic_bytes(data: &[u8]) -> bool {
 }
 
 /// Standalone message handler that uses shared state instead of constructing a new `SlackChannel`.
+#[allow(clippy::too_many_lines)]
 async fn handle_slack_event(
     event: &Value,
     bot_user_id: &Arc<tokio::sync::Mutex<Option<String>>>,
@@ -588,17 +585,17 @@ async fn handle_slack_event(
     client: &reqwest::Client,
 ) -> Result<()> {
     // Ignore bot messages and message_changed subtypes, but allow file_share
-    if let Some(subtype) = event.get("subtype").and_then(|v| v.as_str()) {
+    if let Some(subtype) = event.get("subtype").and_then(Value::as_str) {
         if subtype != "file_share" {
             return Ok(());
         }
     }
 
-    let user_id = event.get("user").and_then(|v| v.as_str()).unwrap_or("");
-    let channel_id = event.get("channel").and_then(|v| v.as_str()).unwrap_or("");
+    let user_id = event.get("user").and_then(Value::as_str).unwrap_or("");
+    let channel_id = event.get("channel").and_then(Value::as_str).unwrap_or("");
     let mut text = event
         .get("text")
-        .and_then(|v| v.as_str())
+        .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
 
@@ -615,7 +612,7 @@ async fn handle_slack_event(
     }
 
     // Deduplicate messages
-    if let Some(ts) = event.get("ts").and_then(|v| v.as_str()) {
+    if let Some(ts) = event.get("ts").and_then(Value::as_str) {
         let mut seen = seen_messages.lock().await;
         let msg_key = format!("{}:{}:{}", channel_id, user_id, ts);
         if seen.contains(&msg_key) {
@@ -655,9 +652,8 @@ async fn handle_slack_event(
 
     let has_files = event
         .get("files")
-        .and_then(|v| v.as_array())
-        .map(|a| !a.is_empty())
-        .unwrap_or(false);
+        .and_then(Value::as_array)
+        .is_some_and(|a| !a.is_empty());
 
     if text.trim().is_empty() && !has_files {
         return Ok(());
@@ -685,13 +681,13 @@ async fn handle_slack_event(
     let mut media_paths = Vec::new();
     let mut content_parts = vec![text.clone()];
 
-    if let Some(files) = event.get("files").and_then(|v| v.as_array()) {
+    if let Some(files) = event.get("files").and_then(Value::as_array) {
         for file in files {
-            if let Some(mimetype) = file.get("mimetype").and_then(|v| v.as_str()) {
+            if let Some(mimetype) = file.get("mimetype").and_then(Value::as_str) {
                 if mimetype.starts_with("image/") {
                     if let (Some(file_url), Some(file_id)) = (
-                        file.get("url_private_download").and_then(|v| v.as_str()),
-                        file.get("id").and_then(|v| v.as_str()),
+                        file.get("url_private_download").and_then(Value::as_str),
+                        file.get("id").and_then(Value::as_str),
                     ) {
                         let ext = match mimetype {
                             "image/jpeg" => ".jpg",
@@ -716,13 +712,7 @@ async fn handle_slack_event(
                         // Slack's ?redir= login-page URLs to direct file paths.
                         match download_slack_file(client, bot_token, file_url).await {
                             Ok(bytes) => {
-                                if !is_image_magic_bytes(&bytes) {
-                                    warn!(
-                                        "Slack file doesn't look like an image (first bytes: {:02x?}, {} bytes)",
-                                        &bytes[..8.min(bytes.len())],
-                                        bytes.len()
-                                    );
-                                } else {
+                                if is_image_magic_bytes(&bytes) {
                                     info!("Downloaded Slack image: {} bytes", bytes.len());
                                     if let Err(e) = std::fs::write(&file_path, &bytes) {
                                         warn!("Failed to write Slack media file: {}", e);
@@ -730,6 +720,12 @@ async fn handle_slack_event(
                                     let path_str = file_path.to_string_lossy().to_string();
                                     media_paths.push(path_str.clone());
                                     content_parts.push(format!("[image: {}]", path_str));
+                                } else {
+                                    warn!(
+                                        "Slack file doesn't look like an image (first bytes: {:02x?}, {} bytes)",
+                                        &bytes[..8.min(bytes.len())],
+                                        bytes.len()
+                                    );
                                 }
                             }
                             Err(e) => warn!("Failed to download Slack file: {}", e),
@@ -738,7 +734,7 @@ async fn handle_slack_event(
                 } else {
                     let file_name = file
                         .get("name")
-                        .and_then(|v| v.as_str())
+                        .and_then(Value::as_str)
                         .unwrap_or("unknown");
                     content_parts.push(format!("[file: {}]", file_name));
                 }
@@ -753,7 +749,7 @@ async fn handle_slack_event(
     };
 
     // Add "eyes" reaction to acknowledge receipt (fire-and-forget)
-    if let Some(ts) = event.get("ts").and_then(|v| v.as_str()) {
+    if let Some(ts) = event.get("ts").and_then(Value::as_str) {
         let react_client = client.clone();
         let react_token = bot_token.to_string();
         let react_channel = channel_id.to_string();
@@ -781,7 +777,7 @@ async fn handle_slack_event(
         media: media_paths,
         metadata: {
             let mut meta = HashMap::new();
-            if let Some(ts) = event.get("ts").and_then(|v| v.as_str()) {
+            if let Some(ts) = event.get("ts").and_then(Value::as_str) {
                 meta.insert("ts".to_string(), Value::String(ts.to_string()));
             }
             meta.insert("user_id".to_string(), Value::String(user_id.to_string()));

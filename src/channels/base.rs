@@ -60,8 +60,7 @@ pub fn split_message(text: &str, limit: usize) -> Vec<String> {
             split_at = remaining
                 .char_indices()
                 .nth(1)
-                .map(|(i, _)| i)
-                .unwrap_or(remaining.len());
+                .map_or(remaining.len(), |(i, _)| i);
         }
 
         // Try paragraph boundary within the safe range

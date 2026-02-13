@@ -20,11 +20,11 @@ impl GoogleMailTool {
 
 #[async_trait]
 impl Tool for GoogleMailTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "google_mail"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Interact with Gmail. Actions: search, read, send, reply, list_labels, label."
     }
 
@@ -169,7 +169,7 @@ impl Tool for GoogleMailTool {
                     .as_array()
                     .unwrap_or(&vec![])
                     .iter()
-                    .filter_map(|l| l.as_str().map(|s| s.to_string()))
+                    .filter_map(|l| l.as_str().map(std::string::ToString::to_string))
                     .collect();
 
                 Ok(ToolResult::new(format!(
@@ -234,7 +234,7 @@ impl Tool for GoogleMailTool {
 
                 let empty_str = String::new();
                 let reply_to = headers.get("From").unwrap_or(&empty_str);
-                let mut subject = headers.get("Subject").unwrap_or(&"".to_string()).clone();
+                let mut subject = headers.get("Subject").unwrap_or(&String::new()).clone();
                 if !subject.to_lowercase().starts_with("re:") {
                     subject = format!("Re: {}", subject);
                 }
@@ -243,8 +243,8 @@ impl Tool for GoogleMailTool {
                     "To: {}\r\nSubject: {}\r\nIn-Reply-To: {}\r\nReferences: {}\r\n\r\n{}",
                     reply_to,
                     subject,
-                    headers.get("Message-ID").unwrap_or(&"".to_string()),
-                    headers.get("Message-ID").unwrap_or(&"".to_string()),
+                    headers.get("Message-ID").unwrap_or(&String::new()),
+                    headers.get("Message-ID").unwrap_or(&String::new()),
                     body
                 );
                 let raw = URL_SAFE_NO_PAD.encode(email.as_bytes());
@@ -287,7 +287,7 @@ impl Tool for GoogleMailTool {
                     .as_array()
                     .map(|a| {
                         a.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
@@ -295,7 +295,7 @@ impl Tool for GoogleMailTool {
                     .as_array()
                     .map(|a| {
                         a.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();

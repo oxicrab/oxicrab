@@ -19,15 +19,15 @@ pub struct ObsidianTool {
 }
 
 impl ObsidianTool {
-    /// Create a new ObsidianTool and return the shared cache for the sync service.
-    pub async fn new(
+    /// Create a new `ObsidianTool` and return the shared cache for the sync service.
+    pub fn new(
         api_url: &str,
         api_key: &str,
         vault_name: &str,
         timeout: u64,
     ) -> Result<(Self, Arc<ObsidianCache>)> {
         let client = Arc::new(ObsidianApiClient::new(api_url, api_key, timeout));
-        let cache = Arc::new(ObsidianCache::new(client, vault_name).await?);
+        let cache = Arc::new(ObsidianCache::new(client, vault_name)?);
         Ok((
             Self {
                 cache: cache.clone(),
@@ -86,9 +86,10 @@ fn format_tags_yaml(params: Option<&Value>) -> String {
     if tags.is_empty() {
         "tags:\n".to_string()
     } else {
+        use std::fmt::Write as _;
         let mut out = "tags:\n".to_string();
         for tag in &tags {
-            out.push_str(&format!("  - {}\n", tag));
+            let _ = writeln!(out, "  - {}", tag);
         }
         out
     }
@@ -96,11 +97,11 @@ fn format_tags_yaml(params: Option<&Value>) -> String {
 
 #[async_trait]
 impl Tool for ObsidianTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "obsidian"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Read, write, search, and list notes in an Obsidian vault. Actions: read (read a note), write (create/overwrite a note, auto-generates YAML frontmatter for new notes), append (append to a note), search (full-text search), list (list notes, optionally in a folder)."
     }
 
@@ -155,7 +156,7 @@ impl Tool for ObsidianTool {
                     Some(p) if !p.is_empty() => p,
                     _ => return Ok(ToolResult::error("'path' is required for read")),
                 };
-                match self.cache.read_cached(path).await {
+                match self.cache.read_cached(path) {
                     Some(content) => Ok(ToolResult::new(content)),
                     None => Ok(ToolResult::error(format!(
                         "Note '{}' not found in cache. It may not exist or hasn't been synced yet.",
@@ -168,11 +169,10 @@ impl Tool for ObsidianTool {
                     Some(p) if !p.is_empty() => p,
                     _ => return Ok(ToolResult::error("'path' is required for write")),
                 };
-                let content = match params["content"].as_str() {
-                    Some(c) => c,
-                    None => return Ok(ToolResult::error("'content' is required for write")),
+                let Some(content) = params["content"].as_str() else {
+                    return Ok(ToolResult::error("'content' is required for write"));
                 };
-                let content = if self.cache.read_cached(path).await.is_none() {
+                let content = if self.cache.read_cached(path).is_none() {
                     let fm = generate_frontmatter(params.get("frontmatter"));
                     format!("{}\n{}", fm, content)
                 } else {
@@ -188,9 +188,8 @@ impl Tool for ObsidianTool {
                     Some(p) if !p.is_empty() => p,
                     _ => return Ok(ToolResult::error("'path' is required for append")),
                 };
-                let content = match params["content"].as_str() {
-                    Some(c) => c,
-                    None => return Ok(ToolResult::error("'content' is required for append")),
+                let Some(content) = params["content"].as_str() else {
+                    return Ok(ToolResult::error("'content' is required for append"));
                 };
                 match self.cache.append_file(path, content).await {
                     Ok(msg) => Ok(ToolResult::new(msg)),

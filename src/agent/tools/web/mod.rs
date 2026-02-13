@@ -49,7 +49,7 @@ impl WebSearchTool {
         }
     }
 
-    /// Fallback search using DuckDuckGo HTML when no Brave API key is configured.
+    /// Fallback search using `DuckDuckGo` HTML when no Brave API key is configured.
     async fn search_duckduckgo(&self, query: &str, count: usize) -> Result<ToolResult> {
         let resp = self
             .client
@@ -122,11 +122,11 @@ impl WebSearchTool {
 
 #[async_trait]
 impl Tool for WebSearchTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "web_search"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Search the web. Returns titles, URLs, and snippets. Uses Brave Search if API key is configured, otherwise falls back to DuckDuckGo."
     }
 
@@ -164,8 +164,7 @@ impl Tool for WebSearchTool {
 
         let count = params["count"]
             .as_u64()
-            .map(|n| n.clamp(1, 10) as usize)
-            .unwrap_or(self.max_results);
+            .map_or(self.max_results, |n| n.clamp(1, 10) as usize);
 
         // Use DuckDuckGo if explicitly configured or if no Brave API key
         if self.provider == "duckduckgo" || self.api_key.is_empty() {
@@ -236,8 +235,7 @@ impl WebFetchTool {
         let extract_mode = params["extractMode"].as_str().unwrap_or("markdown");
         let max_chars = params["maxChars"]
             .as_u64()
-            .map(|n| n as usize)
-            .unwrap_or(self.max_chars);
+            .map_or(self.max_chars, |n| n as usize);
 
         match self
             .client
@@ -275,12 +273,11 @@ impl WebFetchTool {
                         .to_lowercase()
                         .starts_with("<html")
                 {
-                    match extract_html(&text, extract_mode == "markdown") {
-                        Ok(content) => (content, "readability"),
-                        Err(_) => {
-                            let stripped = strip_tags(&text);
-                            (normalize(&stripped), "fallback")
-                        }
+                    if let Ok(content) = extract_html(&text, extract_mode == "markdown") {
+                        (content, "readability")
+                    } else {
+                        let stripped = strip_tags(&text);
+                        (normalize(&stripped), "fallback")
                     }
                 } else {
                     (text, "raw")
@@ -318,11 +315,11 @@ impl WebFetchTool {
 
 #[async_trait]
 impl Tool for WebFetchTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "web_fetch"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Fetch URL and extract readable content (HTML → markdown/text)."
     }
 
@@ -407,8 +404,7 @@ fn extract_html(html: &str, markdown: bool) -> Result<String> {
                 document
                     .select(&body_sel)
                     .next()
-                    .map(|e| e.html())
-                    .unwrap_or_else(|| strip_scripts_styles(html))
+                    .map_or_else(|| strip_scripts_styles(html), |e| e.html())
             } else {
                 strip_scripts_styles(html)
             }
@@ -489,8 +485,8 @@ fn html_to_markdown(html: &str) -> String {
         {
             text = re_link
                 .replace_all(&text, |caps: &regex::Captures| {
-                    let href = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-                    let link_text = strip_tags(caps.get(2).map(|m| m.as_str()).unwrap_or(""));
+                    let href = caps.get(1).map_or("", |m| m.as_str());
+                    let link_text = strip_tags(caps.get(2).map_or("", |m| m.as_str()));
                     format!("[{}]({})", link_text.trim(), href)
                 })
                 .to_string();
@@ -503,8 +499,7 @@ fn html_to_markdown(html: &str) -> String {
             {
                 text = re_heading
                     .replace_all(&text, |caps: &regex::Captures| {
-                        let heading_text =
-                            strip_tags(caps.get(1).map(|m| m.as_str()).unwrap_or(""));
+                        let heading_text = strip_tags(caps.get(1).map_or("", |m| m.as_str()));
                         format!("\n{} {}\n", "#".repeat(level), heading_text.trim())
                     })
                     .to_string();
@@ -515,7 +510,7 @@ fn html_to_markdown(html: &str) -> String {
         if let Ok(re_list) = compile_regex(r"(?i)<li[^>]*>([\s\S]*?)</li>") {
             text = re_list
                 .replace_all(&text, |caps: &regex::Captures| {
-                    let item_text = strip_tags(caps.get(1).map(|m| m.as_str()).unwrap_or(""));
+                    let item_text = strip_tags(caps.get(1).map_or("", |m| m.as_str()));
                     format!("\n- {}", item_text.trim())
                 })
                 .to_string();

@@ -7,7 +7,7 @@ fn test_cron_job_full_roundtrip() {
         name: "Test Job".to_string(),
         enabled: true,
         schedule: CronSchedule::Every {
-            every_ms: Some(3600000),
+            every_ms: Some(3_600_000),
         },
         payload: CronPayload {
             kind: "agent_turn".to_string(),
@@ -25,16 +25,16 @@ fn test_cron_job_full_roundtrip() {
             ],
         },
         state: CronJobState {
-            next_run_at_ms: Some(9999999999),
-            last_run_at_ms: Some(8888888888),
+            next_run_at_ms: Some(9_999_999_999),
+            last_run_at_ms: Some(8_888_888_888),
             last_status: Some("success".to_string()),
             last_error: None,
             run_count: 3,
         },
-        created_at_ms: 1234567890,
-        updated_at_ms: 1234567900,
+        created_at_ms: 1_234_567_890,
+        updated_at_ms: 1_234_567_900,
         delete_after_run: false,
-        expires_at_ms: Some(9999999999999),
+        expires_at_ms: Some(9_999_999_999_999),
         max_runs: Some(10),
     };
 
@@ -52,14 +52,14 @@ fn test_cron_job_full_roundtrip() {
     assert_eq!(deserialized.payload.targets[0].to, "user123");
     assert_eq!(deserialized.payload.targets[1].channel, "slack");
     assert_eq!(deserialized.payload.targets[1].to, "U08G6HBC89X");
-    assert_eq!(deserialized.state.next_run_at_ms, Some(9999999999));
-    assert_eq!(deserialized.state.last_run_at_ms, Some(8888888888));
+    assert_eq!(deserialized.state.next_run_at_ms, Some(9_999_999_999));
+    assert_eq!(deserialized.state.last_run_at_ms, Some(8_888_888_888));
     assert_eq!(deserialized.state.last_status, Some("success".to_string()));
     assert_eq!(deserialized.state.last_error, None);
-    assert_eq!(deserialized.created_at_ms, 1234567890);
-    assert_eq!(deserialized.updated_at_ms, 1234567900);
+    assert_eq!(deserialized.created_at_ms, 1_234_567_890);
+    assert_eq!(deserialized.updated_at_ms, 1_234_567_900);
     assert!(!deserialized.delete_after_run);
-    assert_eq!(deserialized.expires_at_ms, Some(9999999999999));
+    assert_eq!(deserialized.expires_at_ms, Some(9_999_999_999_999));
     assert_eq!(deserialized.max_runs, Some(10));
     assert_eq!(deserialized.state.run_count, 3);
 }

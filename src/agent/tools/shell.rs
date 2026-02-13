@@ -81,20 +81,17 @@ impl ExecTool {
                 .filter(|(pos, _)| *pos != usize::MAX)
                 .min_by_key(|(pos, _)| *pos);
 
-            match next_split {
-                Some((pos, len)) => {
-                    let segment = &remaining[..pos];
-                    if !segment.trim().is_empty() {
-                        commands.push(Self::extract_command_name(segment));
-                    }
-                    remaining = &remaining[pos + len..];
+            if let Some((pos, len)) = next_split {
+                let segment = &remaining[..pos];
+                if !segment.trim().is_empty() {
+                    commands.push(Self::extract_command_name(segment));
                 }
-                None => {
-                    if !remaining.trim().is_empty() {
-                        commands.push(Self::extract_command_name(remaining));
-                    }
-                    break;
+                remaining = &remaining[pos + len..];
+            } else {
+                if !remaining.trim().is_empty() {
+                    commands.push(Self::extract_command_name(remaining));
                 }
+                break;
             }
         }
 
@@ -144,11 +141,11 @@ impl ExecTool {
 
 #[async_trait]
 impl Tool for ExecTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "exec"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Execute a shell command and return its output. Use with caution."
     }
 
@@ -245,7 +242,7 @@ mod tests {
             "ls", "cat", "grep", "git", "echo", "curl", "python3", "cargo",
         ]
         .iter()
-        .map(|s| s.to_string())
+        .map(ToString::to_string)
         .collect()
     }
 

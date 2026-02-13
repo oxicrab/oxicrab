@@ -29,7 +29,7 @@ pub fn validate_cron_expr(expr: &str) -> Result<String> {
     Ok(normalized)
 }
 
-/// Detect the system's IANA timezone (e.g. "America/New_York").
+/// Detect the system's IANA timezone (e.g. "`America/New_York`").
 /// Returns None if detection fails.
 pub fn detect_system_timezone() -> Option<String> {
     iana_time_zone::get_timezone().ok()
@@ -38,8 +38,7 @@ pub fn detect_system_timezone() -> Option<String> {
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_millis() as i64)
 }
 
 fn compute_next_run(schedule: &CronSchedule, now_ms: i64) -> Option<i64> {
@@ -188,7 +187,7 @@ impl CronService {
                 let now = now_ms();
                 let mut next_run: Option<i64> = None;
                 let on_job_guard = on_job.lock().await;
-                let callback_opt = on_job_guard.as_ref().map(|c| c.clone());
+                let callback_opt = on_job_guard.as_ref().map(std::clone::Clone::clone);
                 drop(on_job_guard);
 
                 let mut store_dirty = false;
@@ -232,7 +231,7 @@ impl CronService {
                                 job.updated_at_ms = now;
                                 store_dirty = true;
                                 if let Some(next) = job.state.next_run_at_ms {
-                                    next_run = Some(next_run.map(|n| n.min(next)).unwrap_or(next));
+                                    next_run = Some(next_run.map_or(next, |n| n.min(next)));
                                 }
                                 continue;
                             }
@@ -312,7 +311,7 @@ impl CronService {
                                     .await;
                             }
                         } else {
-                            next_run = Some(next_run.map(|n| n.min(job_next)).unwrap_or(job_next));
+                            next_run = Some(next_run.map_or(job_next, |n| n.min(job_next)));
                         }
                     }
                 }

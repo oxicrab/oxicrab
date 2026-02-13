@@ -131,7 +131,7 @@ impl MemoryIndexer {
         })
         .await
         {
-            Ok(_) => {}
+            Ok(()) => {}
             Err(e) => {
                 warn!("Memory indexing task panicked: {}", e);
             }

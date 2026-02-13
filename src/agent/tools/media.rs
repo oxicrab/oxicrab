@@ -114,7 +114,7 @@ impl MediaTool {
         let results = self
             .radarr_get(&format!("/api/v3/movie/lookup?term={}", encoded))
             .await?;
-        let arr = results.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        let arr = results.as_array().map_or(&[][..], Vec::as_slice);
         Ok(format_movie_search_results(arr))
     }
 
@@ -133,30 +133,28 @@ impl MediaTool {
         let year = lookup["year"].as_i64().unwrap_or(0);
 
         // Auto-fetch quality profile if not specified
-        let profile_id = match quality_profile_id {
-            Some(id) => id,
-            None => {
-                let profiles = self.radarr_get("/api/v3/qualityprofile").await?;
-                profiles
-                    .as_array()
-                    .and_then(|a| a.first())
-                    .and_then(|p| p["id"].as_i64())
-                    .ok_or_else(|| anyhow::anyhow!("No quality profiles found in Radarr"))?
-            }
+        let profile_id = if let Some(id) = quality_profile_id {
+            id
+        } else {
+            let profiles = self.radarr_get("/api/v3/qualityprofile").await?;
+            profiles
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|p| p["id"].as_i64())
+                .ok_or_else(|| anyhow::anyhow!("No quality profiles found in Radarr"))?
         };
 
         // Auto-fetch root folder if not specified
-        let folder = match root_folder {
-            Some(f) => f.to_string(),
-            None => {
-                let folders = self.radarr_get("/api/v3/rootfolder").await?;
-                folders
-                    .as_array()
-                    .and_then(|a| a.first())
-                    .and_then(|f| f["path"].as_str())
-                    .ok_or_else(|| anyhow::anyhow!("No root folders found in Radarr"))?
-                    .to_string()
-            }
+        let folder = if let Some(f) = root_folder {
+            f.to_string()
+        } else {
+            let folders = self.radarr_get("/api/v3/rootfolder").await?;
+            folders
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|f| f["path"].as_str())
+                .ok_or_else(|| anyhow::anyhow!("No root folders found in Radarr"))?
+                .to_string()
         };
 
         let body = serde_json::json!({
@@ -187,7 +185,7 @@ impl MediaTool {
 
     async fn list_movies(&self, filter: Option<&str>) -> Result<String> {
         let movies = self.radarr_get("/api/v3/movie").await?;
-        let arr = movies.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        let arr = movies.as_array().map_or(&[][..], Vec::as_slice);
 
         let filtered: Vec<&Value> = if let Some(f) = filter {
             let f_lower = f.to_lowercase();
@@ -195,8 +193,7 @@ impl MediaTool {
                 .filter(|m| {
                     m["title"]
                         .as_str()
-                        .map(|t| t.to_lowercase().contains(&f_lower))
-                        .unwrap_or(false)
+                        .is_some_and(|t| t.to_lowercase().contains(&f_lower))
                 })
                 .collect()
         } else {
@@ -240,7 +237,7 @@ impl MediaTool {
         let results = self
             .sonarr_get(&format!("/api/v3/series/lookup?term={}", encoded))
             .await?;
-        let arr = results.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        let arr = results.as_array().map_or(&[][..], Vec::as_slice);
         Ok(format_series_search_results(arr))
     }
 
@@ -265,30 +262,28 @@ impl MediaTool {
         let year = lookup["year"].as_i64().unwrap_or(0);
 
         // Auto-fetch quality profile if not specified
-        let profile_id = match quality_profile_id {
-            Some(id) => id,
-            None => {
-                let profiles = self.sonarr_get("/api/v3/qualityprofile").await?;
-                profiles
-                    .as_array()
-                    .and_then(|a| a.first())
-                    .and_then(|p| p["id"].as_i64())
-                    .ok_or_else(|| anyhow::anyhow!("No quality profiles found in Sonarr"))?
-            }
+        let profile_id = if let Some(id) = quality_profile_id {
+            id
+        } else {
+            let profiles = self.sonarr_get("/api/v3/qualityprofile").await?;
+            profiles
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|p| p["id"].as_i64())
+                .ok_or_else(|| anyhow::anyhow!("No quality profiles found in Sonarr"))?
         };
 
         // Auto-fetch root folder if not specified
-        let folder = match root_folder {
-            Some(f) => f.to_string(),
-            None => {
-                let folders = self.sonarr_get("/api/v3/rootfolder").await?;
-                folders
-                    .as_array()
-                    .and_then(|a| a.first())
-                    .and_then(|f| f["path"].as_str())
-                    .ok_or_else(|| anyhow::anyhow!("No root folders found in Sonarr"))?
-                    .to_string()
-            }
+        let folder = if let Some(f) = root_folder {
+            f.to_string()
+        } else {
+            let folders = self.sonarr_get("/api/v3/rootfolder").await?;
+            folders
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|f| f["path"].as_str())
+                .ok_or_else(|| anyhow::anyhow!("No root folders found in Sonarr"))?
+                .to_string()
         };
 
         let body = serde_json::json!({
@@ -321,7 +316,7 @@ impl MediaTool {
 
     async fn list_series(&self, filter: Option<&str>) -> Result<String> {
         let series = self.sonarr_get("/api/v3/series").await?;
-        let arr = series.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        let arr = series.as_array().map_or(&[][..], Vec::as_slice);
 
         let filtered: Vec<&Value> = if let Some(f) = filter {
             let f_lower = f.to_lowercase();
@@ -329,8 +324,7 @@ impl MediaTool {
                 .filter(|s| {
                     s["title"]
                         .as_str()
-                        .map(|t| t.to_lowercase().contains(&f_lower))
-                        .unwrap_or(false)
+                        .is_some_and(|t| t.to_lowercase().contains(&f_lower))
                 })
                 .collect()
         } else {
@@ -382,7 +376,7 @@ impl MediaTool {
             "sonarr" => self.sonarr_get("/api/v3/qualityprofile").await?,
             _ => anyhow::bail!("Unknown service '{}'. Use 'radarr' or 'sonarr'.", service),
         };
-        let arr = profiles.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        let arr = profiles.as_array().map_or(&[][..], Vec::as_slice);
         Ok(format_quality_profiles(arr, service))
     }
 
@@ -392,18 +386,18 @@ impl MediaTool {
             "sonarr" => self.sonarr_get("/api/v3/rootfolder").await?,
             _ => anyhow::bail!("Unknown service '{}'. Use 'radarr' or 'sonarr'.", service),
         };
-        let arr = folders.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        let arr = folders.as_array().map_or(&[][..], Vec::as_slice);
         Ok(format_root_folders(arr, service))
     }
 }
 
 #[async_trait]
 impl Tool for MediaTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "media"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Manage movies and TV series via Radarr (movies) and Sonarr (TV). \
          Actions: search_movie, add_movie (by TMDB ID), get_movie, list_movies, \
          search_series, add_series (by TVDB ID), get_series, list_series, \
@@ -464,45 +458,36 @@ impl Tool for MediaTool {
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn execute(&self, params: Value) -> Result<ToolResult> {
-        let action = match params["action"].as_str() {
-            Some(a) => a,
-            None => return Ok(ToolResult::error("Missing 'action' parameter".to_string())),
+        let Some(action) = params["action"].as_str() else {
+            return Ok(ToolResult::error("Missing 'action' parameter".to_string()));
         };
 
         let result = match action {
             "search_movie" => {
-                let query = match params["query"].as_str() {
-                    Some(q) => q,
-                    None => {
-                        return Ok(ToolResult::error(
-                            "Missing 'query' parameter for search_movie".to_string(),
-                        ))
-                    }
+                let Some(query) = params["query"].as_str() else {
+                    return Ok(ToolResult::error(
+                        "Missing 'query' parameter for search_movie".to_string(),
+                    ));
                 };
                 self.search_movie(query).await
             }
             "add_movie" => {
-                let tmdb_id = match params["tmdb_id"].as_i64() {
-                    Some(id) => id,
-                    None => {
-                        return Ok(ToolResult::error(
-                            "Missing 'tmdb_id' parameter for add_movie".to_string(),
-                        ))
-                    }
+                let Some(tmdb_id) = params["tmdb_id"].as_i64() else {
+                    return Ok(ToolResult::error(
+                        "Missing 'tmdb_id' parameter for add_movie".to_string(),
+                    ));
                 };
                 let qp = params["quality_profile_id"].as_i64();
                 let rf = params["root_folder"].as_str();
                 self.add_movie(tmdb_id, qp, rf).await
             }
             "get_movie" => {
-                let id = match params["id"].as_i64() {
-                    Some(id) => id,
-                    None => {
-                        return Ok(ToolResult::error(
-                            "Missing 'id' parameter for get_movie".to_string(),
-                        ))
-                    }
+                let Some(id) = params["id"].as_i64() else {
+                    return Ok(ToolResult::error(
+                        "Missing 'id' parameter for get_movie".to_string(),
+                    ));
                 };
                 self.get_movie(id).await
             }
@@ -511,37 +496,28 @@ impl Tool for MediaTool {
                 self.list_movies(filter).await
             }
             "search_series" => {
-                let query = match params["query"].as_str() {
-                    Some(q) => q,
-                    None => {
-                        return Ok(ToolResult::error(
-                            "Missing 'query' parameter for search_series".to_string(),
-                        ))
-                    }
+                let Some(query) = params["query"].as_str() else {
+                    return Ok(ToolResult::error(
+                        "Missing 'query' parameter for search_series".to_string(),
+                    ));
                 };
                 self.search_series(query).await
             }
             "add_series" => {
-                let tvdb_id = match params["tvdb_id"].as_i64() {
-                    Some(id) => id,
-                    None => {
-                        return Ok(ToolResult::error(
-                            "Missing 'tvdb_id' parameter for add_series".to_string(),
-                        ))
-                    }
+                let Some(tvdb_id) = params["tvdb_id"].as_i64() else {
+                    return Ok(ToolResult::error(
+                        "Missing 'tvdb_id' parameter for add_series".to_string(),
+                    ));
                 };
                 let qp = params["quality_profile_id"].as_i64();
                 let rf = params["root_folder"].as_str();
                 self.add_series(tvdb_id, qp, rf).await
             }
             "get_series" => {
-                let id = match params["id"].as_i64() {
-                    Some(id) => id,
-                    None => {
-                        return Ok(ToolResult::error(
-                            "Missing 'id' parameter for get_series".to_string(),
-                        ))
-                    }
+                let Some(id) = params["id"].as_i64() else {
+                    return Ok(ToolResult::error(
+                        "Missing 'id' parameter for get_series".to_string(),
+                    ));
                 };
                 self.get_series(id).await
             }
@@ -550,24 +526,18 @@ impl Tool for MediaTool {
                 self.list_series(filter).await
             }
             "profiles" => {
-                let service = match params["service"].as_str() {
-                    Some(s) => s,
-                    None => {
-                        return Ok(ToolResult::error(
-                            "Missing 'service' parameter for profiles".to_string(),
-                        ))
-                    }
+                let Some(service) = params["service"].as_str() else {
+                    return Ok(ToolResult::error(
+                        "Missing 'service' parameter for profiles".to_string(),
+                    ));
                 };
                 self.profiles(service).await
             }
             "root_folders" => {
-                let service = match params["service"].as_str() {
-                    Some(s) => s,
-                    None => {
-                        return Ok(ToolResult::error(
-                            "Missing 'service' parameter for root_folders".to_string(),
-                        ))
-                    }
+                let Some(service) = params["service"].as_str() else {
+                    return Ok(ToolResult::error(
+                        "Missing 'service' parameter for root_folders".to_string(),
+                    ));
                 };
                 self.root_folders(service).await
             }
@@ -603,8 +573,7 @@ fn format_movie_search_results(results: &[Value]) -> String {
                     .char_indices()
                     .take_while(|(idx, _)| *idx <= 500)
                     .last()
-                    .map(|(idx, _)| idx)
-                    .unwrap_or(500);
+                    .map_or(500, |(idx, _)| idx);
                 format!("{}...", &overview[..end])
             } else {
                 overview.to_string()
@@ -655,8 +624,7 @@ fn format_series_search_results(results: &[Value]) -> String {
                     .char_indices()
                     .take_while(|(idx, _)| *idx <= 500)
                     .last()
-                    .map(|(idx, _)| idx)
-                    .unwrap_or(500);
+                    .map_or(500, |(idx, _)| idx);
                 format!("{}...", &overview[..end])
             } else {
                 overview.to_string()
@@ -797,14 +765,14 @@ mod tests {
             serde_json::json!({
                 "title": "Interstellar",
                 "year": 2014,
-                "tmdbId": 157336,
+                "tmdbId": 157_336,
                 "overview": "A team of explorers travel through a wormhole in space.",
                 "id": 0
             }),
             serde_json::json!({
                 "title": "Interstellar Wars",
                 "year": 2016,
-                "tmdbId": 390876,
+                "tmdbId": 390_876,
                 "overview": "Aliens attack Earth.",
                 "id": 42
             }),
@@ -856,7 +824,7 @@ mod tests {
             "title": "Blade Runner 2049",
             "year": 2017,
             "id": 5,
-            "tmdbId": 335984,
+            "tmdbId": 335_984,
             "status": "released",
             "hasFile": true,
             "sizeOnDisk": 5_368_709_120_i64,

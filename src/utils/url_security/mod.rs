@@ -6,9 +6,9 @@ use std::net::IpAddr;
 ///
 /// Blocks:
 /// - Non-http(s) schemes
-/// - Loopback addresses (127.0.0.0/8, ::1)
+/// - Loopback addresses (127.0.0.0/8, `::1`)
 /// - Private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
-/// - Link-local (169.254.0.0/16, fe80::/10)
+/// - Link-local (169.254.0.0/16, `fe80::/10`)
 /// - Cloud metadata endpoints (169.254.169.254)
 /// - Unspecified addresses (0.0.0.0, ::)
 pub fn validate_url(url_str: &str) -> Result<(), String> {
@@ -29,15 +29,12 @@ pub fn validate_url(url_str: &str) -> Result<(), String> {
         url::Host::Domain(domain) => {
             // Hostname — resolve via DNS to check the actual IP
             // Use std::net for synchronous resolution (sufficient for validation)
-            match std::net::ToSocketAddrs::to_socket_addrs(&(domain, 80)) {
-                Ok(addrs) => {
-                    for addr in addrs {
-                        check_ip_allowed(addr.ip())?;
-                    }
+            if let Ok(addrs) = std::net::ToSocketAddrs::to_socket_addrs(&(domain, 80)) {
+                for addr in addrs {
+                    check_ip_allowed(addr.ip())?;
                 }
-                Err(_) => {
-                    // DNS resolution failed — allow through (will fail at fetch time)
-                }
+            } else {
+                // DNS resolution failed — allow through (will fail at fetch time)
             }
         }
     }

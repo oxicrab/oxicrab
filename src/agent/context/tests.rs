@@ -8,9 +8,10 @@ fn create_test_context(workspace: &Path) -> ContextBuilder {
 #[test]
 fn test_default_identity_contains_required_sections() {
     let tmp = tempfile::TempDir::new().unwrap();
-    let ctx = create_test_context(tmp.path());
+    let _ctx = create_test_context(tmp.path());
 
-    let identity = ctx.get_default_identity("2026-02-09", "EST", "Rust 0.1.3", "/workspace");
+    let identity =
+        ContextBuilder::get_default_identity("2026-02-09", "EST", "Rust 0.1.3", "/workspace");
 
     assert!(identity.contains("# nanobot"), "missing heading");
     assert!(identity.contains("## Capabilities"), "missing capabilities");
@@ -44,9 +45,9 @@ fn test_default_identity_contains_required_sections() {
 #[test]
 fn test_default_identity_has_no_behavioral_rules() {
     let tmp = tempfile::TempDir::new().unwrap();
-    let ctx = create_test_context(tmp.path());
+    let _ctx = create_test_context(tmp.path());
 
-    let identity = ctx.get_default_identity("now", "UTC", "Rust 0.1.3", "/ws");
+    let identity = ContextBuilder::get_default_identity("now", "UTC", "Rust 0.1.3", "/ws");
 
     assert!(
         !identity.contains("## Behavioral Rules"),
@@ -57,9 +58,9 @@ fn test_default_identity_has_no_behavioral_rules() {
 #[test]
 fn test_build_identity_with_context_appends_context() {
     let tmp = tempfile::TempDir::new().unwrap();
-    let ctx = create_test_context(tmp.path());
+    let _ctx = create_test_context(tmp.path());
 
-    let result = ctx.build_identity_with_context(
+    let result = ContextBuilder::build_identity_with_context(
         "# Custom Bot\n\nI am a custom bot.",
         "2026-02-09",
         "EST",
@@ -90,7 +91,7 @@ fn test_identity_uses_file_when_present() {
     )
     .unwrap();
 
-    let identity = ctx.get_identity().unwrap();
+    let identity = ctx.get_identity();
 
     assert!(identity.contains("# My Bot"));
     assert!(identity.contains("Custom identity content."));
@@ -103,7 +104,7 @@ fn test_identity_falls_back_when_no_file() {
     let ctx = create_test_context(tmp.path());
     // No AGENTS.md written
 
-    let identity = ctx.get_identity().unwrap();
+    let identity = ctx.get_identity();
 
     assert!(identity.contains("# nanobot"));
     assert!(
@@ -119,7 +120,7 @@ fn test_bootstrap_loads_user_md() {
 
     std::fs::write(tmp.path().join("USER.md"), "# User\nTimezone: ET").unwrap();
 
-    let bootstrap = ctx.load_bootstrap_files().unwrap();
+    let bootstrap = ctx.load_bootstrap_files();
 
     assert!(bootstrap.contains("## USER.md"));
     assert!(bootstrap.contains("Timezone: ET"));
@@ -132,7 +133,7 @@ fn test_bootstrap_loads_tools_md() {
 
     std::fs::write(tmp.path().join("TOOLS.md"), "# Tools\nUse bash for shell.").unwrap();
 
-    let bootstrap = ctx.load_bootstrap_files().unwrap();
+    let bootstrap = ctx.load_bootstrap_files();
 
     assert!(bootstrap.contains("## TOOLS.md"));
     assert!(bootstrap.contains("Use bash for shell."));
@@ -149,7 +150,7 @@ fn test_bootstrap_skips_agents_md() {
     )
     .unwrap();
 
-    let bootstrap = ctx.load_bootstrap_files().unwrap();
+    let bootstrap = ctx.load_bootstrap_files();
 
     assert!(
         !bootstrap.contains("## AGENTS.md"),
@@ -163,7 +164,7 @@ fn test_bootstrap_skips_missing_files() {
     let mut ctx = create_test_context(tmp.path());
     // No files created
 
-    let bootstrap = ctx.load_bootstrap_files().unwrap();
+    let bootstrap = ctx.load_bootstrap_files();
 
     assert!(bootstrap.is_empty());
 }
@@ -175,12 +176,12 @@ fn test_bootstrap_caching() {
 
     std::fs::write(tmp.path().join("USER.md"), "# User\nv1").unwrap();
 
-    let first = ctx.load_bootstrap_files().unwrap();
+    let first = ctx.load_bootstrap_files();
     assert!(first.contains("v1"));
     assert!(ctx.bootstrap_cache.is_some());
 
     // Second call should return cached version (same mtime)
-    let second = ctx.load_bootstrap_files().unwrap();
+    let second = ctx.load_bootstrap_files();
     assert_eq!(first, second);
 }
 

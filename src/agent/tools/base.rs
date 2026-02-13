@@ -62,7 +62,7 @@ impl Default for ToolVersion {
 #[async_trait]
 pub trait Tool: Send + Sync {
     fn name(&self) -> &str;
-    fn description(&self) -> &str;
+    fn description(&self) -> &'static str;
     fn parameters(&self) -> Value; // JSON Schema
 
     async fn execute(&self, params: Value) -> anyhow::Result<ToolResult>;

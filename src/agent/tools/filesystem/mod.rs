@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
-fn check_path_allowed(file_path: &Path, allowed_roots: &Option<Vec<PathBuf>>) -> Result<()> {
+fn check_path_allowed(file_path: &Path, allowed_roots: Option<&Vec<PathBuf>>) -> Result<()> {
     if let Some(roots) = allowed_roots {
         let resolved = file_path
             .canonicalize()
@@ -35,14 +35,13 @@ const MAX_BACKUPS: usize = 14;
 
 /// Create a timestamped backup of a file before overwriting it.
 /// Backups are stored in `backup_dir/{filename}.{timestamp}`.
-/// Keeps at most MAX_BACKUPS copies, deleting the oldest.
+/// Keeps at most `MAX_BACKUPS` copies, deleting the oldest.
 fn backup_file(file_path: &Path, backup_dir: &Path) {
     if !file_path.exists() {
         return;
     }
-    let filename = match file_path.file_name().and_then(|f| f.to_str()) {
-        Some(f) => f,
-        None => return,
+    let Some(filename) = file_path.file_name().and_then(|f| f.to_str()) else {
+        return;
     };
     if let Err(e) = std::fs::create_dir_all(backup_dir) {
         warn!(
@@ -101,11 +100,11 @@ impl ReadFileTool {
 
 #[async_trait]
 impl Tool for ReadFileTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "read_file"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Read the contents of a file at the given path."
     }
 
@@ -143,7 +142,7 @@ impl Tool for ReadFileTool {
             Ok::<PathBuf, anyhow::Error>(home.join(stripped))
         })?;
 
-        if let Err(err) = check_path_allowed(&expanded, &self.allowed_roots) {
+        if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
             return Ok(ToolResult::error(err.to_string()));
         }
 
@@ -184,11 +183,11 @@ impl WriteFileTool {
 
 #[async_trait]
 impl Tool for WriteFileTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "write_file"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Write content to a file at the given path. Creates parent directories if needed."
     }
 
@@ -226,7 +225,7 @@ impl Tool for WriteFileTool {
         })?;
 
         // Check path restrictions even after fallback canonicalization
-        if let Err(err) = check_path_allowed(&expanded, &self.allowed_roots) {
+        if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
             return Ok(ToolResult::error(err.to_string()));
         }
 
@@ -239,7 +238,7 @@ impl Tool for WriteFileTool {
         }
 
         match std::fs::write(&expanded, content) {
-            Ok(_) => Ok(ToolResult::new(format!("File written: {}", path_str))),
+            Ok(()) => Ok(ToolResult::new(format!("File written: {}", path_str))),
             Err(e) => Ok(ToolResult::error(format!("Error writing file: {}", e))),
         }
     }
@@ -261,11 +260,11 @@ impl EditFileTool {
 
 #[async_trait]
 impl Tool for EditFileTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "edit_file"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Edit a file by replacing old_text with new_text. The old_text must exist exactly in the file."
     }
 
@@ -309,7 +308,7 @@ impl Tool for EditFileTool {
             Ok::<PathBuf, anyhow::Error>(home.join(stripped))
         })?;
 
-        if let Err(err) = check_path_allowed(&expanded, &self.allowed_roots) {
+        if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
             return Ok(ToolResult::error(err.to_string()));
         }
 
@@ -343,7 +342,7 @@ impl Tool for EditFileTool {
 
                 let new_content = content.replacen(old_text, new_text, 1);
                 match std::fs::write(&expanded, new_content) {
-                    Ok(_) => Ok(ToolResult::new(format!("Successfully edited {}", path_str))),
+                    Ok(()) => Ok(ToolResult::new(format!("Successfully edited {}", path_str))),
                     Err(e) => Ok(ToolResult::error(format!("Error writing file: {}", e))),
                 }
             }
@@ -364,11 +363,11 @@ impl ListDirTool {
 
 #[async_trait]
 impl Tool for ListDirTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "list_dir"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "List the contents of a directory."
     }
 
@@ -402,7 +401,7 @@ impl Tool for ListDirTool {
             Ok::<PathBuf, anyhow::Error>(home.join(stripped))
         })?;
 
-        if let Err(err) = check_path_allowed(&expanded, &self.allowed_roots) {
+        if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
             return Ok(ToolResult::error(err.to_string()));
         }
 

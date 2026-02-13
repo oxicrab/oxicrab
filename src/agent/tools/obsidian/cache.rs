@@ -11,18 +11,18 @@
 //!
 //! SSH config (~/.ssh/config on macOS):
 //!   Host nanobot-tunnel
-//!     HostName <linux-server>
+//!     `HostName` <linux-server>
 //!     User james
-//!     RemoteForward 27124 127.0.0.1:27124
-//!     ServerAliveInterval 30
-//!     ServerAliveCountMax 3
-//!     ExitOnForwardFailure yes
+//!     `RemoteForward` 27124 127.0.0.1:27124
+//!     `ServerAliveInterval` 30
+//!     `ServerAliveCountMax` 3
+//!     `ExitOnForwardFailure` yes
 //!
 //! Kept alive with: `autossh -M 0 -f -N nanobot-tunnel`
 //!
 //! When the tunnel drops, writes are queued locally and flushed
 //! automatically when connectivity resumes (checked every 30s with
-//! pending writes, or every sync_interval otherwise).
+//! pending writes, or every `sync_interval` otherwise).
 
 use super::client::ObsidianApiClient;
 use anyhow::Result;
@@ -89,7 +89,7 @@ pub struct ObsidianCache {
 }
 
 impl ObsidianCache {
-    pub async fn new(client: Arc<ObsidianApiClient>, vault_name: &str) -> Result<Self> {
+    pub fn new(client: Arc<ObsidianApiClient>, vault_name: &str) -> Result<Self> {
         let home =
             dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
         let base = home
@@ -140,7 +140,7 @@ impl ObsidianCache {
     }
 
     /// Read a file from the local cache.
-    pub async fn read_cached(&self, path: &str) -> Option<String> {
+    pub fn read_cached(&self, path: &str) -> Option<String> {
         let file_path = self.cache_dir.join(path);
         std::fs::read_to_string(file_path).ok()
     }
@@ -227,7 +227,7 @@ impl ObsidianCache {
     /// Append to a file. If online, append via API + update cache. If offline, queue.
     pub async fn append_file(&self, path: &str, content: &str) -> Result<String> {
         // Build full content from cache + append
-        let existing = self.read_cached(path).await.unwrap_or_default();
+        let existing = self.read_cached(path).unwrap_or_default();
         let full_content = format!("{}{}", existing, content);
 
         // Update cache optimistically
@@ -278,25 +278,22 @@ impl ObsidianCache {
         for item in queue.drain(..) {
             // Check for conflict: if the remote file changed since we queued the write
             if let Some(ref pre_hash) = item.pre_write_hash {
-                match self.client.read_file(&item.path).await {
-                    Ok(remote_content) => {
-                        let remote_hash = content_hash(&remote_content);
-                        if &remote_hash != pre_hash {
-                            // Conflict — save remote version as .conflict.md
-                            let conflict_path = format!(
-                                "{}.conflict.md",
-                                item.path.strip_suffix(".md").unwrap_or(&item.path)
-                            );
-                            warn!(
-                                "Conflict detected for '{}', saving remote as '{}'",
-                                item.path, conflict_path
-                            );
-                            let _ = self.write_to_cache(&conflict_path, &remote_content);
-                        }
+                if let Ok(remote_content) = self.client.read_file(&item.path).await {
+                    let remote_hash = content_hash(&remote_content);
+                    if &remote_hash != pre_hash {
+                        // Conflict — save remote version as .conflict.md
+                        let conflict_path = format!(
+                            "{}.conflict.md",
+                            item.path.strip_suffix(".md").unwrap_or(&item.path)
+                        );
+                        warn!(
+                            "Conflict detected for '{}', saving remote as '{}'",
+                            item.path, conflict_path
+                        );
+                        let _ = self.write_to_cache(&conflict_path, &remote_content);
                     }
-                    Err(_) => {
-                        // File doesn't exist remotely yet — no conflict
-                    }
+                } else {
+                    // File doesn't exist remotely yet — no conflict
                 }
             }
 
@@ -322,8 +319,10 @@ impl ObsidianCache {
     /// Full sync: list remote files, download new/changed, remove deleted.
     pub async fn full_sync(&self) -> Result<()> {
         let remote_files = self.client.list_files().await?;
-        let remote_set: std::collections::HashSet<&str> =
-            remote_files.iter().map(|s| s.as_str()).collect();
+        let remote_set: std::collections::HashSet<&str> = remote_files
+            .iter()
+            .map(std::string::String::as_str)
+            .collect();
 
         let mut state = self.state.lock().await;
         let mut updated = 0u32;

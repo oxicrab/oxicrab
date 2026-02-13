@@ -46,7 +46,7 @@ const AGENT_POLL_INTERVAL_MS: u64 = 100;
 
 /// Validate tool arguments against the tool's JSON schema.
 /// Checks: (1) required fields are present, (2) field types match schema.
-/// Returns None if valid, Some(error_message) if invalid.
+/// Returns None if valid, `Some(error_message)` if invalid.
 pub(crate) fn validate_tool_params(
     tool: &dyn crate::agent::tools::base::Tool,
     params: &Value,
@@ -115,7 +115,7 @@ fn value_type_name(v: &Value) -> &'static str {
     }
 }
 
-/// Core logic for executing a single tool call and producing (result_string, is_error).
+/// Core logic for executing a single tool call and producing (`result_string`, `is_error`).
 async fn execute_tool_call_inner(
     _tc_id: &str,
     tc_name: &str,
@@ -381,8 +381,8 @@ fn cleanup_old_media(ttl_days: u32) -> Result<()> {
 
 /// Periodic typing indicator: sends every 4s until the returned handle is aborted.
 fn start_typing(
-    typing_tx: &Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
-    ctx: &Option<(String, String)>,
+    typing_tx: Option<&Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
+    ctx: Option<&(String, String)>,
 ) -> Option<tokio::task::JoinHandle<()>> {
     if let (Some(tx), Some(ctx)) = (typing_tx, ctx) {
         let tx = tx.clone();
@@ -456,7 +456,7 @@ pub struct AgentLoopConfig {
     pub session_ttl_days: u32,
     /// Max tokens for LLM responses (default 8192)
     pub max_tokens: u32,
-    /// Sender for typing indicator events (channel, chat_id)
+    /// Sender for typing indicator events (channel, `chat_id`)
     pub typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     /// Channel configurations for multi-channel cron target resolution
     pub channels_config: Option<crate::config::ChannelsConfig>,
@@ -481,7 +481,7 @@ pub struct AgentLoop {
     compactor: Option<Arc<MessageCompactor>>,
     compaction_config: crate::config::CompactionConfig,
     _subagents: Option<Arc<SubagentManager>>,
-    _processing_lock: Arc<tokio::sync::Mutex<()>>,
+    processing_lock: Arc<tokio::sync::Mutex<()>>,
     running: Arc<tokio::sync::Mutex<bool>>,
     outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     task_tracker: Arc<TaskTracker>,
@@ -711,9 +711,7 @@ impl AgentLoop {
                     &obsidian_cfg.api_key,
                     &obsidian_cfg.vault_name,
                     obsidian_cfg.timeout,
-                )
-                .await
-                {
+                ) {
                     Ok((tool, cache)) => {
                         tools.register(Arc::new(tool));
                         let sync_svc = ObsidianSyncService::new(cache, obsidian_cfg.sync_interval);
@@ -764,7 +762,7 @@ impl AgentLoop {
             compactor,
             compaction_config,
             _subagents: Some(subagents),
-            _processing_lock: Arc::new(tokio::sync::Mutex::new(())),
+            processing_lock: Arc::new(tokio::sync::Mutex::new(())),
             running: Arc::new(tokio::sync::Mutex::new(false)),
             outbound_tx,
             task_tracker: Arc::new(TaskTracker::new()),
@@ -849,7 +847,7 @@ impl AgentLoop {
     }
 
     async fn process_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
-        let _lock = self._processing_lock.lock().await;
+        let _lock = self.processing_lock.lock().await;
         self.process_message_unlocked(msg).await
     }
 
@@ -879,7 +877,7 @@ impl AgentLoop {
             .metadata
             .get("compaction_summary")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
         debug!("Setting tool contexts");
         self.set_tool_contexts(&msg.channel, &msg.chat_id, context_summary.as_deref())
             .await;
@@ -889,7 +887,9 @@ impl AgentLoop {
         debug!("Got {} history messages", history.len());
 
         // Load and encode any attached images
-        let images = if !msg.media.is_empty() {
+        let images = if msg.media.is_empty() {
+            vec![]
+        } else {
             info!(
                 "Loading {} media files for LLM: {:?}",
                 msg.media.len(),
@@ -898,23 +898,21 @@ impl AgentLoop {
             let imgs = load_and_encode_images(&msg.media);
             info!("Encoded {} images for LLM", imgs.len());
             imgs
-        } else {
-            vec![]
         };
 
         // Strip [image: ...] tags from content when images were successfully encoded,
         // since the LLM receives them as content blocks and doesn't need the file paths
         // (which can cause it to try read_file on binary image data).
-        let content = if !images.is_empty() {
-            strip_image_tags(&msg.content)
-        } else {
+        let content = if images.is_empty() {
             msg.content.clone()
+        } else {
+            strip_image_tags(&msg.content)
         };
 
         debug!("Acquiring context lock");
         let messages = {
-            let mut context = self.context.lock().await;
-            context.build_messages(
+            let mut ctx = self.context.lock().await;
+            ctx.build_messages(
                 &history,
                 &content,
                 Some(&msg.channel),
@@ -1048,7 +1046,7 @@ impl AgentLoop {
 
         for iteration in 1..=self.max_iterations {
             // Start periodic typing indicator before LLM call
-            let typing_handle = start_typing(&self.typing_tx, &typing_context);
+            let typing_handle = start_typing(self.typing_tx.as_ref(), typing_context.as_ref());
 
             // Use retry logic for provider calls
             // Use low temperature for tool-calling iterations (determinism),
@@ -1099,7 +1097,11 @@ impl AgentLoop {
                     .iter()
                     .map(|tc| tc.name.as_str())
                     .collect();
-                tools_used.extend(called_tool_names.iter().map(|s| s.to_string()));
+                tools_used.extend(
+                    called_tool_names
+                        .iter()
+                        .map(std::string::ToString::to_string),
+                );
                 last_used_delivery_tool = called_tool_names
                     .iter()
                     .any(|n| *n == "message" || *n == "spawn");
@@ -1137,7 +1139,7 @@ impl AgentLoop {
                 }
 
                 // Start periodic typing indicator before tool execution
-                let typing_handle = start_typing(&self.typing_tx, &typing_context);
+                let typing_handle = start_typing(self.typing_tx.as_ref(), typing_context.as_ref());
 
                 // Execute tools with validation
                 // NOTE: We must NOT hold the tools lock across tool execution,
@@ -1361,13 +1363,13 @@ impl AgentLoop {
         }
 
         let keep_recent = self.compaction_config.keep_recent;
-        let threshold = self.compaction_config.threshold_tokens as u64;
+        let threshold = u64::from(self.compaction_config.threshold_tokens);
 
         // Prefer provider-reported input tokens (precise), fall back to heuristic
         let token_est = session
             .metadata
             .get("last_input_tokens")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or_else(|| estimate_messages_tokens(&full_history) as u64);
 
         if token_est < threshold {
@@ -1475,8 +1477,8 @@ impl AgentLoop {
         self.sessions.save(&session).await?;
 
         Ok(Some(OutboundMessage {
-            channel: origin_channel.to_string(),
-            chat_id: origin_chat_id.to_string(),
+            channel: origin_channel.clone(),
+            chat_id: origin_chat_id.clone(),
             content: final_content,
             reply_to: None,
             media: vec![],
@@ -1803,7 +1805,7 @@ mod tests {
         fn name(&self) -> &str {
             &self.tool_name
         }
-        fn description(&self) -> &str {
+        fn description(&self) -> &'static str {
             "mock"
         }
         fn parameters(&self) -> serde_json::Value {
@@ -1820,10 +1822,10 @@ mod tests {
 
     #[async_trait]
     impl Tool for ErrorTool {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "error_tool"
         }
-        fn description(&self) -> &str {
+        fn description(&self) -> &'static str {
             "mock"
         }
         fn parameters(&self) -> serde_json::Value {
@@ -1839,10 +1841,10 @@ mod tests {
 
     #[async_trait]
     impl Tool for PanicTool {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "panic_tool"
         }
-        fn description(&self) -> &str {
+        fn description(&self) -> &'static str {
             "mock"
         }
         fn parameters(&self) -> serde_json::Value {
@@ -2078,10 +2080,10 @@ mod tests {
 
     #[async_trait]
     impl Tool for SchemaTestTool {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "schema_test"
         }
-        fn description(&self) -> &str {
+        fn description(&self) -> &'static str {
             "test tool with schema"
         }
         fn parameters(&self) -> serde_json::Value {

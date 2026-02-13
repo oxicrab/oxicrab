@@ -34,8 +34,7 @@ impl GoogleCredentials {
         if let Some(expiry) = self.expiry {
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs() < expiry)
-                .unwrap_or(false)
+                .is_ok_and(|d| d.as_secs() < expiry)
         } else {
             false // No expiry means we don't know — refresh to be safe
         }
@@ -84,7 +83,10 @@ impl GoogleCredentials {
             self.refresh_token = Some(refresh_token.to_string());
         }
 
-        if let Some(expires_in) = token_data.get("expires_in").and_then(|v| v.as_u64()) {
+        if let Some(expires_in) = token_data
+            .get("expires_in")
+            .and_then(serde_json::Value::as_u64)
+        {
             if let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) {
                 self.expiry = Some(duration.as_secs() + expires_in);
             }
@@ -104,14 +106,19 @@ pub async fn get_credentials(
     scopes: Option<&[String]>,
     token_path: Option<&Path>,
 ) -> Result<GoogleCredentials> {
-    let scopes = scopes
-        .map(|s| s.iter().map(|s| s.as_str()).collect::<Vec<_>>())
-        .unwrap_or_else(|| DEFAULT_SCOPES.to_vec());
-    let token_path = token_path.map(|p| p.to_path_buf()).unwrap_or_else(|| {
-        dirs::home_dir()
-            .map(|h| h.join(DEFAULT_TOKEN_PATH))
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_TOKEN_PATH))
-    });
+    let scopes = scopes.map_or_else(
+        || DEFAULT_SCOPES.to_vec(),
+        |s| s.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+    let token_path = token_path.map_or_else(
+        || {
+            dirs::home_dir().map_or_else(
+                || PathBuf::from(DEFAULT_TOKEN_PATH),
+                |h| h.join(DEFAULT_TOKEN_PATH),
+            )
+        },
+        Path::to_path_buf,
+    );
 
     let mut creds = load_credentials(&token_path, &scopes)?;
 
@@ -122,7 +129,7 @@ pub async fn get_credentials(
 
         if c.refresh_token.is_some() {
             match c.refresh().await {
-                Ok(_) => {
+                Ok(()) => {
                     save_credentials(c, &token_path)?;
                     return Ok(c.clone());
                 }
@@ -146,14 +153,19 @@ pub async fn run_oauth_flow(
     port: u16,
     headless: bool,
 ) -> Result<GoogleCredentials> {
-    let scopes = scopes
-        .map(|s| s.iter().map(|s| s.as_str()).collect::<Vec<_>>())
-        .unwrap_or_else(|| DEFAULT_SCOPES.to_vec());
-    let token_path = token_path.map(|p| p.to_path_buf()).unwrap_or_else(|| {
-        dirs::home_dir()
-            .map(|h| h.join(DEFAULT_TOKEN_PATH))
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_TOKEN_PATH))
-    });
+    let scopes = scopes.map_or_else(
+        || DEFAULT_SCOPES.to_vec(),
+        |s| s.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+    let token_path = token_path.map_or_else(
+        || {
+            dirs::home_dir().map_or_else(
+                || PathBuf::from(DEFAULT_TOKEN_PATH),
+                |h| h.join(DEFAULT_TOKEN_PATH),
+            )
+        },
+        Path::to_path_buf,
+    );
 
     let client = BasicClient::new(ClientId::new(client_id.to_string()))
         .set_client_secret(ClientSecret::new(client_secret.to_string()))
@@ -263,6 +275,8 @@ async fn run_manual_flow(
     token_path: &Path,
     auth_url: url::Url,
 ) -> Result<GoogleCredentials> {
+    use std::io::{self, Write};
+
     println!("\n┌─────────────────────────────────────────────────────┐");
     println!("│  Open this URL in any browser and authorize access: │");
     println!("└─────────────────────────────────────────────────────┘\n");
@@ -273,8 +287,6 @@ async fn run_manual_flow(
          Copy the FULL URL from your browser's address bar and paste it below.\n\
          (It will look like: http://localhost/?code=4/0A...&scope=...)\n"
     );
-
-    use std::io::{self, Write};
     print!("Paste the redirect URL (or just the code): ");
     io::stdout().flush()?;
 
@@ -325,7 +337,7 @@ async fn run_manual_flow(
 
     let expiry = token_data
         .get("expires_in")
-        .and_then(|v| v.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .and_then(|secs| {
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -341,11 +353,11 @@ async fn run_manual_flow(
         refresh_token: token_data
             .get("refresh_token")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
+            .map(ToString::to_string),
         token_uri: "https://oauth2.googleapis.com/token".to_string(),
         client_id: client_id.to_string(),
         client_secret: client_secret.to_string(),
-        scopes: scopes.iter().map(|s| s.to_string()).collect(),
+        scopes: scopes.iter().map(ToString::to_string).collect(),
         expiry,
     };
 
@@ -382,14 +394,19 @@ pub fn has_valid_credentials(
     scopes: Option<&[String]>,
     token_path: Option<&Path>,
 ) -> bool {
-    let scopes_vec: Vec<&str> = scopes
-        .map(|s| s.iter().map(|s| s.as_str()).collect())
-        .unwrap_or_else(|| DEFAULT_SCOPES.to_vec());
-    let token_path = token_path.map(|p| p.to_path_buf()).unwrap_or_else(|| {
-        dirs::home_dir()
-            .map(|h| h.join(DEFAULT_TOKEN_PATH))
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_TOKEN_PATH))
-    });
+    let scopes_vec: Vec<&str> = scopes.map_or_else(
+        || DEFAULT_SCOPES.to_vec(),
+        |s| s.iter().map(String::as_str).collect(),
+    );
+    let token_path = token_path.map_or_else(
+        || {
+            dirs::home_dir().map_or_else(
+                || PathBuf::from(DEFAULT_TOKEN_PATH),
+                |h| h.join(DEFAULT_TOKEN_PATH),
+            )
+        },
+        Path::to_path_buf,
+    );
 
     // Check credentials synchronously without creating a nested runtime
     match load_credentials(&token_path, &scopes_vec) {
@@ -414,7 +431,7 @@ fn load_credentials(path: &Path, scopes: &[&str]) -> Result<Option<GoogleCredent
 
     // Verify scopes match
     let required_scopes: std::collections::HashSet<String> =
-        scopes.iter().map(|s| s.to_string()).collect();
+        scopes.iter().map(ToString::to_string).collect();
     let cred_scopes: std::collections::HashSet<String> = creds.scopes.iter().cloned().collect();
     if !required_scopes.is_subset(&cred_scopes) {
         warn!("Credential scopes don't match required scopes");

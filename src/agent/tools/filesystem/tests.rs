@@ -6,20 +6,20 @@ use std::fs;
 #[test]
 fn test_check_path_allowed_none_allows_all() {
     let tmp = std::env::temp_dir();
-    assert!(check_path_allowed(&tmp, &None).is_ok());
+    assert!(check_path_allowed(&tmp, None).is_ok());
 }
 
 #[test]
 fn test_check_path_allowed_within_root() {
     let tmp = std::env::temp_dir();
     let roots = Some(vec![tmp.clone()]);
-    assert!(check_path_allowed(&tmp, &roots).is_ok());
+    assert!(check_path_allowed(&tmp, roots.as_ref()).is_ok());
 }
 
 #[test]
 fn test_check_path_allowed_outside_root() {
     let roots = Some(vec![PathBuf::from("/tmp/nanobot_test_nonexistent_root")]);
-    let result = check_path_allowed(&std::env::temp_dir(), &roots);
+    let result = check_path_allowed(&std::env::temp_dir(), roots.as_ref());
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("outside the allowed directories"));
@@ -28,7 +28,7 @@ fn test_check_path_allowed_outside_root() {
 #[test]
 fn test_check_path_allowed_nonexistent_path() {
     let roots = Some(vec![std::env::temp_dir()]);
-    let result = check_path_allowed(Path::new("/tmp/does_not_exist_12345"), &roots);
+    let result = check_path_allowed(Path::new("/tmp/does_not_exist_12345"), roots.as_ref());
     assert!(result.is_err());
     assert!(result
         .unwrap_err()

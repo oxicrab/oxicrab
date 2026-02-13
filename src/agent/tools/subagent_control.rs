@@ -17,11 +17,11 @@ impl SubagentControlTool {
 
 #[async_trait]
 impl Tool for SubagentControlTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "subagent_control"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "List or cancel running subagents. Use this to track background tasks or stop one by id."
     }
 
@@ -68,10 +68,13 @@ impl Tool for SubagentControlTool {
                     .iter()
                     .map(|t| {
                         let id = t.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                        let done = t.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
+                        let done = t
+                            .get("done")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false);
                         let cancelled = t
                             .get("cancelled")
-                            .and_then(|v| v.as_bool())
+                            .and_then(serde_json::Value::as_bool)
                             .unwrap_or(false);
                         let status = if cancelled {
                             "cancelled"

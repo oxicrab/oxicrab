@@ -110,7 +110,10 @@ impl WeatherTool {
 
         let city = json["city"]["name"].as_str().unwrap_or(location);
         let country = json["city"]["country"].as_str().unwrap_or("");
-        let list = json["list"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        let list = json["list"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
 
         let unit_label = match units {
             "imperial" => "°F",
@@ -143,11 +146,11 @@ impl WeatherTool {
 
 #[async_trait]
 impl Tool for WeatherTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "weather"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Get current weather or forecast for a location. Uses OpenWeatherMap."
     }
 
@@ -185,13 +188,10 @@ impl Tool for WeatherTool {
     }
 
     async fn execute(&self, params: Value) -> Result<ToolResult> {
-        let location = match params["location"].as_str() {
-            Some(l) => l,
-            None => {
-                return Ok(ToolResult::error(
-                    "Missing 'location' parameter".to_string(),
-                ))
-            }
+        let Some(location) = params["location"].as_str() else {
+            return Ok(ToolResult::error(
+                "Missing 'location' parameter".to_string(),
+            ));
         };
 
         let action = params["action"].as_str().unwrap_or("current");

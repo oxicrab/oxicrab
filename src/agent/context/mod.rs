@@ -69,10 +69,10 @@ impl ContextBuilder {
         let mut parts = Vec::new();
 
         // Core identity
-        parts.push(self.get_identity()?);
+        parts.push(self.get_identity());
 
         // Bootstrap files
-        let bootstrap = self.load_bootstrap_files()?;
+        let bootstrap = self.load_bootstrap_files();
         if !bootstrap.is_empty() {
             parts.push(bootstrap);
         }
@@ -105,7 +105,7 @@ impl ContextBuilder {
         Ok(parts.join("\n\n---\n\n"))
     }
 
-    fn get_identity(&self) -> Result<String> {
+    fn get_identity(&self) -> String {
         let now = Local::now();
         let date_str = format!(
             "{}-{:02}-{:02} ({}) {}",
@@ -130,23 +130,22 @@ impl ContextBuilder {
         let identity_file = self.workspace.join("AGENTS.md");
         if identity_file.exists() {
             if let Ok(content) = std::fs::read_to_string(&identity_file) {
-                return Ok(self.build_identity_with_context(
+                return Self::build_identity_with_context(
                     &content,
                     &date_str,
                     &tz_str,
                     &runtime,
                     &workspace_path,
-                ));
+                );
             }
             warn!("Failed to load AGENTS.md, using defaults");
         }
 
         // Fallback to defaults
-        Ok(self.get_default_identity(&date_str, &tz_str, &runtime, &workspace_path))
+        Self::get_default_identity(&date_str, &tz_str, &runtime, &workspace_path)
     }
 
     fn build_identity_with_context(
-        &self,
         identity_content: &str,
         now: &str,
         tz: &str,
@@ -159,20 +158,14 @@ impl ContextBuilder {
         )
     }
 
-    fn get_default_identity(
-        &self,
-        now: &str,
-        tz: &str,
-        runtime: &str,
-        workspace_path: &str,
-    ) -> String {
+    fn get_default_identity(now: &str, tz: &str, runtime: &str, workspace_path: &str) -> String {
         format!(
             "# nanobot\n\nYou are nanobot, a helpful AI assistant.\n\n## Capabilities\n\n- Read, write, and edit files\n- Execute shell commands\n- Search the web and fetch web pages\n- Send messages to users on chat channels\n- Spawn subagents for complex background tasks\n\n## Tool Usage Rules\n\n- NEVER claim to have called a tool or report tool results unless you actually invoked the tool in this conversation.\n- NEVER fabricate or simulate tool output. If you need data, call the tool.\n- If asked to test or run tools, you MUST call each tool individually and report the real results.\n- If a tool is unavailable or fails, say so explicitly — do not invent results.\n\n## Current Context\n\n**Date**: {}\n**Timezone**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md",
             now, tz, runtime, workspace_path, workspace_path, workspace_path, workspace_path,
         )
     }
 
-    fn load_bootstrap_files(&mut self) -> Result<String> {
+    fn load_bootstrap_files(&mut self) -> String {
         let mut current_mtimes = HashMap::new();
 
         for filename in BOOTSTRAP_FILES {
@@ -194,7 +187,7 @@ impl ContextBuilder {
         // Return cached if unchanged
         if let Some(ref cache) = self.bootstrap_cache {
             if current_mtimes == self.bootstrap_mtimes {
-                return Ok(cache.clone());
+                return cache.clone();
             }
         }
 
@@ -215,7 +208,7 @@ impl ContextBuilder {
         let cache = parts.join("\n\n");
         self.bootstrap_cache = Some(cache.clone());
         self.bootstrap_mtimes = current_mtimes;
-        Ok(cache)
+        cache
     }
 
     pub fn build_messages(
@@ -235,7 +228,8 @@ impl ContextBuilder {
             let mut session_info =
                 format!("\n\n## Current Session\nChannel: {}\nChat ID: {}", ch, cid);
             if let Some(sid) = sender_id {
-                session_info.push_str(&format!("\nSender: {}", sid));
+                use std::fmt::Write as _;
+                let _ = write!(session_info, "\nSender: {}", sid);
             }
             system_prompt.push_str(&session_info);
         }

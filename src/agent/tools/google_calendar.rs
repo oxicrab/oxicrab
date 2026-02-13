@@ -5,6 +5,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
+use std::fmt::Write;
 
 pub struct GoogleCalendarTool {
     api: GoogleApiClient,
@@ -20,11 +21,11 @@ impl GoogleCalendarTool {
 
 #[async_trait]
 impl Tool for GoogleCalendarTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "google_calendar"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Interact with Google Calendar. Actions: list_events, get_event, create_event, update_event, delete_event, list_calendars."
     }
 
@@ -97,6 +98,7 @@ impl Tool for GoogleCalendarTool {
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn execute(&self, params: Value) -> Result<ToolResult> {
         let action = params["action"]
             .as_str()
@@ -109,12 +111,11 @@ impl Tool for GoogleCalendarTool {
                 let now = Utc::now();
                 let time_min = params["time_min"]
                     .as_str()
-                    .map(ensure_rfc3339_tz)
-                    .unwrap_or_else(|| now.to_rfc3339());
-                let time_max = params["time_max"]
-                    .as_str()
-                    .map(ensure_rfc3339_tz)
-                    .unwrap_or_else(|| (now + chrono::Duration::days(7)).to_rfc3339());
+                    .map_or_else(|| now.to_rfc3339(), ensure_rfc3339_tz);
+                let time_max = params["time_max"].as_str().map_or_else(
+                    || (now + chrono::Duration::days(7)).to_rfc3339(),
+                    ensure_rfc3339_tz,
+                );
                 let max_results = params["max_results"].as_u64().unwrap_or(20) as u32;
 
                 let endpoint = format!(
@@ -141,26 +142,26 @@ impl Tool for GoogleCalendarTool {
                         .unwrap_or("?");
                     let summary = ev["summary"].as_str().unwrap_or("(no title)");
                     let location = ev["location"].as_str().unwrap_or("");
-                    let loc_str = if !location.is_empty() {
-                        format!("\n  Location: {}", location)
-                    } else {
+                    let loc_str = if location.is_empty() {
                         String::new()
+                    } else {
+                        format!("\n  Location: {}", location)
                     };
                     let empty_attendees: Vec<serde_json::Value> = vec![];
                     let attendees = ev["attendees"].as_array().unwrap_or(&empty_attendees);
-                    let att_str = if !attendees.is_empty() {
+                    let att_str = if attendees.is_empty() {
+                        String::new()
+                    } else {
                         let names: Vec<String> = attendees
                             .iter()
                             .take(5)
-                            .filter_map(|a| a["email"].as_str().map(|s| s.to_string()))
+                            .filter_map(|a| a["email"].as_str().map(ToString::to_string))
                             .collect();
                         let mut s = format!("\n  Attendees: {}", names.join(", "));
                         if attendees.len() > 5 {
-                            s.push_str(&format!(" (+{} more)", attendees.len() - 5));
+                            let _ = write!(s, " (+{} more)", attendees.len() - 5);
                         }
                         s
-                    } else {
-                        String::new()
                     };
 
                     lines.push(format!(
@@ -342,15 +343,19 @@ impl Tool for GoogleCalendarTool {
 /// defaults to start + 1 hour.
 fn build_event_times(start_raw: &str, end_raw: Option<&str>, tz: &str) -> (Value, Value) {
     let start_obj = serde_json::json!({"dateTime": start_raw, "timeZone": tz});
-    let end_str = end_raw.map(|s| s.to_string()).unwrap_or_else(|| {
-        DateTime::parse_from_rfc3339(&ensure_rfc3339_tz(start_raw))
-            .map(|dt| {
-                (dt + chrono::Duration::hours(1))
-                    .format("%Y-%m-%dT%H:%M:%S")
-                    .to_string()
-            })
-            .unwrap_or_else(|_| start_raw.to_string())
-    });
+    let end_str = end_raw.map_or_else(
+        || {
+            DateTime::parse_from_rfc3339(&ensure_rfc3339_tz(start_raw)).map_or_else(
+                |_| start_raw.to_string(),
+                |dt| {
+                    (dt + chrono::Duration::hours(1))
+                        .format("%Y-%m-%dT%H:%M:%S")
+                        .to_string()
+                },
+            )
+        },
+        ToString::to_string,
+    );
     let end_obj = serde_json::json!({"dateTime": &end_str, "timeZone": tz});
     (start_obj, end_obj)
 }
@@ -407,7 +412,7 @@ fn format_event_detail(ev: &Value) -> String {
     if let Some(attendees) = ev["attendees"].as_array() {
         let att: Vec<String> = attendees
             .iter()
-            .filter_map(|a| a["email"].as_str().map(|s| s.to_string()))
+            .filter_map(|a| a["email"].as_str().map(ToString::to_string))
             .collect();
         parts.push(format!("Attendees: {}", att.join(", ")));
     }

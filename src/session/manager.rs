@@ -250,17 +250,13 @@ impl SessionManager {
         })?;
 
         for entry in entries {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
+            let Ok(entry) = entry else { continue };
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                 continue;
             }
-            let modified = match entry.metadata().and_then(|m| m.modified()) {
-                Ok(t) => t,
-                Err(_) => continue,
+            let Ok(modified) = entry.metadata().and_then(|m| m.modified()) else {
+                continue;
             };
             if modified < cutoff {
                 if let Err(e) = fs::remove_file(&path) {

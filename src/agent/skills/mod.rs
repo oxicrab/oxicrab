@@ -81,7 +81,7 @@ impl SkillsLoader {
                 .filter(|s| {
                     if let Some(name) = s.get("name") {
                         let meta = self.get_skill_metadata(name);
-                        self.check_requirements(meta.as_ref())
+                        Self::check_requirements(meta.as_ref())
                     } else {
                         false
                     }
@@ -114,7 +114,7 @@ impl SkillsLoader {
         let mut parts = Vec::new();
         for name in skill_names {
             if let Some(content) = self.load_skill(name) {
-                let stripped = self.strip_frontmatter(&content);
+                let stripped = Self::strip_frontmatter(&content);
                 parts.push(format!("### Skill: {}\n\n{}", name, stripped));
             }
         }
@@ -126,24 +126,24 @@ impl SkillsLoader {
     }
 
     pub fn build_skills_summary(&self) -> String {
-        let all_skills = self.list_skills(false);
-        if all_skills.is_empty() {
-            return String::new();
-        }
-
         fn escape_xml(s: &str) -> String {
             s.replace('&', "&amp;")
                 .replace('<', "&lt;")
                 .replace('>', "&gt;")
         }
 
+        let all_skills = self.list_skills(false);
+        if all_skills.is_empty() {
+            return String::new();
+        }
+
         let mut lines = vec!["<skills>".to_string()];
         for s in all_skills {
-            let name = s.get("name").map(|s| s.as_str()).unwrap_or("unknown");
-            let path = s.get("path").map(|s| s.as_str()).unwrap_or("");
+            let name = s.get("name").map_or("unknown", std::string::String::as_str);
+            let path = s.get("path").map_or("", std::string::String::as_str);
             let desc = escape_xml(&self.get_skill_description(name));
             let meta = self.get_skill_metadata(name);
-            let available = self.check_requirements(meta.as_ref());
+            let available = Self::check_requirements(meta.as_ref());
 
             let name_escaped = escape_xml(name);
             let path_escaped = escape_xml(path);
@@ -156,7 +156,7 @@ impl SkillsLoader {
             lines.push(format!("    <location>{}</location>", path_escaped));
 
             if !available {
-                let missing = self.get_missing_requirements(meta.as_ref());
+                let missing = Self::get_missing_requirements(meta.as_ref());
                 if !missing.is_empty() {
                     lines.push(format!("    <requires>{}</requires>", escape_xml(&missing)));
                 }
@@ -168,7 +168,7 @@ impl SkillsLoader {
         lines.join("\n")
     }
 
-    fn get_missing_requirements(&self, meta: Option<&Value>) -> String {
+    fn get_missing_requirements(meta: Option<&Value>) -> String {
         let mut missing = Vec::new();
         if let Some(meta) = meta {
             if let Some(requires) = meta.get("requires") {
@@ -199,12 +199,12 @@ impl SkillsLoader {
         let meta = self.get_skill_metadata(name);
         meta.and_then(|m| {
             m.get("description")
-                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .and_then(|v| v.as_str().map(std::string::ToString::to_string))
         })
         .unwrap_or_else(|| name.to_string())
     }
 
-    fn strip_frontmatter(&self, content: &str) -> String {
+    fn strip_frontmatter(content: &str) -> String {
         if let Some(rest) = content.strip_prefix("---") {
             if let Some(end_idx) = rest.find("\n---\n") {
                 let after = end_idx + 5; // skip past "\n---\n"
@@ -214,7 +214,7 @@ impl SkillsLoader {
         content.to_string()
     }
 
-    fn check_requirements(&self, meta: Option<&Value>) -> bool {
+    fn check_requirements(meta: Option<&Value>) -> bool {
         if let Some(meta) = meta {
             if let Some(requires) = meta.get("requires") {
                 if let Some(bins) = requires.get("bins").and_then(|v| v.as_array()) {
@@ -264,7 +264,7 @@ impl SkillsLoader {
                 let meta = self.get_skill_metadata(name)?;
                 if meta
                     .get("always")
-                    .and_then(|v| v.as_bool())
+                    .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false)
                 {
                     Some(name.clone())

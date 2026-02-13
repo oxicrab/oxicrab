@@ -1,3 +1,20 @@
+#![warn(clippy::pedantic)]
+// Noisy doc/signature lints — would require annotating hundreds of pub functions
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::must_use_candidate)]
+// Style preference — keeping format!("{}", x) over format!("{x}") for readability with complex exprs
+#![allow(clippy::uninlined_format_args)]
+// Intentional casts throughout LLM/API integration code (token counts, timestamps, sizes)
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_wrap)]
+// Complex tool/loop functions are naturally long; splitting would be artificial
+#![allow(clippy::too_many_lines)]
+// Module structure — our tool module has foo::FooTool pattern by design
+#![allow(clippy::module_name_repetitions)]
+
 pub mod agent;
 pub(crate) mod auth;
 pub mod bus;

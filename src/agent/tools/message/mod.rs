@@ -24,11 +24,11 @@ impl MessageTool {
 
 #[async_trait]
 impl Tool for MessageTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "message"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Send a message to a user on any channel. Defaults to the current conversation's channel and chat, or specify 'channel' and 'chat_id' to target a different destination."
     }
 

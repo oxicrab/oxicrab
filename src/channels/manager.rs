@@ -20,7 +20,8 @@ pub struct ChannelManager {
 }
 
 impl ChannelManager {
-    pub fn new(config: Config, inbound_tx: Arc<mpsc::Sender<InboundMessage>>) -> Self {
+    #[allow(clippy::needless_pass_by_value)] // Arc is designed to be passed by value
+    pub fn new(config: &Config, inbound_tx: Arc<mpsc::Sender<InboundMessage>>) -> Self {
         let mut channels: Vec<Box<dyn BaseChannel>> = Vec::new();
         let mut enabled = Vec::new();
 
@@ -101,8 +102,7 @@ impl ChannelManager {
             let channel_name = self
                 .enabled_channels
                 .get(idx)
-                .map(|s| s.as_str())
-                .unwrap_or("unknown");
+                .map_or("unknown", std::string::String::as_str);
             info!("Starting channel: {}", channel_name);
             if let Err(e) = channel.start().await {
                 error!("Failed to start channel {}: {}", channel_name, e);
@@ -118,7 +118,7 @@ impl ChannelManager {
     }
 
     pub async fn stop_all(&mut self) -> Result<()> {
-        for channel in self.channels.iter_mut() {
+        for channel in &mut self.channels {
             channel.stop().await?;
         }
         Ok(())
@@ -131,7 +131,7 @@ impl ChannelManager {
             msg.chat_id,
             msg.content.len()
         );
-        for channel in self.channels.iter() {
+        for channel in &self.channels {
             if channel.name() == msg.channel {
                 info!("Found matching channel: {}", channel.name());
                 let max_attempts = 3;
@@ -176,7 +176,7 @@ impl ChannelManager {
     }
 
     pub async fn send_typing(&self, channel: &str, chat_id: &str) {
-        for ch in self.channels.iter() {
+        for ch in &self.channels {
             if ch.name() == channel {
                 if let Err(e) = ch.send_typing(chat_id).await {
                     debug!("Typing indicator failed for {}: {}", channel, e);
@@ -187,7 +187,7 @@ impl ChannelManager {
     }
 
     pub async fn send_and_get_id(&self, msg: &OutboundMessage) -> Result<Option<String>> {
-        for channel in self.channels.iter() {
+        for channel in &self.channels {
             if channel.name() == msg.channel {
                 return channel.send_and_get_id(msg).await;
             }
@@ -202,7 +202,7 @@ impl ChannelManager {
         message_id: &str,
         content: &str,
     ) -> Result<()> {
-        for ch in self.channels.iter() {
+        for ch in &self.channels {
             if ch.name() == channel {
                 return ch.edit_message(chat_id, message_id, content).await;
             }
@@ -216,7 +216,7 @@ impl ChannelManager {
         chat_id: &str,
         message_id: &str,
     ) -> Result<()> {
-        for ch in self.channels.iter() {
+        for ch in &self.channels {
             if ch.name() == channel {
                 return ch.delete_message(chat_id, message_id).await;
             }

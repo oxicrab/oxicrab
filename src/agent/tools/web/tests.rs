@@ -93,7 +93,7 @@ fn test_html_to_markdown_converts_list_items() {
 
 #[test]
 fn test_extract_html_prefers_article() {
-    let html = r#"<html><body><nav>Nav stuff</nav><article><p>Article content</p></article><footer>Footer</footer></body></html>"#;
+    let html = r"<html><body><nav>Nav stuff</nav><article><p>Article content</p></article><footer>Footer</footer></body></html>";
     let result = extract_html(html, false).unwrap();
     assert!(result.contains("Article content"));
 }
@@ -121,7 +121,7 @@ fn parse_fetch_result(result: &ToolResult) -> Value {
 #[tokio::test]
 async fn test_fetch_html_page() {
     let server = MockServer::start().await;
-    let html = r#"<!DOCTYPE html><html><head><title>Test Page</title></head><body><article><p>Hello from the article</p></article></body></html>"#;
+    let html = r"<!DOCTYPE html><html><head><title>Test Page</title></head><body><article><p>Hello from the article</p></article></body></html>";
     Mock::given(method("GET"))
         .and(path("/page"))
         .respond_with(
@@ -151,7 +151,7 @@ async fn test_fetch_html_page() {
 #[tokio::test]
 async fn test_fetch_html_extracts_in_text_mode() {
     let server = MockServer::start().await;
-    let html = r#"<html><body><h1>Heading</h1><p>Paragraph text</p></body></html>"#;
+    let html = r"<html><body><h1>Heading</h1><p>Paragraph text</p></body></html>";
     Mock::given(method("GET"))
         .and(path("/text"))
         .respond_with(
@@ -312,7 +312,7 @@ async fn test_fetch_html_without_content_type_header() {
 #[tokio::test]
 async fn test_fetch_html_strips_scripts() {
     let server = MockServer::start().await;
-    let html = r#"<html><body><p>Visible text</p><script>alert('evil');</script></body></html>"#;
+    let html = r"<html><body><p>Visible text</p><script>alert('evil');</script></body></html>";
     Mock::given(method("GET"))
         .and(path("/scripts"))
         .respond_with(
@@ -397,7 +397,7 @@ async fn test_fetch_ssrf_blocked() {
 #[tokio::test]
 async fn test_fetch_markdown_mode_includes_title() {
     let server = MockServer::start().await;
-    let html = r#"<html><head><title>My Article</title></head><body><article><h2>Section</h2><p>Content here</p></article></body></html>"#;
+    let html = r"<html><head><title>My Article</title></head><body><article><h2>Section</h2><p>Content here</p></article></body></html>";
     Mock::given(method("GET"))
         .and(path("/md"))
         .respond_with(

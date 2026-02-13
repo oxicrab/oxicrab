@@ -91,7 +91,7 @@ impl GitHubTool {
             )
             .await?;
 
-        let issues = json.as_array().map(|arr| arr.as_slice()).unwrap_or(&[]);
+        let issues = json.as_array().map(Vec::as_slice).unwrap_or_default();
         if issues.is_empty() {
             return Ok(format!("No {} issues in {}/{}.", state, owner, repo));
         }
@@ -154,7 +154,7 @@ impl GitHubTool {
             )
             .await?;
 
-        let prs = json.as_array().map(|arr| arr.as_slice()).unwrap_or(&[]);
+        let prs = json.as_array().map(Vec::as_slice).unwrap_or_default();
         if prs.is_empty() {
             return Ok(format!("No {} PRs in {}/{}.", state, owner, repo));
         }
@@ -207,7 +207,9 @@ impl GitHubTool {
 
         // Fetch checks status
         let sha = pr["head"]["sha"].as_str().unwrap_or("");
-        let checks_str = if !sha.is_empty() {
+        let checks_str = if sha.is_empty() {
+            "CI: unknown".to_string()
+        } else {
             match self
                 .api_get(
                     &format!("/repos/{}/{}/commits/{}/status", owner, repo, sha),
@@ -222,8 +224,6 @@ impl GitHubTool {
                 }
                 Err(_) => "CI: unknown".to_string(),
             }
-        } else {
-            "CI: unknown".to_string()
         };
 
         let status_str = if merged { "merged" } else { state };
@@ -258,7 +258,7 @@ impl GitHubTool {
             .api_get("/notifications", &[("per_page", "15")])
             .await?;
 
-        let notifs = json.as_array().map(|arr| arr.as_slice()).unwrap_or(&[]);
+        let notifs = json.as_array().map(Vec::as_slice).unwrap_or_default();
         if notifs.is_empty() {
             return Ok("No unread notifications.".to_string());
         }
@@ -284,11 +284,11 @@ impl GitHubTool {
 
 #[async_trait]
 impl Tool for GitHubTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "github"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Interact with GitHub. Actions: list_issues, create_issue, list_prs, get_pr, notifications."
     }
 
@@ -343,13 +343,11 @@ impl Tool for GitHubTool {
 
         match action {
             "list_issues" | "list_prs" | "create_issue" | "get_pr" => {
-                let owner = match params["owner"].as_str() {
-                    Some(o) => o,
-                    None => return Ok(ToolResult::error("Missing 'owner' parameter".to_string())),
+                let Some(owner) = params["owner"].as_str() else {
+                    return Ok(ToolResult::error("Missing 'owner' parameter".to_string()));
                 };
-                let repo = match params["repo"].as_str() {
-                    Some(r) => r,
-                    None => return Ok(ToolResult::error("Missing 'repo' parameter".to_string())),
+                let Some(repo) = params["repo"].as_str() else {
+                    return Ok(ToolResult::error("Missing 'repo' parameter".to_string()));
                 };
 
                 let result = match action {
@@ -362,25 +360,15 @@ impl Tool for GitHubTool {
                         self.list_prs(owner, repo, state).await
                     }
                     "create_issue" => {
-                        let title = match params["title"].as_str() {
-                            Some(t) => t,
-                            None => {
-                                return Ok(ToolResult::error(
-                                    "Missing 'title' parameter".to_string(),
-                                ))
-                            }
+                        let Some(title) = params["title"].as_str() else {
+                            return Ok(ToolResult::error("Missing 'title' parameter".to_string()));
                         };
                         self.create_issue(owner, repo, title, params["body"].as_str())
                             .await
                     }
                     "get_pr" => {
-                        let number = match params["number"].as_u64() {
-                            Some(n) => n,
-                            None => {
-                                return Ok(ToolResult::error(
-                                    "Missing 'number' parameter".to_string(),
-                                ))
-                            }
+                        let Some(number) = params["number"].as_u64() else {
+                            return Ok(ToolResult::error("Missing 'number' parameter".to_string()));
                         };
                         self.get_pr(owner, repo, number).await
                     }

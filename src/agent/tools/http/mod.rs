@@ -33,9 +33,8 @@ impl HttpTool {
     /// Core HTTP execution logic (without SSRF validation).
     /// Separated from `execute()` so tests can call it directly with wiremock URLs.
     async fn send_request(&self, params: &Value) -> Result<ToolResult> {
-        let url = match params["url"].as_str() {
-            Some(u) => u,
-            None => return Ok(ToolResult::error("Missing 'url' parameter".to_string())),
+        let Some(url) = params["url"].as_str() else {
+            return Ok(ToolResult::error("Missing 'url' parameter".to_string()));
         };
 
         let method = params["method"].as_str().unwrap_or("GET").to_uppercase();
@@ -133,11 +132,11 @@ impl HttpTool {
 
 #[async_trait]
 impl Tool for HttpTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "http"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Make HTTP requests (GET/POST/PUT/PATCH/DELETE). For REST APIs, webhooks, and services."
     }
 
@@ -176,9 +175,8 @@ impl Tool for HttpTool {
     }
 
     async fn execute(&self, params: Value) -> Result<ToolResult> {
-        let url = match params["url"].as_str() {
-            Some(u) => u,
-            None => return Ok(ToolResult::error("Missing 'url' parameter".to_string())),
+        let Some(url) = params["url"].as_str() else {
+            return Ok(ToolResult::error("Missing 'url' parameter".to_string()));
         };
 
         // Validate URL scheme and block SSRF to internal networks

@@ -298,8 +298,8 @@ async fn gateway(model: Option<String>) -> Result<()> {
     )
     .await?;
     setup_cron_callbacks(cron.clone(), agent.clone(), bus_for_channels.clone()).await?;
-    let heartbeat = setup_heartbeat(&config, agent.clone())?;
-    let channels = setup_channels(&config, inbound_tx)?;
+    let heartbeat = setup_heartbeat(&config, &agent);
+    let channels = setup_channels(&config, inbound_tx);
 
     println!("Starting nanobot gateway...");
     println!("Enabled channels: {:?}", channels.enabled_channels());
@@ -477,8 +477,7 @@ async fn setup_cron_callbacks(
                 .payload
                 .targets
                 .first()
-                .map(|t| (t.channel.as_str(), t.to.as_str()))
-                .unwrap_or(("cli", "direct"));
+                .map_or(("cli", "direct"), |t| (t.channel.as_str(), t.to.as_str()));
 
             let response = agent
                 .process_direct(
@@ -518,7 +517,7 @@ async fn setup_cron_callbacks(
     Ok(())
 }
 
-fn setup_heartbeat(config: &Config, agent: Arc<AgentLoop>) -> Result<Arc<HeartbeatService>> {
+fn setup_heartbeat(config: &Config, agent: &Arc<AgentLoop>) -> Arc<HeartbeatService> {
     debug!("Initializing heartbeat service...");
     debug!("  - Enabled: {}", config.agents.defaults.daemon.enabled);
     debug!("  - Interval: {}s", config.agents.defaults.daemon.interval);
@@ -543,20 +542,20 @@ fn setup_heartbeat(config: &Config, agent: Arc<AgentLoop>) -> Result<Arc<Heartbe
         config.agents.defaults.daemon.strategy_file.clone(),
     );
     debug!("Heartbeat service initialized");
-    Ok(Arc::new(heartbeat))
+    Arc::new(heartbeat)
 }
 
 fn setup_channels(
     config: &Config,
     inbound_tx: tokio::sync::mpsc::Sender<crate::bus::InboundMessage>,
-) -> Result<ChannelManager> {
+) -> ChannelManager {
     info!("Initializing channels...");
-    let channels = ChannelManager::new(config.clone(), Arc::new(inbound_tx));
+    let channels = ChannelManager::new(config, Arc::new(inbound_tx));
     info!(
         "Channels initialized. Enabled: {:?}",
         channels.enabled_channels()
     );
-    Ok(channels)
+    channels
 }
 
 async fn start_services(cron: Arc<CronService>, heartbeat: Arc<HeartbeatService>) -> Result<()> {
@@ -575,12 +574,13 @@ fn start_agent_loop(agent: Arc<AgentLoop>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         info!("Agent loop running");
         match agent.run().await {
-            Ok(_) => info!("Agent loop completed successfully"),
+            Ok(()) => info!("Agent loop completed successfully"),
             Err(e) => error!("Agent loop exited with error: {}", e),
         }
     })
 }
 
+#[allow(clippy::too_many_lines)]
 fn start_channels_loop(
     mut channels: ChannelManager,
     mut outbound_rx: tokio::sync::mpsc::Receiver<crate::bus::OutboundMessage>,
@@ -589,7 +589,7 @@ fn start_channels_loop(
     info!("Starting all channels...");
     tokio::spawn(async move {
         match channels.start_all().await {
-            Ok(_) => info!("All channels started successfully"),
+            Ok(()) => info!("All channels started successfully"),
             Err(e) => error!("Error starting channels: {}", e),
         }
 
@@ -610,91 +610,87 @@ fn start_channels_loop(
         let mut status_content: HashMap<(String, String), String> = HashMap::new();
 
         loop {
-            match outbound_rx.recv().await {
-                Some(msg) => {
-                    info!(
-                        "Consumed outbound message: channel={}, chat_id={}, content_len={}",
-                        msg.channel,
-                        msg.chat_id,
-                        msg.content.len()
-                    );
+            if let Some(msg) = outbound_rx.recv().await {
+                info!(
+                    "Consumed outbound message: channel={}, chat_id={}, content_len={}",
+                    msg.channel,
+                    msg.chat_id,
+                    msg.content.len()
+                );
 
-                    let is_status = msg
-                        .metadata
-                        .get("status")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    let key = (msg.channel.clone(), msg.chat_id.clone());
+                let is_status = msg
+                    .metadata
+                    .get("status")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+                let key = (msg.channel.clone(), msg.chat_id.clone());
 
-                    if is_status {
-                        // Accumulate status lines and snapshot for use after borrow ends
-                        let content_snapshot = {
-                            let accumulated = status_content.entry(key.clone()).or_default();
-                            if !accumulated.is_empty() {
-                                accumulated.push('\n');
-                            }
-                            accumulated.push_str(&msg.content);
-                            accumulated.clone()
-                        };
-
-                        if let Some(existing_id) = status_msg_ids.get(&key) {
-                            // Try to edit existing status message
-                            if let Err(e) = channels
-                                .edit_message(&key.0, &key.1, existing_id, &content_snapshot)
-                                .await
-                            {
-                                debug!("Status edit failed, sending new: {}", e);
-                                status_msg_ids.remove(&key);
-                                status_content.remove(&key);
-                            } else {
-                                continue; // Edit succeeded
-                            }
+                if is_status {
+                    // Accumulate status lines and snapshot for use after borrow ends
+                    let content_snapshot = {
+                        let accumulated = status_content.entry(key.clone()).or_default();
+                        if !accumulated.is_empty() {
+                            accumulated.push('\n');
                         }
+                        accumulated.push_str(&msg.content);
+                        accumulated.clone()
+                    };
 
-                        // Send new status message (first time or after edit failure)
-                        if let std::collections::hash_map::Entry::Vacant(e) =
-                            status_msg_ids.entry(key)
+                    if let Some(existing_id) = status_msg_ids.get(&key) {
+                        // Try to edit existing status message
+                        if let Err(e) = channels
+                            .edit_message(&key.0, &key.1, existing_id, &content_snapshot)
+                            .await
                         {
-                            let status_msg = crate::bus::OutboundMessage {
-                                content: content_snapshot,
-                                channel: msg.channel.clone(),
-                                chat_id: msg.chat_id.clone(),
-                                reply_to: msg.reply_to.clone(),
-                                media: vec![],
-                                metadata: msg.metadata.clone(),
-                            };
-                            match channels.send_and_get_id(&status_msg).await {
-                                Ok(Some(id)) => {
-                                    e.insert(id);
-                                }
-                                Ok(None) => {
-                                    // Channel doesn't support IDs (WhatsApp) — already sent
-                                }
-                                Err(err) => {
-                                    error!("Status send failed: {}", err);
-                                }
-                            }
-                        }
-                    } else {
-                        // Regular message — delete status message if one exists, then send
-                        if let Some(msg_id) = status_msg_ids.remove(&key) {
-                            if let Err(e) = channels.delete_message(&key.0, &key.1, &msg_id).await {
-                                debug!("Status delete failed: {}", e);
-                            }
-                        }
-                        status_content.remove(&key);
-
-                        if let Err(e) = channels.send(&msg).await {
-                            error!("Error sending message to channels: {}", e);
+                            debug!("Status edit failed, sending new: {}", e);
+                            status_msg_ids.remove(&key);
+                            status_content.remove(&key);
                         } else {
-                            info!("Successfully sent outbound message to channel manager");
+                            continue; // Edit succeeded
                         }
                     }
+
+                    // Send new status message (first time or after edit failure)
+                    if let std::collections::hash_map::Entry::Vacant(e) = status_msg_ids.entry(key)
+                    {
+                        let status_msg = crate::bus::OutboundMessage {
+                            content: content_snapshot,
+                            channel: msg.channel.clone(),
+                            chat_id: msg.chat_id.clone(),
+                            reply_to: msg.reply_to.clone(),
+                            media: vec![],
+                            metadata: msg.metadata.clone(),
+                        };
+                        match channels.send_and_get_id(&status_msg).await {
+                            Ok(Some(id)) => {
+                                e.insert(id);
+                            }
+                            Ok(None) => {
+                                // Channel doesn't support IDs (WhatsApp) — already sent
+                            }
+                            Err(err) => {
+                                error!("Status send failed: {}", err);
+                            }
+                        }
+                    }
+                } else {
+                    // Regular message — delete status message if one exists, then send
+                    if let Some(msg_id) = status_msg_ids.remove(&key) {
+                        if let Err(e) = channels.delete_message(&key.0, &key.1, &msg_id).await {
+                            debug!("Status delete failed: {}", e);
+                        }
+                    }
+                    status_content.remove(&key);
+
+                    if let Err(e) = channels.send(&msg).await {
+                        error!("Error sending message to channels: {}", e);
+                    } else {
+                        info!("Successfully sent outbound message to channel manager");
+                    }
                 }
-                None => {
-                    warn!("Outbound message receiver closed");
-                    break;
-                }
+            } else {
+                warn!("Outbound message receiver closed");
+                break;
             }
         }
 
@@ -772,6 +768,7 @@ async fn interactive_repl(agent: &AgentLoop, session: &str) -> Result<()> {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 async fn cron_command(cmd: CronCommands) -> Result<()> {
     let _config = load_config(None)?;
     let cron_store_path = crate::utils::get_nanobot_home()?
@@ -788,15 +785,15 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
                 println!("Cron jobs:");
                 for job in jobs {
                     let status = if job.enabled { "enabled" } else { "disabled" };
-                    let next_run = job
-                        .state
-                        .next_run_at_ms
-                        .map(|ms| {
-                            chrono::DateTime::from_timestamp(ms / 1000, 0)
-                                .map(|dt| format!("{}", dt.format("%Y-%m-%d %H:%M:%S")))
-                                .unwrap_or_else(|| "invalid timestamp".to_string())
-                        })
-                        .unwrap_or_else(|| "never".to_string());
+                    let next_run = job.state.next_run_at_ms.map_or_else(
+                        || "never".to_string(),
+                        |ms| {
+                            chrono::DateTime::from_timestamp(ms / 1000, 0).map_or_else(
+                                || "invalid timestamp".to_string(),
+                                |dt| format!("{}", dt.format("%Y-%m-%d %H:%M:%S")),
+                            )
+                        },
+                    );
                     println!(
                         "  [{}] {} - {} (next: {})",
                         job.id, job.name, status, next_run
@@ -1074,6 +1071,7 @@ async fn auth_command(cmd: AuthCommands) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 async fn channels_command(cmd: ChannelCommands) -> Result<()> {
     match cmd {
         ChannelCommands::Status => {
@@ -1096,11 +1094,10 @@ async fn channels_command(cmd: ChannelCommands) -> Result<()> {
                     }
                 );
                 if wa.enabled {
-                    let session_path = crate::utils::get_nanobot_home()
-                        .map(|h| h.join("whatsapp").join("whatsapp.db"))
-                        .unwrap_or_else(|_| {
-                            std::path::PathBuf::from(".nanobot/whatsapp/whatsapp.db")
-                        });
+                    let session_path = crate::utils::get_nanobot_home().map_or_else(
+                        |_| std::path::PathBuf::from(".nanobot/whatsapp/whatsapp.db"),
+                        |h| h.join("whatsapp").join("whatsapp.db"),
+                    );
                     let session_exists = session_path.exists();
                     println!(
                         "  Session: {} ({})",

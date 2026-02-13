@@ -180,7 +180,7 @@ async fn test_write_through_to_api() {
     assert!(result.content.contains("Written"));
 
     // Verify it's in cache — new notes get frontmatter prepended
-    let cached = cache.read_cached("notes/hello.md").await.unwrap();
+    let cached = cache.read_cached("notes/hello.md").unwrap();
     assert!(cached.contains("---\ncreate-date:"));
     assert!(cached.contains("type: note"));
     assert!(cached.contains("# Hello"));
@@ -210,7 +210,7 @@ async fn test_write_queued_when_offline() {
     assert!(result.content.contains("queued"));
 
     // Verify it's in cache — new notes get frontmatter prepended
-    let cached = cache.read_cached("offline.md").await.unwrap();
+    let cached = cache.read_cached("offline.md").unwrap();
     assert!(cached.contains("---\ncreate-date:"));
     assert!(cached.contains("type: note"));
     assert!(cached.contains("queued content"));
@@ -254,7 +254,7 @@ async fn test_append_through_to_api() {
     assert!(result.content.contains("Appended"));
 
     // Cache should have combined content
-    let cached = cache.read_cached("existing.md").await.unwrap();
+    let cached = cache.read_cached("existing.md").unwrap();
     assert!(cached.contains("line1"));
     assert!(cached.contains("line2"));
 }
@@ -560,14 +560,8 @@ async fn test_full_sync_downloads_files() {
     cache.full_sync().await.unwrap();
 
     // Files should be in cache
-    assert_eq!(
-        cache.read_cached("note1.md").await,
-        Some("# Note 1".to_string())
-    );
-    assert_eq!(
-        cache.read_cached("note2.md").await,
-        Some("# Note 2".to_string())
-    );
+    assert_eq!(cache.read_cached("note1.md"), Some("# Note 1".to_string()));
+    assert_eq!(cache.read_cached("note2.md"), Some("# Note 2".to_string()));
 
     // State should track them
     let files = cache.list_cached(None).await;
@@ -610,11 +604,11 @@ async fn test_full_sync_removes_deleted_files() {
     cache.full_sync().await.unwrap();
 
     // old.md should be removed
-    assert!(cache.read_cached("old.md").await.is_none());
+    assert!(cache.read_cached("old.md").is_none());
     assert!(!tmp.path().join("old.md").exists());
 
     // new.md should exist
-    assert_eq!(cache.read_cached("new.md").await, Some("# New".to_string()));
+    assert_eq!(cache.read_cached("new.md"), Some("# New".to_string()));
 }
 
 #[tokio::test]

@@ -15,7 +15,7 @@ const TOKEN_URL: &str = "https://console.anthropic.com/v1/oauth/token";
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
-/// Default expires_in when the OAuth response omits the field (1 hour).
+/// Default `expires_in` when the OAuth response omits the field (1 hour).
 const DEFAULT_EXPIRES_IN_SECS: u64 = 3600;
 
 // Headers that identify the request as a Claude Code client
@@ -50,7 +50,7 @@ impl AnthropicOAuthProvider {
     ) -> Result<Self> {
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(120))
+            .timeout(std::time::Duration::from_mins(2))
             .build()
             .context("Failed to create HTTP client for AnthropicOAuthProvider")?;
 
@@ -80,7 +80,7 @@ impl AnthropicOAuthProvider {
         match std::fs::read_to_string(path) {
             Ok(content) => match serde_json::from_str::<Value>(&content) {
                 Ok(data) => {
-                    if let Some(cached_at) = data.get("expires_at").and_then(|v| v.as_i64()) {
+                    if let Some(cached_at) = data.get("expires_at").and_then(Value::as_i64) {
                         // Use try_lock since we're in a sync context during construction.
                         // These locks are uncontested at this point (single-threaded init).
                         let current_expires = match self.expires_at.try_lock() {
@@ -89,8 +89,8 @@ impl AnthropicOAuthProvider {
                         };
                         if cached_at > current_expires {
                             if let (Some(access), Some(refresh)) = (
-                                data.get("access_token").and_then(|v| v.as_str()),
-                                data.get("refresh_token").and_then(|v| v.as_str()),
+                                data.get("access_token").and_then(Value::as_str),
+                                data.get("refresh_token").and_then(Value::as_str),
                             ) {
                                 if let Ok(mut guard) = self.access_token.try_lock() {
                                     *guard = access.to_string();
@@ -130,7 +130,7 @@ impl AnthropicOAuthProvider {
                 if !refresh_token.is_empty() {
                     info!("OAuth token expired, refreshing...");
                     match self.refresh_token_internal(&refresh_token).await {
-                        Ok(_) => {
+                        Ok(()) => {
                             info!("OAuth token refreshed successfully");
                         }
                         Err(e) => {
@@ -172,9 +172,8 @@ impl AnthropicOAuthProvider {
 
         let new_refresh_token = data
             .get("refresh_token")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| refresh_token.to_string());
+            .and_then(Value::as_str)
+            .map_or_else(|| refresh_token.to_string(), ToString::to_string);
 
         // expires_in is in seconds, store as ms with 5min buffer
         let expires_in_secs = data["expires_in"]
@@ -252,11 +251,10 @@ impl AnthropicOAuthProvider {
 
         let refresh_token = data
             .get("refresh_token")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_default();
+            .and_then(Value::as_str)
+            .map_or_else(String::new, ToString::to_string);
 
-        let expires_at = data.get("expires_at").and_then(|v| v.as_i64()).unwrap_or(0);
+        let expires_at = data.get("expires_at").and_then(Value::as_i64).unwrap_or(0);
 
         Ok(Some(Self::new(
             access_token,
@@ -288,13 +286,13 @@ impl AnthropicOAuthProvider {
 
         let profiles = data
             .get("profiles")
-            .and_then(|v| v.as_object())
+            .and_then(Value::as_object)
             .ok_or_else(|| anyhow::anyhow!("Invalid profiles structure"))?;
 
         // Try lastGood first, then any anthropic profile
         let mut candidates = Vec::new();
-        if let Some(last_good) = data.get("lastGood").and_then(|v| v.as_object()) {
-            if let Some(anthropic_id) = last_good.get("anthropic").and_then(|v| v.as_str()) {
+        if let Some(last_good) = data.get("lastGood").and_then(Value::as_object) {
+            if let Some(anthropic_id) = last_good.get("anthropic").and_then(Value::as_str) {
                 candidates.push(anthropic_id.to_string());
             }
         }
@@ -306,17 +304,16 @@ impl AnthropicOAuthProvider {
         }
 
         for pid in candidates {
-            if let Some(cred) = profiles.get(&pid).and_then(|v| v.as_object()) {
-                if cred.get("provider").and_then(|v| v.as_str()) != Some("anthropic") {
+            if let Some(cred) = profiles.get(&pid).and_then(Value::as_object) {
+                if cred.get("provider").and_then(Value::as_str) != Some("anthropic") {
                     continue;
                 }
 
-                if let Some(cred_type) = cred.get("type").and_then(|v| v.as_str()) {
+                if let Some(cred_type) = cred.get("type").and_then(Value::as_str) {
                     if cred_type == "oauth" {
-                        if let Some(access) = cred.get("access").and_then(|v| v.as_str()) {
-                            let refresh =
-                                cred.get("refresh").and_then(|v| v.as_str()).unwrap_or("");
-                            let expires = cred.get("expires").and_then(|v| v.as_i64()).unwrap_or(0);
+                        if let Some(access) = cred.get("access").and_then(Value::as_str) {
+                            let refresh = cred.get("refresh").and_then(Value::as_str).unwrap_or("");
+                            let expires = cred.get("expires").and_then(Value::as_i64).unwrap_or(0);
 
                             return Ok(Some(Self::new(
                                 access.to_string(),
@@ -327,8 +324,8 @@ impl AnthropicOAuthProvider {
                             )?));
                         }
                     } else if cred_type == "token" {
-                        if let Some(token) = cred.get("token").and_then(|v| v.as_str()) {
-                            let expires = cred.get("expires").and_then(|v| v.as_i64()).unwrap_or(0);
+                        if let Some(token) = cred.get("token").and_then(Value::as_str) {
+                            let expires = cred.get("expires").and_then(Value::as_i64).unwrap_or(0);
 
                             return Ok(Some(Self::new(
                                 token.to_string(),
@@ -364,15 +361,15 @@ impl AnthropicOAuthProvider {
 
         let oauth = data
             .get("claudeAiOauth")
-            .and_then(|v| v.as_object())
+            .and_then(Value::as_object)
             .ok_or_else(|| anyhow::anyhow!("Missing claudeAiOauth"))?;
 
-        if let Some(access) = oauth.get("accessToken").and_then(|v| v.as_str()) {
+        if let Some(access) = oauth.get("accessToken").and_then(Value::as_str) {
             let refresh = oauth
                 .get("refreshToken")
-                .and_then(|v| v.as_str())
+                .and_then(Value::as_str)
                 .unwrap_or("");
-            let expires = oauth.get("expiresAt").and_then(|v| v.as_i64()).unwrap_or(0);
+            let expires = oauth.get("expiresAt").and_then(Value::as_i64).unwrap_or(0);
 
             return Ok(Some(Self::new(
                 access.to_string(),
@@ -390,17 +387,14 @@ impl AnthropicOAuthProvider {
 #[async_trait]
 impl LLMProvider for AnthropicOAuthProvider {
     async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
-        let model = req
-            .model
-            .map(|m| {
-                // Strip provider prefix (e.g. "anthropic/claude-opus-4-6" -> "claude-opus-4-6")
-                if m.contains('/') {
-                    m.split_once('/').map(|x| x.1).unwrap_or(m)
-                } else {
-                    m
-                }
-            })
-            .unwrap_or(&self.default_model);
+        let model = req.model.map_or(self.default_model.as_str(), |m| {
+            // Strip provider prefix (e.g. "anthropic/claude-opus-4-6" -> "claude-opus-4-6")
+            if m.contains('/') {
+                m.split_once('/').map_or(m, |x| x.1)
+            } else {
+                m
+            }
+        });
 
         let token = self.ensure_valid_token().await?;
 

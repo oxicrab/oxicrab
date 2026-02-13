@@ -45,8 +45,7 @@ impl EventHandler for Handler {
             let is_image = attachment
                 .content_type
                 .as_deref()
-                .map(|ct| ct.starts_with("image/"))
-                .unwrap_or(false);
+                .is_some_and(|ct| ct.starts_with("image/"));
             if !is_image {
                 continue;
             }
@@ -125,7 +124,7 @@ impl DiscordChannel {
 
 #[async_trait]
 impl BaseChannel for DiscordChannel {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "discord"
     }
 

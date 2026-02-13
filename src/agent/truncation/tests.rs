@@ -57,7 +57,7 @@ fn truncate_strips_ansi() {
     let with_ansi = "\x1b[31mred text\x1b[0m";
     let result = truncate_tool_result(with_ansi, 1000);
     assert_eq!(result, "red text");
-    assert!(!result.contains("\x1b"));
+    assert!(!result.contains('\x1b'));
 }
 
 #[test]

@@ -48,8 +48,7 @@ impl ObsidianApiClient {
             .timeout(Duration::from_secs(5))
             .send()
             .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false)
+            .is_ok_and(|r| r.status().is_success())
     }
 
     /// List all files in the vault, recursing into subdirectories.

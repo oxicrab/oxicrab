@@ -66,11 +66,11 @@ impl TmuxTool {
 
 #[async_trait]
 impl Tool for TmuxTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "tmux"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Manage persistent tmux shell sessions. Create long-running sessions, send commands, and read output."
     }
 

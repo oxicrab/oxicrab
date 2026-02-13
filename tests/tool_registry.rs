@@ -11,7 +11,7 @@ impl Tool for EchoTool {
     fn name(&self) -> &str {
         "echo"
     }
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Echoes the input"
     }
     fn parameters(&self) -> Value {
@@ -39,7 +39,7 @@ impl Tool for CacheableTool {
     fn name(&self) -> &str {
         "cacheable_echo"
     }
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "A cacheable echo tool"
     }
     fn parameters(&self) -> Value {
@@ -68,7 +68,7 @@ impl Tool for PanicTool {
     fn name(&self) -> &str {
         "panic_tool"
     }
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "A tool that panics"
     }
     fn parameters(&self) -> Value {
@@ -87,7 +87,7 @@ impl Tool for ErrorTool {
     fn name(&self) -> &str {
         "error_tool"
     }
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "A tool that returns an error"
     }
     fn parameters(&self) -> Value {
@@ -222,7 +222,7 @@ async fn test_error_result_not_cached() {
         fn name(&self) -> &str {
             "cacheable_error"
         }
-        fn description(&self) -> &str {
+        fn description(&self) -> &'static str {
             "Cacheable tool that errors"
         }
         fn parameters(&self) -> Value {

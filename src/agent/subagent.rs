@@ -113,12 +113,9 @@ impl SubagentManager {
 
         let bg_task = tokio::spawn(async move {
             // Acquire semaphore permit — blocks if all slots are busy
-            let _permit = match semaphore.acquire().await {
-                Ok(permit) => permit,
-                Err(_) => {
-                    warn!("Subagent [{}] semaphore closed", task_id_clone);
-                    return;
-                }
+            let Ok(_permit) = semaphore.acquire().await else {
+                warn!("Subagent [{}] semaphore closed", task_id_clone);
+                return;
             };
 
             run_subagent(
@@ -192,7 +189,7 @@ struct SubagentTask {
     context: Option<String>,
 }
 
-/// Run a subagent task (called inside tokio::spawn).
+/// Run a subagent task (called inside `tokio::spawn`).
 async fn run_subagent(
     config: &SubagentInner,
     bus: &Arc<Mutex<MessageBus>>,
@@ -551,7 +548,7 @@ mod tests {
                 input_tokens: None,
             }))
         }
-        fn default_model(&self) -> &str {
+        fn default_model(&self) -> &'static str {
             "mock"
         }
     }
@@ -572,7 +569,7 @@ mod tests {
                 input_tokens: None,
             })
         }
-        fn default_model(&self) -> &str {
+        fn default_model(&self) -> &'static str {
             "mock"
         }
     }
@@ -667,41 +664,41 @@ mod tests {
 
     // --- Concurrency limiter tests ---
 
+    // Custom provider that tracks concurrency
+    struct ConcurrencyTracker {
+        concurrent: Arc<std::sync::atomic::AtomicUsize>,
+        max_observed: Arc<std::sync::atomic::AtomicUsize>,
+    }
+    #[async_trait]
+    impl LLMProvider for ConcurrencyTracker {
+        async fn chat(&self, _req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+            let prev = self
+                .concurrent
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let current = prev + 1;
+            // Update max observed
+            self.max_observed
+                .fetch_max(current, std::sync::atomic::Ordering::SeqCst);
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            self.concurrent
+                .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(LLMResponse {
+                content: Some("done".to_string()),
+                tool_calls: vec![],
+                reasoning_content: None,
+                input_tokens: None,
+            })
+        }
+        fn default_model(&self) -> &'static str {
+            "mock"
+        }
+    }
+
     #[tokio::test]
     async fn test_semaphore_limits_concurrency() {
         // Track how many are running concurrently via an atomic counter
         let concurrent = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let max_observed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-
-        // Custom provider that tracks concurrency
-        struct ConcurrencyTracker {
-            concurrent: Arc<std::sync::atomic::AtomicUsize>,
-            max_observed: Arc<std::sync::atomic::AtomicUsize>,
-        }
-        #[async_trait]
-        impl LLMProvider for ConcurrencyTracker {
-            async fn chat(&self, _req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
-                let prev = self
-                    .concurrent
-                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                let current = prev + 1;
-                // Update max observed
-                self.max_observed
-                    .fetch_max(current, std::sync::atomic::Ordering::SeqCst);
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                self.concurrent
-                    .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-                Ok(LLMResponse {
-                    content: Some("done".to_string()),
-                    tool_calls: vec![],
-                    reasoning_content: None,
-                    input_tokens: None,
-                })
-            }
-            fn default_model(&self) -> &str {
-                "mock"
-            }
-        }
 
         let provider = Arc::new(ConcurrencyTracker {
             concurrent: concurrent.clone(),
@@ -896,7 +893,10 @@ mod tests {
 
         let list = mgr.list_running().await;
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0].get("done").and_then(|v| v.as_bool()), Some(false));
+        assert_eq!(
+            list[0].get("done").and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
     }
 
     // --- Spawn label tests ---

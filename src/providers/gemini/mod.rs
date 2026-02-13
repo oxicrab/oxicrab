@@ -52,7 +52,7 @@ impl GeminiProvider {
         }
     }
 
-    fn parse_response(&self, json: Value) -> Result<LLMResponse> {
+    fn parse_response(json: &Value) -> Result<LLMResponse> {
         let candidate = json["candidates"]
             .as_array()
             .and_then(|arr| arr.first())
@@ -61,7 +61,7 @@ impl GeminiProvider {
         let content = candidate["content"]["parts"].as_array().and_then(|parts| {
             parts.iter().find_map(|p| {
                 if p["text"].is_string() {
-                    p["text"].as_str().map(|s| s.to_string())
+                    p["text"].as_str().map(std::string::ToString::to_string)
                 } else {
                     None
                 }
@@ -100,10 +100,9 @@ impl LLMProvider for GeminiProvider {
             .into_iter()
             .map(|msg| {
                 let role = match msg.role.as_str() {
-                    "system" => "user", // Gemini doesn't have system role
-                    "user" => "user",
                     "assistant" => "model",
                     "tool" => "function",
+                    // Gemini doesn't have system role; map everything else to "user"
                     _ => "user",
                 };
 
@@ -168,14 +167,17 @@ impl LLMProvider for GeminiProvider {
             if let Ok(mut metrics) = self.metrics.lock() {
                 metrics.request_count += 1;
                 if let Some(usage) = json.get("usageMetadata").and_then(|u| u.as_object()) {
-                    if let Some(tokens) = usage.get("totalTokenCount").and_then(|t| t.as_u64()) {
+                    if let Some(tokens) = usage
+                        .get("totalTokenCount")
+                        .and_then(serde_json::Value::as_u64)
+                    {
                         metrics.token_count += tokens;
                     }
                 }
             }
         }
 
-        self.parse_response(json)
+        Self::parse_response(&json)
     }
 
     fn default_model(&self) -> &str {

@@ -107,50 +107,50 @@ impl MemoryDB {
         )?;
 
         // Try to create FTS5 virtual table
-        match conn.execute(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
+        if conn
+            .execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
             USING fts5(
                 content,
                 source_key,
                 content='memory_entries',
                 content_rowid='id'
             )",
-            [],
-        ) {
-            Ok(_) => {
-                // Create triggers
-                conn.execute(
-                    "CREATE TRIGGER IF NOT EXISTS mem_ai AFTER INSERT ON memory_entries BEGIN
-                        INSERT INTO memory_fts(rowid, content, source_key)
-                        VALUES (new.id, new.content, new.source_key);
-                    END",
-                    [],
-                )?;
+                [],
+            )
+            .is_ok()
+        {
+            // Create triggers
+            conn.execute(
+                "CREATE TRIGGER IF NOT EXISTS mem_ai AFTER INSERT ON memory_entries BEGIN
+                    INSERT INTO memory_fts(rowid, content, source_key)
+                    VALUES (new.id, new.content, new.source_key);
+                END",
+                [],
+            )?;
 
-                conn.execute(
-                    "CREATE TRIGGER IF NOT EXISTS mem_ad AFTER DELETE ON memory_entries BEGIN
-                        INSERT INTO memory_fts(memory_fts, rowid, content, source_key)
-                        VALUES ('delete', old.id, old.content, old.source_key);
-                    END",
-                    [],
-                )?;
+            conn.execute(
+                "CREATE TRIGGER IF NOT EXISTS mem_ad AFTER DELETE ON memory_entries BEGIN
+                    INSERT INTO memory_fts(memory_fts, rowid, content, source_key)
+                    VALUES ('delete', old.id, old.content, old.source_key);
+                END",
+                [],
+            )?;
 
-                conn.execute(
-                    "CREATE TRIGGER IF NOT EXISTS mem_au AFTER UPDATE ON memory_entries BEGIN
-                        INSERT INTO memory_fts(memory_fts, rowid, content, source_key)
-                        VALUES ('delete', old.id, old.content, old.source_key);
-                        INSERT INTO memory_fts(rowid, content, source_key)
-                        VALUES (new.id, new.content, new.source_key);
-                    END",
-                    [],
-                )?;
+            conn.execute(
+                "CREATE TRIGGER IF NOT EXISTS mem_au AFTER UPDATE ON memory_entries BEGIN
+                    INSERT INTO memory_fts(memory_fts, rowid, content, source_key)
+                    VALUES ('delete', old.id, old.content, old.source_key);
+                    INSERT INTO memory_fts(rowid, content, source_key)
+                    VALUES (new.id, new.content, new.source_key);
+                END",
+                [],
+            )?;
 
-                self.has_fts = true;
-            }
-            Err(_) => {
-                self.has_fts = false;
-                debug!("FTS5 not available; falling back to LIKE");
-            }
+            self.has_fts = true;
+        } else {
+            self.has_fts = false;
+            debug!("FTS5 not available; falling back to LIKE");
         }
 
         Ok(())
@@ -161,8 +161,7 @@ impl MemoryDB {
             .and_then(|m| {
                 m.modified().map(|t| {
                     t.duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_nanos() as i64)
-                        .unwrap_or(0)
+                        .map_or(0, |d| d.as_nanos() as i64)
                 })
             })
             .unwrap_or(0)

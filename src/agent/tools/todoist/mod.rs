@@ -45,9 +45,9 @@ impl TodoistTool {
 
     /// Fetch all pages from a paginated v1 endpoint.
     async fn paginated_get(&self, url: &str, base_query: &[(&str, &str)]) -> Result<Vec<Value>> {
+        const MAX_PAGES: usize = 10; // Safety limit
         let mut all_items: Vec<Value> = Vec::new();
         let mut cursor: Option<String> = None;
-        const MAX_PAGES: usize = 10; // Safety limit
 
         for _ in 0..MAX_PAGES {
             let mut query: Vec<(&str, &str)> = base_query.to_vec();
@@ -256,11 +256,11 @@ impl TodoistTool {
 
 #[async_trait]
 impl Tool for TodoistTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "todoist"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Manage Todoist tasks and projects. Actions: list_tasks, create_task, complete_task, list_projects."
     }
 
@@ -327,11 +327,8 @@ impl Tool for TodoistTool {
                     .await
             }
             "create_task" => {
-                let content = match params["content"].as_str() {
-                    Some(c) => c,
-                    None => {
-                        return Ok(ToolResult::error("Missing 'content' parameter".to_string()))
-                    }
+                let Some(content) = params["content"].as_str() else {
+                    return Ok(ToolResult::error("Missing 'content' parameter".to_string()));
                 };
                 let labels: Option<Vec<&str>> = params["labels"]
                     .as_array()
@@ -347,11 +344,8 @@ impl Tool for TodoistTool {
                 .await
             }
             "complete_task" => {
-                let task_id = match params["task_id"].as_str() {
-                    Some(id) => id,
-                    None => {
-                        return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()))
-                    }
+                let Some(task_id) = params["task_id"].as_str() else {
+                    return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()));
                 };
                 self.complete_task(task_id).await
             }
