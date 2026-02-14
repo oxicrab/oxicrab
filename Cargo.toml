@@ -71,7 +71,7 @@ whatsapp-rust = { git = "https://github.com/jlucaso1/whatsapp-rust", rev = "1a56
 whatsapp-rust-tokio-transport = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-tokio-transport", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
 whatsapp-rust-ureq-http-client = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-ureq-http-client", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
 which = "8.0"
-whisper-rs = { version = "0.15", features = ["tracing_backend", "cuda"] }
+whisper-rs = { version = "0.15", features = ["tracing_backend"] }
 
 # Security: Force minimum versions of transitive dependencies to resolve vulnerabilities
 # - CVE-2022-23639 / GHSA-qc84-gqf4-9926: crossbeam-utils AtomicCell unsoundness (fixed in >= 0.8.7)
