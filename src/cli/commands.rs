@@ -612,7 +612,7 @@ fn start_channels_loop(
 
         loop {
             if let Some(msg) = outbound_rx.recv().await {
-                info!(
+                debug!(
                     "Consumed outbound message: channel={}, chat_id={}, content_len={}",
                     msg.channel,
                     msg.chat_id,
