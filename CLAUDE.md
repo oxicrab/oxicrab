@@ -55,7 +55,7 @@ Multi-channel AI assistant that connects chat platforms to LLM providers via an 
 ### Core Flow
 
 ```
-Channel (Telegram/Discord/Slack/WhatsApp)
+Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
   → MessageBus (inbound queue)
     → AgentLoop (iterates: LLM call → tool execution → repeat)
       → MessageBus (outbound queue)
@@ -79,11 +79,12 @@ Channel (Telegram/Discord/Slack/WhatsApp)
 ### Feature Flags (channel selection)
 
 ```toml
-default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp"]
+default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio"]
 channel-telegram = ["dep:teloxide"]
 channel-discord = ["dep:serenity"]
 channel-slack = ["dep:tokio-tungstenite"]
 channel-whatsapp = ["dep:whatsapp-rust", ...]
+channel-twilio = ["dep:axum", "dep:hmac", "dep:sha1"]
 ```
 
 Channels are conditionally compiled via `#[cfg(feature = "channel-*")]` in `src/channels/mod.rs`.
@@ -94,7 +95,7 @@ Channels are conditionally compiled via `#[cfg(feature = "channel-*")]` in `src/
 
 ### Config
 
-JSON at `~/.nanobot/config.json` (or `NANOBOT_HOME` env var). Uses camelCase in JSON, snake_case in Rust (serde `rename` attrs). Schema in `src/config/schema.rs` — 10 structs have custom `Debug` impls that redact secrets. Validated on startup via `config.validate()`.
+JSON at `~/.nanobot/config.json` (or `NANOBOT_HOME` env var). Uses camelCase in JSON, snake_case in Rust (serde `rename` attrs). Schema in `src/config/schema.rs` — 11 structs have custom `Debug` impls that redact secrets. Validated on startup via `config.validate()`.
 
 ### Error Handling
 

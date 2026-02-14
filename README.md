@@ -4,7 +4,7 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 
 ## Features
 
-- **Multi-channel support**: Telegram, Discord, Slack, WhatsApp — each behind a Cargo feature flag for slim builds
+- **Multi-channel support**: Telegram, Discord, Slack, WhatsApp, Twilio (SMS/MMS) — each behind a Cargo feature flag for slim builds
 - **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), plus OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Moonshot, Zhipu, DashScope, vLLM), with OAuth support
 - **24 built-in tools**: Filesystem, shell, web, HTTP, Google Workspace, GitHub, scheduling, memory, media management, and more
 - **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
@@ -28,6 +28,7 @@ Each channel is behind a Cargo feature flag, so you can compile only what you ne
 | `channel-discord` | Discord (serenity) | Yes |
 | `channel-slack` | Slack (tokio-tungstenite) | Yes |
 | `channel-whatsapp` | WhatsApp (whatsapp-rust) | Yes |
+| `channel-twilio` | Twilio SMS/MMS (axum webhook) | Yes |
 
 ```bash
 # Full build (all channels)
@@ -111,6 +112,16 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
     "whatsapp": {
       "enabled": true,
       "allowFrom": ["phone_number1", "phone_number2"]
+    },
+    "twilio": {
+      "enabled": true,
+      "accountSid": "your-twilio-account-sid",
+      "authToken": "your-twilio-auth-token",
+      "phoneNumber": "+15551234567",
+      "webhookPort": 8080,
+      "webhookPath": "/twilio/webhook",
+      "webhookUrl": "https://your-server.example.com/twilio/webhook",
+      "allowFrom": []
     }
   },
   "tools": {
@@ -311,6 +322,59 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
    - Use phone numbers in international format (country code + number)
    - No spaces, dashes, or plus signs needed
    - Example: `"15037348571"` for US number `+1 (503) 734-8571`
+
+### Twilio (SMS/MMS)
+
+1. **Get credentials**:
+   - Sign up at https://console.twilio.com
+   - Copy your **Account SID** and **Auth Token** from the dashboard
+
+2. **Buy a phone number**:
+   - Go to **Phone Numbers > Buy a Number**
+   - Ensure SMS capability is checked
+   - Note the number in E.164 format (e.g. `+15551234567`)
+
+3. **Create a Conversation Service**:
+   - Go to **Messaging > Conversations > Manage > Create Service**
+   - Note the Conversation Service SID
+
+4. **Configure webhooks**:
+   - Go to **Conversations > Manage > [Your Service] > Webhooks**
+   - Set **Post-Webhook URL** to your nanobot server's public URL (e.g. `https://your-server.example.com/twilio/webhook`)
+   - Subscribe to events: **`onMessageAdded`**
+   - Method: **POST**
+
+5. **Add participants to conversations**:
+   Conversations need participants before messages flow. Via Twilio API or Console:
+   ```bash
+   curl -X POST "https://conversations.twilio.com/v1/Conversations/{ConversationSid}/Participants" \
+     -u "YOUR_ACCOUNT_SID:YOUR_AUTH_TOKEN" \
+     --data-urlencode "MessagingBinding.Address=+19876543210" \
+     --data-urlencode "MessagingBinding.ProxyAddress=+15551234567"
+   ```
+
+6. **Expose your webhook**:
+   The webhook server must be reachable from the internet. Options:
+   - **Cloudflare Tunnel** (recommended): `cloudflared tunnel run` — free, stable, no open ports
+   - **ngrok**: `ngrok http 8080` — quick for development
+   - **Reverse proxy**: nginx/caddy with TLS termination
+
+7. **Configure**:
+   ```json
+   "twilio": {
+     "enabled": true,
+     "accountSid": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "authToken": "your-auth-token",
+     "phoneNumber": "+15551234567",
+     "webhookPort": 8080,
+     "webhookPath": "/twilio/webhook",
+     "webhookUrl": "https://your-server.example.com/twilio/webhook",
+     "allowFrom": []
+   }
+   ```
+
+   - `webhookUrl` must match exactly what Twilio POSTs to (used for signature validation)
+   - `allowFrom` empty means all senders are allowed; add phone numbers to restrict
 
 ## Running
 
@@ -596,7 +660,7 @@ src/
 ├── agent/          # Agent loop, context, memory, tools, subagents, compaction, skills
 ├── auth/           # OAuth authentication (Google)
 ├── bus/            # Message bus for channel-agent communication
-├── channels/       # Channel implementations (Telegram, Discord, Slack, WhatsApp)
+├── channels/       # Channel implementations (Telegram, Discord, Slack, WhatsApp, Twilio)
 ├── cli/            # Command-line interface
 ├── config/         # Configuration schema and loader
 ├── cron/           # Cron job scheduling service
@@ -610,9 +674,9 @@ src/
 ## Architecture
 
 - **Async-first**: Built on `tokio` for high-performance async I/O
-- **Cargo feature flags**: Each channel is a compile-time feature (`channel-telegram`, `channel-discord`, `channel-slack`, `channel-whatsapp`), allowing slim builds without unused dependencies
+- **Cargo feature flags**: Each channel is a compile-time feature (`channel-telegram`, `channel-discord`, `channel-slack`, `channel-whatsapp`, `channel-twilio`), allowing slim builds without unused dependencies
 - **Message bus**: Decoupled channel-agent communication via inbound/outbound message bus
-- **Connection resilience**: All channels (Telegram, Discord, Slack, WhatsApp) use exponential backoff retry loops for automatic reconnection after disconnects
+- **Connection resilience**: All channels (Telegram, Discord, Slack, WhatsApp, Twilio) use exponential backoff retry loops for automatic reconnection after disconnects
 - **Channel edit/delete**: `BaseChannel` trait provides `send_and_get_id`, `edit_message`, and `delete_message` with default no-ops; implemented for Telegram, Discord, and Slack
 - **Session management**: SQLite-backed sessions with automatic TTL cleanup
 - **Memory**: SQLite FTS5 for semantic memory indexing with background indexer and automatic fact extraction
