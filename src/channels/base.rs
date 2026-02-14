@@ -41,6 +41,13 @@ pub trait BaseChannel: Send + Sync {
 }
 
 /// Split a message into chunks respecting UTF-8 character boundaries.
+#[cfg(any(
+    feature = "channel-telegram",
+    feature = "channel-discord",
+    feature = "channel-slack",
+    feature = "channel-whatsapp",
+    feature = "channel-twilio",
+))]
 pub fn split_message(text: &str, limit: usize) -> Vec<String> {
     if text.len() <= limit {
         return vec![text.to_string()];
@@ -90,6 +97,13 @@ pub fn split_message(text: &str, limit: usize) -> Vec<String> {
 }
 
 #[cfg(test)]
+#[cfg(any(
+    feature = "channel-telegram",
+    feature = "channel-discord",
+    feature = "channel-slack",
+    feature = "channel-whatsapp",
+    feature = "channel-twilio",
+))]
 mod tests {
     use super::*;
 

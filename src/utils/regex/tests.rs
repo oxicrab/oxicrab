@@ -8,12 +8,26 @@ fn ansi_escape_matches() {
 }
 
 #[test]
+#[cfg(any(
+    feature = "channel-telegram",
+    feature = "channel-discord",
+    feature = "channel-slack",
+    feature = "channel-whatsapp",
+    feature = "channel-twilio",
+))]
 fn markdown_bold_matches() {
     assert!(RegexPatterns::markdown_bold().is_match("**bold**"));
     assert!(!RegexPatterns::markdown_bold().is_match("*italic*"));
 }
 
 #[test]
+#[cfg(any(
+    feature = "channel-telegram",
+    feature = "channel-discord",
+    feature = "channel-slack",
+    feature = "channel-whatsapp",
+    feature = "channel-twilio",
+))]
 fn markdown_link_captures() {
     let caps = RegexPatterns::markdown_link()
         .captures("[text](http://example.com)")
@@ -40,6 +54,13 @@ fn compile_regex_invalid() {
 }
 
 #[test]
+#[cfg(any(
+    feature = "channel-telegram",
+    feature = "channel-discord",
+    feature = "channel-slack",
+    feature = "channel-whatsapp",
+    feature = "channel-twilio",
+))]
 fn slack_mention_matches() {
     let re = compile_slack_mention("U12345").unwrap();
     assert!(re.is_match("<@U12345>"));
