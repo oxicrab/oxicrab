@@ -147,14 +147,18 @@ impl LLMProvider for OpenAIProvider {
                 if let Some(tool_calls) = msg.tool_calls {
                     m["tool_calls"] = json!(tool_calls
                         .into_iter()
-                        .map(|tc| json!({
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.name,
-                                "arguments": tc.arguments
-                            }
-                        }))
+                        .map(|tc| {
+                            let args_str = serde_json::to_string(&tc.arguments)
+                                .unwrap_or_else(|_| "{}".to_string());
+                            json!({
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.name,
+                                    "arguments": args_str
+                                }
+                            })
+                        })
                         .collect::<Vec<_>>());
                 }
 

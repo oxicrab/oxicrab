@@ -119,3 +119,171 @@ fn snake_to_camel(name: &str) -> String {
             })
             .collect::<String>()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_snake_to_camel_simple() {
+        assert_eq!(snake_to_camel("hello_world"), "helloWorld");
+    }
+
+    #[test]
+    fn test_snake_to_camel_single_word() {
+        assert_eq!(snake_to_camel("hello"), "hello");
+    }
+
+    #[test]
+    fn test_snake_to_camel_multiple_underscores() {
+        assert_eq!(snake_to_camel("max_tool_iterations"), "maxToolIterations");
+    }
+
+    #[test]
+    fn test_snake_to_camel_empty() {
+        assert_eq!(snake_to_camel(""), "");
+    }
+
+    #[test]
+    fn test_snake_to_camel_already_camel() {
+        assert_eq!(snake_to_camel("alreadyCamel"), "alreadyCamel");
+    }
+
+    #[test]
+    fn test_convert_to_camel_nested() {
+        let input = serde_json::json!({
+            "max_tokens": 8192,
+            "api_key": "test"
+        });
+        let result = convert_to_camel(input);
+        assert!(result.get("maxTokens").is_some());
+        assert!(result.get("apiKey").is_some());
+        assert!(result.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn test_convert_to_camel_array() {
+        let input = serde_json::json!([{"some_key": 1}, {"another_key": 2}]);
+        let result = convert_to_camel(input);
+        let arr = result.as_array().unwrap();
+        assert!(arr[0].get("someKey").is_some());
+        assert!(arr[1].get("anotherKey").is_some());
+    }
+
+    #[test]
+    fn test_convert_to_camel_scalar_passthrough() {
+        assert_eq!(
+            convert_to_camel(serde_json::json!(42)),
+            serde_json::json!(42)
+        );
+        assert_eq!(
+            convert_to_camel(serde_json::json!("hello")),
+            serde_json::json!("hello")
+        );
+        assert_eq!(
+            convert_to_camel(serde_json::json!(true)),
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            convert_to_camel(serde_json::json!(null)),
+            serde_json::json!(null)
+        );
+    }
+
+    #[test]
+    fn test_migrate_config_moves_restrict_to_workspace() {
+        let input = serde_json::json!({
+            "tools": {
+                "exec": {
+                    "timeout": 60,
+                    "restrictToWorkspace": true
+                }
+            }
+        });
+        let result = migrate_config(input);
+        let tools = result.get("tools").unwrap();
+        assert_eq!(
+            tools.get("restrictToWorkspace"),
+            Some(&serde_json::json!(true))
+        );
+        // Should be removed from exec
+        let exec = tools.get("exec").unwrap();
+        assert!(exec.get("restrictToWorkspace").is_none());
+    }
+
+    #[test]
+    fn test_migrate_config_no_overwrite_existing() {
+        let input = serde_json::json!({
+            "tools": {
+                "restrictToWorkspace": false,
+                "exec": {
+                    "restrictToWorkspace": true
+                }
+            }
+        });
+        let result = migrate_config(input);
+        let tools = result.get("tools").unwrap();
+        // Should keep the existing top-level value (false), not overwrite
+        assert_eq!(
+            tools.get("restrictToWorkspace"),
+            Some(&serde_json::json!(false))
+        );
+    }
+
+    #[test]
+    fn test_migrate_config_no_tools_key() {
+        let input = serde_json::json!({"agents": {}});
+        let result = migrate_config(input.clone());
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_load_config_missing_file_returns_default() {
+        let path = std::path::Path::new("/tmp/nonexistent_nanobot_config_test.json");
+        let config = load_config(Some(path)).unwrap();
+        assert_eq!(config.agents.defaults.model, "claude-sonnet-4-5-20250929");
+    }
+
+    #[test]
+    fn test_load_config_minimal_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, "{}").unwrap();
+        let config = load_config(Some(&path)).unwrap();
+        assert_eq!(config.agents.defaults.max_tokens, 8192);
+    }
+
+    #[test]
+    fn test_save_and_load_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let config = Config::default();
+        save_config(&config, Some(&path)).unwrap();
+        let loaded = load_config(Some(&path)).unwrap();
+        assert_eq!(loaded.agents.defaults.model, config.agents.defaults.model);
+        assert_eq!(
+            loaded.agents.defaults.max_tokens,
+            config.agents.defaults.max_tokens
+        );
+        assert!(
+            (loaded.agents.defaults.temperature - config.agents.defaults.temperature).abs()
+                < f32::EPSILON
+        );
+    }
+
+    #[test]
+    fn test_load_config_with_local_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(
+            &path,
+            r#"{"agents": {"defaults": {"localModel": "ollama/qwen3-coder:30b"}}}"#,
+        )
+        .unwrap();
+        let config = load_config(Some(&path)).unwrap();
+        assert_eq!(
+            config.agents.defaults.local_model.as_deref(),
+            Some("ollama/qwen3-coder:30b")
+        );
+    }
+}

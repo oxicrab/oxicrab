@@ -46,9 +46,11 @@ impl TranscriptionService {
             let model_path = expand_tilde(&config.local_model_path);
             if model_path.exists() {
                 info!("loading whisper model from {}", model_path.display());
+                let mut ctx_params = WhisperContextParameters::default();
+                ctx_params.use_gpu(false);
                 match WhisperContext::new_with_params(
                     model_path.to_str().unwrap_or_default(),
-                    WhisperContextParameters::default(),
+                    ctx_params,
                 ) {
                     Ok(ctx) => {
                         info!("whisper model loaded successfully");

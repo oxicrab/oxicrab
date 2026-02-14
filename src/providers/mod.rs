@@ -3,6 +3,7 @@ pub mod anthropic_common;
 pub mod anthropic_oauth;
 pub mod base;
 pub mod errors;
+pub mod fallback;
 pub mod gemini;
 pub mod openai;
 pub mod strategy;

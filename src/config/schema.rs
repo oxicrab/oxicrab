@@ -278,6 +278,8 @@ pub struct AgentDefaults {
         rename = "maxConcurrentSubagents"
     )]
     pub max_concurrent_subagents: usize,
+    #[serde(default, rename = "localModel")]
+    pub local_model: Option<String>,
 }
 
 impl Default for AgentDefaults {
@@ -294,6 +296,7 @@ impl Default for AgentDefaults {
             memory_indexer_interval: default_memory_indexer_interval(),
             media_ttl_days: default_media_ttl_days(),
             max_concurrent_subagents: default_max_concurrent_subagents(),
+            local_model: None,
         }
     }
 }
@@ -444,6 +447,8 @@ pub struct ProvidersConfig {
     pub gemini: ProviderConfig,
     #[serde(default)]
     pub moonshot: ProviderConfig,
+    #[serde(default)]
+    pub ollama: ProviderConfig,
 }
 
 impl ProvidersConfig {
@@ -486,6 +491,9 @@ impl ProvidersConfig {
         }
         if model_lower.contains("vllm") && !self.vllm.api_key.is_empty() {
             return Some(&self.vllm.api_key);
+        }
+        if model_lower.contains("ollama") && !self.ollama.api_key.is_empty() {
+            return Some(&self.ollama.api_key);
         }
 
         // Fallback: first available key
@@ -1174,6 +1182,22 @@ impl Config {
 
         let model = model.unwrap_or(&self.agents.defaults.model);
         let factory = ProviderFactory::new(self);
+
+        if let Some(ref local_model) = self.agents.defaults.local_model {
+            if !local_model.is_empty() {
+                let local = factory.create_provider(local_model).await?;
+                let cloud = factory.create_provider(model).await?;
+                return Ok(std::sync::Arc::new(
+                    crate::providers::fallback::FallbackProvider::new(
+                        local,
+                        cloud,
+                        local_model.clone(),
+                        model.to_string(),
+                    ),
+                ));
+            }
+        }
+
         factory.create_provider(model).await
     }
 }

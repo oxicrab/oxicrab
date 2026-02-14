@@ -24,6 +24,7 @@ const OPENAI_COMPAT_PROVIDERS: &[(&str, &str)] = &[
         "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
     ),
     ("vllm", "http://localhost:8000/v1/chat/completions"),
+    ("ollama", "http://localhost:11434/v1/chat/completions"),
 ];
 
 /// Strategy for creating LLM providers based on model name
@@ -188,6 +189,7 @@ impl ApiKeyProviderStrategy {
             "zhipu" => Some(&self.config.zhipu),
             "dashscope" => Some(&self.config.dashscope),
             "vllm" => Some(&self.config.vllm),
+            "ollama" => Some(&self.config.ollama),
             _ => None,
         }
     }
@@ -203,8 +205,10 @@ impl ApiKeyProviderStrategy {
                 continue;
             }
 
+            // Local providers (ollama, vllm) don't require API keys
+            let is_local = matches!(keyword, "ollama" | "vllm");
             let provider_config = self.get_provider_config(keyword)?;
-            if provider_config.api_key.is_empty() {
+            if provider_config.api_key.is_empty() && !is_local {
                 return None;
             }
 
@@ -216,14 +220,23 @@ impl ApiKeyProviderStrategy {
 
             let provider_name = keyword[..1].to_uppercase() + &keyword[1..];
 
+            // Strip the "keyword/" prefix if present — providers expect the bare model name
+            let api_model =
+                model_lower
+                    .strip_prefix(&format!("{}/", keyword))
+                    .map_or(model, |suffix| {
+                        // Preserve original casing from the user's model string
+                        &model[model.len() - suffix.len()..]
+                    });
+
             info!(
-                "Using OpenAI-compatible provider ({}) for model: {}",
-                provider_name, model
+                "Using OpenAI-compatible provider ({}) for model: {} (api_model: {})",
+                provider_name, model, api_model
             );
 
             return Some(Arc::new(OpenAIProvider::with_config(
                 provider_config.api_key.clone(),
-                model.to_string(),
+                api_model.to_string(),
                 base_url,
                 provider_name,
             )));
@@ -356,6 +369,83 @@ mod tests {
         let strategy = ApiKeyProviderStrategy::new(config);
         let provider = strategy.try_openai_compat("groq/llama-3.1-70b");
         assert!(provider.is_some());
-        assert_eq!(provider.unwrap().default_model(), "groq/llama-3.1-70b");
+        // Prefix stripped: "groq/llama-3.1-70b" → "llama-3.1-70b"
+        assert_eq!(provider.unwrap().default_model(), "llama-3.1-70b");
+    }
+
+    #[test]
+    fn test_ollama_routing_no_api_key() {
+        // Ollama should work without an API key
+        let config = ProvidersConfig::default();
+        let strategy = ApiKeyProviderStrategy::new(config);
+        let provider = strategy.try_openai_compat("ollama/qwen3-coder:30b");
+        assert!(
+            provider.is_some(),
+            "ollama should route even without an API key"
+        );
+        // Prefix stripped: "ollama/qwen3-coder:30b" → "qwen3-coder:30b"
+        assert_eq!(provider.unwrap().default_model(), "qwen3-coder:30b");
+    }
+
+    #[test]
+    fn test_ollama_routing_with_api_key() {
+        let mut config = ProvidersConfig::default();
+        config.ollama.api_key = "optional-key".to_string();
+        let strategy = ApiKeyProviderStrategy::new(config);
+        let provider = strategy.try_openai_compat("ollama/llama3");
+        assert!(provider.is_some());
+    }
+
+    #[test]
+    fn test_ollama_custom_api_base() {
+        let mut config = ProvidersConfig::default();
+        config.ollama.api_base = Some("http://192.168.1.100:11434/v1/chat/completions".to_string());
+        let strategy = ApiKeyProviderStrategy::new(config);
+        let provider = strategy.try_openai_compat("ollama/qwen3-coder:30b");
+        assert!(provider.is_some());
+    }
+
+    #[test]
+    fn test_vllm_routing_no_api_key() {
+        // vLLM should also work without an API key
+        let config = ProvidersConfig::default();
+        let strategy = ApiKeyProviderStrategy::new(config);
+        let provider = strategy.try_openai_compat("vllm/my-model");
+        assert!(
+            provider.is_some(),
+            "vllm should route even without an API key"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ollama_routes_through_create_provider() {
+        let config = ProvidersConfig::default();
+        let strategy = ApiKeyProviderStrategy::new(config);
+        let result = strategy
+            .create_provider("ollama/qwen3-coder:30b")
+            .await
+            .unwrap();
+        assert!(result.is_some());
+        // Prefix stripped
+        assert_eq!(result.unwrap().default_model(), "qwen3-coder:30b");
+    }
+
+    #[test]
+    fn test_get_provider_config_ollama() {
+        let config = ProvidersConfig::default();
+        let strategy = ApiKeyProviderStrategy::new(config);
+        assert!(strategy.get_provider_config("ollama").is_some());
+    }
+
+    #[test]
+    fn test_non_local_provider_still_needs_key() {
+        // Deepseek should still fail without an API key
+        let config = ProvidersConfig::default();
+        let strategy = ApiKeyProviderStrategy::new(config);
+        let provider = strategy.try_openai_compat("deepseek-chat");
+        assert!(
+            provider.is_none(),
+            "deepseek should return None without an API key"
+        );
     }
 }
