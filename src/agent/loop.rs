@@ -348,6 +348,64 @@ fn strip_image_tags(content: &str) -> String {
     result.trim().to_string()
 }
 
+/// Replace `[audio: /path/to/file]` tags with a notice when transcription is not configured.
+/// This ensures the LLM knows a voice message was sent even without transcription.
+fn strip_audio_tags(content: &str) -> String {
+    let mut result = String::with_capacity(content.len());
+    let mut remaining = content;
+    while let Some(start) = remaining.find("[audio: ") {
+        result.push_str(&remaining[..start]);
+        if let Some(end) = remaining[start..].find(']') {
+            result.push_str("[Voice message received, but transcription is not configured]");
+            remaining = &remaining[start + end + 1..];
+        } else {
+            remaining = &remaining[start..];
+            break;
+        }
+    }
+    result.push_str(remaining);
+    result.trim().to_string()
+}
+
+/// Replace `[audio: /path/to/file]` tags with transcribed text.
+async fn transcribe_audio_tags(
+    content: &str,
+    transcriber: &crate::utils::transcription::TranscriptionService,
+) -> String {
+    use std::fmt::Write;
+
+    let mut result = String::with_capacity(content.len());
+    let mut remaining = content;
+    while let Some(start) = remaining.find("[audio: ") {
+        result.push_str(&remaining[..start]);
+        let after_tag = &remaining[start + 8..]; // skip "[audio: "
+        if let Some(end) = after_tag.find(']') {
+            let path_str = &after_tag[..end];
+            let path = std::path::Path::new(path_str);
+            match transcriber.transcribe(path).await {
+                Ok(text) if !text.is_empty() => {
+                    info!("transcribed audio: {} -> {} chars", path_str, text.len());
+                    let _ = write!(result, "[Voice message: \"{}\"]", text);
+                }
+                Ok(_) => {
+                    warn!("empty transcription for {}", path_str);
+                    result.push_str("[Voice message: transcription empty]");
+                }
+                Err(e) => {
+                    warn!("transcription failed for {}: {}", path_str, e);
+                    result.push_str("[Voice message: transcription failed]");
+                }
+            }
+            remaining = &after_tag[end + 1..];
+        } else {
+            remaining = &remaining[start..];
+            break;
+        }
+    }
+    result.push_str(remaining);
+    result
+}
+
 /// Delete media files older than the given TTL (in days).
 fn cleanup_old_media(ttl_days: u32) -> Result<()> {
     let media_dir = dirs::home_dir()
@@ -466,6 +524,8 @@ pub struct AgentLoopConfig {
     pub media_ttl_days: u32,
     /// Maximum concurrent subagents (default 5)
     pub max_concurrent_subagents: usize,
+    /// Voice transcription configuration
+    pub voice_config: Option<crate::config::VoiceConfig>,
 }
 
 pub struct AgentLoop {
@@ -489,6 +549,7 @@ pub struct AgentLoop {
     tool_temperature: f32,
     max_tokens: u32,
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
+    transcriber: Option<Arc<crate::utils::transcription::TranscriptionService>>,
 }
 
 impl AgentLoop {
@@ -522,6 +583,7 @@ impl AgentLoop {
             memory_indexer_interval,
             media_ttl_days,
             max_concurrent_subagents,
+            voice_config,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -740,6 +802,13 @@ impl AgentLoop {
 
         let tools = Arc::new(Mutex::new(tools));
 
+        let transcriber = voice_config
+            .as_ref()
+            .and_then(|vc| {
+                crate::utils::transcription::TranscriptionService::new(&vc.transcription)
+            })
+            .map(Arc::new);
+
         let compactor = if compaction_config.enabled {
             Some(Arc::new(MessageCompactor::new(
                 provider.clone() as Arc<dyn LLMProvider>,
@@ -770,6 +839,7 @@ impl AgentLoop {
             tool_temperature,
             max_tokens,
             typing_tx,
+            transcriber,
         })
     }
 
@@ -886,16 +956,37 @@ impl AgentLoop {
         let history = self.get_compacted_history(&session).await?;
         debug!("Got {} history messages", history.len());
 
-        // Load and encode any attached images
-        let images = if msg.media.is_empty() {
+        // Transcribe any audio files before other processing
+        let msg_content = if let Some(ref transcriber) = self.transcriber {
+            transcribe_audio_tags(&msg.content, transcriber).await
+        } else {
+            strip_audio_tags(&msg.content)
+        };
+
+        // Load and encode any attached images (skip audio files)
+        let audio_extensions = ["ogg", "mp3", "mp4", "m4a", "wav", "webm", "flac", "oga"];
+        let image_media: Vec<String> = msg
+            .media
+            .iter()
+            .filter(|p| {
+                let ext = std::path::Path::new(p)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                !audio_extensions.contains(&ext)
+            })
+            .cloned()
+            .collect();
+
+        let images = if image_media.is_empty() {
             vec![]
         } else {
             info!(
                 "Loading {} media files for LLM: {:?}",
-                msg.media.len(),
-                msg.media
+                image_media.len(),
+                image_media
             );
-            let imgs = load_and_encode_images(&msg.media);
+            let imgs = load_and_encode_images(&image_media);
             info!("Encoded {} images for LLM", imgs.len());
             imgs
         };
@@ -904,9 +995,9 @@ impl AgentLoop {
         // since the LLM receives them as content blocks and doesn't need the file paths
         // (which can cause it to try read_file on binary image data).
         let content = if images.is_empty() {
-            msg.content.clone()
+            msg_content
         } else {
-            strip_image_tags(&msg.content)
+            strip_image_tags(&msg_content)
         };
 
         debug!("Acquiring context lock");

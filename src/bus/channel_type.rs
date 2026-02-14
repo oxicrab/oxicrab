@@ -8,6 +8,7 @@ pub enum ChannelType {
     Discord,
     Slack,
     WhatsApp,
+    Twilio,
     System,
     Cli,
 }
@@ -19,6 +20,7 @@ impl ChannelType {
             ChannelType::Discord => "discord",
             ChannelType::Slack => "slack",
             ChannelType::WhatsApp => "whatsapp",
+            ChannelType::Twilio => "twilio",
             ChannelType::System => "system",
             ChannelType::Cli => "cli",
         }
@@ -34,6 +36,7 @@ impl std::str::FromStr for ChannelType {
             "discord" => Ok(ChannelType::Discord),
             "slack" => Ok(ChannelType::Slack),
             "whatsapp" => Ok(ChannelType::WhatsApp),
+            "twilio" => Ok(ChannelType::Twilio),
             "system" => Ok(ChannelType::System),
             "cli" => Ok(ChannelType::Cli),
             _ => Err(format!("Unknown channel type: {}", s)),
@@ -72,6 +75,7 @@ mod tests {
             ChannelType::Discord,
             ChannelType::Slack,
             ChannelType::WhatsApp,
+            ChannelType::Twilio,
             ChannelType::System,
             ChannelType::Cli,
         ];

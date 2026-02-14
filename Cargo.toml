@@ -17,15 +17,17 @@ name = "nanobot"
 path = "src/main.rs"
 
 [features]
-default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp"]
+default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio"]
 channel-telegram = ["dep:teloxide"]
 channel-discord = ["dep:serenity"]
 channel-slack = ["dep:tokio-tungstenite"]
 channel-whatsapp = ["dep:whatsapp-rust", "dep:whatsapp-rust-tokio-transport", "dep:whatsapp-rust-ureq-http-client", "dep:qr2term", "dep:qrcode"]
+channel-twilio = ["dep:axum", "dep:hmac", "dep:sha1"]
 
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
+axum = { version = "0.8", optional = true }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
@@ -33,8 +35,10 @@ clap = { version = "4.5", features = ["derive"] }
 cron = "0.15"
 dirs = "5.0"
 fastrand = "2.0"
+form_urlencoded = "1.2"
 futures-util = "0.3"
 hex = "0.4"
+hmac = { version = "0.12", optional = true }
 html-escape = "0.2"
 lru = "0.16"
 oauth2 = "5.0"
@@ -49,6 +53,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml_ng = "0.10"
 serenity = { version = "0.12", optional = true }
+sha1 = { version = "0.10", optional = true }
 sha2 = "0.10"
 teloxide = { version = "0.17", optional = true }
 tempfile = "3.25"
@@ -66,6 +71,7 @@ whatsapp-rust = { git = "https://github.com/jlucaso1/whatsapp-rust", rev = "1a56
 whatsapp-rust-tokio-transport = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-tokio-transport", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
 whatsapp-rust-ureq-http-client = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-ureq-http-client", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
 which = "8.0"
+whisper-rs = { version = "0.15", features = ["tracing_backend", "cuda"] }
 
 # Security: Force minimum versions of transitive dependencies to resolve vulnerabilities
 # - CVE-2022-23639 / GHSA-qc84-gqf4-9926: crossbeam-utils AtomicCell unsoundness (fixed in >= 0.8.7)

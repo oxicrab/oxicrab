@@ -684,7 +684,15 @@ async fn handle_slack_event(
     if let Some(files) = event.get("files").and_then(Value::as_array) {
         for file in files {
             if let Some(mimetype) = file.get("mimetype").and_then(Value::as_str) {
-                if mimetype.starts_with("image/") {
+                // Slack voice clips use subtype "slack_audio" but often have
+                // video/mp4 or video/webm as their MIME type
+                let is_slack_voice = file
+                    .get("subtype")
+                    .and_then(Value::as_str)
+                    .is_some_and(|s| s == "slack_audio");
+                let is_audio = mimetype.starts_with("audio/") || is_slack_voice;
+
+                if mimetype.starts_with("image/") && !is_slack_voice {
                     if let (Some(file_url), Some(file_id)) = (
                         file.get("url_private_download").and_then(Value::as_str),
                         file.get("id").and_then(Value::as_str),
@@ -729,6 +737,41 @@ async fn handle_slack_event(
                                 }
                             }
                             Err(e) => warn!("Failed to download Slack file: {}", e),
+                        }
+                    }
+                } else if is_audio {
+                    if let (Some(file_url), Some(file_id)) = (
+                        file.get("url_private_download").and_then(Value::as_str),
+                        file.get("id").and_then(Value::as_str),
+                    ) {
+                        let ext = match mimetype {
+                            "audio/mpeg" => ".mp3",
+                            "audio/wav" => ".wav",
+                            "audio/webm" | "video/webm" => ".webm",
+                            "audio/mp4" | "video/mp4" => ".mp4",
+                            "audio/flac" => ".flac",
+                            _ => ".ogg",
+                        };
+                        let media_dir = dirs::home_dir()
+                            .unwrap_or_else(|| std::path::PathBuf::from("."))
+                            .join(".nanobot")
+                            .join("media");
+                        if let Err(e) = std::fs::create_dir_all(&media_dir) {
+                            warn!("Failed to create media directory: {}", e);
+                        }
+                        let file_path = media_dir.join(format!("slack_{}{}", file_id, ext));
+
+                        match download_slack_file(client, bot_token, file_url).await {
+                            Ok(bytes) => {
+                                info!("Downloaded Slack audio: {} bytes", bytes.len());
+                                if let Err(e) = std::fs::write(&file_path, &bytes) {
+                                    warn!("Failed to write Slack audio file: {}", e);
+                                }
+                                let path_str = file_path.to_string_lossy().to_string();
+                                media_paths.push(path_str.clone());
+                                content_parts.push(format!("[audio: {}]", path_str));
+                            }
+                            Err(e) => warn!("Failed to download Slack audio file: {}", e),
                         }
                     }
                 } else {

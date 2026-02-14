@@ -520,7 +520,7 @@ impl Tool for CronTool {
 mod tests {
     use super::*;
     use crate::config::{
-        ChannelsConfig, DiscordConfig, SlackConfig, TelegramConfig, WhatsAppConfig,
+        ChannelsConfig, DiscordConfig, SlackConfig, TelegramConfig, TwilioConfig, WhatsAppConfig,
     };
 
     fn make_test_channels_config() -> ChannelsConfig {
@@ -546,6 +546,7 @@ mod tests {
                 enabled: true,
                 allow_from: vec!["+15551234567".to_string()],
             },
+            twilio: TwilioConfig::default(),
         }
     }
 

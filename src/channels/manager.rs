@@ -6,6 +6,8 @@ use crate::channels::discord::DiscordChannel;
 use crate::channels::slack::SlackChannel;
 #[cfg(feature = "channel-telegram")]
 use crate::channels::telegram::TelegramChannel;
+#[cfg(feature = "channel-twilio")]
+use crate::channels::twilio::TwilioChannel;
 #[cfg(feature = "channel-whatsapp")]
 use crate::channels::whatsapp::WhatsAppChannel;
 use crate::config::Config;
@@ -85,6 +87,26 @@ impl ChannelManager {
         #[cfg(not(feature = "channel-whatsapp"))]
         if config.channels.whatsapp.enabled {
             warn!("WhatsApp is enabled in config but not compiled (missing 'channel-whatsapp' feature)");
+        }
+
+        #[cfg(feature = "channel-twilio")]
+        if config.channels.twilio.enabled
+            && !config.channels.twilio.account_sid.is_empty()
+            && !config.channels.twilio.auth_token.is_empty()
+        {
+            debug!("Initializing Twilio channel...");
+            channels.push(Box::new(TwilioChannel::new(
+                config.channels.twilio.clone(),
+                inbound_tx.clone(),
+            )));
+            enabled.push("twilio".to_string());
+            info!("Twilio channel enabled");
+        }
+        #[cfg(not(feature = "channel-twilio"))]
+        if config.channels.twilio.enabled {
+            warn!(
+                "Twilio is enabled in config but not compiled (missing 'channel-twilio' feature)"
+            );
         }
 
         Self {

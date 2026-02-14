@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build & Development
 
-Requires **Rust nightly** (pinned to `nightly-2026-02-06` in CI) and system deps: `libssl-dev pkg-config`.
+Requires **Rust nightly** (pinned to `nightly-2026-02-06` in CI) and system deps: `libssl-dev pkg-config cmake`. Voice transcription also requires `ffmpeg`.
 
 ```bash
 # Build (all channels)
@@ -87,6 +87,10 @@ channel-whatsapp = ["dep:whatsapp-rust", ...]
 ```
 
 Channels are conditionally compiled via `#[cfg(feature = "channel-*")]` in `src/channels/mod.rs`.
+
+### Voice Transcription (`src/utils/transcription.rs`)
+
+`TranscriptionService` supports two backends: local (whisper-rs + ffmpeg) and cloud (Whisper API). Routing controlled by `prefer_local` config flag — tries preferred backend first, falls back to the other. Local inference runs whisper.cpp via `spawn_blocking`; audio converted to 16kHz mono f32 PCM via ffmpeg subprocess. `TranscriptionService::new()` returns `Some` if at least one backend is available.
 
 ### Config
 

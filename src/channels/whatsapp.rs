@@ -197,9 +197,17 @@ impl BaseChannel for WhatsAppChannel {
                                             None
                                         };
 
+                                    // Try audio message
+                                    let audio_download: Option<(&dyn whatsapp_rust::download::Downloadable, Option<&str>)> =
+                                        if let Some(ref audio) = base_msg.audio_message {
+                                            Some((&**audio, audio.mimetype.as_deref()))
+                                        } else {
+                                            None
+                                        };
+
                                     if let Some((downloadable, mimetype)) = image_download {
                                         content = msg.get_caption().unwrap_or("").to_string();
-                                        match download_whatsapp_media(&client, downloadable, mimetype, &info.id).await {
+                                        match download_whatsapp_media(&client, downloadable, mimetype, &info.id, "image").await {
                                             Ok(path) => {
                                                 media_paths.push(path.clone());
                                                 if content.is_empty() {
@@ -212,6 +220,24 @@ impl BaseChannel for WhatsAppChannel {
                                                 warn!("Failed to download WhatsApp media: {}", e);
                                                 if content.is_empty() {
                                                     content = "[Media Message - download failed]".to_string();
+                                                }
+                                            }
+                                        }
+                                    } else if let Some((downloadable, mimetype)) = audio_download {
+                                        content = msg.get_caption().unwrap_or("").to_string();
+                                        match download_whatsapp_media(&client, downloadable, mimetype, &info.id, "audio").await {
+                                            Ok(path) => {
+                                                media_paths.push(path.clone());
+                                                if content.is_empty() {
+                                                    content = format!("[audio: {}]", path);
+                                                } else {
+                                                    content = format!("{}\n[audio: {}]", content, path);
+                                                }
+                                            }
+                                            Err(e) => {
+                                                warn!("Failed to download WhatsApp audio: {}", e);
+                                                if content.is_empty() {
+                                                    content = "[Voice Message - download failed]".to_string();
                                                 }
                                             }
                                         }
@@ -516,6 +542,7 @@ async fn download_whatsapp_media(
     downloadable: &dyn whatsapp_rust::download::Downloadable,
     mimetype: Option<&str>,
     message_id: &str,
+    media_type: &str,
 ) -> Result<String> {
     let media_dir = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -529,7 +556,15 @@ async fn download_whatsapp_media(
         Some("image/webp") => "webp",
         Some("image/gif") => "gif",
         Some("image/jpeg" | "image/jpg") => "jpg",
+        Some("audio/ogg") => "ogg",
+        Some("audio/mpeg") => "mp3",
+        Some("audio/mp4") => "m4a",
+        Some("audio/wav") => "wav",
+        Some("audio/webm") => "webm",
+        Some("audio/flac") => "flac",
         Some(m) if m.starts_with("image/") => m.strip_prefix("image/").unwrap_or("bin"),
+        Some(m) if m.starts_with("audio/") => m.strip_prefix("audio/").unwrap_or("ogg"),
+        _ if media_type == "audio" => "ogg",
         _ => "jpg",
     };
     let file_path = media_dir.join(format!(

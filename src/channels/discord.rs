@@ -42,19 +42,34 @@ impl EventHandler for Handler {
         let mut media_paths = Vec::new();
         let mut content = msg.content.clone();
         for attachment in &msg.attachments {
-            let is_image = attachment
-                .content_type
-                .as_deref()
-                .is_some_and(|ct| ct.starts_with("image/"));
-            if !is_image {
+            let content_type = attachment.content_type.as_deref().unwrap_or("");
+            let is_image = content_type.starts_with("image/");
+            let is_audio = content_type.starts_with("audio/");
+            if !is_image && !is_audio {
                 continue;
             }
-            let ext = match attachment.content_type.as_deref().unwrap_or("") {
-                "image/jpeg" => "jpg",
-                "image/png" => "png",
-                "image/gif" => "gif",
-                "image/webp" => "webp",
-                _ => "bin",
+            let (ext, tag) = if is_image {
+                (
+                    match content_type {
+                        "image/jpeg" => "jpg",
+                        "image/png" => "png",
+                        "image/gif" => "gif",
+                        "image/webp" => "webp",
+                        _ => "bin",
+                    },
+                    "image",
+                )
+            } else {
+                (
+                    match content_type {
+                        "audio/mpeg" => "mp3",
+                        "audio/wav" => "wav",
+                        "audio/webm" => "webm",
+                        "audio/mp4" => "m4a",
+                        _ => "ogg",
+                    },
+                    "audio",
+                )
             };
             let media_dir = dirs::home_dir()
                 .unwrap_or_else(|| std::path::PathBuf::from("."))
@@ -73,7 +88,7 @@ impl EventHandler for Handler {
                         }
                         let path_str = file_path.to_string_lossy().to_string();
                         media_paths.push(path_str.clone());
-                        content = format!("{}\n[image: {}]", content, path_str);
+                        content = format!("{}\n[{}: {}]", content, tag, path_str);
                     }
                     Err(e) => warn!("Failed to download Discord attachment: {}", e),
                 },

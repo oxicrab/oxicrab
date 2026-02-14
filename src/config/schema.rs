@@ -99,6 +99,62 @@ impl std::fmt::Debug for SlackConfig {
     }
 }
 
+fn default_webhook_port() -> u16 {
+    8080
+}
+
+fn default_webhook_path() -> String {
+    "/twilio/webhook".to_string()
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct TwilioConfig {
+    pub enabled: bool,
+    #[serde(default, rename = "accountSid")]
+    pub account_sid: String,
+    #[serde(default, rename = "authToken")]
+    pub auth_token: String,
+    #[serde(default, rename = "phoneNumber")]
+    pub phone_number: String,
+    #[serde(default = "default_webhook_port", rename = "webhookPort")]
+    pub webhook_port: u16,
+    #[serde(default = "default_webhook_path", rename = "webhookPath")]
+    pub webhook_path: String,
+    #[serde(default, rename = "webhookUrl")]
+    pub webhook_url: String,
+    #[serde(default, rename = "allowFrom")]
+    pub allow_from: Vec<String>,
+}
+
+impl std::fmt::Debug for TwilioConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TwilioConfig")
+            .field("enabled", &self.enabled)
+            .field(
+                "account_sid",
+                &if self.account_sid.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field(
+                "auth_token",
+                &if self.auth_token.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("phone_number", &self.phone_number)
+            .field("webhook_port", &self.webhook_port)
+            .field("webhook_path", &self.webhook_path)
+            .field("webhook_url", &self.webhook_url)
+            .field("allow_from", &self.allow_from)
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ChannelsConfig {
     #[serde(default)]
@@ -109,6 +165,8 @@ pub struct ChannelsConfig {
     pub discord: DiscordConfig,
     #[serde(default)]
     pub slack: SlackConfig,
+    #[serde(default)]
+    pub twilio: TwilioConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -880,6 +938,77 @@ pub struct ToolsConfig {
     pub obsidian: ObsidianConfig,
 }
 
+fn default_transcription_api_base() -> String {
+    "https://api.groq.com/openai/v1/audio/transcriptions".to_string()
+}
+
+fn default_transcription_model() -> String {
+    "whisper-large-v3-turbo".to_string()
+}
+
+fn default_whisper_threads() -> u16 {
+    4
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct TranscriptionConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, rename = "apiKey")]
+    pub api_key: String,
+    #[serde(default = "default_transcription_api_base", rename = "apiBase")]
+    pub api_base: String,
+    #[serde(default = "default_transcription_model")]
+    pub model: String,
+    #[serde(default, rename = "localModelPath")]
+    pub local_model_path: String,
+    #[serde(default = "default_true", rename = "preferLocal")]
+    pub prefer_local: bool,
+    #[serde(default = "default_whisper_threads")]
+    pub threads: u16,
+}
+
+impl Default for TranscriptionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            api_key: String::new(),
+            api_base: default_transcription_api_base(),
+            model: default_transcription_model(),
+            local_model_path: String::new(),
+            prefer_local: true,
+            threads: default_whisper_threads(),
+        }
+    }
+}
+
+impl std::fmt::Debug for TranscriptionConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TranscriptionConfig")
+            .field("enabled", &self.enabled)
+            .field(
+                "api_key",
+                &if self.api_key.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("api_base", &self.api_base)
+            .field("model", &self.model)
+            .field("local_model_path", &self.local_model_path)
+            .field("prefer_local", &self.prefer_local)
+            .field("threads", &self.threads)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VoiceConfig {
+    #[serde(default)]
+    pub transcription: TranscriptionConfig,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
@@ -892,6 +1021,8 @@ pub struct Config {
     pub gateway: GatewayConfig,
     #[serde(default)]
     pub tools: ToolsConfig,
+    #[serde(default)]
+    pub voice: VoiceConfig,
 }
 
 impl Config {
@@ -986,6 +1117,30 @@ impl Config {
             if self.tools.obsidian.vault_name.is_empty() {
                 return Err(NanobotError::Config(
                     "tools.obsidian.vaultName is required when obsidian is enabled".into(),
+                ));
+            }
+        }
+
+        // Validate Twilio config
+        if self.channels.twilio.enabled {
+            if self.channels.twilio.account_sid.is_empty() {
+                return Err(NanobotError::Config(
+                    "channels.twilio.accountSid is required when twilio is enabled".into(),
+                ));
+            }
+            if self.channels.twilio.auth_token.is_empty() {
+                return Err(NanobotError::Config(
+                    "channels.twilio.authToken is required when twilio is enabled".into(),
+                ));
+            }
+            if self.channels.twilio.webhook_url.is_empty() {
+                return Err(NanobotError::Config(
+                    "channels.twilio.webhookUrl is required when twilio is enabled".into(),
+                ));
+            }
+            if self.channels.twilio.webhook_port == 0 {
+                return Err(NanobotError::Config(
+                    "channels.twilio.webhookPort must be > 0 when twilio is enabled".into(),
                 ));
             }
         }

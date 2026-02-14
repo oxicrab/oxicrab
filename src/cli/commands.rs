@@ -428,6 +428,7 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
             memory_indexer_interval: config.agents.defaults.memory_indexer_interval,
             media_ttl_days: config.agents.defaults.media_ttl_days,
             max_concurrent_subagents: config.agents.defaults.max_concurrent_subagents,
+            voice_config: Some(config.voice.clone()),
         })
         .await?,
     );
@@ -1248,6 +1249,19 @@ fn status_command() -> Result<()> {
         } else {
             println!("vLLM/Local: not set");
         }
+
+        // Voice transcription status
+        let has_cloud =
+            config.voice.transcription.enabled && !config.voice.transcription.api_key.is_empty();
+        let has_local = config.voice.transcription.enabled
+            && !config.voice.transcription.local_model_path.is_empty();
+        let voice_status = match (has_local, has_cloud) {
+            (true, true) => "✓ local + cloud fallback".to_string(),
+            (true, false) => "✓ local only".to_string(),
+            (false, true) => format!("✓ cloud only ({})", config.voice.transcription.model),
+            (false, false) => "not configured".to_string(),
+        };
+        println!("Voice transcription: {}", voice_status);
 
         // Google status
         let gcfg = &config.tools.google;

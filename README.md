@@ -14,6 +14,7 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 - **Hallucination detection**: Action claim detection, false no-tools-claim retry, tool facts injection, and reflection turns
 - **Editable status messages**: Tool progress shown as a single message that edits in-place (Telegram, Discord, Slack), with composing indicator and automatic cleanup
 - **Connection resilience**: All channels auto-reconnect with exponential backoff
+- **Voice transcription**: Local whisper.cpp inference (via whisper-rs) with cloud API fallback, automatic audio conversion via ffmpeg
 - **Security**: Shell command allowlist/blocklist, SSRF protection, path traversal prevention, secret redaction
 - **Async-first**: Built on Tokio for high-performance async I/O
 
@@ -160,6 +161,17 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
       "allowedCommands": ["ls", "grep", "git", "cargo"]
     },
     "restrictToWorkspace": true
+  },
+  "voice": {
+    "transcription": {
+      "enabled": true,
+      "localModelPath": "~/.nanobot/models/ggml-large-v3-turbo-q5_0.bin",
+      "preferLocal": true,
+      "threads": 4,
+      "apiKey": "your-groq-or-openai-api-key",
+      "apiBase": "https://api.groq.com/openai/v1/audio/transcriptions",
+      "model": "whisper-large-v3-turbo"
+    }
   }
 }
 ```
@@ -361,6 +373,44 @@ Jobs support optional auto-stop limits via the LLM tool interface:
 ./target/release/nanobot auth google
 ```
 
+### Voice Transcription
+
+Voice messages from channels are automatically transcribed to text. Two backends are supported:
+
+**Local (whisper-rs)** — On-device inference using whisper.cpp. Requires `ffmpeg` and a GGML model file:
+
+```bash
+# Install ffmpeg
+sudo apt install ffmpeg
+
+# Download the model (~574 MB)
+mkdir -p ~/.nanobot/models
+wget -O ~/.nanobot/models/ggml-large-v3-turbo-q5_0.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+```
+
+**Cloud (Whisper API)** — Uses Groq, OpenAI, or any OpenAI-compatible transcription endpoint. Requires an API key.
+
+Routing is controlled by `preferLocal` (default `true`):
+- `preferLocal: true` — tries local first, falls back to cloud if local fails
+- `preferLocal: false` — tries cloud first, falls back to local if no API key
+
+Either backend alone is sufficient. Set `localModelPath` for local, `apiKey` for cloud, or both for fallback.
+
+```json
+"voice": {
+  "transcription": {
+    "enabled": true,
+    "localModelPath": "~/.nanobot/models/ggml-large-v3-turbo-q5_0.bin",
+    "preferLocal": true,
+    "threads": 4,
+    "apiKey": "",
+    "apiBase": "https://api.groq.com/openai/v1/audio/transcriptions",
+    "model": "whisper-large-v3-turbo"
+  }
+}
+```
+
 ### Logging
 
 ```bash
@@ -530,6 +580,7 @@ The agent can spawn background subagents to handle complex tasks in parallel:
 │   │   └── YYYY-MM-DD.md    # Daily notes (auto-extracted facts)
 │   ├── sessions/            # Conversation sessions (per channel:chat_id)
 │   └── skills/              # Custom skills (SKILL.md per skill)
+├── models/                  # Whisper model files (e.g. ggml-large-v3-turbo-q5_0.bin)
 ├── backups/                 # Automatic file backups (up to 14 versions)
 ├── cron/
 │   └── jobs.json            # Scheduled jobs
@@ -553,7 +604,7 @@ src/
 ├── providers/      # LLM provider implementations (Anthropic, OpenAI, Gemini, OpenAI-compatible)
 ├── session/        # Session management with SQLite backend
 ├── errors.rs       # NanobotError typed error enum
-└── utils/          # URL security, atomic writes, task tracking
+└── utils/          # URL security, atomic writes, task tracking, voice transcription
 ```
 
 ## Architecture
@@ -573,6 +624,7 @@ src/
 - **Subagents**: Semaphore-limited background task execution with conversation context injection and parallel tool calls
 - **Cron**: File-backed job store with multi-channel target delivery, agent mode and echo mode, timezone auto-detection, auto-expiry (`expires_at`), run limits (`max_runs`), and automatic name deduplication
 - **Heartbeat/Daemon**: Periodic background check-ins driven by a strategy file (`HEARTBEAT.md`)
+- **Voice transcription**: Dual-backend transcription service (local whisper.cpp via `whisper-rs` + cloud Whisper API). Audio converted to 16kHz mono f32 PCM via ffmpeg subprocess; local inference runs on a blocking thread pool. Configurable routing (`preferLocal`) with automatic fallback between backends.
 - **Skills**: Extensible via workspace SKILL.md files with YAML frontmatter, dependency checking, and auto-include
 - **Hallucination detection**: Regex-based action claim detection, tool-name mention counting, and false no-tools-claim detection with automatic retry prevent the LLM from fabricating actions or denying tool access; first-iteration forced tool use prevents text-only hallucinations
 - **Security**: Shell command allowlist + blocklist with pipe/chain operator parsing; SSRF protection blocking private IPs, loopback, and metadata endpoints; path traversal prevention; OAuth credential file permissions (0o600); config secret redaction in Debug impls
@@ -583,7 +635,9 @@ src/
 
 - Rust (nightly toolchain required for WhatsApp support)
 - OpenSSL development libraries (`libssl-dev` on Debian/Ubuntu)
+- CMake and a C++ compiler (required to build whisper.cpp via `whisper-rs`)
 - SQLite (bundled via `rusqlite`)
+- ffmpeg (required for voice transcription audio conversion)
 
 ### Setting up Nightly Rust
 

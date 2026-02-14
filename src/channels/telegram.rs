@@ -149,6 +149,72 @@ impl BaseChannel for TelegramChannel {
                                 }
                             }
 
+                            // Handle voice messages
+                            if let Some(voice) = msg.voice() {
+                                let text = msg.caption().unwrap_or("").to_string();
+                                let mut media_paths = Vec::new();
+                                let mut content = text;
+
+                                match bot.get_file(voice.file.id.clone()).await {
+                                    Ok(file) => {
+                                        let media_dir = dirs::home_dir()
+                                            .unwrap_or_else(|| std::path::PathBuf::from("."))
+                                            .join(".nanobot")
+                                            .join("media");
+                                        if let Err(e) = std::fs::create_dir_all(&media_dir) {
+                                            warn!("Failed to create media directory: {}", e);
+                                        }
+                                        let file_path = media_dir
+                                            .join(format!("telegram_{}.ogg", voice.file.unique_id));
+
+                                        let mut dst =
+                                            tokio::fs::File::create(&file_path).await.map_err(|e| {
+                                                warn!(
+                                                    "Failed to create file for Telegram voice: {}",
+                                                    e
+                                                );
+                                                e
+                                            });
+                                        if let Ok(ref mut dst_file) = dst {
+                                            if let Err(e) =
+                                                bot.download_file(&file.path, dst_file).await
+                                            {
+                                                warn!(
+                                                    "Failed to download Telegram voice: {}",
+                                                    e
+                                                );
+                                            } else {
+                                                let path_str = file_path.to_string_lossy().to_string();
+                                                media_paths.push(path_str.clone());
+                                                content = format!("{}\n[audio: {}]", content, path_str);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!("Failed to get Telegram voice file info: {}", e);
+                                    }
+                                }
+
+                                if !content.trim().is_empty() || !media_paths.is_empty() {
+                                    let inbound_msg = InboundMessage {
+                                        channel: "telegram".to_string(),
+                                        sender_id,
+                                        chat_id: msg.chat.id.to_string(),
+                                        content,
+                                        timestamp: Utc::now(),
+                                        media: media_paths,
+                                        metadata: HashMap::new(),
+                                    };
+                                    if let Err(e) = inbound_tx.send(inbound_msg).await {
+                                        error!(
+                                            "Failed to send Telegram inbound message: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                                return Ok(());
+                            }
+
                             // Handle text-only messages
                             if let Some(text) = msg.text() {
                                 let inbound_msg = InboundMessage {

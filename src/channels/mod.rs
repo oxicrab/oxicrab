@@ -6,6 +6,8 @@ pub mod manager;
 pub mod slack;
 #[cfg(feature = "channel-telegram")]
 pub mod telegram;
+#[cfg(feature = "channel-twilio")]
+pub mod twilio;
 pub mod utils;
 #[cfg(feature = "channel-whatsapp")]
 pub mod whatsapp;

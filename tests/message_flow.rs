@@ -50,6 +50,7 @@ async fn create_test_agent(provider: MockLLMProvider, tmp: &TempDir) -> AgentLoo
         memory_indexer_interval: 300,
         media_ttl_days: 0, // Disable cleanup in tests
         max_concurrent_subagents: 5,
+        voice_config: None,
     };
 
     AgentLoop::new(config)
