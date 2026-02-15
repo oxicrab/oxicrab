@@ -53,8 +53,14 @@ impl BrowserTool {
             return Ok(());
         }
 
+        // Use a unique temp directory per session to avoid SingletonLock conflicts
+        // when previous browser instances crashed without cleanup
+        let user_data_dir =
+            std::env::temp_dir().join(format!("nanobot-chrome-{}", std::process::id()));
+
         let mut builder = ChromeBrowserConfig::builder()
             .no_sandbox()
+            .user_data_dir(&user_data_dir)
             .launch_timeout(Duration::from_secs(self.timeout))
             .request_timeout(Duration::from_secs(self.timeout));
 
@@ -64,6 +70,21 @@ impl BrowserTool {
 
         if let Some(ref path) = self.chrome_path {
             builder = builder.chrome_executable(path);
+        }
+
+        // Clean up stale SingletonLock files from previous crashes
+        for lock_dir in [
+            user_data_dir.clone(),
+            std::env::temp_dir().join("chromiumoxide-runner"),
+        ] {
+            let lock_path = lock_dir.join("SingletonLock");
+            if lock_path.exists() {
+                debug!(
+                    "removing stale browser SingletonLock: {}",
+                    lock_path.display()
+                );
+                let _ = std::fs::remove_file(&lock_path);
+            }
         }
 
         let browser_config = builder
@@ -533,6 +554,14 @@ impl BrowserTool {
                 warn!("error closing browser: {e}");
             }
             session.handler.abort();
+
+            // Clean up the per-process user data directory
+            let user_data_dir =
+                std::env::temp_dir().join(format!("nanobot-chrome-{}", std::process::id()));
+            if user_data_dir.exists() {
+                let _ = std::fs::remove_dir_all(&user_data_dir);
+            }
+
             Ok(ToolResult::new("Browser session closed".to_string()))
         } else {
             Ok(ToolResult::new("No browser session to close".to_string()))
