@@ -7,6 +7,7 @@ use chromiumoxide::page::ScreenshotParams;
 use chromiumoxide::Page;
 use futures::StreamExt;
 use serde_json::Value;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -16,6 +17,17 @@ struct BrowserSession {
     browser: Browser,
     page: Page,
     handler: tokio::task::JoinHandle<()>,
+    user_data_dir: PathBuf,
+}
+
+impl Drop for BrowserSession {
+    fn drop(&mut self) {
+        self.handler.abort();
+        // Clean up user data directory (Chrome process killed by chromiumoxide's Drop)
+        if self.user_data_dir.exists() {
+            let _ = std::fs::remove_dir_all(&self.user_data_dir);
+        }
+    }
 }
 
 pub struct BrowserTool {
@@ -106,6 +118,7 @@ impl BrowserTool {
             browser,
             page,
             handler: handler_task,
+            user_data_dir,
         });
 
         Ok(())
@@ -553,15 +566,8 @@ impl BrowserTool {
             if let Err(e) = session.browser.close().await {
                 warn!("error closing browser: {e}");
             }
-            session.handler.abort();
-
-            // Clean up the per-process user data directory
-            let user_data_dir =
-                std::env::temp_dir().join(format!("nanobot-chrome-{}", std::process::id()));
-            if user_data_dir.exists() {
-                let _ = std::fs::remove_dir_all(&user_data_dir);
-            }
-
+            // Drop handles handler.abort() and user_data_dir cleanup
+            drop(session);
             Ok(ToolResult::new("Browser session closed".to_string()))
         } else {
             Ok(ToolResult::new("No browser session to close".to_string()))
