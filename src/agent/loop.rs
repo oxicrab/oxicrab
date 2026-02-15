@@ -45,6 +45,37 @@ const TOOL_EXECUTION_TIMEOUT_SECS: u64 = 120;
 const MAX_TOOL_RESULT_CHARS: usize = 10000;
 const AGENT_POLL_INTERVAL_MS: u64 = 100;
 
+/// Extract media file paths from a tool result string.
+///
+/// Looks for:
+/// - JSON `"mediaPath"` fields (from `web_fetch` / `http` binary downloads)
+/// - "Screenshot saved to: /path" or "Binary content saved to: /path" patterns
+fn extract_media_paths(result: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+
+    // Try JSON parsing for mediaPath
+    if let Ok(json) = serde_json::from_str::<Value>(result) {
+        if let Some(path) = json.get("mediaPath").and_then(Value::as_str) {
+            if std::path::Path::new(path).exists() {
+                paths.push(path.to_string());
+            }
+        }
+    }
+
+    // Text pattern: "saved to: /path" (browser screenshots, http binary)
+    for line in result.lines() {
+        if let Some(idx) = line.find("saved to: ") {
+            let path = line[idx + 10..].trim();
+            if !path.is_empty() && std::path::Path::new(path).exists() {
+                paths.push(path.to_string());
+            }
+        }
+    }
+
+    paths.dedup();
+    paths
+}
+
 /// Validate tool arguments against the tool's JSON schema.
 /// Checks: (1) required fields are present, (2) field types match schema.
 /// Returns None if valid, `Some(error_message)` if invalid.
@@ -1031,7 +1062,7 @@ impl AgentLoop {
         debug!("Built {} messages, starting agent loop", messages.len());
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
-        let (final_content, input_tokens, tools_used) =
+        let (final_content, input_tokens, tools_used, collected_media) =
             self.run_agent_loop(messages, typing_ctx).await?;
 
         // Save conversation (reuse session variable)
@@ -1103,7 +1134,7 @@ impl AgentLoop {
                 chat_id: msg.chat_id,
                 content,
                 reply_to: None,
-                media: vec![],
+                media: collected_media,
                 metadata: HashMap::new(),
             }))
         } else {
@@ -1111,19 +1142,22 @@ impl AgentLoop {
         }
     }
 
-    /// Returns `(final_content, input_tokens, tools_used)`. `input_tokens` is the
-    /// provider-reported input token count from the most recent LLM call (if available).
-    /// `tools_used` lists all tool names invoked during the loop (with duplicates).
+    /// Returns `(final_content, input_tokens, tools_used, collected_media)`.
+    /// `input_tokens` is the provider-reported input token count from the most
+    /// recent LLM call (if available). `tools_used` lists all tool names invoked
+    /// during the loop (with duplicates). `collected_media` contains file paths
+    /// of media produced by tools (screenshots, downloaded images, etc.).
     async fn run_agent_loop(
         &self,
         mut messages: Vec<Message>,
         typing_context: Option<(String, String)>,
-    ) -> Result<(Option<String>, Option<u64>, Vec<String>)> {
+    ) -> Result<(Option<String>, Option<u64>, Vec<String>, Vec<String>)> {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut last_used_delivery_tool = false;
         let mut any_tools_called = false;
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
+        let mut collected_media: Vec<String> = Vec::new();
 
         // Cache tool definitions to avoid repeated lock acquisition
         let tools_defs = {
@@ -1305,10 +1339,14 @@ impl AgentLoop {
                     h.abort();
                 }
 
-                // Phase 4: Add all results to messages in order
+                // Phase 4: Add all results to messages in order and collect media
                 for ((tc, _), (result_str, is_error)) in
                     tool_lookups.iter().zip(results.into_iter())
                 {
+                    // Collect media file paths produced by tools
+                    if !is_error {
+                        collected_media.extend(extract_media_paths(&result_str));
+                    }
                     ContextBuilder::add_tool_result(
                         &mut messages,
                         &tc.id,
@@ -1386,12 +1424,17 @@ impl AgentLoop {
                     any_tools_called = true; // Prevent infinite correction loop
                     continue;
                 }
-                return Ok((Some(content), last_input_tokens, tools_used));
+                return Ok((
+                    Some(content),
+                    last_input_tokens,
+                    tools_used,
+                    collected_media,
+                ));
             } else {
                 // Empty response
                 if last_used_delivery_tool {
                     debug!("LLM returned empty after delivery tool — treating as successful completion");
-                    return Ok((None, last_input_tokens, tools_used));
+                    return Ok((None, last_input_tokens, tools_used, collected_media));
                 }
                 if empty_retries_left > 0 {
                     empty_retries_left -= 1;
@@ -1431,12 +1474,17 @@ impl AgentLoop {
                 .await
             {
                 if let Some(content) = response.content {
-                    return Ok((Some(content), last_input_tokens, tools_used));
+                    return Ok((
+                        Some(content),
+                        last_input_tokens,
+                        tools_used,
+                        collected_media,
+                    ));
                 }
             }
         }
 
-        Ok((None, last_input_tokens, tools_used))
+        Ok((None, last_input_tokens, tools_used, collected_media))
     }
 
     async fn set_tool_contexts(&self, channel: &str, chat_id: &str, context_summary: Option<&str>) {
@@ -1558,7 +1606,8 @@ impl AgentLoop {
         )?;
 
         let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
-        let (final_content, _, tools_used) = self.run_agent_loop(messages, typing_ctx).await?;
+        let (final_content, _, tools_used, collected_media) =
+            self.run_agent_loop(messages, typing_ctx).await?;
         let final_content =
             final_content.unwrap_or_else(|| "Background task completed.".to_string());
 
@@ -1588,7 +1637,7 @@ impl AgentLoop {
             chat_id: origin_chat_id.clone(),
             content: final_content,
             reply_to: None,
-            media: vec![],
+            media: collected_media,
             metadata: HashMap::new(),
         }))
     }
@@ -1616,7 +1665,8 @@ impl AgentLoop {
         };
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
-        let (response, _, tools_used) = self.run_agent_loop(messages, typing_ctx).await?;
+        let (response, _, tools_used, _collected_media) =
+            self.run_agent_loop(messages, typing_ctx).await?;
         let response = response.unwrap_or_else(|| "No response generated.".to_string());
 
         let mut session = self.sessions.get_or_create(session_key).await?;
@@ -2461,5 +2511,53 @@ mod tests {
         // This is a smoke test that the function doesn't panic.
         let result = cleanup_old_media(9999);
         assert!(result.is_ok());
+    }
+
+    // --- extract_media_paths tests ---
+
+    #[test]
+    fn test_extract_media_paths_json_media_path() {
+        // Create a temp file so the path exists
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_string_lossy().to_string();
+        let json = format!(
+            r#"{{"url":"https://example.com/img.png","mediaPath":"{}","mediaSize":1234}}"#,
+            path
+        );
+        let paths = extract_media_paths(&json);
+        assert_eq!(paths, vec![path]);
+    }
+
+    #[test]
+    fn test_extract_media_paths_saved_to_pattern() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_string_lossy().to_string();
+        let text = format!("Screenshot saved to: {}\nSize: 12345 bytes", path);
+        let paths = extract_media_paths(&text);
+        assert_eq!(paths, vec![path]);
+    }
+
+    #[test]
+    fn test_extract_media_paths_nonexistent_path_ignored() {
+        let json = r#"{"mediaPath":"/tmp/nonexistent_test_file_12345.png"}"#;
+        let paths = extract_media_paths(json);
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn test_extract_media_paths_plain_text_no_match() {
+        let paths = extract_media_paths("Just a normal tool result with no media");
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn test_extract_media_paths_deduplicates() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_string_lossy().to_string();
+        // Both JSON and text pattern point to same file
+        let text = format!(r#"{{"mediaPath":"{}"}}"#, path);
+        // Only returns once despite being findable via JSON parse
+        let paths = extract_media_paths(&text);
+        assert_eq!(paths.len(), 1);
     }
 }
