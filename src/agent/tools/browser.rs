@@ -342,7 +342,13 @@ impl BrowserTool {
             ));
         };
 
-        let js = js.to_string();
+        // Wrap in an IIFE if the JS contains `return` statements, since
+        // Runtime.evaluate runs in expression context where `return` is illegal
+        let js = if js.contains("return ") || js.contains("return\n") || js.contains("return;") {
+            format!("(() => {{ {js} }})()")
+        } else {
+            js.to_string()
+        };
         let result = self
             .with_timeout(async {
                 let eval_result = session

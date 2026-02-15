@@ -104,17 +104,27 @@ impl SlackChannel {
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow::anyhow!("missing file_id in response"))?;
 
-        // Step 2: Upload file bytes
-        let step2_resp = self.client.put(upload_url).body(file_bytes).send().await?;
+        // Step 2: Upload file bytes via POST multipart form-data
+        let form = reqwest::multipart::Form::new().part(
+            "file",
+            reqwest::multipart::Part::bytes(file_bytes)
+                .file_name(filename.to_string())
+                .mime_str("application/octet-stream")
+                .unwrap_or_else(|_| reqwest::multipart::Part::bytes(vec![])),
+        );
+        let step2_resp = self.client.post(upload_url).multipart(form).send().await?;
 
         if !step2_resp.status().is_success() {
+            let status = step2_resp.status();
+            let body = step2_resp.text().await.unwrap_or_default();
             warn!(
-                "slack: file upload PUT failed: status={}",
-                step2_resp.status()
+                "slack: file upload POST failed: status={}, body={}",
+                status, body
             );
             return Err(anyhow::anyhow!(
-                "Slack file upload PUT failed: {}",
-                step2_resp.status()
+                "Slack file upload POST failed: {} — {}",
+                status,
+                body
             ));
         }
 
