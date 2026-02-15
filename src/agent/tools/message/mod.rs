@@ -29,7 +29,7 @@ impl Tool for MessageTool {
     }
 
     fn description(&self) -> &'static str {
-        "Send a message to a user on any channel. Defaults to the current conversation's channel and chat, or specify 'channel' and 'chat_id' to target a different destination."
+        "Send a message to a user on any channel. Defaults to the current conversation's channel and chat, or specify 'channel' and 'chat_id' to target a different destination. Use 'media' to attach file paths (e.g. screenshots, downloaded images)."
     }
 
     fn version(&self) -> ToolVersion {
@@ -51,6 +51,11 @@ impl Tool for MessageTool {
                 "chat_id": {
                     "type": "string",
                     "description": "Optional: target chat/user ID"
+                },
+                "media": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional: file paths to attach (e.g. screenshots, downloaded images)"
                 }
             },
             "required": ["content"]
@@ -75,6 +80,15 @@ impl Tool for MessageTool {
             self.default_chat_id.lock().await.clone()
         };
 
+        let media: Vec<String> = params["media"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
         if channel.is_empty() || chat_id.is_empty() {
             return Ok(ToolResult::error(
                 "Error: No target channel/chat specified".to_string(),
@@ -89,7 +103,7 @@ impl Tool for MessageTool {
                 chat_id,
                 content,
                 reply_to: None,
-                media: vec![],
+                media,
                 metadata: std::collections::HashMap::new(),
             };
             tx.send(msg)

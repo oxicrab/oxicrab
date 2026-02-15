@@ -264,6 +264,27 @@ impl BaseChannel for DiscordChannel {
             serenity::model::id::ChannelId::new(id_val)
         };
 
+        // Send media attachments first
+        for path in &msg.media {
+            let file_path = std::path::Path::new(path);
+            if !file_path.exists() {
+                warn!("discord: media file not found: {}", path);
+                continue;
+            }
+            match serenity::builder::CreateAttachment::path(file_path).await {
+                Ok(attachment) => {
+                    let builder = serenity::builder::CreateMessage::new().add_file(attachment);
+                    if let Err(e) = target_channel_id.send_message(&http, builder).await {
+                        warn!("discord: failed to send attachment {}: {}", path, e);
+                    }
+                }
+                Err(e) => {
+                    warn!("discord: failed to read attachment {}: {}", path, e);
+                }
+            }
+        }
+
+        // Send text content
         for chunk in chunks {
             target_channel_id
                 .say(&http, &chunk)

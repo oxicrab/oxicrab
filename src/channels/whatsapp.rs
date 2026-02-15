@@ -428,6 +428,13 @@ impl BaseChannel for WhatsAppChannel {
             return Ok(());
         }
 
+        if !msg.media.is_empty() {
+            warn!(
+                "whatsapp: outbound media not yet supported, {} file(s) skipped",
+                msg.media.len()
+            );
+        }
+
         debug!(
             "WhatsApp send: chat_id={}, content_len={}",
             msg.chat_id,

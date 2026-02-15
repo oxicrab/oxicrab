@@ -1,3 +1,4 @@
+pub mod media;
 pub mod regex;
 pub mod task_tracker;
 pub mod transcription;

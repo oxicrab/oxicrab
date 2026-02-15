@@ -1,7 +1,7 @@
 use crate::agent::tools::{Tool, ToolResult};
+use crate::utils::media::save_media_file;
 use anyhow::Result;
 use async_trait::async_trait;
-use base64::Engine;
 use chromiumoxide::browser::{Browser, BrowserConfig as ChromeBrowserConfig};
 use chromiumoxide::page::ScreenshotParams;
 use chromiumoxide::Page;
@@ -261,8 +261,12 @@ impl BrowserTool {
                     .await
                     .map_err(|e| format!("screenshot failed: {e}"))?;
 
-                let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                Ok(format!("data:image/png;base64,{b64}"))
+                let path = save_media_file(&bytes, "screenshot", "png")
+                    .map_err(|e| format!("failed to save screenshot: {e}"))?;
+                Ok(format!(
+                    "Screenshot saved to: {path}\nSize: {} bytes\nUse the message tool with media: [\"{path}\"] to send it.",
+                    bytes.len()
+                ))
             })
             .await;
 

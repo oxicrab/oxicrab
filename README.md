@@ -281,6 +281,7 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
    | `mpim:history` | Read group direct messages |
    | `users:read` | Look up usernames from user IDs |
    | `files:read` | Download image attachments from messages |
+   | `files:write` | Upload outbound media (screenshots, images) to channels |
    | `reactions:write` | Add emoji reactions to acknowledge messages |
 
    Optional (not required but recommended):
@@ -635,9 +636,9 @@ The agent has access to 23 built-in tools:
 | `exec` | Execute shell commands (allowlist/blocklist secured) |
 | `tmux` | Manage persistent tmux shell sessions (create, send, read, list, kill) |
 | `web_search` | Search the web (configurable: Brave API or DuckDuckGo) |
-| `web_fetch` | Fetch and extract web page content |
-| `http` | Make HTTP requests (GET, POST, PUT, PATCH, DELETE) |
-| `message` | Send messages to chat channels |
+| `web_fetch` | Fetch and extract web page content (binary/image URLs auto-saved to disk) |
+| `http` | Make HTTP requests (GET, POST, PUT, PATCH, DELETE); binary responses auto-saved to disk |
+| `message` | Send messages to chat channels with optional media attachments |
 | `spawn` | Spawn background subagents for parallel task execution |
 | `subagent_control` | List running subagents, check capacity, or cancel by ID |
 | `cron` | Schedule tasks: agent or echo mode, with optional `expires_at` and `max_runs` auto-stop |
@@ -655,7 +656,7 @@ The agent has access to 23 built-in tools:
 | `todoist` | Todoist task management: list, create, complete, update | `tools.todoist.token` |
 | `media` | Radarr/Sonarr: search, add, monitor movies & TV | `tools.media.*` |
 | `obsidian` | Obsidian vault: read, write, append, search, list notes | `tools.obsidian.*` |
-| `browser` | Browser automation via Chrome DevTools Protocol: open, click, type, screenshot, eval JS | `tools.browser.enabled` |
+| `browser` | Browser automation via Chrome DevTools Protocol: open, click, type, screenshot (saved to disk), eval JS | `tools.browser.enabled` |
 
 ### Subagent System
 
@@ -707,7 +708,7 @@ src/
 ├── providers/      # LLM provider implementations (Anthropic, OpenAI, Gemini, OpenAI-compatible)
 ├── session/        # Session management with SQLite backend
 ├── errors.rs       # NanobotError typed error enum
-└── utils/          # URL security, atomic writes, task tracking, voice transcription
+└── utils/          # URL security, atomic writes, task tracking, voice transcription, media file handling
 ```
 
 ## Architecture
@@ -720,6 +721,7 @@ src/
 - **Session management**: SQLite-backed sessions with automatic TTL cleanup
 - **Memory**: SQLite FTS5 for semantic memory indexing with background indexer, automatic fact extraction, optional hybrid vector+keyword search via local ONNX embeddings (fastembed), and automatic memory hygiene (archive old notes, purge expired archives, clean orphaned entries)
 - **Compaction**: Automatic conversation summarization when context exceeds token threshold
+- **Outbound media**: Browser screenshots, image downloads (`web_fetch`, `http`), and binary responses are saved to `~/.nanobot/media/` and can be sent to users via the `message` tool's `media` parameter. Supported channels: Telegram (photos/documents), Discord (file attachments), Slack (3-step file upload API). WhatsApp and Twilio log warnings for unsupported outbound media.
 - **Tool execution**: Panic-isolated via `tokio::task::spawn`, parallel execution via `join_all`, LRU result caching for read-only tools, pre-execution JSON schema validation
 - **Tool facts injection**: Each agent turn injects a reminder listing all available tools, preventing the LLM from falsely claiming tools are unavailable
 - **Reflection turns**: After tool results are returned, a reflection prompt forces deliberative reasoning about next steps

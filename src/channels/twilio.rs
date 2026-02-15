@@ -239,6 +239,13 @@ impl BaseChannel for TwilioChannel {
     }
 
     async fn send(&self, msg: &OutboundMessage) -> Result<()> {
+        if !msg.media.is_empty() {
+            warn!(
+                "twilio: outbound media not yet supported, {} file(s) skipped",
+                msg.media.len()
+            );
+        }
+
         let chunks = split_message(&msg.content, 1600);
 
         for chunk in chunks {

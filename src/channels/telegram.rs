@@ -284,6 +284,35 @@ impl BaseChannel for TelegramChannel {
         }
 
         let chat_id = msg.chat_id.parse::<i64>()?;
+
+        // Send media attachments first
+        for path in &msg.media {
+            let file_path = std::path::Path::new(path);
+            if !file_path.exists() {
+                warn!("telegram: media file not found: {}", path);
+                continue;
+            }
+            let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let is_image = matches!(ext, "png" | "jpg" | "jpeg" | "gif" | "webp");
+
+            if is_image {
+                if let Err(e) = self
+                    .bot
+                    .send_photo(ChatId(chat_id), teloxide::types::InputFile::file(file_path))
+                    .await
+                {
+                    warn!("telegram: failed to send photo {}: {}", path, e);
+                }
+            } else if let Err(e) = self
+                .bot
+                .send_document(ChatId(chat_id), teloxide::types::InputFile::file(file_path))
+                .await
+            {
+                warn!("telegram: failed to send document {}: {}", path, e);
+            }
+        }
+
+        // Send text content
         let chunks = split_message(&msg.content, 4096);
 
         for chunk in chunks {

@@ -53,6 +53,101 @@ impl SlackChannel {
         re_link.replace_all(&text, r"<$2|$1>").to_string()
     }
 
+    /// Upload a file to a Slack channel using the 3-step upload API.
+    ///
+    /// 1. `files.getUploadURLExternal` — get a pre-signed upload URL
+    /// 2. PUT raw bytes to the upload URL
+    /// 3. `files.completeUploadExternal` — finalize and share to channel
+    ///
+    /// Requires the `files:write` OAuth scope.
+    async fn upload_file(&self, channel_id: &str, file_path: &str) -> Result<()> {
+        let path = std::path::Path::new(file_path);
+        if !path.exists() {
+            warn!("slack: media file not found: {}", file_path);
+            return Ok(());
+        }
+
+        let file_bytes = std::fs::read(path)?;
+        let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+
+        // Step 1: Get upload URL
+        let step1_resp = self
+            .client
+            .post("https://slack.com/api/files.getUploadURLExternal")
+            .header("Authorization", format!("Bearer {}", self.config.bot_token))
+            .form(&[
+                ("filename", filename),
+                ("length", &file_bytes.len().to_string()),
+            ])
+            .send()
+            .await?;
+
+        let step1_json: Value = step1_resp.json().await?;
+        if step1_json.get("ok").and_then(Value::as_bool) != Some(true) {
+            let error = step1_json
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            warn!("slack: files.getUploadURLExternal failed: {}", error);
+            return Err(anyhow::anyhow!(
+                "Slack file upload step 1 failed: {}",
+                error
+            ));
+        }
+
+        let upload_url = step1_json
+            .get("upload_url")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("missing upload_url in response"))?;
+        let file_id = step1_json
+            .get("file_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("missing file_id in response"))?;
+
+        // Step 2: Upload file bytes
+        let step2_resp = self.client.put(upload_url).body(file_bytes).send().await?;
+
+        if !step2_resp.status().is_success() {
+            warn!(
+                "slack: file upload PUT failed: status={}",
+                step2_resp.status()
+            );
+            return Err(anyhow::anyhow!(
+                "Slack file upload PUT failed: {}",
+                step2_resp.status()
+            ));
+        }
+
+        // Step 3: Complete upload and share to channel
+        let files_payload = serde_json::json!([{"id": file_id}]);
+        let step3_resp = self
+            .client
+            .post("https://slack.com/api/files.completeUploadExternal")
+            .header("Authorization", format!("Bearer {}", self.config.bot_token))
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "files": files_payload,
+                "channel_id": channel_id,
+            }))
+            .send()
+            .await?;
+
+        let step3_json: Value = step3_resp.json().await?;
+        if step3_json.get("ok").and_then(Value::as_bool) != Some(true) {
+            let error = step3_json
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            warn!("slack: files.completeUploadExternal failed: {}", error);
+            return Err(anyhow::anyhow!(
+                "Slack file upload step 3 failed: {}",
+                error
+            ));
+        }
+
+        Ok(())
+    }
+
     async fn send_slack_api(&self, method: &str, params: &HashMap<&str, Value>) -> Result<Value> {
         let url = format!("https://slack.com/api/{}", method);
         let mut form = params.clone();
@@ -386,6 +481,13 @@ impl BaseChannel for SlackChannel {
     async fn send(&self, msg: &OutboundMessage) -> Result<()> {
         if msg.channel != "slack" {
             return Ok(());
+        }
+
+        // Upload media attachments first
+        for path in &msg.media {
+            if let Err(e) = self.upload_file(&msg.chat_id, path).await {
+                warn!("slack: failed to upload file {}: {}", path, e);
+            }
         }
 
         let content = Self::format_for_slack(&msg.content);

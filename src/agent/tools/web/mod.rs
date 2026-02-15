@@ -1,4 +1,5 @@
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::utils::media::{extension_from_content_type, save_media_file};
 use crate::utils::regex::{compile_regex, RegexPatterns};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -253,6 +254,30 @@ impl WebFetchTool {
                     .and_then(|h| h.to_str().ok())
                     .unwrap_or("")
                     .to_string();
+
+                // Handle binary content (images, etc.) — save to disk
+                if let Some(ext) = extension_from_content_type(&content_type) {
+                    let bytes = resp.bytes().await?;
+                    match save_media_file(&bytes, "fetch", ext) {
+                        Ok(path) => {
+                            let result = serde_json::json!({
+                                "url": url_str,
+                                "finalUrl": final_url,
+                                "status": status,
+                                "mediaPath": path,
+                                "mediaSize": bytes.len(),
+                                "contentType": content_type,
+                            });
+                            return Ok(ToolResult::new(serde_json::to_string(&result)?));
+                        }
+                        Err(e) => {
+                            return Ok(ToolResult::error(format!(
+                                "failed to save media from {}: {}",
+                                url_str, e
+                            )));
+                        }
+                    }
+                }
 
                 let text = resp.text().await?;
 

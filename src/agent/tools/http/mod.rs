@@ -1,4 +1,5 @@
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::utils::media::{extension_from_content_type, save_media_file};
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
@@ -93,6 +94,29 @@ impl HttpTool {
                     .unwrap_or("")
                     .to_string();
 
+                let header_str = if headers.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n{}", headers.join("\n"))
+                };
+
+                // Handle binary content — save to disk
+                if let Some(ext) = extension_from_content_type(&content_type) {
+                    let bytes = resp.bytes().await.unwrap_or_default();
+                    return match save_media_file(&bytes, "http", ext) {
+                        Ok(path) => {
+                            Ok(ToolResult::new(format!(
+                            "HTTP {} {}{}\n\nBinary content saved to: {}\nSize: {} bytes\nType: {}",
+                            status, method, header_str, path, bytes.len(), content_type
+                        )))
+                        }
+                        Err(e) => Ok(ToolResult::error(format!(
+                            "HTTP {} {} — failed to save binary response: {}",
+                            status, method, e
+                        ))),
+                    };
+                }
+
                 let body_text = resp.text().await.unwrap_or_default();
 
                 // Try to pretty-print JSON
@@ -112,12 +136,6 @@ impl HttpTool {
                     format!("{}...\n[truncated]", truncated_text)
                 } else {
                     body_display
-                };
-
-                let header_str = if headers.is_empty() {
-                    String::new()
-                } else {
-                    format!("\n{}", headers.join("\n"))
                 };
 
                 Ok(ToolResult::new(format!(
