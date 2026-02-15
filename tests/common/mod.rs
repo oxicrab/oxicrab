@@ -134,6 +134,8 @@ pub async fn create_test_agent_with(
         media_ttl_days: 0,
         max_concurrent_subagents: 5,
         voice_config: None,
+        memory_config: None,
+        browser_config: None,
     };
 
     AgentLoop::new(config)

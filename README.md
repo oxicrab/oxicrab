@@ -6,10 +6,10 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 
 - **Multi-channel support**: Telegram, Discord, Slack, WhatsApp, Twilio (SMS/MMS) — each behind a Cargo feature flag for slim builds
 - **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), plus OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, vLLM), with OAuth support and local model fallback
-- **24 built-in tools**: Filesystem, shell, web, HTTP, Google Workspace, GitHub, scheduling, memory, media management, and more
+- **25 built-in tools**: Filesystem, shell, web, HTTP, browser automation, Google Workspace, GitHub, scheduling, memory, media management, and more
 - **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
 - **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode (LLM-free delivery), multi-channel targeting, auto-expiry (`expires_at`) and run limits (`max_runs`)
-- **Memory system**: SQLite FTS5-backed long-term memory with background indexing and automatic fact extraction
+- **Memory system**: SQLite FTS5-backed long-term memory with background indexing, automatic fact extraction, optional hybrid vector+keyword search (local ONNX embeddings via fastembed), and automatic memory hygiene (archive/purge old notes)
 - **Session management**: Persistent sessions with automatic compaction and context summarization
 - **Hallucination detection**: Action claim detection, false no-tools-claim retry, tool facts injection, and reflection turns
 - **Editable status messages**: Tool progress shown as a single message that edits in-place (Telegram, Discord, Slack), with composing indicator and automatic cleanup
@@ -58,6 +58,13 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
       "memoryIndexerInterval": 300,
       "mediaTtlDays": 7,
       "maxConcurrentSubagents": 5,
+      "memory": {
+        "archiveAfterDays": 30,
+        "purgeAfterDays": 90,
+        "embeddingsEnabled": false,
+        "embeddingsModel": "BAAI/bge-small-en-v1.5",
+        "hybridWeight": 0.5
+      },
       "compaction": {
         "enabled": true,
         "thresholdTokens": 40000,
@@ -166,6 +173,11 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
       "vaultName": "MyVault",
       "syncInterval": 300,
       "timeout": 15
+    },
+    "browser": {
+      "enabled": false,
+      "agentBrowserPath": null,
+      "timeout": 30
     },
     "exec": {
       "timeout": 60,
@@ -609,7 +621,7 @@ For OAuth models, you need to:
 
 ## Tools
 
-The agent has access to 24 built-in tools:
+The agent has access to 25 built-in tools:
 
 ### Core Tools (always available)
 
@@ -628,7 +640,7 @@ The agent has access to 24 built-in tools:
 | `spawn` | Spawn background subagents for parallel task execution |
 | `subagent_control` | List running subagents, check capacity, or cancel by ID |
 | `cron` | Schedule tasks: agent or echo mode, with optional `expires_at` and `max_runs` auto-stop |
-| `memory_search` | Search long-term memory and daily notes (FTS5) |
+| `memory_search` | Search long-term memory and daily notes (FTS5, optional hybrid vector+keyword) |
 | `reddit` | Fetch posts from Reddit subreddits (hot, new, top) |
 
 ### Configurable Tools (require setup)
@@ -642,6 +654,7 @@ The agent has access to 24 built-in tools:
 | `todoist` | Todoist task management: list, create, complete, update | `tools.todoist.token` |
 | `media` | Radarr/Sonarr: search, add, monitor movies & TV | `tools.media.*` |
 | `obsidian` | Obsidian vault: read, write, append, search, list notes | `tools.obsidian.*` |
+| `browser` | Browser automation: open, click, type, screenshot, eval JS | `tools.browser.enabled` |
 
 ### Subagent System
 
@@ -704,7 +717,7 @@ src/
 - **Connection resilience**: All channels (Telegram, Discord, Slack, WhatsApp, Twilio) use exponential backoff retry loops for automatic reconnection after disconnects
 - **Channel edit/delete**: `BaseChannel` trait provides `send_and_get_id`, `edit_message`, and `delete_message` with default no-ops; implemented for Telegram, Discord, and Slack
 - **Session management**: SQLite-backed sessions with automatic TTL cleanup
-- **Memory**: SQLite FTS5 for semantic memory indexing with background indexer and automatic fact extraction
+- **Memory**: SQLite FTS5 for semantic memory indexing with background indexer, automatic fact extraction, optional hybrid vector+keyword search via local ONNX embeddings (fastembed), and automatic memory hygiene (archive old notes, purge expired archives, clean orphaned entries)
 - **Compaction**: Automatic conversation summarization when context exceeds token threshold
 - **Tool execution**: Panic-isolated via `tokio::task::spawn`, parallel execution via `join_all`, LRU result caching for read-only tools, pre-execution JSON schema validation
 - **Tool facts injection**: Each agent turn injects a reminder listing all available tools, preventing the LLM from falsely claiming tools are unavailable

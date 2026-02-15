@@ -441,4 +441,33 @@ impl LLMProvider for AnthropicOAuthProvider {
     fn default_model(&self) -> &str {
         &self.default_model
     }
+
+    async fn warmup(&self) -> Result<()> {
+        use tracing::info;
+        let start = std::time::Instant::now();
+        let token = self.ensure_valid_token().await?;
+        let payload = serde_json::json!({
+            "model": self.default_model,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+        });
+        let result = self
+            .client
+            .post(API_URL)
+            .header("Authorization", format!("Bearer {}", token))
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .timeout(std::time::Duration::from_secs(15))
+            .json(&payload)
+            .send()
+            .await;
+        match result {
+            Ok(_) => info!(
+                "anthropic oauth provider warmed up in {}ms",
+                start.elapsed().as_millis()
+            ),
+            Err(e) => tracing::warn!("anthropic oauth warmup request failed (non-fatal): {}", e),
+        }
+        Ok(())
+    }
 }

@@ -231,6 +231,38 @@ impl LLMProvider for OpenAIProvider {
     fn default_model(&self) -> &str {
         &self.default_model
     }
+
+    async fn warmup(&self) -> anyhow::Result<()> {
+        use tracing::info;
+        let start = std::time::Instant::now();
+        let payload = json!({
+            "model": self.default_model,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+        });
+        let result = self
+            .client
+            .post(&self.base_url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .timeout(Duration::from_secs(15))
+            .json(&payload)
+            .send()
+            .await;
+        match result {
+            Ok(_) => info!(
+                "{} provider warmed up in {}ms",
+                self.provider_name,
+                start.elapsed().as_millis()
+            ),
+            Err(e) => tracing::warn!(
+                "{} warmup request failed (non-fatal): {}",
+                self.provider_name,
+                e
+            ),
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

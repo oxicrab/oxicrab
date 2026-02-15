@@ -112,6 +112,34 @@ impl LLMProvider for AnthropicProvider {
     fn default_model(&self) -> &str {
         &self.default_model
     }
+
+    async fn warmup(&self) -> Result<()> {
+        use tracing::info;
+        let start = std::time::Instant::now();
+        let payload = json!({
+            "model": self.default_model,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+        });
+        let result = self
+            .client
+            .post(&self.base_url)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .timeout(Duration::from_secs(15))
+            .json(&payload)
+            .send()
+            .await;
+        match result {
+            Ok(_) => info!(
+                "anthropic provider warmed up in {}ms",
+                start.elapsed().as_millis()
+            ),
+            Err(e) => tracing::warn!("anthropic warmup request failed (non-fatal): {}", e),
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

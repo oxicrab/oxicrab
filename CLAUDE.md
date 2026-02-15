@@ -66,7 +66,7 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 
 - **`Tool`** (`src/agent/tools/base.rs`): `name()`, `description()`, `parameters()` (JSON Schema), `execute(Value) → ToolResult`. Optional: `cacheable()`, `set_context()`, `set_context_summary()`.
 - **`BaseChannel`** (`src/channels/base.rs`): `start()`, `stop()`, `send()`. Optional: `send_typing()`, `send_and_get_id()`, `edit_message()`, `delete_message()`.
-- **`LLMProvider`** (`src/providers/base.rs`): `chat(ChatRequest) → LLMResponse`, `default_model()`. Has default `chat_with_retry()` with exponential backoff.
+- **`LLMProvider`** (`src/providers/base.rs`): `chat(ChatRequest) → LLMResponse`, `default_model()`, `warmup()`. Has default `chat_with_retry()` with exponential backoff. `warmup()` pre-warms HTTP connections on startup (default no-op, implemented for Anthropic/OpenAI/Gemini).
 
 ### Provider Selection
 
@@ -138,7 +138,7 @@ JSON at `~/.nanobot/config.json` (or `NANOBOT_HOME` env var). Uses camelCase in 
 
 ## Common Pitfalls
 
-- **Adding fields to `AgentLoopConfig`**: must update `src/cli/commands.rs` (both `setup_agent` and `agent()` functions), destructure in `AgentLoop::new()`, AND update `tests/message_flow.rs` `create_test_agent()`.
+- **Adding fields to `AgentLoopConfig`**: must update `src/cli/commands.rs` (both `setup_agent` and `agent()` functions), destructure in `AgentLoop::new()`, AND update `tests/message_flow.rs` `create_test_agent()` AND `tests/compaction_integration.rs` `create_compaction_agent()`.
 - **Adding fields to config structs with manual `Default` impl**: update both the struct definition and `Default::default()`.
 - **YAML parsing**: uses `serde_yaml_ng` (not the deprecated `serde_yaml`).
 - **`main.rs` and `lib.rs` both declare `mod errors`**: binary has its own module tree.

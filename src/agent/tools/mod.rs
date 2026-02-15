@@ -1,4 +1,5 @@
 pub mod base;
+pub mod browser;
 pub mod cron;
 pub mod filesystem;
 pub mod github;

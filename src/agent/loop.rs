@@ -3,6 +3,7 @@ use crate::agent::context::ContextBuilder;
 use crate::agent::memory::MemoryStore;
 use crate::agent::subagent::{SubagentConfig, SubagentManager};
 use crate::agent::tools::{
+    browser::BrowserTool,
     cron::CronTool,
     filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool},
     github::GitHubTool,
@@ -526,6 +527,10 @@ pub struct AgentLoopConfig {
     pub max_concurrent_subagents: usize,
     /// Voice transcription configuration
     pub voice_config: Option<crate::config::VoiceConfig>,
+    /// Memory configuration (archive/purge days)
+    pub memory_config: Option<crate::config::MemoryConfig>,
+    /// Browser tool configuration
+    pub browser_config: Option<crate::config::BrowserConfig>,
 }
 
 pub struct AgentLoop {
@@ -584,6 +589,8 @@ impl AgentLoop {
             media_ttl_days,
             max_concurrent_subagents,
             voice_config,
+            memory_config,
+            browser_config,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -620,10 +627,11 @@ impl AgentLoop {
         }
 
         let sessions: Arc<dyn SessionStore> = Arc::new(session_mgr);
-        let memory = Arc::new(MemoryStore::with_indexer_interval(
-            &workspace,
-            memory_indexer_interval,
-        )?);
+        let memory = Arc::new(if let Some(ref mem_cfg) = memory_config {
+            MemoryStore::with_config(&workspace, memory_indexer_interval, mem_cfg)?
+        } else {
+            MemoryStore::with_indexer_interval(&workspace, memory_indexer_interval)?
+        });
         // Start background memory indexer
         memory.start_indexer().await?;
 
@@ -698,6 +706,19 @@ impl AgentLoop {
 
         // Register tmux tool
         tools.register(Arc::new(TmuxTool::new()));
+
+        // Register browser tool if configured
+        if let Some(ref browser_cfg) = browser_config {
+            if browser_cfg.enabled {
+                match BrowserTool::new(browser_cfg) {
+                    Ok(tool) => {
+                        tools.register(Arc::new(tool));
+                        info!("Browser tool registered");
+                    }
+                    Err(e) => warn!("Browser tool not available: {}", e),
+                }
+            }
+        }
 
         // Register cron tool if service provided
         if let Some(ref cron_svc) = cron_service {

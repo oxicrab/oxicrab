@@ -183,6 +183,35 @@ impl LLMProvider for GeminiProvider {
     fn default_model(&self) -> &str {
         &self.default_model
     }
+
+    async fn warmup(&self) -> anyhow::Result<()> {
+        use tracing::info;
+        let start = std::time::Instant::now();
+        let url = format!(
+            "{}/models/{}:generateContent?key={}",
+            self.base_url, self.default_model, self.api_key
+        );
+        let payload = json!({
+            "contents": [{"parts": [{"text": "hi"}]}],
+            "generationConfig": {"maxOutputTokens": 1}
+        });
+        let result = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .timeout(Duration::from_secs(15))
+            .json(&payload)
+            .send()
+            .await;
+        match result {
+            Ok(_) => info!(
+                "gemini provider warmed up in {}ms",
+                start.elapsed().as_millis()
+            ),
+            Err(e) => tracing::warn!("gemini warmup request failed (non-fatal): {}", e),
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

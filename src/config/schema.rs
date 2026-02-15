@@ -280,6 +280,8 @@ pub struct AgentDefaults {
     pub max_concurrent_subagents: usize,
     #[serde(default, rename = "localModel")]
     pub local_model: Option<String>,
+    #[serde(default)]
+    pub memory: MemoryConfig,
 }
 
 impl Default for AgentDefaults {
@@ -297,12 +299,59 @@ impl Default for AgentDefaults {
             media_ttl_days: default_media_ttl_days(),
             max_concurrent_subagents: default_max_concurrent_subagents(),
             local_model: None,
+            memory: MemoryConfig::default(),
         }
     }
 }
 
 fn default_memory_indexer_interval() -> u64 {
     300
+}
+
+fn default_memory_archive_after_days() -> u32 {
+    30
+}
+
+fn default_memory_purge_after_days() -> u32 {
+    90
+}
+
+fn default_embeddings_model() -> String {
+    "BAAI/bge-small-en-v1.5".to_string()
+}
+
+fn default_hybrid_weight() -> f32 {
+    0.5
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryConfig {
+    #[serde(
+        default = "default_memory_archive_after_days",
+        rename = "archiveAfterDays"
+    )]
+    pub archive_after_days: u32,
+    #[serde(default = "default_memory_purge_after_days", rename = "purgeAfterDays")]
+    pub purge_after_days: u32,
+    #[serde(default, rename = "embeddingsEnabled")]
+    pub embeddings_enabled: bool,
+    #[serde(default = "default_embeddings_model", rename = "embeddingsModel")]
+    pub embeddings_model: String,
+    /// 0.0 = keyword only, 1.0 = vector only, 0.5 = equal blend
+    #[serde(default = "default_hybrid_weight", rename = "hybridWeight")]
+    pub hybrid_weight: f32,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            archive_after_days: default_memory_archive_after_days(),
+            purge_after_days: default_memory_purge_after_days(),
+            embeddings_enabled: false,
+            embeddings_model: default_embeddings_model(),
+            hybrid_weight: default_hybrid_weight(),
+        }
+    }
 }
 
 fn default_media_ttl_days() -> u32 {
@@ -924,6 +973,30 @@ impl std::fmt::Debug for ObsidianConfig {
     }
 }
 
+fn default_browser_timeout() -> u64 {
+    30
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, rename = "agentBrowserPath")]
+    pub agent_browser_path: Option<String>,
+    #[serde(default = "default_browser_timeout")]
+    pub timeout: u64,
+}
+
+impl Default for BrowserConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            agent_browser_path: None,
+            timeout: default_browser_timeout(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ToolsConfig {
     #[serde(default)]
@@ -944,6 +1017,8 @@ pub struct ToolsConfig {
     pub media: MediaConfig,
     #[serde(default)]
     pub obsidian: ObsidianConfig,
+    #[serde(default)]
+    pub browser: BrowserConfig,
 }
 
 fn default_transcription_api_base() -> String {
@@ -1093,6 +1168,17 @@ impl Config {
             if self.agents.defaults.daemon.interval < 60 {
                 warn!("Daemon interval is very short (< 60s), this may cause high resource usage");
             }
+        }
+
+        // Validate memory config
+        if self.agents.defaults.memory.archive_after_days > 0
+            && self.agents.defaults.memory.purge_after_days > 0
+            && self.agents.defaults.memory.purge_after_days
+                <= self.agents.defaults.memory.archive_after_days
+        {
+            return Err(NanobotError::Config(
+                "agents.defaults.memory.purgeAfterDays must be > archiveAfterDays".into(),
+            ));
         }
 
         // Validate gateway config
@@ -1258,6 +1344,14 @@ mod tests {
     fn test_invalid_zero_max_results() {
         let mut config = Config::default();
         config.tools.web.search.max_results = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_invalid_memory_purge_before_archive() {
+        let mut config = Config::default();
+        config.agents.defaults.memory.archive_after_days = 30;
+        config.agents.defaults.memory.purge_after_days = 10; // less than archive
         assert!(config.validate().is_err());
     }
 

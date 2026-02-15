@@ -52,6 +52,24 @@ impl Tool for MemorySearchTool {
             }
         };
 
+        // Use hybrid search when embeddings are available
+        if self.memory.has_embeddings() {
+            match self.memory.hybrid_search(query, 8, None) {
+                Ok(hits) if !hits.is_empty() => {
+                    let chunks: Vec<String> = hits
+                        .iter()
+                        .map(|h| format!("**{}**: {}", h.source_key, h.content))
+                        .collect();
+                    return Ok(ToolResult::new(chunks.join("\n\n---\n\n")));
+                }
+                Ok(_) => {} // empty, fall through to keyword search
+                Err(e) => {
+                    tracing::warn!("hybrid search failed, falling back to keyword: {}", e);
+                }
+            }
+        }
+
+        // Fallback to keyword-only search
         match self.memory.get_memory_context(Some(query)) {
             Ok(context) => {
                 if context.trim().is_empty() {

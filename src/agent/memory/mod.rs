@@ -1,3 +1,5 @@
+pub mod embeddings;
+pub mod hygiene;
 pub mod indexer;
 pub mod memory_db;
 pub mod memory_store;

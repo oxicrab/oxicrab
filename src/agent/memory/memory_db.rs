@@ -106,6 +106,15 @@ impl MemoryDB {
             [],
         )?;
 
+        // Create embeddings table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS memory_embeddings (
+                entry_id INTEGER PRIMARY KEY REFERENCES memory_entries(id) ON DELETE CASCADE,
+                embedding BLOB NOT NULL
+            )",
+            [],
+        )?;
+
         // Try to create FTS5 virtual table
         if conn
             .execute(
@@ -243,6 +252,253 @@ impl MemoryDB {
             }
         }
 
+        Ok(())
+    }
+
+    /// Store an embedding for a memory entry.
+    pub fn store_embedding(&self, entry_id: i64, embedding: &[u8]) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO memory_embeddings (entry_id, embedding) VALUES (?, ?)",
+            params![entry_id, embedding],
+        )?;
+        Ok(())
+    }
+
+    /// Get all embeddings, optionally excluding certain source keys.
+    /// Returns (`entry_id`, content, `embedding_blob`).
+    pub fn get_all_embeddings(
+        &self,
+        exclude_sources: Option<&std::collections::HashSet<String>>,
+    ) -> Result<Vec<(i64, String, Vec<u8>)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT me.id, me.content, me.source_key, emb.embedding
+             FROM memory_embeddings emb
+             JOIN memory_entries me ON emb.entry_id = me.id",
+        )?;
+
+        let default_set = std::collections::HashSet::new();
+        let exclude = exclude_sources.unwrap_or(&default_set);
+
+        let rows: Result<Vec<_>, _> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Vec<u8>>(3)?,
+                ))
+            })?
+            .collect();
+
+        Ok(rows
+            .map_err(|e| anyhow::anyhow!("Failed to get embeddings: {}", e))?
+            .into_iter()
+            .filter(|(_, _, key, _)| !exclude.contains(key))
+            .map(|(id, content, _, emb)| (id, content, emb))
+            .collect())
+    }
+
+    /// Hybrid search combining FTS5 BM25 and vector cosine similarity.
+    /// `keyword_weight` controls blending: 1.0 = keyword only, 0.0 = vector only.
+    pub fn hybrid_search(
+        &self,
+        query_text: &str,
+        query_embedding: &[f32],
+        limit: usize,
+        exclude_sources: Option<&std::collections::HashSet<String>>,
+        keyword_weight: f32,
+    ) -> Result<Vec<MemoryHit>> {
+        use crate::agent::memory::embeddings::{cosine_similarity, deserialize_embedding};
+
+        let default_set = std::collections::HashSet::new();
+        let exclude = exclude_sources.unwrap_or(&default_set);
+
+        // 1. Get FTS5 results with BM25 scores
+        let mut fts_scores: std::collections::HashMap<i64, (f32, String, String)> =
+            std::collections::HashMap::new();
+
+        if keyword_weight > 0.0 {
+            let query = fts_query(query_text);
+            if !query.is_empty() && self.has_fts {
+                let conn = self
+                    .conn
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+                let mut stmt = conn.prepare(
+                    "SELECT me.id, me.source_key, me.content, bm25(memory_fts) as score
+                     FROM memory_fts
+                     JOIN memory_entries me ON memory_fts.rowid = me.id
+                     WHERE memory_fts MATCH ?
+                     ORDER BY bm25(memory_fts)
+                     LIMIT 100",
+                )?;
+
+                let rows: Vec<_> = stmt
+                    .query_map([&query], |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, f64>(3)?,
+                        ))
+                    })?
+                    .filter_map(std::result::Result::ok)
+                    .filter(|(_, key, _, _)| !exclude.contains(key))
+                    .collect();
+
+                // BM25 scores are negative (more negative = better match).
+                // Normalize to 0..1 range.
+                if !rows.is_empty() {
+                    let min_score = rows
+                        .iter()
+                        .map(|(_, _, _, s)| *s)
+                        .fold(f64::INFINITY, f64::min);
+                    let max_score = rows
+                        .iter()
+                        .map(|(_, _, _, s)| *s)
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    let range = max_score - min_score;
+
+                    for (id, key, content, score) in rows {
+                        let normalized = if range.abs() < 1e-10 {
+                            1.0
+                        } else {
+                            // Invert: most negative (best) -> 1.0, least negative (worst) -> 0.0
+                            ((max_score - score) / range) as f32
+                        };
+                        fts_scores.insert(id, (normalized, key, content));
+                    }
+                }
+            }
+        }
+
+        // 2. Get vector similarity scores
+        let mut vec_scores: std::collections::HashMap<i64, (f32, String, String)> =
+            std::collections::HashMap::new();
+
+        if keyword_weight < 1.0 {
+            let all_embeddings = self.get_all_embeddings(exclude_sources)?;
+            for (entry_id, content, emb_bytes) in &all_embeddings {
+                let emb = deserialize_embedding(emb_bytes);
+                let sim = cosine_similarity(query_embedding, &emb);
+                // Cosine similarity is already in [-1, 1]; clamp to [0, 1]
+                let score = sim.max(0.0);
+                // We need source_key for display — extract from FTS scores or DB
+                // For simplicity, use content as lookup key
+                vec_scores.insert(*entry_id, (score, String::new(), content.clone()));
+            }
+
+            // Fill in source keys from DB if needed
+            if !vec_scores.is_empty() {
+                let conn = self
+                    .conn
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+                let entry_ids: Vec<i64> = vec_scores.keys().copied().collect();
+                for entry_id in entry_ids {
+                    if let Ok(key) = conn.query_row(
+                        "SELECT source_key FROM memory_entries WHERE id = ?",
+                        [entry_id],
+                        |row| row.get::<_, String>(0),
+                    ) {
+                        if let Some(entry) = vec_scores.get_mut(&entry_id) {
+                            entry.1 = key;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Merge scores
+        let mut all_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        all_ids.extend(fts_scores.keys());
+        all_ids.extend(vec_scores.keys());
+
+        let mut scored: Vec<(f32, String, String)> =
+            all_ids
+                .into_iter()
+                .map(|id| {
+                    let (fts_score, fts_key, fts_content) = fts_scores
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or((0.0, String::new(), String::new()));
+                    let (vec_score, vec_key, vec_content) = vec_scores
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or((0.0, String::new(), String::new()));
+
+                    let combined = keyword_weight * fts_score + (1.0 - keyword_weight) * vec_score;
+                    let key = if fts_key.is_empty() { vec_key } else { fts_key };
+                    let content = if fts_content.is_empty() {
+                        vec_content
+                    } else {
+                        fts_content
+                    };
+                    (combined, key, content)
+                })
+                .collect();
+
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        Ok(scored
+            .into_iter()
+            .take(limit)
+            .map(|(_, source_key, content)| MemoryHit {
+                source_key,
+                content,
+            })
+            .collect())
+    }
+
+    /// Return entry IDs and content for a given source key (for embedding generation).
+    pub fn get_entries_for_source(&self, source_key: &str) -> Result<Vec<(i64, String)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let mut stmt =
+            conn.prepare("SELECT id, content FROM memory_entries WHERE source_key = ?")?;
+        let rows: Result<Vec<_>, _> = stmt
+            .query_map([source_key], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect();
+        rows.map_err(|e| anyhow::anyhow!("Failed to get entries: {}", e))
+    }
+
+    /// List all source keys in the database.
+    pub fn list_source_keys(&self) -> Result<Vec<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let mut stmt = conn.prepare("SELECT source_key FROM memory_sources")?;
+        let keys: Result<Vec<_>, _> = stmt.query_map([], |row| row.get(0))?.collect();
+        keys.map_err(|e| anyhow::anyhow!("Failed to list source keys: {}", e))
+    }
+
+    /// Remove a source and all its entries from the database.
+    pub fn remove_source(&self, source_key: &str) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        conn.execute(
+            "DELETE FROM memory_entries WHERE source_key = ?",
+            [source_key],
+        )?;
+        conn.execute(
+            "DELETE FROM memory_sources WHERE source_key = ?",
+            [source_key],
+        )?;
         Ok(())
     }
 

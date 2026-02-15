@@ -148,6 +148,12 @@ pub trait LLMProvider: Send + Sync {
 
     fn default_model(&self) -> &str;
 
+    /// Pre-warm the provider's HTTP connection (TLS handshake, HTTP/2 negotiation).
+    /// Default is a no-op. Providers may override to make a lightweight request.
+    async fn warmup(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     /// Chat with automatic retry on transient errors.
     async fn chat_with_retry(
         &self,
@@ -253,5 +259,28 @@ mod tests {
             input_tokens: None,
         };
         assert!(with_tools.has_tool_calls());
+    }
+
+    struct NoopProvider;
+
+    #[async_trait]
+    impl LLMProvider for NoopProvider {
+        async fn chat(&self, _req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+            Ok(LLMResponse {
+                content: Some("ok".into()),
+                tool_calls: vec![],
+                reasoning_content: None,
+                input_tokens: None,
+            })
+        }
+        fn default_model(&self) -> &'static str {
+            "noop"
+        }
+    }
+
+    #[tokio::test]
+    async fn default_warmup_returns_ok() {
+        let provider = NoopProvider;
+        assert!(provider.warmup().await.is_ok());
     }
 }

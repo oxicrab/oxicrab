@@ -91,6 +91,10 @@ impl LLMProvider for FallbackProvider {
     fn default_model(&self) -> &str {
         &self.primary_model
     }
+
+    async fn warmup(&self) -> anyhow::Result<()> {
+        self.primary.warmup().await
+    }
 }
 
 #[cfg(test)]

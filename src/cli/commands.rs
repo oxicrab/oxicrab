@@ -278,6 +278,12 @@ async fn gateway(model: Option<String>) -> Result<()> {
 
     // Setup components
     let provider = setup_provider(&config, model.as_deref()).await?;
+
+    // Warmup provider connection (non-blocking, non-fatal)
+    if let Err(e) = provider.warmup().await {
+        warn!("provider warmup failed (non-fatal): {}", e);
+    }
+
     let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) = setup_message_bus()?;
     let cron = setup_cron_service()?;
     // Create typing indicator channel
@@ -429,6 +435,8 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
             media_ttl_days: config.agents.defaults.media_ttl_days,
             max_concurrent_subagents: config.agents.defaults.max_concurrent_subagents,
             voice_config: Some(config.voice.clone()),
+            memory_config: Some(config.agents.defaults.memory.clone()),
+            browser_config: Some(config.tools.browser.clone()),
         })
         .await?,
     );

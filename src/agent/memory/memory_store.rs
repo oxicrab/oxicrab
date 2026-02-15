@@ -1,20 +1,88 @@
+use crate::agent::memory::embeddings::EmbeddingService;
 use crate::agent::memory::{MemoryDB, MemoryIndexer};
+use crate::config::MemoryConfig;
 use anyhow::{Context, Result};
 use chrono::{Datelike, Utc};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tracing::warn;
 
 pub struct MemoryStore {
     _workspace: PathBuf,
     memory_dir: PathBuf,
     db: Arc<MemoryDB>,
     indexer: Option<Arc<MemoryIndexer>>,
+    embedding_service: Option<Arc<EmbeddingService>>,
+    hybrid_weight: f32,
 }
 
 impl MemoryStore {
     pub fn new(workspace: impl AsRef<Path>) -> Result<Self> {
         Self::with_indexer_interval(workspace, 300)
+    }
+
+    pub fn with_config(
+        workspace: impl AsRef<Path>,
+        indexer_interval_secs: u64,
+        memory_config: &MemoryConfig,
+    ) -> Result<Self> {
+        let workspace = workspace.as_ref();
+        let memory_dir = workspace.join("memory");
+
+        std::fs::create_dir_all(workspace).with_context(|| {
+            format!(
+                "Failed to create workspace directory: {}",
+                workspace.display()
+            )
+        })?;
+
+        std::fs::create_dir_all(&memory_dir).with_context(|| {
+            format!(
+                "Failed to create memory directory: {}",
+                memory_dir.display()
+            )
+        })?;
+
+        let db_path = memory_dir.join("memory.sqlite3");
+        let db_path_clone = db_path.clone();
+        let db = Arc::new(MemoryDB::new(db_path).with_context(|| {
+            format!(
+                "Failed to create memory database at: {}",
+                db_path_clone.display()
+            )
+        })?);
+
+        // Create embedding service if enabled
+        let embedding_service = if memory_config.embeddings_enabled {
+            match EmbeddingService::new(&memory_config.embeddings_model) {
+                Ok(svc) => Some(Arc::new(svc)),
+                Err(e) => {
+                    warn!("failed to initialize embedding service: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let indexer = Arc::new(MemoryIndexer::with_full_config(
+            db.clone(),
+            memory_dir.clone(),
+            indexer_interval_secs,
+            memory_config.archive_after_days,
+            memory_config.purge_after_days,
+            embedding_service.clone(),
+        ));
+
+        Ok(Self {
+            _workspace: workspace.to_path_buf(),
+            memory_dir,
+            db,
+            indexer: Some(indexer),
+            embedding_service,
+            hybrid_weight: memory_config.hybrid_weight,
+        })
     }
 
     pub fn with_indexer_interval(
@@ -61,7 +129,35 @@ impl MemoryStore {
             memory_dir,
             db,
             indexer: Some(indexer),
+            embedding_service: None,
+            hybrid_weight: 0.5,
         })
+    }
+
+    /// Whether embeddings are available for hybrid search.
+    pub fn has_embeddings(&self) -> bool {
+        self.embedding_service.is_some()
+    }
+
+    /// Hybrid search combining keyword and vector similarity.
+    pub fn hybrid_search(
+        &self,
+        query: &str,
+        limit: usize,
+        exclude_sources: Option<&HashSet<String>>,
+    ) -> Result<Vec<crate::agent::memory::memory_db::MemoryHit>> {
+        let emb_svc = self
+            .embedding_service
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("embeddings not available"))?;
+        let query_embedding = emb_svc.embed_query(query)?;
+        self.db.hybrid_search(
+            query,
+            &query_embedding,
+            limit,
+            exclude_sources,
+            self.hybrid_weight,
+        )
     }
 
     /// Start the background memory indexer
