@@ -1,15 +1,62 @@
 mod common;
 
-use common::{create_test_agent, text_response, tool_call, tool_response, MockLLMProvider};
+use async_trait::async_trait;
+use common::{
+    create_test_agent_with, text_response, tool_call, tool_response, MockLLMProvider,
+    TestAgentOverrides,
+};
+use nanobot::providers::base::{ChatRequest, LLMProvider, LLMResponse, ToolDefinition};
 use serde_json::json;
+use std::collections::VecDeque;
+use std::sync::Arc;
 use tempfile::TempDir;
+
+fn default_agent(
+    provider: MockLLMProvider,
+    tmp: &TempDir,
+) -> impl std::future::Future<Output = nanobot::agent::AgentLoop> + '_ {
+    create_test_agent_with(provider, tmp, TestAgentOverrides::default())
+}
+
+/// A mock provider that also captures tool definitions passed by the agent loop.
+struct ToolCapturingProvider {
+    responses: Arc<std::sync::Mutex<VecDeque<LLMResponse>>>,
+    pub tool_defs: Arc<std::sync::Mutex<Vec<Option<Vec<ToolDefinition>>>>>,
+}
+
+impl ToolCapturingProvider {
+    fn new() -> Self {
+        Self {
+            responses: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+            tool_defs: Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
+}
+
+#[async_trait]
+impl LLMProvider for ToolCapturingProvider {
+    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+        self.tool_defs.lock().unwrap().push(req.tools);
+        let response = self.responses.lock().unwrap().pop_front();
+        Ok(response.unwrap_or_else(|| LLMResponse {
+            content: Some("Mock response".to_string()),
+            tool_calls: vec![],
+            reasoning_content: None,
+            input_tokens: None,
+        }))
+    }
+
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
+}
 
 #[tokio::test]
 async fn test_simple_message_response() {
     let tmp = TempDir::new().unwrap();
     let provider = MockLLMProvider::with_responses(vec![text_response("Hello from the agent!")]);
 
-    let agent = create_test_agent(provider, &tmp).await;
+    let agent = default_agent(provider, &tmp).await;
 
     let response = agent
         .process_direct("Hi there", "test:chat1", "telegram", "chat1")
@@ -25,7 +72,7 @@ async fn test_empty_message_handled() {
     let provider =
         MockLLMProvider::with_responses(vec![text_response("I received an empty message.")]);
 
-    let agent = create_test_agent(provider, &tmp).await;
+    let agent = default_agent(provider, &tmp).await;
 
     let response = agent
         .process_direct("", "test:empty", "telegram", "empty")
@@ -44,7 +91,7 @@ async fn test_session_persists_across_messages() {
     ]);
     let calls = provider.calls.clone();
 
-    let agent = create_test_agent(provider, &tmp).await;
+    let agent = default_agent(provider, &tmp).await;
 
     // First message
     agent
@@ -81,7 +128,7 @@ async fn test_different_sessions_isolated() {
     ]);
     let calls = provider.calls.clone();
 
-    let agent = create_test_agent(provider, &tmp).await;
+    let agent = default_agent(provider, &tmp).await;
 
     // Message on session A
     let resp_a = agent
@@ -124,7 +171,7 @@ async fn test_tool_call_and_result() {
     ]);
     let calls = provider.calls.clone();
 
-    let agent = create_test_agent(provider, &tmp).await;
+    let agent = default_agent(provider, &tmp).await;
 
     let response = agent
         .process_direct("List the directory", "test:tools", "telegram", "tools")
@@ -153,7 +200,7 @@ async fn test_unknown_tool_handled() {
     ]);
     let calls = provider.calls.clone();
 
-    let agent = create_test_agent(provider, &tmp).await;
+    let agent = default_agent(provider, &tmp).await;
 
     let response = agent
         .process_direct("Use magic tool", "test:unknown", "telegram", "unknown")
@@ -173,21 +220,21 @@ async fn test_unknown_tool_handled() {
 #[tokio::test]
 async fn test_provider_called_with_tools() {
     let tmp = TempDir::new().unwrap();
-    let provider = MockLLMProvider::new();
-    let calls = provider.calls.clone();
+    let provider = ToolCapturingProvider::new();
+    let tool_defs = provider.tool_defs.clone();
 
-    let agent = create_test_agent(provider, &tmp).await;
+    let agent = create_test_agent_with(provider, &tmp, TestAgentOverrides::default()).await;
 
     agent
         .process_direct("Hello", "test:tools_check", "telegram", "tools_check")
         .await
         .unwrap();
 
-    let recorded = calls.lock().unwrap();
+    let recorded = tool_defs.lock().unwrap();
     assert_eq!(recorded.len(), 1);
 
     // Should have tool definitions passed to the provider
-    let tools = recorded[0].tools.as_ref().unwrap();
+    let tools = recorded[0].as_ref().unwrap();
     assert!(
         !tools.is_empty(),
         "Provider should receive tool definitions"
@@ -231,7 +278,7 @@ async fn test_multiple_tool_calls_in_sequence() {
         text_response("Done reading files."),
     ]);
 
-    let agent = create_test_agent(provider, &tmp).await;
+    let agent = default_agent(provider, &tmp).await;
 
     let response = agent
         .process_direct("Read files", "test:multi", "telegram", "multi")
@@ -253,7 +300,7 @@ async fn test_hallucination_detection_triggers_retry() {
     ]);
     let calls = provider.calls.clone();
 
-    let agent = create_test_agent(provider, &tmp).await;
+    let agent = default_agent(provider, &tmp).await;
 
     let response = agent
         .process_direct(
@@ -300,7 +347,7 @@ async fn test_no_hallucination_when_tools_used() {
     ]);
     let calls = provider.calls.clone();
 
-    let agent = create_test_agent(provider, &tmp).await;
+    let agent = default_agent(provider, &tmp).await;
 
     let response = agent
         .process_direct(
@@ -329,7 +376,7 @@ async fn test_no_hallucination_for_informational_response() {
     )]);
     let calls = provider.calls.clone();
 
-    let agent = create_test_agent(provider, &tmp).await;
+    let agent = default_agent(provider, &tmp).await;
 
     let response = agent
         .process_direct("How do I update config?", "test:info", "telegram", "info")

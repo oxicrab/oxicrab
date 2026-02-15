@@ -2,10 +2,7 @@ use async_trait::async_trait;
 use nanobot::agent::{AgentLoop, AgentLoopConfig};
 use nanobot::bus::MessageBus;
 use nanobot::config::CompactionConfig;
-use nanobot::providers::base::{
-    ChatRequest, LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition,
-};
-use serde_json::json;
+use nanobot::providers::base::{ChatRequest, LLMProvider, LLMResponse, Message, ToolCallRequest};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -14,7 +11,6 @@ use tokio::sync::Mutex;
 #[derive(Debug, Clone)]
 pub struct RecordedCall {
     pub messages: Vec<Message>,
-    pub tools: Option<Vec<ToolDefinition>>,
 }
 
 pub struct MockLLMProvider {
@@ -24,14 +20,6 @@ pub struct MockLLMProvider {
 }
 
 impl MockLLMProvider {
-    pub fn new() -> Self {
-        Self {
-            responses: Arc::new(std::sync::Mutex::new(VecDeque::new())),
-            calls: Arc::new(std::sync::Mutex::new(Vec::new())),
-            default_response: "Mock response".to_string(),
-        }
-    }
-
     pub fn with_responses(responses: Vec<LLMResponse>) -> Self {
         Self {
             responses: Arc::new(std::sync::Mutex::new(VecDeque::from(responses))),
@@ -46,7 +34,6 @@ impl LLMProvider for MockLLMProvider {
     async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
         self.calls.lock().unwrap().push(RecordedCall {
             messages: req.messages,
-            tools: req.tools,
         });
 
         let response = self.responses.lock().unwrap().pop_front();
@@ -56,36 +43,6 @@ impl LLMProvider for MockLLMProvider {
             reasoning_content: None,
             input_tokens: None,
         }))
-    }
-
-    fn default_model(&self) -> &str {
-        "mock-model"
-    }
-}
-
-/// An LLM provider that always returns an error.
-pub struct FailingMockProvider {
-    pub error_message: String,
-    pub calls: Arc<std::sync::Mutex<Vec<RecordedCall>>>,
-}
-
-impl FailingMockProvider {
-    pub fn new(error_message: &str) -> Self {
-        Self {
-            error_message: error_message.to_string(),
-            calls: Arc::new(std::sync::Mutex::new(Vec::new())),
-        }
-    }
-}
-
-#[async_trait]
-impl LLMProvider for FailingMockProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
-        self.calls.lock().unwrap().push(RecordedCall {
-            messages: req.messages,
-            tools: req.tools,
-        });
-        Err(anyhow::anyhow!("{}", self.error_message))
     }
 
     fn default_model(&self) -> &str {
@@ -130,10 +87,6 @@ pub struct TestAgentOverrides {
     pub compaction_config: Option<CompactionConfig>,
     pub restrict_to_workspace: Option<bool>,
     pub max_iterations: Option<usize>,
-}
-
-pub async fn create_test_agent(provider: MockLLMProvider, tmp: &TempDir) -> AgentLoop {
-    create_test_agent_with(provider, tmp, TestAgentOverrides::default()).await
 }
 
 pub async fn create_test_agent_with(
