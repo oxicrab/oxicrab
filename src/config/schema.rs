@@ -1185,14 +1185,14 @@ impl Config {
 
         if let Some(ref local_model) = self.agents.defaults.local_model {
             if !local_model.is_empty() {
-                let local = factory.create_provider(local_model).await?;
                 let cloud = factory.create_provider(model).await?;
+                let local = factory.create_provider(local_model).await?;
                 return Ok(std::sync::Arc::new(
                     crate::providers::fallback::FallbackProvider::new(
-                        local,
                         cloud,
-                        local_model.clone(),
+                        local,
                         model.to_string(),
+                        local_model.clone(),
                     ),
                 ));
             }

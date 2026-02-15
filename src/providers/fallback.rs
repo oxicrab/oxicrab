@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::warn;
 
-/// An LLM provider that tries a primary (local) provider first,
-/// falling back to a secondary (cloud) provider on error or malformed tool calls.
+/// An LLM provider that tries a primary (cloud) provider first,
+/// falling back to a secondary (local) provider on error or malformed tool calls.
 pub struct FallbackProvider {
     primary: Arc<dyn LLMProvider>,
     fallback: Arc<dyn LLMProvider>,

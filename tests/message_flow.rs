@@ -1,72 +1,13 @@
 mod common;
 
-use common::MockLLMProvider;
-use nanobot::agent::{AgentLoop, AgentLoopConfig};
-use nanobot::bus::MessageBus;
-use nanobot::config::CompactionConfig;
-use nanobot::providers::base::{LLMResponse, ToolCallRequest};
+use common::{create_test_agent, text_response, tool_call, tool_response, MockLLMProvider};
 use serde_json::json;
-use std::sync::Arc;
 use tempfile::TempDir;
-use tokio::sync::Mutex;
-
-async fn create_test_agent(provider: MockLLMProvider, tmp: &TempDir) -> AgentLoop {
-    let bus = Arc::new(Mutex::new(MessageBus::default()));
-    let (outbound_tx, _outbound_rx) = tokio::sync::mpsc::channel(100);
-    let outbound_tx = Arc::new(outbound_tx);
-
-    let config = AgentLoopConfig {
-        bus,
-        provider: Arc::new(provider),
-        workspace: tmp.path().to_path_buf(),
-        model: Some("mock-model".to_string()),
-        max_iterations: 10,
-        brave_api_key: None,
-        web_search_config: None,
-        exec_timeout: 30,
-        restrict_to_workspace: true,
-        allowed_commands: vec![],
-        compaction_config: CompactionConfig {
-            enabled: false,
-            threshold_tokens: 40000,
-            keep_recent: 10,
-            extraction_enabled: false,
-            model: None,
-        },
-        outbound_tx,
-        cron_service: None,
-        google_config: None,
-        github_config: None,
-        weather_config: None,
-        todoist_config: None,
-        media_config: None,
-        obsidian_config: None,
-        temperature: 0.7,
-        tool_temperature: 0.0,
-        session_ttl_days: 0, // Disable cleanup in tests
-        max_tokens: 8192,
-        typing_tx: None,
-        channels_config: None,
-        memory_indexer_interval: 300,
-        media_ttl_days: 0, // Disable cleanup in tests
-        max_concurrent_subagents: 5,
-        voice_config: None,
-    };
-
-    AgentLoop::new(config)
-        .await
-        .expect("Failed to create AgentLoop")
-}
 
 #[tokio::test]
 async fn test_simple_message_response() {
     let tmp = TempDir::new().unwrap();
-    let provider = MockLLMProvider::with_responses(vec![LLMResponse {
-        content: Some("Hello from the agent!".to_string()),
-        tool_calls: vec![],
-        reasoning_content: None,
-        input_tokens: None,
-    }]);
+    let provider = MockLLMProvider::with_responses(vec![text_response("Hello from the agent!")]);
 
     let agent = create_test_agent(provider, &tmp).await;
 
@@ -81,12 +22,8 @@ async fn test_simple_message_response() {
 #[tokio::test]
 async fn test_empty_message_handled() {
     let tmp = TempDir::new().unwrap();
-    let provider = MockLLMProvider::with_responses(vec![LLMResponse {
-        content: Some("I received an empty message.".to_string()),
-        tool_calls: vec![],
-        reasoning_content: None,
-        input_tokens: None,
-    }]);
+    let provider =
+        MockLLMProvider::with_responses(vec![text_response("I received an empty message.")]);
 
     let agent = create_test_agent(provider, &tmp).await;
 
@@ -102,18 +39,8 @@ async fn test_empty_message_handled() {
 async fn test_session_persists_across_messages() {
     let tmp = TempDir::new().unwrap();
     let provider = MockLLMProvider::with_responses(vec![
-        LLMResponse {
-            content: Some("First response".to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-        },
-        LLMResponse {
-            content: Some("Second response".to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-        },
+        text_response("First response"),
+        text_response("Second response"),
     ]);
     let calls = provider.calls.clone();
 
@@ -149,18 +76,8 @@ async fn test_session_persists_across_messages() {
 async fn test_different_sessions_isolated() {
     let tmp = TempDir::new().unwrap();
     let provider = MockLLMProvider::with_responses(vec![
-        LLMResponse {
-            content: Some("Response A".to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-        },
-        LLMResponse {
-            content: Some("Response B".to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-        },
+        text_response("Response A"),
+        text_response("Response B"),
     ]);
     let calls = provider.calls.clone();
 
@@ -197,25 +114,13 @@ async fn test_different_sessions_isolated() {
 async fn test_tool_call_and_result() {
     let tmp = TempDir::new().unwrap();
 
-    // First response: LLM requests a tool call (list_dir which is registered by default)
-    // Second response: LLM returns final text after seeing tool result
     let provider = MockLLMProvider::with_responses(vec![
-        LLMResponse {
-            content: None,
-            tool_calls: vec![ToolCallRequest {
-                id: "tc1".to_string(),
-                name: "list_dir".to_string(),
-                arguments: json!({"path": tmp.path().to_str().unwrap()}),
-            }],
-            reasoning_content: None,
-            input_tokens: None,
-        },
-        LLMResponse {
-            content: Some("I listed the directory for you.".to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-        },
+        tool_response(vec![tool_call(
+            "tc1",
+            "list_dir",
+            json!({"path": tmp.path().to_str().unwrap()}),
+        )]),
+        text_response("I listed the directory for you."),
     ]);
     let calls = provider.calls.clone();
 
@@ -242,24 +147,9 @@ async fn test_tool_call_and_result() {
 async fn test_unknown_tool_handled() {
     let tmp = TempDir::new().unwrap();
 
-    // LLM requests a tool that doesn't exist
     let provider = MockLLMProvider::with_responses(vec![
-        LLMResponse {
-            content: None,
-            tool_calls: vec![ToolCallRequest {
-                id: "tc_bad".to_string(),
-                name: "nonexistent_tool".to_string(),
-                arguments: json!({}),
-            }],
-            reasoning_content: None,
-            input_tokens: None,
-        },
-        LLMResponse {
-            content: Some("Sorry, that tool wasn't available.".to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-        },
+        tool_response(vec![tool_call("tc_bad", "nonexistent_tool", json!({}))]),
+        text_response("Sorry, that tool wasn't available."),
     ]);
     let calls = provider.calls.clone();
 
@@ -325,30 +215,20 @@ async fn test_multiple_tool_calls_in_sequence() {
 
     let provider = MockLLMProvider::with_responses(vec![
         // First iteration: two tool calls
-        LLMResponse {
-            content: None,
-            tool_calls: vec![
-                ToolCallRequest {
-                    id: "tc1".to_string(),
-                    name: "list_dir".to_string(),
-                    arguments: json!({"path": tmp.path().to_str().unwrap()}),
-                },
-                ToolCallRequest {
-                    id: "tc2".to_string(),
-                    name: "read_file".to_string(),
-                    arguments: json!({"path": tmp.path().join("test.txt").to_str().unwrap()}),
-                },
-            ],
-            reasoning_content: None,
-            input_tokens: None,
-        },
+        tool_response(vec![
+            tool_call(
+                "tc1",
+                "list_dir",
+                json!({"path": tmp.path().to_str().unwrap()}),
+            ),
+            tool_call(
+                "tc2",
+                "read_file",
+                json!({"path": tmp.path().join("test.txt").to_str().unwrap()}),
+            ),
+        ]),
         // Second iteration: final response
-        LLMResponse {
-            content: Some("Done reading files.".to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-        },
+        text_response("Done reading files."),
     ]);
 
     let agent = create_test_agent(provider, &tmp).await;
@@ -365,24 +245,11 @@ async fn test_multiple_tool_calls_in_sequence() {
 async fn test_hallucination_detection_triggers_retry() {
     let tmp = TempDir::new().unwrap();
 
-    // First response: LLM claims it did something without calling tools
-    // Second response (after correction): LLM gives honest answer
     let provider = MockLLMProvider::with_responses(vec![
-        LLMResponse {
-            content: Some("I've updated the configuration file for you.".to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-        },
-        LLMResponse {
-            content: Some(
-                "I can help you update the configuration. Which file would you like me to edit?"
-                    .to_string(),
-            ),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-        },
+        text_response("I've updated the configuration file for you."),
+        text_response(
+            "I can help you update the configuration. Which file would you like me to edit?",
+        ),
     ]);
     let calls = provider.calls.clone();
 
@@ -423,24 +290,13 @@ async fn test_hallucination_detection_triggers_retry() {
 async fn test_no_hallucination_when_tools_used() {
     let tmp = TempDir::new().unwrap();
 
-    // LLM uses a tool, then claims action — this is legitimate
     let provider = MockLLMProvider::with_responses(vec![
-        LLMResponse {
-            content: None,
-            tool_calls: vec![ToolCallRequest {
-                id: "tc1".to_string(),
-                name: "list_dir".to_string(),
-                arguments: json!({"path": tmp.path().to_str().unwrap()}),
-            }],
-            reasoning_content: None,
-            input_tokens: None,
-        },
-        LLMResponse {
-            content: Some("I've listed the directory for you.".to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-        },
+        tool_response(vec![tool_call(
+            "tc1",
+            "list_dir",
+            json!({"path": tmp.path().to_str().unwrap()}),
+        )]),
+        text_response("I've listed the directory for you."),
     ]);
     let calls = provider.calls.clone();
 
@@ -468,13 +324,9 @@ async fn test_no_hallucination_when_tools_used() {
 async fn test_no_hallucination_for_informational_response() {
     let tmp = TempDir::new().unwrap();
 
-    // LLM gives an informational response without claiming actions
-    let provider = MockLLMProvider::with_responses(vec![LLMResponse {
-        content: Some("To update the config, you need to edit the settings.json file.".to_string()),
-        tool_calls: vec![],
-        reasoning_content: None,
-        input_tokens: None,
-    }]);
+    let provider = MockLLMProvider::with_responses(vec![text_response(
+        "To update the config, you need to edit the settings.json file.",
+    )]);
     let calls = provider.calls.clone();
 
     let agent = create_test_agent(provider, &tmp).await;

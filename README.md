@@ -5,7 +5,7 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 ## Features
 
 - **Multi-channel support**: Telegram, Discord, Slack, WhatsApp, Twilio (SMS/MMS) — each behind a Cargo feature flag for slim builds
-- **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), plus OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Moonshot, Zhipu, DashScope, vLLM), with OAuth support
+- **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), plus OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, vLLM), with OAuth support and local model fallback
 - **24 built-in tools**: Filesystem, shell, web, HTTP, Google Workspace, GitHub, scheduling, memory, media management, and more
 - **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
 - **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode (LLM-free delivery), multi-channel targeting, auto-expiry (`expires_at`) and run limits (`max_runs`)
@@ -546,6 +546,9 @@ Supported providers and their default endpoints:
 | Zhipu | `zhipu` | `https://open.bigmodel.cn/api/paas/v4/chat/completions` |
 | DashScope | `dashscope` | `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions` |
 | vLLM | `vllm` | `http://localhost:8000/v1/chat/completions` |
+| Ollama | `ollama` | `http://localhost:11434/v1/chat/completions` |
+
+Local providers (Ollama and vLLM) do not require an API key. Use the `provider/model` prefix format to route to them — the prefix is stripped before sending to the API (e.g. `ollama/qwen3-coder:30b` sends `qwen3-coder:30b` to the Ollama API).
 
 To override the default endpoint, set `apiBase` on the provider:
 
@@ -559,6 +562,28 @@ To override the default endpoint, set `apiBase` on the provider:
   }
 }
 ```
+
+### Local Model Fallback
+
+You can configure a local model (e.g. Ollama) as a fallback. The cloud model remains the primary provider — the local model is only used if the cloud provider fails or returns malformed tool calls:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "claude-sonnet-4-5-20250929",
+      "localModel": "ollama/qwen3-coder:30b"
+    }
+  },
+  "providers": {
+    "anthropic": {
+      "apiKey": "sk-ant-api03-..."
+    }
+  }
+}
+```
+
+When `localModel` is set, each LLM call tries the cloud model first. If the cloud provider returns an error (e.g. network failure, rate limit) or the response contains malformed tool calls (empty name, non-object arguments), the request is automatically retried against the local model.
 
 ### OAuth Models
 
