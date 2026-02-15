@@ -6,7 +6,7 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 
 - **Multi-channel support**: Telegram, Discord, Slack, WhatsApp, Twilio (SMS/MMS) — each behind a Cargo feature flag for slim builds
 - **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), plus OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, vLLM), with OAuth support and local model fallback
-- **25 built-in tools**: Filesystem, shell, web, HTTP, browser automation, Google Workspace, GitHub, scheduling, memory, media management, and more
+- **23 built-in tools**: Filesystem, shell, web, HTTP, browser automation, Google Workspace, GitHub, scheduling, memory, media management, and more
 - **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
 - **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode (LLM-free delivery), multi-channel targeting, auto-expiry (`expires_at`) and run limits (`max_runs`)
 - **Memory system**: SQLite FTS5-backed long-term memory with background indexing, automatic fact extraction, optional hybrid vector+keyword search (local ONNX embeddings via fastembed), and automatic memory hygiene (archive/purge old notes)
@@ -176,7 +176,8 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
     },
     "browser": {
       "enabled": false,
-      "agentBrowserPath": null,
+      "headless": true,
+      "chromePath": null,
       "timeout": 30
     },
     "exec": {
@@ -621,7 +622,7 @@ For OAuth models, you need to:
 
 ## Tools
 
-The agent has access to 25 built-in tools:
+The agent has access to 23 built-in tools:
 
 ### Core Tools (always available)
 
@@ -654,7 +655,7 @@ The agent has access to 25 built-in tools:
 | `todoist` | Todoist task management: list, create, complete, update | `tools.todoist.token` |
 | `media` | Radarr/Sonarr: search, add, monitor movies & TV | `tools.media.*` |
 | `obsidian` | Obsidian vault: read, write, append, search, list notes | `tools.obsidian.*` |
-| `browser` | Browser automation: open, click, type, screenshot, eval JS | `tools.browser.enabled` |
+| `browser` | Browser automation via Chrome DevTools Protocol: open, click, type, screenshot, eval JS | `tools.browser.enabled` |
 
 ### Subagent System
 

@@ -981,8 +981,10 @@ fn default_browser_timeout() -> u64 {
 pub struct BrowserConfig {
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default, rename = "agentBrowserPath")]
-    pub agent_browser_path: Option<String>,
+    #[serde(default = "default_true")]
+    pub headless: bool,
+    #[serde(default, rename = "chromePath")]
+    pub chrome_path: Option<String>,
     #[serde(default = "default_browser_timeout")]
     pub timeout: u64,
 }
@@ -991,7 +993,8 @@ impl Default for BrowserConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            agent_browser_path: None,
+            headless: true,
+            chrome_path: None,
             timeout: default_browser_timeout(),
         }
     }

@@ -710,13 +710,8 @@ impl AgentLoop {
         // Register browser tool if configured
         if let Some(ref browser_cfg) = browser_config {
             if browser_cfg.enabled {
-                match BrowserTool::new(browser_cfg) {
-                    Ok(tool) => {
-                        tools.register(Arc::new(tool));
-                        info!("Browser tool registered");
-                    }
-                    Err(e) => warn!("Browser tool not available: {}", e),
-                }
+                tools.register(Arc::new(BrowserTool::new(browser_cfg)));
+                info!("Browser tool registered");
             }
         }
 
