@@ -376,13 +376,10 @@ impl BrowserTool {
             ));
         };
 
-        // Wrap in an IIFE if the JS contains `return` statements, since
-        // Runtime.evaluate runs in expression context where `return` is illegal
-        let js = if js.contains("return ") || js.contains("return\n") || js.contains("return;") {
-            format!("(() => {{ {js} }})()")
-        } else {
-            js.to_string()
-        };
+        // Always wrap in an IIFE to provide a fresh scope — prevents
+        // "already been declared" errors for const/let across multiple evals
+        // on the same page, and allows `return` statements to work
+        let js = format!("(() => {{ {js} }})()");
         let result = self
             .with_timeout(async {
                 let eval_result = session

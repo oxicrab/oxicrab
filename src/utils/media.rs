@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 
-const MAX_MEDIA_SIZE: usize = 10 * 1024 * 1024; // 10MB
+const MAX_MEDIA_SIZE: usize = 20 * 1024 * 1024; // 20MB
 
 /// Save binary data to a file in `~/.nanobot/media/`.
 ///
