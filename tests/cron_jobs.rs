@@ -1,3 +1,4 @@
+use oxicrab::cron::event_matcher::EventMatcher;
 use oxicrab::cron::service::{validate_cron_expr, CronService};
 use oxicrab::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule, CronTarget};
 use std::sync::Arc;
@@ -644,4 +645,217 @@ async fn test_cron_job_at_expired() {
         jobs[0].state.next_run_at_ms.is_none(),
         "expired at-job should have no next_run_at_ms"
     );
+}
+
+// --- Event-triggered cron integration tests ---
+
+fn make_event_job(id: &str, pattern: &str, channel: Option<&str>) -> CronJob {
+    CronJob {
+        id: id.to_string(),
+        name: format!("Event {}", id),
+        enabled: true,
+        schedule: CronSchedule::Event {
+            pattern: Some(pattern.to_string()),
+            channel: channel.map(str::to_string),
+        },
+        payload: CronPayload {
+            kind: "agent_turn".to_string(),
+            message: "event triggered".to_string(),
+            agent_echo: false,
+            targets: vec![CronTarget {
+                channel: "telegram".to_string(),
+                to: "user1".to_string(),
+            }],
+        },
+        state: CronJobState::default(),
+        created_at_ms: 1000000,
+        updated_at_ms: 1000000,
+        delete_after_run: false,
+        expires_at_ms: None,
+        max_runs: None,
+        cooldown_secs: None,
+        max_concurrent: None,
+    }
+}
+
+#[tokio::test]
+async fn test_event_job_persistence() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    let job = make_event_job("evt1", r"(?i)deploy", None);
+    svc.add_job(job).await.unwrap();
+
+    let jobs = svc.list_jobs(false).await.unwrap();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].id, "evt1");
+
+    // Event jobs should have no next_run_at_ms (they fire on message, not schedule)
+    assert!(
+        jobs[0].state.next_run_at_ms.is_none(),
+        "event job should have no next_run_at_ms"
+    );
+}
+
+#[tokio::test]
+async fn test_event_job_roundtrip_serialization() {
+    let tmp = TempDir::new().unwrap();
+    let store_path = tmp.path().join("cron_store.json");
+
+    // Write event job, drop service
+    {
+        let svc = CronService::new(store_path.clone());
+        svc.load_store(true).await.unwrap();
+        let mut job = make_event_job("evt_ser", r"(?i)help\s+me", Some("slack"));
+        job.cooldown_secs = Some(120);
+        svc.add_job(job).await.unwrap();
+    }
+
+    // Read back from disk
+    let svc2 = CronService::new(store_path);
+    let store = svc2.load_store(true).await.unwrap();
+    assert_eq!(store.jobs.len(), 1);
+
+    let job = &store.jobs[0];
+    assert_eq!(job.id, "evt_ser");
+    assert_eq!(job.cooldown_secs, Some(120));
+    match &job.schedule {
+        CronSchedule::Event { pattern, channel } => {
+            assert_eq!(pattern.as_deref(), Some(r"(?i)help\s+me"));
+            assert_eq!(channel.as_deref(), Some("slack"));
+        }
+        other => panic!("expected Event schedule, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_event_matcher_from_stored_jobs() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    // Add a mix of event and regular jobs
+    svc.add_job(make_event_job("evt1", r"(?i)deploy", None))
+        .await
+        .unwrap();
+    svc.add_job(make_test_job("reg1", "Regular Job"))
+        .await
+        .unwrap();
+    svc.add_job(make_event_job("evt2", r"(?i)rollback", Some("slack")))
+        .await
+        .unwrap();
+
+    // Build event matcher from stored jobs
+    let jobs = svc.list_jobs(false).await.unwrap();
+    let matcher = EventMatcher::from_jobs(&jobs);
+
+    // Should only have 2 event matchers (regular job ignored)
+    assert!(!matcher.is_empty());
+
+    // "deploy" matches evt1 on any channel
+    let hits = matcher.check_message("please deploy to prod", "discord", 1000);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, "evt1");
+
+    // "rollback" matches evt2 only on slack
+    let hits = matcher.check_message("rollback the release", "slack", 1000);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, "evt2");
+
+    // "rollback" on discord should NOT match (channel filter)
+    let hits = matcher.check_message("rollback the release", "discord", 1000);
+    assert!(hits.is_empty());
+
+    // No match
+    let hits = matcher.check_message("hello world", "slack", 1000);
+    assert!(hits.is_empty());
+}
+
+#[tokio::test]
+async fn test_event_trigger_fires_cron_service() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    svc.add_job(make_event_job("evt_fire", r"(?i)deploy", None))
+        .await
+        .unwrap();
+
+    // Set up a callback to track execution
+    let fired_ids = Arc::new(Mutex::new(Vec::<String>::new()));
+    let fired_clone = fired_ids.clone();
+    svc.set_on_job(move |job| {
+        let fired = fired_clone.clone();
+        Box::pin(async move {
+            fired.lock().await.push(job.id.clone());
+            Ok(Some("event handled".to_string()))
+        })
+    })
+    .await;
+
+    // Build matcher from stored jobs
+    let jobs = svc.list_jobs(false).await.unwrap();
+    let matcher = EventMatcher::from_jobs(&jobs);
+
+    // Simulate an incoming message that matches
+    let triggered = matcher.check_message("deploy to staging", "slack", 1000);
+    assert_eq!(triggered.len(), 1);
+
+    // Fire the matched jobs through cron service (like the agent loop does)
+    for job in &triggered {
+        svc.run_job(&job.id, true).await.unwrap();
+    }
+
+    let fired = fired_ids.lock().await;
+    assert_eq!(fired.len(), 1);
+    assert_eq!(fired[0], "evt_fire");
+}
+
+#[tokio::test]
+async fn test_event_job_with_cooldown_integration() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    let mut job = make_event_job("evt_cool", r"(?i)alert", None);
+    job.cooldown_secs = Some(60);
+    svc.add_job(job).await.unwrap();
+
+    // Build matcher — initially no cooldown barrier
+    let jobs = svc.list_jobs(false).await.unwrap();
+    let matcher = EventMatcher::from_jobs(&jobs);
+
+    // First message should trigger (no last_fired_at_ms)
+    let hits = matcher.check_message("alert: disk full", "slack", 1_000_000);
+    assert_eq!(hits.len(), 1);
+
+    // Simulate: rebuild matcher with last_fired_at_ms set (as if job just ran)
+    let mut job2 = make_event_job("evt_cool", r"(?i)alert", None);
+    job2.cooldown_secs = Some(60);
+    job2.state.last_fired_at_ms = Some(1_000_000);
+    let matcher2 = EventMatcher::from_jobs(&[job2]);
+
+    // Within cooldown (30s later) — should NOT trigger
+    let hits = matcher2.check_message("alert: disk full", "slack", 1_030_000);
+    assert!(hits.is_empty());
+
+    // After cooldown (90s later) — should trigger
+    let hits = matcher2.check_message("alert: disk full", "slack", 1_090_000);
+    assert_eq!(hits.len(), 1);
+}
+
+#[tokio::test]
+async fn test_event_job_disabled_not_matched() {
+    let (svc, _tmp) = create_test_cron_service();
+    svc.load_store(true).await.unwrap();
+
+    svc.add_job(make_event_job("evt_dis", r"(?i)deploy", None))
+        .await
+        .unwrap();
+    svc.enable_job("evt_dis", false).await.unwrap();
+
+    let jobs = svc.list_jobs(true).await.unwrap(); // include disabled
+    let matcher = EventMatcher::from_jobs(&jobs);
+
+    // Disabled job should not be in the matcher
+    assert!(matcher.is_empty());
+    let hits = matcher.check_message("deploy now", "slack", 1000);
+    assert!(hits.is_empty());
 }
