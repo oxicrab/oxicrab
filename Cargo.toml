@@ -6,7 +6,12 @@ authors = ["James Turnbull <james@ltl.so>"]
 description = "A high-performance Rust multi-channel AI assistant framework"
 license = "MIT"
 repository = "https://github.com/oxicrab/oxicrab"
+homepage = "https://oxicrab.dev"
+documentation = "https://docs.rs/oxicrab"
 readme = "README.md"
+keywords = ["ai", "assistant", "chatbot", "llm", "multi-channel"]
+categories = ["command-line-utilities", "network-programming"]
+exclude = ["docs/", ".github/", "tests/", "target/", "*.md", "!README.md"]
 
 [lib]
 name = "oxicrab"
@@ -60,7 +65,6 @@ sha2 = "0.10"
 teloxide = { version = "0.17", default-features = false, features = ["rustls", "ctrlc_handler"], optional = true }
 tempfile = "3.25"
 tokio = { version = "1.49", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
-# tokio-process = "0.2"  # Removed: unused and pulls in vulnerable crossbeam-queue 0.1.2
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
