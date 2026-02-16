@@ -227,6 +227,18 @@ impl Tool for CronTool {
                 "max_runs": {
                     "type": "integer",
                     "description": "Maximum number of times the job should run before auto-disabling. E.g. 7 for '7 pings then stop'."
+                },
+                "event_pattern": {
+                    "type": "string",
+                    "description": "Regex pattern to trigger the job when an inbound message matches. Mutually exclusive with every_seconds/cron_expr/at_time."
+                },
+                "event_channel": {
+                    "type": "string",
+                    "description": "Optional channel filter for event-triggered jobs (only fire for messages from this channel)."
+                },
+                "cooldown_secs": {
+                    "type": "integer",
+                    "description": "Minimum seconds between event-triggered firings. Prevents flooding."
                 }
             },
             "required": ["action"]
@@ -303,9 +315,23 @@ impl Tool for CronTool {
                         ));
                     }
                     CronSchedule::At { at_ms: Some(at_ms) }
+                } else if let Some(event_pattern) = params["event_pattern"].as_str() {
+                    // Validate the regex compiles
+                    if let Err(e) = regex::Regex::new(event_pattern) {
+                        return Ok(ToolResult::error(format!(
+                            "Error: invalid event_pattern regex: {}",
+                            e
+                        )));
+                    }
+                    CronSchedule::Event {
+                        pattern: Some(event_pattern.to_string()),
+                        channel: params["event_channel"]
+                            .as_str()
+                            .map(std::string::ToString::to_string),
+                    }
                 } else {
                     return Ok(ToolResult::error(
-                        "Error: either every_seconds, cron_expr, or at_time is required"
+                        "Error: either every_seconds, cron_expr, at_time, or event_pattern is required"
                             .to_string(),
                     ));
                 };
@@ -334,6 +360,8 @@ impl Tool for CronTool {
                 };
 
                 let max_runs = params["max_runs"].as_u64().map(|n| n as u32);
+                let cooldown_secs = params["cooldown_secs"].as_u64();
+                let max_concurrent = params["max_concurrent"].as_u64().map(|n| n as u32);
 
                 let now_ms = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -370,12 +398,15 @@ impl Tool for CronTool {
                         last_status: None,
                         last_error: None,
                         run_count: 0,
+                        last_fired_at_ms: None,
                     },
                     created_at_ms: now_ms,
                     updated_at_ms: now_ms,
                     delete_after_run,
                     expires_at_ms,
                     max_runs,
+                    cooldown_secs,
+                    max_concurrent,
                 };
 
                 self.cron_service.add_job(job.clone()).await?;
@@ -417,6 +448,14 @@ impl Tool for CronTool {
                             CronSchedule::Cron { expr, tz } => {
                                 let tz_str = tz.as_deref().unwrap_or("UTC");
                                 expr.as_deref().map_or_else(|| "cron (no expression)".to_string(), |e| format!("cron '{}' ({})", e, tz_str))
+                            }
+                            CronSchedule::Event { pattern, channel } => {
+                                let pat = pattern.as_deref().unwrap_or("*");
+                                if let Some(ch) = channel {
+                                    format!("event /{pat}/ on {ch}")
+                                } else {
+                                    format!("event /{pat}/")
+                                }
                             }
                         };
                         let next_run = j

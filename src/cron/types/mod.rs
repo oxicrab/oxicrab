@@ -18,6 +18,14 @@ pub enum CronSchedule {
         expr: Option<String>,
         tz: Option<String>,
     },
+    /// Fires when an inbound message matches the regex pattern.
+    #[serde(rename = "event")]
+    Event {
+        /// Regex pattern to match against message content.
+        pattern: Option<String>,
+        /// Optional channel filter (only fire for messages from this channel).
+        channel: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -54,6 +62,13 @@ pub struct CronJobState {
     pub last_error: Option<String>,
     #[serde(rename = "runCount", default)]
     pub run_count: u32,
+    /// Timestamp of last event-triggered firing (for cooldown enforcement).
+    #[serde(
+        rename = "lastFiredAtMs",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub last_fired_at_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +95,20 @@ pub struct CronJob {
     pub expires_at_ms: Option<i64>,
     #[serde(rename = "maxRuns", default, skip_serializing_if = "Option::is_none")]
     pub max_runs: Option<u32>,
+    /// Minimum seconds between event-triggered firings.
+    #[serde(
+        rename = "cooldownSecs",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cooldown_secs: Option<u64>,
+    /// Maximum concurrent executions for event-triggered jobs.
+    #[serde(
+        rename = "maxConcurrent",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_concurrent: Option<u32>,
 }
 
 fn default_true() -> bool {

@@ -15,6 +15,7 @@ use proxy::McpProxyTool;
 struct RunningMcpServer {
     client: rmcp::service::RunningService<rmcp::RoleClient, ()>,
     server_name: String,
+    trust_level: String,
 }
 
 /// Manages connections to MCP servers and discovers their tools.
@@ -33,11 +34,20 @@ impl McpManager {
                 continue;
             }
 
-            match Self::connect_server(name, &server_cfg.command, &server_cfg.args, &server_cfg.env)
-                .await
+            match Self::connect_server(
+                name,
+                &server_cfg.command,
+                &server_cfg.args,
+                &server_cfg.env,
+                &server_cfg.trust,
+            )
+            .await
             {
                 Ok(server) => {
-                    info!("MCP server '{}' connected", name);
+                    info!(
+                        "MCP server '{}' connected (trust: {})",
+                        name, server.trust_level
+                    );
                     servers.push(server);
                 }
                 Err(e) => {
@@ -54,6 +64,7 @@ impl McpManager {
         command: &str,
         args: &[String],
         env: &std::collections::HashMap<String, String>,
+        trust: &str,
     ) -> Result<RunningMcpServer> {
         let mut cmd = Command::new(command);
         cmd.args(args);
@@ -74,12 +85,14 @@ impl McpManager {
         Ok(RunningMcpServer {
             client,
             server_name: name.to_string(),
+            trust_level: trust.to_string(),
         })
     }
 
     /// Discover all tools across all connected MCP servers and wrap them as `impl Tool`.
-    pub async fn discover_tools(&self) -> Vec<Arc<dyn Tool>> {
-        let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
+    /// Returns `(trust_level, tool)` tuples so callers can apply trust-based filtering.
+    pub async fn discover_tools(&self) -> Vec<(String, Arc<dyn Tool>)> {
+        let mut tools: Vec<(String, Arc<dyn Tool>)> = Vec::new();
 
         for server in &self.servers {
             match server.client.peer().list_all_tools().await {
@@ -98,10 +111,10 @@ impl McpManager {
                             description,
                             input_schema,
                         );
-                        tools.push(Arc::new(proxy));
+                        tools.push((server.trust_level.clone(), Arc::new(proxy)));
                         info!(
-                            "Discovered MCP tool '{}' from server '{}'",
-                            mcp_tool.name, server.server_name
+                            "Discovered MCP tool '{}' from server '{}' (trust: {})",
+                            mcp_tool.name, server.server_name, server.trust_level
                         );
                     }
                 }

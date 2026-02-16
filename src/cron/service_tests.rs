@@ -136,6 +136,8 @@ async fn test_expired_job_auto_disables() {
         delete_after_run: false,
         expires_at_ms: Some(now - 1000), // already expired
         max_runs: None,
+        cooldown_secs: None,
+        max_concurrent: None,
     };
 
     svc.add_job(job).await.unwrap();
@@ -180,6 +182,8 @@ async fn test_max_runs_auto_disables() {
         delete_after_run: false,
         expires_at_ms: None,
         max_runs: Some(5), // already at max
+        cooldown_secs: None,
+        max_concurrent: None,
     };
 
     svc.add_job(job).await.unwrap();
@@ -219,6 +223,8 @@ async fn test_add_job_deduplicates_names() {
         delete_after_run: false,
         expires_at_ms: None,
         max_runs: None,
+        cooldown_secs: None,
+        max_concurrent: None,
     };
 
     // First job keeps its name
@@ -261,6 +267,8 @@ async fn test_run_job_increments_run_count() {
         delete_after_run: false,
         expires_at_ms: None,
         max_runs: None,
+        cooldown_secs: None,
+        max_concurrent: None,
     };
 
     svc.add_job(job).await.unwrap();

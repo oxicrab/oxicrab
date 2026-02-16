@@ -927,12 +927,15 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
                     last_status: None,
                     last_error: None,
                     run_count: 0,
+                    last_fired_at_ms: None,
                 },
                 created_at_ms: now_ms,
                 updated_at_ms: now_ms,
                 delete_after_run: false,
                 expires_at_ms: None,
                 max_runs: None,
+                cooldown_secs: None,
+                max_concurrent: None,
             };
 
             cron.add_job(job).await?;

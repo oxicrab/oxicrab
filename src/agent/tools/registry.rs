@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
@@ -38,7 +38,6 @@ fn canonical_value(value: &Value) -> Value {
 
 const DEFAULT_CACHE_MAX_ENTRIES: usize = 128;
 const DEFAULT_CACHE_TTL_SECS: u64 = 300; // 5 minutes
-const DEFAULT_TIMEOUT_SECS: u64 = 120;
 const DEFAULT_MAX_RESULT_CHARS: usize = 10000;
 
 struct CachedResult {
@@ -49,7 +48,6 @@ struct CachedResult {
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn Tool>>,
     middleware: Vec<Arc<dyn ToolMiddleware>>,
-    timeout_secs: u64,
 }
 
 impl ToolRegistry {
@@ -64,7 +62,6 @@ impl ToolRegistry {
                 Arc::new(TruncationMiddleware::new(DEFAULT_MAX_RESULT_CHARS)),
                 Arc::new(LoggingMiddleware),
             ],
-            timeout_secs: DEFAULT_TIMEOUT_SECS,
         }
     }
 
@@ -142,7 +139,8 @@ impl ToolRegistry {
     ) -> Result<ToolResult> {
         let tool_name = name.to_string();
         let ctx = ctx.clone();
-        let timeout = Duration::from_secs(self.timeout_secs);
+        let timeout = tool.execution_timeout();
+        let timeout_secs = timeout.as_secs();
 
         let handle = tokio::task::spawn(async move {
             tokio::time::timeout(timeout, tool.execute(params, &ctx)).await
@@ -151,13 +149,10 @@ impl ToolRegistry {
         match handle.await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => {
-                warn!(
-                    "Tool '{}' timed out after {}s",
-                    tool_name, self.timeout_secs
-                );
+                warn!("Tool '{}' timed out after {}s", tool_name, timeout_secs);
                 Ok(ToolResult::error(format!(
                     "Tool '{}' timed out after {}s",
-                    tool_name, self.timeout_secs
+                    tool_name, timeout_secs
                 )))
             }
             Err(join_err) => {

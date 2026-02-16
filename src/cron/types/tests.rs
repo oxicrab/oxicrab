@@ -30,12 +30,15 @@ fn test_cron_job_full_roundtrip() {
             last_status: Some("success".to_string()),
             last_error: None,
             run_count: 3,
+            last_fired_at_ms: None,
         },
         created_at_ms: 1_234_567_890,
         updated_at_ms: 1_234_567_900,
         delete_after_run: false,
         expires_at_ms: Some(9_999_999_999_999),
         max_runs: Some(10),
+        cooldown_secs: None,
+        max_concurrent: None,
     };
 
     let json = serde_json::to_string(&job).unwrap();
@@ -105,6 +108,8 @@ fn test_expires_at_and_max_runs_omitted_from_json_when_none() {
         delete_after_run: false,
         expires_at_ms: None,
         max_runs: None,
+        cooldown_secs: None,
+        max_concurrent: None,
     };
     let json = serde_json::to_string(&job).unwrap();
     assert!(

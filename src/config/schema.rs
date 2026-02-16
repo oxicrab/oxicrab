@@ -948,6 +948,14 @@ pub struct McpServerConfig {
     pub env: std::collections::HashMap<String, String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Trust level for this MCP server: "local" (full access), "verified"
+    /// (requires approval), or "community" (read-only safe tools only).
+    #[serde(default = "default_mcp_trust")]
+    pub trust: String,
+}
+
+fn default_mcp_trust() -> String {
+    "local".to_string()
 }
 
 fn default_transcription_api_base() -> String {

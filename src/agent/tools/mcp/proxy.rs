@@ -6,6 +6,7 @@ use rmcp::RoleClient;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::fmt::Write;
+use std::sync::Arc;
 
 /// Wraps a single MCP server tool as an `impl Tool` for the oxicrab agent.
 pub struct McpProxyTool {
@@ -129,5 +130,47 @@ impl Tool for McpProxyTool {
         } else {
             Ok(ToolResult::new(output))
         }
+    }
+}
+
+/// Wrapper that forces `requires_approval() = true` for untrusted MCP tools.
+pub struct AttenuatedMcpTool {
+    inner: Arc<dyn Tool>,
+}
+
+impl AttenuatedMcpTool {
+    pub fn new(inner: Arc<dyn Tool>) -> Self {
+        Self { inner }
+    }
+}
+
+#[async_trait]
+impl Tool for AttenuatedMcpTool {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn description(&self) -> &'static str {
+        self.inner.description()
+    }
+
+    fn parameters(&self) -> Value {
+        self.inner.parameters()
+    }
+
+    async fn execute(&self, params: Value, ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
+        self.inner.execute(params, ctx).await
+    }
+
+    fn requires_approval(&self) -> bool {
+        true
+    }
+
+    fn execution_timeout(&self) -> std::time::Duration {
+        self.inner.execution_timeout()
+    }
+
+    fn cacheable(&self) -> bool {
+        self.inner.cacheable()
     }
 }

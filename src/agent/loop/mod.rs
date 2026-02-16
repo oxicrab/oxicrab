@@ -6,6 +6,7 @@ use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::setup::ToolBuildContext;
 use crate::agent::tools::ToolRegistry;
 use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
+use crate::cron::event_matcher::EventMatcher;
 use crate::cron::service::CronService;
 use crate::providers::base::{ImageData, LLMProvider, Message};
 use crate::session::{Session, SessionManager, SessionStore};
@@ -610,6 +611,8 @@ pub struct AgentLoop {
     max_tokens: u32,
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     transcriber: Option<Arc<crate::utils::transcription::TranscriptionService>>,
+    event_matcher: Option<EventMatcher>,
+    cron_service: Option<Arc<CronService>>,
 }
 
 impl AgentLoop {
@@ -699,7 +702,7 @@ impl AgentLoop {
             outbound_tx: outbound_tx.clone(),
             bus: bus.clone(),
             web_search_config,
-            cron_service,
+            cron_service: cron_service.clone(),
             channels_config,
             google_config,
             github_config,
@@ -746,6 +749,37 @@ impl AgentLoop {
             None
         };
 
+        // Build event matcher from cron jobs (if any event-triggered jobs exist)
+        let event_matcher = if let Some(ref cron_svc) = cron_service {
+            match cron_svc.load_store(false).await {
+                Ok(store) => {
+                    let matcher = EventMatcher::from_jobs(&store.jobs);
+                    if matcher.is_empty() {
+                        None
+                    } else {
+                        info!(
+                            "Event matcher initialized with {} event-triggered job(s)",
+                            store
+                                .jobs
+                                .iter()
+                                .filter(|j| matches!(
+                                    j.schedule,
+                                    crate::cron::types::CronSchedule::Event { .. }
+                                ))
+                                .count()
+                        );
+                        Some(matcher)
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to load cron store for event matcher: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             inbound_rx,
             provider,
@@ -768,6 +802,8 @@ impl AgentLoop {
             max_tokens,
             typing_tx,
             transcriber,
+            event_matcher,
+            cron_service,
         })
     }
 
@@ -864,6 +900,24 @@ impl AgentLoop {
         }
 
         info!("Processing message from {}:{}", msg.channel, msg.sender_id);
+
+        // Check for event-triggered cron jobs in the background
+        if let (Some(ref matcher), Some(ref cron_svc)) = (&self.event_matcher, &self.cron_service) {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as i64);
+            let triggered = matcher.check_message(&msg.content, &msg.channel, now_ms);
+            for job in triggered {
+                let cron_svc = cron_svc.clone();
+                let job_id = job.id.clone();
+                info!("Event-triggered cron job '{}' ({})", job.name, job.id);
+                tokio::spawn(async move {
+                    if let Err(e) = cron_svc.run_job(&job_id, true).await {
+                        warn!("Event-triggered job '{}' failed: {}", job_id, e);
+                    }
+                });
+            }
+        }
 
         let session_key = msg.session_key();
         // Reuse session to avoid repeated lookups

@@ -105,6 +105,17 @@ pub trait Tool: Send + Sync {
     fn cacheable(&self) -> bool {
         false
     }
+
+    /// Whether this tool requires user approval before execution.
+    /// Used for untrusted MCP tools.
+    fn requires_approval(&self) -> bool {
+        false
+    }
+
+    /// Per-tool execution timeout. Overrides the registry-level default.
+    fn execution_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_mins(2)
+    }
 }
 
 /// Middleware that can intercept tool execution for cross-cutting concerns

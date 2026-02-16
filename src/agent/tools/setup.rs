@@ -1,5 +1,6 @@
 use crate::agent::memory::MemoryStore;
 use crate::agent::subagent::{SubagentConfig, SubagentManager};
+use crate::agent::tools::mcp::proxy::AttenuatedMcpTool;
 use crate::agent::tools::mcp::McpManager;
 use crate::agent::tools::ToolRegistry;
 use crate::bus::{MessageBus, OutboundMessage};
@@ -10,6 +11,29 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
+
+/// Built-in tool names that MCP tools must not shadow.
+const PROTECTED_TOOL_NAMES: &[&str] = &[
+    "exec",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "list_dir",
+    "web_search",
+    "web_fetch",
+    "http",
+    "spawn",
+    "subagent_control",
+    "cron",
+    "tmux",
+    "browser",
+    "memory_search",
+];
+
+/// Keywords that indicate a tool is safe for community-trust MCP servers.
+const COMMUNITY_SAFE_KEYWORDS: &[&str] = &[
+    "read", "list", "get", "search", "find", "query", "fetch", "view", "show", "count",
+];
 
 /// All configuration and shared state needed to construct tools.
 /// Built once during `AgentLoop::new()` and passed to each module's `register()`.
@@ -308,12 +332,53 @@ async fn register_mcp(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         match McpManager::new(mcp_cfg).await {
             Ok(manager) => {
                 let tools = manager.discover_tools().await;
-                let count = tools.len();
-                for tool in tools {
-                    registry.register(tool);
+                let mut registered = 0usize;
+                for (trust, tool) in tools {
+                    let name = tool.name().to_string();
+
+                    // Reject tools that shadow built-in names
+                    if PROTECTED_TOOL_NAMES.contains(&name.as_str()) {
+                        warn!(
+                            "MCP tool '{}' rejected: shadows a protected built-in tool",
+                            name
+                        );
+                        continue;
+                    }
+
+                    match trust.as_str() {
+                        "local" => {
+                            registry.register(tool);
+                            registered += 1;
+                        }
+                        "verified" => {
+                            registry.register(Arc::new(AttenuatedMcpTool::new(tool)));
+                            registered += 1;
+                        }
+                        "community" => {
+                            let name_lower = name.to_lowercase();
+                            if COMMUNITY_SAFE_KEYWORDS
+                                .iter()
+                                .any(|kw| name_lower.contains(kw))
+                            {
+                                registry.register(Arc::new(AttenuatedMcpTool::new(tool)));
+                                registered += 1;
+                            } else {
+                                warn!(
+                                    "MCP tool '{}' rejected: community trust, name does not contain a safe keyword",
+                                    name
+                                );
+                            }
+                        }
+                        other => {
+                            warn!(
+                                "MCP tool '{}' rejected: unknown trust level '{}'",
+                                name, other
+                            );
+                        }
+                    }
                 }
-                if count > 0 {
-                    info!("Registered {} MCP tool(s)", count);
+                if registered > 0 {
+                    info!("Registered {} MCP tool(s)", registered);
                 }
                 // Store manager so child processes stay alive.
                 // We leak it intentionally — MCP servers run for the process lifetime.

@@ -171,6 +171,10 @@ impl Tool for ExecTool {
         ToolVersion::new(1, 1, 0) // Version 1.1.0 - includes security improvements
     }
 
+    fn execution_timeout(&self) -> Duration {
+        Duration::from_secs(self.timeout)
+    }
+
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let command = params["command"]
             .as_str()

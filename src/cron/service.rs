@@ -53,6 +53,8 @@ fn compute_next_run(schedule: &CronSchedule, now_ms: i64) -> Option<i64> {
                 None
             }
         }),
+        // Event jobs don't poll — they fire in response to messages
+        CronSchedule::Event { .. } => None,
         CronSchedule::Cron { expr, tz } => {
             if let Some(expr_str) = expr {
                 let normalized = validate_cron_expr(expr_str).ok()?;
