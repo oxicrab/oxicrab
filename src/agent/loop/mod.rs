@@ -1034,6 +1034,7 @@ impl AgentLoop {
     ) -> Result<(Option<String>, Option<u64>, Vec<String>, Vec<String>)> {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut last_used_delivery_tool = false;
+        let mut consecutive_delivery_only: u32 = 0;
         let mut any_tools_called = false;
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
@@ -1119,9 +1120,25 @@ impl AgentLoop {
                         .iter()
                         .map(std::string::ToString::to_string),
                 );
-                last_used_delivery_tool = called_tool_names
+                let only_delivery_tools = called_tool_names
                     .iter()
-                    .any(|n| *n == "message" || *n == "spawn");
+                    .all(|n| *n == "message" || *n == "spawn");
+
+                // Break if the LLM keeps sending delivery-only iterations (redundant messages)
+                if only_delivery_tools {
+                    consecutive_delivery_only += 1;
+                    if consecutive_delivery_only > 1 {
+                        debug!("Breaking after repeated delivery-only iterations");
+                        break;
+                    }
+                } else {
+                    consecutive_delivery_only = 0;
+                }
+
+                last_used_delivery_tool = only_delivery_tools
+                    || called_tool_names
+                        .iter()
+                        .any(|n| *n == "message" || *n == "spawn");
 
                 ContextBuilder::add_assistant_message(
                     &mut messages,
