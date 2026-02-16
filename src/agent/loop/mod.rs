@@ -468,6 +468,126 @@ pub struct AgentLoopConfig {
     pub mcp_config: Option<crate::config::McpConfig>,
 }
 
+/// Temperature used for tool-calling iterations (low for determinism)
+const TOOL_TEMPERATURE: f32 = 0.0;
+
+/// Runtime parameters for [`AgentLoopConfig::from_config`] that vary per
+/// invocation (as opposed to values read from the config file).
+pub struct AgentLoopRuntimeParams {
+    pub bus: Arc<Mutex<MessageBus>>,
+    pub provider: Arc<dyn LLMProvider>,
+    pub model: Option<String>,
+    pub outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
+    pub cron_service: Option<Arc<CronService>>,
+    pub typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
+    pub channels_config: Option<crate::config::ChannelsConfig>,
+}
+
+impl AgentLoopConfig {
+    /// Build an `AgentLoopConfig` from the application [`Config`](crate::config::Config)
+    /// and runtime parameters that vary per invocation.
+    pub fn from_config(config: &crate::config::Config, params: AgentLoopRuntimeParams) -> Self {
+        let mut image_gen = config.tools.image_gen.clone();
+        if image_gen.enabled {
+            if !config.providers.openai.api_key.is_empty() {
+                image_gen.openai_api_key = Some(config.providers.openai.api_key.clone());
+            }
+            if !config.providers.gemini.api_key.is_empty() {
+                image_gen.google_api_key = Some(config.providers.gemini.api_key.clone());
+            }
+        }
+
+        Self {
+            bus: params.bus,
+            provider: params.provider,
+            workspace: config.workspace_path(),
+            model: params.model,
+            max_iterations: config.agents.defaults.max_tool_iterations,
+            brave_api_key: Some(config.tools.web.search.api_key.clone()),
+            web_search_config: Some(config.tools.web.search.clone()),
+            exec_timeout: config.tools.exec.timeout,
+            restrict_to_workspace: config.tools.restrict_to_workspace,
+            allowed_commands: config.tools.exec.allowed_commands.clone(),
+            compaction_config: config.agents.defaults.compaction.clone(),
+            outbound_tx: params.outbound_tx,
+            cron_service: params.cron_service,
+            google_config: Some(config.tools.google.clone()),
+            github_config: Some(config.tools.github.clone()),
+            weather_config: Some(config.tools.weather.clone()),
+            todoist_config: Some(config.tools.todoist.clone()),
+            media_config: Some(config.tools.media.clone()),
+            obsidian_config: Some(config.tools.obsidian.clone()),
+            temperature: config.agents.defaults.temperature,
+            tool_temperature: TOOL_TEMPERATURE,
+            session_ttl_days: config.agents.defaults.session_ttl_days,
+            max_tokens: config.agents.defaults.max_tokens,
+            typing_tx: params.typing_tx,
+            channels_config: params.channels_config,
+            memory_indexer_interval: config.agents.defaults.memory_indexer_interval,
+            media_ttl_days: config.agents.defaults.media_ttl_days,
+            max_concurrent_subagents: config.agents.defaults.max_concurrent_subagents,
+            voice_config: Some(config.voice.clone()),
+            memory_config: Some(config.agents.defaults.memory.clone()),
+            browser_config: Some(config.tools.browser.clone()),
+            image_gen_config: Some(image_gen),
+            mcp_config: Some(config.tools.mcp.clone()),
+        }
+    }
+
+    /// Create a config with sensible test defaults. Only `bus`, `provider`,
+    /// `workspace`, and `outbound_tx` are required; everything else gets
+    /// minimal/disabled defaults.
+    #[doc(hidden)]
+    pub fn test_defaults(
+        bus: Arc<Mutex<MessageBus>>,
+        provider: Arc<dyn LLMProvider>,
+        workspace: PathBuf,
+        outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
+    ) -> Self {
+        Self {
+            bus,
+            provider,
+            workspace,
+            model: Some("mock-model".to_string()),
+            max_iterations: 10,
+            brave_api_key: None,
+            web_search_config: None,
+            exec_timeout: 30,
+            restrict_to_workspace: true,
+            allowed_commands: vec![],
+            compaction_config: crate::config::CompactionConfig {
+                enabled: false,
+                threshold_tokens: 40000,
+                keep_recent: 10,
+                extraction_enabled: false,
+                model: None,
+            },
+            outbound_tx,
+            cron_service: None,
+            google_config: None,
+            github_config: None,
+            weather_config: None,
+            todoist_config: None,
+            media_config: None,
+            obsidian_config: None,
+            temperature: 0.7,
+            tool_temperature: 0.0,
+            session_ttl_days: 0,
+            max_tokens: 8192,
+            typing_tx: None,
+            channels_config: None,
+            memory_indexer_interval: 300,
+            media_ttl_days: 0,
+            max_concurrent_subagents: 5,
+            voice_config: None,
+            memory_config: None,
+            browser_config: None,
+            image_gen_config: None,
+            mcp_config: None,
+        }
+    }
+}
+
 pub struct AgentLoop {
     inbound_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<InboundMessage>>>,
     provider: Arc<dyn LLMProvider>,

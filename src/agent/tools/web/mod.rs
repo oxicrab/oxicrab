@@ -25,11 +25,7 @@ impl WebSearchTool {
             provider: "brave".to_string(),
             api_key: api_key.unwrap_or_else(|| std::env::var("BRAVE_API_KEY").unwrap_or_default()),
             max_results,
-            client: Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(10))
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: crate::utils::http::default_http_client(),
         }
     }
 
@@ -43,11 +39,7 @@ impl WebSearchTool {
             provider: config.provider.clone(),
             api_key,
             max_results: config.max_results,
-            client: Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(10))
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: crate::utils::http::default_http_client(),
         }
     }
 

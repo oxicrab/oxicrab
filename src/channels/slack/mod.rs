@@ -662,28 +662,7 @@ fn resolve_slack_redirect(location: &str) -> String {
 }
 
 /// Check if bytes start with known image magic bytes.
-fn is_image_magic_bytes(data: &[u8]) -> bool {
-    if data.len() < 4 {
-        return false;
-    }
-    // PNG: 89 50 4E 47
-    if data.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
-        return true;
-    }
-    // JPEG: FF D8 FF
-    if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        return true;
-    }
-    // GIF: GIF87a or GIF89a
-    if data.starts_with(b"GIF8") {
-        return true;
-    }
-    // WebP: RIFF....WEBP
-    if data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WEBP" {
-        return true;
-    }
-    false
-}
+use crate::utils::media::is_image_magic_bytes;
 
 /// Standalone message handler that uses shared state instead of constructing a new `SlackChannel`.
 #[allow(clippy::too_many_lines)]
@@ -816,13 +795,10 @@ async fn handle_slack_event(
                             "image/webp" => ".webp",
                             _ => ".bin",
                         };
-                        let media_dir = dirs::home_dir()
-                            .unwrap_or_else(|| std::path::PathBuf::from("."))
-                            .join(".oxicrab")
-                            .join("media");
-                        if let Err(e) = std::fs::create_dir_all(&media_dir) {
-                            warn!("Failed to create media directory: {}", e);
-                        }
+                        let Ok(media_dir) = crate::utils::media::media_dir() else {
+                            warn!("Failed to create media directory");
+                            continue;
+                        };
                         let file_path = media_dir.join(format!("slack_{}{}", file_id, ext));
 
                         // Download with manual redirect following.
@@ -864,13 +840,10 @@ async fn handle_slack_event(
                             "audio/flac" => ".flac",
                             _ => ".ogg",
                         };
-                        let media_dir = dirs::home_dir()
-                            .unwrap_or_else(|| std::path::PathBuf::from("."))
-                            .join(".oxicrab")
-                            .join("media");
-                        if let Err(e) = std::fs::create_dir_all(&media_dir) {
-                            warn!("Failed to create media directory: {}", e);
-                        }
+                        let Ok(media_dir) = crate::utils::media::media_dir() else {
+                            warn!("Failed to create media directory");
+                            continue;
+                        };
                         let file_path = media_dir.join(format!("slack_{}{}", file_id, ext));
 
                         match download_slack_file(client, bot_token, file_url).await {

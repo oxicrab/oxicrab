@@ -19,11 +19,7 @@ impl WeatherTool {
         Self {
             api_key,
             base_url: OWM_API.to_string(),
-            client: Client::builder()
-                .connect_timeout(Duration::from_secs(10))
-                .timeout(Duration::from_secs(30))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: crate::utils::http::default_http_client(),
         }
     }
 
@@ -32,11 +28,7 @@ impl WeatherTool {
         Self {
             api_key,
             base_url,
-            client: Client::builder()
-                .connect_timeout(Duration::from_secs(10))
-                .timeout(Duration::from_secs(30))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: crate::utils::http::default_http_client(),
         }
     }
 

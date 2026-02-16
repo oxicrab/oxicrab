@@ -1,6 +1,17 @@
 use anyhow::{bail, Context, Result};
+use std::path::PathBuf;
 
 const MAX_MEDIA_SIZE: usize = 20 * 1024 * 1024; // 20MB
+
+/// Return the `~/.oxicrab/media/` directory, creating it if needed.
+pub fn media_dir() -> Result<PathBuf> {
+    let dir = super::get_oxicrab_home()
+        .context("failed to determine oxicrab home")?
+        .join("media");
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("failed to create media directory: {}", dir.display()))?;
+    Ok(dir)
+}
 
 /// Save binary data to a file in `~/.oxicrab/media/`.
 ///
@@ -27,11 +38,7 @@ pub fn save_media_file(bytes: &[u8], prefix: &str, extension: &str) -> Result<St
         );
     }
 
-    let media_dir = super::get_oxicrab_home()
-        .context("failed to determine oxicrab home")?
-        .join("media");
-    std::fs::create_dir_all(&media_dir)
-        .with_context(|| format!("failed to create media directory: {}", media_dir.display()))?;
+    let media_dir = media_dir()?;
 
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
     let random = fastrand::u32(..);

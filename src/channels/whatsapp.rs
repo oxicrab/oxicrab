@@ -551,11 +551,7 @@ async fn download_whatsapp_media(
     message_id: &str,
     media_type: &str,
 ) -> Result<String> {
-    let media_dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".oxicrab")
-        .join("media");
-    std::fs::create_dir_all(&media_dir)?;
+    let media_dir = crate::utils::media::media_dir()?;
 
     // Infer extension from mimetype
     let ext = match mimetype {

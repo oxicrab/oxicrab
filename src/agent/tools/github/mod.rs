@@ -19,11 +19,7 @@ impl GitHubTool {
         Self {
             token,
             base_url: GITHUB_API.to_string(),
-            client: Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(10))
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: crate::utils::http::default_http_client(),
         }
     }
 
@@ -32,11 +28,7 @@ impl GitHubTool {
         Self {
             token,
             base_url,
-            client: Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(10))
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: crate::utils::http::default_http_client(),
         }
     }
 

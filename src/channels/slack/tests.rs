@@ -5,110 +5,38 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 // --- resolve_slack_redirect tests ---
 
 #[test]
-fn test_resolve_slack_redirect_with_redir_param() {
-    let location =
-        "https://myworkspace.slack.com/?redir=%2Ffiles-pri%2FT123-F456%2Fdownload%2Fimage.png";
-    let result = resolve_slack_redirect(location);
-    assert_eq!(
-        result,
-        "https://myworkspace.slack.com/files-pri/T123-F456/download/image.png"
+fn test_resolve_slack_redirect() {
+    let cases = [
+        (
+            "https://myworkspace.slack.com/?redir=%2Ffiles-pri%2FT123-F456%2Fdownload%2Fimage.png",
+            "https://myworkspace.slack.com/files-pri/T123-F456/download/image.png",
+        ),
+        ("https://cdn.slack.com/files/image.png", "https://cdn.slack.com/files/image.png"),
+        ("not-a-url", "not-a-url"),
+        (
+            "https://ws.slack.com/?redir=%2Ffiles-pri%2FT1-F2%2Fdownload%2Fscreenshot%202026%4016.45.png",
+            "https://ws.slack.com/files-pri/T1-F2/download/screenshot 2026@16.45.png",
+        ),
+        (
+            "https://ws.slack.com/?foo=bar&redir=%2Ffiles-pri%2FT1-F2%2Fdownload%2Fimg.png&baz=1",
+            "https://ws.slack.com/files-pri/T1-F2/download/img.png",
+        ),
+    ];
+    for (input, expected) in cases {
+        let result = resolve_slack_redirect(input);
+        assert_eq!(result, expected, "failed for input: {}", input);
+    }
+    // Also verify scheme preservation
+    let http_result = resolve_slack_redirect(
+        "http://ws.slack.com/?redir=%2Ffiles-pri%2FT1-F2%2Fdownload%2Fimg.png",
     );
-}
-
-#[test]
-fn test_resolve_slack_redirect_no_redir_param() {
-    let location = "https://cdn.slack.com/files/image.png";
-    let result = resolve_slack_redirect(location);
-    assert_eq!(result, "https://cdn.slack.com/files/image.png");
-}
-
-#[test]
-fn test_resolve_slack_redirect_invalid_url() {
-    let location = "not-a-url";
-    let result = resolve_slack_redirect(location);
-    assert_eq!(result, "not-a-url");
-}
-
-#[test]
-fn test_resolve_slack_redirect_encoded_special_chars() {
-    let location = "https://ws.slack.com/?redir=%2Ffiles-pri%2FT1-F2%2Fdownload%2Fscreenshot%202026%4016.45.png";
-    let result = resolve_slack_redirect(location);
-    assert_eq!(
-        result,
-        "https://ws.slack.com/files-pri/T1-F2/download/screenshot 2026@16.45.png"
+    assert!(
+        http_result.starts_with("http://"),
+        "should preserve http scheme"
     );
-}
-
-#[test]
-fn test_resolve_slack_redirect_with_extra_query_params() {
-    let location =
-        "https://ws.slack.com/?foo=bar&redir=%2Ffiles-pri%2FT1-F2%2Fdownload%2Fimg.png&baz=1";
-    let result = resolve_slack_redirect(location);
-    assert_eq!(
-        result,
-        "https://ws.slack.com/files-pri/T1-F2/download/img.png"
-    );
-}
-
-#[test]
-fn test_resolve_slack_redirect_preserves_scheme() {
-    let location = "http://ws.slack.com/?redir=%2Ffiles-pri%2FT1-F2%2Fdownload%2Fimg.png";
-    let result = resolve_slack_redirect(location);
-    assert!(result.starts_with("http://"), "should preserve http scheme");
 }
 
 // --- is_image_magic_bytes tests ---
-
-#[test]
-fn test_is_image_magic_bytes_png() {
-    assert!(is_image_magic_bytes(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A]));
-}
-
-#[test]
-fn test_is_image_magic_bytes_jpeg() {
-    assert!(is_image_magic_bytes(&[0xFF, 0xD8, 0xFF, 0xE0]));
-}
-
-#[test]
-fn test_is_image_magic_bytes_gif87a() {
-    assert!(is_image_magic_bytes(b"GIF87a..."));
-}
-
-#[test]
-fn test_is_image_magic_bytes_gif89a() {
-    assert!(is_image_magic_bytes(b"GIF89a..."));
-}
-
-#[test]
-fn test_is_image_magic_bytes_webp() {
-    let mut webp = Vec::new();
-    webp.extend_from_slice(b"RIFF");
-    webp.extend_from_slice(&[0x00; 4]);
-    webp.extend_from_slice(b"WEBP");
-    assert!(is_image_magic_bytes(&webp));
-}
-
-#[test]
-fn test_is_image_magic_bytes_html() {
-    assert!(!is_image_magic_bytes(b"<!DOCTYPE html>"));
-}
-
-#[test]
-fn test_is_image_magic_bytes_json() {
-    assert!(!is_image_magic_bytes(b"{\"error\": \"missing_scope\"}"));
-}
-
-#[test]
-fn test_is_image_magic_bytes_too_short() {
-    assert!(!is_image_magic_bytes(&[0x89]));
-    assert!(!is_image_magic_bytes(&[0xFF, 0xD8]));
-    assert!(!is_image_magic_bytes(&[]));
-}
-
-#[test]
-fn test_is_image_magic_bytes_webp_too_short() {
-    assert!(!is_image_magic_bytes(b"RIFF\x00\x00\x00\x00WEB"));
-}
 
 // --- download_slack_file tests (wiremock) ---
 

@@ -2,6 +2,61 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tracing::warn;
 
+/// Generates a `Debug` impl that redacts secret fields.
+///
+/// Field specifiers:
+/// - `field_name`            — printed normally via `&self.field_name`
+/// - `redact(field_name)`    — `String` field: shows `[empty]` or `[REDACTED]`
+/// - `redact_option(field_name)` — `Option<String>` field: shows `None` or `Some("[REDACTED]")`
+macro_rules! redact_debug {
+    // Internal: emit a single .field() call
+    (@field $builder:ident, $self:ident, redact($field:ident)) => {
+        $builder.field(
+            stringify!($field),
+            &if $self.$field.is_empty() {
+                "[empty]"
+            } else {
+                "[REDACTED]"
+            },
+        );
+    };
+    (@field $builder:ident, $self:ident, redact_option($field:ident)) => {
+        $builder.field(
+            stringify!($field),
+            &$self.$field.as_ref().map(|_| "[REDACTED]"),
+        );
+    };
+    (@field $builder:ident, $self:ident, $field:ident) => {
+        $builder.field(stringify!($field), &$self.$field);
+    };
+
+    // Internal: recursive TT muncher
+    (@fields $builder:ident, $self:ident,) => {};
+    (@fields $builder:ident, $self:ident, redact($field:ident), $($rest:tt)*) => {
+        redact_debug!(@field $builder, $self, redact($field));
+        redact_debug!(@fields $builder, $self, $($rest)*);
+    };
+    (@fields $builder:ident, $self:ident, redact_option($field:ident), $($rest:tt)*) => {
+        redact_debug!(@field $builder, $self, redact_option($field));
+        redact_debug!(@fields $builder, $self, $($rest)*);
+    };
+    (@fields $builder:ident, $self:ident, $field:ident, $($rest:tt)*) => {
+        redact_debug!(@field $builder, $self, $field);
+        redact_debug!(@fields $builder, $self, $($rest)*);
+    };
+
+    // Entry point
+    ($struct_name:ident, $($fields:tt)*) => {
+        impl std::fmt::Debug for $struct_name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let mut builder = f.debug_struct(stringify!($struct_name));
+                redact_debug!(@fields builder, self, $($fields)*);
+                builder.finish()
+            }
+        }
+    };
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WhatsAppConfig {
     pub enabled: bool,
@@ -19,23 +74,7 @@ pub struct TelegramConfig {
     pub proxy: Option<String>,
 }
 
-impl std::fmt::Debug for TelegramConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TelegramConfig")
-            .field("enabled", &self.enabled)
-            .field(
-                "token",
-                &if self.token.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field("allow_from", &self.allow_from)
-            .field("proxy", &self.proxy)
-            .finish()
-    }
-}
+redact_debug!(TelegramConfig, enabled, redact(token), allow_from, proxy,);
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct DiscordConfig {
@@ -46,22 +85,7 @@ pub struct DiscordConfig {
     pub allow_from: Vec<String>,
 }
 
-impl std::fmt::Debug for DiscordConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DiscordConfig")
-            .field("enabled", &self.enabled)
-            .field(
-                "token",
-                &if self.token.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field("allow_from", &self.allow_from)
-            .finish()
-    }
-}
+redact_debug!(DiscordConfig, enabled, redact(token), allow_from,);
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct SlackConfig {
@@ -74,30 +98,13 @@ pub struct SlackConfig {
     pub allow_from: Vec<String>,
 }
 
-impl std::fmt::Debug for SlackConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SlackConfig")
-            .field("enabled", &self.enabled)
-            .field(
-                "bot_token",
-                &if self.bot_token.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field(
-                "app_token",
-                &if self.app_token.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field("allow_from", &self.allow_from)
-            .finish()
-    }
-}
+redact_debug!(
+    SlackConfig,
+    enabled,
+    redact(bot_token),
+    redact(app_token),
+    allow_from,
+);
 
 fn default_webhook_port() -> u16 {
     8080
@@ -126,34 +133,17 @@ pub struct TwilioConfig {
     pub allow_from: Vec<String>,
 }
 
-impl std::fmt::Debug for TwilioConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TwilioConfig")
-            .field("enabled", &self.enabled)
-            .field(
-                "account_sid",
-                &if self.account_sid.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field(
-                "auth_token",
-                &if self.auth_token.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field("phone_number", &self.phone_number)
-            .field("webhook_port", &self.webhook_port)
-            .field("webhook_path", &self.webhook_path)
-            .field("webhook_url", &self.webhook_url)
-            .field("allow_from", &self.allow_from)
-            .finish()
-    }
-}
+redact_debug!(
+    TwilioConfig,
+    enabled,
+    redact(account_sid),
+    redact(auth_token),
+    phone_number,
+    webhook_port,
+    webhook_path,
+    webhook_url,
+    allow_from,
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ChannelsConfig {
@@ -400,21 +390,7 @@ pub struct ProviderConfig {
     pub api_base: Option<String>,
 }
 
-impl std::fmt::Debug for ProviderConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ProviderConfig")
-            .field(
-                "api_key",
-                &if self.api_key.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field("api_base", &self.api_base)
-            .finish()
-    }
-}
+redact_debug!(ProviderConfig, redact(api_key), api_base,);
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AnthropicOAuthConfig {
@@ -432,32 +408,15 @@ pub struct AnthropicOAuthConfig {
     pub auto_detect: bool,
 }
 
-impl std::fmt::Debug for AnthropicOAuthConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AnthropicOAuthConfig")
-            .field("enabled", &self.enabled)
-            .field(
-                "access_token",
-                &if self.access_token.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field(
-                "refresh_token",
-                &if self.refresh_token.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field("expires_at", &self.expires_at)
-            .field("credentials_path", &self.credentials_path)
-            .field("auto_detect", &self.auto_detect)
-            .finish()
-    }
-}
+redact_debug!(
+    AnthropicOAuthConfig,
+    enabled,
+    redact(access_token),
+    redact(refresh_token),
+    expires_at,
+    credentials_path,
+    auto_detect,
+);
 
 impl Default for AnthropicOAuthConfig {
     fn default() -> Self {
@@ -600,23 +559,13 @@ pub struct GoogleConfig {
     pub scopes: Vec<String>,
 }
 
-impl std::fmt::Debug for GoogleConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GoogleConfig")
-            .field("enabled", &self.enabled)
-            .field("client_id", &self.client_id)
-            .field(
-                "client_secret",
-                &if self.client_secret.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field("scopes", &self.scopes)
-            .finish()
-    }
-}
+redact_debug!(
+    GoogleConfig,
+    enabled,
+    client_id,
+    redact(client_secret),
+    scopes,
+);
 
 impl Default for GoogleConfig {
     fn default() -> Self {
@@ -649,22 +598,7 @@ pub struct WebSearchConfig {
     pub max_results: usize,
 }
 
-impl std::fmt::Debug for WebSearchConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WebSearchConfig")
-            .field("provider", &self.provider)
-            .field(
-                "api_key",
-                &if self.api_key.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field("max_results", &self.max_results)
-            .finish()
-    }
-}
+redact_debug!(WebSearchConfig, provider, redact(api_key), max_results,);
 
 impl Default for WebSearchConfig {
     fn default() -> Self {
@@ -818,21 +752,7 @@ pub struct GitHubConfig {
     pub token: String,
 }
 
-impl std::fmt::Debug for GitHubConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GitHubConfig")
-            .field("enabled", &self.enabled)
-            .field(
-                "token",
-                &if self.token.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .finish()
-    }
-}
+redact_debug!(GitHubConfig, enabled, redact(token),);
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct WeatherConfig {
@@ -842,21 +762,7 @@ pub struct WeatherConfig {
     pub api_key: String,
 }
 
-impl std::fmt::Debug for WeatherConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WeatherConfig")
-            .field("enabled", &self.enabled)
-            .field(
-                "api_key",
-                &if self.api_key.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .finish()
-    }
-}
+redact_debug!(WeatherConfig, enabled, redact(api_key),);
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct TodoistConfig {
@@ -866,21 +772,7 @@ pub struct TodoistConfig {
     pub token: String,
 }
 
-impl std::fmt::Debug for TodoistConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TodoistConfig")
-            .field("enabled", &self.enabled)
-            .field(
-                "token",
-                &if self.token.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .finish()
-    }
-}
+redact_debug!(TodoistConfig, enabled, redact(token),);
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct MediaServiceConfig {
@@ -890,21 +782,7 @@ pub struct MediaServiceConfig {
     pub api_key: String,
 }
 
-impl std::fmt::Debug for MediaServiceConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MediaServiceConfig")
-            .field("url", &self.url)
-            .field(
-                "api_key",
-                &if self.api_key.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .finish()
-    }
-}
+redact_debug!(MediaServiceConfig, url, redact(api_key),);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MediaConfig {
@@ -953,25 +831,15 @@ impl Default for ObsidianConfig {
     }
 }
 
-impl std::fmt::Debug for ObsidianConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ObsidianConfig")
-            .field("enabled", &self.enabled)
-            .field("api_url", &self.api_url)
-            .field(
-                "api_key",
-                &if self.api_key.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field("vault_name", &self.vault_name)
-            .field("sync_interval", &self.sync_interval)
-            .field("timeout", &self.timeout)
-            .finish()
-    }
-}
+redact_debug!(
+    ObsidianConfig,
+    enabled,
+    api_url,
+    redact(api_key),
+    vault_name,
+    sync_interval,
+    timeout,
+);
 
 fn default_browser_timeout() -> u64 {
     30
@@ -1046,22 +914,13 @@ pub struct ImageGenConfig {
     pub google_api_key: Option<String>,
 }
 
-impl std::fmt::Debug for ImageGenConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ImageGenConfig")
-            .field("enabled", &self.enabled)
-            .field("default_provider", &self.default_provider)
-            .field(
-                "openai_api_key",
-                &self.openai_api_key.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field(
-                "google_api_key",
-                &self.google_api_key.as_ref().map(|_| "[REDACTED]"),
-            )
-            .finish()
-    }
-}
+redact_debug!(
+    ImageGenConfig,
+    enabled,
+    default_provider,
+    redact_option(openai_api_key),
+    redact_option(google_api_key),
+);
 
 impl Default for ImageGenConfig {
     fn default() -> Self {
@@ -1136,26 +995,16 @@ impl Default for TranscriptionConfig {
     }
 }
 
-impl std::fmt::Debug for TranscriptionConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TranscriptionConfig")
-            .field("enabled", &self.enabled)
-            .field(
-                "api_key",
-                &if self.api_key.is_empty() {
-                    "[empty]"
-                } else {
-                    "[REDACTED]"
-                },
-            )
-            .field("api_base", &self.api_base)
-            .field("model", &self.model)
-            .field("local_model_path", &self.local_model_path)
-            .field("prefer_local", &self.prefer_local)
-            .field("threads", &self.threads)
-            .finish()
-    }
-}
+redact_debug!(
+    TranscriptionConfig,
+    enabled,
+    redact(api_key),
+    api_base,
+    model,
+    local_model_path,
+    prefer_local,
+    threads,
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VoiceConfig {

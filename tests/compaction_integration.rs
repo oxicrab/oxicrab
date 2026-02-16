@@ -63,41 +63,13 @@ async fn create_compaction_agent(
     let (outbound_tx, _outbound_rx) = tokio::sync::mpsc::channel(100);
     let outbound_tx = Arc::new(outbound_tx);
 
-    let config = AgentLoopConfig {
+    let mut config = AgentLoopConfig::test_defaults(
         bus,
-        provider: Arc::new(provider),
-        workspace: tmp.path().to_path_buf(),
-        model: Some("mock-model".to_string()),
-        max_iterations: 10,
-        brave_api_key: None,
-        web_search_config: None,
-        exec_timeout: 30,
-        restrict_to_workspace: true,
-        allowed_commands: vec![],
-        compaction_config,
+        Arc::new(provider),
+        tmp.path().to_path_buf(),
         outbound_tx,
-        cron_service: None,
-        google_config: None,
-        github_config: None,
-        weather_config: None,
-        todoist_config: None,
-        media_config: None,
-        obsidian_config: None,
-        temperature: 0.7,
-        tool_temperature: 0.0,
-        session_ttl_days: 0,
-        max_tokens: 8192,
-        typing_tx: None,
-        channels_config: None,
-        memory_indexer_interval: 300,
-        media_ttl_days: 0,
-        max_concurrent_subagents: 5,
-        voice_config: None,
-        memory_config: None,
-        browser_config: None,
-        image_gen_config: None,
-        mcp_config: None,
-    };
+    );
+    config.compaction_config = compaction_config;
 
     AgentLoop::new(config)
         .await

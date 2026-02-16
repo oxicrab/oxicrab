@@ -1,256 +1,114 @@
 use super::*;
 
 #[test]
-fn test_detects_ive_updated() {
-    assert!(contains_action_claims(
-        "I've updated the configuration file."
-    ));
+fn test_action_claims_positive() {
+    let cases = [
+        "I've updated the configuration file.",
+        "I have created the new module for you.",
+        "I wrote the function as requested.",
+        "I deleted the old config.",
+        "I've configured the settings.",
+        "I've saved the changes to disk.",
+        "I've scheduled the cron job.",
+        "Changes have been applied to the project.",
+        "File has been updated successfully.",
+        "Config was modified as requested.",
+        "I'VE UPDATED THE FILE.",
+        "i've written the code.",
+        "Sure, here's what I did:\n\nI've updated the configuration to use the new API endpoint.\nLet me know if you need anything else.",
+        "I enabled the feature flag.",
+        "I've deployed the changes.",
+        "Updates were made to the database schema.",
+        "I tested all the tools.",
+        "I've executed the commands.",
+        "I've fetched the latest data.",
+        "I verified all the results.",
+        "I searched for the information.",
+        "I listed all the directory contents.",
+        "All Tools Working:",
+        "All tools are fully functional!",
+        "All tests passed successfully.",
+        "All tests were successful.",
+        "Successfully executed the command.",
+        "Successfully tested all endpoints.",
+        "Already completed the migration.",
+    ];
+    for text in cases {
+        assert!(contains_action_claims(text), "should match: {}", text);
+    }
 }
 
 #[test]
-fn test_detects_i_have_created() {
-    assert!(contains_action_claims(
-        "I have created the new module for you."
-    ));
+fn test_action_claims_negative() {
+    let cases = [
+        "Here's how you can update the file.",
+        "Would you like me to create a new file?",
+        "The function returns a string value.",
+        "To update the config, you need to edit settings.json.",
+        "Hello! How can I help you today?",
+        "You updated the file yesterday.",
+    ];
+    for text in cases {
+        assert!(!contains_action_claims(text), "should NOT match: {}", text);
+    }
 }
 
 #[test]
-fn test_detects_i_wrote() {
-    assert!(contains_action_claims("I wrote the function as requested."));
-}
-
-#[test]
-fn test_detects_i_deleted() {
-    assert!(contains_action_claims("I deleted the old config."));
-}
-
-#[test]
-fn test_detects_ive_configured() {
-    assert!(contains_action_claims("I've configured the settings."));
-}
-
-#[test]
-fn test_detects_ive_saved() {
-    assert!(contains_action_claims("I've saved the changes to disk."));
-}
-
-#[test]
-fn test_detects_ive_scheduled() {
-    assert!(contains_action_claims("I've scheduled the cron job."));
-}
-
-#[test]
-fn test_detects_passive_changes_applied() {
-    assert!(contains_action_claims(
-        "Changes have been applied to the project."
-    ));
-}
-
-#[test]
-fn test_detects_passive_file_updated() {
-    assert!(contains_action_claims(
-        "File has been updated successfully."
-    ));
-}
-
-#[test]
-fn test_detects_passive_config_was_modified() {
-    assert!(contains_action_claims("Config was modified as requested."));
-}
-
-#[test]
-fn test_no_match_informational() {
-    assert!(!contains_action_claims(
-        "Here's how you can update the file."
-    ));
-}
-
-#[test]
-fn test_no_match_question() {
-    assert!(!contains_action_claims(
-        "Would you like me to create a new file?"
-    ));
-}
-
-#[test]
-fn test_no_match_explanation() {
-    assert!(!contains_action_claims(
-        "The function returns a string value."
-    ));
-}
-
-#[test]
-fn test_no_match_plan() {
-    assert!(!contains_action_claims(
-        "To update the config, you need to edit settings.json."
-    ));
-}
-
-#[test]
-fn test_no_match_greeting() {
-    assert!(!contains_action_claims("Hello! How can I help you today?"));
-}
-
-#[test]
-fn test_no_match_partial() {
-    // "I updated" should match, but "you updated" should not
-    assert!(!contains_action_claims("You updated the file yesterday."));
-}
-
-#[test]
-fn test_case_insensitive() {
-    assert!(contains_action_claims("I'VE UPDATED THE FILE."));
-    assert!(contains_action_claims("i've written the code."));
-}
-
-#[test]
-fn test_mixed_content_with_claim() {
-    assert!(contains_action_claims(
-        "Sure, here's what I did:\n\nI've updated the configuration to use the new API endpoint.\nLet me know if you need anything else."
-    ));
-}
-
-#[test]
-fn test_detects_i_enabled() {
-    assert!(contains_action_claims("I enabled the feature flag."));
-}
-
-#[test]
-fn test_detects_ive_deployed() {
-    assert!(contains_action_claims("I've deployed the changes."));
-}
-
-#[test]
-fn test_detects_updates_were_made() {
-    assert!(contains_action_claims(
-        "Updates were made to the database schema."
-    ));
-}
-
-// --- Expanded hallucination detection tests ---
-
-#[test]
-fn test_detects_i_tested() {
-    assert!(contains_action_claims("I tested all the tools."));
-}
-
-#[test]
-fn test_detects_ive_executed() {
-    assert!(contains_action_claims("I've executed the commands."));
-}
-
-#[test]
-fn test_detects_ive_fetched() {
-    assert!(contains_action_claims("I've fetched the latest data."));
-}
-
-#[test]
-fn test_detects_i_verified() {
-    assert!(contains_action_claims("I verified all the results."));
-}
-
-#[test]
-fn test_detects_i_searched() {
-    assert!(contains_action_claims("I searched for the information."));
-}
-
-#[test]
-fn test_detects_i_listed() {
-    assert!(contains_action_claims(
-        "I listed all the directory contents."
-    ));
-}
-
-#[test]
-fn test_detects_all_tools_working() {
-    assert!(contains_action_claims("All Tools Working:"));
-}
-
-#[test]
-fn test_detects_all_tools_fully_functional() {
-    assert!(contains_action_claims("All tools are fully functional!"));
-}
-
-#[test]
-fn test_detects_all_tests_passed() {
-    assert!(contains_action_claims("All tests passed successfully."));
-}
-
-#[test]
-fn test_detects_all_tests_successful() {
-    assert!(contains_action_claims("All tests were successful."));
-}
-
-#[test]
-fn test_detects_successfully_executed() {
-    assert!(contains_action_claims("Successfully executed the command."));
-}
-
-#[test]
-fn test_detects_successfully_tested() {
-    assert!(contains_action_claims("Successfully tested all endpoints."));
-}
-
-#[test]
-fn test_detects_already_completed() {
-    assert!(contains_action_claims("Already completed the migration."));
-}
-
-#[test]
-fn test_tool_name_mentions_detects_hallucination() {
-    let tool_names = vec![
+fn test_tool_name_mentions() {
+    let tools = vec![
         "web_search".to_string(),
         "weather".to_string(),
         "cron".to_string(),
         "reddit".to_string(),
         "exec".to_string(),
     ];
-    let text = "## Tool Test Results\n- web_search - Found news\n- weather - 45°F\n- cron - 5 jobs\n- reddit - 10 posts";
-    assert!(mentions_multiple_tools(text, &tool_names));
-}
-
-#[test]
-fn test_tool_name_mentions_no_false_positive() {
-    let tool_names = vec![
+    // 4+ tool names -> triggers
+    assert!(mentions_multiple_tools(
+        "## Tool Test Results\n- web_search - Found news\n- weather - 45°F\n- cron - 5 jobs\n- reddit - 10 posts",
+        &tools
+    ));
+    // 1 tool name -> doesn't trigger
+    let tools3 = vec![
         "web_search".to_string(),
         "weather".to_string(),
         "cron".to_string(),
     ];
-    // Only mentions 1 tool name — should not trigger
-    let text = "I can help you with web_search if you'd like.";
-    assert!(!mentions_multiple_tools(text, &tool_names));
+    assert!(!mentions_multiple_tools(
+        "I can help you with web_search if you'd like.",
+        &tools3
+    ));
+    // 2 tool names -> doesn't trigger
+    assert!(!mentions_multiple_tools(
+        "The web_search and weather tools are available.",
+        &tools3
+    ));
 }
 
 #[test]
-fn test_tool_name_mentions_exactly_two_no_trigger() {
-    let tool_names = vec![
-        "web_search".to_string(),
-        "weather".to_string(),
-        "cron".to_string(),
+fn test_silent_response_prefix() {
+    assert!("[SILENT] Internal note recorded.".starts_with("[SILENT]"));
+    assert!(!"[silent] This should pass through.".starts_with("[SILENT]"));
+    assert!(!"Here is a normal response.".starts_with("[SILENT]"));
+}
+
+#[test]
+fn test_false_no_tools_claims() {
+    let positives = [
+        "I don't have access to tools to help with that.",
+        "I cannot have access to any tools.",
+        "I'm unable to use tools directly.",
+        "No tools are available to me.",
     ];
-    let text = "The web_search and weather tools are available.";
-    assert!(!mentions_multiple_tools(text, &tool_names));
-}
-
-// --- Silent response tests ---
-
-#[test]
-fn test_silent_response_detected() {
-    let content = "[SILENT] Internal note recorded.";
-    assert!(content.starts_with("[SILENT]"));
-}
-
-#[test]
-fn test_silent_prefix_case_sensitive() {
-    // Lowercase [silent] should NOT be treated as silent
-    let content = "[silent] This should pass through.";
-    assert!(!content.starts_with("[SILENT]"));
-}
-
-#[test]
-fn test_non_silent_response_passes_through() {
-    let content = "Here is a normal response.";
-    assert!(!content.starts_with("[SILENT]"));
+    for text in positives {
+        assert!(is_false_no_tools_claim(text), "should match: {}", text);
+    }
+    let negatives = [
+        "Here's how to use the tools in this project.",
+        "I'll use the exec tool to run that command.",
+    ];
+    for text in negatives {
+        assert!(!is_false_no_tools_claim(text), "should NOT match: {}", text);
+    }
 }
 
 // --- Parallel tool execution tests ---
@@ -837,46 +695,6 @@ fn test_load_and_encode_images_base64_roundtrip() {
 }
 
 // --- Media cleanup tests ---
-
-// --- False no-tools claim detection tests ---
-
-#[test]
-fn test_false_no_tools_claim_dont_have_tools() {
-    assert!(is_false_no_tools_claim(
-        "I don't have access to tools to help with that."
-    ));
-}
-
-#[test]
-fn test_false_no_tools_claim_cannot_have_tools() {
-    assert!(is_false_no_tools_claim(
-        "I cannot have access to any tools."
-    ));
-}
-
-#[test]
-fn test_false_no_tools_claim_unable_to_use() {
-    assert!(is_false_no_tools_claim("I'm unable to use tools directly."));
-}
-
-#[test]
-fn test_false_no_tools_claim_no_tools_available() {
-    assert!(is_false_no_tools_claim("No tools are available to me."));
-}
-
-#[test]
-fn test_false_no_tools_claim_not_triggered_by_normal_text() {
-    assert!(!is_false_no_tools_claim(
-        "Here's how to use the tools in this project."
-    ));
-}
-
-#[test]
-fn test_false_no_tools_claim_not_triggered_by_tool_usage() {
-    assert!(!is_false_no_tools_claim(
-        "I'll use the exec tool to run that command."
-    ));
-}
 
 #[test]
 fn test_cleanup_old_media_no_dir() {

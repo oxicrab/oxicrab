@@ -125,38 +125,28 @@ fn test_prompt_context_truncated_at_2000_chars() {
 // --- Capacity tests ---
 
 #[tokio::test]
-async fn test_capacity_initial() {
-    let provider = Arc::new(MockProvider::immediate("done"));
-    let mgr = make_manager(provider, 5);
-    let (running, max, available) = mgr.capacity().await;
-    assert_eq!(running, 0);
-    assert_eq!(max, 5);
-    assert_eq!(available, 5);
-}
-
-#[tokio::test]
-async fn test_capacity_after_spawn() {
+async fn test_capacity() {
     let provider = MockProvider::delayed("done", 500);
     let mgr = make_manager(provider, 3);
+
+    // Initial state
+    let (running, max, available) = mgr.capacity().await;
+    assert_eq!((running, max, available), (0, 3, 3));
 
     mgr.spawn(
         "slow task".to_string(),
         None,
         "cli".to_string(),
         "direct".to_string(),
-        true, // silent to avoid bus publish issues
+        true,
         None,
     )
     .await
     .unwrap();
-
-    // Give the task a moment to start and acquire the semaphore
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
     let (running, max, available) = mgr.capacity().await;
-    assert_eq!(running, 1);
-    assert_eq!(max, 3);
-    assert_eq!(available, 2);
+    assert_eq!((running, max, available), (1, 3, 2));
 }
 
 // --- Concurrency limiter tests ---
@@ -363,17 +353,10 @@ async fn test_cancel_running_task() {
 // --- List running tests ---
 
 #[tokio::test]
-async fn test_list_running_empty() {
-    let provider = Arc::new(MockProvider::immediate("done"));
-    let mgr = make_manager(provider, 5);
-    let list = mgr.list_running().await;
-    assert!(list.is_empty());
-}
-
-#[tokio::test]
-async fn test_list_running_with_tasks() {
+async fn test_list_running() {
     let provider = MockProvider::delayed("done", 1000);
     let mgr = make_manager(provider, 5);
+    assert!(mgr.list_running().await.is_empty());
 
     mgr.spawn(
         "task1".to_string(),
@@ -385,7 +368,6 @@ async fn test_list_running_with_tasks() {
     )
     .await
     .unwrap();
-
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
     let list = mgr.list_running().await;

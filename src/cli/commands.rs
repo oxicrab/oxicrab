@@ -13,9 +13,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
-/// Temperature used for tool-calling iterations (low for determinism)
-const TOOL_TEMPERATURE: f32 = 0.0;
-
 #[derive(Parser)]
 #[command(name = "oxicrab")]
 #[command(about = "Personal AI Assistant")]
@@ -470,52 +467,18 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
         config.agents.defaults.compaction.enabled
     );
     let agent = Arc::new(
-        AgentLoop::new(crate::agent::AgentLoopConfig {
-            bus: params.bus,
-            provider: params.provider,
-            workspace: config.workspace_path(),
-            model: params.model,
-            max_iterations: config.agents.defaults.max_tool_iterations,
-            brave_api_key: Some(config.tools.web.search.api_key.clone()),
-            web_search_config: Some(config.tools.web.search.clone()),
-            exec_timeout: config.tools.exec.timeout,
-            restrict_to_workspace: config.tools.restrict_to_workspace,
-            allowed_commands: config.tools.exec.allowed_commands.clone(),
-            compaction_config: config.agents.defaults.compaction.clone(),
-            outbound_tx: params.outbound_tx,
-            cron_service: params.cron,
-            google_config: Some(config.tools.google.clone()),
-            github_config: Some(config.tools.github.clone()),
-            weather_config: Some(config.tools.weather.clone()),
-            todoist_config: Some(config.tools.todoist.clone()),
-            media_config: Some(config.tools.media.clone()),
-            obsidian_config: Some(config.tools.obsidian.clone()),
-            temperature: config.agents.defaults.temperature,
-            tool_temperature: TOOL_TEMPERATURE,
-            session_ttl_days: config.agents.defaults.session_ttl_days,
-            max_tokens: config.agents.defaults.max_tokens,
-            typing_tx: params.typing_tx,
-            channels_config: params.channels_config,
-            memory_indexer_interval: config.agents.defaults.memory_indexer_interval,
-            media_ttl_days: config.agents.defaults.media_ttl_days,
-            max_concurrent_subagents: config.agents.defaults.max_concurrent_subagents,
-            voice_config: Some(config.voice.clone()),
-            memory_config: Some(config.agents.defaults.memory.clone()),
-            browser_config: Some(config.tools.browser.clone()),
-            image_gen_config: {
-                let mut ig = config.tools.image_gen.clone();
-                if ig.enabled {
-                    if !config.providers.openai.api_key.is_empty() {
-                        ig.openai_api_key = Some(config.providers.openai.api_key.clone());
-                    }
-                    if !config.providers.gemini.api_key.is_empty() {
-                        ig.google_api_key = Some(config.providers.gemini.api_key.clone());
-                    }
-                }
-                Some(ig)
+        AgentLoop::new(crate::agent::AgentLoopConfig::from_config(
+            config,
+            crate::agent::AgentLoopRuntimeParams {
+                bus: params.bus,
+                provider: params.provider,
+                model: params.model,
+                outbound_tx: params.outbound_tx,
+                cron_service: params.cron,
+                typing_tx: params.typing_tx,
+                channels_config: params.channels_config,
             },
-            mcp_config: Some(config.tools.mcp.clone()),
-        })
+        ))
         .await?,
     );
     info!("Agent loop initialized");
