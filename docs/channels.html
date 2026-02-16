@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Channel Setup - oxicrab</title>
+  <meta name="description" content="Setup guides for Telegram, Discord, Slack, WhatsApp, and Twilio channels in oxicrab.">
+  <meta name="theme-color" content="#0ea5e9">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦀</text></svg>">
+  <style>
+    :root {
+      --bg: #fafbfc; --bg-alt: #f0f4f8; --bg-dark: #0b1222;
+      --text: #1e293b; --text-muted: #64748b; --text-light: #94a3b8;
+      --accent: #0ea5e9; --accent-dark: #0284c7;
+      --coral: #f97066; --teal: #14b8a6; --purple: #8b5cf6;
+      --border: #e2e8f0; --surface: #fff;
+      --code-bg: #0f172a; --code-text: #e2e8f0;
+      --max-w: 820px;
+      --mono: 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+      --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.7; -webkit-font-smoothing: antialiased; }
+
+    nav { position: sticky; top: 0; background: rgba(250,251,252,0.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); z-index: 100; padding: 0 2rem; }
+    .nav-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-logo { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; color: var(--text); text-decoration: none; letter-spacing: -0.02em; }
+    .nav-logo .oxi { color: var(--accent); }
+    .nav-links { display: flex; gap: 1.5rem; list-style: none; align-items: center; }
+    .nav-links a { color: var(--text-muted); text-decoration: none; font-size: 0.85rem; font-weight: 500; transition: color 0.15s; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-links a.active { color: var(--accent); }
+
+    .page-header { padding: 4rem 2rem 2rem; max-width: var(--max-w); margin: 0 auto; }
+    .page-header h1 { font-size: 2.5rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 0.5rem; }
+    .page-header p { color: var(--text-muted); font-size: 1.1rem; }
+
+    .content { max-width: var(--max-w); margin: 0 auto; padding: 0 2rem 4rem; }
+
+    .toc { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem 1.5rem; margin-bottom: 3rem; }
+    .toc-title { font-family: var(--mono); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-light); margin-bottom: 0.5rem; }
+    .toc ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .toc a { display: inline-block; padding: 0.3rem 0.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: border-color 0.15s; }
+    .toc a:hover { border-color: var(--accent); color: var(--accent); }
+
+    .channel-section { margin-bottom: 3.5rem; scroll-margin-top: 80px; }
+    .channel-section h2 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.25rem; padding-bottom: 0.75rem; border-bottom: 2px solid var(--border); }
+    .channel-section h2 .icon { margin-right: 0.5rem; }
+    .channel-section h3 { font-size: 1rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+
+    .channel-section p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.75rem; }
+    .channel-section a { color: var(--accent); text-decoration: none; }
+    .channel-section a:hover { text-decoration: underline; }
+
+    ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+    ol li { margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--text); }
+    ol li strong { color: var(--text); }
+
+    .scope-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.85rem; }
+    .scope-table th, .scope-table td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+    .scope-table th { font-weight: 600; color: var(--text-light); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .scope-table td:first-child { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); white-space: nowrap; }
+    .scope-table td:last-child { color: var(--text-muted); }
+
+    pre { background: var(--code-bg); border-radius: 8px; padding: 1rem 1.25rem; overflow-x: auto; font-family: var(--mono); font-size: 0.8rem; line-height: 1.7; color: var(--code-text); margin: 0.75rem 0 1rem; }
+    code { font-family: var(--mono); font-size: 0.85em; background: var(--bg-alt); padding: 0.15em 0.4em; border-radius: 4px; }
+    pre code { background: none; padding: 0; }
+
+    .config-block { margin: 1rem 0; }
+    .config-label { font-family: var(--mono); font-size: 0.7rem; color: var(--text-light); margin-bottom: 0.25rem; }
+
+    .note { background: rgba(14,165,233,0.06); border-left: 3px solid var(--accent); padding: 0.75rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; font-size: 0.85rem; color: var(--text); }
+    .note strong { color: var(--accent); }
+
+    .features-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.75rem 0; }
+    .features-list span { display: inline-block; padding: 0.2rem 0.6rem; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 5px; font-size: 0.78rem; color: var(--text-muted); }
+
+    footer { border-top: 1px solid var(--border); padding: 2rem; text-align: center; }
+    .footer-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+    .footer-links { display: flex; gap: 1.5rem; }
+    .footer-links a { color: var(--text-muted); text-decoration: none; font-size: 0.8rem; }
+    .footer-links a:hover { color: var(--text); }
+    .footer-copy { color: var(--text-light); font-size: 0.75rem; }
+
+    @media (max-width: 768px) {
+      .page-header h1 { font-size: 1.75rem; }
+      .toc ul { flex-direction: column; }
+      .nav-links { gap: 1rem; }
+      .footer-inner { flex-direction: column; gap: 1rem; }
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo"><span class="oxi">oxi</span>crab</a>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="channels.html" class="active">Channels</a></li>
+      <li><a href="tools.html">Tools</a></li>
+      <li><a href="workspace.html">Workspace</a></li>
+      <li><a href="deploy.html">Deploy</a></li>
+      <li><a href="https://github.com/oxicrab/oxicrab">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="page-header">
+  <h1>Channel Setup</h1>
+  <p>Step-by-step setup for each messaging platform. Each channel is a compile-time feature flag.</p>
+</div>
+
+<div class="content">
+
+  <div class="toc">
+    <div class="toc-title">Channels</div>
+    <ul>
+      <li><a href="#telegram">Telegram</a></li>
+      <li><a href="#discord">Discord</a></li>
+      <li><a href="#slack">Slack</a></li>
+      <li><a href="#whatsapp">WhatsApp</a></li>
+      <li><a href="#twilio">Twilio</a></li>
+    </ul>
+  </div>
+
+  <!-- TELEGRAM -->
+  <div id="telegram" class="channel-section">
+    <h2><span class="icon">&#9992;&#65039;</span>Telegram</h2>
+    <p>Polling-based bot using the <a href="https://github.com/teloxide/teloxide">teloxide</a> library. Feature flag: <code>channel-telegram</code>.</p>
+
+    <h3>1. Create a bot</h3>
+    <ol>
+      <li>Message <a href="https://t.me/botfather">@BotFather</a> on Telegram</li>
+      <li>Use the <code>/newbot</code> command and follow the instructions</li>
+      <li>Copy the bot token</li>
+    </ol>
+
+    <h3>2. Get your user ID</h3>
+    <ol>
+      <li>Message <a href="https://t.me/userinfobot">@userinfobot</a> to get your Telegram user ID</li>
+      <li>Or use <a href="https://t.me/getidsbot">@getidsbot</a></li>
+    </ol>
+
+    <h3>3. Configure</h3>
+    <div class="config-block">
+      <div class="config-label">~/.oxicrab/config.json</div>
+      <pre><code>{
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "token": "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
+      "allowFrom": ["123456789"],
+      "proxy": null
+    }
+  }
+}</code></pre>
+    </div>
+
+    <div class="note"><strong>proxy</strong> is optional. Set it to an HTTP/SOCKS proxy URL if needed (e.g. <code>"socks5://127.0.0.1:1080"</code>).</div>
+
+    <h3>Supported features</h3>
+    <div class="features-list">
+      <span>Text messages</span>
+      <span>Photo attachments</span>
+      <span>Voice messages (OGG)</span>
+      <span>Typing indicators</span>
+      <span>Message editing</span>
+      <span>Message deletion</span>
+      <span>HTML formatting</span>
+      <span>Sender allowlist</span>
+    </div>
+  </div>
+
+  <!-- DISCORD -->
+  <div id="discord" class="channel-section">
+    <h2><span class="icon">&#127918;</span>Discord</h2>
+    <p>WebSocket gateway using the <a href="https://github.com/serenity-rs/serenity">serenity</a> library. Feature flag: <code>channel-discord</code>.</p>
+
+    <h3>1. Create a bot</h3>
+    <ol>
+      <li>Go to <a href="https://discord.com/developers/applications">discord.com/developers/applications</a></li>
+      <li>Click "New Application"</li>
+      <li>Go to the "Bot" section</li>
+      <li>Click "Add Bot"</li>
+      <li>Under "Token", click "Reset Token" and copy it</li>
+      <li>Enable <strong>"Message Content Intent"</strong> under "Privileged Gateway Intents"</li>
+    </ol>
+
+    <h3>2. Invite bot to your server</h3>
+    <ol>
+      <li>Go to "OAuth2" &gt; "URL Generator"</li>
+      <li>Select scopes: <code>bot</code>, <code>applications.commands</code></li>
+      <li>Select bot permissions: <code>Send Messages</code>, <code>Read Message History</code></li>
+      <li>Copy the generated URL, open it in browser, select your server and authorize</li>
+    </ol>
+
+    <h3>3. Get user IDs</h3>
+    <ol>
+      <li>Enable Developer Mode in Discord (Settings &gt; Advanced &gt; Developer Mode)</li>
+      <li>Right-click on users or channels and select "Copy ID"</li>
+    </ol>
+
+    <h3>4. Configure</h3>
+    <div class="config-block">
+      <div class="config-label">~/.oxicrab/config.json</div>
+      <pre><code>{
+  "channels": {
+    "discord": {
+      "enabled": true,
+      "token": "your-discord-bot-token",
+      "allowFrom": ["123456789012345678"]
+    }
+  }
+}</code></pre>
+    </div>
+
+    <h3>Supported features</h3>
+    <div class="features-list">
+      <span>Text messages</span>
+      <span>Image attachments</span>
+      <span>Audio attachments</span>
+      <span>Typing indicators</span>
+      <span>Message editing</span>
+      <span>Message deletion</span>
+      <span>Guild + DM support</span>
+      <span>Sender allowlist</span>
+    </div>
+  </div>
+
+  <!-- SLACK -->
+  <div id="slack" class="channel-section">
+    <h2><span class="icon">&#128188;</span>Slack</h2>
+    <p>Socket Mode (WebSocket) via <a href="https://docs.rs/tokio-tungstenite">tokio-tungstenite</a>. No public endpoint required. Feature flag: <code>channel-slack</code>.</p>
+
+    <h3>1. Create a Slack app</h3>
+    <ol>
+      <li>Go to <a href="https://api.slack.com/apps">api.slack.com/apps</a></li>
+      <li>Click "Create New App" &gt; "From scratch"</li>
+      <li>Name your app and select your workspace</li>
+    </ol>
+
+    <h3>2. Enable Socket Mode</h3>
+    <ol>
+      <li>Go to "Socket Mode" in the left sidebar</li>
+      <li>Toggle "Enable Socket Mode" to ON</li>
+      <li>Click "Generate Token" under "App-Level Tokens"</li>
+      <li>Name it (e.g., "Socket Mode Token") and generate</li>
+      <li>Copy the token (starts with <code>xapp-</code>)</li>
+    </ol>
+
+    <h3>3. Add bot token scopes</h3>
+    <p>Go to "OAuth &amp; Permissions" &gt; "Bot Token Scopes" and add:</p>
+    <table class="scope-table">
+      <thead><tr><th>Scope</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td>chat:write</td><td>Send and edit messages</td></tr>
+        <tr><td>channels:history</td><td>Read messages in public channels</td></tr>
+        <tr><td>groups:history</td><td>Read messages in private channels</td></tr>
+        <tr><td>im:history</td><td>Read direct messages</td></tr>
+        <tr><td>mpim:history</td><td>Read group direct messages</td></tr>
+        <tr><td>users:read</td><td>Look up usernames from user IDs</td></tr>
+        <tr><td>files:read</td><td>Download image attachments from messages</td></tr>
+        <tr><td>files:write</td><td>Upload outbound media to channels</td></tr>
+        <tr><td>reactions:write</td><td>Add emoji reactions to acknowledge messages</td></tr>
+      </tbody>
+    </table>
+    <p>Optional but recommended:</p>
+    <table class="scope-table">
+      <thead><tr><th>Scope</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td>users:write</td><td>Set bot presence to "active" on startup</td></tr>
+      </tbody>
+    </table>
+    <p>Scroll up and click "Install to Workspace". Copy the "Bot User OAuth Token" (starts with <code>xoxb-</code>).</p>
+
+    <h3>4. Enable App Home messaging</h3>
+    <ol>
+      <li>Go to "App Home" in the left sidebar</li>
+      <li>Under "Show Tabs", enable the <strong>Messages Tab</strong></li>
+      <li>Check <strong>"Allow users to send Slash commands and messages from the messages tab"</strong></li>
+    </ol>
+    <div class="note"><strong>Important:</strong> Without this, users will see "Sending messages to this app has been turned off."</div>
+
+    <h3>5. Subscribe to events</h3>
+    <ol>
+      <li>Go to "Event Subscriptions"</li>
+      <li>Enable "Enable Events"</li>
+      <li>Subscribe to bot events: <code>app_mention</code>, <code>message.channels</code>, <code>message.groups</code>, <code>message.im</code></li>
+    </ol>
+
+    <h3>6. Get user IDs</h3>
+    <p>Click on a user's profile in Slack, click the three dots menu, select "Copy member ID".</p>
+
+    <h3>7. Configure</h3>
+    <div class="config-block">
+      <div class="config-label">~/.oxicrab/config.json</div>
+      <pre><code>{
+  "channels": {
+    "slack": {
+      "enabled": true,
+      "botToken": "xoxb-1234567890-1234567890123-abcdefghijklmnopqrstuvwx",
+      "appToken": "xapp-1-A1234567890-1234567890123-abcdefghijklmnopqrstuvwxyz1234567890",
+      "allowFrom": ["U01234567"]
+    }
+  }
+}</code></pre>
+    </div>
+    <div class="note"><strong>Note:</strong> The <code>appToken</code> must be a Socket Mode token (starts with <code>xapp-</code>), not a bot token. Socket Mode allows your app to receive events without exposing a public HTTP endpoint.</div>
+
+    <h3>Supported features</h3>
+    <div class="features-list">
+      <span>Text messages</span>
+      <span>Image attachments</span>
+      <span>Audio attachments</span>
+      <span>3-step file upload</span>
+      <span>Message editing</span>
+      <span>Message deletion</span>
+      <span>Emoji reactions</span>
+      <span>Markdown formatting</span>
+      <span>Sender allowlist</span>
+    </div>
+  </div>
+
+  <!-- WHATSAPP -->
+  <div id="whatsapp" class="channel-section">
+    <h2><span class="icon">&#128241;</span>WhatsApp</h2>
+    <p>Linked-device mode using <a href="https://github.com/nicois/whatsapp-rust">whatsapp-rust</a>. Runs as a secondary device on your phone. Feature flag: <code>channel-whatsapp</code>.</p>
+
+    <h3>1. First-time setup</h3>
+    <ol>
+      <li>Run <code>./oxicrab gateway</code> with WhatsApp enabled in config</li>
+      <li>Scan the QR code displayed in the terminal with your phone (WhatsApp &gt; Settings &gt; Linked Devices &gt; Link a Device)</li>
+      <li>Session is automatically stored in <code>~/.oxicrab/whatsapp/whatsapp.db</code></li>
+    </ol>
+
+    <h3>2. Configure</h3>
+    <div class="config-block">
+      <div class="config-label">~/.oxicrab/config.json</div>
+      <pre><code>{
+  "channels": {
+    "whatsapp": {
+      "enabled": true,
+      "allowFrom": ["15037348571"]
+    }
+  }
+}</code></pre>
+    </div>
+
+    <h3>Phone number format</h3>
+    <p>Use phone numbers in international format (country code + number). No spaces, dashes, or plus signs.</p>
+    <p>Example: <code>"15037348571"</code> for US number <code>+1 (503) 734-8571</code></p>
+
+    <div class="note"><strong>Note:</strong> WhatsApp requires the Rust nightly toolchain to compile.</div>
+
+    <h3>Supported features</h3>
+    <div class="features-list">
+      <span>Text messages</span>
+      <span>Image attachments</span>
+      <span>Voice/audio messages</span>
+      <span>QR code auth</span>
+      <span>Group conversations</span>
+      <span>Persistent sessions</span>
+      <span>Sender allowlist</span>
+    </div>
+  </div>
+
+  <!-- TWILIO -->
+  <div id="twilio" class="channel-section">
+    <h2><span class="icon">&#128222;</span>Twilio (SMS/MMS)</h2>
+    <p>Webhook-based using <a href="https://docs.rs/axum">axum</a>. Supports both SMS API and Conversations API. Feature flag: <code>channel-twilio</code>.</p>
+
+    <h3>1. Get credentials</h3>
+    <ol>
+      <li>Sign up at <a href="https://console.twilio.com">console.twilio.com</a></li>
+      <li>Copy your <strong>Account SID</strong> and <strong>Auth Token</strong> from the dashboard</li>
+    </ol>
+
+    <h3>2. Buy a phone number</h3>
+    <ol>
+      <li>Go to <strong>Phone Numbers &gt; Buy a Number</strong></li>
+      <li>Ensure SMS capability is checked</li>
+      <li>Note the number in E.164 format (e.g. <code>+15551234567</code>)</li>
+    </ol>
+
+    <h3>3. Create a Conversation Service</h3>
+    <ol>
+      <li>Go to <strong>Messaging &gt; Conversations &gt; Manage &gt; Create Service</strong></li>
+      <li>Note the Conversation Service SID</li>
+    </ol>
+
+    <h3>4. Configure webhooks</h3>
+    <ol>
+      <li>Go to <strong>Conversations &gt; Manage &gt; [Your Service] &gt; Webhooks</strong></li>
+      <li>Set <strong>Post-Webhook URL</strong> to your server's public URL (e.g. <code>https://your-server.example.com/twilio/webhook</code>)</li>
+      <li>Subscribe to events: <strong><code>onMessageAdded</code></strong></li>
+      <li>Method: <strong>POST</strong></li>
+    </ol>
+
+    <h3>5. Add participants to conversations</h3>
+    <p>Conversations need participants before messages flow:</p>
+    <pre><code>curl -X POST "https://conversations.twilio.com/v1/Conversations/{ConversationSid}/Participants" \
+  -u "YOUR_ACCOUNT_SID:YOUR_AUTH_TOKEN" \
+  --data-urlencode "MessagingBinding.Address=+19876543210" \
+  --data-urlencode "MessagingBinding.ProxyAddress=+15551234567"</code></pre>
+
+    <h3>6. Expose your webhook</h3>
+    <p>The webhook server must be reachable from the internet. Options:</p>
+    <ol>
+      <li><strong>Cloudflare Tunnel</strong> (recommended): <code>cloudflared tunnel run</code> &mdash; free, stable, no open ports</li>
+      <li><strong>ngrok</strong>: <code>ngrok http 8080</code> &mdash; quick for development</li>
+      <li><strong>Reverse proxy</strong>: nginx/caddy with TLS termination</li>
+    </ol>
+
+    <h3>7. Configure</h3>
+    <div class="config-block">
+      <div class="config-label">~/.oxicrab/config.json</div>
+      <pre><code>{
+  "channels": {
+    "twilio": {
+      "enabled": true,
+      "accountSid": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "authToken": "your-auth-token",
+      "phoneNumber": "+15551234567",
+      "webhookPort": 8080,
+      "webhookPath": "/twilio/webhook",
+      "webhookUrl": "https://your-server.example.com/twilio/webhook",
+      "allowFrom": []
+    }
+  }
+}</code></pre>
+    </div>
+
+    <div class="note"><strong>webhookUrl</strong> must match exactly what Twilio POSTs to (used for HMAC-SHA1 signature validation). <strong>allowFrom</strong> empty means all senders are allowed; add phone numbers to restrict.</div>
+
+    <h3>Supported features</h3>
+    <div class="features-list">
+      <span>SMS sending/receiving</span>
+      <span>Conversations API</span>
+      <span>HMAC-SHA1 signature validation</span>
+      <span>Message chunking (1600 chars)</span>
+      <span>Sender allowlist</span>
+    </div>
+  </div>
+
+  <!-- COMMON -->
+  <div class="channel-section" style="border-top: 2px solid var(--border); padding-top: 2rem;">
+    <h2>Common patterns</h2>
+
+    <h3>Selective compilation</h3>
+    <p>Each channel is a Cargo feature flag. Build only what you deploy:</p>
+    <pre><code># All channels (default)
+cargo build --release
+
+# Only Telegram and Slack
+cargo build --release --no-default-features --features channel-telegram,channel-slack
+
+# No channels (agent CLI only)
+cargo build --release --no-default-features</code></pre>
+
+    <h3>Allowlist filtering</h3>
+    <p>All channels support an optional <code>allowFrom</code> array. When empty, all senders are accepted. When populated, only listed IDs can interact with the bot.</p>
+
+    <h3>Media handling</h3>
+    <p>Inbound media (images, voice messages) is downloaded and saved to <code>~/.oxicrab/media/</code> with channel-specific prefixes. Voice messages are automatically transcribed if the transcription service is configured.</p>
+
+    <h3>Auto-reconnection</h3>
+    <p>All channels implement exponential backoff retry loops (5&ndash;60 seconds). Reconnection is automatic after network disconnects or backend errors.</p>
+  </div>
+
+</div>
+
+<footer>
+  <div class="footer-inner">
+    <a href="index.html" class="nav-logo" style="font-size: 0.95rem;"><span class="oxi">oxi</span>crab</a>
+    <div class="footer-links">
+      <a href="https://github.com/oxicrab/oxicrab">GitHub</a>
+      <a href="https://crates.io/crates/oxicrab">crates.io</a>
+      <a href="https://github.com/oxicrab/oxicrab/blob/main/README.md">README</a>
+    </div>
+    <span class="footer-copy">Built by <a href="https://github.com/oxicrab" style="color: var(--accent); text-decoration: none;">James Turnbull</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

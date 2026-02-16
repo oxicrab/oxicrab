@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workspace - oxicrab</title>
+  <meta name="description" content="How the oxicrab workspace directory works — identity, memory, skills, and configuration files.">
+  <meta name="theme-color" content="#0ea5e9">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦀</text></svg>">
+  <style>
+    :root {
+      --bg: #fafbfc; --bg-alt: #f0f4f8; --bg-dark: #0b1222;
+      --text: #1e293b; --text-muted: #64748b; --text-light: #94a3b8;
+      --accent: #0ea5e9; --accent-dark: #0284c7;
+      --coral: #f97066; --teal: #14b8a6; --purple: #8b5cf6;
+      --border: #e2e8f0; --surface: #fff;
+      --code-bg: #0f172a; --code-text: #e2e8f0;
+      --max-w: 820px;
+      --mono: 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+      --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.7; -webkit-font-smoothing: antialiased; }
+
+    nav { position: sticky; top: 0; background: rgba(250,251,252,0.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); z-index: 100; padding: 0 2rem; }
+    .nav-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-logo { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; color: var(--text); text-decoration: none; letter-spacing: -0.02em; }
+    .nav-logo .oxi { color: var(--accent); }
+    .nav-links { display: flex; gap: 1.5rem; list-style: none; align-items: center; }
+    .nav-links a { color: var(--text-muted); text-decoration: none; font-size: 0.85rem; font-weight: 500; transition: color 0.15s; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-links a.active { color: var(--accent); }
+
+    .page-header { padding: 4rem 2rem 2rem; max-width: var(--max-w); margin: 0 auto; }
+    .page-header h1 { font-size: 2.5rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 0.5rem; }
+    .page-header p { color: var(--text-muted); font-size: 1.1rem; }
+
+    .content { max-width: var(--max-w); margin: 0 auto; padding: 0 2rem 4rem; }
+
+    .toc { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem 1.5rem; margin-bottom: 3rem; }
+    .toc-title { font-family: var(--mono); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-light); margin-bottom: 0.5rem; }
+    .toc ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .toc a { display: inline-block; padding: 0.3rem 0.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: border-color 0.15s; }
+    .toc a:hover { border-color: var(--accent); color: var(--accent); }
+
+    .ws-section { margin-bottom: 3.5rem; scroll-margin-top: 80px; }
+    .ws-section h2 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.25rem; padding-bottom: 0.75rem; border-bottom: 2px solid var(--border); }
+    .ws-section h3 { font-size: 1rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+    .ws-section p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.75rem; }
+    .ws-section a { color: var(--accent); text-decoration: none; }
+    .ws-section a:hover { text-decoration: underline; }
+    .ws-section ul { padding-left: 1.5rem; margin-bottom: 1rem; }
+    .ws-section li { margin-bottom: 0.4rem; font-size: 0.9rem; color: var(--text); }
+    .ws-section li strong { color: var(--text); }
+
+    pre { background: var(--code-bg); border-radius: 8px; padding: 1rem 1.25rem; overflow-x: auto; font-family: var(--mono); font-size: 0.8rem; line-height: 1.7; color: var(--code-text); margin: 0.75rem 0 1rem; }
+    code { font-family: var(--mono); font-size: 0.85em; background: var(--bg-alt); padding: 0.15em 0.4em; border-radius: 4px; }
+    pre code { background: none; padding: 0; }
+
+    .note { background: rgba(14,165,233,0.06); border-left: 3px solid var(--accent); padding: 0.75rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; font-size: 0.85rem; color: var(--text); }
+    .note strong { color: var(--accent); }
+
+    .tree { background: var(--code-bg); border-radius: 8px; padding: 1.25rem 1.5rem; overflow-x: auto; font-family: var(--mono); font-size: 0.78rem; line-height: 1.8; color: var(--code-text); margin: 0.75rem 0 1.5rem; }
+    .tree .dir { color: #38bdf8; font-weight: 600; }
+    .tree .file { color: #e2e8f0; }
+    .tree .desc { color: #64748b; }
+
+    .file-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem 1.5rem; margin: 1rem 0; }
+    .file-card-name { font-family: var(--mono); font-weight: 600; font-size: 0.95rem; color: var(--accent); margin-bottom: 0.25rem; }
+    .file-card-path { font-family: var(--mono); font-size: 0.75rem; color: var(--text-light); margin-bottom: 0.5rem; }
+    .file-card p { color: var(--text-muted); font-size: 0.88rem; margin-bottom: 0.5rem; }
+    .file-card ul { padding-left: 1.5rem; margin-bottom: 0.5rem; }
+    .file-card li { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem; }
+
+    .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 0.5rem; }
+    .badge-auto { background: rgba(14,184,166,0.12); color: var(--teal); }
+    .badge-manual { background: rgba(139,92,246,0.12); color: var(--purple); }
+    .badge-template { background: rgba(249,112,102,0.12); color: var(--coral); }
+
+    footer { border-top: 1px solid var(--border); padding: 2rem; text-align: center; }
+    .footer-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+    .footer-links { display: flex; gap: 1.5rem; }
+    .footer-links a { color: var(--text-muted); text-decoration: none; font-size: 0.8rem; }
+    .footer-links a:hover { color: var(--text); }
+    .footer-copy { color: var(--text-light); font-size: 0.75rem; }
+
+    @media (max-width: 768px) {
+      .page-header h1 { font-size: 1.75rem; }
+      .toc ul { flex-direction: column; }
+      .nav-links { gap: 1rem; }
+      .footer-inner { flex-direction: column; gap: 1rem; }
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo"><span class="oxi">oxi</span>crab</a>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="channels.html">Channels</a></li>
+      <li><a href="tools.html">Tools</a></li>
+      <li><a href="workspace.html" class="active">Workspace</a></li>
+      <li><a href="deploy.html">Deploy</a></li>
+      <li><a href="https://github.com/oxicrab/oxicrab">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="page-header">
+  <h1>Workspace Files</h1>
+  <p>How oxicrab's workspace directory is structured and what each file does.</p>
+</div>
+
+<div class="content">
+
+  <div class="toc">
+    <div class="toc-title">On this page</div>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#agents-md">AGENTS.md</a></li>
+      <li><a href="#user-md">USER.md</a></li>
+      <li><a href="#tools-md">TOOLS.md</a></li>
+      <li><a href="#memory-md">MEMORY.md</a></li>
+      <li><a href="#daily-notes">Daily Notes</a></li>
+      <li><a href="#skills">Skills</a></li>
+      <li><a href="#sessions">Sessions</a></li>
+      <li><a href="#other-files">Other Files</a></li>
+    </ul>
+  </div>
+
+  <!-- OVERVIEW -->
+  <div id="overview" class="ws-section">
+    <h2>Overview</h2>
+    <p>oxicrab stores all its state in a home directory, defaulting to <code>~/.oxicrab/</code>. The workspace is a subdirectory that holds the markdown files that define the agent's identity, memory, and context. These files are loaded into the system prompt on every conversation.</p>
+
+    <p>Run <code>oxicrab onboard</code> to scaffold the full directory structure with templates.</p>
+
+    <div class="tree">
+<span class="dir">~/.oxicrab/</span>
+<span class="file">  config.json</span>              <span class="desc"># main configuration</span>
+<span class="dir">  workspace/</span>                <span class="desc"># default workspace root</span>
+<span class="file">    AGENTS.md</span>              <span class="desc"># agent identity &amp; personality</span>
+<span class="file">    USER.md</span>                <span class="desc"># user profile &amp; preferences</span>
+<span class="file">    TOOLS.md</span>               <span class="desc"># tool configuration notes</span>
+<span class="dir">    memory/</span>
+<span class="file">      MEMORY.md</span>            <span class="desc"># long-term persistent memory</span>
+<span class="file">      2026-02-16.md</span>        <span class="desc"># today's daily notes</span>
+<span class="file">      memory.sqlite3</span>       <span class="desc"># full-text search index</span>
+<span class="dir">      archive/</span>             <span class="desc"># archived daily notes</span>
+<span class="dir">    skills/</span>
+<span class="dir">      my-skill/</span>
+<span class="file">        SKILL.md</span>           <span class="desc"># custom skill definition</span>
+<span class="dir">    sessions/</span>              <span class="desc"># conversation history</span>
+<span class="dir">  cron/</span>
+<span class="file">    jobs.json</span>              <span class="desc"># scheduled tasks</span>
+<span class="dir">  media/</span>                   <span class="desc"># downloaded images/files (auto-cleaned)</span>
+    </div>
+
+    <div class="note"><strong>Tip:</strong> Override the home directory by setting the <code>OXICRAB_HOME</code> environment variable, or change the workspace path in <code>config.json</code> under <code>agents.defaults.workspace</code>.</div>
+  </div>
+
+  <!-- AGENTS.MD -->
+  <div id="agents-md" class="ws-section">
+    <h2>AGENTS.md <span class="badge badge-template">template</span></h2>
+
+    <div class="file-card">
+      <div class="file-card-name">AGENTS.md</div>
+      <div class="file-card-path">~/.oxicrab/workspace/AGENTS.md</div>
+      <p>Defines the agent's identity, personality, behavioral rules, and capabilities. This is the most important workspace file &mdash; it shapes how the agent responds to everything.</p>
+    </div>
+
+    <h3>How it's used</h3>
+    <p>Loaded as the <strong>core identity</strong> section of the system prompt. Unlike other bootstrap files, AGENTS.md is loaded separately and placed first, before USER.md or TOOLS.md. If the file is missing, oxicrab falls back to a built-in default identity.</p>
+
+    <h3>Recommended sections</h3>
+    <ul>
+      <li><strong>Personality</strong> &mdash; Tone and communication style (e.g. "friendly but professional", "concise")</li>
+      <li><strong>Capabilities</strong> &mdash; Brief overview of what the agent can do (no need to list every tool)</li>
+      <li><strong>Behavioral Rules</strong> &mdash; Constraints like "never guess information", "ask for clarification when ambiguous"</li>
+      <li><strong>Action Integrity</strong> &mdash; Rules about never claiming to have done something without actually calling a tool</li>
+      <li><strong>Memory Management</strong> &mdash; How aggressively the agent should write to memory</li>
+      <li><strong>Learned Adaptations</strong> &mdash; A section the agent updates itself as it learns user preferences</li>
+    </ul>
+
+    <h3>Example</h3>
+    <pre><code># mybot
+
+I am mybot, a personal AI assistant.
+
+## Personality
+
+- Friendly but professional
+- Direct and concise, with detail when needed
+- Accuracy over speed
+
+## Capabilities
+
+I have access to tools including file operations, web search,
+shell commands, messaging, and more. Some tools require
+additional configuration.
+
+## Behavioral Rules
+
+- Reply directly to questions. Only use the message tool
+  when sending to a specific chat channel.
+- Never invent or guess information.
+- Ask for clarification when ambiguous.
+
+## Learned Adaptations
+
+*(Updated automatically as I learn preferences)*</code></pre>
+  </div>
+
+  <!-- USER.MD -->
+  <div id="user-md" class="ws-section">
+    <h2>USER.md <span class="badge badge-template">template</span></h2>
+
+    <div class="file-card">
+      <div class="file-card-name">USER.md</div>
+      <div class="file-card-path">~/.oxicrab/workspace/USER.md</div>
+      <p>Stores information about the user &mdash; preferences, timezone, communication style, and anything else the agent should know about you. The agent may also update this file as it learns your patterns.</p>
+    </div>
+
+    <h3>How it's used</h3>
+    <p>Loaded as a bootstrap file in the system prompt, after AGENTS.md. This gives the agent persistent context about who it's talking to across all sessions.</p>
+
+    <h3>Example</h3>
+    <pre><code># User
+
+## Preferences
+
+- Communication style: casual
+- Timezone: America/New_York
+- Language: English
+
+## Notes
+
+- Prefers metric units
+- Works primarily with Python and Rust</code></pre>
+  </div>
+
+  <!-- TOOLS.MD -->
+  <div id="tools-md" class="ws-section">
+    <h2>TOOLS.md <span class="badge badge-template">template</span></h2>
+
+    <div class="file-card">
+      <div class="file-card-name">TOOLS.md</div>
+      <div class="file-card-path">~/.oxicrab/workspace/TOOLS.md</div>
+      <p>A place to record notes about which tools are configured, any quirks or important details, and which services are connected. This is not where tool configuration lives (that's in <code>config.json</code>) &mdash; it's context for the agent.</p>
+    </div>
+
+    <h3>How it's used</h3>
+    <p>Loaded as a bootstrap file alongside USER.md. Helps the agent understand what tools are available and any special instructions for using them.</p>
+
+    <h3>Example</h3>
+    <pre><code># Tool Notes
+
+## Configured Tools
+
+- Google Mail and Calendar are connected (OAuth)
+- Weather uses metric units, default location: London
+- Todoist is set up for personal project tracking
+
+## API Keys &amp; Services
+
+- Brave Search: configured
+- OpenWeatherMap: configured
+- GitHub: configured via PAT</code></pre>
+  </div>
+
+  <!-- MEMORY.MD -->
+  <div id="memory-md" class="ws-section">
+    <h2>MEMORY.md <span class="badge badge-manual">manual + agent</span></h2>
+
+    <div class="file-card">
+      <div class="file-card-name">MEMORY.md</div>
+      <div class="file-card-path">~/.oxicrab/workspace/memory/MEMORY.md</div>
+      <p>Long-term persistent memory. Important facts, user preferences, and context that should survive across all sessions. Both you and the agent can edit this file.</p>
+    </div>
+
+    <h3>How it's used</h3>
+    <p>Always included in the memory context section of the system prompt. Also indexed by the full-text search database for the <code>memory_search</code> tool.</p>
+
+    <h3>What to put here</h3>
+    <ul>
+      <li>Important facts the agent should always know</li>
+      <li>User preferences discovered over time</li>
+      <li>Project context, account details (no secrets)</li>
+      <li>Corrections to previous misunderstandings</li>
+    </ul>
+
+    <div class="note"><strong>Note:</strong> The agent will update this file on its own when it learns something important. It's also indexed for <code>memory_search</code> queries, so structure it with clear headings.</div>
+  </div>
+
+  <!-- DAILY NOTES -->
+  <div id="daily-notes" class="ws-section">
+    <h2>Daily Notes <span class="badge badge-auto">automatic</span></h2>
+
+    <div class="file-card">
+      <div class="file-card-name">YYYY-MM-DD.md</div>
+      <div class="file-card-path">~/.oxicrab/workspace/memory/2026-02-16.md</div>
+      <p>One file per day, created automatically. The agent writes session summaries and daily context here. Facts are also extracted automatically after conversations via the memory indexer.</p>
+    </div>
+
+    <h3>How it's used</h3>
+    <p>Today's note is included in the system prompt for session continuity. All daily notes are indexed by the full-text search database. Older notes are managed by the memory hygiene system.</p>
+
+    <h3>Lifecycle</h3>
+    <ul>
+      <li><strong>Created</strong> &mdash; Automatically on first write each day (UTC date)</li>
+      <li><strong>Indexed</strong> &mdash; Background indexer runs every 5 minutes (configurable via <code>memoryIndexerInterval</code>)</li>
+      <li><strong>Archived</strong> &mdash; Moved to <code>memory/archive/</code> after <code>archiveAfterDays</code> (default: 30)</li>
+      <li><strong>Purged</strong> &mdash; Deleted after <code>purgeAfterDays</code> (default: 90)</li>
+    </ul>
+
+    <h3>Memory search</h3>
+    <p>The <code>memory_search</code> tool queries a SQLite FTS5 database (<code>memory.sqlite3</code>) that indexes all memory files. If embeddings are enabled, it uses hybrid vector + keyword search for better relevance.</p>
+
+    <h3>Configuration</h3>
+    <pre><code>{
+  "agents": {
+    "defaults": {
+      "memoryIndexerInterval": 300,
+      "memory": {
+        "archiveAfterDays": 30,
+        "purgeAfterDays": 90,
+        "embeddingsEnabled": false,
+        "embeddingsModel": "BAAI/bge-small-en-v1.5",
+        "hybridWeight": 0.5
+      }
+    }
+  }
+}</code></pre>
+  </div>
+
+  <!-- SKILLS -->
+  <div id="skills" class="ws-section">
+    <h2>Skills <span class="badge badge-manual">manual</span></h2>
+
+    <div class="file-card">
+      <div class="file-card-name">SKILL.md</div>
+      <div class="file-card-path">~/.oxicrab/workspace/skills/{skill-name}/SKILL.md</div>
+      <p>Custom skills extend the agent's capabilities with domain-specific instructions. Each skill is a directory containing a <code>SKILL.md</code> file with YAML frontmatter and markdown documentation.</p>
+    </div>
+
+    <h3>How it's used</h3>
+    <p>Skills marked <code>always: true</code> are included in every system prompt. Other skills appear as a summary, and the agent loads the full content on-demand using the <code>read_file</code> tool when relevant.</p>
+
+    <h3>SKILL.md format</h3>
+    <pre><code>---
+name: my-skill
+description: What this skill does
+always: false
+requires:
+  bins: ["ffmpeg", "curl"]
+  env: ["MY_API_KEY"]
+---
+
+# My Skill
+
+Instructions for the agent on how to use this skill.
+
+## When to use
+
+Describe the situations where this skill applies.
+
+## Steps
+
+1. Step one
+2. Step two</code></pre>
+
+    <h3>Frontmatter fields</h3>
+    <ul>
+      <li><strong>name</strong> &mdash; Skill identifier (matches directory name)</li>
+      <li><strong>description</strong> &mdash; One-line summary shown in the skills list</li>
+      <li><strong>always</strong> &mdash; If <code>true</code>, full content is included in every prompt (default: <code>false</code>)</li>
+      <li><strong>requires.bins</strong> &mdash; CLI tools that must be installed (checked at runtime)</li>
+      <li><strong>requires.env</strong> &mdash; Environment variables that must be set</li>
+    </ul>
+
+    <div class="note"><strong>Availability:</strong> Skills with missing requirements are listed as <code>available="false"</code>. The agent can still see them but is told the dependencies need to be installed first.</div>
+  </div>
+
+  <!-- SESSIONS -->
+  <div id="sessions" class="ws-section">
+    <h2>Sessions</h2>
+
+    <div class="file-card">
+      <div class="file-card-name">{session-key}.jsonl</div>
+      <div class="file-card-path">~/.oxicrab/workspace/sessions/</div>
+      <p>Conversation history files, one per session. Stored in JSONL format (one JSON object per line). Sessions are keyed by channel and chat ID.</p>
+    </div>
+
+    <h3>How it's used</h3>
+    <p>The agent loads the most recent messages from the session file to maintain conversation continuity. An LRU cache of 64 sessions is kept in memory for performance.</p>
+
+    <h3>Lifecycle</h3>
+    <ul>
+      <li>Auto-pruned to the 200 most recent messages</li>
+      <li>Expired after <code>sessionTtlDays</code> (default: 30 days)</li>
+      <li>Compaction available to summarize long conversations (configurable via <code>compaction</code> settings)</li>
+    </ul>
+  </div>
+
+  <!-- OTHER FILES -->
+  <div id="other-files" class="ws-section">
+    <h2>Other Files</h2>
+    <p>These files live in the oxicrab home directory (<code>~/.oxicrab/</code>) rather than the workspace.</p>
+
+    <div class="file-card">
+      <div class="file-card-name">config.json</div>
+      <div class="file-card-path">~/.oxicrab/config.json</div>
+      <p>Main configuration file. JSON with camelCase keys. Contains provider API keys, channel tokens, tool settings, and agent defaults. Created by <code>oxicrab onboard</code>. See the <a href="index.html#config">Configuration</a> section on the home page.</p>
+    </div>
+
+    <div class="file-card">
+      <div class="file-card-name">google_tokens.json</div>
+      <div class="file-card-path">~/.oxicrab/google_tokens.json</div>
+      <p>Google OAuth tokens for Gmail and Calendar access. Created by running <code>oxicrab auth google</code>. Refreshed automatically when expired.</p>
+    </div>
+
+    <div class="file-card">
+      <div class="file-card-name">cron/jobs.json</div>
+      <div class="file-card-path">~/.oxicrab/cron/jobs.json</div>
+      <p>Scheduled task definitions. Managed via the <code>cron</code> tool or <code>oxicrab cron</code> CLI command. Supports recurring (cron expressions, intervals) and one-shot (<code>at_time</code>) schedules.</p>
+    </div>
+
+    <div class="file-card">
+      <div class="file-card-name">media/</div>
+      <div class="file-card-path">~/.oxicrab/media/</div>
+      <p>Downloaded images, screenshots, and other media. Auto-cleaned after <code>mediaTtlDays</code> (default: 7 days). Used by <code>web_fetch</code>, <code>http</code>, and <code>browser</code> tools.</p>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <div class="footer-inner">
+    <a href="index.html" class="nav-logo" style="font-size: 0.95rem;"><span class="oxi">oxi</span>crab</a>
+    <div class="footer-links">
+      <a href="https://github.com/oxicrab/oxicrab">GitHub</a>
+      <a href="https://crates.io/crates/oxicrab">crates.io</a>
+      <a href="https://github.com/oxicrab/oxicrab/blob/main/README.md">README</a>
+    </div>
+    <span class="footer-copy">Built by <a href="https://github.com/oxicrab" style="color: var(--accent); text-decoration: none;">James Turnbull</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,41 @@
+[Unit]
+Description=oxicrab AI assistant gateway
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/oxicrab gateway
+Restart=on-failure
+RestartSec=5
+
+Environment=RUST_LOG=info
+Environment=RUST_BACKTRACE=1
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=oxicrab
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.oxicrab
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
+LockPersonality=true
+
+# Resource limits
+LimitNOFILE=65536
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

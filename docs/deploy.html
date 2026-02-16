@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deployment - oxicrab</title>
+  <meta name="description" content="Deploy oxicrab with Docker, systemd, or launchd.">
+  <meta name="theme-color" content="#0ea5e9">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦀</text></svg>">
+  <style>
+    :root {
+      --bg: #fafbfc; --bg-alt: #f0f4f8; --bg-dark: #0b1222;
+      --text: #1e293b; --text-muted: #64748b; --text-light: #94a3b8;
+      --accent: #0ea5e9; --accent-dark: #0284c7;
+      --coral: #f97066; --teal: #14b8a6; --purple: #8b5cf6;
+      --border: #e2e8f0; --surface: #fff;
+      --code-bg: #0f172a; --code-text: #e2e8f0;
+      --max-w: 820px;
+      --mono: 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+      --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.7; -webkit-font-smoothing: antialiased; }
+
+    nav { position: sticky; top: 0; background: rgba(250,251,252,0.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); z-index: 100; padding: 0 2rem; }
+    .nav-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-logo { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; color: var(--text); text-decoration: none; letter-spacing: -0.02em; }
+    .nav-logo .oxi { color: var(--accent); }
+    .nav-links { display: flex; gap: 1.5rem; list-style: none; align-items: center; }
+    .nav-links a { color: var(--text-muted); text-decoration: none; font-size: 0.85rem; font-weight: 500; transition: color 0.15s; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-links a.active { color: var(--accent); }
+
+    .page-header { padding: 4rem 2rem 2rem; max-width: var(--max-w); margin: 0 auto; }
+    .page-header h1 { font-size: 2.5rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 0.5rem; }
+    .page-header p { color: var(--text-muted); font-size: 1.1rem; }
+
+    .content { max-width: var(--max-w); margin: 0 auto; padding: 0 2rem 4rem; }
+
+    .toc { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem 1.5rem; margin-bottom: 3rem; }
+    .toc-title { font-family: var(--mono); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-light); margin-bottom: 0.5rem; }
+    .toc ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .toc a { display: inline-block; padding: 0.3rem 0.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: border-color 0.15s; }
+    .toc a:hover { border-color: var(--accent); color: var(--accent); }
+
+    .deploy-section { margin-bottom: 3.5rem; scroll-margin-top: 80px; }
+    .deploy-section h2 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.5rem; padding-bottom: 0.75rem; border-bottom: 2px solid var(--border); }
+    .deploy-section h3 { font-size: 1rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+    .deploy-section p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.75rem; }
+    .deploy-section a { color: var(--accent); text-decoration: none; }
+    .deploy-section a:hover { text-decoration: underline; }
+
+    ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+    ol li { margin-bottom: 0.5rem; font-size: 0.9rem; }
+    ul.plain { list-style: disc; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+    ul.plain li { margin-bottom: 0.25rem; font-size: 0.88rem; color: var(--text-muted); }
+
+    pre { background: var(--code-bg); border-radius: 8px; padding: 1rem 1.25rem; overflow-x: auto; font-family: var(--mono); font-size: 0.8rem; line-height: 1.7; color: var(--code-text); margin: 0.75rem 0 1rem; }
+    code { font-family: var(--mono); font-size: 0.85em; background: var(--bg-alt); padding: 0.15em 0.4em; border-radius: 4px; }
+    pre code { background: none; padding: 0; }
+
+    .config-label { font-family: var(--mono); font-size: 0.7rem; color: var(--text-light); margin-bottom: 0.25rem; margin-top: 0.5rem; }
+
+    .note { background: rgba(14,165,233,0.06); border-left: 3px solid var(--accent); padding: 0.75rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; font-size: 0.85rem; color: var(--text); }
+    .note strong { color: var(--accent); }
+    .note.warn { border-left-color: var(--coral); }
+    .note.warn strong { color: var(--coral); }
+
+    footer { border-top: 1px solid var(--border); padding: 2rem; text-align: center; }
+    .footer-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+    .footer-links { display: flex; gap: 1.5rem; }
+    .footer-links a { color: var(--text-muted); text-decoration: none; font-size: 0.8rem; }
+    .footer-links a:hover { color: var(--text); }
+    .footer-copy { color: var(--text-light); font-size: 0.75rem; }
+
+    @media (max-width: 768px) {
+      .page-header h1 { font-size: 1.75rem; }
+      .toc ul { flex-direction: column; }
+      .nav-links { gap: 1rem; }
+      .footer-inner { flex-direction: column; gap: 1rem; }
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo"><span class="oxi">oxi</span>crab</a>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="channels.html">Channels</a></li>
+      <li><a href="tools.html">Tools</a></li>
+      <li><a href="workspace.html">Workspace</a></li>
+      <li><a href="deploy.html" class="active">Deploy</a></li>
+      <li><a href="https://github.com/oxicrab/oxicrab">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="page-header">
+  <h1>Deployment</h1>
+  <p>Run oxicrab as a long-lived service with Docker, systemd (Linux), or launchd (macOS).</p>
+</div>
+
+<div class="content">
+
+  <div class="toc">
+    <div class="toc-title">Options</div>
+    <ul>
+      <li><a href="#docker">Docker</a></li>
+      <li><a href="#docker-compose">Docker Compose</a></li>
+      <li><a href="#systemd">systemd (Linux)</a></li>
+      <li><a href="#launchd">launchd (macOS)</a></li>
+    </ul>
+  </div>
+
+  <!-- DOCKER -->
+  <div id="docker" class="deploy-section">
+    <h2>Docker</h2>
+    <p>The included <code>Dockerfile</code> uses a multi-stage build: Rust nightly for compilation, Debian slim for runtime.</p>
+
+    <h3>Build the image</h3>
+    <pre><code># All channels (default)
+docker build -t oxicrab .
+
+# Specific channels only (smaller image)
+docker build -t oxicrab --build-arg FEATURES="channel-telegram,channel-slack" .</code></pre>
+
+    <h3>Run</h3>
+    <pre><code># Mount your config directory
+docker run -d \
+  --name oxicrab \
+  --restart unless-stopped \
+  -v ~/.oxicrab:/home/oxicrab/.oxicrab \
+  -p 8080:8080 \
+  oxicrab</code></pre>
+
+    <p>The <code>-p 8080:8080</code> port mapping is only needed if you use the Twilio channel (webhook server). Other channels use outbound connections only.</p>
+
+    <h3>CLI mode</h3>
+    <pre><code># Single message
+docker run --rm \
+  -v ~/.oxicrab:/home/oxicrab/.oxicrab \
+  oxicrab agent -m "What's the weather?"
+
+# Interactive
+docker run --rm -it \
+  -v ~/.oxicrab:/home/oxicrab/.oxicrab \
+  oxicrab agent</code></pre>
+
+    <h3>View logs</h3>
+    <pre><code>docker logs -f oxicrab
+
+# Debug logging
+docker run -d \
+  --name oxicrab \
+  -e RUST_LOG=debug \
+  -v ~/.oxicrab:/home/oxicrab/.oxicrab \
+  oxicrab</code></pre>
+
+    <div class="note"><strong>WhatsApp:</strong> The first run displays a QR code in the terminal. Use <code>docker run -it</code> (interactive) for the initial link, then switch to <code>-d</code> (detached) for subsequent runs. The session is persisted in the mounted volume.</div>
+  </div>
+
+  <!-- DOCKER COMPOSE -->
+  <div id="docker-compose" class="deploy-section">
+    <h2>Docker Compose</h2>
+
+    <div class="config-label">docker-compose.yml</div>
+    <pre><code>services:
+  oxicrab:
+    build: .
+    container_name: oxicrab
+    restart: unless-stopped
+    volumes:
+      - ~/.oxicrab:/home/oxicrab/.oxicrab
+    ports:
+      - "8080:8080"  # Only needed for Twilio webhooks
+    environment:
+      - RUST_LOG=info</code></pre>
+
+    <pre><code># Start
+docker compose up -d
+
+# Logs
+docker compose logs -f
+
+# Rebuild after updates
+docker compose up -d --build</code></pre>
+  </div>
+
+  <!-- SYSTEMD -->
+  <div id="systemd" class="deploy-section">
+    <h2>systemd (Linux)</h2>
+    <p>A ready-to-use service file ships with the repo at <code>deploy/oxicrab.service</code>. It's designed as a user service &mdash; no root required.</p>
+
+    <h3>1. Build and install the binary</h3>
+    <pre><code>cargo build --release
+sudo cp target/release/oxicrab /usr/local/bin/oxicrab</code></pre>
+
+    <h3>2. Install the user service</h3>
+    <pre><code>mkdir -p ~/.config/systemd/user
+cp deploy/oxicrab.service ~/.config/systemd/user/</code></pre>
+
+    <div class="note"><strong>Binary path:</strong> The shipped service file expects <code>/usr/local/bin/oxicrab</code>. If your binary is elsewhere, edit the <code>ExecStart</code> line before installing.</div>
+
+    <h3>3. Enable and start</h3>
+    <pre><code>systemctl --user daemon-reload
+systemctl --user enable oxicrab
+systemctl --user start oxicrab
+
+# Enable lingering so the service runs without an active login session
+loginctl enable-linger $USER</code></pre>
+
+    <h3>4. Manage</h3>
+    <pre><code># Check status
+systemctl --user status oxicrab
+
+# View logs (syslog identifier: oxicrab)
+journalctl --user -u oxicrab -f
+
+# Restart after config changes
+systemctl --user restart oxicrab
+
+# Stop
+systemctl --user stop oxicrab</code></pre>
+
+    <h3>What the service file does</h3>
+    <div class="config-label">deploy/oxicrab.service</div>
+    <pre><code>[Unit]
+Description=oxicrab AI assistant gateway
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/oxicrab gateway
+Restart=on-failure
+RestartSec=5
+
+Environment=RUST_LOG=info
+Environment=RUST_BACKTRACE=1
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=oxicrab
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.oxicrab
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
+LockPersonality=true
+
+# Resource limits
+LimitNOFILE=65536
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target</code></pre>
+
+    <p>Key hardening features:</p>
+    <ul class="plain">
+      <li><strong>StartLimitBurst=5</strong> &mdash; prevents crash loops from hammering restarts (max 5 restarts in 5 minutes)</li>
+      <li><strong>ProtectSystem=strict</strong> &mdash; mounts <code>/</code> read-only except explicitly allowed paths</li>
+      <li><strong>ReadWritePaths=%h/.oxicrab</strong> &mdash; <code>%h</code> expands to the user's home directory</li>
+      <li><strong>MemoryDenyWriteExecute</strong> &mdash; prevents dynamic code generation exploits</li>
+      <li><strong>LimitNOFILE=65536</strong> &mdash; enough file descriptors for many concurrent connections</li>
+      <li><strong>SyslogIdentifier=oxicrab</strong> &mdash; clean log filtering with <code>journalctl -t oxicrab</code></li>
+    </ul>
+
+    <h3>System-wide service (alternative)</h3>
+    <p>To run as a dedicated system user instead:</p>
+    <pre><code># Create service user
+sudo useradd -r -m -s /usr/sbin/nologin oxicrab
+sudo mkdir -p /home/oxicrab/.oxicrab
+sudo cp ~/.oxicrab/config.json /home/oxicrab/.oxicrab/config.json
+sudo chown -R oxicrab:oxicrab /home/oxicrab/.oxicrab
+
+# Install as system service
+sudo cp deploy/oxicrab.service /etc/systemd/system/
+# Edit to add User=oxicrab and Group=oxicrab under [Service]
+# Change WantedBy=default.target to WantedBy=multi-user.target
+sudo systemctl daemon-reload
+sudo systemctl enable oxicrab
+sudo systemctl start oxicrab</code></pre>
+  </div>
+
+  <!-- LAUNCHD -->
+  <div id="launchd" class="deploy-section">
+    <h2>launchd (macOS)</h2>
+    <p>A ready-to-use plist ships with the repo at <code>deploy/com.oxicrab.gateway.plist</code>. It runs as a launch agent (per-user, starts on login).</p>
+
+    <h3>1. Build and install the binary</h3>
+    <pre><code>cargo build --release
+cp target/release/oxicrab /usr/local/bin/oxicrab</code></pre>
+
+    <h3>2. Create the log directory</h3>
+    <pre><code>sudo mkdir -p /usr/local/var/log</code></pre>
+
+    <h3>3. Install the plist</h3>
+    <pre><code>cp deploy/com.oxicrab.gateway.plist ~/Library/LaunchAgents/</code></pre>
+
+    <div class="note"><strong>Binary path:</strong> The shipped plist expects <code>/usr/local/bin/oxicrab</code>. If your binary is elsewhere, edit the <code>ProgramArguments</code> before installing.</div>
+
+    <h3>4. Load and start</h3>
+    <pre><code>launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</code></pre>
+
+    <h3>5. Manage</h3>
+    <pre><code># Check status
+launchctl list | grep oxicrab
+
+# View logs
+tail -f /usr/local/var/log/oxicrab.log
+
+# Restart after config changes
+launchctl unload ~/Library/LaunchAgents/com.oxicrab.gateway.plist
+launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist
+
+# Stop permanently
+launchctl unload ~/Library/LaunchAgents/com.oxicrab.gateway.plist</code></pre>
+
+    <h3>What the plist does</h3>
+    <div class="config-label">deploy/com.oxicrab.gateway.plist</div>
+    <pre><code>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd"&gt;
+&lt;plist version="1.0"&gt;
+&lt;dict&gt;
+  &lt;key&gt;Label&lt;/key&gt;
+  &lt;string&gt;com.oxicrab.gateway&lt;/string&gt;
+
+  &lt;key&gt;ProgramArguments&lt;/key&gt;
+  &lt;array&gt;
+    &lt;string&gt;/usr/local/bin/oxicrab&lt;/string&gt;
+    &lt;string&gt;gateway&lt;/string&gt;
+  &lt;/array&gt;
+
+  &lt;key&gt;EnvironmentVariables&lt;/key&gt;
+  &lt;dict&gt;
+    &lt;key&gt;RUST_LOG&lt;/key&gt;
+    &lt;string&gt;info&lt;/string&gt;
+    &lt;key&gt;RUST_BACKTRACE&lt;/key&gt;
+    &lt;string&gt;1&lt;/string&gt;
+  &lt;/dict&gt;
+
+  &lt;key&gt;RunAtLoad&lt;/key&gt;
+  &lt;true/&gt;
+
+  &lt;key&gt;KeepAlive&lt;/key&gt;
+  &lt;dict&gt;
+    &lt;key&gt;SuccessfulExit&lt;/key&gt;
+    &lt;false/&gt;
+  &lt;/dict&gt;
+
+  &lt;key&gt;ThrottleInterval&lt;/key&gt;
+  &lt;integer&gt;5&lt;/integer&gt;
+
+  &lt;key&gt;StandardOutPath&lt;/key&gt;
+  &lt;string&gt;/usr/local/var/log/oxicrab.log&lt;/string&gt;
+
+  &lt;key&gt;StandardErrorPath&lt;/key&gt;
+  &lt;string&gt;/usr/local/var/log/oxicrab.log&lt;/string&gt;
+
+  &lt;key&gt;SoftResourceLimits&lt;/key&gt;
+  &lt;dict&gt;
+    &lt;key&gt;NumberOfFiles&lt;/key&gt;
+    &lt;integer&gt;65536&lt;/integer&gt;
+  &lt;/dict&gt;
+
+  &lt;key&gt;HardResourceLimits&lt;/key&gt;
+  &lt;dict&gt;
+    &lt;key&gt;NumberOfFiles&lt;/key&gt;
+    &lt;integer&gt;65536&lt;/integer&gt;
+  &lt;/dict&gt;
+
+  &lt;key&gt;ProcessType&lt;/key&gt;
+  &lt;string&gt;Background&lt;/string&gt;
+&lt;/dict&gt;
+&lt;/plist&gt;</code></pre>
+
+    <p>Key features:</p>
+    <ul class="plain">
+      <li><strong>KeepAlive / SuccessfulExit=false</strong> &mdash; restarts only on crash (exit code != 0), not on clean shutdown</li>
+      <li><strong>ThrottleInterval=5</strong> &mdash; minimum 5 seconds between restart attempts (crash loop protection)</li>
+      <li><strong>NumberOfFiles=65536</strong> &mdash; raises the file descriptor limit for many concurrent connections</li>
+      <li><strong>ProcessType=Background</strong> &mdash; tells macOS this is a low-priority background service (won't contend with foreground apps)</li>
+      <li><strong>Unified log path</strong> &mdash; stdout and stderr both go to <code>/usr/local/var/log/oxicrab.log</code></li>
+    </ul>
+
+    <div class="note"><strong>Log rotation:</strong> macOS doesn't rotate launch agent logs automatically. Add a newsyslog entry or use a cron job:<br><code>echo '/usr/local/var/log/oxicrab.log 644 7 1000 * J' | sudo tee -a /etc/newsyslog.conf</code><br>This keeps 7 rotated copies, rotating when the file exceeds 1 MB.</div>
+  </div>
+
+</div>
+
+<footer>
+  <div class="footer-inner">
+    <a href="index.html" class="nav-logo" style="font-size: 0.95rem;"><span class="oxi">oxi</span>crab</a>
+    <div class="footer-links">
+      <a href="https://github.com/oxicrab/oxicrab">GitHub</a>
+      <a href="https://crates.io/crates/oxicrab">crates.io</a>
+      <a href="https://github.com/oxicrab/oxicrab/blob/main/README.md">README</a>
+    </div>
+    <span class="footer-copy">Built by <a href="https://github.com/oxicrab" style="color: var(--accent); text-decoration: none;">James Turnbull</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -2,6 +2,8 @@
 
 A high-performance Rust multi-channel AI assistant framework.
 
+**[Documentation](https://oxicrab.github.io/oxicrab/)** | [Channel Setup](https://oxicrab.github.io/oxicrab/channels.html) | [Tool Reference](https://oxicrab.github.io/oxicrab/tools.html) | [Deployment](https://oxicrab.github.io/oxicrab/deploy.html)
+
 ## Features
 
 - **Multi-channel support**: Telegram, Discord, Slack, WhatsApp, Twilio (SMS/MMS) — each behind a Cargo feature flag for slim builds

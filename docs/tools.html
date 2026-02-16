@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tool Reference - oxicrab</title>
+  <meta name="description" content="Complete reference for all 24 built-in tools in oxicrab, including setup instructions for configurable tools.">
+  <meta name="theme-color" content="#0ea5e9">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦀</text></svg>">
+  <style>
+    :root {
+      --bg: #fafbfc; --bg-alt: #f0f4f8; --bg-dark: #0b1222;
+      --text: #1e293b; --text-muted: #64748b; --text-light: #94a3b8;
+      --accent: #0ea5e9; --accent-dark: #0284c7;
+      --coral: #f97066; --teal: #14b8a6; --purple: #8b5cf6;
+      --border: #e2e8f0; --surface: #fff;
+      --code-bg: #0f172a; --code-text: #e2e8f0;
+      --max-w: 820px;
+      --mono: 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+      --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.7; -webkit-font-smoothing: antialiased; }
+
+    nav { position: sticky; top: 0; background: rgba(250,251,252,0.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); z-index: 100; padding: 0 2rem; }
+    .nav-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-logo { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; color: var(--text); text-decoration: none; letter-spacing: -0.02em; }
+    .nav-logo .oxi { color: var(--accent); }
+    .nav-links { display: flex; gap: 1.5rem; list-style: none; align-items: center; }
+    .nav-links a { color: var(--text-muted); text-decoration: none; font-size: 0.85rem; font-weight: 500; transition: color 0.15s; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-links a.active { color: var(--accent); }
+
+    .page-header { padding: 4rem 2rem 2rem; max-width: var(--max-w); margin: 0 auto; }
+    .page-header h1 { font-size: 2.5rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 0.5rem; }
+    .page-header p { color: var(--text-muted); font-size: 1.1rem; }
+
+    .content { max-width: var(--max-w); margin: 0 auto; padding: 0 2rem 4rem; }
+
+    .toc { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem 1.5rem; margin-bottom: 3rem; }
+    .toc-title { font-family: var(--mono); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-light); margin-bottom: 0.5rem; }
+    .toc-group { margin-bottom: 0.75rem; }
+    .toc-group-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem; }
+    .toc ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .toc a { display: inline-block; padding: 0.25rem 0.7rem; background: var(--surface); border: 1px solid var(--border); border-radius: 5px; color: var(--text); text-decoration: none; font-family: var(--mono); font-size: 0.78rem; font-weight: 500; transition: border-color 0.15s; }
+    .toc a:hover { border-color: var(--accent); color: var(--accent); }
+    .toc a.needs-config { border-left: 3px solid var(--purple); }
+
+    .cat-header { font-family: var(--mono); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-light); margin-top: 3rem; margin-bottom: 1.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+
+    .tool-section { margin-bottom: 2.5rem; scroll-margin-top: 80px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem 1.75rem; }
+    .tool-section h2 { font-family: var(--mono); font-size: 1.15rem; font-weight: 700; margin-bottom: 0.15rem; }
+    .tool-section h2 .badge { display: inline-block; font-family: var(--sans); font-size: 0.65rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 4px; margin-left: 0.5rem; vertical-align: middle; }
+    .badge-core { background: rgba(14,165,233,0.1); color: var(--accent); }
+    .badge-config { background: rgba(139,92,246,0.1); color: var(--purple); }
+    .badge-ext { background: rgba(249,112,102,0.1); color: var(--coral); }
+
+    .tool-section .desc { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem; }
+    .tool-section h3 { font-size: 0.9rem; font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.4rem; }
+    .tool-section p { color: var(--text-muted); font-size: 0.88rem; margin-bottom: 0.5rem; }
+    .tool-section a { color: var(--accent); text-decoration: none; }
+    .tool-section a:hover { text-decoration: underline; }
+
+    ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+    ol li { margin-bottom: 0.35rem; font-size: 0.88rem; }
+    ul.plain { list-style: disc; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+    ul.plain li { margin-bottom: 0.25rem; font-size: 0.88rem; color: var(--text-muted); }
+
+    pre { background: var(--code-bg); border-radius: 8px; padding: 1rem 1.25rem; overflow-x: auto; font-family: var(--mono); font-size: 0.78rem; line-height: 1.7; color: var(--code-text); margin: 0.5rem 0 0.75rem; }
+    code { font-family: var(--mono); font-size: 0.85em; background: var(--bg-alt); padding: 0.15em 0.4em; border-radius: 4px; }
+    pre code { background: none; padding: 0; }
+
+    .config-label { font-family: var(--mono); font-size: 0.7rem; color: var(--text-light); margin-bottom: 0.25rem; margin-top: 0.5rem; }
+
+    .note { background: rgba(14,165,233,0.06); border-left: 3px solid var(--accent); padding: 0.65rem 1rem; border-radius: 0 6px 6px 0; margin: 0.75rem 0; font-size: 0.83rem; color: var(--text); }
+    .note strong { color: var(--accent); }
+
+    .action-table { width: 100%; border-collapse: collapse; margin: 0.5rem 0 0.75rem; font-size: 0.83rem; }
+    .action-table th, .action-table td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
+    .action-table th { font-weight: 600; color: var(--text-light); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .action-table td:first-child { font-family: var(--mono); font-size: 0.78rem; color: var(--accent); white-space: nowrap; }
+    .action-table td:last-child { color: var(--text-muted); }
+
+    footer { border-top: 1px solid var(--border); padding: 2rem; text-align: center; }
+    .footer-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+    .footer-links { display: flex; gap: 1.5rem; }
+    .footer-links a { color: var(--text-muted); text-decoration: none; font-size: 0.8rem; }
+    .footer-links a:hover { color: var(--text); }
+    .footer-copy { color: var(--text-light); font-size: 0.75rem; }
+
+    @media (max-width: 768px) {
+      .page-header h1 { font-size: 1.75rem; }
+      .toc ul { flex-direction: column; }
+      .nav-links { gap: 1rem; }
+      .tool-section { padding: 1.25rem; }
+      .footer-inner { flex-direction: column; gap: 1rem; }
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo"><span class="oxi">oxi</span>crab</a>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="channels.html">Channels</a></li>
+      <li><a href="tools.html" class="active">Tools</a></li>
+      <li><a href="workspace.html">Workspace</a></li>
+      <li><a href="deploy.html">Deploy</a></li>
+      <li><a href="https://github.com/oxicrab/oxicrab">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="page-header">
+  <h1>Tool Reference</h1>
+  <p>24 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, and result caching.</p>
+</div>
+
+<div class="content">
+
+  <div class="toc">
+    <div class="toc-title">Tools</div>
+    <div class="toc-group">
+      <div class="toc-group-label">Core (always available)</div>
+      <ul>
+        <li><a href="#read_file">read_file</a></li>
+        <li><a href="#write_file">write_file</a></li>
+        <li><a href="#edit_file">edit_file</a></li>
+        <li><a href="#list_dir">list_dir</a></li>
+        <li><a href="#exec">exec</a></li>
+        <li><a href="#tmux">tmux</a></li>
+        <li><a href="#web_search">web_search</a></li>
+        <li><a href="#web_fetch">web_fetch</a></li>
+        <li><a href="#http">http</a></li>
+        <li><a href="#reddit">reddit</a></li>
+        <li><a href="#message">message</a></li>
+        <li><a href="#spawn">spawn</a></li>
+        <li><a href="#subagent_control">subagent_control</a></li>
+        <li><a href="#cron">cron</a></li>
+        <li><a href="#memory_search">memory_search</a></li>
+      </ul>
+    </div>
+    <div class="toc-group">
+      <div class="toc-group-label">Requires configuration</div>
+      <ul>
+        <li><a href="#google_mail" class="needs-config">google_mail</a></li>
+        <li><a href="#google_calendar" class="needs-config">google_calendar</a></li>
+        <li><a href="#github" class="needs-config">github</a></li>
+        <li><a href="#weather" class="needs-config">weather</a></li>
+        <li><a href="#todoist" class="needs-config">todoist</a></li>
+        <li><a href="#media" class="needs-config">media</a></li>
+        <li><a href="#obsidian" class="needs-config">obsidian</a></li>
+        <li><a href="#browser" class="needs-config">browser</a></li>
+        <li><a href="#image_gen" class="needs-config">image_gen</a></li>
+        <li><a href="#mcp" class="needs-config">MCP</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ CORE TOOLS ============ -->
+  <div class="cat-header">Filesystem &amp; Shell</div>
+
+  <div id="read_file" class="tool-section">
+    <h2>read_file <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Read the contents of a file at the given path. Includes path traversal protection to prevent access outside the workspace.</p>
+  </div>
+
+  <div id="write_file" class="tool-section">
+    <h2>write_file <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Write content to a file at the given path. Creates parent directories if needed. Saves versioned backups (up to 14) in <code>~/.oxicrab/backups/</code> before overwriting existing files.</p>
+  </div>
+
+  <div id="edit_file" class="tool-section">
+    <h2>edit_file <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Edit a file by replacing old_text with new_text. The old_text must exist exactly in the file. Useful for surgical edits without rewriting entire files.</p>
+  </div>
+
+  <div id="list_dir" class="tool-section">
+    <h2>list_dir <span class="badge badge-core">Core</span></h2>
+    <p class="desc">List the contents of a directory. Returns file names, sizes, and types.</p>
+  </div>
+
+  <div id="exec" class="tool-section">
+    <h2>exec <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Execute a shell command and return its output. Secured with configurable command allowlists. Dangerous patterns (rm -rf, raw device access, redirects) are blocked.</p>
+
+    <h3>Configuration</h3>
+    <div class="config-label">~/.oxicrab/config.json</div>
+    <pre><code>{
+  "tools": {
+    "exec": {
+      "timeout": 60,
+      "allowedCommands": ["ls", "grep", "git", "cargo", "node", "python3"]
+    },
+    "restrictToWorkspace": true
+  }
+}</code></pre>
+    <p>The default allowlist includes 50+ commands: file ops (<code>ls</code>, <code>find</code>, <code>tree</code>), text processing (<code>grep</code>, <code>awk</code>, <code>sed</code>, <code>jq</code>), dev tools (<code>git</code>, <code>cargo</code>, <code>npm</code>, <code>python3</code>), and networking (<code>curl</code>, <code>wget</code>, <code>dig</code>). Override with your own list in config.</p>
+    <p>Set <code>restrictToWorkspace: true</code> to restrict filesystem access to the workspace directory.</p>
+  </div>
+
+  <div id="tmux" class="tool-section">
+    <h2>tmux <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Manage persistent tmux shell sessions. Create long-running sessions, send commands, and read output. Ideal for processes that outlive a single tool call (dev servers, builds, etc.).</p>
+  </div>
+
+  <div class="cat-header">Web &amp; Network</div>
+
+  <div id="web_search" class="tool-section">
+    <h2>web_search <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Search the web. Returns titles, URLs, and snippets. Uses Brave Search if an API key is configured, otherwise falls back to DuckDuckGo (no key required).</p>
+
+    <h3>Optional: Brave Search API</h3>
+    <ol>
+      <li>Get an API key from <a href="https://api.search.brave.com/">api.search.brave.com</a></li>
+      <li>Set in config:</li>
+    </ol>
+    <pre><code>{
+  "tools": {
+    "web": {
+      "search": {
+        "provider": "brave",
+        "apiKey": "your-brave-search-api-key",
+        "maxResults": 5
+      }
+    }
+  }
+}</code></pre>
+    <div class="note"><strong>Fallback:</strong> Without an API key, searches use DuckDuckGo automatically. You can also set the <code>BRAVE_API_KEY</code> environment variable.</div>
+  </div>
+
+  <div id="web_fetch" class="tool-section">
+    <h2>web_fetch <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Fetch a URL and extract readable content. Converts HTML to markdown/text. Binary responses (images, PDFs) are saved to <code>~/.oxicrab/media/</code>.</p>
+  </div>
+
+  <div id="http" class="tool-section">
+    <h2>http <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Make HTTP requests (GET, POST, PUT, PATCH, DELETE). For REST APIs, webhooks, and external services. Supports custom headers and JSON bodies. Binary responses are saved to disk.</p>
+  </div>
+
+  <div id="reddit" class="tool-section">
+    <h2>reddit <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Browse Reddit. Get hot, new, or top posts from a subreddit, or search within a subreddit. Read-only, no authentication required.</p>
+  </div>
+
+  <div class="cat-header">Communication &amp; Agents</div>
+
+  <div id="message" class="tool-section">
+    <h2>message <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Send a message to a user on any connected channel. Defaults to the current conversation's channel and chat. Specify <code>channel</code> and <code>chat_id</code> to target a different destination. Use the <code>media</code> parameter to attach file paths (screenshots, images).</p>
+  </div>
+
+  <div id="spawn" class="tool-section">
+    <h2>spawn <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Spawn a subagent to handle a task in the background. Subagents have access to filesystem, shell, and web tools but cannot message users or spawn more subagents. Concurrency is limited by a semaphore (default: 5 concurrent subagents).</p>
+  </div>
+
+  <div id="subagent_control" class="tool-section">
+    <h2>subagent_control <span class="badge badge-core">Core</span></h2>
+    <p class="desc">List running subagents, check capacity, or cancel a subagent by ID.</p>
+  </div>
+
+  <div id="cron" class="tool-section">
+    <h2>cron <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Schedule recurring or one-shot tasks. Two job types: <strong>agent</strong> (default) processes the message as a full LLM turn with all tools; <strong>echo</strong> delivers the message directly to channels without invoking the LLM.</p>
+
+    <h3>Schedule types</h3>
+    <ul class="plain">
+      <li><strong>cron_expr</strong> &mdash; Standard 5-field cron expression (e.g. <code>0 9 * * *</code>)</li>
+      <li><strong>every_seconds</strong> &mdash; Run every N seconds</li>
+      <li><strong>at_time</strong> &mdash; One-shot at an ISO 8601 datetime</li>
+    </ul>
+
+    <h3>Actions</h3>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>add</td><td>Create a new scheduled job</td></tr>
+        <tr><td>list</td><td>List all scheduled jobs</td></tr>
+        <tr><td>remove</td><td>Delete a job by ID</td></tr>
+        <tr><td>run</td><td>Manually trigger a job</td></tr>
+      </tbody>
+    </table>
+    <p>Optional limits: <code>expires_at</code> (auto-disable after datetime), <code>max_runs</code> (auto-disable after N executions).</p>
+  </div>
+
+  <div id="memory_search" class="tool-section">
+    <h2>memory_search <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Search long-term memory and daily notes. Recall user preferences, past conversations, and important facts. Uses SQLite FTS5 full-text search, with optional hybrid vector+keyword search via local ONNX embeddings.</p>
+
+    <h3>Memory configuration</h3>
+    <pre><code>{
+  "agents": {
+    "defaults": {
+      "memory": {
+        "archiveAfterDays": 30,
+        "purgeAfterDays": 90,
+        "embeddingsEnabled": false,
+        "embeddingsModel": "BAAI/bge-small-en-v1.5",
+        "hybridWeight": 0.5
+      }
+    }
+  }
+}</code></pre>
+    <p>Set <code>embeddingsEnabled: true</code> for hybrid vector+keyword search. The embeddings model is downloaded automatically on first use.</p>
+  </div>
+
+  <!-- ============ CONFIGURABLE TOOLS ============ -->
+  <div class="cat-header">Google Workspace</div>
+
+  <div id="google_mail" class="tool-section">
+    <h2>google_mail <span class="badge badge-config">Requires config</span></h2>
+    <p class="desc">Interact with Gmail. Search, read, send, reply, list labels, and apply labels.</p>
+
+    <h3>Actions</h3>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>search</td><td>Search emails with Gmail query syntax</td></tr>
+        <tr><td>read</td><td>Read a specific email by ID</td></tr>
+        <tr><td>send</td><td>Send a new email</td></tr>
+        <tr><td>reply</td><td>Reply to an existing email thread</td></tr>
+        <tr><td>list_labels</td><td>List all Gmail labels</td></tr>
+        <tr><td>label</td><td>Apply or remove labels from messages</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Setup</h3>
+    <ol>
+      <li>Create a Google Cloud project at <a href="https://console.cloud.google.com/">console.cloud.google.com</a></li>
+      <li>Enable the <strong>Gmail API</strong></li>
+      <li>Create OAuth 2.0 credentials (Desktop application)</li>
+      <li>Copy Client ID and Client Secret to config</li>
+      <li>Run <code>./oxicrab auth google</code> to complete the OAuth flow</li>
+    </ol>
+    <pre><code>{
+  "tools": {
+    "google": {
+      "enabled": true,
+      "clientId": "your-google-client-id",
+      "clientSecret": "your-google-client-secret"
+    }
+  }
+}</code></pre>
+    <p>OAuth tokens are stored in <code>~/.oxicrab/google_tokens.json</code> and auto-refresh.</p>
+  </div>
+
+  <div id="google_calendar" class="tool-section">
+    <h2>google_calendar <span class="badge badge-config">Requires config</span></h2>
+    <p class="desc">Interact with Google Calendar. List, create, update, and delete events across calendars.</p>
+
+    <h3>Actions</h3>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>list_events</td><td>List upcoming events</td></tr>
+        <tr><td>get_event</td><td>Get details of a specific event</td></tr>
+        <tr><td>create_event</td><td>Create a new calendar event</td></tr>
+        <tr><td>update_event</td><td>Update an existing event</td></tr>
+        <tr><td>delete_event</td><td>Delete an event</td></tr>
+        <tr><td>list_calendars</td><td>List available calendars</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Setup</h3>
+    <p>Uses the same Google OAuth config as <a href="#google_mail">google_mail</a>. Enable the <strong>Google Calendar API</strong> in your Cloud project.</p>
+  </div>
+
+  <div class="cat-header">Integrations</div>
+
+  <div id="github" class="tool-section">
+    <h2>github <span class="badge badge-config">Requires config</span></h2>
+    <p class="desc">Interact with GitHub. List and create issues, view pull requests, and check notifications.</p>
+
+    <h3>Actions</h3>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>list_issues</td><td>List issues for a repository</td></tr>
+        <tr><td>create_issue</td><td>Create a new issue</td></tr>
+        <tr><td>list_prs</td><td>List pull requests</td></tr>
+        <tr><td>get_pr</td><td>Get pull request details</td></tr>
+        <tr><td>notifications</td><td>List recent notifications</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Setup</h3>
+    <ol>
+      <li>Create a Personal Access Token at <a href="https://github.com/settings/tokens">github.com/settings/tokens</a></li>
+      <li>Select scopes: <code>repo</code>, <code>read:user</code></li>
+      <li>Add to config:</li>
+    </ol>
+    <pre><code>{
+  "tools": {
+    "github": {
+      "enabled": true,
+      "token": "ghp_your-github-token"
+    }
+  }
+}</code></pre>
+  </div>
+
+  <div id="weather" class="tool-section">
+    <h2>weather <span class="badge badge-config">Requires config</span></h2>
+    <p class="desc">Get current weather or forecast for a location. Uses the OpenWeatherMap API.</p>
+
+    <h3>Setup</h3>
+    <ol>
+      <li>Sign up at <a href="https://openweathermap.org/api">openweathermap.org/api</a> (free tier available)</li>
+      <li>Copy your API key</li>
+      <li>Add to config:</li>
+    </ol>
+    <pre><code>{
+  "tools": {
+    "weather": {
+      "enabled": true,
+      "apiKey": "your-openweathermap-api-key"
+    }
+  }
+}</code></pre>
+  </div>
+
+  <div id="todoist" class="tool-section">
+    <h2>todoist <span class="badge badge-config">Requires config</span></h2>
+    <p class="desc">Manage Todoist tasks and projects.</p>
+
+    <h3>Actions</h3>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>list_tasks</td><td>List tasks (optionally filtered by project)</td></tr>
+        <tr><td>create_task</td><td>Create a new task</td></tr>
+        <tr><td>complete_task</td><td>Mark a task as complete</td></tr>
+        <tr><td>list_projects</td><td>List all projects</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Setup</h3>
+    <ol>
+      <li>Get your API token from <a href="https://todoist.com/app/settings/account">todoist.com/app/settings/account</a></li>
+      <li>Add to config:</li>
+    </ol>
+    <pre><code>{
+  "tools": {
+    "todoist": {
+      "enabled": true,
+      "token": "your-todoist-api-token"
+    }
+  }
+}</code></pre>
+  </div>
+
+  <div id="media" class="tool-section">
+    <h2>media <span class="badge badge-config">Requires config</span></h2>
+    <p class="desc">Manage movies and TV series via Radarr (movies) and Sonarr (TV).</p>
+
+    <h3>Actions</h3>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>search_movie</td><td>Search for movies by name</td></tr>
+        <tr><td>add_movie</td><td>Add a movie by TMDB ID</td></tr>
+        <tr><td>get_movie / list_movies</td><td>View library movies</td></tr>
+        <tr><td>search_series</td><td>Search for TV series by name</td></tr>
+        <tr><td>add_series</td><td>Add a series by TVDB ID</td></tr>
+        <tr><td>get_series / list_series</td><td>View library series</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Setup</h3>
+    <ol>
+      <li>Install <a href="https://radarr.video/">Radarr</a> and/or <a href="https://sonarr.tv/">Sonarr</a></li>
+      <li>Get API keys: Settings &gt; General &gt; API Key (in each app)</li>
+      <li>Add to config:</li>
+    </ol>
+    <pre><code>{
+  "tools": {
+    "media": {
+      "enabled": true,
+      "radarr": {
+        "url": "http://localhost:7878",
+        "apiKey": "your-radarr-api-key"
+      },
+      "sonarr": {
+        "url": "http://localhost:8989",
+        "apiKey": "your-sonarr-api-key"
+      }
+    }
+  }
+}</code></pre>
+  </div>
+
+  <div id="obsidian" class="tool-section">
+    <h2>obsidian <span class="badge badge-config">Requires config</span></h2>
+    <p class="desc">Read, write, search, and list notes in an Obsidian vault via the Local REST API plugin.</p>
+
+    <h3>Actions</h3>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>read</td><td>Read a note by path</td></tr>
+        <tr><td>write</td><td>Create or overwrite a note (auto-generates YAML frontmatter)</td></tr>
+        <tr><td>append</td><td>Append content to an existing note</td></tr>
+        <tr><td>search</td><td>Full-text search across the vault</td></tr>
+        <tr><td>list</td><td>List notes, optionally filtered by folder</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Setup</h3>
+    <ol>
+      <li>Install the <strong>Local REST API</strong> plugin in Obsidian (Community Plugins &gt; search "Local REST API")</li>
+      <li>Enable the plugin</li>
+      <li>Copy the API key from the plugin settings</li>
+      <li>Add to config:</li>
+    </ol>
+    <pre><code>{
+  "tools": {
+    "obsidian": {
+      "enabled": true,
+      "apiUrl": "http://localhost:27123",
+      "apiKey": "your-obsidian-local-rest-api-key",
+      "vaultName": "MyVault",
+      "syncInterval": 300,
+      "timeout": 15
+    }
+  }
+}</code></pre>
+    <div class="note"><strong>Note:</strong> Obsidian must be running with the plugin enabled for the tool to work. <code>syncInterval</code> controls background cache refresh in seconds.</div>
+  </div>
+
+  <div id="browser" class="tool-section">
+    <h2>browser <span class="badge badge-config">Requires config</span></h2>
+    <p class="desc">Control a headless browser for web automation via Chrome DevTools Protocol. Open pages, click elements, type text, take screenshots, and execute JavaScript.</p>
+
+    <h3>Setup</h3>
+    <ol>
+      <li>Install Chrome or Chromium: <code>sudo apt install chromium-browser</code></li>
+      <li>Enable in config:</li>
+    </ol>
+    <pre><code>{
+  "tools": {
+    "browser": {
+      "enabled": true,
+      "headless": true,
+      "chromePath": null,
+      "timeout": 30
+    }
+  }
+}</code></pre>
+    <p>Set <code>headless: false</code> to see the browser window. Set <code>chromePath</code> if Chrome is not in the default location. Screenshots are saved to <code>~/.oxicrab/media/</code>.</p>
+  </div>
+
+  <div id="image_gen" class="tool-section">
+    <h2>image_gen <span class="badge badge-config">Requires config</span></h2>
+    <p class="desc">Generate images from text prompts. Supports OpenAI gpt-image-1 (DALL-E) and Google Imagen 3.</p>
+
+    <h3>Setup</h3>
+    <p>Uses API keys from the <code>providers</code> section. At least one provider key is required:</p>
+    <ul class="plain">
+      <li><strong>OpenAI:</strong> Set <code>providers.openai.apiKey</code></li>
+      <li><strong>Google:</strong> Set <code>providers.gemini.apiKey</code></li>
+    </ul>
+    <pre><code>{
+  "tools": {
+    "imageGen": {
+      "enabled": true,
+      "defaultProvider": "openai"
+    }
+  }
+}</code></pre>
+  </div>
+
+  <div class="cat-header">External Tools</div>
+
+  <div id="mcp" class="tool-section">
+    <h2>MCP <span class="badge badge-ext">External</span></h2>
+    <p class="desc">Connect external tool servers via the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>. Tools are auto-discovered at startup from child processes and registered as native tools with full middleware pipeline support.</p>
+
+    <h3>Configuration</h3>
+    <pre><code>{
+  "tools": {
+    "mcp": {
+      "servers": {
+        "filesystem": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/documents"],
+          "enabled": true
+        },
+        "git": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-git"],
+          "env": { "GIT_DIR": "/path/to/repo" },
+          "enabled": true
+        }
+      }
+    }
+  }
+}</code></pre>
+
+    <h3>Server config fields</h3>
+    <table class="action-table">
+      <thead><tr><th>Field</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>command</td><td>The executable to run (e.g. <code>npx</code>, <code>python</code>, a binary path)</td></tr>
+        <tr><td>args</td><td>Command-line arguments</td></tr>
+        <tr><td>env</td><td>Environment variables passed to the child process</td></tr>
+        <tr><td>enabled</td><td>Set to <code>false</code> to skip without removing the config</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note"><strong>Prerequisite:</strong> Node.js and npm are required for npx-based MCP servers. MCP tools are discovered at startup &mdash; restart oxicrab after changing server config.</div>
+  </div>
+
+  <!-- VOICE -->
+  <div class="cat-header">Voice Transcription</div>
+
+  <div id="voice" class="tool-section">
+    <h2>Voice Transcription</h2>
+    <p class="desc">Voice messages from channels are automatically transcribed to text. Not a tool itself, but a service that feeds into the agent. Supports dual backends with automatic fallback.</p>
+
+    <h3>Local backend (whisper.cpp)</h3>
+    <p>On-device inference. Requires <code>ffmpeg</code> and a GGML model file:</p>
+    <pre><code># Install ffmpeg
+sudo apt install ffmpeg
+
+# Download the model (~574 MB)
+mkdir -p ~/.oxicrab/models
+wget -O ~/.oxicrab/models/ggml-large-v3-turbo-q5_0.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin</code></pre>
+
+    <h3>Cloud backend (Whisper API)</h3>
+    <p>Uses Groq, OpenAI, or any OpenAI-compatible transcription endpoint. Groq offers free inference and is recommended.</p>
+
+    <h3>Configuration</h3>
+    <pre><code>{
+  "voice": {
+    "transcription": {
+      "enabled": true,
+      "localModelPath": "~/.oxicrab/models/ggml-large-v3-turbo-q5_0.bin",
+      "preferLocal": true,
+      "threads": 4,
+      "apiKey": "your-groq-or-openai-api-key",
+      "apiBase": "https://api.groq.com/openai/v1/audio/transcriptions",
+      "model": "whisper-large-v3-turbo"
+    }
+  }
+}</code></pre>
+    <p><code>preferLocal: true</code> (default) tries local first, falls back to cloud. Set to <code>false</code> to prefer cloud. Either backend alone is sufficient.</p>
+  </div>
+
+</div>
+
+<footer>
+  <div class="footer-inner">
+    <a href="index.html" class="nav-logo" style="font-size: 0.95rem;"><span class="oxi">oxi</span>crab</a>
+    <div class="footer-links">
+      <a href="https://github.com/oxicrab/oxicrab">GitHub</a>
+      <a href="https://crates.io/crates/oxicrab">crates.io</a>
+      <a href="https://github.com/oxicrab/oxicrab/blob/main/README.md">README</a>
+    </div>
+    <span class="footer-copy">Built by <a href="https://github.com/oxicrab" style="color: var(--accent); text-decoration: none;">James Turnbull</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

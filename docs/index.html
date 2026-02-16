@@ -268,10 +268,16 @@
       border: 1px solid var(--border);
       border-radius: 10px;
       transition: border-color 0.15s, box-shadow 0.15s;
+      cursor: pointer;
+      user-select: none;
     }
     .tool-item:hover {
       border-color: var(--accent);
       box-shadow: 0 2px 8px rgba(14, 165, 233, 0.06);
+    }
+    .tool-item.active {
+      border-color: var(--accent);
+      box-shadow: 0 2px 12px rgba(14, 165, 233, 0.1);
     }
     .tool-name {
       font-family: var(--mono);
@@ -281,6 +287,31 @@
       white-space: nowrap;
     }
     .tool-desc { color: var(--text-muted); font-size: 0.8rem; }
+    .tool-detail {
+      display: none;
+      grid-column: 1 / -1;
+      background: var(--surface);
+      border: 1px solid var(--accent);
+      border-radius: 10px;
+      padding: 1rem 1.5rem;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: var(--text);
+      animation: toolDetailIn 0.15s ease-out;
+    }
+    .tool-detail.visible { display: block; }
+    .tool-detail .tool-detail-name {
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 0.8rem;
+      color: var(--accent);
+      margin-bottom: 0.35rem;
+    }
+    .tool-detail p { color: var(--text-muted); margin: 0; }
+    @keyframes toolDetailIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
     .tool-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 0.45rem; }
     .tool-dot.core { background: var(--accent); }
     .tool-dot.setup { background: var(--purple); }
@@ -484,6 +515,10 @@
       <li><a href="#install">Install</a></li>
       <li><a href="#providers">Providers</a></li>
       <li><a href="#architecture">Architecture</a></li>
+      <li><a href="channels.html">Channel Setup</a></li>
+      <li><a href="tools.html">Tool Reference</a></li>
+      <li><a href="workspace.html">Workspace</a></li>
+      <li><a href="deploy.html">Deploy</a></li>
       <li><a href="https://github.com/oxicrab/oxicrab" class="nav-cta">GitHub</a></li>
     </ul>
   </div>
@@ -656,46 +691,46 @@ cargo build --release --no-default-features \
       <div>
         <div class="tool-cat-label">Filesystem &amp; Shell</div>
         <div class="tool-grid">
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">read_file</span><br><span class="tool-desc">Read with path traversal protection</span></div></div>
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">write_file</span><br><span class="tool-desc">Write with versioned backups</span></div></div>
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">edit_file</span><br><span class="tool-desc">Find and replace diffs</span></div></div>
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">list_dir</span><br><span class="tool-desc">Directory listing</span></div></div>
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">exec</span><br><span class="tool-desc">Shell with allowlist security</span></div></div>
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">tmux</span><br><span class="tool-desc">Persistent terminal sessions</span></div></div>
+          <div class="tool-item" data-detail="Read the contents of a file at the given path. Includes path traversal protection to prevent access outside the workspace."><span class="tool-dot core"></span><div><span class="tool-name">read_file</span><br><span class="tool-desc">Read with path traversal protection</span></div></div>
+          <div class="tool-item" data-detail="Write content to a file at the given path. Creates parent directories if needed. Saves versioned backups before overwriting."><span class="tool-dot core"></span><div><span class="tool-name">write_file</span><br><span class="tool-desc">Write with versioned backups</span></div></div>
+          <div class="tool-item" data-detail="Edit a file by replacing old_text with new_text. The old_text must exist exactly in the file. Useful for surgical edits without rewriting entire files."><span class="tool-dot core"></span><div><span class="tool-name">edit_file</span><br><span class="tool-desc">Find and replace diffs</span></div></div>
+          <div class="tool-item" data-detail="List the contents of a directory. Returns file names, sizes, and types."><span class="tool-dot core"></span><div><span class="tool-name">list_dir</span><br><span class="tool-desc">Directory listing</span></div></div>
+          <div class="tool-item" data-detail="Execute a shell command and return its output. Secured with configurable allowlists and blocklists to restrict which commands can be run. Timeout-protected."><span class="tool-dot core"></span><div><span class="tool-name">exec</span><br><span class="tool-desc">Shell with allowlist security</span></div></div>
+          <div class="tool-item" data-detail="Manage persistent tmux shell sessions. Create long-running sessions, send commands, and read output. Ideal for processes that outlive a single tool call."><span class="tool-dot core"></span><div><span class="tool-name">tmux</span><br><span class="tool-desc">Persistent terminal sessions</span></div></div>
         </div>
       </div>
       <div>
         <div class="tool-cat-label">Web &amp; Network</div>
         <div class="tool-grid">
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">web_search</span><br><span class="tool-desc">Brave + DuckDuckGo fallback</span></div></div>
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">web_fetch</span><br><span class="tool-desc">HTML to markdown extraction</span></div></div>
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">http</span><br><span class="tool-desc">GET, POST, PUT, PATCH, DELETE</span></div></div>
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">reddit</span><br><span class="tool-desc">Browse subreddit posts</span></div></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">browser</span><br><span class="tool-desc">Chrome DevTools Protocol</span></div></div>
+          <div class="tool-item" data-detail="Search the web. Returns titles, URLs, and snippets. Uses Brave Search if an API key is configured, otherwise falls back to DuckDuckGo."><span class="tool-dot core"></span><div><span class="tool-name">web_search</span><br><span class="tool-desc">Brave + DuckDuckGo fallback</span></div></div>
+          <div class="tool-item" data-detail="Fetch a URL and extract readable content. Converts HTML to markdown/text for easy consumption by the agent."><span class="tool-dot core"></span><div><span class="tool-name">web_fetch</span><br><span class="tool-desc">HTML to markdown extraction</span></div></div>
+          <div class="tool-item" data-detail="Make HTTP requests (GET, POST, PUT, PATCH, DELETE). For REST APIs, webhooks, and external services. Supports custom headers and JSON bodies."><span class="tool-dot core"></span><div><span class="tool-name">http</span><br><span class="tool-desc">GET, POST, PUT, PATCH, DELETE</span></div></div>
+          <div class="tool-item" data-detail="Browse Reddit. Get hot, new, or top posts from a subreddit, or search within a subreddit. Read-only, no authentication required."><span class="tool-dot core"></span><div><span class="tool-name">reddit</span><br><span class="tool-desc">Browse subreddit posts</span></div></div>
+          <div class="tool-item" data-detail="Control a headless browser for web automation. Open pages, click elements, type text, take screenshots, and extract content via Chrome DevTools Protocol."><span class="tool-dot setup"></span><div><span class="tool-name">browser</span><br><span class="tool-desc">Chrome DevTools Protocol</span></div></div>
         </div>
       </div>
       <div>
         <div class="tool-cat-label">Communication &amp; Agents</div>
         <div class="tool-grid">
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">message</span><br><span class="tool-desc">Send to any connected channel</span></div></div>
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">spawn</span><br><span class="tool-desc">Launch background subagents</span></div></div>
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">subagent_control</span><br><span class="tool-desc">List and cancel running agents</span></div></div>
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">cron</span><br><span class="tool-desc">Schedule recurring tasks</span></div></div>
-          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">memory_search</span><br><span class="tool-desc">FTS5 + hybrid vector search</span></div></div>
+          <div class="tool-item" data-detail="Send a message to a user on any channel. Defaults to the current conversation's channel and chat, or specify a different channel and chat_id to target another destination. Supports media attachments."><span class="tool-dot core"></span><div><span class="tool-name">message</span><br><span class="tool-desc">Send to any connected channel</span></div></div>
+          <div class="tool-item" data-detail="Spawn a subagent to handle a task in the background. Use for complex or time-consuming tasks that can run independently. The subagent has access to all tools and reports back when done."><span class="tool-dot core"></span><div><span class="tool-name">spawn</span><br><span class="tool-desc">Launch background subagents</span></div></div>
+          <div class="tool-item" data-detail="List or cancel running subagents. Use to track background tasks or stop one by ID. Semaphore-based concurrency control limits parallel agents."><span class="tool-dot core"></span><div><span class="tool-name">subagent_control</span><br><span class="tool-desc">List and cancel running agents</span></div></div>
+          <div class="tool-item" data-detail="Schedule recurring or one-shot tasks. Two job types: 'agent' processes the message as a full LLM turn with all tools; 'echo' delivers messages directly without invoking the LLM. Supports cron expressions, intervals, and one-shot ISO 8601 times. Optional expires_at and max_runs limits."><span class="tool-dot core"></span><div><span class="tool-name">cron</span><br><span class="tool-desc">Schedule recurring tasks</span></div></div>
+          <div class="tool-item" data-detail="Search long-term memory and daily notes. Use to recall user preferences, past conversations, and important facts. Supports FTS5 full-text search with optional hybrid vector+keyword search via local ONNX embeddings."><span class="tool-dot core"></span><div><span class="tool-name">memory_search</span><br><span class="tool-desc">FTS5 + hybrid vector search</span></div></div>
         </div>
       </div>
       <div>
         <div class="tool-cat-label">Integrations</div>
         <div class="tool-grid">
-          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">google_mail</span><br><span class="tool-desc">Gmail read, send, and manage</span></div></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">google_calendar</span><br><span class="tool-desc">Event management</span></div></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">github</span><br><span class="tool-desc">Issues, PRs, and repos</span></div></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">weather</span><br><span class="tool-desc">OpenWeatherMap forecasts</span></div></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">todoist</span><br><span class="tool-desc">Task management</span></div></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">media</span><br><span class="tool-desc">Radarr and Sonarr integration</span></div></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">obsidian</span><br><span class="tool-desc">Vault read, write, and search</span></div></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">image_gen</span><br><span class="tool-desc">OpenAI DALL-E / Google Imagen</span></div></div>
-          <div class="tool-item"><span class="tool-dot ext"></span><div><span class="tool-name">MCP servers</span><br><span class="tool-desc">Auto-discovered external tools</span></div></div>
+          <div class="tool-item" data-detail="Interact with Gmail. Actions: search, read, send, reply, list_labels, label. Requires Google OAuth configuration."><span class="tool-dot setup"></span><div><span class="tool-name">google_mail</span><br><span class="tool-desc">Gmail read, send, and manage</span></div></div>
+          <div class="tool-item" data-detail="Interact with Google Calendar. Actions: list_events, get_event, create_event, update_event, delete_event, list_calendars. Requires Google OAuth configuration."><span class="tool-dot setup"></span><div><span class="tool-name">google_calendar</span><br><span class="tool-desc">Event management</span></div></div>
+          <div class="tool-item" data-detail="Interact with GitHub. Actions: list_issues, create_issue, list_prs, get_pr, notifications. Requires a GitHub personal access token."><span class="tool-dot setup"></span><div><span class="tool-name">github</span><br><span class="tool-desc">Issues, PRs, and repos</span></div></div>
+          <div class="tool-item" data-detail="Get current weather or forecast for a location. Uses OpenWeatherMap API."><span class="tool-dot setup"></span><div><span class="tool-name">weather</span><br><span class="tool-desc">OpenWeatherMap forecasts</span></div></div>
+          <div class="tool-item" data-detail="Manage Todoist tasks and projects. Actions: list_tasks, create_task, complete_task, list_projects."><span class="tool-dot setup"></span><div><span class="tool-name">todoist</span><br><span class="tool-desc">Task management</span></div></div>
+          <div class="tool-item" data-detail="Manage movies and TV series via Radarr (movies) and Sonarr (TV). Actions: search_movie, add_movie, get_movie, list_movies, search_series, add_series, get_series, list_series."><span class="tool-dot setup"></span><div><span class="tool-name">media</span><br><span class="tool-desc">Radarr and Sonarr integration</span></div></div>
+          <div class="tool-item" data-detail="Read, write, search, and list notes in an Obsidian vault. Actions: read, write (auto-generates YAML frontmatter for new notes), append, search (full-text), list (optionally filtered by folder)."><span class="tool-dot setup"></span><div><span class="tool-name">obsidian</span><br><span class="tool-desc">Vault read, write, and search</span></div></div>
+          <div class="tool-item" data-detail="Generate images from text prompts using AI. Supports OpenAI gpt-image-1 (DALL-E) and Google Imagen 3."><span class="tool-dot setup"></span><div><span class="tool-name">image_gen</span><br><span class="tool-desc">OpenAI DALL-E / Google Imagen</span></div></div>
+          <div class="tool-item" data-detail="Connect external tool servers via Model Context Protocol. Tools are auto-discovered at startup from child processes and registered as native tools with full middleware pipeline support."><span class="tool-dot ext"></span><div><span class="tool-name">MCP servers</span><br><span class="tool-desc">Auto-discovered external tools</span></div></div>
         </div>
       </div>
     </div>
@@ -752,26 +787,182 @@ cp config.example.json ~/.oxicrab/config.json</pre>
     <div class="section-title">Simple JSON config</div>
     <div class="section-desc">One file controls everything. camelCase in JSON, snake_case in Rust.</div>
 
-    <div style="max-width: 680px;">
-      <div class="code-label">~/.oxicrab/config.json</div>
-      <pre>{
+    <div style="max-width: 720px;">
+      <div class="code-label">~/.oxicrab/config.json &mdash; <a href="https://github.com/oxicrab/oxicrab/blob/main/config.example.json" style="color: var(--accent); text-decoration: none; font-size: 0.7rem;">config.example.json</a></div>
+      <pre style="max-height: 600px; overflow-y: auto;">{
   <span class="hl-key">"agents"</span>: {
     <span class="hl-key">"defaults"</span>: {
+      <span class="hl-key">"workspace"</span>: <span class="hl-str">"~/.oxicrab/workspace"</span>,
       <span class="hl-key">"model"</span>: <span class="hl-str">"claude-sonnet-4-5-20250929"</span>,
       <span class="hl-key">"maxTokens"</span>: <span class="hl-num">8192</span>,
+      <span class="hl-key">"temperature"</span>: <span class="hl-num">0.7</span>,
       <span class="hl-key">"maxToolIterations"</span>: <span class="hl-num">20</span>,
-      <span class="hl-key">"memory"</span>: { <span class="hl-key">"embeddingsEnabled"</span>: <span class="hl-num">false</span> },
-      <span class="hl-key">"compaction"</span>: { <span class="hl-key">"enabled"</span>: <span class="hl-num">true</span> }
+      <span class="hl-key">"sessionTtlDays"</span>: <span class="hl-num">30</span>,
+      <span class="hl-key">"memoryIndexerInterval"</span>: <span class="hl-num">300</span>,
+      <span class="hl-key">"mediaTtlDays"</span>: <span class="hl-num">7</span>,
+      <span class="hl-key">"maxConcurrentSubagents"</span>: <span class="hl-num">5</span>,
+      <span class="hl-key">"localModel"</span>: <span class="hl-num">null</span>,
+      <span class="hl-key">"compaction"</span>: {
+        <span class="hl-key">"enabled"</span>: <span class="hl-num">true</span>,
+        <span class="hl-key">"thresholdTokens"</span>: <span class="hl-num">40000</span>,
+        <span class="hl-key">"keepRecent"</span>: <span class="hl-num">10</span>,
+        <span class="hl-key">"extractionEnabled"</span>: <span class="hl-num">true</span>,
+        <span class="hl-key">"model"</span>: <span class="hl-num">null</span>
+      },
+      <span class="hl-key">"daemon"</span>: {
+        <span class="hl-key">"enabled"</span>: <span class="hl-num">true</span>,
+        <span class="hl-key">"interval"</span>: <span class="hl-num">300</span>,
+        <span class="hl-key">"executionModel"</span>: <span class="hl-num">null</span>,
+        <span class="hl-key">"executionProvider"</span>: <span class="hl-num">null</span>,
+        <span class="hl-key">"strategyFile"</span>: <span class="hl-str">"HEARTBEAT.md"</span>,
+        <span class="hl-key">"maxIterations"</span>: <span class="hl-num">25</span>
+      },
+      <span class="hl-key">"memory"</span>: {
+        <span class="hl-key">"archiveAfterDays"</span>: <span class="hl-num">30</span>,
+        <span class="hl-key">"purgeAfterDays"</span>: <span class="hl-num">90</span>,
+        <span class="hl-key">"embeddingsEnabled"</span>: <span class="hl-num">false</span>,
+        <span class="hl-key">"embeddingsModel"</span>: <span class="hl-str">"BAAI/bge-small-en-v1.5"</span>,
+        <span class="hl-key">"hybridWeight"</span>: <span class="hl-num">0.5</span>
+      }
     }
-  },
-  <span class="hl-key">"providers"</span>: {
-    <span class="hl-key">"anthropic"</span>: { <span class="hl-key">"apiKey"</span>: <span class="hl-str">"sk-ant-..."</span> }
   },
   <span class="hl-key">"channels"</span>: {
     <span class="hl-key">"telegram"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">true</span>,
-      <span class="hl-key">"token"</span>: <span class="hl-str">"123456:ABC..."</span>,
-      <span class="hl-key">"allowFrom"</span>: [<span class="hl-str">"your_user_id"</span>]
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"token"</span>: <span class="hl-str">"your-telegram-bot-token"</span>,
+      <span class="hl-key">"allowFrom"</span>: [],
+      <span class="hl-key">"proxy"</span>: <span class="hl-num">null</span>
+    },
+    <span class="hl-key">"discord"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"token"</span>: <span class="hl-str">"your-discord-bot-token"</span>,
+      <span class="hl-key">"allowFrom"</span>: []
+    },
+    <span class="hl-key">"slack"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"botToken"</span>: <span class="hl-str">"xoxb-your-slack-bot-token"</span>,
+      <span class="hl-key">"appToken"</span>: <span class="hl-str">"xapp-your-slack-app-token"</span>,
+      <span class="hl-key">"allowFrom"</span>: []
+    },
+    <span class="hl-key">"whatsapp"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"allowFrom"</span>: []
+    },
+    <span class="hl-key">"twilio"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"accountSid"</span>: <span class="hl-str">"your-twilio-account-sid"</span>,
+      <span class="hl-key">"authToken"</span>: <span class="hl-str">"your-twilio-auth-token"</span>,
+      <span class="hl-key">"phoneNumber"</span>: <span class="hl-str">"+1234567890"</span>,
+      <span class="hl-key">"webhookPort"</span>: <span class="hl-num">8080</span>,
+      <span class="hl-key">"webhookPath"</span>: <span class="hl-str">"/twilio/webhook"</span>,
+      <span class="hl-key">"webhookUrl"</span>: <span class="hl-str">"https://your-domain.com/twilio/webhook"</span>,
+      <span class="hl-key">"allowFrom"</span>: []
+    }
+  },
+  <span class="hl-key">"providers"</span>: {
+    <span class="hl-key">"anthropic"</span>: {
+      <span class="hl-key">"apiKey"</span>: <span class="hl-str">"sk-ant-your-anthropic-key"</span>,
+      <span class="hl-key">"apiBase"</span>: <span class="hl-num">null</span>
+    },
+    <span class="hl-key">"openai"</span>: {
+      <span class="hl-key">"apiKey"</span>: <span class="hl-str">""</span>,
+      <span class="hl-key">"apiBase"</span>: <span class="hl-num">null</span>
+    },
+    <span class="hl-key">"gemini"</span>: {
+      <span class="hl-key">"apiKey"</span>: <span class="hl-str">""</span>,
+      <span class="hl-key">"apiBase"</span>: <span class="hl-num">null</span>
+    }
+    <span class="hl-comment">// Also: OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, vLLM</span>
+  },
+  <span class="hl-key">"gateway"</span>: {
+    <span class="hl-key">"host"</span>: <span class="hl-str">"0.0.0.0"</span>,
+    <span class="hl-key">"port"</span>: <span class="hl-num">18790</span>
+  },
+  <span class="hl-key">"tools"</span>: {
+    <span class="hl-key">"web"</span>: {
+      <span class="hl-key">"search"</span>: {
+        <span class="hl-key">"provider"</span>: <span class="hl-str">"brave"</span>,
+        <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-brave-search-api-key"</span>,
+        <span class="hl-key">"maxResults"</span>: <span class="hl-num">5</span>
+      }
+    },
+    <span class="hl-key">"exec"</span>: {
+      <span class="hl-key">"timeout"</span>: <span class="hl-num">60</span>,
+      <span class="hl-key">"allowedCommands"</span>: [<span class="hl-str">"ls"</span>, <span class="hl-str">"find"</span>, <span class="hl-str">"cat"</span>, <span class="hl-str">"grep"</span>, <span class="hl-str">"git"</span>, <span class="hl-str">"cargo"</span>, <span class="hl-str">"node"</span>, <span class="hl-str">"python3"</span>]
+    },
+    <span class="hl-key">"restrictToWorkspace"</span>: <span class="hl-num">false</span>,
+    <span class="hl-key">"google"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"clientId"</span>: <span class="hl-str">"your-google-client-id"</span>,
+      <span class="hl-key">"clientSecret"</span>: <span class="hl-str">"your-google-client-secret"</span>,
+      <span class="hl-key">"scopes"</span>: [
+        <span class="hl-str">"https://www.googleapis.com/auth/gmail.modify"</span>,
+        <span class="hl-str">"https://www.googleapis.com/auth/gmail.send"</span>,
+        <span class="hl-str">"https://www.googleapis.com/auth/calendar.events"</span>,
+        <span class="hl-str">"https://www.googleapis.com/auth/calendar.readonly"</span>
+      ]
+    },
+    <span class="hl-key">"github"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"token"</span>: <span class="hl-str">"ghp_your-github-token"</span>
+    },
+    <span class="hl-key">"weather"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-openweathermap-api-key"</span>
+    },
+    <span class="hl-key">"todoist"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"token"</span>: <span class="hl-str">"your-todoist-api-token"</span>
+    },
+    <span class="hl-key">"media"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"radarr"</span>: {
+        <span class="hl-key">"url"</span>: <span class="hl-str">"http://localhost:7878"</span>,
+        <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-radarr-api-key"</span>
+      },
+      <span class="hl-key">"sonarr"</span>: {
+        <span class="hl-key">"url"</span>: <span class="hl-str">"http://localhost:8989"</span>,
+        <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-sonarr-api-key"</span>
+      }
+    },
+    <span class="hl-key">"obsidian"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"apiUrl"</span>: <span class="hl-str">"https://127.0.0.1:27124"</span>,
+      <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-obsidian-local-rest-api-key"</span>,
+      <span class="hl-key">"vaultName"</span>: <span class="hl-str">"MyVault"</span>,
+      <span class="hl-key">"syncInterval"</span>: <span class="hl-num">300</span>,
+      <span class="hl-key">"timeout"</span>: <span class="hl-num">15</span>
+    },
+    <span class="hl-key">"browser"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"headless"</span>: <span class="hl-num">true</span>,
+      <span class="hl-key">"chromePath"</span>: <span class="hl-num">null</span>,
+      <span class="hl-key">"timeout"</span>: <span class="hl-num">30</span>
+    },
+    <span class="hl-key">"imageGen"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"defaultProvider"</span>: <span class="hl-str">"openai"</span>
+    },
+    <span class="hl-key">"mcp"</span>: {
+      <span class="hl-key">"servers"</span>: {
+        <span class="hl-key">"example-server"</span>: {
+          <span class="hl-key">"command"</span>: <span class="hl-str">"npx"</span>,
+          <span class="hl-key">"args"</span>: [<span class="hl-str">"-y"</span>, <span class="hl-str">"@example/mcp-server"</span>],
+          <span class="hl-key">"env"</span>: {},
+          <span class="hl-key">"enabled"</span>: <span class="hl-num">true</span>
+        }
+      }
+    }
+  },
+  <span class="hl-key">"voice"</span>: {
+    <span class="hl-key">"transcription"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-groq-api-key"</span>,
+      <span class="hl-key">"apiBase"</span>: <span class="hl-str">"https://api.groq.com/openai/v1/audio/transcriptions"</span>,
+      <span class="hl-key">"model"</span>: <span class="hl-str">"whisper-large-v3-turbo"</span>,
+      <span class="hl-key">"localModelPath"</span>: <span class="hl-str">""</span>,
+      <span class="hl-key">"preferLocal"</span>: <span class="hl-num">true</span>,
+      <span class="hl-key">"threads"</span>: <span class="hl-num">4</span>
     }
   }
 }</pre>
@@ -908,6 +1099,34 @@ cp config.example.json ~/.oxicrab/config.json</pre>
   });
   window.addEventListener('scroll', () => {
     document.querySelector('nav').style.background = scrollY > 50 ? 'rgba(250,251,252,0.97)' : 'rgba(250,251,252,0.9)';
+  });
+
+  // Tool detail expand/collapse
+  document.querySelectorAll('.tool-item[data-detail]').forEach(item => {
+    item.addEventListener('click', () => {
+      const grid = item.closest('.tool-grid');
+      const existing = grid.querySelector('.tool-detail.visible');
+      const name = item.querySelector('.tool-name').textContent;
+      // Close if clicking the same tool
+      if (existing && existing.previousElementSibling === item) {
+        existing.classList.remove('visible');
+        existing.remove();
+        item.classList.remove('active');
+        return;
+      }
+      // Close any open detail in this grid
+      if (existing) {
+        existing.classList.remove('visible');
+        existing.remove();
+        grid.querySelectorAll('.tool-item.active').forEach(i => i.classList.remove('active'));
+      }
+      // Create and insert detail panel after the clicked item
+      const detail = document.createElement('div');
+      detail.className = 'tool-detail visible';
+      detail.innerHTML = '<div class="tool-detail-name">' + name + '</div><p>' + item.dataset.detail + '</p>';
+      item.after(detail);
+      item.classList.add('active');
+    });
   });
 </script>
 </body>
