@@ -154,13 +154,10 @@ impl BaseChannel for TelegramChannel {
 
                                 match bot.get_file(voice.file.id.clone()).await {
                                     Ok(file) => {
-                                        let media_dir = dirs::home_dir()
-                                            .unwrap_or_else(|| std::path::PathBuf::from("."))
-                                            .join(".oxicrab")
-                                            .join("media");
-                                        if let Err(e) = std::fs::create_dir_all(&media_dir) {
-                                            warn!("Failed to create media directory: {}", e);
-                                        }
+                                        let Ok(media_dir) = crate::utils::media::media_dir() else {
+                                            warn!("Failed to create media directory");
+                                            return Ok(());
+                                        };
                                         let file_path = media_dir
                                             .join(format!("telegram_{}.ogg", voice.file.unique_id));
 
