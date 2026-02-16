@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build & Development
 
-Requires **Rust nightly** (pinned to `nightly-2026-02-06` in CI) and system deps: `libssl-dev pkg-config cmake`. Voice transcription also requires `ffmpeg`.
+Requires **Rust nightly** (pinned to `nightly-2026-02-06` in CI) and system deps: `cmake`. Voice transcription also requires `ffmpeg`. TLS uses rustls (pure Rust, no OpenSSL dependency).
 
 ```bash
 # Build (all channels)

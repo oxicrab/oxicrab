@@ -34,7 +34,7 @@ chrono-tz = "0.10"
 clap = { version = "4.5", features = ["derive"] }
 cron = "0.15"
 dirs = "5.0"
-fastembed = "4"
+fastembed = { version = "4", default-features = false, features = ["hf-hub", "hf-hub-rustls-tls", "ort-download-binaries"] }
 fastrand = "2.0"
 form_urlencoded = "1.2"
 futures-util = "0.3"
@@ -47,7 +47,7 @@ open = "5.0"
 qr2term = { version = "0.3", optional = true }
 qrcode = { version = "0.14", optional = true }
 regex = "1.12"
-reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "stream", "rustls-tls", "charset", "http2", "macos-system-configuration"] }
 rmcp = { version = "0.15", features = ["client", "transport-child-process"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 scraper = "0.25"
@@ -57,11 +57,11 @@ serde_yaml_ng = "0.10"
 serenity = { version = "0.12", optional = true }
 sha1 = { version = "0.10", optional = true }
 sha2 = "0.10"
-teloxide = { version = "0.17", optional = true }
+teloxide = { version = "0.17", default-features = false, features = ["rustls", "ctrlc_handler"], optional = true }
 tempfile = "3.25"
 tokio = { version = "1.49", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 # tokio-process = "0.2"  # Removed: unused and pulls in vulnerable crossbeam-queue 0.1.2
-tokio-tungstenite = { version = "0.28", features = ["native-tls"], optional = true }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Note: Ensure >= 0.3.20 for RUSTSEC-2025-0055 (ANSI escape sequence injection) - current: 0.3.22
@@ -87,6 +87,13 @@ crossbeam-utils = "0.8.21"  # CVE-2022-23639: >= 0.8.7 required
 lock_api = "0.4.14"  # CVE-2020-35910: >= 0.4.2 required
 thiserror = "2.0.18"
 iana-time-zone = "0.1.65"
+
+[profile.release]
+opt-level = "z"       # Optimize for binary size
+lto = true            # Fat link-time optimization
+codegen-units = 1     # Single codegen unit for maximum optimization
+strip = true          # Strip debug symbols
+panic = "abort"       # Abort on panic (smaller than unwinding)
 
 [dev-dependencies]
 tokio-test = "0.4"

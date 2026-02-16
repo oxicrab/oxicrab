@@ -779,7 +779,6 @@ src/
 ### Prerequisites
 
 - Rust (nightly toolchain required for WhatsApp support)
-- OpenSSL development libraries (`libssl-dev` on Debian/Ubuntu)
 - CMake and a C++ compiler (required to build whisper.cpp via `whisper-rs`)
 - SQLite (bundled via `rusqlite`)
 - ffmpeg (required for voice transcription audio conversion)
