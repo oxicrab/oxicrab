@@ -1,86 +1,10 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tool Reference - oxicrab</title>
-  <meta name="description" content="Complete reference for all 24 built-in tools in oxicrab, including setup instructions for configurable tools.">
-  <meta name="theme-color" content="#0ea5e9">
-  <link rel="icon" href="oxicrab.png">
-  <style>
-    :root {
-      --bg: #fafbfc; --bg-alt: #f0f4f8; --bg-dark: #0b1222;
-      --text: #1e293b; --text-muted: #64748b; --text-light: #94a3b8;
-      --accent: #0ea5e9; --accent-dark: #0284c7;
-      --coral: #f97066; --teal: #14b8a6; --purple: #8b5cf6;
-      --border: #e2e8f0; --surface: #fff;
-      --code-bg: #0f172a; --code-text: #e2e8f0;
-      --max-w: 820px;
-      --mono: 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
-      --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
-    body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.7; -webkit-font-smoothing: antialiased; }
-
-    /* NAV */
-    nav { position: sticky; top: 0; background: rgba(250,251,252,0.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); z-index: 100; padding: 0 2rem; }
-    .nav-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 56px; }
-    .nav-logo { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; color: var(--text); text-decoration: none; letter-spacing: -0.02em; display: flex; align-items: center; gap: 0.4rem; }
-    .nav-logo img { image-rendering: pixelated; }
-    .nav-logo .oxi { color: var(--accent); }
-    .nav-links { display: flex; gap: 1.5rem; list-style: none; align-items: center; }
-    .nav-links a { color: var(--text-muted); text-decoration: none; font-size: 0.85rem; font-weight: 500; transition: color 0.15s; }
-    .nav-links a:hover { color: var(--text); }
-    .nav-links a.active { color: var(--accent); }
-
-    /* TOC */
-    .toc { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem 1.5rem; margin-bottom: 3rem; }
-    .toc-title { font-family: var(--mono); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-light); margin-bottom: 0.5rem; }
-    .toc ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem; }
-    .toc a { display: inline-block; padding: 0.3rem 0.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: border-color 0.15s; }
-    .toc a:hover { border-color: var(--accent); color: var(--accent); }
-
-    /* PAGE LAYOUT */
-    .page-header { padding: 4rem 2rem 2rem; max-width: var(--max-w); margin: 0 auto; }
-    .page-header h1 { font-size: 2.5rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 0.5rem; }
-    .page-header p { color: var(--text-muted); font-size: 1.1rem; }
-    .content { max-width: var(--max-w); margin: 0 auto; padding: 0 2rem 4rem; }
-
-    /* CODE */
-    pre { background: var(--code-bg); border-radius: 8px; padding: 1rem 1.25rem; overflow-x: auto; font-family: var(--mono); font-size: 0.8rem; line-height: 1.7; color: var(--code-text); margin: 0.75rem 0 1rem; }
-    code { font-family: var(--mono); font-size: 0.85em; background: var(--bg-alt); padding: 0.15em 0.4em; border-radius: 4px; }
-    pre code { background: none; padding: 0; }
-
-    /* COMPONENTS */
-    .note { background: rgba(14,165,233,0.06); border-left: 3px solid var(--accent); padding: 0.75rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; font-size: 0.85rem; color: var(--text); }
-    .note strong { color: var(--accent); }
-    .config-block { margin: 1rem 0; }
-    .config-label { font-family: var(--mono); font-size: 0.7rem; color: var(--text-light); margin-bottom: 0.25rem; }
-
-    /* LISTS */
-    ol { padding-left: 1.5rem; margin-bottom: 1rem; }
-    ol li { margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--text); }
-    ol li strong { color: var(--text); }
-
-    /* FOOTER */
-    footer { border-top: 1px solid var(--border); padding: 2rem; text-align: center; }
-    .footer-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
-    .footer-links { display: flex; gap: 1.5rem; }
-    .footer-links a { color: var(--text-muted); text-decoration: none; font-size: 0.8rem; }
-    .footer-links a:hover { color: var(--text); }
-    .footer-copy { color: var(--text-light); font-size: 0.75rem; }
-
-    /* RESPONSIVE */
-    @media (max-width: 768px) {
-      .nav-links { gap: 1rem; }
-      .page-header h1 { font-size: 1.75rem; }
-      .toc ul { flex-direction: column; }
-      .footer-inner { flex-direction: column; gap: 1rem; }
-    }
-
-    /* PAGE-SPECIFIC CSS */
-
+---
+title: Tool Reference - oxicrab
+description: Complete reference for all 24 built-in tools in oxicrab, including setup instructions for configurable tools.
+active: tools
+max_width: 820px
+---
+<style>
     .toc-group { margin-bottom: 0.75rem; }
     .toc-group-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem; }
     .toc a { font-family: var(--mono); font-size: 0.78rem; font-weight: 500; padding: 0.25rem 0.7rem; border-radius: 5px; }
@@ -110,28 +34,7 @@
     @media (max-width: 768px) {
       .tool-section { padding: 1.25rem; }
     }
-
-  </style>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-</head>
-<body>
-
-<nav>
-  <div class="nav-inner">
-    <a href="index.html" class="nav-logo"><img src="oxicrab.png" alt="" width="28" height="28"><span class="oxi">oxi</span>crab</a>
-    <ul class="nav-links">
-      <li><a href="index.html" >Home</a></li>
-      <li><a href="channels.html" >Channels</a></li>
-      <li><a href="tools.html" class="active">Tools</a></li>
-      <li><a href="workspace.html" >Workspace</a></li>
-      <li><a href="deploy.html" >Deploy</a></li>
-      <li><a href="https://github.com/oxicrab/oxicrab">GitHub</a></li>
-    </ul>
-  </div>
-</nav>
-
+</style>
 <div class="page-header">
   <h1>Tool Reference</h1>
   <p>24 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, and result caching.</p>
@@ -671,19 +574,3 @@ wget -O ~/.oxicrab/models/ggml-large-v3-turbo-q5_0.bin \
   </div>
 
 </div>
-
-<footer>
-  <div class="footer-inner">
-    <a href="index.html" class="nav-logo" style="font-size: 0.95rem;"><img src="oxicrab.png" alt="" width="24" height="24"><span class="oxi">oxi</span>crab</a>
-    <div class="footer-links">
-      <a href="https://github.com/oxicrab/oxicrab">GitHub</a>
-      <a href="https://crates.io/crates/oxicrab">crates.io</a>
-      <a href="https://github.com/oxicrab/oxicrab/blob/main/README.md">README</a>
-      <a href="https://github.com/oxicrab/oxicrab/blob/main/LICENSE">MIT License</a>
-    </div>
-    <span class="footer-copy">Built by <a href="https://github.com/oxicrab" style="color: var(--accent); text-decoration: none;">James Turnbull</a></span>
-  </div>
-</footer>
-
-</body>
-</html>

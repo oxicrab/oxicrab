@@ -1,6 +1,10 @@
-# Oxicrab
+<p align="center">
+  <img src="docs/oxicrab.png" alt="oxicrab" width="200">
+</p>
 
-A high-performance Rust multi-channel AI assistant framework.
+<h1 align="center">Oxicrab</h1>
+
+<p align="center">A high-performance Rust multi-channel AI assistant framework.</p>
 
 **[Documentation](https://oxicrab.github.io/oxicrab/)** | [Channel Setup](https://oxicrab.github.io/oxicrab/channels.html) | [Tool Reference](https://oxicrab.github.io/oxicrab/tools.html) | [Deployment](https://oxicrab.github.io/oxicrab/deploy.html)
 
