@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tool Reference - oxicrab</title>
-  <meta name="description" content="Complete reference for all 24 built-in tools in oxicrab, including setup instructions for configurable tools.">
+  <meta name="description" content="Complete reference for all 23 built-in tools in oxicrab, including setup instructions for configurable tools.">
   <meta name="theme-color" content="#0ea5e9">
   <link rel="icon" href="oxicrab.png">
   <style>
@@ -134,7 +134,7 @@
 
 <div class="page-header">
   <h1>Tool Reference</h1>
-  <p>24 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, and result caching.</p>
+  <p>23 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, and result caching.</p>
 </div>
 
 <div class="content">
@@ -154,7 +154,6 @@
         <li><a href="#web_fetch">web_fetch</a></li>
         <li><a href="#http">http</a></li>
         <li><a href="#reddit">reddit</a></li>
-        <li><a href="#message">message</a></li>
         <li><a href="#spawn">spawn</a></li>
         <li><a href="#subagent_control">subagent_control</a></li>
         <li><a href="#cron">cron</a></li>
@@ -267,14 +266,9 @@
 
   <div class="cat-header">Communication &amp; Agents</div>
 
-  <div id="message" class="tool-section">
-    <h2>message <span class="badge badge-core">Core</span></h2>
-    <p class="desc">Send a message to a user on any connected channel. Defaults to the current conversation's channel and chat. Specify <code>channel</code> and <code>chat_id</code> to target a different destination. Use the <code>media</code> parameter to attach file paths (screenshots, images).</p>
-  </div>
-
   <div id="spawn" class="tool-section">
     <h2>spawn <span class="badge badge-core">Core</span></h2>
-    <p class="desc">Spawn a subagent to handle a task in the background. Subagents have access to filesystem, shell, and web tools but cannot message users or spawn more subagents. Concurrency is limited by a semaphore (default: 5 concurrent subagents).</p>
+    <p class="desc">Spawn a subagent to handle a task in the background. Subagents have access to filesystem, shell, and web tools but cannot spawn more subagents. Concurrency is limited by a semaphore (default: 5 concurrent subagents).</p>
   </div>
 
   <div id="subagent_control" class="tool-section">

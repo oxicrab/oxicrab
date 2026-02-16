@@ -299,7 +299,7 @@ impl BrowserTool {
                 let path = save_media_file(&bytes, "screenshot", "png")
                     .map_err(|e| format!("failed to save screenshot: {e}"))?;
                 Ok(format!(
-                    "Screenshot saved to: {path}\nSize: {} bytes\nUse the message tool with media: [\"{path}\"] to send it.",
+                    "Screenshot saved to: {path}\nSize: {} bytes\nThe screenshot will be attached to your response automatically.",
                     bytes.len()
                 ))
             })

@@ -47,7 +47,6 @@ pub async fn register_all_tools(
     register_filesystem(&mut tools, ctx);
     register_shell(&mut tools, ctx)?;
     register_web(&mut tools, ctx);
-    register_message(&mut tools, ctx);
     let subagents = register_subagents(&mut tools, ctx);
     register_tmux(&mut tools);
     register_browser(&mut tools, ctx);
@@ -117,12 +116,6 @@ fn register_web(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     if let Ok(fetch) = WebFetchTool::new(50000) {
         registry.register(Arc::new(fetch));
     }
-}
-
-fn register_message(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
-    use crate::agent::tools::message::MessageTool;
-
-    registry.register(Arc::new(MessageTool::new(Some(ctx.outbound_tx.clone()))));
 }
 
 fn register_subagents(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Arc<SubagentManager> {

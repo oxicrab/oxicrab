@@ -1033,13 +1033,13 @@ impl AgentLoop {
         exec_ctx: &ExecutionContext,
     ) -> Result<(Option<String>, Option<u64>, Vec<String>, Vec<String>)> {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
-        let mut last_used_delivery_tool = false;
         let mut any_tools_called = false;
+        let mut tools_nudge_count: u32 = 0;
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
 
-        let mut tools_defs = self.tools.get_tool_definitions();
+        let tools_defs = self.tools.get_tool_definitions();
 
         // Extract tool names for hallucination detection (immutable snapshot for the full loop)
         let tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
@@ -1119,10 +1119,6 @@ impl AgentLoop {
                         .iter()
                         .map(std::string::ToString::to_string),
                 );
-                last_used_delivery_tool = called_tool_names
-                    .iter()
-                    .any(|n| *n == "message" || *n == "spawn");
-
                 ContextBuilder::add_assistant_message(
                     &mut messages,
                     response.content.as_deref(),
@@ -1200,19 +1196,6 @@ impl AgentLoop {
                     );
                 }
 
-                // Once the message tool has been used, remove it from available
-                // tools so the LLM cannot send redundant follow-up messages.
-                // Subsequent responses will flow through the loop's text return
-                // path instead (sent exactly once by the caller).
-                if last_used_delivery_tool {
-                    tools_defs.retain(|td| td.name != "message");
-                }
-
-                // Inject reflection prompt to guide next action
-                messages.push(Message::user(
-                    "Review the results and continue. Use more tools if needed, or provide your final response to the user.".to_string()
-                ));
-
                 // Send composing indicator so the user sees progress during LLM thinking
                 if let Some(ref ctx) = typing_context {
                     let _ = self
@@ -1231,6 +1214,27 @@ impl AgentLoop {
                         .await;
                 }
             } else if let Some(content) = response.content {
+                // Nudge the LLM to use tools if it responded with text before calling any.
+                // Skip iteration 1 since tool_choice="any" already forces tool use there.
+                if iteration > 1
+                    && !any_tools_called
+                    && tools_nudge_count < 2
+                    && !tool_names.is_empty()
+                {
+                    tools_nudge_count += 1;
+                    ContextBuilder::add_assistant_message(
+                        &mut messages,
+                        Some(&content),
+                        None,
+                        response.reasoning_content.as_deref(),
+                    );
+                    messages.push(Message::user(
+                        "Please proceed and use the available tools to complete this task."
+                            .to_string(),
+                    ));
+                    continue;
+                }
+
                 // Detect false "no tools" claims and retry with correction
                 if !tool_names.is_empty() && is_false_no_tools_claim(&content) {
                     warn!("False no-tools claim detected: LLM claims tools unavailable but {} tools are registered", tool_names.len());
@@ -1284,10 +1288,6 @@ impl AgentLoop {
                 ));
             } else {
                 // Empty response
-                if last_used_delivery_tool {
-                    debug!("LLM returned empty after delivery tool — treating as successful completion");
-                    return Ok((None, last_input_tokens, tools_used, collected_media));
-                }
                 if empty_retries_left > 0 {
                     empty_retries_left -= 1;
                     let retry_num = EMPTY_RESPONSE_RETRIES - empty_retries_left;

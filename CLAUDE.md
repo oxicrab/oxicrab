@@ -82,7 +82,7 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 
 ### Agent Loop (`src/agent/loop.rs`)
 
-`AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. First iteration forces `tool_choice="any"` to prevent text-only hallucinations. Hallucination detection runs on final text responses.
+`AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. First iteration forces `tool_choice="any"` to prevent text-only hallucinations. Tools nudge (up to 2 retries) catches subsequent iterations where the LLM returns text without having called any tools. Hallucination detection runs on final text responses. Responses flow through the loop's return value (no message tool); the caller sends them exactly once.
 
 ### Feature Flags (channel selection)
 

@@ -11,7 +11,6 @@ pub mod image_gen;
 pub mod mcp;
 pub mod media;
 pub mod memory_search;
-pub mod message;
 pub mod obsidian;
 pub mod reddit;
 pub mod registry;

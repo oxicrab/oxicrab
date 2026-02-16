@@ -12,7 +12,7 @@
 
 - **Multi-channel support**: Telegram, Discord, Slack, WhatsApp, Twilio (SMS/MMS) — each behind a Cargo feature flag for slim builds
 - **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), plus OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, vLLM), with OAuth support and local model fallback
-- **23+ built-in tools**: Filesystem, shell, web, HTTP, browser automation, Google Workspace, GitHub, scheduling, memory, media management, and more — plus MCP (Model Context Protocol) for external tool servers
+- **22+ built-in tools**: Filesystem, shell, web, HTTP, browser automation, Google Workspace, GitHub, scheduling, memory, media management, and more — plus MCP (Model Context Protocol) for external tool servers
 - **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
 - **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode (LLM-free delivery), multi-channel targeting, auto-expiry (`expires_at`) and run limits (`max_runs`)
 - **Memory system**: SQLite FTS5-backed long-term memory with background indexing, automatic fact extraction, optional hybrid vector+keyword search (local ONNX embeddings via fastembed), and automatic memory hygiene (archive/purge old notes)
@@ -638,7 +638,7 @@ For OAuth models, you need to:
 
 ## Tools
 
-The agent has access to 23 built-in tools, plus any tools provided by MCP servers:
+The agent has access to 22 built-in tools, plus any tools provided by MCP servers:
 
 ### Core Tools (always available)
 
@@ -653,7 +653,6 @@ The agent has access to 23 built-in tools, plus any tools provided by MCP server
 | `web_search` | Search the web (configurable: Brave API or DuckDuckGo) |
 | `web_fetch` | Fetch and extract web page content (binary/image URLs auto-saved to disk) |
 | `http` | Make HTTP requests (GET, POST, PUT, PATCH, DELETE); binary responses auto-saved to disk |
-| `message` | Send messages to chat channels with optional media attachments |
 | `spawn` | Spawn background subagents for parallel task execution |
 | `subagent_control` | List running subagents, check capacity, or cancel by ID |
 | `cron` | Schedule tasks: agent or echo mode, with optional `expires_at` and `max_runs` auto-stop |
@@ -711,7 +710,7 @@ The agent can spawn background subagents to handle complex tasks in parallel:
 - **Context injection**: Subagents receive the parent conversation's compaction summary so they understand what was discussed
 - **Silent mode**: Internal spawns (from cron/daemon) can skip user-facing announcements
 - **Lifecycle management**: List running subagents, check capacity, cancel by ID
-- **Tool isolation**: Subagents get filesystem, shell, and web tools but cannot message users or spawn more subagents
+- **Tool isolation**: Subagents get filesystem, shell, and web tools but cannot spawn more subagents
 - **Parallel tool execution**: Subagent tool calls run in parallel (same pattern as the main agent loop)
 
 ## Workspace Structure
@@ -766,18 +765,17 @@ src/
 - **Session management**: SQLite-backed sessions with automatic TTL cleanup
 - **Memory**: SQLite FTS5 for semantic memory indexing with background indexer, automatic fact extraction, optional hybrid vector+keyword search via local ONNX embeddings (fastembed), and automatic memory hygiene (archive old notes, purge expired archives, clean orphaned entries)
 - **Compaction**: Automatic conversation summarization when context exceeds token threshold
-- **Outbound media**: Browser screenshots, image downloads (`web_fetch`, `http`), and binary responses are saved to `~/.oxicrab/media/` and can be sent to users via the `message` tool's `media` parameter. Supported channels: Telegram (photos/documents), Discord (file attachments), Slack (3-step file upload API). WhatsApp and Twilio log warnings for unsupported outbound media.
+- **Outbound media**: Browser screenshots, image downloads (`web_fetch`, `http`), and binary responses are saved to `~/.oxicrab/media/` and attached to outbound messages automatically. Supported channels: Telegram (photos/documents), Discord (file attachments), Slack (3-step file upload API). WhatsApp and Twilio log warnings for unsupported outbound media.
 - **Tool execution**: Middleware pipeline (`CacheMiddleware` → `TruncationMiddleware` → `LoggingMiddleware`) in `ToolRegistry`, panic-isolated via `tokio::task::spawn`, parallel execution via `join_all`, LRU result caching for read-only tools, pre-execution JSON schema validation
 - **MCP integration**: External tool servers connected via Model Context Protocol (`rmcp` crate). Tools auto-discovered at startup and registered as native tools
 - **Tool facts injection**: Each agent turn injects a reminder listing all available tools, preventing the LLM from falsely claiming tools are unavailable
-- **Reflection turns**: After tool results are returned, a reflection prompt forces deliberative reasoning about next steps
 - **Editable status messages**: Tool execution progress shown as a single message that edits in-place rather than flooding the chat. Tracks status per (channel, chat_id), accumulates tool status lines with emoji prefixes, adds a "Composing response..." indicator during LLM thinking, and deletes the status message when the final response arrives. Channels without edit support (WhatsApp) fall back to separate messages.
 - **Subagents**: Semaphore-limited background task execution with conversation context injection and parallel tool calls
 - **Cron**: File-backed job store with multi-channel target delivery, agent mode and echo mode, timezone auto-detection, auto-expiry (`expires_at`), run limits (`max_runs`), and automatic name deduplication
 - **Heartbeat/Daemon**: Periodic background check-ins driven by a strategy file (`HEARTBEAT.md`)
 - **Voice transcription**: Dual-backend transcription service (local whisper.cpp via `whisper-rs` + cloud Whisper API). Audio converted to 16kHz mono f32 PCM via ffmpeg subprocess; local inference runs on a blocking thread pool. Configurable routing (`preferLocal`) with automatic fallback between backends.
 - **Skills**: Extensible via workspace SKILL.md files with YAML frontmatter, dependency checking, and auto-include
-- **Hallucination detection**: Regex-based action claim detection, tool-name mention counting, and false no-tools-claim detection with automatic retry prevent the LLM from fabricating actions or denying tool access; first-iteration forced tool use prevents text-only hallucinations
+- **Hallucination detection**: Regex-based action claim detection, tool-name mention counting, and false no-tools-claim detection with automatic retry prevent the LLM from fabricating actions or denying tool access; first-iteration forced tool use and tools nudge (up to 2 retries) prevent text-only hallucinations
 - **Security**: Shell command allowlist + blocklist with pipe/chain operator parsing; SSRF protection blocking private IPs, loopback, and metadata endpoints; path traversal prevention; OAuth credential file permissions (0o600); config secret redaction in Debug impls
 
 ## Development

@@ -468,7 +468,7 @@
   <div class="hero-text">
     <img src="oxicrab.png" alt="oxicrab" class="hero-logo">
     <h1>Multi-channel AI agents, built in Rust.</h1>
-    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 24 built-in tools, long-term memory, subagents, cron scheduling, and MCP support.</p>
+    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 23 built-in tools, long-term memory, subagents, cron scheduling, and MCP support.</p>
     <div class="hero-actions">
       <a href="#install" class="btn btn-primary">Get Started</a>
       <a href="https://github.com/oxicrab/oxicrab" class="btn btn-ghost">View Source</a>
@@ -485,7 +485,7 @@
       <span class="comment"># start multi-channel daemon</span><br>
       <span class="prompt">$</span> <span class="cmd">oxicrab gateway</span><br>
       <span class="output">INFO  loading config from ~/.oxicrab/config.json</span><br>
-      <span class="output">INFO  registered 24 tools + 2 MCP servers</span><br>
+      <span class="output">INFO  registered 23 tools + 2 MCP servers</span><br>
       <span class="success">INFO  telegram channel started</span><br>
       <span class="success">INFO  discord channel started</span><br>
       <span class="success">INFO  slack channel started (websocket)</span><br>
@@ -542,7 +542,7 @@
         </div>
       </div>
       <div class="feature-row">
-        <div class="feature-name">24 Built-in Tools</div>
+        <div class="feature-name">23 Built-in Tools</div>
         <div class="feature-detail">
           <h3>Filesystem, shell, web, browser, and more</h3>
           <p>Every tool has timeout protection, panic isolation via tokio::spawn, result caching, and truncation middleware. Plus MCP for external tool servers.</p>
@@ -632,7 +632,7 @@ cargo build --release --no-default-features \
 <section id="tools" class="tools-section">
   <div class="container">
     <div class="section-label">Tools</div>
-    <div class="section-title">24 built-in tools + MCP</div>
+    <div class="section-title">23 built-in tools + MCP</div>
     <div class="section-desc">A comprehensive toolkit for autonomous agents. Every tool features timeout protection, panic isolation, and result caching.</div>
 
     <div class="tools-legend">
@@ -666,8 +666,7 @@ cargo build --release --no-default-features \
       <div>
         <div class="tool-cat-label">Communication &amp; Agents</div>
         <div class="tool-grid">
-          <div class="tool-item" data-detail="Send a message to a user on any channel. Defaults to the current conversation's channel and chat, or specify a different channel and chat_id to target another destination. Supports media attachments."><span class="tool-dot core"></span><div><span class="tool-name">message</span><br><span class="tool-desc">Send to any connected channel</span></div></div>
-          <div class="tool-item" data-detail="Spawn a subagent to handle a task in the background. Use for complex or time-consuming tasks that can run independently. The subagent has access to all tools and reports back when done."><span class="tool-dot core"></span><div><span class="tool-name">spawn</span><br><span class="tool-desc">Launch background subagents</span></div></div>
+          <div class="tool-item" data-detail="Spawn a subagent to handle a task in the background. Use for complex or time-consuming tasks that can run independently. The subagent has access to filesystem, shell, and web tools and reports back when done."><span class="tool-dot core"></span><div><span class="tool-name">spawn</span><br><span class="tool-desc">Launch background subagents</span></div></div>
           <div class="tool-item" data-detail="List or cancel running subagents. Use to track background tasks or stop one by ID. Semaphore-based concurrency control limits parallel agents."><span class="tool-dot core"></span><div><span class="tool-name">subagent_control</span><br><span class="tool-desc">List and cancel running agents</span></div></div>
           <div class="tool-item" data-detail="Schedule recurring or one-shot tasks. Two job types: 'agent' processes the message as a full LLM turn with all tools; 'echo' delivers messages directly without invoking the LLM. Supports cron expressions, intervals, and one-shot ISO 8601 times. Optional expires_at and max_runs limits."><span class="tool-dot core"></span><div><span class="tool-name">cron</span><br><span class="tool-desc">Schedule recurring tasks</span></div></div>
           <div class="tool-item" data-detail="Search long-term memory and daily notes. Use to recall user preferences, past conversations, and important facts. Supports FTS5 full-text search with optional hybrid vector+keyword search via local ONNX embeddings."><span class="tool-dot core"></span><div><span class="tool-name">memory_search</span><br><span class="tool-desc">FTS5 + hybrid vector search</span></div></div>
@@ -1004,7 +1003,7 @@ cp config.example.json ~/.oxicrab/config.json</pre>
     <div class="structure-pre">
       <pre><span class="hl-comment">src/</span>
 &#x251C;&#x2500;&#x2500; agent/          <span class="hl-comment"># Agent loop, context, memory, tools, subagents</span>
-&#x2502;   &#x2514;&#x2500;&#x2500; tools/      <span class="hl-comment"># 24 built-in tools + MCP integration</span>
+&#x2502;   &#x2514;&#x2500;&#x2500; tools/      <span class="hl-comment"># 23 built-in tools + MCP integration</span>
 &#x251C;&#x2500;&#x2500; auth/           <span class="hl-comment"># OAuth authentication (Google)</span>
 &#x251C;&#x2500;&#x2500; bus/            <span class="hl-comment"># Message bus for channel-agent communication</span>
 &#x251C;&#x2500;&#x2500; channels/       <span class="hl-comment"># Telegram, Discord, Slack, WhatsApp, Twilio</span>
