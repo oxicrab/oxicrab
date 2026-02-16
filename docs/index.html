@@ -142,20 +142,6 @@
     .btn-primary:hover { background: var(--accent-dark); }
     .btn-ghost { color: var(--text); border: 1px solid var(--border); background: var(--surface); }
     .btn-ghost:hover { border-color: var(--text-muted); }
-    .install-cmd {
-      font-family: var(--mono);
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }
-    .install-cmd code {
-      background: var(--bg-alt);
-      border: 1px solid var(--border);
-      padding: 0.3rem 0.75rem;
-      border-radius: 6px;
-      color: var(--text);
-      user-select: all;
-    }
-
     /* Terminal mockup */
     .terminal {
       background: var(--code-bg);
@@ -256,7 +242,7 @@
 
     /* TOOLS */
     .tools-section { background: var(--bg-alt); }
-    .tools-categories { display: flex; flex-direction: column; gap: 2.5rem; }
+    .tools-categories { display: flex; flex-direction: column; gap: 3rem; }
     .tool-cat-label {
       font-family: var(--mono);
       font-size: 0.7rem;
@@ -264,20 +250,28 @@
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: var(--text-light);
-      margin-bottom: 0.75rem;
+      margin-bottom: 1rem;
       padding-bottom: 0.5rem;
       border-bottom: 1px solid var(--border);
     }
     .tool-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 0.5rem;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 0.75rem;
     }
     .tool-item {
       display: flex;
-      align-items: baseline;
+      align-items: flex-start;
       gap: 0.75rem;
-      padding: 0.6rem 0;
+      padding: 1rem 1.25rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .tool-item:hover {
+      border-color: var(--accent);
+      box-shadow: 0 2px 8px rgba(14, 165, 233, 0.06);
     }
     .tool-name {
       font-family: var(--mono);
@@ -287,7 +281,7 @@
       white-space: nowrap;
     }
     .tool-desc { color: var(--text-muted); font-size: 0.8rem; }
-    .tool-dot { width: 4px; height: 4px; border-radius: 50%; flex-shrink: 0; margin-top: 0.5rem; }
+    .tool-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 0.45rem; }
     .tool-dot.core { background: var(--accent); }
     .tool-dot.setup { background: var(--purple); }
     .tool-dot.ext { background: var(--coral); }
@@ -295,10 +289,10 @@
       display: flex;
       gap: 1.5rem;
       margin-bottom: 2rem;
-      font-size: 0.75rem;
+      font-size: 0.8rem;
       color: var(--text-muted);
     }
-    .tools-legend span { display: flex; align-items: center; gap: 0.4rem; }
+    .tools-legend span { display: flex; align-items: center; gap: 0.5rem; }
 
     /* CONFIG / CODE */
     pre {
@@ -505,9 +499,6 @@
       <a href="#install" class="btn btn-primary">Get Started</a>
       <a href="https://github.com/oxicrab/oxicrab" class="btn btn-ghost">View Source</a>
     </div>
-    <div class="install-cmd">
-      <code>cargo install oxicrab</code>
-    </div>
   </div>
   <div class="terminal">
     <div class="terminal-bar">
@@ -665,46 +656,46 @@ cargo build --release --no-default-features \
       <div>
         <div class="tool-cat-label">Filesystem &amp; Shell</div>
         <div class="tool-grid">
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">read_file</span><span class="tool-desc">&mdash; read with path protection</span></div>
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">write_file</span><span class="tool-desc">&mdash; write with versioned backups</span></div>
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">edit_file</span><span class="tool-desc">&mdash; find/replace diffs</span></div>
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">list_dir</span><span class="tool-desc">&mdash; directory listing</span></div>
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">exec</span><span class="tool-desc">&mdash; shell with allowlist security</span></div>
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">tmux</span><span class="tool-desc">&mdash; persistent terminal sessions</span></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">read_file</span><br><span class="tool-desc">Read with path traversal protection</span></div></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">write_file</span><br><span class="tool-desc">Write with versioned backups</span></div></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">edit_file</span><br><span class="tool-desc">Find and replace diffs</span></div></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">list_dir</span><br><span class="tool-desc">Directory listing</span></div></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">exec</span><br><span class="tool-desc">Shell with allowlist security</span></div></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">tmux</span><br><span class="tool-desc">Persistent terminal sessions</span></div></div>
         </div>
       </div>
       <div>
         <div class="tool-cat-label">Web &amp; Network</div>
         <div class="tool-grid">
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">web_search</span><span class="tool-desc">&mdash; Brave + DuckDuckGo fallback</span></div>
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">web_fetch</span><span class="tool-desc">&mdash; HTML to markdown extraction</span></div>
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">http</span><span class="tool-desc">&mdash; GET/POST/PUT/PATCH/DELETE</span></div>
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">reddit</span><span class="tool-desc">&mdash; browse subreddit posts</span></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><span class="tool-name">browser</span><span class="tool-desc">&mdash; Chrome DevTools Protocol</span></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">web_search</span><br><span class="tool-desc">Brave + DuckDuckGo fallback</span></div></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">web_fetch</span><br><span class="tool-desc">HTML to markdown extraction</span></div></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">http</span><br><span class="tool-desc">GET, POST, PUT, PATCH, DELETE</span></div></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">reddit</span><br><span class="tool-desc">Browse subreddit posts</span></div></div>
+          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">browser</span><br><span class="tool-desc">Chrome DevTools Protocol</span></div></div>
         </div>
       </div>
       <div>
         <div class="tool-cat-label">Communication &amp; Agents</div>
         <div class="tool-grid">
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">message</span><span class="tool-desc">&mdash; send to any channel</span></div>
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">spawn</span><span class="tool-desc">&mdash; background subagents</span></div>
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">subagent_control</span><span class="tool-desc">&mdash; list, cancel agents</span></div>
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">cron</span><span class="tool-desc">&mdash; schedule recurring tasks</span></div>
-          <div class="tool-item"><span class="tool-dot core"></span><span class="tool-name">memory_search</span><span class="tool-desc">&mdash; FTS5 + hybrid vector</span></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">message</span><br><span class="tool-desc">Send to any connected channel</span></div></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">spawn</span><br><span class="tool-desc">Launch background subagents</span></div></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">subagent_control</span><br><span class="tool-desc">List and cancel running agents</span></div></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">cron</span><br><span class="tool-desc">Schedule recurring tasks</span></div></div>
+          <div class="tool-item"><span class="tool-dot core"></span><div><span class="tool-name">memory_search</span><br><span class="tool-desc">FTS5 + hybrid vector search</span></div></div>
         </div>
       </div>
       <div>
         <div class="tool-cat-label">Integrations</div>
         <div class="tool-grid">
-          <div class="tool-item"><span class="tool-dot setup"></span><span class="tool-name">google_mail</span><span class="tool-desc">&mdash; Gmail CRUD</span></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><span class="tool-name">google_calendar</span><span class="tool-desc">&mdash; event management</span></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><span class="tool-name">github</span><span class="tool-desc">&mdash; issues, PRs, repos</span></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><span class="tool-name">weather</span><span class="tool-desc">&mdash; OpenWeatherMap</span></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><span class="tool-name">todoist</span><span class="tool-desc">&mdash; task management</span></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><span class="tool-name">media</span><span class="tool-desc">&mdash; Radarr/Sonarr</span></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><span class="tool-name">obsidian</span><span class="tool-desc">&mdash; vault read/write/search</span></div>
-          <div class="tool-item"><span class="tool-dot setup"></span><span class="tool-name">image_gen</span><span class="tool-desc">&mdash; OpenAI / Google Imagen</span></div>
-          <div class="tool-item"><span class="tool-dot ext"></span><span class="tool-name">MCP servers</span><span class="tool-desc">&mdash; auto-discovered tools</span></div>
+          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">google_mail</span><br><span class="tool-desc">Gmail read, send, and manage</span></div></div>
+          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">google_calendar</span><br><span class="tool-desc">Event management</span></div></div>
+          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">github</span><br><span class="tool-desc">Issues, PRs, and repos</span></div></div>
+          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">weather</span><br><span class="tool-desc">OpenWeatherMap forecasts</span></div></div>
+          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">todoist</span><br><span class="tool-desc">Task management</span></div></div>
+          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">media</span><br><span class="tool-desc">Radarr and Sonarr integration</span></div></div>
+          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">obsidian</span><br><span class="tool-desc">Vault read, write, and search</span></div></div>
+          <div class="tool-item"><span class="tool-dot setup"></span><div><span class="tool-name">image_gen</span><br><span class="tool-desc">OpenAI DALL-E / Google Imagen</span></div></div>
+          <div class="tool-item"><span class="tool-dot ext"></span><div><span class="tool-name">MCP servers</span><br><span class="tool-desc">Auto-discovered external tools</span></div></div>
         </div>
       </div>
     </div>
