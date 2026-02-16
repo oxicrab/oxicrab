@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::tools::base::ExecutionContext;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -388,7 +389,10 @@ async fn test_fetch_reports_status_code() {
 async fn test_fetch_ssrf_blocked() {
     let tool = WebFetchTool::new(50000).unwrap();
     let result = tool
-        .execute(serde_json::json!({"url": "http://127.0.0.1/secret"}))
+        .execute(
+            serde_json::json!({"url": "http://127.0.0.1/secret"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);

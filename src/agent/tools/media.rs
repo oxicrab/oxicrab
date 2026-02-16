@@ -1,3 +1,4 @@
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::config::MediaConfig;
 use anyhow::Result;
@@ -459,7 +460,7 @@ impl Tool for MediaTool {
     }
 
     #[allow(clippy::too_many_lines)]
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let Some(action) = params["action"].as_str() else {
             return Ok(ToolResult::error("Missing 'action' parameter".to_string()));
         };
@@ -912,7 +913,10 @@ mod tests {
     async fn test_missing_action() {
         let config = MediaConfig::default();
         let tool = MediaTool::new(&config);
-        let result = tool.execute(serde_json::json!({})).await.unwrap();
+        let result = tool
+            .execute(serde_json::json!({}), &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("action"));
     }
@@ -922,7 +926,10 @@ mod tests {
         let config = MediaConfig::default();
         let tool = MediaTool::new(&config);
         let result = tool
-            .execute(serde_json::json!({"action": "bogus"}))
+            .execute(
+                serde_json::json!({"action": "bogus"}),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
         assert!(result.is_error);
@@ -934,7 +941,10 @@ mod tests {
         let config = MediaConfig::default();
         let tool = MediaTool::new(&config);
         let result = tool
-            .execute(serde_json::json!({"action": "search_movie"}))
+            .execute(
+                serde_json::json!({"action": "search_movie"}),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
         assert!(result.is_error);
@@ -946,7 +956,10 @@ mod tests {
         let config = MediaConfig::default();
         let tool = MediaTool::new(&config);
         let result = tool
-            .execute(serde_json::json!({"action": "add_movie"}))
+            .execute(
+                serde_json::json!({"action": "add_movie"}),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
         assert!(result.is_error);
@@ -958,7 +971,10 @@ mod tests {
         let config = MediaConfig::default();
         let tool = MediaTool::new(&config);
         let result = tool
-            .execute(serde_json::json!({"action": "add_series"}))
+            .execute(
+                serde_json::json!({"action": "add_series"}),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
         assert!(result.is_error);
@@ -970,7 +986,10 @@ mod tests {
         let config = MediaConfig::default();
         let tool = MediaTool::new(&config);
         let result = tool
-            .execute(serde_json::json!({"action": "profiles"}))
+            .execute(
+                serde_json::json!({"action": "profiles"}),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
         assert!(result.is_error);

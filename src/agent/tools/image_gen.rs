@@ -1,3 +1,4 @@
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -249,7 +250,7 @@ impl Tool for ImageGenTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let Some(prompt) = params["prompt"].as_str() else {
             return Ok(ToolResult::error(
                 "Missing required 'prompt' parameter".to_string(),
@@ -297,7 +298,10 @@ mod tests {
     #[tokio::test]
     async fn test_missing_prompt() {
         let tool = ImageGenTool::new(Some("key".into()), None, "openai".into());
-        let result = tool.execute(serde_json::json!({})).await.unwrap();
+        let result = tool
+            .execute(serde_json::json!({}), &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("prompt"));
     }
@@ -306,7 +310,10 @@ mod tests {
     async fn test_no_providers_configured() {
         let tool = ImageGenTool::new(None, None, "openai".into());
         let result = tool
-            .execute(serde_json::json!({"prompt": "a cat"}))
+            .execute(
+                serde_json::json!({"prompt": "a cat"}),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
         assert!(result.is_error);
@@ -317,7 +324,10 @@ mod tests {
     async fn test_unknown_provider() {
         let tool = ImageGenTool::new(Some("key".into()), None, "openai".into());
         let result = tool
-            .execute(serde_json::json!({"prompt": "a cat", "provider": "dalle"}))
+            .execute(
+                serde_json::json!({"prompt": "a cat", "provider": "dalle"}),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
         assert!(result.is_error);
@@ -328,7 +338,10 @@ mod tests {
     async fn test_requested_provider_no_key() {
         let tool = ImageGenTool::new(Some("key".into()), None, "openai".into());
         let result = tool
-            .execute(serde_json::json!({"prompt": "a cat", "provider": "google"}))
+            .execute(
+                serde_json::json!({"prompt": "a cat", "provider": "google"}),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
         assert!(result.is_error);
@@ -375,7 +388,10 @@ mod tests {
             String::new(),
         );
         let result = tool
-            .execute(serde_json::json!({"prompt": "a sunset"}))
+            .execute(
+                serde_json::json!({"prompt": "a sunset"}),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
 
@@ -413,7 +429,10 @@ mod tests {
             String::new(),
         );
         let result = tool
-            .execute(serde_json::json!({"prompt": "bad prompt"}))
+            .execute(
+                serde_json::json!({"prompt": "bad prompt"}),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
 
@@ -449,7 +468,10 @@ mod tests {
             server.uri(),
         );
         let result = tool
-            .execute(serde_json::json!({"prompt": "a mountain"}))
+            .execute(
+                serde_json::json!({"prompt": "a mountain"}),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
 
@@ -485,7 +507,10 @@ mod tests {
             server.uri(),
         );
         let result = tool
-            .execute(serde_json::json!({"prompt": "bad prompt"}))
+            .execute(
+                serde_json::json!({"prompt": "bad prompt"}),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
 
@@ -515,11 +540,14 @@ mod tests {
             String::new(),
         );
         let result = tool
-            .execute(serde_json::json!({
-                "prompt": "a cat",
-                "size": "1536x1024",
-                "quality": "high"
-            }))
+            .execute(
+                serde_json::json!({
+                    "prompt": "a cat",
+                    "size": "1536x1024",
+                    "quality": "high"
+                }),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
 
@@ -556,10 +584,13 @@ mod tests {
             server.uri(),
         );
         let result = tool
-            .execute(serde_json::json!({
-                "prompt": "a landscape",
-                "aspect_ratio": "16:9"
-            }))
+            .execute(
+                serde_json::json!({
+                    "prompt": "a landscape",
+                    "aspect_ratio": "16:9"
+                }),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
 

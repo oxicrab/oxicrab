@@ -1,3 +1,4 @@
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -222,7 +223,7 @@ impl Tool for RedditTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let subreddit = match params["subreddit"].as_str() {
             Some(s) => s.trim_start_matches("r/"),
             None => {

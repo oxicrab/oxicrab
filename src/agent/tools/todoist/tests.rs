@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::tools::base::ExecutionContext;
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -10,14 +11,19 @@ fn tool() -> TodoistTool {
 
 #[tokio::test]
 async fn test_missing_action() {
-    let result = tool().execute(serde_json::json!({})).await;
+    let result = tool()
+        .execute(serde_json::json!({}), &ExecutionContext::default())
+        .await;
     assert!(result.is_err());
 }
 
 #[tokio::test]
 async fn test_unknown_action() {
     let result = tool()
-        .execute(serde_json::json!({"action": "bogus"}))
+        .execute(
+            serde_json::json!({"action": "bogus"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -27,7 +33,10 @@ async fn test_unknown_action() {
 #[tokio::test]
 async fn test_create_task_missing_content() {
     let result = tool()
-        .execute(serde_json::json!({"action": "create_task"}))
+        .execute(
+            serde_json::json!({"action": "create_task"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -37,7 +46,10 @@ async fn test_create_task_missing_content() {
 #[tokio::test]
 async fn test_complete_task_missing_id() {
     let result = tool()
-        .execute(serde_json::json!({"action": "complete_task"}))
+        .execute(
+            serde_json::json!({"action": "complete_task"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -76,7 +88,10 @@ async fn test_list_tasks_success() {
 
     let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "list_tasks"}))
+        .execute(
+            serde_json::json!({"action": "list_tasks"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -111,7 +126,10 @@ async fn test_list_tasks_with_filter() {
 
     let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "list_tasks", "filter": "today"}))
+        .execute(
+            serde_json::json!({"action": "list_tasks", "filter": "today"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -137,7 +155,10 @@ async fn test_list_tasks_with_project_id() {
 
     let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "list_tasks", "project_id": "proj_abc"}))
+        .execute(
+            serde_json::json!({"action": "list_tasks", "project_id": "proj_abc"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -159,7 +180,10 @@ async fn test_list_tasks_empty() {
 
     let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "list_tasks"}))
+        .execute(
+            serde_json::json!({"action": "list_tasks"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -197,7 +221,10 @@ async fn test_list_tasks_paginated() {
 
     let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "list_tasks"}))
+        .execute(
+            serde_json::json!({"action": "list_tasks"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -223,13 +250,16 @@ async fn test_create_task_success() {
 
     let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({
-            "action": "create_task",
-            "content": "Write documentation",
-            "priority": 2,
-            "due_string": "tomorrow",
-            "labels": ["docs"]
-        }))
+        .execute(
+            serde_json::json!({
+                "action": "create_task",
+                "content": "Write documentation",
+                "priority": 2,
+                "due_string": "tomorrow",
+                "labels": ["docs"]
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -251,7 +281,10 @@ async fn test_complete_task_success() {
 
     let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "complete_task", "task_id": "task_xyz"}))
+        .execute(
+            serde_json::json!({"action": "complete_task", "task_id": "task_xyz"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -277,7 +310,10 @@ async fn test_list_projects_success() {
 
     let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "list_projects"}))
+        .execute(
+            serde_json::json!({"action": "list_projects"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -302,7 +338,10 @@ async fn test_list_projects_empty() {
 
     let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "list_projects"}))
+        .execute(
+            serde_json::json!({"action": "list_projects"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -321,7 +360,10 @@ async fn test_api_error_unauthorized() {
 
     let tool = TodoistTool::with_base_url("bad_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "list_tasks"}))
+        .execute(
+            serde_json::json!({"action": "list_tasks"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -340,7 +382,10 @@ async fn test_api_error_server_error() {
 
     let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "create_task", "content": "test"}))
+        .execute(
+            serde_json::json!({"action": "create_task", "content": "test"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -359,7 +404,10 @@ async fn test_complete_task_not_found() {
 
     let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "complete_task", "task_id": "nonexistent"}))
+        .execute(
+            serde_json::json!({"action": "complete_task", "task_id": "nonexistent"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 

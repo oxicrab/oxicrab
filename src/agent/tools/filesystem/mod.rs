@@ -1,3 +1,4 @@
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -129,7 +130,7 @@ impl Tool for ReadFileTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let path_str = params["path"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
@@ -208,7 +209,7 @@ impl Tool for WriteFileTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let path_str = params["path"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
@@ -289,7 +290,7 @@ impl Tool for EditFileTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let path_str = params["path"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
@@ -388,7 +389,7 @@ impl Tool for ListDirTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let path_str = params["path"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;

@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::tools::base::ExecutionContext;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -9,7 +10,10 @@ fn tool() -> WeatherTool {
 #[tokio::test]
 async fn test_missing_location() {
     let result = tool()
-        .execute(serde_json::json!({"action": "current"}))
+        .execute(
+            serde_json::json!({"action": "current"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -19,7 +23,10 @@ async fn test_missing_location() {
 #[tokio::test]
 async fn test_unknown_action() {
     let result = tool()
-        .execute(serde_json::json!({"action": "bogus", "location": "NYC"}))
+        .execute(
+            serde_json::json!({"action": "bogus", "location": "NYC"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -48,7 +55,10 @@ async fn test_current_weather_success() {
 
     let tool = WeatherTool::with_base_url("test_key".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"location": "London", "units": "metric"}))
+        .execute(
+            serde_json::json!({"location": "London", "units": "metric"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -78,7 +88,10 @@ async fn test_current_weather_imperial_units() {
 
     let tool = WeatherTool::with_base_url("test_key".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"location": "New York", "units": "imperial"}))
+        .execute(
+            serde_json::json!({"location": "New York", "units": "imperial"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -115,7 +128,10 @@ async fn test_forecast_success() {
 
     let tool = WeatherTool::with_base_url("test_key".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "forecast", "location": "Paris", "units": "metric"}))
+        .execute(
+            serde_json::json!({"action": "forecast", "location": "Paris", "units": "metric"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -141,7 +157,10 @@ async fn test_api_error_city_not_found() {
 
     let tool = WeatherTool::with_base_url("test_key".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"location": "Nonexistentville"}))
+        .execute(
+            serde_json::json!({"location": "Nonexistentville"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -163,7 +182,10 @@ async fn test_api_error_unauthorized() {
 
     let tool = WeatherTool::with_base_url("bad_key".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"location": "London"}))
+        .execute(
+            serde_json::json!({"location": "London"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -189,7 +211,10 @@ async fn test_default_action_is_current() {
     let tool = WeatherTool::with_base_url("test_key".to_string(), server.uri());
     // No action specified — should default to "current"
     let result = tool
-        .execute(serde_json::json!({"location": "Tokyo"}))
+        .execute(
+            serde_json::json!({"location": "Tokyo"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -216,7 +241,10 @@ async fn test_default_units_is_imperial() {
     let tool = WeatherTool::with_base_url("test_key".to_string(), server.uri());
     // No units specified — should default to "imperial"
     let result = tool
-        .execute(serde_json::json!({"location": "SF"}))
+        .execute(
+            serde_json::json!({"location": "SF"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 

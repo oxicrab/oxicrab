@@ -1,6 +1,7 @@
 use super::cache::ObsidianCache;
 use super::client::ObsidianApiClient;
 use super::ObsidianTool;
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::Tool;
 use std::sync::Arc;
 use wiremock::matchers::{header, method, path};
@@ -24,7 +25,10 @@ fn tool_with_cache(cache: Arc<ObsidianCache>) -> ObsidianTool {
 async fn test_missing_action() {
     let (_server, _tmp, cache) = setup().await;
     let tool = tool_with_cache(cache);
-    let result = tool.execute(serde_json::json!({})).await.unwrap();
+    let result = tool
+        .execute(serde_json::json!({}), &ExecutionContext::default())
+        .await
+        .unwrap();
     assert!(result.is_error);
     assert!(result.content.contains("Unknown action"));
 }
@@ -34,7 +38,10 @@ async fn test_unknown_action() {
     let (_server, _tmp, cache) = setup().await;
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "bogus"}))
+        .execute(
+            serde_json::json!({"action": "bogus"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -46,7 +53,10 @@ async fn test_read_missing_path() {
     let (_server, _tmp, cache) = setup().await;
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "read"}))
+        .execute(
+            serde_json::json!({"action": "read"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -58,7 +68,10 @@ async fn test_write_missing_path() {
     let (_server, _tmp, cache) = setup().await;
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "write", "content": "hello"}))
+        .execute(
+            serde_json::json!({"action": "write", "content": "hello"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -70,7 +83,10 @@ async fn test_write_missing_content() {
     let (_server, _tmp, cache) = setup().await;
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "write", "path": "test.md"}))
+        .execute(
+            serde_json::json!({"action": "write", "path": "test.md"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -82,7 +98,10 @@ async fn test_append_missing_path() {
     let (_server, _tmp, cache) = setup().await;
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "append", "content": "hello"}))
+        .execute(
+            serde_json::json!({"action": "append", "content": "hello"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -94,7 +113,10 @@ async fn test_append_missing_content() {
     let (_server, _tmp, cache) = setup().await;
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "append", "path": "test.md"}))
+        .execute(
+            serde_json::json!({"action": "append", "path": "test.md"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -106,7 +128,10 @@ async fn test_search_missing_query() {
     let (_server, _tmp, cache) = setup().await;
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "search"}))
+        .execute(
+            serde_json::json!({"action": "search"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -120,7 +145,10 @@ async fn test_read_not_in_cache() {
     let (_server, _tmp, cache) = setup().await;
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "read", "path": "nonexistent.md"}))
+        .execute(
+            serde_json::json!({"action": "read", "path": "nonexistent.md"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -137,7 +165,10 @@ async fn test_read_from_cache() {
 
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "read", "path": "note.md"}))
+        .execute(
+            serde_json::json!({"action": "read", "path": "note.md"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -169,11 +200,14 @@ async fn test_write_through_to_api() {
 
     let tool = tool_with_cache(cache.clone());
     let result = tool
-        .execute(serde_json::json!({
-            "action": "write",
-            "path": "notes/hello.md",
-            "content": "# Hello"
-        }))
+        .execute(
+            serde_json::json!({
+                "action": "write",
+                "path": "notes/hello.md",
+                "content": "# Hello"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -199,11 +233,14 @@ async fn test_write_queued_when_offline() {
 
     let tool = tool_with_cache(cache.clone());
     let result = tool
-        .execute(serde_json::json!({
-            "action": "write",
-            "path": "offline.md",
-            "content": "queued content"
-        }))
+        .execute(
+            serde_json::json!({
+                "action": "write",
+                "path": "offline.md",
+                "content": "queued content"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -243,11 +280,14 @@ async fn test_append_through_to_api() {
 
     let tool = tool_with_cache(cache.clone());
     let result = tool
-        .execute(serde_json::json!({
-            "action": "append",
-            "path": "existing.md",
-            "content": "line2\n"
-        }))
+        .execute(
+            serde_json::json!({
+                "action": "append",
+                "path": "existing.md",
+                "content": "line2\n"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -266,7 +306,10 @@ async fn test_search_no_results() {
     let (_server, _tmp, cache) = setup().await;
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "search", "query": "nonexistent"}))
+        .execute(
+            serde_json::json!({"action": "search", "query": "nonexistent"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -303,7 +346,10 @@ async fn test_search_finds_matches() {
 
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "search", "query": "Rust"}))
+        .execute(
+            serde_json::json!({"action": "search", "query": "Rust"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -331,7 +377,10 @@ async fn test_search_case_insensitive() {
 
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "search", "query": "important"}))
+        .execute(
+            serde_json::json!({"action": "search", "query": "important"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -345,7 +394,10 @@ async fn test_list_empty_cache() {
     let (_server, _tmp, cache) = setup().await;
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "list"}))
+        .execute(
+            serde_json::json!({"action": "list"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -371,7 +423,10 @@ async fn test_list_all_files() {
 
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "list"}))
+        .execute(
+            serde_json::json!({"action": "list"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -399,7 +454,10 @@ async fn test_list_with_folder_filter() {
 
     let tool = tool_with_cache(cache);
     let result = tool
-        .execute(serde_json::json!({"action": "list", "folder": "Daily/"}))
+        .execute(
+            serde_json::json!({"action": "list", "folder": "Daily/"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);

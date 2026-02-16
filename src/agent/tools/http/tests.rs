@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::tools::base::ExecutionContext;
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -8,7 +9,10 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 async fn test_missing_url() {
     let tool = HttpTool::new();
     let result = tool
-        .execute(serde_json::json!({"method": "GET"}))
+        .execute(
+            serde_json::json!({"method": "GET"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -19,7 +23,10 @@ async fn test_missing_url() {
 async fn test_ssrf_blocked_localhost() {
     let tool = HttpTool::new();
     let result = tool
-        .execute(serde_json::json!({"url": "http://127.0.0.1/admin"}))
+        .execute(
+            serde_json::json!({"url": "http://127.0.0.1/admin"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -29,7 +36,10 @@ async fn test_ssrf_blocked_localhost() {
 async fn test_ssrf_blocked_private_ip() {
     let tool = HttpTool::new();
     let result = tool
-        .execute(serde_json::json!({"url": "http://192.168.1.1/secret"}))
+        .execute(
+            serde_json::json!({"url": "http://192.168.1.1/secret"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -39,7 +49,10 @@ async fn test_ssrf_blocked_private_ip() {
 async fn test_ssrf_blocked_metadata() {
     let tool = HttpTool::new();
     let result = tool
-        .execute(serde_json::json!({"url": "http://169.254.169.254/latest/meta-data/"}))
+        .execute(
+            serde_json::json!({"url": "http://169.254.169.254/latest/meta-data/"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);

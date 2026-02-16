@@ -1,3 +1,4 @@
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::config::ChannelsConfig;
 use crate::cron::service::CronService;
@@ -10,8 +11,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct CronTool {
     cron_service: Arc<CronService>,
-    channel: Arc<tokio::sync::Mutex<String>>,
-    chat_id: Arc<tokio::sync::Mutex<String>>,
     channels_config: Option<ChannelsConfig>,
 }
 
@@ -19,8 +18,6 @@ impl CronTool {
     pub fn new(cron_service: Arc<CronService>, channels_config: Option<ChannelsConfig>) -> Self {
         Self {
             cron_service,
-            channel: Arc::new(tokio::sync::Mutex::new(String::new())),
-            chat_id: Arc::new(tokio::sync::Mutex::new(String::new())),
             channels_config,
         }
     }
@@ -236,7 +233,7 @@ impl Tool for CronTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, ctx: &ExecutionContext) -> Result<ToolResult> {
         let action = params["action"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
@@ -256,8 +253,8 @@ impl Tool for CronTool {
                     .ok_or_else(|| anyhow::anyhow!("Missing 'message' parameter for add"))?
                     .to_string();
 
-                let channel = self.channel.lock().await.clone();
-                let chat_id = self.chat_id.lock().await.clone();
+                let channel = ctx.channel.clone();
+                let chat_id = ctx.chat_id.clone();
 
                 if channel.is_empty() || chat_id.is_empty() {
                     return Ok(ToolResult::error(
@@ -508,11 +505,6 @@ impl Tool for CronTool {
             }
             _ => Ok(ToolResult::error(format!("Unknown action: {}", action))),
         }
-    }
-
-    async fn set_context(&self, channel: &str, chat_id: &str) {
-        *self.channel.lock().await = channel.to_string();
-        *self.chat_id.lock().await = chat_id.to_string();
     }
 }
 

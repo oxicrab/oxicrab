@@ -1,3 +1,4 @@
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::google_common::GoogleApiClient;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::auth::google::GoogleCredentials;
@@ -99,7 +100,7 @@ impl Tool for GoogleCalendarTool {
     }
 
     #[allow(clippy::too_many_lines)]
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let action = params["action"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;

@@ -1,3 +1,4 @@
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -100,7 +101,7 @@ impl Tool for TmuxTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         // Check if tmux is available
         if Command::new("tmux").arg("-V").output().await.is_err() {
             return Ok(ToolResult::error(
@@ -274,7 +275,9 @@ mod tests {
     #[tokio::test]
     async fn test_missing_action() {
         let tool = TmuxTool::new();
-        let result = tool.execute(serde_json::json!({})).await;
+        let result = tool
+            .execute(serde_json::json!({}), &ExecutionContext::default())
+            .await;
         assert!(result.is_err());
     }
 
@@ -282,7 +285,10 @@ mod tests {
     async fn test_unknown_action() {
         let tool = TmuxTool::new();
         let result = tool
-            .execute(serde_json::json!({"action": "bogus"}))
+            .execute(
+                serde_json::json!({"action": "bogus"}),
+                &ExecutionContext::default(),
+            )
             .await
             .unwrap();
         assert!(result.is_error);
@@ -293,7 +299,10 @@ mod tests {
     async fn test_send_missing_session_name() {
         let tool = TmuxTool::new();
         let result = tool
-            .execute(serde_json::json!({"action": "send", "command": "echo hi"}))
+            .execute(
+                serde_json::json!({"action": "send", "command": "echo hi"}),
+                &ExecutionContext::default(),
+            )
             .await;
         assert!(result.is_err());
     }
@@ -302,7 +311,10 @@ mod tests {
     async fn test_send_missing_command() {
         let tool = TmuxTool::new();
         let result = tool
-            .execute(serde_json::json!({"action": "send", "session_name": "test"}))
+            .execute(
+                serde_json::json!({"action": "send", "session_name": "test"}),
+                &ExecutionContext::default(),
+            )
             .await;
         assert!(result.is_err());
     }
@@ -310,7 +322,12 @@ mod tests {
     #[tokio::test]
     async fn test_read_missing_session_name() {
         let tool = TmuxTool::new();
-        let result = tool.execute(serde_json::json!({"action": "read"})).await;
+        let result = tool
+            .execute(
+                serde_json::json!({"action": "read"}),
+                &ExecutionContext::default(),
+            )
+            .await;
         assert!(result.is_err());
     }
 }

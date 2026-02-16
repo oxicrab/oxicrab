@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::tools::base::ExecutionContext;
 use std::fs;
 
 // --- check_path_allowed ---
@@ -47,7 +48,10 @@ async fn test_read_file_success() {
 
     let tool = ReadFileTool::new(None);
     let result = tool
-        .execute(serde_json::json!({"path": file.to_str().unwrap()}))
+        .execute(
+            serde_json::json!({"path": file.to_str().unwrap()}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -60,7 +64,10 @@ async fn test_read_file_success() {
 async fn test_read_file_not_found() {
     let tool = ReadFileTool::new(None);
     let result = tool
-        .execute(serde_json::json!({"path": "/tmp/nanobot_nonexistent_file_12345.txt"}))
+        .execute(
+            serde_json::json!({"path": "/tmp/nanobot_nonexistent_file_12345.txt"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -70,7 +77,9 @@ async fn test_read_file_not_found() {
 #[tokio::test]
 async fn test_read_file_missing_param() {
     let tool = ReadFileTool::new(None);
-    let result = tool.execute(serde_json::json!({})).await;
+    let result = tool
+        .execute(serde_json::json!({}), &ExecutionContext::default())
+        .await;
     assert!(result.is_err());
 }
 
@@ -78,7 +87,10 @@ async fn test_read_file_missing_param() {
 async fn test_read_file_not_a_file() {
     let tool = ReadFileTool::new(None);
     let result = tool
-        .execute(serde_json::json!({"path": "/tmp"}))
+        .execute(
+            serde_json::json!({"path": "/tmp"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -97,7 +109,10 @@ async fn test_read_file_path_restriction() {
     fs::create_dir_all(&other).unwrap();
     let tool = ReadFileTool::new(Some(vec![other.clone()]));
     let result = tool
-        .execute(serde_json::json!({"path": file.to_str().unwrap()}))
+        .execute(
+            serde_json::json!({"path": file.to_str().unwrap()}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -117,7 +132,10 @@ async fn test_write_file_success() {
 
     let tool = WriteFileTool::new(None, None);
     let result = tool
-        .execute(serde_json::json!({"path": file.to_str().unwrap(), "content": "test content"}))
+        .execute(
+            serde_json::json!({"path": file.to_str().unwrap(), "content": "test content"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -134,7 +152,10 @@ async fn test_write_file_creates_parent_dirs() {
 
     let tool = WriteFileTool::new(None, None);
     let result = tool
-        .execute(serde_json::json!({"path": file.to_str().unwrap(), "content": "deep"}))
+        .execute(
+            serde_json::json!({"path": file.to_str().unwrap(), "content": "deep"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -154,11 +175,14 @@ async fn test_edit_file_success() {
 
     let tool = EditFileTool::new(None, None);
     let result = tool
-        .execute(serde_json::json!({
-            "path": file.to_str().unwrap(),
-            "old_text": "hello",
-            "new_text": "goodbye"
-        }))
+        .execute(
+            serde_json::json!({
+                "path": file.to_str().unwrap(),
+                "old_text": "hello",
+                "new_text": "goodbye"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -176,11 +200,14 @@ async fn test_edit_file_old_text_not_found() {
 
     let tool = EditFileTool::new(None, None);
     let result = tool
-        .execute(serde_json::json!({
-            "path": file.to_str().unwrap(),
-            "old_text": "missing text",
-            "new_text": "replacement"
-        }))
+        .execute(
+            serde_json::json!({
+                "path": file.to_str().unwrap(),
+                "old_text": "missing text",
+                "new_text": "replacement"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -198,11 +225,14 @@ async fn test_edit_file_ambiguous_match() {
 
     let tool = EditFileTool::new(None, None);
     let result = tool
-        .execute(serde_json::json!({
-            "path": file.to_str().unwrap(),
-            "old_text": "foo",
-            "new_text": "qux"
-        }))
+        .execute(
+            serde_json::json!({
+                "path": file.to_str().unwrap(),
+                "old_text": "foo",
+                "new_text": "qux"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -223,7 +253,10 @@ async fn test_list_dir_success() {
 
     let tool = ListDirTool::new(None);
     let result = tool
-        .execute(serde_json::json!({"path": dir.to_str().unwrap()}))
+        .execute(
+            serde_json::json!({"path": dir.to_str().unwrap()}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -238,7 +271,10 @@ async fn test_list_dir_success() {
 async fn test_list_dir_not_found() {
     let tool = ListDirTool::new(None);
     let result = tool
-        .execute(serde_json::json!({"path": "/tmp/nanobot_nonexistent_dir_12345"}))
+        .execute(
+            serde_json::json!({"path": "/tmp/nanobot_nonexistent_dir_12345"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -253,7 +289,10 @@ async fn test_list_dir_not_a_directory() {
 
     let tool = ListDirTool::new(None);
     let result = tool
-        .execute(serde_json::json!({"path": dir.to_str().unwrap()}))
+        .execute(
+            serde_json::json!({"path": dir.to_str().unwrap()}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -345,7 +384,10 @@ async fn test_write_file_creates_backup() {
 
     let tool = WriteFileTool::new(None, Some(backup_dir.clone()));
     let result = tool
-        .execute(serde_json::json!({"path": file.to_str().unwrap(), "content": "after"}))
+        .execute(
+            serde_json::json!({"path": file.to_str().unwrap(), "content": "after"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -370,11 +412,14 @@ async fn test_edit_file_creates_backup() {
 
     let tool = EditFileTool::new(None, Some(backup_dir.clone()));
     let result = tool
-        .execute(serde_json::json!({
-            "path": file.to_str().unwrap(),
-            "old_text": "hello",
-            "new_text": "goodbye"
-        }))
+        .execute(
+            serde_json::json!({
+                "path": file.to_str().unwrap(),
+                "old_text": "hello",
+                "new_text": "goodbye"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);

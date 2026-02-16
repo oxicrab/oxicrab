@@ -1,3 +1,4 @@
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::utils::regex::compile_security_patterns;
 use anyhow::{Context, Result};
@@ -170,7 +171,7 @@ impl Tool for ExecTool {
         ToolVersion::new(1, 1, 0) // Version 1.1.0 - includes security improvements
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let command = params["command"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;

@@ -1,4 +1,5 @@
 use crate::agent::subagent::SubagentManager;
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -43,7 +44,7 @@ impl Tool for SubagentControlTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let action = params["action"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?

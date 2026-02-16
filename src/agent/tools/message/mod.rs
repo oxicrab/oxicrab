@@ -1,3 +1,4 @@
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::bus::OutboundMessage;
 use anyhow::Result;
@@ -8,17 +9,11 @@ use tokio::sync::mpsc;
 
 pub struct MessageTool {
     send_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>,
-    default_channel: Arc<tokio::sync::Mutex<String>>,
-    default_chat_id: Arc<tokio::sync::Mutex<String>>,
 }
 
 impl MessageTool {
     pub fn new(send_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>) -> Self {
-        Self {
-            send_tx,
-            default_channel: Arc::new(tokio::sync::Mutex::new(String::new())),
-            default_chat_id: Arc::new(tokio::sync::Mutex::new(String::new())),
-        }
+        Self { send_tx }
     }
 }
 
@@ -62,7 +57,7 @@ impl Tool for MessageTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, ctx: &ExecutionContext) -> Result<ToolResult> {
         let content = params["content"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?
@@ -71,13 +66,13 @@ impl Tool for MessageTool {
         let channel = if let Some(ch) = params["channel"].as_str() {
             ch.to_string()
         } else {
-            self.default_channel.lock().await.clone()
+            ctx.channel.clone()
         };
 
         let chat_id = if let Some(cid) = params["chat_id"].as_str() {
             cid.to_string()
         } else {
-            self.default_chat_id.lock().await.clone()
+            ctx.chat_id.clone()
         };
 
         let media: Vec<String> = params["media"]
@@ -118,11 +113,6 @@ impl Tool for MessageTool {
                 "Error: Message sending not configured".to_string(),
             ))
         }
-    }
-
-    async fn set_context(&self, channel: &str, chat_id: &str) {
-        *self.default_channel.lock().await = channel.to_string();
-        *self.default_chat_id.lock().await = chat_id.to_string();
     }
 }
 

@@ -24,6 +24,7 @@ const MAX_SUBAGENT_ITERATIONS: usize = 15;
 const MAX_CONTEXT_CHARS: usize = 2000;
 
 /// Immutable configuration shared across all subagent tasks via `Arc`.
+#[derive(Clone)]
 pub struct SubagentConfig {
     pub provider: Arc<dyn LLMProvider>,
     pub workspace: PathBuf,
@@ -398,7 +399,8 @@ async fn execute_subagent_tool(
             task_id, tool_name, tool_args
         );
 
-        match tool.execute(tool_args.clone()).await {
+        let ctx = crate::agent::tools::base::ExecutionContext::default();
+        match tool.execute(tool_args.clone(), &ctx).await {
             Ok(result) => (
                 truncate_tool_result(&result.content, MAX_TOOL_RESULT_CHARS),
                 result.is_error,

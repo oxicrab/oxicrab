@@ -1,3 +1,4 @@
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::utils::media::{extension_from_content_type, save_media_file};
 use anyhow::Result;
@@ -192,7 +193,7 @@ impl Tool for HttpTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let Some(url) = params["url"].as_str() else {
             return Ok(ToolResult::error("Missing 'url' parameter".to_string()));
         };

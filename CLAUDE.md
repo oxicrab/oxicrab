@@ -62,9 +62,11 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
         → Channel (reply)
 ```
 
-### Key Abstractions (3 traits)
+### Key Abstractions (3 traits + middleware)
 
-- **`Tool`** (`src/agent/tools/base.rs`): `name()`, `description()`, `parameters()` (JSON Schema), `execute(Value) → ToolResult`. Optional: `cacheable()`, `set_context()`, `set_context_summary()`.
+- **`Tool`** (`src/agent/tools/base.rs`): `name()`, `description()`, `parameters()` (JSON Schema), `execute(Value, &ExecutionContext) → ToolResult`. Optional: `cacheable()`.
+- **`ToolMiddleware`** (`src/agent/tools/base.rs`): `before_execute()` (can short-circuit), `after_execute()` (can modify result). Built-in: `CacheMiddleware`, `TruncationMiddleware`, `LoggingMiddleware`.
+- **`ExecutionContext`** (`src/agent/tools/base.rs`): Passed to every `execute()` call. Fields: `channel`, `chat_id`, `context_summary`.
 - **`BaseChannel`** (`src/channels/base.rs`): `start()`, `stop()`, `send()`. Optional: `send_typing()`, `send_and_get_id()`, `edit_message()`, `delete_message()`.
 - **`LLMProvider`** (`src/providers/base.rs`): `chat(ChatRequest) → LLMResponse`, `default_model()`, `warmup()`. Has default `chat_with_retry()` with exponential backoff. `warmup()` pre-warms HTTP connections on startup (default no-op, implemented for Anthropic/OpenAI/Gemini).
 
@@ -72,9 +74,15 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 
 `ProviderFactory` in `src/providers/strategy.rs` picks provider by model name prefix. Tries Anthropic OAuth first, falls back to API key strategy. Within the API key strategy, OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Moonshot, Zhipu, DashScope, vLLM) are matched first by keyword in the model name, then native providers (Anthropic, OpenAI, Gemini). OpenAI-compat providers use `OpenAIProvider::with_config()` with a configurable base URL (defaulting per-provider) and provider name for error messages.
 
+### Tool System
+
+- **`ToolRegistry`** (`src/agent/tools/registry.rs`): Central execution engine. Runs middleware pipeline: `before_execute` → `execute_with_guards` (timeout + panic isolation via `tokio::task::spawn`) → `after_execute`. Stored as `Arc<ToolRegistry>` (immutable after construction).
+- **`ToolBuildContext`** (`src/agent/tools/setup.rs`): Aggregates all config needed for tool construction. `register_all_tools()` calls per-module registration functions.
+- **MCP** (`src/agent/tools/mcp/`): `McpManager` connects to external MCP servers via child processes (`rmcp` crate). `McpProxyTool` wraps each discovered tool as `impl Tool`. Config under `tools.mcp.servers`.
+
 ### Agent Loop (`src/agent/loop.rs`)
 
-`AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → result truncation (10k chars) → append to conversation. First iteration forces `tool_choice="any"` to prevent text-only hallucinations. Hallucination detection runs on final text responses.
+`AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. First iteration forces `tool_choice="any"` to prevent text-only hallucinations. Hallucination detection runs on final text responses.
 
 ### Feature Flags (channel selection)
 
@@ -128,8 +136,9 @@ JSON at `~/.nanobot/config.json` (or `NANOBOT_HOME` env var). Uses camelCase in 
 ### Tool Structs
 - Constructor: `pub fn new(...)` builds the client with timeouts
 - Test constructor: `#[cfg(test)] fn with_base_url(...)` for mock server testing
-- Implement `Tool` trait: `name()`, `description()`, `version()`, `parameters()`, `execute()`
+- Implement `Tool` trait: `name()`, `description()`, `version()`, `parameters()`, `execute(params, ctx)`
 - Action-based tools use `params["action"].as_str()` dispatch pattern
+- Registration: Each module has a `register_*()` function in `src/agent/tools/setup.rs`
 
 ### Error Handling
 - Internal functions use `anyhow::Result`; module boundaries use `NanobotError`
@@ -138,13 +147,13 @@ JSON at `~/.nanobot/config.json` (or `NANOBOT_HOME` env var). Uses camelCase in 
 
 ## Common Pitfalls
 
-- **Adding fields to `AgentLoopConfig`**: must update `src/cli/commands.rs` (both `setup_agent` and `agent()` functions), destructure in `AgentLoop::new()`, AND update `tests/message_flow.rs` `create_test_agent()` AND `tests/compaction_integration.rs` `create_compaction_agent()`.
+- **Adding fields to `AgentLoopConfig`**: must update `src/cli/commands.rs` (`setup_agent`), destructure in `AgentLoop::new()`, add to `ToolBuildContext` if tool-related, AND update `tests/common/mod.rs` `create_test_agent()` AND `tests/compaction_integration.rs` `create_compaction_agent()`.
+- **Adding a new tool**: Add a `register_*()` function in `src/agent/tools/setup.rs`, call it from `register_all_tools()`. Update `AGENTS.md`, `README.md`, and `MEMORY.md`.
 - **Adding fields to config structs with manual `Default` impl**: update both the struct definition and `Default::default()`.
 - **YAML parsing**: uses `serde_yaml_ng` (not the deprecated `serde_yaml`).
 - **`main.rs` and `lib.rs` both declare `mod errors`**: binary has its own module tree.
 - **UTF-8 string slicing**: always use `is_char_boundary()` or `chars()` before slicing.
-- **Tool execution**: wrapped in `tokio::task::spawn` for panic isolation — panics in tools don't crash the agent.
+- **Tool execution**: wrapped in `tokio::task::spawn` for panic isolation via `ToolRegistry::execute_with_guards()`.
 - **MemoryDB**: holds a persistent `std::sync::Mutex<Connection>`, not per-operation connections.
 - **Cron 5-field expressions**: `compute_next_run()` normalizes by prepending "0 " for the seconds field.
-- **Adding a new tool**: update the tool count and list in `~/.nanobot/workspace/AGENTS.md` (the bot's system prompt), `README.md`, and `MEMORY.md`.
 - **No `#[allow(dead_code)]`**: Do not add `#[allow(dead_code)]` or `#![allow(dead_code)]` anywhere. If code is unused, remove it. CI runs `clippy -D warnings` which catches dead code.

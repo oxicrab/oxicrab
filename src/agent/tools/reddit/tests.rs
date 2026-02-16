@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::tools::base::ExecutionContext;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -11,7 +12,10 @@ fn tool() -> RedditTool {
 #[tokio::test]
 async fn test_missing_subreddit() {
     let result = tool()
-        .execute(serde_json::json!({"action": "hot"}))
+        .execute(
+            serde_json::json!({"action": "hot"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -21,7 +25,10 @@ async fn test_missing_subreddit() {
 #[tokio::test]
 async fn test_unknown_action() {
     let result = tool()
-        .execute(serde_json::json!({"subreddit": "rust", "action": "bogus"}))
+        .execute(
+            serde_json::json!({"subreddit": "rust", "action": "bogus"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -31,7 +38,10 @@ async fn test_unknown_action() {
 #[tokio::test]
 async fn test_search_missing_query() {
     let result = tool()
-        .execute(serde_json::json!({"subreddit": "rust", "action": "search"}))
+        .execute(
+            serde_json::json!({"subreddit": "rust", "action": "search"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -68,7 +78,10 @@ async fn test_hot_posts_success() {
 
     let tool = RedditTool::with_base_url(server.uri());
     let result = tool
-        .execute(serde_json::json!({"subreddit": "rust", "action": "hot"}))
+        .execute(
+            serde_json::json!({"subreddit": "rust", "action": "hot"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -98,7 +111,10 @@ async fn test_top_posts_with_selftext() {
 
     let tool = RedditTool::with_base_url(server.uri());
     let result = tool
-        .execute(serde_json::json!({"subreddit": "programming", "action": "top", "time": "week"}))
+        .execute(
+            serde_json::json!({"subreddit": "programming", "action": "top", "time": "week"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -118,7 +134,10 @@ async fn test_empty_subreddit() {
 
     let tool = RedditTool::with_base_url(server.uri());
     let result = tool
-        .execute(serde_json::json!({"subreddit": "emptysub"}))
+        .execute(
+            serde_json::json!({"subreddit": "emptysub"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -137,7 +156,10 @@ async fn test_subreddit_not_found() {
 
     let tool = RedditTool::with_base_url(server.uri());
     let result = tool
-        .execute(serde_json::json!({"subreddit": "nonexistent"}))
+        .execute(
+            serde_json::json!({"subreddit": "nonexistent"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -156,7 +178,10 @@ async fn test_subreddit_private() {
 
     let tool = RedditTool::with_base_url(server.uri());
     let result = tool
-        .execute(serde_json::json!({"subreddit": "secret"}))
+        .execute(
+            serde_json::json!({"subreddit": "secret"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -183,7 +208,10 @@ async fn test_search_success() {
 
     let tool = RedditTool::with_base_url(server.uri());
     let result = tool
-        .execute(serde_json::json!({"subreddit": "rust", "action": "search", "query": "tokio"}))
+        .execute(
+            serde_json::json!({"subreddit": "rust", "action": "search", "query": "tokio"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -204,6 +232,7 @@ async fn test_search_no_results() {
     let result = tool
         .execute(
             serde_json::json!({"subreddit": "rust", "action": "search", "query": "xyznotfound"}),
+            &ExecutionContext::default(),
         )
         .await
         .unwrap();
@@ -232,7 +261,10 @@ async fn test_new_posts_action() {
 
     let tool = RedditTool::with_base_url(server.uri());
     let result = tool
-        .execute(serde_json::json!({"subreddit": "rust", "action": "new"}))
+        .execute(
+            serde_json::json!({"subreddit": "rust", "action": "new"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 

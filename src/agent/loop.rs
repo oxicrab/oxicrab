@@ -2,30 +2,9 @@ use crate::agent::compaction::{estimate_messages_tokens, MessageCompactor};
 use crate::agent::context::ContextBuilder;
 use crate::agent::memory::MemoryStore;
 use crate::agent::subagent::{SubagentConfig, SubagentManager};
-use crate::agent::tools::{
-    browser::BrowserTool,
-    cron::CronTool,
-    filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool},
-    github::GitHubTool,
-    google_calendar::GoogleCalendarTool,
-    google_mail::GoogleMailTool,
-    http::HttpTool,
-    image_gen::ImageGenTool,
-    media::MediaTool,
-    memory_search::MemorySearchTool,
-    message::MessageTool,
-    obsidian::{ObsidianSyncService, ObsidianTool},
-    reddit::RedditTool,
-    shell::ExecTool,
-    spawn::SpawnTool,
-    subagent_control::SubagentControlTool,
-    tmux::TmuxTool,
-    todoist::TodoistTool,
-    weather::WeatherTool,
-    web::{WebFetchTool, WebSearchTool},
-    ToolRegistry,
-};
-use crate::agent::truncation::truncate_tool_result;
+use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::setup::ToolBuildContext;
+use crate::agent::tools::ToolRegistry;
 use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
 use crate::cron::service::CronService;
 use crate::providers::base::{ImageData, LLMProvider, Message};
@@ -42,8 +21,6 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 const EMPTY_RESPONSE_RETRIES: usize = 2;
-const TOOL_EXECUTION_TIMEOUT_SECS: u64 = 120;
-const MAX_TOOL_RESULT_CHARS: usize = 10000;
 const AGENT_POLL_INTERVAL_MS: u64 = 100;
 
 /// Extract media file paths from a tool result string.
@@ -148,16 +125,33 @@ fn value_type_name(v: &Value) -> &'static str {
     }
 }
 
-/// Core logic for executing a single tool call and producing (`result_string`, `is_error`).
-async fn execute_tool_call_inner(
-    _tc_id: &str,
+/// Execute a tool call via the registry's middleware pipeline.
+///
+/// The registry handles: param validation, caching, timeout, panic isolation,
+/// truncation, and logging. This function is a thin wrapper that handles the
+/// "tool not found" case and converts the result to `(String, bool)`.
+async fn execute_tool_call(
+    registry: &ToolRegistry,
     tc_name: &str,
     tc_args: &Value,
-    tool_opt: Option<Arc<dyn crate::agent::tools::base::Tool>>,
     available_tools: &[String],
+    ctx: &ExecutionContext,
 ) -> (String, bool) {
-    if let Some(tool) = tool_opt {
-        // Validate params against schema before execution
+    // Check if tool exists before delegating to registry
+    if registry.get(tc_name).is_none() {
+        warn!("LLM called unknown tool: {}", tc_name);
+        return (
+            format!(
+                "Error: tool '{}' does not exist. Available tools: {}",
+                tc_name,
+                available_tools.join(", ")
+            ),
+            true,
+        );
+    }
+
+    // Validate params against schema before execution
+    if let Some(tool) = registry.get(tc_name) {
         if let Some(validation_error) = validate_tool_params(tool.as_ref(), tc_args) {
             warn!(
                 "Tool '{}' param validation failed: {}",
@@ -165,82 +159,13 @@ async fn execute_tool_call_inner(
             );
             return (validation_error, true);
         }
-
-        debug!("Executing tool: {} with arguments: {}", tc_name, tc_args);
-        let tool_name = tc_name.to_string();
-        let params = tc_args.clone();
-        let timeout_duration = std::time::Duration::from_secs(TOOL_EXECUTION_TIMEOUT_SECS);
-
-        // Spawn in a separate task for panic isolation — a panicking tool won't crash the agent
-        let tool_clone = tool.clone();
-        let handle = tokio::task::spawn(async move {
-            tokio::time::timeout(timeout_duration, tool_clone.execute(params)).await
-        });
-
-        match handle.await {
-            Ok(Ok(Ok(result))) => {
-                if result.is_error {
-                    warn!("Tool '{}' returned error: {}", tool_name, result.content);
-                }
-                (
-                    truncate_tool_result(&result.content, MAX_TOOL_RESULT_CHARS),
-                    result.is_error,
-                )
-            }
-            Ok(Ok(Err(e))) => {
-                warn!("Tool '{}' failed: {}", tool_name, e);
-                (format!("Tool execution failed: {}", e), true)
-            }
-            Ok(Err(_)) => {
-                warn!(
-                    "Tool '{}' timed out after {}s",
-                    tool_name,
-                    timeout_duration.as_secs()
-                );
-                (
-                    format!(
-                        "Tool '{}' timed out after {}s",
-                        tool_name,
-                        timeout_duration.as_secs()
-                    ),
-                    true,
-                )
-            }
-            Err(join_err) => {
-                error!("Tool '{}' panicked: {:?}", tool_name, join_err);
-                (format!("Tool '{}' crashed unexpectedly", tool_name), true)
-            }
-        }
-    } else {
-        warn!("LLM called unknown tool: {}", tc_name);
-        (
-            format!(
-                "Error: tool '{}' does not exist. Available tools: {}",
-                tc_name,
-                available_tools.join(", ")
-            ),
-            true,
-        )
     }
-}
 
-/// Execute a tool call with panic isolation (single-tool fast-path).
-async fn execute_tool_call(
-    tc: &crate::providers::base::ToolCallRequest,
-    tool_opt: Option<Arc<dyn crate::agent::tools::base::Tool>>,
-    available_tools: Vec<String>,
-) -> (String, bool) {
-    let tc_id = tc.id.clone();
-    let tc_name = tc.name.clone();
-    let tc_args = tc.arguments.clone();
-    let handle = tokio::task::spawn(async move {
-        execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt, &available_tools).await
-    });
-    match handle.await {
-        Ok(result) => result,
-        Err(join_err) => {
-            error!("Tool '{}' panicked: {:?}", tc.name, join_err);
-            (format!("Tool '{}' crashed unexpectedly", tc.name), true)
+    match registry.execute(tc_name, tc_args.clone(), ctx).await {
+        Ok(result) => (result.content, result.is_error),
+        Err(e) => {
+            warn!("Tool '{}' failed: {}", tc_name, e);
+            (format!("Tool execution failed: {}", e), true)
         }
     }
 }
@@ -570,6 +495,8 @@ pub struct AgentLoopConfig {
     pub browser_config: Option<crate::config::BrowserConfig>,
     /// Image generation tool configuration
     pub image_gen_config: Option<crate::config::ImageGenConfig>,
+    /// MCP (Model Context Protocol) server configuration
+    pub mcp_config: Option<crate::config::McpConfig>,
 }
 
 pub struct AgentLoop {
@@ -581,7 +508,7 @@ pub struct AgentLoop {
     context: Arc<Mutex<ContextBuilder>>,
     sessions: Arc<dyn SessionStore>,
     memory: Arc<MemoryStore>,
-    tools: Arc<Mutex<ToolRegistry>>,
+    tools: Arc<ToolRegistry>,
     compactor: Option<Arc<MessageCompactor>>,
     compaction_config: crate::config::CompactionConfig,
     _subagents: Option<Arc<SubagentManager>>,
@@ -631,6 +558,7 @@ impl AgentLoop {
             memory_config,
             browser_config,
             image_gen_config,
+            mcp_config,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -675,200 +603,43 @@ impl AgentLoop {
         // Start background memory indexer
         memory.start_indexer().await?;
 
-        let mut tools = ToolRegistry::new();
-
-        // Register filesystem tools
-        // When restricted, allow workspace + specific config dirs (not entire home)
-        let allowed_roots = if restrict_to_workspace {
-            let mut roots = vec![workspace.clone()];
-            if let Some(home) = dirs::home_dir() {
-                roots.push(home.join(".nanobot"));
-            }
-            Some(roots)
-        } else {
-            None
-        };
-
-        let backup_dir = dirs::home_dir().map(|h| h.join(".nanobot/backups"));
-
-        tools.register(Arc::new(ReadFileTool::new(allowed_roots.clone())));
-        tools.register(Arc::new(WriteFileTool::new(
-            allowed_roots.clone(),
-            backup_dir.clone(),
-        )));
-        tools.register(Arc::new(EditFileTool::new(
-            allowed_roots.clone(),
-            backup_dir,
-        )));
-        tools.register(Arc::new(ListDirTool::new(allowed_roots)));
-
-        // Register shell tool
-        tools.register(Arc::new(ExecTool::new(
-            exec_timeout,
-            Some(workspace.clone()),
+        let tool_ctx = ToolBuildContext {
+            workspace: workspace.clone(),
             restrict_to_workspace,
-            allowed_commands.clone(),
-        )?));
-
-        // Register web tools
-        if let Some(ref ws_cfg) = web_search_config {
-            tools.register(Arc::new(WebSearchTool::from_config(ws_cfg)));
-        } else {
-            tools.register(Arc::new(WebSearchTool::new(brave_api_key.clone(), 5)));
-        }
-        tools.register(Arc::new(WebFetchTool::new(50000)?));
-
-        // Register message tool with outbound sender
-        let outbound_tx_for_tool = outbound_tx.clone();
-        tools.register(Arc::new(MessageTool::new(Some(outbound_tx_for_tool))));
-
-        // Create subagent manager
-        let subagents = Arc::new(SubagentManager::new(
-            SubagentConfig {
+            exec_timeout,
+            outbound_tx: outbound_tx.clone(),
+            bus: bus.clone(),
+            web_search_config,
+            cron_service,
+            channels_config,
+            google_config,
+            github_config,
+            weather_config,
+            todoist_config,
+            media_config,
+            obsidian_config,
+            browser_config,
+            image_gen_config,
+            memory: memory.clone(),
+            subagent_config: SubagentConfig {
                 provider: provider.clone(),
                 workspace: workspace.clone(),
                 model: Some(model.clone()),
                 brave_api_key: brave_api_key.clone(),
                 exec_timeout,
                 restrict_to_workspace,
-                allowed_commands,
+                allowed_commands: allowed_commands.clone(),
                 max_tokens,
                 tool_temperature,
                 max_concurrent: max_concurrent_subagents,
             },
-            bus.clone(),
-        ));
+            brave_api_key,
+            allowed_commands,
+            mcp_config,
+        };
 
-        // Register spawn and subagent control tools
-        let spawn_tool = Arc::new(SpawnTool::new(subagents.clone()));
-        tools.register(spawn_tool.clone());
-        tools.register(Arc::new(SubagentControlTool::new(subagents.clone())));
-
-        // Register tmux tool
-        tools.register(Arc::new(TmuxTool::new()));
-
-        // Register browser tool if configured
-        if let Some(ref browser_cfg) = browser_config {
-            if browser_cfg.enabled {
-                tools.register(Arc::new(BrowserTool::new(browser_cfg)));
-                info!("Browser tool registered");
-            }
-        }
-
-        // Register image generation tool if configured
-        if let Some(ref ig_cfg) = image_gen_config {
-            if ig_cfg.enabled {
-                tools.register(Arc::new(ImageGenTool::new(
-                    ig_cfg.openai_api_key.clone(),
-                    ig_cfg.google_api_key.clone(),
-                    ig_cfg.default_provider.clone(),
-                )));
-                info!("Image generation tool registered");
-            }
-        }
-
-        // Register cron tool if service provided
-        if let Some(ref cron_svc) = cron_service {
-            tools.register(Arc::new(CronTool::new(cron_svc.clone(), channels_config)));
-        }
-
-        // Register Google tools if configured
-        if let Some(ref google_cfg) = google_config {
-            if google_cfg.enabled
-                && !google_cfg.client_id.is_empty()
-                && !google_cfg.client_secret.is_empty()
-            {
-                match crate::auth::google::get_credentials(
-                    &google_cfg.client_id,
-                    &google_cfg.client_secret,
-                    Some(&google_cfg.scopes),
-                    None,
-                )
-                .await
-                {
-                    Ok(creds) => {
-                        tools.register(Arc::new(GoogleMailTool::new(creds.clone())));
-                        tools.register(Arc::new(GoogleCalendarTool::new(creds)));
-                        info!("Google tools registered (gmail, calendar)");
-                    }
-                    Err(e) => {
-                        warn!("Google tools not available: {}", e);
-                    }
-                }
-            }
-        }
-
-        // Register GitHub tool if configured
-        if let Some(ref gh_cfg) = github_config {
-            if gh_cfg.enabled && !gh_cfg.token.is_empty() {
-                tools.register(Arc::new(GitHubTool::new(gh_cfg.token.clone())));
-                info!("GitHub tool registered");
-            }
-        }
-
-        // Register Weather tool if configured
-        if let Some(ref weather_cfg) = weather_config {
-            if weather_cfg.enabled && !weather_cfg.api_key.is_empty() {
-                tools.register(Arc::new(WeatherTool::new(weather_cfg.api_key.clone())));
-                info!("Weather tool registered");
-            }
-        }
-
-        // Register Todoist tool if configured
-        if let Some(ref todoist_cfg) = todoist_config {
-            if todoist_cfg.enabled && !todoist_cfg.token.is_empty() {
-                tools.register(Arc::new(TodoistTool::new(todoist_cfg.token.clone())));
-                info!("Todoist tool registered");
-            }
-        }
-
-        // Register Media tool (Radarr/Sonarr) if configured
-        if let Some(ref media_cfg) = media_config {
-            if media_cfg.enabled {
-                tools.register(Arc::new(MediaTool::new(media_cfg)));
-                info!("Media tool registered (Radarr/Sonarr)");
-            }
-        }
-
-        // Register Obsidian tool if configured
-        if let Some(ref obsidian_cfg) = obsidian_config {
-            if obsidian_cfg.enabled
-                && !obsidian_cfg.api_url.is_empty()
-                && !obsidian_cfg.api_key.is_empty()
-            {
-                match ObsidianTool::new(
-                    &obsidian_cfg.api_url,
-                    &obsidian_cfg.api_key,
-                    &obsidian_cfg.vault_name,
-                    obsidian_cfg.timeout,
-                ) {
-                    Ok((tool, cache)) => {
-                        tools.register(Arc::new(tool));
-                        let sync_svc = ObsidianSyncService::new(cache, obsidian_cfg.sync_interval);
-                        tokio::spawn(async move {
-                            if let Err(e) = sync_svc.start().await {
-                                error!("Obsidian sync failed to start: {}", e);
-                            }
-                        });
-                        info!("Obsidian tool registered");
-                    }
-                    Err(e) => {
-                        warn!("Obsidian tool not available: {}", e);
-                    }
-                }
-            }
-        }
-
-        // Register HTTP tool (always available, no config needed)
-        tools.register(Arc::new(HttpTool::new()));
-
-        // Register Reddit tool (always available, no auth needed)
-        tools.register(Arc::new(RedditTool::new()));
-
-        // Register memory search tool (always available)
-        tools.register(Arc::new(MemorySearchTool::new(memory.clone())));
-
-        let tools = Arc::new(Mutex::new(tools));
+        let (tools, subagents) = crate::agent::tools::setup::register_all_tools(&tool_ctx).await?;
+        let tools = Arc::new(tools);
 
         let transcriber = voice_config
             .as_ref()
@@ -1010,15 +781,13 @@ impl AgentLoop {
         debug!("Loading session: {}", session_key);
         let mut session = self.sessions.get_or_create(&session_key).await?;
 
-        // Set tool contexts (pass compaction summary for subagent context injection)
+        // Build execution context for tool calls
         let context_summary = session
             .metadata
             .get("compaction_summary")
             .and_then(|v| v.as_str())
             .map(std::string::ToString::to_string);
-        debug!("Setting tool contexts");
-        self.set_tool_contexts(&msg.channel, &msg.chat_id, context_summary.as_deref())
-            .await;
+        let exec_ctx = Self::build_execution_context(&msg.channel, &msg.chat_id, context_summary);
 
         debug!("Getting compacted history");
         let history = self.get_compacted_history(&session).await?;
@@ -1084,7 +853,7 @@ impl AgentLoop {
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
         let (final_content, input_tokens, tools_used, collected_media) =
-            self.run_agent_loop(messages, typing_ctx).await?;
+            self.run_agent_loop(messages, typing_ctx, &exec_ctx).await?;
 
         // Save conversation (reuse session variable)
         let extra = HashMap::new();
@@ -1172,6 +941,7 @@ impl AgentLoop {
         &self,
         mut messages: Vec<Message>,
         typing_context: Option<(String, String)>,
+        exec_ctx: &ExecutionContext,
     ) -> Result<(Option<String>, Option<u64>, Vec<String>, Vec<String>)> {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut last_used_delivery_tool = false;
@@ -1180,11 +950,7 @@ impl AgentLoop {
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
 
-        // Cache tool definitions to avoid repeated lock acquisition
-        let tools_defs = {
-            let tools_guard = self.tools.lock().await;
-            tools_guard.get_tool_definitions()
-        };
+        let tools_defs = self.tools.get_tool_definitions();
 
         // Extract tool names for hallucination detection
         let tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
@@ -1303,42 +1069,35 @@ impl AgentLoop {
                 // Start periodic typing indicator before tool execution
                 let typing_handle = start_typing(self.typing_tx.as_ref(), typing_context.as_ref());
 
-                // Execute tools with validation
-                // NOTE: We must NOT hold the tools lock across tool execution,
-                // because tools like cron `run` can re-enter the agent loop
-                // (via process_direct), which needs to acquire the tools lock.
-
-                // Phase 1: Look up all tools with a single lock acquisition
-                let tool_lookups: Vec<_> = {
-                    let tools_guard = self.tools.lock().await;
-                    response
-                        .tool_calls
-                        .iter()
-                        .map(|tc| (tc, tools_guard.get(&tc.name)))
-                        .collect()
-                };
-                // Lock is dropped here — safe for tools that re-enter the agent loop
-
-                // Phase 2+3: Execute tools and collect results
-                let results = if tool_lookups.len() == 1 {
-                    // Single tool fast-path: avoid join_all overhead
-                    let (tc, tool_opt) = &tool_lookups[0];
-                    vec![execute_tool_call(tc, tool_opt.clone(), tool_names.clone()).await]
+                // Execute tools via the registry's middleware pipeline
+                // (handles caching, timeout, panic isolation, truncation, logging)
+                let results = if response.tool_calls.len() == 1 {
+                    // Single tool fast-path
+                    let tc = &response.tool_calls[0];
+                    vec![
+                        execute_tool_call(
+                            &self.tools,
+                            &tc.name,
+                            &tc.arguments,
+                            &tool_names,
+                            exec_ctx,
+                        )
+                        .await,
+                    ]
                 } else {
                     // Parallel execution: spawn all, await all
-                    let handles: Vec<_> = tool_lookups
+                    let handles: Vec<_> = response
+                        .tool_calls
                         .iter()
-                        .map(|(tc, tool_opt)| {
-                            let tc_id = tc.id.clone();
+                        .map(|tc| {
+                            let registry = self.tools.clone();
                             let tc_name = tc.name.clone();
                             let tc_args = tc.arguments.clone();
-                            let tool_opt = tool_opt.clone();
                             let available = tool_names.clone();
+                            let ctx = exec_ctx.clone();
                             tokio::task::spawn(async move {
-                                execute_tool_call_inner(
-                                    &tc_id, &tc_name, &tc_args, tool_opt, &available,
-                                )
-                                .await
+                                execute_tool_call(&registry, &tc_name, &tc_args, &available, &ctx)
+                                    .await
                             })
                         })
                         .collect();
@@ -1361,8 +1120,8 @@ impl AgentLoop {
                 }
 
                 // Phase 4: Add all results to messages in order and collect media
-                for ((tc, _), (result_str, is_error)) in
-                    tool_lookups.iter().zip(results.into_iter())
+                for (tc, (result_str, is_error)) in
+                    response.tool_calls.iter().zip(results.into_iter())
                 {
                     // Collect media file paths produced by tools
                     if !is_error {
@@ -1508,20 +1267,15 @@ impl AgentLoop {
         Ok((None, last_input_tokens, tools_used, collected_media))
     }
 
-    async fn set_tool_contexts(&self, channel: &str, chat_id: &str, context_summary: Option<&str>) {
-        let tools_guard = self.tools.lock().await;
-        // Set context on tools that support it
-        if let Some(msg_tool) = tools_guard.get("message") {
-            msg_tool.set_context(channel, chat_id).await;
-        }
-        if let Some(cron_tool) = tools_guard.get("cron") {
-            cron_tool.set_context(channel, chat_id).await;
-        }
-        if let Some(spawn_tool) = tools_guard.get("spawn") {
-            spawn_tool.set_context(channel, chat_id).await;
-            if let Some(summary) = context_summary {
-                spawn_tool.set_context_summary(summary).await;
-            }
+    fn build_execution_context(
+        channel: &str,
+        chat_id: &str,
+        context_summary: Option<String>,
+    ) -> ExecutionContext {
+        ExecutionContext {
+            channel: channel.to_string(),
+            chat_id: chat_id.to_string(),
+            context_summary,
         }
     }
 
@@ -1627,8 +1381,9 @@ impl AgentLoop {
         )?;
 
         let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
+        let exec_ctx = Self::build_execution_context(&origin_channel, &origin_chat_id, None);
         let (final_content, _, tools_used, collected_media) =
-            self.run_agent_loop(messages, typing_ctx).await?;
+            self.run_agent_loop(messages, typing_ctx, &exec_ctx).await?;
         let final_content =
             final_content.unwrap_or_else(|| "Background task completed.".to_string());
 
@@ -1686,8 +1441,9 @@ impl AgentLoop {
         };
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
+        let exec_ctx = Self::build_execution_context(channel, chat_id, None);
         let (response, _, tools_used, _collected_media) =
-            self.run_agent_loop(messages, typing_ctx).await?;
+            self.run_agent_loop(messages, typing_ctx, &exec_ctx).await?;
         let response = response.unwrap_or_else(|| "No response generated.".to_string());
 
         let mut session = self.sessions.get_or_create(session_key).await?;
@@ -1989,7 +1745,11 @@ mod tests {
         fn parameters(&self) -> serde_json::Value {
             serde_json::json!({})
         }
-        async fn execute(&self, _params: serde_json::Value) -> anyhow::Result<ToolResult> {
+        async fn execute(
+            &self,
+            _params: serde_json::Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
             tokio::time::sleep(std::time::Duration::from_millis(self.delay_ms)).await;
             Ok(ToolResult::new(self.response.clone()))
         }
@@ -2009,7 +1769,11 @@ mod tests {
         fn parameters(&self) -> serde_json::Value {
             serde_json::json!({})
         }
-        async fn execute(&self, _params: serde_json::Value) -> anyhow::Result<ToolResult> {
+        async fn execute(
+            &self,
+            _params: serde_json::Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
             Err(anyhow::anyhow!("intentional error"))
         }
     }
@@ -2028,7 +1792,11 @@ mod tests {
         fn parameters(&self) -> serde_json::Value {
             serde_json::json!({})
         }
-        async fn execute(&self, _params: serde_json::Value) -> anyhow::Result<ToolResult> {
+        async fn execute(
+            &self,
+            _params: serde_json::Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
             panic!("intentional panic");
         }
     }
@@ -2045,26 +1813,35 @@ mod tests {
         vec![]
     }
 
+    fn make_registry_with(tools_list: Vec<Arc<dyn Tool>>) -> ToolRegistry {
+        let mut registry = ToolRegistry::new();
+        for tool in tools_list {
+            registry.register(tool);
+        }
+        registry
+    }
+
     #[tokio::test]
     async fn test_parallel_tool_execution_ordering() {
         // 3 tools with different delays — results must come back in call order
-        let tools: Vec<Option<Arc<dyn Tool>>> = vec![
-            Some(Arc::new(MockTool {
+        let registry = make_registry_with(vec![
+            Arc::new(MockTool {
                 tool_name: "slow".into(),
                 delay_ms: 80,
                 response: "slow_result".into(),
-            })),
-            Some(Arc::new(MockTool {
+            }),
+            Arc::new(MockTool {
                 tool_name: "fast".into(),
                 delay_ms: 10,
                 response: "fast_result".into(),
-            })),
-            Some(Arc::new(MockTool {
+            }),
+            Arc::new(MockTool {
                 tool_name: "medium".into(),
                 delay_ms: 40,
                 response: "medium_result".into(),
-            })),
-        ];
+            }),
+        ]);
+        let registry = Arc::new(registry);
 
         let calls = [
             make_tool_call("1", "slow"),
@@ -2075,15 +1852,20 @@ mod tests {
         // Spawn in parallel (same pattern as the production code)
         let handles: Vec<_> = calls
             .iter()
-            .zip(tools.iter())
-            .map(|(tc, tool_opt)| {
-                let tc_id = tc.id.clone();
+            .map(|tc| {
+                let reg = registry.clone();
                 let tc_name = tc.name.clone();
                 let tc_args = tc.arguments.clone();
-                let tool_opt = tool_opt.clone();
                 let available = empty_tools();
                 tokio::task::spawn(async move {
-                    execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt, &available).await
+                    execute_tool_call(
+                        &reg,
+                        &tc_name,
+                        &tc_args,
+                        &available,
+                        &ExecutionContext::default(),
+                    )
+                    .await
                 })
             })
             .collect();
@@ -2105,14 +1887,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_single_tool_no_parallel_overhead() {
-        let tool: Option<Arc<dyn Tool>> = Some(Arc::new(MockTool {
+        let registry = make_registry_with(vec![Arc::new(MockTool {
             tool_name: "only".into(),
             delay_ms: 0,
             response: "only_result".into(),
-        }));
+        })]);
 
-        let tc = make_tool_call("1", "only");
-        let (result, is_error) = execute_tool_call(&tc, tool, empty_tools()).await;
+        let (result, is_error) = execute_tool_call(
+            &registry,
+            "only",
+            &serde_json::json!({}),
+            &empty_tools(),
+            &ExecutionContext::default(),
+        )
+        .await;
 
         assert_eq!(result, "only_result");
         assert!(!is_error);
@@ -2120,19 +1908,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_parallel_tool_one_panics() {
-        let tools: Vec<Option<Arc<dyn Tool>>> = vec![
-            Some(Arc::new(MockTool {
+        let registry = make_registry_with(vec![
+            Arc::new(MockTool {
                 tool_name: "good1".into(),
                 delay_ms: 0,
                 response: "result1".into(),
-            })),
-            Some(Arc::new(PanicTool)),
-            Some(Arc::new(MockTool {
+            }),
+            Arc::new(PanicTool),
+            Arc::new(MockTool {
                 tool_name: "good2".into(),
                 delay_ms: 0,
                 response: "result2".into(),
-            })),
-        ];
+            }),
+        ]);
+        let registry = Arc::new(registry);
 
         let calls = [
             make_tool_call("1", "good1"),
@@ -2142,15 +1931,20 @@ mod tests {
 
         let handles: Vec<_> = calls
             .iter()
-            .zip(tools.iter())
-            .map(|(tc, tool_opt)| {
-                let tc_id = tc.id.clone();
+            .map(|tc| {
+                let reg = registry.clone();
                 let tc_name = tc.name.clone();
                 let tc_args = tc.arguments.clone();
-                let tool_opt = tool_opt.clone();
                 let available = empty_tools();
                 tokio::task::spawn(async move {
-                    execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt, &available).await
+                    execute_tool_call(
+                        &reg,
+                        &tc_name,
+                        &tc_args,
+                        &available,
+                        &ExecutionContext::default(),
+                    )
+                    .await
                 })
             })
             .collect();
@@ -2176,19 +1970,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_parallel_tool_one_errors() {
-        let tools: Vec<Option<Arc<dyn Tool>>> = vec![
-            Some(Arc::new(MockTool {
+        let registry = make_registry_with(vec![
+            Arc::new(MockTool {
                 tool_name: "good".into(),
                 delay_ms: 0,
                 response: "good_result".into(),
-            })),
-            Some(Arc::new(ErrorTool)),
-            Some(Arc::new(MockTool {
+            }),
+            Arc::new(ErrorTool),
+            Arc::new(MockTool {
                 tool_name: "also_good".into(),
                 delay_ms: 0,
                 response: "also_good_result".into(),
-            })),
-        ];
+            }),
+        ]);
+        let registry = Arc::new(registry);
 
         let calls = [
             make_tool_call("1", "good"),
@@ -2198,15 +1993,20 @@ mod tests {
 
         let handles: Vec<_> = calls
             .iter()
-            .zip(tools.iter())
-            .map(|(tc, tool_opt)| {
-                let tc_id = tc.id.clone();
+            .map(|tc| {
+                let reg = registry.clone();
                 let tc_name = tc.name.clone();
                 let tc_args = tc.arguments.clone();
-                let tool_opt = tool_opt.clone();
                 let available = empty_tools();
                 tokio::task::spawn(async move {
-                    execute_tool_call_inner(&tc_id, &tc_name, &tc_args, tool_opt, &available).await
+                    execute_tool_call(
+                        &reg,
+                        &tc_name,
+                        &tc_args,
+                        &available,
+                        &ExecutionContext::default(),
+                    )
+                    .await
                 })
             })
             .collect();
@@ -2231,17 +2031,34 @@ mod tests {
 
     #[tokio::test]
     async fn test_unknown_tool_lists_available() {
+        let registry = make_registry_with(vec![
+            Arc::new(MockTool {
+                tool_name: "read_file".into(),
+                delay_ms: 0,
+                response: "ok".into(),
+            }),
+            Arc::new(MockTool {
+                tool_name: "write_file".into(),
+                delay_ms: 0,
+                response: "ok".into(),
+            }),
+            Arc::new(MockTool {
+                tool_name: "exec".into(),
+                delay_ms: 0,
+                response: "ok".into(),
+            }),
+        ]);
         let available = vec![
             "read_file".to_string(),
             "write_file".to_string(),
             "exec".to_string(),
         ];
-        let (result, is_error) = execute_tool_call_inner(
-            "id1",
+        let (result, is_error) = execute_tool_call(
+            &registry,
             "nonexistent_tool",
             &serde_json::json!({}),
-            None,
             &available,
+            &ExecutionContext::default(),
         )
         .await;
         assert!(is_error);
@@ -2277,7 +2094,11 @@ mod tests {
                 "required": ["query"]
             })
         }
-        async fn execute(&self, _params: serde_json::Value) -> anyhow::Result<ToolResult> {
+        async fn execute(
+            &self,
+            _params: serde_json::Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
             Ok(ToolResult::new("ok".to_string()))
         }
     }
@@ -2336,13 +2157,13 @@ mod tests {
     #[tokio::test]
     async fn test_validation_rejects_before_execution() {
         // Tool with required param "query" — call without it, should get validation error
-        let tool: Option<Arc<dyn Tool>> = Some(Arc::new(SchemaTestTool));
-        let (result, is_error) = execute_tool_call_inner(
-            "id1",
+        let registry = make_registry_with(vec![Arc::new(SchemaTestTool)]);
+        let (result, is_error) = execute_tool_call(
+            &registry,
             "schema_test",
             &serde_json::json!({}),
-            tool,
             &empty_tools(),
+            &ExecutionContext::default(),
         )
         .await;
         assert!(is_error);

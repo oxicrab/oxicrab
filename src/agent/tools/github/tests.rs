@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::tools::base::ExecutionContext;
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -10,14 +11,19 @@ fn tool() -> GitHubTool {
 
 #[tokio::test]
 async fn test_missing_action() {
-    let result = tool().execute(serde_json::json!({})).await;
+    let result = tool()
+        .execute(serde_json::json!({}), &ExecutionContext::default())
+        .await;
     assert!(result.is_err());
 }
 
 #[tokio::test]
 async fn test_unknown_action() {
     let result = tool()
-        .execute(serde_json::json!({"action": "bogus"}))
+        .execute(
+            serde_json::json!({"action": "bogus"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -27,7 +33,10 @@ async fn test_unknown_action() {
 #[tokio::test]
 async fn test_list_issues_missing_owner() {
     let result = tool()
-        .execute(serde_json::json!({"action": "list_issues", "repo": "nanobot"}))
+        .execute(
+            serde_json::json!({"action": "list_issues", "repo": "nanobot"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -37,7 +46,10 @@ async fn test_list_issues_missing_owner() {
 #[tokio::test]
 async fn test_list_issues_missing_repo() {
     let result = tool()
-        .execute(serde_json::json!({"action": "list_issues", "owner": "alice"}))
+        .execute(
+            serde_json::json!({"action": "list_issues", "owner": "alice"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -47,7 +59,10 @@ async fn test_list_issues_missing_repo() {
 #[tokio::test]
 async fn test_create_issue_missing_title() {
     let result = tool()
-        .execute(serde_json::json!({"action": "create_issue", "owner": "a", "repo": "b"}))
+        .execute(
+            serde_json::json!({"action": "create_issue", "owner": "a", "repo": "b"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -57,7 +72,10 @@ async fn test_create_issue_missing_title() {
 #[tokio::test]
 async fn test_get_pr_missing_number() {
     let result = tool()
-        .execute(serde_json::json!({"action": "get_pr", "owner": "a", "repo": "b"}))
+        .execute(
+            serde_json::json!({"action": "get_pr", "owner": "a", "repo": "b"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
     assert!(result.is_error);
@@ -92,11 +110,14 @@ async fn test_list_issues_success() {
 
     let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({
-            "action": "list_issues",
-            "owner": "octo",
-            "repo": "repo"
-        }))
+        .execute(
+            serde_json::json!({
+                "action": "list_issues",
+                "owner": "octo",
+                "repo": "repo"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -119,11 +140,14 @@ async fn test_list_issues_empty() {
 
     let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({
-            "action": "list_issues",
-            "owner": "octo",
-            "repo": "repo"
-        }))
+        .execute(
+            serde_json::json!({
+                "action": "list_issues",
+                "owner": "octo",
+                "repo": "repo"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -156,11 +180,14 @@ async fn test_list_issues_excludes_prs() {
 
     let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({
-            "action": "list_issues",
-            "owner": "octo",
-            "repo": "repo"
-        }))
+        .execute(
+            serde_json::json!({
+                "action": "list_issues",
+                "owner": "octo",
+                "repo": "repo"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -182,12 +209,15 @@ async fn test_create_issue_success() {
 
     let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({
-            "action": "create_issue",
-            "owner": "octo",
-            "repo": "repo",
-            "title": "New bug"
-        }))
+        .execute(
+            serde_json::json!({
+                "action": "create_issue",
+                "owner": "octo",
+                "repo": "repo",
+                "title": "New bug"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -224,11 +254,14 @@ async fn test_list_prs_success() {
 
     let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({
-            "action": "list_prs",
-            "owner": "octo",
-            "repo": "repo"
-        }))
+        .execute(
+            serde_json::json!({
+                "action": "list_prs",
+                "owner": "octo",
+                "repo": "repo"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -256,7 +289,10 @@ async fn test_notifications_success() {
 
     let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "notifications"}))
+        .execute(
+            serde_json::json!({"action": "notifications"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -277,7 +313,10 @@ async fn test_notifications_empty() {
 
     let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({"action": "notifications"}))
+        .execute(
+            serde_json::json!({"action": "notifications"}),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -297,11 +336,14 @@ async fn test_api_error_not_found() {
 
     let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({
-            "action": "list_issues",
-            "owner": "octo",
-            "repo": "missing"
-        }))
+        .execute(
+            serde_json::json!({
+                "action": "list_issues",
+                "owner": "octo",
+                "repo": "missing"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 
@@ -322,11 +364,14 @@ async fn test_api_error_unauthorized() {
 
     let tool = GitHubTool::with_base_url("bad_token".to_string(), server.uri());
     let result = tool
-        .execute(serde_json::json!({
-            "action": "list_issues",
-            "owner": "octo",
-            "repo": "repo"
-        }))
+        .execute(
+            serde_json::json!({
+                "action": "list_issues",
+                "owner": "octo",
+                "repo": "repo"
+            }),
+            &ExecutionContext::default(),
+        )
         .await
         .unwrap();
 

@@ -1024,6 +1024,8 @@ pub struct ToolsConfig {
     pub browser: BrowserConfig,
     #[serde(default, rename = "imageGen")]
     pub image_gen: ImageGenConfig,
+    #[serde(default)]
+    pub mcp: McpConfig,
 }
 
 fn default_image_gen_provider() -> String {
@@ -1070,6 +1072,24 @@ impl Default for ImageGenConfig {
             google_api_key: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct McpConfig {
+    #[serde(default)]
+    pub servers: std::collections::HashMap<String, McpServerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerConfig {
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 fn default_transcription_api_base() -> String {

@@ -1,3 +1,4 @@
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::utils::media::save_media_file;
 use anyhow::Result;
@@ -666,7 +667,7 @@ impl Tool for BrowserTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let Some(action) = params["action"].as_str() else {
             return Ok(ToolResult::error(
                 "missing required 'action' parameter".to_string(),
@@ -765,7 +766,10 @@ mod tests {
             "action": "open",
             "url": "http://169.254.169.254/latest/meta-data"
         });
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("security policy") || result.content.contains("blocked"));
     }
@@ -774,7 +778,10 @@ mod tests {
     async fn test_unknown_action() {
         let tool = BrowserTool::for_testing();
         let params = serde_json::json!({"action": "destroy"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("unknown browser action"));
     }
@@ -783,7 +790,10 @@ mod tests {
     async fn test_missing_action() {
         let tool = BrowserTool::for_testing();
         let params = serde_json::json!({});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("action"));
     }
@@ -792,7 +802,10 @@ mod tests {
     async fn test_open_missing_url() {
         let tool = BrowserTool::for_testing();
         let params = serde_json::json!({"action": "open"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("url"));
     }
@@ -801,7 +814,10 @@ mod tests {
     async fn test_click_missing_selector() {
         let tool = BrowserTool::for_testing();
         let params = serde_json::json!({"action": "click"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("selector"));
     }
@@ -811,12 +827,18 @@ mod tests {
         let tool = BrowserTool::for_testing();
 
         let params = serde_json::json!({"action": "type"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("selector"));
 
         let params = serde_json::json!({"action": "type", "selector": "#input"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("text"));
     }
@@ -826,12 +848,18 @@ mod tests {
         let tool = BrowserTool::for_testing();
 
         let params = serde_json::json!({"action": "fill"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("selector"));
 
         let params = serde_json::json!({"action": "fill", "selector": "#input"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("text"));
     }
@@ -840,7 +868,10 @@ mod tests {
     async fn test_eval_missing_javascript() {
         let tool = BrowserTool::for_testing();
         let params = serde_json::json!({"action": "eval"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("javascript"));
     }
@@ -849,7 +880,10 @@ mod tests {
     async fn test_get_missing_what() {
         let tool = BrowserTool::for_testing();
         let params = serde_json::json!({"action": "get"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("what"));
     }
@@ -858,7 +892,10 @@ mod tests {
     async fn test_scroll_missing_direction() {
         let tool = BrowserTool::for_testing();
         let params = serde_json::json!({"action": "scroll"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("direction"));
     }
@@ -867,7 +904,10 @@ mod tests {
     async fn test_navigate_missing_param() {
         let tool = BrowserTool::for_testing();
         let params = serde_json::json!({"action": "navigate"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("navigation"));
     }
@@ -876,7 +916,10 @@ mod tests {
     async fn test_wait_missing_params() {
         let tool = BrowserTool::for_testing();
         let params = serde_json::json!({"action": "wait"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("wait"));
     }
@@ -887,12 +930,18 @@ mod tests {
 
         // Actions that need an active session should return an error
         let params = serde_json::json!({"action": "click", "selector": "#btn"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("no browser session"));
 
         let params = serde_json::json!({"action": "screenshot"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("no browser session"));
     }
@@ -901,7 +950,10 @@ mod tests {
     async fn test_close_no_session() {
         let tool = BrowserTool::for_testing();
         let params = serde_json::json!({"action": "close"});
-        let result = tool.execute(params).await.unwrap();
+        let result = tool
+            .execute(params, &ExecutionContext::default())
+            .await
+            .unwrap();
         assert!(!result.is_error);
         assert!(result.content.contains("No browser session"));
     }

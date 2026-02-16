@@ -449,6 +449,7 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
                 }
                 Some(ig)
             },
+            mcp_config: Some(config.tools.mcp.clone()),
         })
         .await?,
     );

@@ -96,6 +96,7 @@ async fn create_compaction_agent(
         memory_config: None,
         browser_config: None,
         image_gen_config: None,
+        mcp_config: None,
     };
 
     AgentLoop::new(config)

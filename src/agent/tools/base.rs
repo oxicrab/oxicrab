@@ -59,13 +59,22 @@ impl Default for ToolVersion {
     }
 }
 
+/// Context passed to every tool execution, providing the current channel,
+/// chat ID, and an optional conversation summary for context injection.
+#[derive(Debug, Clone, Default)]
+pub struct ExecutionContext {
+    pub channel: String,
+    pub chat_id: String,
+    pub context_summary: Option<String>,
+}
+
 #[async_trait]
 pub trait Tool: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &'static str;
     fn parameters(&self) -> Value; // JSON Schema
 
-    async fn execute(&self, params: Value) -> anyhow::Result<ToolResult>;
+    async fn execute(&self, params: Value, ctx: &ExecutionContext) -> anyhow::Result<ToolResult>;
 
     /// Get tool version (defaults to 1.0.0)
     fn version(&self) -> ToolVersion {
@@ -96,16 +105,30 @@ pub trait Tool: Send + Sync {
     fn cacheable(&self) -> bool {
         false
     }
+}
 
-    /// Set context for tools that need it (`channel`, `chat_id`).
-    /// Default implementation does nothing - tools that need context override this.
-    async fn set_context(&self, _channel: &str, _chat_id: &str) {
-        // Default: no-op
+/// Middleware that can intercept tool execution for cross-cutting concerns
+/// like caching, truncation, and logging.
+#[async_trait]
+pub trait ToolMiddleware: Send + Sync {
+    /// Called before tool execution. Return `Some` to short-circuit (e.g., cache hit).
+    async fn before_execute(
+        &self,
+        _name: &str,
+        _params: &Value,
+        _ctx: &ExecutionContext,
+        _tool: &dyn Tool,
+    ) -> Option<ToolResult> {
+        None
     }
 
-    /// Set a conversation context summary for tools that can use it (e.g., spawn).
-    /// Called before tool execution with a compressed summary of the current conversation.
-    async fn set_context_summary(&self, _summary: &str) {
-        // Default: no-op
+    /// Called after tool execution. Can modify the result (e.g., truncation).
+    async fn after_execute(
+        &self,
+        _name: &str,
+        _params: &Value,
+        _ctx: &ExecutionContext,
+        _result: &mut ToolResult,
+    ) {
     }
 }

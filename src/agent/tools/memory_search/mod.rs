@@ -1,4 +1,5 @@
 use crate::agent::memory::MemoryStore;
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -42,7 +43,7 @@ impl Tool for MemorySearchTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let query = match params["query"].as_str() {
             Some(q) if !q.trim().is_empty() => q,
             _ => {

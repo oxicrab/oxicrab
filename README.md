@@ -6,7 +6,7 @@ A high-performance Rust implementation of the nanobot AI assistant framework wit
 
 - **Multi-channel support**: Telegram, Discord, Slack, WhatsApp, Twilio (SMS/MMS) — each behind a Cargo feature flag for slim builds
 - **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), plus OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, vLLM), with OAuth support and local model fallback
-- **23 built-in tools**: Filesystem, shell, web, HTTP, browser automation, Google Workspace, GitHub, scheduling, memory, media management, and more
+- **23+ built-in tools**: Filesystem, shell, web, HTTP, browser automation, Google Workspace, GitHub, scheduling, memory, media management, and more — plus MCP (Model Context Protocol) for external tool servers
 - **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
 - **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode (LLM-free delivery), multi-channel targeting, auto-expiry (`expires_at`) and run limits (`max_runs`)
 - **Memory system**: SQLite FTS5-backed long-term memory with background indexing, automatic fact extraction, optional hybrid vector+keyword search (local ONNX embeddings via fastembed), and automatic memory hygiene (archive/purge old notes)
@@ -183,6 +183,15 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
     "exec": {
       "timeout": 60,
       "allowedCommands": ["ls", "grep", "git", "cargo"]
+    },
+    "mcp": {
+      "servers": {
+        "filesystem": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+          "enabled": true
+        }
+      }
     },
     "restrictToWorkspace": true
   },
@@ -623,7 +632,7 @@ For OAuth models, you need to:
 
 ## Tools
 
-The agent has access to 23 built-in tools:
+The agent has access to 23 built-in tools, plus any tools provided by MCP servers:
 
 ### Core Tools (always available)
 
@@ -657,6 +666,36 @@ The agent has access to 23 built-in tools:
 | `media` | Radarr/Sonarr: search, add, monitor movies & TV | `tools.media.*` |
 | `obsidian` | Obsidian vault: read, write, append, search, list notes | `tools.obsidian.*` |
 | `browser` | Browser automation via Chrome DevTools Protocol: open, click, type, screenshot (saved to disk), eval JS | `tools.browser.enabled` |
+
+### MCP (Model Context Protocol)
+
+Nanobot supports connecting to external tool servers via the [Model Context Protocol](https://modelcontextprotocol.io/). Each MCP server's tools are automatically discovered and registered as native tools in the agent.
+
+```json
+"tools": {
+  "mcp": {
+    "servers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/documents"],
+        "enabled": true
+      },
+      "git": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-git"],
+        "env": { "GIT_DIR": "/path/to/repo" },
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+Each server config supports:
+- **`command`**: The executable to run (e.g. `npx`, `python`, a binary path)
+- **`args`**: Command-line arguments
+- **`env`**: Environment variables passed to the child process
+- **`enabled`**: Set to `false` to skip without removing the config
 
 ### Subagent System
 
@@ -722,7 +761,8 @@ src/
 - **Memory**: SQLite FTS5 for semantic memory indexing with background indexer, automatic fact extraction, optional hybrid vector+keyword search via local ONNX embeddings (fastembed), and automatic memory hygiene (archive old notes, purge expired archives, clean orphaned entries)
 - **Compaction**: Automatic conversation summarization when context exceeds token threshold
 - **Outbound media**: Browser screenshots, image downloads (`web_fetch`, `http`), and binary responses are saved to `~/.nanobot/media/` and can be sent to users via the `message` tool's `media` parameter. Supported channels: Telegram (photos/documents), Discord (file attachments), Slack (3-step file upload API). WhatsApp and Twilio log warnings for unsupported outbound media.
-- **Tool execution**: Panic-isolated via `tokio::task::spawn`, parallel execution via `join_all`, LRU result caching for read-only tools, pre-execution JSON schema validation
+- **Tool execution**: Middleware pipeline (`CacheMiddleware` → `TruncationMiddleware` → `LoggingMiddleware`) in `ToolRegistry`, panic-isolated via `tokio::task::spawn`, parallel execution via `join_all`, LRU result caching for read-only tools, pre-execution JSON schema validation
+- **MCP integration**: External tool servers connected via Model Context Protocol (`rmcp` crate). Tools auto-discovered at startup and registered as native tools
 - **Tool facts injection**: Each agent turn injects a reminder listing all available tools, preventing the LLM from falsely claiming tools are unavailable
 - **Reflection turns**: After tool results are returned, a reflection prompt forces deliberative reasoning about next steps
 - **Editable status messages**: Tool execution progress shown as a single message that edits in-place rather than flooding the chat. Tracks status per (channel, chat_id), accumulates tool status lines with emoji prefixes, adds a "Composing response..." indicator during LLM thinking, and deletes the status message when the final response arrives. Channels without edit support (WhatsApp) fall back to separate messages.

@@ -6,6 +6,7 @@ mod tests;
 use cache::ObsidianCache;
 use client::ObsidianApiClient;
 
+use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -147,7 +148,7 @@ impl Tool for ObsidianTool {
         })
     }
 
-    async fn execute(&self, params: Value) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let action = params["action"].as_str().unwrap_or("");
 
         match action {
