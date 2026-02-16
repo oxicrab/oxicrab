@@ -1201,9 +1201,19 @@ impl AgentLoop {
                 }
 
                 // Inject reflection prompt to guide next action
-                messages.push(Message::user(
-                    "Review the results and continue. Use more tools if needed, or provide your final response to the user.".to_string()
-                ));
+                if last_used_delivery_tool {
+                    messages.push(Message::user(
+                        "You already delivered a response to the user via the message tool. \
+                         Do NOT call the message tool again unless there is genuinely new, \
+                         different information to share. If you are done, provide a brief \
+                         internal summary (without using the message tool)."
+                            .to_string(),
+                    ));
+                } else {
+                    messages.push(Message::user(
+                        "Review the results and continue. Use more tools if needed, or provide your final response to the user.".to_string()
+                    ));
+                }
 
                 // Send composing indicator so the user sees progress during LLM thinking
                 if let Some(ref ctx) = typing_context {
