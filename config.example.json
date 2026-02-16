@@ -1,0 +1,216 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.oxicrab/workspace",
+      "model": "claude-sonnet-4-5-20250929",
+      "maxTokens": 8192,
+      "temperature": 0.7,
+      "maxToolIterations": 20,
+      "sessionTtlDays": 30,
+      "memoryIndexerInterval": 300,
+      "mediaTtlDays": 7,
+      "maxConcurrentSubagents": 5,
+      "localModel": null,
+      "compaction": {
+        "enabled": true,
+        "thresholdTokens": 40000,
+        "keepRecent": 10,
+        "extractionEnabled": true,
+        "model": null
+      },
+      "daemon": {
+        "enabled": true,
+        "interval": 300,
+        "executionModel": null,
+        "executionProvider": null,
+        "strategyFile": "HEARTBEAT.md",
+        "maxIterations": 25
+      },
+      "memory": {
+        "archiveAfterDays": 30,
+        "purgeAfterDays": 90,
+        "embeddingsEnabled": false,
+        "embeddingsModel": "BAAI/bge-small-en-v1.5",
+        "hybridWeight": 0.5
+      }
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": false,
+      "token": "your-telegram-bot-token",
+      "allowFrom": [],
+      "proxy": null
+    },
+    "discord": {
+      "enabled": false,
+      "token": "your-discord-bot-token",
+      "allowFrom": []
+    },
+    "slack": {
+      "enabled": false,
+      "botToken": "xoxb-your-slack-bot-token",
+      "appToken": "xapp-your-slack-app-token",
+      "allowFrom": []
+    },
+    "whatsapp": {
+      "enabled": false,
+      "allowFrom": []
+    },
+    "twilio": {
+      "enabled": false,
+      "accountSid": "your-twilio-account-sid",
+      "authToken": "your-twilio-auth-token",
+      "phoneNumber": "+1234567890",
+      "webhookPort": 8080,
+      "webhookPath": "/twilio/webhook",
+      "webhookUrl": "https://your-domain.com/twilio/webhook",
+      "allowFrom": []
+    }
+  },
+  "providers": {
+    "anthropic": {
+      "apiKey": "sk-ant-your-anthropic-key",
+      "apiBase": null
+    },
+    "anthropicOAuth": {
+      "enabled": false,
+      "accessToken": "",
+      "refreshToken": "",
+      "expiresAt": 0,
+      "credentialsPath": null,
+      "autoDetect": true
+    },
+    "openai": {
+      "apiKey": "",
+      "apiBase": null
+    },
+    "gemini": {
+      "apiKey": "",
+      "apiBase": null
+    },
+    "openrouter": {
+      "apiKey": "",
+      "apiBase": null
+    },
+    "deepseek": {
+      "apiKey": "",
+      "apiBase": null
+    },
+    "groq": {
+      "apiKey": "",
+      "apiBase": null
+    },
+    "moonshot": {
+      "apiKey": "",
+      "apiBase": null
+    },
+    "zhipu": {
+      "apiKey": "",
+      "apiBase": null
+    },
+    "dashscope": {
+      "apiKey": "",
+      "apiBase": null
+    },
+    "vllm": {
+      "apiKey": "",
+      "apiBase": null
+    },
+    "ollama": {
+      "apiKey": "",
+      "apiBase": null
+    }
+  },
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 18790
+  },
+  "tools": {
+    "web": {
+      "search": {
+        "provider": "brave",
+        "apiKey": "your-brave-search-api-key",
+        "maxResults": 5
+      }
+    },
+    "exec": {
+      "timeout": 60,
+      "allowedCommands": ["ls", "find", "cat", "grep", "git", "cargo", "node", "python3"]
+    },
+    "restrictToWorkspace": false,
+    "google": {
+      "enabled": false,
+      "clientId": "your-google-client-id",
+      "clientSecret": "your-google-client-secret",
+      "scopes": [
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar.readonly"
+      ]
+    },
+    "github": {
+      "enabled": false,
+      "token": "ghp_your-github-token"
+    },
+    "weather": {
+      "enabled": false,
+      "apiKey": "your-openweathermap-api-key"
+    },
+    "todoist": {
+      "enabled": false,
+      "token": "your-todoist-api-token"
+    },
+    "media": {
+      "enabled": false,
+      "radarr": {
+        "url": "http://localhost:7878",
+        "apiKey": "your-radarr-api-key"
+      },
+      "sonarr": {
+        "url": "http://localhost:8989",
+        "apiKey": "your-sonarr-api-key"
+      }
+    },
+    "obsidian": {
+      "enabled": false,
+      "apiUrl": "https://127.0.0.1:27124",
+      "apiKey": "your-obsidian-local-rest-api-key",
+      "vaultName": "MyVault",
+      "syncInterval": 300,
+      "timeout": 15
+    },
+    "browser": {
+      "enabled": false,
+      "headless": true,
+      "chromePath": null,
+      "timeout": 30
+    },
+    "imageGen": {
+      "enabled": false,
+      "defaultProvider": "openai"
+    },
+    "mcp": {
+      "servers": {
+        "example-server": {
+          "command": "npx",
+          "args": ["-y", "@example/mcp-server"],
+          "env": {},
+          "enabled": true
+        }
+      }
+    }
+  },
+  "voice": {
+    "transcription": {
+      "enabled": false,
+      "apiKey": "your-groq-api-key",
+      "apiBase": "https://api.groq.com/openai/v1/audio/transcriptions",
+      "model": "whisper-large-v3-turbo",
+      "localModelPath": "",
+      "preferLocal": true,
+      "threads": 4
+    }
+  }
+}
