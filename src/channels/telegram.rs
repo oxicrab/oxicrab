@@ -209,6 +209,88 @@ impl BaseChannel for TelegramChannel {
                                 return Ok(());
                             }
 
+                            // Handle documents
+                            if let Some(doc) = msg.document() {
+                                let text = msg.caption().unwrap_or("").to_string();
+                                let mut media_paths = Vec::new();
+                                let mut content = text;
+
+                                match bot.get_file(doc.file.id.clone()).await {
+                                    Ok(file) => {
+                                        let Ok(media_dir) = crate::utils::media::media_dir() else {
+                                            warn!("Failed to create media directory");
+                                            return Ok(());
+                                        };
+                                        // Use original extension, fall back to mime type
+                                        let ext = doc
+                                            .file_name
+                                            .as_deref()
+                                            .and_then(|n| n.rsplit('.').next())
+                                            .or_else(|| {
+                                                doc.mime_type
+                                                    .as_ref()
+                                                    .map(|m| m.subtype().as_str())
+                                            })
+                                            .unwrap_or("bin");
+                                        let file_path = media_dir.join(format!(
+                                            "telegram_{}.{}",
+                                            doc.file.unique_id, ext
+                                        ));
+
+                                        let mut dst =
+                                            tokio::fs::File::create(&file_path).await.map_err(|e| {
+                                                warn!(
+                                                    "Failed to create file for Telegram document: {}",
+                                                    e
+                                                );
+                                                e
+                                            });
+                                        if let Ok(ref mut dst_file) = dst {
+                                            if let Err(e) =
+                                                bot.download_file(&file.path, dst_file).await
+                                            {
+                                                warn!(
+                                                    "Failed to download Telegram document: {}",
+                                                    e
+                                                );
+                                            } else {
+                                                let path_str = file_path.to_string_lossy().to_string();
+                                                let is_image = doc
+                                                    .mime_type
+                                                    .as_ref()
+                                                    .is_some_and(|m| m.type_() == "image");
+                                                let tag = if is_image { "image" } else { "document" };
+                                                media_paths.push(path_str.clone());
+                                                content =
+                                                    format!("{}\n[{}: {}]", content, tag, path_str);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!("Failed to get Telegram document file info: {}", e);
+                                    }
+                                }
+
+                                if !content.trim().is_empty() || !media_paths.is_empty() {
+                                    let inbound_msg = InboundMessage {
+                                        channel: "telegram".to_string(),
+                                        sender_id,
+                                        chat_id: msg.chat.id.to_string(),
+                                        content,
+                                        timestamp: Utc::now(),
+                                        media: media_paths,
+                                        metadata: HashMap::new(),
+                                    };
+                                    if let Err(e) = inbound_tx.send(inbound_msg).await {
+                                        error!(
+                                            "Failed to send Telegram inbound message: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                                return Ok(());
+                            }
+
                             // Handle text-only messages
                             if let Some(text) = msg.text() {
                                 let inbound_msg = InboundMessage {

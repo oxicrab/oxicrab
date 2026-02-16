@@ -532,7 +532,6 @@ mod tests {
                 enabled: true,
                 token: String::new(),
                 allow_from: vec!["987654321".to_string()],
-                proxy: None,
             },
             whatsapp: WhatsAppConfig {
                 enabled: true,

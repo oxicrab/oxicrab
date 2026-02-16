@@ -71,10 +71,9 @@ pub struct TelegramConfig {
     pub token: String,
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
-    pub proxy: Option<String>,
 }
 
-redact_debug!(TelegramConfig, enabled, redact(token), allow_from, proxy,);
+redact_debug!(TelegramConfig, enabled, redact(token), allow_from,);
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct DiscordConfig {

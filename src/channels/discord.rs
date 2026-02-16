@@ -1,6 +1,6 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{split_message, BaseChannel};
-use crate::channels::utils::exponential_backoff_delay;
+use crate::channels::utils::{check_allowed_sender, exponential_backoff_delay};
 use crate::config::DiscordConfig;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -16,8 +16,7 @@ use tracing::{error, info, warn};
 
 struct Handler {
     inbound_tx: mpsc::Sender<InboundMessage>,
-    allow_set: std::collections::HashSet<String>,
-    has_allow_list: bool,
+    allow_list: Vec<String>,
     http_client: reqwest::Client,
 }
 
@@ -34,7 +33,7 @@ impl EventHandler for Handler {
 
         let sender_id = msg.author.id.to_string();
 
-        if self.has_allow_list && !self.allow_set.contains(&sender_id) {
+        if !check_allowed_sender(&sender_id, &self.allow_list) {
             return;
         }
 
@@ -161,14 +160,9 @@ impl BaseChannel for DiscordChannel {
                     break;
                 }
 
-                let allow_set: std::collections::HashSet<String> = allow_from
-                    .iter()
-                    .map(|a| a.trim_start_matches('+').to_string())
-                    .collect();
                 let handler = Handler {
                     inbound_tx: inbound_tx.clone(),
-                    has_allow_list: !allow_from.is_empty(),
-                    allow_set,
+                    allow_list: allow_from.clone(),
                     http_client: reqwest::Client::builder()
                         .connect_timeout(std::time::Duration::from_secs(10))
                         .timeout(std::time::Duration::from_secs(30))

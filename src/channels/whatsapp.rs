@@ -419,6 +419,22 @@ impl BaseChannel for WhatsAppChannel {
         Ok(())
     }
 
+    async fn send_and_get_id(&self, msg: &OutboundMessage) -> Result<Option<String>> {
+        if msg.channel != "whatsapp" {
+            return Ok(None);
+        }
+
+        let client_guard = self.client.lock().await;
+        if let Some(client) = client_guard.as_ref() {
+            Box::pin(send_whatsapp_message(client, msg)).await
+        } else {
+            warn!("WhatsApp client not available yet, queuing message");
+            let mut queue = self.message_queue.lock().await;
+            queue.push(msg.clone());
+            Ok(None)
+        }
+    }
+
     async fn send(&self, msg: &OutboundMessage) -> Result<()> {
         if msg.channel != "whatsapp" {
             debug!(
@@ -461,13 +477,9 @@ impl BaseChannel for WhatsAppChannel {
             }
 
             // Send current message
-            match Box::pin(send_whatsapp_message(client, msg)).await {
-                Ok(()) => Ok(()),
-                Err(e) => {
-                    error!("WhatsApp send failed: {}", e);
-                    Err(e)
-                }
-            }
+            Box::pin(send_whatsapp_message(client, msg))
+                .await
+                .map(|_| ())
         } else {
             warn!("WhatsApp client not available yet, queuing message");
             let mut queue = self.message_queue.lock().await;
@@ -481,7 +493,7 @@ impl BaseChannel for WhatsAppChannel {
 async fn send_whatsapp_message(
     client: &Arc<whatsapp_rust::client::Client>,
     msg: &OutboundMessage,
-) -> Result<()> {
+) -> Result<Option<String>> {
     use std::str::FromStr;
 
     // Format chat_id - ensure it has @s.whatsapp.net suffix if it's a phone number
@@ -518,6 +530,7 @@ async fn send_whatsapp_message(
     // Split long messages using UTF-8 safe splitting
     let chunks = crate::channels::base::split_message(&msg.content, 4096);
 
+    let mut last_id = None;
     for (i, chunk) in chunks.iter().enumerate() {
         debug!(
             "send_whatsapp_message: chunk {}/{} ({} bytes)",
@@ -533,6 +546,7 @@ async fn send_whatsapp_message(
         match Box::pin(client.send_message(jid.clone(), text_message)).await {
             Ok(msg_id) => {
                 info!("WhatsApp message sent to {}: id={}", jid, msg_id);
+                last_id = Some(msg_id);
             }
             Err(e) => {
                 error!("WhatsApp send to {} failed: {}", jid, e);
@@ -540,7 +554,7 @@ async fn send_whatsapp_message(
             }
         }
     }
-    Ok(())
+    Ok(last_id)
 }
 
 /// Download a `WhatsApp` media file and save to ~/.oxicrab/media/.
