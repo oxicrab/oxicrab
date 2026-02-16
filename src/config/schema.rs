@@ -367,7 +367,7 @@ fn default_session_ttl_days() -> u32 {
 }
 
 fn default_workspace() -> String {
-    "~/.nanobot/workspace".to_string()
+    "~/.oxicrab/workspace".to_string()
 }
 
 fn default_model() -> String {
@@ -1185,32 +1185,32 @@ impl Config {
     }
 
     /// Validate configuration values
-    pub fn validate(&self) -> Result<(), crate::errors::NanobotError> {
-        use crate::errors::NanobotError;
+    pub fn validate(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
 
         // Validate agent defaults
         if self.agents.defaults.max_tokens == 0 {
-            return Err(NanobotError::Config(
+            return Err(OxicrabError::Config(
                 "agents.defaults.maxTokens must be > 0".into(),
             ));
         }
         if self.agents.defaults.max_tokens > 1_000_000 {
-            return Err(NanobotError::Config(
+            return Err(OxicrabError::Config(
                 "agents.defaults.maxTokens is unreasonably large (> 1,000,000)".into(),
             ));
         }
         if self.agents.defaults.temperature < 0.0 || self.agents.defaults.temperature > 2.0 {
-            return Err(NanobotError::Config(
+            return Err(OxicrabError::Config(
                 "agents.defaults.temperature must be between 0.0 and 2.0".into(),
             ));
         }
         if self.agents.defaults.max_tool_iterations == 0 {
-            return Err(NanobotError::Config(
+            return Err(OxicrabError::Config(
                 "agents.defaults.maxToolIterations must be > 0".into(),
             ));
         }
         if self.agents.defaults.max_tool_iterations > 1000 {
-            return Err(NanobotError::Config(
+            return Err(OxicrabError::Config(
                 "agents.defaults.maxToolIterations is unreasonably large (> 1000)".into(),
             ));
         }
@@ -1218,12 +1218,12 @@ impl Config {
         // Validate compaction config
         if self.agents.defaults.compaction.enabled {
             if self.agents.defaults.compaction.threshold_tokens == 0 {
-                return Err(NanobotError::Config(
+                return Err(OxicrabError::Config(
                     "agents.defaults.compaction.thresholdTokens must be > 0 when enabled".into(),
                 ));
             }
             if self.agents.defaults.compaction.keep_recent == 0 {
-                return Err(NanobotError::Config(
+                return Err(OxicrabError::Config(
                     "agents.defaults.compaction.keepRecent must be > 0 when enabled".into(),
                 ));
             }
@@ -1232,7 +1232,7 @@ impl Config {
         // Validate daemon config
         if self.agents.defaults.daemon.enabled {
             if self.agents.defaults.daemon.interval == 0 {
-                return Err(NanobotError::Config(
+                return Err(OxicrabError::Config(
                     "agents.defaults.daemon.interval must be > 0 when enabled".into(),
                 ));
             }
@@ -1247,19 +1247,19 @@ impl Config {
             && self.agents.defaults.memory.purge_after_days
                 <= self.agents.defaults.memory.archive_after_days
         {
-            return Err(NanobotError::Config(
+            return Err(OxicrabError::Config(
                 "agents.defaults.memory.purgeAfterDays must be > archiveAfterDays".into(),
             ));
         }
 
         // Validate gateway config
         if self.gateway.port == 0 {
-            return Err(NanobotError::Config("gateway.port must be > 0".into()));
+            return Err(OxicrabError::Config("gateway.port must be > 0".into()));
         }
 
         // Validate tools config
         if self.tools.exec.timeout == 0 {
-            return Err(NanobotError::Config(
+            return Err(OxicrabError::Config(
                 "tools.exec.timeout must be > 0".into(),
             ));
         }
@@ -1270,17 +1270,17 @@ impl Config {
         // Validate obsidian config
         if self.tools.obsidian.enabled {
             if self.tools.obsidian.api_url.is_empty() {
-                return Err(NanobotError::Config(
+                return Err(OxicrabError::Config(
                     "tools.obsidian.apiUrl is required when obsidian is enabled".into(),
                 ));
             }
             if self.tools.obsidian.api_key.is_empty() {
-                return Err(NanobotError::Config(
+                return Err(OxicrabError::Config(
                     "tools.obsidian.apiKey is required when obsidian is enabled".into(),
                 ));
             }
             if self.tools.obsidian.vault_name.is_empty() {
-                return Err(NanobotError::Config(
+                return Err(OxicrabError::Config(
                     "tools.obsidian.vaultName is required when obsidian is enabled".into(),
                 ));
             }
@@ -1289,22 +1289,22 @@ impl Config {
         // Validate Twilio config
         if self.channels.twilio.enabled {
             if self.channels.twilio.account_sid.is_empty() {
-                return Err(NanobotError::Config(
+                return Err(OxicrabError::Config(
                     "channels.twilio.accountSid is required when twilio is enabled".into(),
                 ));
             }
             if self.channels.twilio.auth_token.is_empty() {
-                return Err(NanobotError::Config(
+                return Err(OxicrabError::Config(
                     "channels.twilio.authToken is required when twilio is enabled".into(),
                 ));
             }
             if self.channels.twilio.webhook_url.is_empty() {
-                return Err(NanobotError::Config(
+                return Err(OxicrabError::Config(
                     "channels.twilio.webhookUrl is required when twilio is enabled".into(),
                 ));
             }
             if self.channels.twilio.webhook_port == 0 {
-                return Err(NanobotError::Config(
+                return Err(OxicrabError::Config(
                     "channels.twilio.webhookPort must be > 0 when twilio is enabled".into(),
                 ));
             }
@@ -1312,7 +1312,7 @@ impl Config {
 
         // Validate web search config
         if self.tools.web.search.max_results == 0 {
-            return Err(NanobotError::Config(
+            return Err(OxicrabError::Config(
                 "tools.web.search.maxResults must be > 0".into(),
             ));
         }

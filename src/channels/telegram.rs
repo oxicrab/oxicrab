@@ -92,7 +92,7 @@ impl BaseChannel for TelegramChannel {
                                         Ok(file) => {
                                             let media_dir = dirs::home_dir()
                                                 .unwrap_or_else(|| std::path::PathBuf::from("."))
-                                                .join(".nanobot")
+                                                .join(".oxicrab")
                                                 .join("media");
                                             if let Err(e) = std::fs::create_dir_all(&media_dir) {
                                                 warn!("Failed to create media directory: {}", e);
@@ -159,7 +159,7 @@ impl BaseChannel for TelegramChannel {
                                     Ok(file) => {
                                         let media_dir = dirs::home_dir()
                                             .unwrap_or_else(|| std::path::PathBuf::from("."))
-                                            .join(".nanobot")
+                                            .join(".oxicrab")
                                             .join("media");
                                         if let Err(e) = std::fs::create_dir_all(&media_dir) {
                                             warn!("Failed to create media directory: {}", e);

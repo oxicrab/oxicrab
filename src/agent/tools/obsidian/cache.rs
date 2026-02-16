@@ -1,6 +1,6 @@
 //! ## Remote Obsidian Access via SSH Tunnel
 //!
-//! When nanobot runs on a remote Linux server and Obsidian runs on a local
+//! When oxicrab runs on a remote Linux server and Obsidian runs on a local
 //! macOS machine, the Obsidian Local REST API (127.0.0.1:27124) is made
 //! accessible via an SSH reverse tunnel:
 //!
@@ -10,7 +10,7 @@
 //! ```
 //!
 //! SSH config (~/.ssh/config on macOS):
-//!   Host nanobot-tunnel
+//!   Host oxicrab-tunnel
 //!     `HostName` <linux-server>
 //!     User james
 //!     `RemoteForward` 27124 127.0.0.1:27124
@@ -18,7 +18,7 @@
 //!     `ServerAliveCountMax` 3
 //!     `ExitOnForwardFailure` yes
 //!
-//! Kept alive with: `autossh -M 0 -f -N nanobot-tunnel`
+//! Kept alive with: `autossh -M 0 -f -N oxicrab-tunnel`
 //!
 //! When the tunnel drops, writes are queued locally and flushed
 //! automatically when connectivity resumes (checked every 30s with
@@ -93,7 +93,7 @@ impl ObsidianCache {
         let home =
             dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
         let base = home
-            .join(".nanobot")
+            .join(".oxicrab")
             .join("obsidian_cache")
             .join(safe_vault_name(vault_name));
         std::fs::create_dir_all(&base)?;

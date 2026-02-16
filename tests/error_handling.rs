@@ -5,7 +5,7 @@ use common::{
     create_test_agent_with, text_response, tool_call, tool_response, MockLLMProvider, RecordedCall,
     TestAgentOverrides,
 };
-use nanobot::providers::base::{ChatRequest, LLMProvider, LLMResponse};
+use oxicrab::providers::base::{ChatRequest, LLMProvider, LLMResponse};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;

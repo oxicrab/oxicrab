@@ -1,4 +1,4 @@
-use nanobot::config::{Config, McpConfig};
+use oxicrab::config::{Config, McpConfig};
 
 fn default_config() -> Config {
     serde_json::from_str("{}").unwrap()

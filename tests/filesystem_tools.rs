@@ -188,7 +188,7 @@ async fn test_write_file_outside_workspace_blocked() {
         tool_response(vec![tool_call(
             "tc1",
             "write_file",
-            json!({"path": "/tmp/nanobot_test_escape.txt", "content": "evil"}),
+            json!({"path": "/tmp/oxicrab_test_escape.txt", "content": "evil"}),
         )]),
         text_response("Blocked."),
     ]);

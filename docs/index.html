@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oxicrab - Multi-Channel AI Assistant Framework for Rust</title>
+  <meta name="description" content="A high-performance Rust framework for building multi-channel AI assistants. Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM provider.">
+  <meta name="theme-color" content="#f74c00">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦀</text></svg>">
+  <style>
+    :root {
+      --rust-orange: #f74c00;
+      --rust-dark: #1a1a2e;
+      --rust-darker: #0f0f1a;
+      --rust-light: #e0e0e0;
+      --rust-muted: #8892b0;
+      --rust-accent: #ff6b35;
+      --rust-blue: #64ffda;
+      --rust-purple: #c792ea;
+      --surface: #16213e;
+      --surface-2: #1a2744;
+      --code-bg: #0d1117;
+      --border: #233554;
+      --max-width: 1200px;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--rust-darker);
+      color: var(--rust-light);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ---- NAV ---- */
+    nav {
+      position: fixed;
+      top: 0;
+      width: 100%;
+      background: rgba(15, 15, 26, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      z-index: 1000;
+      padding: 0 2rem;
+    }
+    .nav-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 700;
+      font-size: 1.25rem;
+      color: var(--rust-orange);
+      text-decoration: none;
+    }
+    .nav-logo span { color: var(--rust-light); }
+    .nav-links { display: flex; gap: 2rem; list-style: none; }
+    .nav-links a {
+      color: var(--rust-muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--rust-blue); }
+    .nav-cta {
+      background: var(--rust-orange);
+      color: #fff !important;
+      padding: 0.5rem 1.25rem;
+      border-radius: 6px;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .nav-cta:hover { background: var(--rust-accent) !important; }
+    .menu-toggle { display: none; background: none; border: none; color: var(--rust-light); font-size: 1.5rem; cursor: pointer; }
+
+    /* ---- HERO ---- */
+    .hero {
+      padding: 10rem 2rem 6rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(ellipse at 50% 0%, rgba(247, 76, 0, 0.08) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.4rem 1rem;
+      font-size: 0.85rem;
+      color: var(--rust-muted);
+      margin-bottom: 2rem;
+    }
+    .hero-badge strong { color: var(--rust-blue); }
+    .hero h1 {
+      font-size: clamp(2.5rem, 6vw, 4.5rem);
+      font-weight: 800;
+      line-height: 1.1;
+      margin-bottom: 1.5rem;
+      letter-spacing: -0.02em;
+    }
+    .hero h1 .accent { color: var(--rust-orange); }
+    .hero p {
+      font-size: 1.25rem;
+      color: var(--rust-muted);
+      max-width: 700px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.6;
+    }
+    .hero-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.85rem 2rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+      border: none;
+      cursor: pointer;
+    }
+    .btn-primary { background: var(--rust-orange); color: #fff; }
+    .btn-primary:hover { background: var(--rust-accent); transform: translateY(-1px); }
+    .btn-secondary { background: var(--surface); color: var(--rust-light); border: 1px solid var(--border); }
+    .btn-secondary:hover { border-color: var(--rust-orange); color: var(--rust-orange); }
+    .hero-install {
+      margin-top: 3rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1.5rem;
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+      color: var(--rust-muted);
+      user-select: all;
+    }
+    .hero-install .prompt { color: var(--rust-blue); user-select: none; }
+    .hero-install .cmd { color: var(--rust-light); }
+
+    /* ---- SECTIONS ---- */
+    section { padding: 6rem 2rem; }
+    .container { max-width: var(--max-width); margin: 0 auto; }
+    .section-header {
+      text-align: center;
+      margin-bottom: 4rem;
+    }
+    .section-header h2 {
+      font-size: 2.25rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      letter-spacing: -0.01em;
+    }
+    .section-header p {
+      color: var(--rust-muted);
+      font-size: 1.1rem;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    .label {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--rust-orange);
+      margin-bottom: 0.75rem;
+    }
+
+    /* ---- FEATURES GRID ---- */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.5rem;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      transition: border-color 0.3s, transform 0.2s;
+    }
+    .feature-card:hover { border-color: var(--rust-orange); transform: translateY(-2px); }
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      background: rgba(247, 76, 0, 0.1);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .feature-card h3 { font-size: 1.15rem; margin-bottom: 0.5rem; }
+    .feature-card p { color: var(--rust-muted); font-size: 0.95rem; line-height: 1.6; }
+
+    /* ---- CHANNELS ---- */
+    .channels-row {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      flex-wrap: wrap;
+      margin-top: 3rem;
+    }
+    .channel-badge {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2rem 2.5rem;
+      min-width: 140px;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .channel-badge:hover { border-color: var(--rust-blue); transform: translateY(-3px); }
+    .channel-badge svg, .channel-badge img { width: 40px; height: 40px; }
+    .channel-badge .channel-icon { font-size: 2.5rem; line-height: 1; }
+    .channel-badge span { font-weight: 600; font-size: 0.9rem; }
+
+    /* ---- TOOLS TABLE ---- */
+    .tools-section { background: var(--rust-dark); }
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+    }
+    .tool-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      transition: border-color 0.2s;
+    }
+    .tool-item:hover { border-color: var(--rust-orange); }
+    .tool-name {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: var(--rust-blue);
+      margin-bottom: 0.35rem;
+    }
+    .tool-desc { color: var(--rust-muted); font-size: 0.85rem; line-height: 1.5; }
+    .tool-badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      margin-bottom: 0.5rem;
+    }
+    .tool-badge.core { background: rgba(100, 255, 218, 0.1); color: var(--rust-blue); }
+    .tool-badge.config { background: rgba(199, 146, 234, 0.1); color: var(--rust-purple); }
+    .tool-badge.external { background: rgba(247, 76, 0, 0.1); color: var(--rust-orange); }
+
+    .tools-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .tools-tab {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 1rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--rust-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tools-tab:hover, .tools-tab.active { border-color: var(--rust-orange); color: var(--rust-orange); }
+
+    /* ---- ARCHITECTURE ---- */
+    .arch-flow {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+      line-height: 2;
+      overflow-x: auto;
+      text-align: center;
+    }
+    .arch-flow .node {
+      display: inline-block;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem 1.25rem;
+      margin: 0.25rem;
+      font-weight: 600;
+    }
+    .arch-flow .arrow { color: var(--rust-orange); font-weight: 700; margin: 0 0.5rem; }
+    .arch-cols {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 2rem;
+      margin-top: 3rem;
+    }
+    .arch-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.75rem;
+    }
+    .arch-card h3 {
+      font-size: 1rem;
+      color: var(--rust-blue);
+      margin-bottom: 0.75rem;
+      font-family: var(--font-mono);
+    }
+    .arch-card p { color: var(--rust-muted); font-size: 0.9rem; }
+
+    /* ---- CONFIG / CODE ---- */
+    .config-section { background: var(--rust-dark); }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: var(--rust-light);
+      margin: 1rem 0;
+    }
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.85em;
+    }
+    .inline-code {
+      background: var(--surface);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--rust-blue);
+    }
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: 10px 10px 0 0;
+      padding: 0.5rem 1rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--rust-muted);
+    }
+    .code-header + pre { border-radius: 0 0 10px 10px; margin-top: 0; }
+
+    /* ---- INSTALL STEPS ---- */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 2rem;
+      counter-reset: step;
+    }
+    .step {
+      position: relative;
+      padding-left: 3.5rem;
+    }
+    .step::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 2.5rem;
+      height: 2.5rem;
+      background: rgba(247, 76, 0, 0.15);
+      border: 2px solid var(--rust-orange);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: var(--rust-orange);
+      font-size: 1rem;
+    }
+    .step h3 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+    .step p { color: var(--rust-muted); font-size: 0.9rem; }
+
+    /* ---- PROVIDERS ---- */
+    .providers-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+    .provider-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      text-align: center;
+      transition: border-color 0.2s;
+    }
+    .provider-card:hover { border-color: var(--rust-purple); }
+    .provider-card .provider-name { font-weight: 700; font-size: 1rem; margin-bottom: 0.25rem; }
+    .provider-card .provider-models { color: var(--rust-muted); font-size: 0.8rem; }
+
+    /* ---- FOOTER ---- */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 3rem 2rem;
+      text-align: center;
+    }
+    .footer-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+    .footer-links { display: flex; gap: 2rem; flex-wrap: wrap; justify-content: center; }
+    .footer-links a { color: var(--rust-muted); text-decoration: none; font-size: 0.9rem; transition: color 0.2s; }
+    .footer-links a:hover { color: var(--rust-blue); }
+    .footer-copy { color: var(--rust-muted); font-size: 0.8rem; }
+
+    /* ---- RESPONSIVE ---- */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .menu-toggle { display: block; }
+      .nav-links.open {
+        display: flex;
+        flex-direction: column;
+        position: absolute;
+        top: 64px;
+        left: 0;
+        right: 0;
+        background: rgba(15, 15, 26, 0.97);
+        padding: 1.5rem 2rem;
+        border-bottom: 1px solid var(--border);
+      }
+      .hero { padding-top: 8rem; }
+      .channels-row { gap: 1rem; }
+      .channel-badge { padding: 1.25rem 1.5rem; min-width: 100px; }
+      section { padding: 4rem 1.25rem; }
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="nav-logo">🦀 oxi<span>crab</span></a>
+    <button class="menu-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Toggle menu">☰</button>
+    <ul class="nav-links">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#channels">Channels</a></li>
+      <li><a href="#tools">Tools</a></li>
+      <li><a href="#install">Install</a></li>
+      <li><a href="#config">Config</a></li>
+      <li><a href="#providers">Providers</a></li>
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="https://github.com/oxicrab/oxicrab" class="nav-cta">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-badge">
+      <span>v0.9.5</span>
+      <strong>MIT Licensed</strong>
+    </div>
+    <h1>Your AI assistant,<br><span class="accent">everywhere at once.</span></h1>
+    <p>A high-performance Rust framework for building multi-channel AI assistants. Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM — with 24 built-in tools, memory, scheduling, and more.</p>
+    <div class="hero-actions">
+      <a href="#install" class="btn btn-primary">Get Started</a>
+      <a href="https://github.com/oxicrab/oxicrab" class="btn btn-secondary">View on GitHub</a>
+    </div>
+    <div class="hero-install">
+      <span class="prompt">$</span>
+      <span class="cmd">cargo install oxicrab</span>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="container">
+    <div class="section-header">
+      <span class="label">Features</span>
+      <h2>Built for real-world AI agents</h2>
+      <p>Everything you need to deploy autonomous assistants that actually work, built from the ground up in Rust.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">💬</div>
+        <h3>Multi-Channel</h3>
+        <p>Telegram, Discord, Slack, WhatsApp, and Twilio SMS/MMS. Each channel is a Cargo feature flag — compile only what you need.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🧠</div>
+        <h3>Long-Term Memory</h3>
+        <p>SQLite FTS5-backed memory with background indexing, automatic fact extraction, and optional hybrid vector+keyword search via local ONNX embeddings.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔧</div>
+        <h3>24 Built-in Tools</h3>
+        <p>Filesystem, shell, web, browser automation, Google Workspace, GitHub, scheduling, media management — plus MCP for extending with external tool servers.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🤖</div>
+        <h3>Subagents</h3>
+        <p>Spawn background agents for parallel task execution with semaphore-based concurrency, context injection, and lifecycle management.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⏰</div>
+        <h3>Cron Scheduling</h3>
+        <p>Recurring jobs, one-shot timers, and cron expressions. Agent mode (full LLM turn) or echo mode (direct delivery). Auto-expiry and run limits.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>Security First</h3>
+        <p>Shell command allowlists, SSRF protection, path traversal prevention, secret redaction, and per-channel user allowlists.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🎙️</div>
+        <h3>Voice Transcription</h3>
+        <p>Dual-backend: local whisper.cpp inference or cloud Whisper API. Automatic routing with fallback between backends.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔌</div>
+        <h3>MCP Support</h3>
+        <p>Connect external tool servers via the Model Context Protocol. Tools are auto-discovered and registered as native tools.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Async-First</h3>
+        <p>Built on Tokio for high-performance async I/O. Parallel tool execution, connection pooling, and automatic reconnection with exponential backoff.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CHANNELS -->
+<section id="channels" style="background: var(--rust-dark);">
+  <div class="container">
+    <div class="section-header">
+      <span class="label">Channels</span>
+      <h2>One bot, every platform</h2>
+      <p>Deploy to all your favorite messaging platforms simultaneously. Each channel is a compile-time feature flag.</p>
+    </div>
+    <div class="channels-row">
+      <div class="channel-badge">
+        <div class="channel-icon">✈️</div>
+        <span>Telegram</span>
+      </div>
+      <div class="channel-badge">
+        <div class="channel-icon">🎮</div>
+        <span>Discord</span>
+      </div>
+      <div class="channel-badge">
+        <div class="channel-icon">💼</div>
+        <span>Slack</span>
+      </div>
+      <div class="channel-badge">
+        <div class="channel-icon">📱</div>
+        <span>WhatsApp</span>
+      </div>
+      <div class="channel-badge">
+        <div class="channel-icon">📞</div>
+        <span>Twilio</span>
+      </div>
+    </div>
+    <div style="text-align: center; margin-top: 3rem;">
+      <div class="code-header">Cargo.toml</div>
+      <pre><code><span style="color: var(--rust-muted)"># Compile only the channels you need</span>
+[features]
+default = ["channel-telegram", "channel-discord", "channel-slack",
+           "channel-whatsapp", "channel-twilio"]
+
+<span style="color: var(--rust-muted)"># Slim build — just Telegram and Slack</span>
+<span style="color: var(--rust-blue)">$</span> cargo build --release --no-default-features \
+    --features channel-telegram,channel-slack</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- TOOLS -->
+<section id="tools" class="tools-section">
+  <div class="container">
+    <div class="section-header">
+      <span class="label">Tools</span>
+      <h2>24 built-in tools + MCP</h2>
+      <p>A comprehensive toolkit for autonomous AI agents. Every tool features timeout protection, panic isolation, and result caching.</p>
+    </div>
+
+    <div class="tools-grid">
+      <!-- Filesystem -->
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">read_file</div>
+        <div class="tool-desc">Read file contents from disk with path traversal protection</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">write_file</div>
+        <div class="tool-desc">Write content to files with automatic versioned backups (up to 14)</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">edit_file</div>
+        <div class="tool-desc">Edit files with precise find/replace diffs</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">list_dir</div>
+        <div class="tool-desc">List directory contents with metadata</div>
+      </div>
+
+      <!-- Execution -->
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">exec</div>
+        <div class="tool-desc">Execute shell commands with allowlist/blocklist security</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">tmux</div>
+        <div class="tool-desc">Manage persistent tmux sessions — create, send, read, list, kill</div>
+      </div>
+
+      <!-- Web & Network -->
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">web_search</div>
+        <div class="tool-desc">Search the web via Brave API with DuckDuckGo fallback</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">web_fetch</div>
+        <div class="tool-desc">Fetch and extract web page content (HTML to markdown)</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">http</div>
+        <div class="tool-desc">Make HTTP requests (GET/POST/PUT/PATCH/DELETE) with headers and body</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">reddit</div>
+        <div class="tool-desc">Browse Reddit — hot, new, or top posts from any subreddit</div>
+      </div>
+
+      <!-- Communication -->
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">message</div>
+        <div class="tool-desc">Send messages to any channel with optional media attachments</div>
+      </div>
+
+      <!-- Subagents -->
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">spawn</div>
+        <div class="tool-desc">Spawn background subagents for parallel task execution</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">subagent_control</div>
+        <div class="tool-desc">List running subagents, check capacity, or cancel by ID</div>
+      </div>
+
+      <!-- Scheduling & Memory -->
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">cron</div>
+        <div class="tool-desc">Schedule recurring or one-shot tasks with auto-expiry and run limits</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge core">Core</span>
+        <div class="tool-name">memory_search</div>
+        <div class="tool-desc">Search long-term memory and daily notes (FTS5 + optional hybrid vector)</div>
+      </div>
+
+      <!-- Configurable Tools -->
+      <div class="tool-item">
+        <span class="tool-badge config">Requires Setup</span>
+        <div class="tool-name">google_mail</div>
+        <div class="tool-desc">Gmail: search, read, send, reply, label management</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge config">Requires Setup</span>
+        <div class="tool-name">google_calendar</div>
+        <div class="tool-desc">Google Calendar: list, create, update, delete events</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge config">Requires Setup</span>
+        <div class="tool-name">github</div>
+        <div class="tool-desc">GitHub API: issues, pull requests, repos, notifications</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge config">Requires Setup</span>
+        <div class="tool-name">weather</div>
+        <div class="tool-desc">Weather forecasts via OpenWeatherMap</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge config">Requires Setup</span>
+        <div class="tool-name">todoist</div>
+        <div class="tool-desc">Todoist task management: list, create, complete, update</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge config">Requires Setup</span>
+        <div class="tool-name">media</div>
+        <div class="tool-desc">Radarr/Sonarr: search, add, monitor movies and TV series</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge config">Requires Setup</span>
+        <div class="tool-name">obsidian</div>
+        <div class="tool-desc">Obsidian vault: read, write, append, search, list notes</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge config">Requires Setup</span>
+        <div class="tool-name">browser</div>
+        <div class="tool-desc">Browser automation via Chrome DevTools Protocol: click, type, screenshot, eval JS</div>
+      </div>
+      <div class="tool-item">
+        <span class="tool-badge config">Requires Setup</span>
+        <div class="tool-name">image_gen</div>
+        <div class="tool-desc">Generate images from text prompts using OpenAI or Google Imagen</div>
+      </div>
+
+      <!-- MCP -->
+      <div class="tool-item">
+        <span class="tool-badge external">External</span>
+        <div class="tool-name">MCP Servers</div>
+        <div class="tool-desc">Connect any Model Context Protocol server — tools are auto-discovered and registered at startup</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- INSTALL -->
+<section id="install">
+  <div class="container">
+    <div class="section-header">
+      <span class="label">Getting Started</span>
+      <h2>Up and running in minutes</h2>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <h3>Install Prerequisites</h3>
+        <p>Rust nightly toolchain and cmake. Optional: ffmpeg for voice transcription.</p>
+        <pre><code>rustup toolchain install nightly
+rustup override set nightly
+sudo apt install cmake</code></pre>
+      </div>
+      <div class="step">
+        <h3>Build</h3>
+        <p>Clone and build with all channels, or select only what you need.</p>
+        <pre><code>git clone https://github.com/oxicrab/oxicrab
+cd oxicrab
+cargo build --release</code></pre>
+      </div>
+      <div class="step">
+        <h3>Configure</h3>
+        <p>Create your config file with API keys and channel tokens.</p>
+        <pre><code>mkdir -p ~/.oxicrab
+cp config.example.json ~/.oxicrab/config.json
+# Edit with your API keys</code></pre>
+      </div>
+      <div class="step">
+        <h3>Run</h3>
+        <p>Start the gateway for all channels, or use CLI mode for quick interactions.</p>
+        <pre><code># Multi-channel daemon
+./target/release/oxicrab gateway
+
+# CLI mode
+./target/release/oxicrab agent -m "Hello!"
+
+# First-time setup
+./target/release/oxicrab onboard</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CONFIG -->
+<section id="config" class="config-section">
+  <div class="container">
+    <div class="section-header">
+      <span class="label">Configuration</span>
+      <h2>Simple JSON configuration</h2>
+      <p>One config file controls everything. camelCase in JSON, snake_case in Rust.</p>
+    </div>
+    <div style="max-width: 800px; margin: 0 auto;">
+      <div class="code-header">~/.oxicrab/config.json</div>
+      <pre><code>{
+  <span style="color: var(--rust-blue)">"agents"</span>: {
+    <span style="color: var(--rust-blue)">"defaults"</span>: {
+      <span style="color: var(--rust-blue)">"model"</span>: <span style="color: var(--rust-purple)">"claude-sonnet-4-5-20250929"</span>,
+      <span style="color: var(--rust-blue)">"maxTokens"</span>: <span style="color: var(--rust-orange)">8192</span>,
+      <span style="color: var(--rust-blue)">"maxToolIterations"</span>: <span style="color: var(--rust-orange)">20</span>,
+      <span style="color: var(--rust-blue)">"memory"</span>: {
+        <span style="color: var(--rust-blue)">"embeddingsEnabled"</span>: <span style="color: var(--rust-orange)">false</span>,
+        <span style="color: var(--rust-blue)">"hybridWeight"</span>: <span style="color: var(--rust-orange)">0.5</span>
+      },
+      <span style="color: var(--rust-blue)">"compaction"</span>: {
+        <span style="color: var(--rust-blue)">"enabled"</span>: <span style="color: var(--rust-orange)">true</span>,
+        <span style="color: var(--rust-blue)">"thresholdTokens"</span>: <span style="color: var(--rust-orange)">40000</span>
+      }
+    }
+  },
+  <span style="color: var(--rust-blue)">"providers"</span>: {
+    <span style="color: var(--rust-blue)">"anthropic"</span>: { <span style="color: var(--rust-blue)">"apiKey"</span>: <span style="color: var(--rust-purple)">"sk-ant-..."</span> }
+  },
+  <span style="color: var(--rust-blue)">"channels"</span>: {
+    <span style="color: var(--rust-blue)">"telegram"</span>: {
+      <span style="color: var(--rust-blue)">"enabled"</span>: <span style="color: var(--rust-orange)">true</span>,
+      <span style="color: var(--rust-blue)">"token"</span>: <span style="color: var(--rust-purple)">"123456:ABC..."</span>,
+      <span style="color: var(--rust-blue)">"allowFrom"</span>: [<span style="color: var(--rust-purple)">"your_user_id"</span>]
+    }
+  }
+}</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- PROVIDERS -->
+<section id="providers">
+  <div class="container">
+    <div class="section-header">
+      <span class="label">Providers</span>
+      <h2>Any LLM, one interface</h2>
+      <p>Native support for major providers plus any OpenAI-compatible API. Automatic provider selection by model name.</p>
+    </div>
+    <div class="providers-grid">
+      <div class="provider-card">
+        <div class="provider-name">Anthropic</div>
+        <div class="provider-models">Claude Opus, Sonnet, Haiku</div>
+      </div>
+      <div class="provider-card">
+        <div class="provider-name">OpenAI</div>
+        <div class="provider-models">GPT-4, GPT-3.5</div>
+      </div>
+      <div class="provider-card">
+        <div class="provider-name">Google</div>
+        <div class="provider-models">Gemini Pro</div>
+      </div>
+      <div class="provider-card">
+        <div class="provider-name">OpenRouter</div>
+        <div class="provider-models">Any model via API</div>
+      </div>
+      <div class="provider-card">
+        <div class="provider-name">DeepSeek</div>
+        <div class="provider-models">DeepSeek Chat/Coder</div>
+      </div>
+      <div class="provider-card">
+        <div class="provider-name">Groq</div>
+        <div class="provider-models">Ultra-fast inference</div>
+      </div>
+      <div class="provider-card">
+        <div class="provider-name">Ollama</div>
+        <div class="provider-models">Local models, no API key</div>
+      </div>
+      <div class="provider-card">
+        <div class="provider-name">vLLM</div>
+        <div class="provider-models">Self-hosted inference</div>
+      </div>
+    </div>
+    <div style="text-align: center; margin-top: 2rem;">
+      <p style="color: var(--rust-muted); font-size: 0.9rem;">Plus: Moonshot, Zhipu, DashScope, and any OpenAI-compatible endpoint. Local model fallback supported.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ARCHITECTURE -->
+<section id="architecture" style="background: var(--rust-dark);">
+  <div class="container">
+    <div class="section-header">
+      <span class="label">Architecture</span>
+      <h2>Clean, modular, extensible</h2>
+      <p>Built on three core traits with a middleware pipeline for tool execution.</p>
+    </div>
+
+    <div class="arch-flow">
+      <span class="node">Channel</span>
+      <span class="arrow">&rarr;</span>
+      <span class="node">MessageBus</span>
+      <span class="arrow">&rarr;</span>
+      <span class="node">AgentLoop</span>
+      <span class="arrow">&rarr;</span>
+      <span class="node">LLM Provider</span>
+      <br>
+      <span style="color: var(--rust-muted); font-size: 0.8rem; display: block; margin-top: 0.5rem;">
+        LLM call &rarr; parallel tool execution &rarr; append to conversation &rarr; repeat
+      </span>
+    </div>
+
+    <div class="arch-cols">
+      <div class="arch-card">
+        <h3>trait Tool</h3>
+        <p>name(), description(), parameters() (JSON Schema), execute(). Optional: cacheable(). Registered in ToolRegistry with middleware pipeline.</p>
+      </div>
+      <div class="arch-card">
+        <h3>trait BaseChannel</h3>
+        <p>start(), stop(), send(). Optional: send_typing(), edit_message(), delete_message(). Auto-reconnect with exponential backoff.</p>
+      </div>
+      <div class="arch-card">
+        <h3>trait LLMProvider</h3>
+        <p>chat(ChatRequest) &rarr; LLMResponse. Default chat_with_retry() with exponential backoff. warmup() pre-warms HTTP connections.</p>
+      </div>
+      <div class="arch-card">
+        <h3>ToolMiddleware</h3>
+        <p>before_execute() can short-circuit, after_execute() can modify results. Built-in: CacheMiddleware, TruncationMiddleware, LoggingMiddleware.</p>
+      </div>
+      <div class="arch-card">
+        <h3>ToolRegistry</h3>
+        <p>Central execution engine with panic isolation via tokio::task::spawn, timeouts, LRU caching (128 entries, 5min TTL), and parallel execution.</p>
+      </div>
+      <div class="arch-card">
+        <h3>ProviderFactory</h3>
+        <p>Automatic provider selection by model name. OAuth-first for Anthropic, then API key strategy with OpenAI-compatible matching.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROJECT STRUCTURE -->
+<section id="structure">
+  <div class="container">
+    <div class="section-header">
+      <span class="label">Project Structure</span>
+      <h2>Well-organized codebase</h2>
+    </div>
+    <div style="max-width: 700px; margin: 0 auto;">
+      <pre><code>src/
+├── agent/          <span style="color: var(--rust-muted)"># Agent loop, context, memory, tools, subagents</span>
+│   └── tools/      <span style="color: var(--rust-muted)"># 24 built-in tools + MCP integration</span>
+├── auth/           <span style="color: var(--rust-muted)"># OAuth authentication (Google)</span>
+├── bus/            <span style="color: var(--rust-muted)"># Message bus for channel-agent communication</span>
+├── channels/       <span style="color: var(--rust-muted)"># Telegram, Discord, Slack, WhatsApp, Twilio</span>
+├── cli/            <span style="color: var(--rust-muted)"># Command-line interface</span>
+├── config/         <span style="color: var(--rust-muted)"># Configuration schema and loader</span>
+├── cron/           <span style="color: var(--rust-muted)"># Cron job scheduling service</span>
+├── heartbeat/      <span style="color: var(--rust-muted)"># Heartbeat/daemon service</span>
+├── providers/      <span style="color: var(--rust-muted)"># Anthropic, OpenAI, Gemini, OpenAI-compat</span>
+├── session/        <span style="color: var(--rust-muted)"># SQLite-backed session management</span>
+├── errors.rs       <span style="color: var(--rust-muted)"># OxicrabError typed error enum</span>
+└── utils/          <span style="color: var(--rust-muted)"># URL security, transcription, media handling</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section style="background: linear-gradient(135deg, var(--rust-dark) 0%, var(--rust-darker) 100%); text-align: center; padding: 6rem 2rem;">
+  <div class="container">
+    <h2 style="font-size: 2.5rem; margin-bottom: 1rem;">Ready to build your AI assistant?</h2>
+    <p style="color: var(--rust-muted); font-size: 1.15rem; max-width: 500px; margin: 0 auto 2.5rem;">Open source, MIT licensed, built in Rust. Contributions welcome.</p>
+    <div class="hero-actions">
+      <a href="https://github.com/oxicrab/oxicrab" class="btn btn-primary">Star on GitHub</a>
+      <a href="https://github.com/oxicrab/oxicrab/issues" class="btn btn-secondary">Report an Issue</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-inner">
+    <a href="#" class="nav-logo" style="font-size: 1.1rem;">🦀 oxi<span>crab</span></a>
+    <div class="footer-links">
+      <a href="https://github.com/oxicrab/oxicrab">GitHub</a>
+      <a href="https://crates.io/crates/oxicrab">crates.io</a>
+      <a href="https://github.com/oxicrab/oxicrab/blob/main/README.md">Documentation</a>
+      <a href="https://github.com/oxicrab/oxicrab/blob/main/LICENSE">MIT License</a>
+    </div>
+    <p class="footer-copy">Built with 🦀 and ❤️ by <a href="https://github.com/oxicrab" style="color: var(--rust-orange); text-decoration: none;">James Turnbull</a></p>
+  </div>
+</footer>
+
+<script>
+  // Smooth scroll for nav links
+  document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+    anchor.addEventListener('click', function (e) {
+      const target = document.querySelector(this.getAttribute('href'));
+      if (target) {
+        e.preventDefault();
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        document.querySelector('.nav-links')?.classList.remove('open');
+      }
+    });
+  });
+
+  // Nav background on scroll
+  const nav = document.querySelector('nav');
+  window.addEventListener('scroll', () => {
+    nav.style.background = window.scrollY > 50
+      ? 'rgba(15, 15, 26, 0.95)'
+      : 'rgba(15, 15, 26, 0.85)';
+  });
+</script>
+</body>
+</html>

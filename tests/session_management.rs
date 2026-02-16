@@ -1,4 +1,4 @@
-use nanobot::session::{Session, SessionManager};
+use oxicrab::session::{Session, SessionManager};
 use std::collections::HashMap;
 use tempfile::TempDir;
 

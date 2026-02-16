@@ -69,7 +69,7 @@ impl BrowserTool {
         // Use a unique temp directory per session to avoid SingletonLock conflicts
         // when previous browser instances crashed without cleanup
         let user_data_dir =
-            std::env::temp_dir().join(format!("nanobot-chrome-{}", std::process::id()));
+            std::env::temp_dir().join(format!("oxicrab-chrome-{}", std::process::id()));
 
         let mut builder = ChromeBrowserConfig::builder()
             .no_sandbox()

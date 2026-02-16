@@ -16,7 +16,7 @@ const DEFAULT_SCOPES: &[&str] = &[
     "https://www.googleapis.com/auth/calendar.readonly",
 ];
 
-const DEFAULT_TOKEN_PATH: &str = ".nanobot/google_tokens.json";
+const DEFAULT_TOKEN_PATH: &str = ".oxicrab/google_tokens.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GoogleCredentials {
@@ -141,7 +141,7 @@ pub async fn get_credentials(
     }
 
     Err(anyhow::anyhow!(
-        "No valid Google credentials. Run 'nanobot auth google' to authenticate."
+        "No valid Google credentials. Run 'oxicrab auth google' to authenticate."
     ))
 }
 

@@ -1,5 +1,5 @@
-use nanobot::agent::context::ContextBuilder;
-use nanobot::agent::skills::SkillsLoader;
+use oxicrab::agent::context::ContextBuilder;
+use oxicrab::agent::skills::SkillsLoader;
 use tempfile::TempDir;
 
 #[test]

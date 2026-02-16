@@ -2,7 +2,7 @@ use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::BaseChannel;
 use crate::channels::utils::{check_allowed_sender, exponential_backoff_delay};
 use crate::config::WhatsAppConfig;
-use crate::utils::get_nanobot_home;
+use crate::utils::get_oxicrab_home;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -27,8 +27,8 @@ pub struct WhatsAppChannel {
 impl WhatsAppChannel {
     pub fn new(config: WhatsAppConfig, inbound_tx: Arc<mpsc::Sender<InboundMessage>>) -> Self {
         // Determine session path for WhatsApp session storage
-        let session_path = get_nanobot_home().map_or_else(
-            |_| PathBuf::from(".nanobot/whatsapp"),
+        let session_path = get_oxicrab_home().map_or_else(
+            |_| PathBuf::from(".oxicrab/whatsapp"),
             |home| home.join("whatsapp"),
         );
 
@@ -543,7 +543,7 @@ async fn send_whatsapp_message(
     Ok(())
 }
 
-/// Download a `WhatsApp` media file and save to ~/.nanobot/media/.
+/// Download a `WhatsApp` media file and save to ~/.oxicrab/media/.
 async fn download_whatsapp_media(
     client: &Arc<whatsapp_rust::client::Client>,
     downloadable: &dyn whatsapp_rust::download::Downloadable,
@@ -553,7 +553,7 @@ async fn download_whatsapp_media(
 ) -> Result<String> {
     let media_dir = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".nanobot")
+        .join(".oxicrab")
         .join("media");
     std::fs::create_dir_all(&media_dir)?;
 

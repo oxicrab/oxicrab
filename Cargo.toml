@@ -1,19 +1,19 @@
 [package]
-name = "nanobot"
+name = "oxicrab"
 version = "0.9.5"
 edition = "2021"
 authors = ["James Turnbull <james@ltl.so>"]
-description = "A high-performance Rust implementation of the nanobot AI assistant framework"
+description = "A high-performance Rust multi-channel AI assistant framework"
 license = "MIT"
-repository = "https://github.com/jamtur01/nanobot-rust"
+repository = "https://github.com/oxicrab/oxicrab"
 readme = "README.md"
 
 [lib]
-name = "nanobot"
+name = "oxicrab"
 path = "src/lib.rs"
 
 [[bin]]
-name = "nanobot"
+name = "oxicrab"
 path = "src/main.rs"
 
 [features]

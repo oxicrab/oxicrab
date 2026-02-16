@@ -34,7 +34,7 @@ async fn test_unknown_action() {
 async fn test_list_issues_missing_owner() {
     let result = tool()
         .execute(
-            serde_json::json!({"action": "list_issues", "repo": "nanobot"}),
+            serde_json::json!({"action": "list_issues", "repo": "oxicrab"}),
             &ExecutionContext::default(),
         )
         .await

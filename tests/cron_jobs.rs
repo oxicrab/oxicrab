@@ -1,5 +1,5 @@
-use nanobot::cron::service::{validate_cron_expr, CronService};
-use nanobot::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule, CronTarget};
+use oxicrab::cron::service::{validate_cron_expr, CronService};
+use oxicrab::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule, CronTarget};
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
@@ -215,7 +215,7 @@ async fn test_cron_update_job() {
         .await
         .unwrap();
 
-    let params = nanobot::cron::types::UpdateJobParams {
+    let params = oxicrab::cron::types::UpdateJobParams {
         name: Some("Updated Name".to_string()),
         message: Some("Updated message".to_string()),
         ..Default::default()
@@ -298,7 +298,7 @@ async fn test_cron_update_targets() {
         },
     ];
 
-    let params = nanobot::cron::types::UpdateJobParams {
+    let params = oxicrab::cron::types::UpdateJobParams {
         targets: Some(new_targets),
         ..Default::default()
     };
@@ -442,7 +442,7 @@ async fn test_update_job_with_schedule_recomputes_next_run() {
     let next_before = before[0].state.next_run_at_ms;
 
     // Update schedule to a different interval
-    let params = nanobot::cron::types::UpdateJobParams {
+    let params = oxicrab::cron::types::UpdateJobParams {
         schedule: Some(CronSchedule::Every {
             every_ms: Some(120_000),
         }),
@@ -491,7 +491,7 @@ async fn test_list_jobs_reflects_disk_state() {
 
     // Modify the file on disk directly (simulating what the scheduler does)
     let content = std::fs::read_to_string(&store_path).unwrap();
-    let mut store: nanobot::cron::types::CronStore = serde_json::from_str(&content).unwrap();
+    let mut store: oxicrab::cron::types::CronStore = serde_json::from_str(&content).unwrap();
     store.jobs[0].state.last_status = Some("ok".to_string());
     store.jobs[0].state.next_run_at_ms = Some(9999999999999);
     std::fs::write(&store_path, serde_json::to_string_pretty(&store).unwrap()).unwrap();

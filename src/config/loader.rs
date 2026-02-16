@@ -1,12 +1,12 @@
 use crate::config::Config;
-use crate::utils::{ensure_dir, get_nanobot_home};
+use crate::utils::{ensure_dir, get_oxicrab_home};
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub fn get_config_path() -> Result<PathBuf> {
-    Ok(get_nanobot_home()?.join("config.json"))
+    Ok(get_oxicrab_home()?.join("config.json"))
 }
 
 pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_load_config_missing_file_returns_default() {
-        let path = std::path::Path::new("/tmp/nonexistent_nanobot_config_test.json");
+        let path = std::path::Path::new("/tmp/nonexistent_oxicrab_config_test.json");
         let config = load_config(Some(path)).unwrap();
         assert_eq!(config.agents.defaults.model, "claude-sonnet-4-5-20250929");
     }

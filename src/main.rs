@@ -9,5 +9,5 @@ async fn main() -> Result<()> {
         .add_directive("hyper_util=warn".parse().unwrap());
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
-    nanobot::cli::run().await
+    oxicrab::cli::run().await
 }

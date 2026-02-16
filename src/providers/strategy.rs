@@ -283,7 +283,7 @@ impl ProviderFactory {
                 Options:\n\
                 1. Install Claude CLI: https://github.com/anthropics/claude-cli\n\
                 2. Install OpenClaw: https://github.com/anthropics/openclaw\n\
-                3. Set 'providers.anthropicOAuth.credentialsPath' in ~/.nanobot/config.json\n\
+                3. Set 'providers.anthropicOAuth.credentialsPath' in ~/.oxicrab/config.json\n\
                 4. Use an API key model instead (e.g., 'claude-sonnet-4-5-20250929')",
                 model
             );

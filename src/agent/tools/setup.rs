@@ -73,14 +73,14 @@ fn register_filesystem(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     let allowed_roots = if ctx.restrict_to_workspace {
         let mut roots = vec![ctx.workspace.clone()];
         if let Some(home) = dirs::home_dir() {
-            roots.push(home.join(".nanobot"));
+            roots.push(home.join(".oxicrab"));
         }
         Some(roots)
     } else {
         None
     };
 
-    let backup_dir = dirs::home_dir().map(|h| h.join(".nanobot/backups"));
+    let backup_dir = dirs::home_dir().map(|h| h.join(".oxicrab/backups"));
 
     registry.register(Arc::new(ReadFileTool::new(allowed_roots.clone())));
     registry.register(Arc::new(WriteFileTool::new(
@@ -324,7 +324,7 @@ async fn register_mcp(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
                 }
                 // Store manager so child processes stay alive.
                 // We leak it intentionally — MCP servers run for the process lifetime.
-                // The processes will be killed when the nanobot process exits.
+                // The processes will be killed when the oxicrab process exits.
                 std::mem::forget(manager);
             }
             Err(e) => {

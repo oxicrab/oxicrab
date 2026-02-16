@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::fmt::Write;
 
-/// Wraps a single MCP server tool as an `impl Tool` for the nanobot agent.
+/// Wraps a single MCP server tool as an `impl Tool` for the oxicrab agent.
 pub struct McpProxyTool {
     peer: Peer<RoleClient>,
     tool_name: String,

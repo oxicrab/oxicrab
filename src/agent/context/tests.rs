@@ -13,7 +13,7 @@ fn test_default_identity_contains_required_sections() {
     let identity =
         ContextBuilder::get_default_identity("2026-02-09", "EST", "Rust 0.1.3", "/workspace");
 
-    assert!(identity.contains("# nanobot"), "missing heading");
+    assert!(identity.contains("# oxicrab"), "missing heading");
     assert!(identity.contains("## Capabilities"), "missing capabilities");
     assert!(identity.contains("## Current Context"), "missing context");
     assert!(
@@ -106,7 +106,7 @@ fn test_identity_falls_back_when_no_file() {
 
     let identity = ctx.get_identity();
 
-    assert!(identity.contains("# nanobot"));
+    assert!(identity.contains("# oxicrab"));
     assert!(
         !identity.contains("## Behavioral Rules"),
         "fallback should not contain behavioral rules — AGENTS.md is the single source"

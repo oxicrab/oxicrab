@@ -15,7 +15,7 @@ pub struct HttpTool {
 
 impl Default for HttpTool {
     fn default() -> Self {
-        let user_agent = format!("nanobot-rust/{}", env!("CARGO_PKG_VERSION"));
+        let user_agent = format!("oxicrab/{}", env!("CARGO_PKG_VERSION"));
         Self {
             client: Client::builder()
                 .user_agent(user_agent)

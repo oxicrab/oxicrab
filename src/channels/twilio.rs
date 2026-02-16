@@ -122,7 +122,7 @@ async fn webhook_handler(
             author, conv_sid
         );
         // Skip our own messages
-        if author == "nanobot" {
+        if author == "oxicrab" {
             debug!("twilio webhook: ignoring own message");
             return StatusCode::OK;
         }
@@ -274,7 +274,7 @@ impl BaseChannel for TwilioChannel {
                 self.client
                     .post(&url)
                     .basic_auth(&self.config.account_sid, Some(&self.config.auth_token))
-                    .form(&[("Body", chunk.as_str()), ("Author", "nanobot")])
+                    .form(&[("Body", chunk.as_str()), ("Author", "oxicrab")])
                     .send()
                     .await?
             };

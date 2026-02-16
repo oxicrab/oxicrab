@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 
 const MAX_MEDIA_SIZE: usize = 20 * 1024 * 1024; // 20MB
 
-/// Save binary data to a file in `~/.nanobot/media/`.
+/// Save binary data to a file in `~/.oxicrab/media/`.
 ///
 /// Validates size (10MB max) and image magic bytes for image extensions.
 /// Returns the absolute path to the saved file.
@@ -27,8 +27,8 @@ pub fn save_media_file(bytes: &[u8], prefix: &str, extension: &str) -> Result<St
         );
     }
 
-    let media_dir = super::get_nanobot_home()
-        .context("failed to determine nanobot home")?
+    let media_dir = super::get_oxicrab_home()
+        .context("failed to determine oxicrab home")?
         .join("media");
     std::fs::create_dir_all(&media_dir)
         .with_context(|| format!("failed to create media directory: {}", media_dir.display()))?;

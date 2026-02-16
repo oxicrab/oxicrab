@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use nanobot::agent::compaction::{estimate_tokens, MessageCompactor};
-use nanobot::agent::{AgentLoop, AgentLoopConfig};
-use nanobot::bus::MessageBus;
-use nanobot::config::CompactionConfig;
-use nanobot::providers::base::{ChatRequest, LLMProvider, LLMResponse, Message};
+use oxicrab::agent::compaction::{estimate_tokens, MessageCompactor};
+use oxicrab::agent::{AgentLoop, AgentLoopConfig};
+use oxicrab::bus::MessageBus;
+use oxicrab::config::CompactionConfig;
+use oxicrab::providers::base::{ChatRequest, LLMProvider, LLMResponse, Message};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tempfile::TempDir;

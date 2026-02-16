@@ -1,4 +1,4 @@
-use crate::errors::NanobotError;
+use crate::errors::OxicrabError;
 use crate::providers::base::ProviderMetrics;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -12,7 +12,7 @@ pub struct ProviderErrorHandler;
 
 impl ProviderErrorHandler {
     /// Parse API error response and return a typed error
-    pub fn parse_api_error(status: u16, error_text: &str) -> Result<(), NanobotError> {
+    pub fn parse_api_error(status: u16, error_text: &str) -> Result<(), OxicrabError> {
         // Try to parse error JSON if possible to provide better error messages
         if let Ok(error_json) = serde_json::from_str::<Value>(error_text) {
             if let Some(err) = error_json.get("error") {
@@ -28,10 +28,10 @@ impl ProviderErrorHandler {
                 // Provide helpful message for model not found errors
                 if error_type == "not_found_error" && error_msg.contains("model:") {
                     let model_name = error_msg.replace("model: ", "").trim().to_string();
-                    return Err(NanobotError::Provider {
+                    return Err(OxicrabError::Provider {
                         message: format!(
                             "Model '{}' not found. This model may be deprecated or incorrect.\n\
-                            Please update your config file (~/.nanobot/config.json) to use a valid model:\n\
+                            Please update your config file (~/.oxicrab/config.json) to use a valid model:\n\
                             - claude-sonnet-4-5-20250929 (recommended)\n\
                             - claude-haiku-4-5-20251001 (fastest)\n\
                             - claude-opus-4-5-20251101 (most capable)\n\
@@ -44,7 +44,7 @@ impl ProviderErrorHandler {
                 }
 
                 let retryable = status == 500 || status == 502 || status == 503;
-                return Err(NanobotError::Provider {
+                return Err(OxicrabError::Provider {
                     message: format!("API error ({}): {}", error_type, error_msg),
                     retryable,
                 });
@@ -52,7 +52,7 @@ impl ProviderErrorHandler {
         }
 
         let retryable = status == 500 || status == 502 || status == 503;
-        Err(NanobotError::Provider {
+        Err(OxicrabError::Provider {
             message: format!("API error ({}): {}", status, error_text),
             retryable,
         })
@@ -67,19 +67,19 @@ impl ProviderErrorHandler {
     }
 
     /// Handle rate limiting errors
-    pub fn handle_rate_limit(status: u16, retry_after: Option<u64>) -> Result<(), NanobotError> {
+    pub fn handle_rate_limit(status: u16, retry_after: Option<u64>) -> Result<(), OxicrabError> {
         if let Some(seconds) = retry_after {
             warn!("Rate limit hit. Retry after {} seconds", seconds);
         } else {
             warn!("Rate limit hit (status: {})", status);
         }
-        Err(NanobotError::RateLimit { retry_after })
+        Err(OxicrabError::RateLimit { retry_after })
     }
 
     /// Handle authentication errors
-    pub fn handle_auth_error(status: u16, error_text: &str) -> Result<(), NanobotError> {
+    pub fn handle_auth_error(status: u16, error_text: &str) -> Result<(), OxicrabError> {
         warn!("Authentication error (status: {}): {}", status, error_text);
-        Err(NanobotError::Auth(format!(
+        Err(OxicrabError::Auth(format!(
             "Authentication failed. Please check your API key or credentials. Error: {}",
             error_text
         )))
@@ -160,7 +160,7 @@ impl ProviderErrorHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::errors::NanobotError;
+    use crate::errors::OxicrabError;
 
     #[test]
     fn test_parse_api_error_with_json_body() {
@@ -168,7 +168,7 @@ mod tests {
         let result = ProviderErrorHandler::parse_api_error(400, error_json);
         let err = result.unwrap_err();
         match err {
-            NanobotError::Provider { message, retryable } => {
+            OxicrabError::Provider { message, retryable } => {
                 assert!(message.contains("invalid_request"));
                 assert!(message.contains("bad request"));
                 assert!(!retryable);
@@ -183,7 +183,7 @@ mod tests {
         let result = ProviderErrorHandler::parse_api_error(500, error_json);
         let err = result.unwrap_err();
         match err {
-            NanobotError::Provider { retryable, .. } => assert!(retryable),
+            OxicrabError::Provider { retryable, .. } => assert!(retryable),
             _ => panic!("expected Provider error"),
         }
     }
@@ -194,7 +194,7 @@ mod tests {
         let result = ProviderErrorHandler::parse_api_error(502, error_json);
         let err = result.unwrap_err();
         match err {
-            NanobotError::Provider { retryable, .. } => assert!(retryable),
+            OxicrabError::Provider { retryable, .. } => assert!(retryable),
             _ => panic!("expected Provider error"),
         }
     }
@@ -205,7 +205,7 @@ mod tests {
         let result = ProviderErrorHandler::parse_api_error(503, error_json);
         let err = result.unwrap_err();
         match err {
-            NanobotError::Provider { retryable, .. } => assert!(retryable),
+            OxicrabError::Provider { retryable, .. } => assert!(retryable),
             _ => panic!("expected Provider error"),
         }
     }
@@ -216,7 +216,7 @@ mod tests {
         let result = ProviderErrorHandler::parse_api_error(400, error_json);
         let err = result.unwrap_err();
         match err {
-            NanobotError::Provider { retryable, .. } => assert!(!retryable),
+            OxicrabError::Provider { retryable, .. } => assert!(!retryable),
             _ => panic!("expected Provider error"),
         }
     }
@@ -226,7 +226,7 @@ mod tests {
         let result = ProviderErrorHandler::parse_api_error(500, "plain text error");
         let err = result.unwrap_err();
         match err {
-            NanobotError::Provider { message, retryable } => {
+            OxicrabError::Provider { message, retryable } => {
                 assert!(message.contains("500"));
                 assert!(message.contains("plain text error"));
                 assert!(retryable);
@@ -242,7 +242,7 @@ mod tests {
         let result = ProviderErrorHandler::parse_api_error(404, error_json);
         let err = result.unwrap_err();
         match err {
-            NanobotError::Provider { message, retryable } => {
+            OxicrabError::Provider { message, retryable } => {
                 assert!(message.contains("not found"));
                 assert!(message.contains("claude-sonnet-4-5-20250929"));
                 assert!(!retryable);
@@ -256,7 +256,7 @@ mod tests {
         let result = ProviderErrorHandler::handle_rate_limit(429, Some(30));
         let err = result.unwrap_err();
         match err {
-            NanobotError::RateLimit { retry_after } => {
+            OxicrabError::RateLimit { retry_after } => {
                 assert_eq!(retry_after, Some(30));
             }
             _ => panic!("expected RateLimit error"),
@@ -268,7 +268,7 @@ mod tests {
         let result = ProviderErrorHandler::handle_rate_limit(429, None);
         let err = result.unwrap_err();
         match err {
-            NanobotError::RateLimit { retry_after } => {
+            OxicrabError::RateLimit { retry_after } => {
                 assert_eq!(retry_after, None);
             }
             _ => panic!("expected RateLimit error"),
@@ -280,7 +280,7 @@ mod tests {
         let result = ProviderErrorHandler::handle_auth_error(401, "invalid token");
         let err = result.unwrap_err();
         match err {
-            NanobotError::Auth(msg) => {
+            OxicrabError::Auth(msg) => {
                 assert!(msg.contains("invalid token"));
                 assert!(msg.contains("Authentication failed"));
             }

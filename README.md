@@ -1,6 +1,6 @@
-# Nanobot Rust
+# Oxicrab
 
-A high-performance Rust implementation of the nanobot AI assistant framework with multi-channel support.
+A high-performance Rust multi-channel AI assistant framework.
 
 ## Features
 
@@ -43,13 +43,13 @@ cargo build --release --no-default-features
 
 ## Configuration
 
-Configuration is stored in `~/.nanobot/config.json`. Create this file with the following structure:
+Configuration is stored in `~/.oxicrab/config.json`. Create this file with the following structure:
 
 ```json
 {
   "agents": {
     "defaults": {
-      "workspace": "~/.nanobot/workspace",
+      "workspace": "~/.oxicrab/workspace",
       "model": "claude-sonnet-4-5-20250929",
       "maxTokens": 8192,
       "temperature": 0.7,
@@ -198,7 +198,7 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
   "voice": {
     "transcription": {
       "enabled": true,
-      "localModelPath": "~/.nanobot/models/ggml-large-v3-turbo-q5_0.bin",
+      "localModelPath": "~/.oxicrab/models/ggml-large-v3-turbo-q5_0.bin",
       "preferLocal": true,
       "threads": 4,
       "apiKey": "your-groq-or-openai-api-key",
@@ -329,9 +329,9 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
 ### WhatsApp
 
 1. **First-time setup**:
-   - Run `./nanobot gateway` with WhatsApp enabled in config
+   - Run `./oxicrab gateway` with WhatsApp enabled in config
    - Scan the QR code displayed in the terminal with your phone (WhatsApp > Settings > Linked Devices > Link a Device)
-   - Session is automatically stored in `~/.nanobot/whatsapp/`
+   - Session is automatically stored in `~/.oxicrab/whatsapp/`
 
 2. **Configure**:
    ```json
@@ -363,7 +363,7 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
 
 4. **Configure webhooks**:
    - Go to **Conversations > Manage > [Your Service] > Webhooks**
-   - Set **Post-Webhook URL** to your nanobot server's public URL (e.g. `https://your-server.example.com/twilio/webhook`)
+   - Set **Post-Webhook URL** to your oxicrab server's public URL (e.g. `https://your-server.example.com/twilio/webhook`)
    - Subscribe to events: **`onMessageAdded`**
    - Method: **POST**
 
@@ -406,7 +406,7 @@ Configuration is stored in `~/.nanobot/config.json`. Create this file with the f
 Start the gateway to run all enabled channels and the agent:
 
 ```bash
-./target/release/nanobot gateway
+./target/release/oxicrab gateway
 ```
 
 ### CLI Mode
@@ -415,10 +415,10 @@ Interact with the agent directly from the terminal:
 
 ```bash
 # Interactive session
-./target/release/nanobot agent
+./target/release/oxicrab agent
 
 # Single message
-./target/release/nanobot agent -m "What's the weather?"
+./target/release/oxicrab agent -m "What's the weather?"
 ```
 
 ### Cron Jobs
@@ -427,26 +427,26 @@ Manage scheduled jobs from the CLI:
 
 ```bash
 # List jobs
-./target/release/nanobot cron list
+./target/release/oxicrab cron list
 
 # Add a recurring job (every 3600 seconds)
-./target/release/nanobot cron add -n "Hourly check" -m "Check my inbox" -e 3600 --channel telegram --to 123456789
+./target/release/oxicrab cron add -n "Hourly check" -m "Check my inbox" -e 3600 --channel telegram --to 123456789
 
 # Add a cron-expression job targeting all channels
-./target/release/nanobot cron add -n "Morning briefing" -m "Give me a morning briefing" -c "0 9 * * *" --tz "America/New_York" --all-channels
+./target/release/oxicrab cron add -n "Morning briefing" -m "Give me a morning briefing" -c "0 9 * * *" --tz "America/New_York" --all-channels
 
 # Remove a job
-./target/release/nanobot cron remove --id abc12345
+./target/release/oxicrab cron remove --id abc12345
 
 # Enable/disable
-./target/release/nanobot cron enable --id abc12345
-./target/release/nanobot cron enable --id abc12345 --disable
+./target/release/oxicrab cron enable --id abc12345
+./target/release/oxicrab cron enable --id abc12345 --disable
 
 # Edit a job
-./target/release/nanobot cron edit --id abc12345 -m "New message" --all-channels
+./target/release/oxicrab cron edit --id abc12345 -m "New message" --all-channels
 
 # Manually trigger a job
-./target/release/nanobot cron run --id abc12345 --force
+./target/release/oxicrab cron run --id abc12345 --force
 ```
 
 Jobs support optional auto-stop limits via the LLM tool interface:
@@ -457,7 +457,7 @@ Jobs support optional auto-stop limits via the LLM tool interface:
 
 ```bash
 # Authenticate with Google (Gmail, Calendar)
-./target/release/nanobot auth google
+./target/release/oxicrab auth google
 ```
 
 ### Voice Transcription
@@ -471,8 +471,8 @@ Voice messages from channels are automatically transcribed to text. Two backends
 sudo apt install ffmpeg
 
 # Download the model (~574 MB)
-mkdir -p ~/.nanobot/models
-wget -O ~/.nanobot/models/ggml-large-v3-turbo-q5_0.bin \
+mkdir -p ~/.oxicrab/models
+wget -O ~/.oxicrab/models/ggml-large-v3-turbo-q5_0.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
 ```
 
@@ -488,7 +488,7 @@ Either backend alone is sufficient. Set `localModelPath` for local, `apiKey` for
 "voice": {
   "transcription": {
     "enabled": true,
-    "localModelPath": "~/.nanobot/models/ggml-large-v3-turbo-q5_0.bin",
+    "localModelPath": "~/.oxicrab/models/ggml-large-v3-turbo-q5_0.bin",
     "preferLocal": true,
     "threads": 4,
     "apiKey": "",
@@ -502,13 +502,13 @@ Either backend alone is sufficient. Set `localModelPath` for local, `apiKey` for
 
 ```bash
 # Default: info level, with noisy dependencies suppressed
-./target/release/nanobot gateway
+./target/release/oxicrab gateway
 
 # Debug logging
-RUST_LOG=debug ./target/release/nanobot gateway
+RUST_LOG=debug ./target/release/oxicrab gateway
 
 # Custom filtering
-RUST_LOG=info,whatsapp_rust=warn,nanobot::channels=debug ./target/release/nanobot gateway
+RUST_LOG=info,whatsapp_rust=warn,oxicrab::channels=debug ./target/release/oxicrab gateway
 ```
 
 ## Model Configuration
@@ -669,7 +669,7 @@ The agent has access to 23 built-in tools, plus any tools provided by MCP server
 
 ### MCP (Model Context Protocol)
 
-Nanobot supports connecting to external tool servers via the [Model Context Protocol](https://modelcontextprotocol.io/). Each MCP server's tools are automatically discovered and registered as native tools in the agent.
+Oxicrab supports connecting to external tool servers via the [Model Context Protocol](https://modelcontextprotocol.io/). Each MCP server's tools are automatically discovered and registered as native tools in the agent.
 
 ```json
 "tools": {
@@ -711,7 +711,7 @@ The agent can spawn background subagents to handle complex tasks in parallel:
 ## Workspace Structure
 
 ```
-~/.nanobot/
+~/.oxicrab/
 ├── config.json              # Main configuration
 ├── workspace/
 │   ├── AGENTS.md            # Bot identity, personality, and behavioral rules
@@ -746,7 +746,7 @@ src/
 ├── heartbeat/      # Heartbeat/daemon service
 ├── providers/      # LLM provider implementations (Anthropic, OpenAI, Gemini, OpenAI-compatible)
 ├── session/        # Session management with SQLite backend
-├── errors.rs       # NanobotError typed error enum
+├── errors.rs       # OxicrabError typed error enum
 └── utils/          # URL security, atomic writes, task tracking, voice transcription, media file handling
 ```
 
@@ -760,7 +760,7 @@ src/
 - **Session management**: SQLite-backed sessions with automatic TTL cleanup
 - **Memory**: SQLite FTS5 for semantic memory indexing with background indexer, automatic fact extraction, optional hybrid vector+keyword search via local ONNX embeddings (fastembed), and automatic memory hygiene (archive old notes, purge expired archives, clean orphaned entries)
 - **Compaction**: Automatic conversation summarization when context exceeds token threshold
-- **Outbound media**: Browser screenshots, image downloads (`web_fetch`, `http`), and binary responses are saved to `~/.nanobot/media/` and can be sent to users via the `message` tool's `media` parameter. Supported channels: Telegram (photos/documents), Discord (file attachments), Slack (3-step file upload API). WhatsApp and Twilio log warnings for unsupported outbound media.
+- **Outbound media**: Browser screenshots, image downloads (`web_fetch`, `http`), and binary responses are saved to `~/.oxicrab/media/` and can be sent to users via the `message` tool's `media` parameter. Supported channels: Telegram (photos/documents), Discord (file attachments), Slack (3-step file upload API). WhatsApp and Twilio log warnings for unsupported outbound media.
 - **Tool execution**: Middleware pipeline (`CacheMiddleware` → `TruncationMiddleware` → `LoggingMiddleware`) in `ToolRegistry`, panic-isolated via `tokio::task::spawn`, parallel execution via `join_all`, LRU result caching for read-only tools, pre-execution JSON schema validation
 - **MCP integration**: External tool servers connected via Model Context Protocol (`rmcp` crate). Tools auto-discovered at startup and registered as native tools
 - **Tool facts injection**: Each agent turn injects a reminder listing all available tools, preventing the LLM from falsely claiming tools are unavailable

@@ -252,7 +252,7 @@ async fn run_subagent_inner(
         None
     };
 
-    let backup_dir = Some(home.join(".nanobot/backups"));
+    let backup_dir = Some(home.join(".oxicrab/backups"));
 
     tools.register(Arc::new(ReadFileTool::new(allowed_roots.clone())));
     tools.register(Arc::new(WriteFileTool::new(

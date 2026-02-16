@@ -5,7 +5,7 @@ use common::{
     create_test_agent_with, text_response, tool_call, tool_response, MockLLMProvider,
     TestAgentOverrides,
 };
-use nanobot::providers::base::{ChatRequest, LLMProvider, LLMResponse, ToolDefinition};
+use oxicrab::providers::base::{ChatRequest, LLMProvider, LLMResponse, ToolDefinition};
 use serde_json::json;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -14,7 +14,7 @@ use tempfile::TempDir;
 fn default_agent(
     provider: MockLLMProvider,
     tmp: &TempDir,
-) -> impl std::future::Future<Output = nanobot::agent::AgentLoop> + '_ {
+) -> impl std::future::Future<Output = oxicrab::agent::AgentLoop> + '_ {
     create_test_agent_with(provider, tmp, TestAgentOverrides::default())
 }
 

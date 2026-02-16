@@ -37,7 +37,7 @@ cargo test --test tool_registry test_name -- --test-threads=1
 cargo test -- --test-threads=1
 ```
 
-Integration tests need `NANOBOT_HOME` set to a temp directory (CI uses `$RUNNER_TEMP/nanobot-test`). Tests use `MockLLMProvider` from `tests/common/mod.rs` and `TempDir` for isolation.
+Integration tests need `OXICRAB_HOME` set to a temp directory (CI uses `$RUNNER_TEMP/oxicrab-test`). Tests use `MockLLMProvider` from `tests/common/mod.rs` and `TempDir` for isolation.
 
 ## Linting
 
@@ -103,15 +103,15 @@ Channels are conditionally compiled via `#[cfg(feature = "channel-*")]` in `src/
 
 ### Config
 
-JSON at `~/.nanobot/config.json` (or `NANOBOT_HOME` env var). Uses camelCase in JSON, snake_case in Rust (serde `rename` attrs). Schema in `src/config/schema.rs` — 11 structs have custom `Debug` impls that redact secrets. Validated on startup via `config.validate()`.
+JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in JSON, snake_case in Rust (serde `rename` attrs). Schema in `src/config/schema.rs` — 11 structs have custom `Debug` impls that redact secrets. Validated on startup via `config.validate()`.
 
 ### Error Handling
 
-`NanobotError` in `src/errors.rs` — typed variants: `Config`, `Provider { retryable }`, `RateLimit { retry_after }`, `Auth`, `Internal(anyhow::Error)`. See [Code Style & Patterns](#code-style--patterns) for usage conventions.
+`OxicrabError` in `src/errors.rs` — typed variants: `Config`, `Provider { retryable }`, `RateLimit { retry_after }`, `Auth`, `Internal(anyhow::Error)`. See [Code Style & Patterns](#code-style--patterns) for usage conventions.
 
 ### CLI Commands
 
-`nanobot gateway` — full multi-channel daemon. `nanobot agent -m "message"` — single-turn CLI. `nanobot onboard` — first-time setup. `nanobot cron` — manage cron jobs. `nanobot auth` — OAuth flows.
+`oxicrab gateway` — full multi-channel daemon. `oxicrab agent -m "message"` — single-turn CLI. `oxicrab onboard` — first-time setup. `oxicrab cron` — manage cron jobs. `oxicrab auth` — OAuth flows.
 
 ## Code Style & Patterns
 
@@ -141,7 +141,7 @@ JSON at `~/.nanobot/config.json` (or `NANOBOT_HOME` env var). Uses camelCase in 
 - Registration: Each module has a `register_*()` function in `src/agent/tools/setup.rs`
 
 ### Error Handling
-- Internal functions use `anyhow::Result`; module boundaries use `NanobotError`
+- Internal functions use `anyhow::Result`; module boundaries use `OxicrabError`
 - Return `ToolResult::error(...)` for user-facing tool errors (not `Err(...)`)
 - Use `Err(anyhow::anyhow!(...))` or `anyhow::bail!(...)` for internal failures
 

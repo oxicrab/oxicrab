@@ -24,13 +24,13 @@ pub fn safe_filename(name: &str) -> String {
         .collect()
 }
 
-pub fn get_nanobot_home() -> Result<PathBuf> {
-    if let Some(home) = std::env::var_os("NANOBOT_HOME") {
+pub fn get_oxicrab_home() -> Result<PathBuf> {
+    if let Some(home) = std::env::var_os("OXICRAB_HOME") {
         return Ok(PathBuf::from(home));
     }
     Ok(dirs::home_dir()
         .context("Could not determine home directory")?
-        .join(".nanobot"))
+        .join(".oxicrab"))
 }
 
 /// Write content atomically via tempfile + rename.

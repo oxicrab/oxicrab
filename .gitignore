@@ -15,8 +15,8 @@ target/
 .DS_Store
 Thumbs.db
 
-# Nanobot runtime
-.nanobot/
+# Oxicrab runtime
+.oxicrab/
 *.db
 *.log
 

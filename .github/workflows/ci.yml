@@ -60,7 +60,7 @@ jobs:
       - name: Run integration tests
         run: cargo test --test session_management --test cron_jobs --test tool_registry --test message_flow --verbose -- --test-threads=1
         env:
-          NANOBOT_HOME: ${{ runner.temp }}/nanobot-test
+          OXICRAB_HOME: ${{ runner.temp }}/oxicrab-test
 
   release:
     name: Release Build
@@ -87,6 +87,6 @@ jobs:
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nanobot-linux-x86_64
-          path: target/release/nanobot
+          name: oxicrab-linux-x86_64
+          path: target/release/oxicrab
           retention-days: 30

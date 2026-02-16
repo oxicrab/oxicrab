@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use nanobot::agent::tools::base::ExecutionContext;
-use nanobot::agent::tools::{Tool, ToolRegistry, ToolResult};
+use oxicrab::agent::tools::base::ExecutionContext;
+use oxicrab::agent::tools::{Tool, ToolRegistry, ToolResult};
 use serde_json::{json, Value};
 use std::sync::Arc;
 

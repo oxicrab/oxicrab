@@ -47,7 +47,7 @@ impl GitHubTool {
             .query(query)
             .header("Authorization", format!("Bearer {}", self.token))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "nanobot")
+            .header("User-Agent", "oxicrab")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .timeout(Duration::from_secs(15))
             .send()
@@ -69,7 +69,7 @@ impl GitHubTool {
             .json(body)
             .header("Authorization", format!("Bearer {}", self.token))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "nanobot")
+            .header("User-Agent", "oxicrab")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .timeout(Duration::from_secs(15))
             .send()
@@ -312,7 +312,7 @@ impl Tool for GitHubTool {
                 },
                 "repo": {
                     "type": "string",
-                    "description": "Repository name (e.g. 'nanobot-rust')"
+                    "description": "Repository name (e.g. 'oxicrab')"
                 },
                 "state": {
                     "type": "string",

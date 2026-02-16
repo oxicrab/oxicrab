@@ -8,8 +8,8 @@ use std::process::Stdio;
 use tokio::process::Command;
 use tracing::debug;
 
-const SOCKET_DIR: &str = "nanobot-tmux-sockets";
-const SOCKET_NAME: &str = "nanobot.sock";
+const SOCKET_DIR: &str = "oxicrab-tmux-sockets";
+const SOCKET_NAME: &str = "oxicrab.sock";
 
 fn get_socket_path() -> PathBuf {
     std::env::temp_dir().join(SOCKET_DIR).join(SOCKET_NAME)
@@ -245,14 +245,14 @@ mod tests {
     #[test]
     fn test_is_session_missing_no_such_file() {
         assert!(TmuxTool::is_session_missing(
-            "error connecting to /tmp/nanobot-tmux-sockets/nanobot.sock (No such file or directory)"
+            "error connecting to /tmp/oxicrab-tmux-sockets/oxicrab.sock (No such file or directory)"
         ));
     }
 
     #[test]
     fn test_is_session_missing_no_server() {
         assert!(TmuxTool::is_session_missing(
-            "no server running on /tmp/nanobot-tmux-sockets/nanobot.sock"
+            "no server running on /tmp/oxicrab-tmux-sockets/oxicrab.sock"
         ));
     }
 
@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn test_socket_path() {
         let path = get_socket_path();
-        assert!(path.ends_with("nanobot-tmux-sockets/nanobot.sock"));
+        assert!(path.ends_with("oxicrab-tmux-sockets/oxicrab.sock"));
     }
 
     #[tokio::test]

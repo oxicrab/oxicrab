@@ -368,7 +368,7 @@ async fn transcribe_audio_tags(
 fn cleanup_old_media(ttl_days: u32) -> Result<()> {
     let media_dir = dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-        .join(".nanobot")
+        .join(".oxicrab")
         .join("media");
     if !media_dir.exists() {
         return Ok(());

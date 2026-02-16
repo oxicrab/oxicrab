@@ -4,7 +4,7 @@ use common::{
     create_test_agent_with, text_response, tool_call, tool_response, MockLLMProvider,
     TestAgentOverrides,
 };
-use nanobot::agent::memory::{MemoryDB, MemoryStore};
+use oxicrab::agent::memory::{MemoryDB, MemoryStore};
 use serde_json::json;
 use tempfile::TempDir;
 

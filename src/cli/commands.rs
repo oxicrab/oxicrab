@@ -17,7 +17,7 @@ use tracing::{debug, error, info, warn};
 const TOOL_TEMPERATURE: f32 = 0.0;
 
 #[derive(Parser)]
-#[command(name = "nanobot")]
+#[command(name = "oxicrab")]
 #[command(about = "Personal AI Assistant")]
 pub struct Cli {
     #[command(subcommand)]
@@ -26,7 +26,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize nanobot configuration and workspace
+    /// Initialize oxicrab configuration and workspace
     Onboard,
     /// Run the gateway (channels + agent)
     Gateway {
@@ -55,7 +55,7 @@ enum Commands {
         #[command(subcommand)]
         cmd: ChannelCommands,
     },
-    /// Show nanobot status
+    /// Show oxicrab status
     Status,
 }
 
@@ -185,7 +185,7 @@ pub async fn run() -> Result<()> {
 }
 
 fn onboard() -> Result<()> {
-    println!("🤖 Initializing nanobot...");
+    println!("🤖 Initializing oxicrab...");
 
     let config_path = crate::config::get_config_path()?;
     if config_path.exists() {
@@ -208,11 +208,11 @@ fn onboard() -> Result<()> {
 
     create_workspace_templates(&workspace)?;
 
-    println!("\n🤖 nanobot is ready!");
+    println!("\n🤖 oxicrab is ready!");
     println!("\nNext steps:");
-    println!("  1. Add your API key to ~/.nanobot/config.json");
+    println!("  1. Add your API key to ~/.oxicrab/config.json");
     println!("     Get one at: https://openrouter.ai/keys");
-    println!("  2. Chat: nanobot agent -m \"Hello!\"");
+    println!("  2. Chat: oxicrab agent -m \"Hello!\"");
 
     Ok(())
 }
@@ -307,7 +307,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
     let heartbeat = setup_heartbeat(&config, &agent);
     let channels = setup_channels(&config, inbound_tx);
 
-    println!("Starting nanobot gateway...");
+    println!("Starting oxicrab gateway...");
     println!("Enabled channels: {:?}", channels.enabled_channels());
 
     // Start services
@@ -371,7 +371,7 @@ fn setup_message_bus() -> Result<MessageBusSetup> {
 
 fn setup_cron_service() -> Result<Arc<CronService>> {
     debug!("Initializing cron service...");
-    let cron_store_path = crate::utils::get_nanobot_home()?
+    let cron_store_path = crate::utils::get_oxicrab_home()?
         .join("cron")
         .join("jobs.json");
     let cron = CronService::new(cron_store_path);
@@ -793,7 +793,7 @@ async fn interactive_repl(agent: &AgentLoop, session: &str) -> Result<()> {
 #[allow(clippy::too_many_lines)]
 async fn cron_command(cmd: CronCommands) -> Result<()> {
     let _config = load_config(None)?;
-    let cron_store_path = crate::utils::get_nanobot_home()?
+    let cron_store_path = crate::utils::get_oxicrab_home()?
         .join("cron")
         .join("jobs.json");
     let cron = CronService::new(cron_store_path);
@@ -1041,7 +1041,7 @@ async fn auth_command(cmd: AuthCommands) -> Result<()> {
 
             if gcfg.client_id.is_empty() || gcfg.client_secret.is_empty() {
                 eprintln!("Error: Google client_id and client_secret are not configured.");
-                eprintln!("\nAdd them to ~/.nanobot/config.json under tools.google:");
+                eprintln!("\nAdd them to ~/.oxicrab/config.json under tools.google:");
                 eprintln!("  \"tools\": {{");
                 eprintln!("    \"google\": {{");
                 eprintln!("      \"enabled\": true,");
@@ -1086,7 +1086,7 @@ async fn auth_command(cmd: AuthCommands) -> Result<()> {
             .await?;
 
             println!("\n✓ Google authentication successful!");
-            println!("  Tokens saved to ~/.nanobot/google_tokens.json");
+            println!("  Tokens saved to ~/.oxicrab/google_tokens.json");
             println!("\nMake sure tools.google.enabled is true in your config, then restart the gateway.");
         }
     }
@@ -1116,8 +1116,8 @@ async fn channels_command(cmd: ChannelCommands) -> Result<()> {
                     }
                 );
                 if wa.enabled {
-                    let session_path = crate::utils::get_nanobot_home().map_or_else(
-                        |_| std::path::PathBuf::from(".nanobot/whatsapp/whatsapp.db"),
+                    let session_path = crate::utils::get_oxicrab_home().map_or_else(
+                        |_| std::path::PathBuf::from(".oxicrab/whatsapp/whatsapp.db"),
                         |h| h.join("whatsapp").join("whatsapp.db"),
                     );
                     let session_exists = session_path.exists();
@@ -1127,7 +1127,7 @@ async fn channels_command(cmd: ChannelCommands) -> Result<()> {
                         if session_exists {
                             "exists"
                         } else {
-                            "not paired - run 'nanobot channels login'"
+                            "not paired - run 'oxicrab channels login'"
                         }
                     );
                 }
@@ -1228,7 +1228,7 @@ fn status_command() -> Result<()> {
     let config_path = crate::config::get_config_path()?;
     let workspace = config.workspace_path();
 
-    println!("🤖 nanobot Status\n");
+    println!("🤖 oxicrab Status\n");
 
     println!(
         "Config: {} {}",
@@ -1300,7 +1300,7 @@ fn status_command() -> Result<()> {
             let status_str = if google_authed {
                 "✓ authenticated"
             } else {
-                "not authenticated (run: nanobot auth google)"
+                "not authenticated (run: oxicrab auth google)"
             };
             println!("Google: {}", status_str);
         } else {
@@ -1313,7 +1313,7 @@ fn status_command() -> Result<()> {
 
 #[cfg(feature = "channel-whatsapp")]
 async fn whatsapp_login() -> Result<()> {
-    use crate::utils::get_nanobot_home;
+    use crate::utils::get_oxicrab_home;
     use std::sync::Arc;
     use whatsapp_rust::bot::Bot;
     use whatsapp_rust::store::SqliteStore;
@@ -1325,7 +1325,7 @@ async fn whatsapp_login() -> Result<()> {
     println!("Scan the QR code that appears below to connect.\n");
 
     // Determine session path
-    let session_path = get_nanobot_home()?.join("whatsapp");
+    let session_path = get_oxicrab_home()?.join("whatsapp");
     std::fs::create_dir_all(&session_path)?;
 
     let session_db = session_path.join("whatsapp.db");

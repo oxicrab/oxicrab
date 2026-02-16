@@ -19,7 +19,7 @@ fn test_check_path_allowed_within_root() {
 
 #[test]
 fn test_check_path_allowed_outside_root() {
-    let roots = Some(vec![PathBuf::from("/tmp/nanobot_test_nonexistent_root")]);
+    let roots = Some(vec![PathBuf::from("/tmp/oxicrab_test_nonexistent_root")]);
     let result = check_path_allowed(&std::env::temp_dir(), roots.as_ref());
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
@@ -41,7 +41,7 @@ fn test_check_path_allowed_nonexistent_path() {
 
 #[tokio::test]
 async fn test_read_file_success() {
-    let dir = std::env::temp_dir().join("nanobot_test_read");
+    let dir = std::env::temp_dir().join("oxicrab_test_read");
     fs::create_dir_all(&dir).unwrap();
     let file = dir.join("test.txt");
     fs::write(&file, "hello world").unwrap();
@@ -65,7 +65,7 @@ async fn test_read_file_not_found() {
     let tool = ReadFileTool::new(None);
     let result = tool
         .execute(
-            serde_json::json!({"path": "/tmp/nanobot_nonexistent_file_12345.txt"}),
+            serde_json::json!({"path": "/tmp/oxicrab_nonexistent_file_12345.txt"}),
             &ExecutionContext::default(),
         )
         .await
@@ -99,13 +99,13 @@ async fn test_read_file_not_a_file() {
 
 #[tokio::test]
 async fn test_read_file_path_restriction() {
-    let dir = std::env::temp_dir().join("nanobot_test_read_restricted");
+    let dir = std::env::temp_dir().join("oxicrab_test_read_restricted");
     fs::create_dir_all(&dir).unwrap();
     let file = dir.join("secret.txt");
     fs::write(&file, "secret").unwrap();
 
     // Allow only a different root
-    let other = std::env::temp_dir().join("nanobot_test_other_root");
+    let other = std::env::temp_dir().join("oxicrab_test_other_root");
     fs::create_dir_all(&other).unwrap();
     let tool = ReadFileTool::new(Some(vec![other.clone()]));
     let result = tool
@@ -126,7 +126,7 @@ async fn test_read_file_path_restriction() {
 
 #[tokio::test]
 async fn test_write_file_success() {
-    let dir = std::env::temp_dir().join("nanobot_test_write");
+    let dir = std::env::temp_dir().join("oxicrab_test_write");
     fs::create_dir_all(&dir).unwrap();
     let file = dir.join("output.txt");
 
@@ -147,7 +147,7 @@ async fn test_write_file_success() {
 
 #[tokio::test]
 async fn test_write_file_creates_parent_dirs() {
-    let dir = std::env::temp_dir().join("nanobot_test_write_nested/a/b/c");
+    let dir = std::env::temp_dir().join("oxicrab_test_write_nested/a/b/c");
     let file = dir.join("deep.txt");
 
     let tool = WriteFileTool::new(None, None);
@@ -161,14 +161,14 @@ async fn test_write_file_creates_parent_dirs() {
     assert!(!result.is_error);
     assert_eq!(fs::read_to_string(&file).unwrap(), "deep");
 
-    fs::remove_dir_all(std::env::temp_dir().join("nanobot_test_write_nested")).unwrap();
+    fs::remove_dir_all(std::env::temp_dir().join("oxicrab_test_write_nested")).unwrap();
 }
 
 // --- EditFileTool ---
 
 #[tokio::test]
 async fn test_edit_file_success() {
-    let dir = std::env::temp_dir().join("nanobot_test_edit");
+    let dir = std::env::temp_dir().join("oxicrab_test_edit");
     fs::create_dir_all(&dir).unwrap();
     let file = dir.join("edit.txt");
     fs::write(&file, "hello world").unwrap();
@@ -193,7 +193,7 @@ async fn test_edit_file_success() {
 
 #[tokio::test]
 async fn test_edit_file_old_text_not_found() {
-    let dir = std::env::temp_dir().join("nanobot_test_edit_nf");
+    let dir = std::env::temp_dir().join("oxicrab_test_edit_nf");
     fs::create_dir_all(&dir).unwrap();
     let file = dir.join("edit.txt");
     fs::write(&file, "hello world").unwrap();
@@ -218,7 +218,7 @@ async fn test_edit_file_old_text_not_found() {
 
 #[tokio::test]
 async fn test_edit_file_ambiguous_match() {
-    let dir = std::env::temp_dir().join("nanobot_test_edit_ambig");
+    let dir = std::env::temp_dir().join("oxicrab_test_edit_ambig");
     fs::create_dir_all(&dir).unwrap();
     let file = dir.join("edit.txt");
     fs::write(&file, "foo bar foo baz").unwrap();
@@ -245,7 +245,7 @@ async fn test_edit_file_ambiguous_match() {
 
 #[tokio::test]
 async fn test_list_dir_success() {
-    let dir = std::env::temp_dir().join("nanobot_test_listdir");
+    let dir = std::env::temp_dir().join("oxicrab_test_listdir");
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("a.txt"), "").unwrap();
     fs::write(dir.join("b.txt"), "").unwrap();
@@ -272,7 +272,7 @@ async fn test_list_dir_not_found() {
     let tool = ListDirTool::new(None);
     let result = tool
         .execute(
-            serde_json::json!({"path": "/tmp/nanobot_nonexistent_dir_12345"}),
+            serde_json::json!({"path": "/tmp/oxicrab_nonexistent_dir_12345"}),
             &ExecutionContext::default(),
         )
         .await
@@ -283,7 +283,7 @@ async fn test_list_dir_not_found() {
 
 #[tokio::test]
 async fn test_list_dir_not_a_directory() {
-    let dir = std::env::temp_dir().join("nanobot_test_listdir_file");
+    let dir = std::env::temp_dir().join("oxicrab_test_listdir_file");
     fs::create_dir_all(dir.parent().unwrap()).unwrap();
     fs::write(&dir, "not a dir").unwrap();
 
@@ -305,7 +305,7 @@ async fn test_list_dir_not_a_directory() {
 
 #[test]
 fn test_backup_creates_copy() {
-    let dir = std::env::temp_dir().join("nanobot_test_backup_basic");
+    let dir = std::env::temp_dir().join("oxicrab_test_backup_basic");
     let backup_dir = dir.join("backups");
     fs::create_dir_all(&dir).unwrap();
     let file = dir.join("test.md");
@@ -330,7 +330,7 @@ fn test_backup_creates_copy() {
 
 #[test]
 fn test_backup_skips_nonexistent_file() {
-    let dir = std::env::temp_dir().join("nanobot_test_backup_skip");
+    let dir = std::env::temp_dir().join("oxicrab_test_backup_skip");
     let backup_dir = dir.join("backups");
     let _ = fs::remove_dir_all(&dir);
 
@@ -341,7 +341,7 @@ fn test_backup_skips_nonexistent_file() {
 
 #[test]
 fn test_backup_prunes_old_copies() {
-    let dir = std::env::temp_dir().join("nanobot_test_backup_prune");
+    let dir = std::env::temp_dir().join("oxicrab_test_backup_prune");
     let backup_dir = dir.join("backups");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&backup_dir).unwrap();
@@ -374,7 +374,7 @@ fn test_backup_prunes_old_copies() {
 
 #[tokio::test]
 async fn test_write_file_creates_backup() {
-    let dir = std::env::temp_dir().join("nanobot_test_write_backup");
+    let dir = std::env::temp_dir().join("oxicrab_test_write_backup");
     let backup_dir = dir.join("backups");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
@@ -402,7 +402,7 @@ async fn test_write_file_creates_backup() {
 
 #[tokio::test]
 async fn test_edit_file_creates_backup() {
-    let dir = std::env::temp_dir().join("nanobot_test_edit_backup");
+    let dir = std::env::temp_dir().join("oxicrab_test_edit_backup");
     let backup_dir = dir.join("backups");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();

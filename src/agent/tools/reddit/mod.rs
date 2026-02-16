@@ -25,7 +25,7 @@ impl RedditTool {
         Self {
             base_url: REDDIT_BASE.to_string(),
             client: Client::builder()
-                .user_agent("nanobot-rust/1.0")
+                .user_agent("oxicrab/1.0")
                 .timeout(Duration::from_secs(15))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
@@ -37,7 +37,7 @@ impl RedditTool {
         Self {
             base_url,
             client: Client::builder()
-                .user_agent("nanobot-rust/1.0")
+                .user_agent("oxicrab/1.0")
                 .timeout(Duration::from_secs(15))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
