@@ -1034,15 +1034,14 @@ impl AgentLoop {
     ) -> Result<(Option<String>, Option<u64>, Vec<String>, Vec<String>)> {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut last_used_delivery_tool = false;
-        let mut consecutive_delivery_only: u32 = 0;
         let mut any_tools_called = false;
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
 
-        let tools_defs = self.tools.get_tool_definitions();
+        let mut tools_defs = self.tools.get_tool_definitions();
 
-        // Extract tool names for hallucination detection
+        // Extract tool names for hallucination detection (immutable snapshot for the full loop)
         let tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
 
         // Inject tool facts reminder so the LLM knows exactly what tools are available
@@ -1120,25 +1119,9 @@ impl AgentLoop {
                         .iter()
                         .map(std::string::ToString::to_string),
                 );
-                let only_delivery_tools = called_tool_names
+                last_used_delivery_tool = called_tool_names
                     .iter()
-                    .all(|n| *n == "message" || *n == "spawn");
-
-                // Break if the LLM keeps sending delivery-only iterations (redundant messages)
-                if only_delivery_tools {
-                    consecutive_delivery_only += 1;
-                    if consecutive_delivery_only > 1 {
-                        debug!("Breaking after repeated delivery-only iterations");
-                        break;
-                    }
-                } else {
-                    consecutive_delivery_only = 0;
-                }
-
-                last_used_delivery_tool = only_delivery_tools
-                    || called_tool_names
-                        .iter()
-                        .any(|n| *n == "message" || *n == "spawn");
+                    .any(|n| *n == "message" || *n == "spawn");
 
                 ContextBuilder::add_assistant_message(
                     &mut messages,
@@ -1217,20 +1200,18 @@ impl AgentLoop {
                     );
                 }
 
-                // Inject reflection prompt to guide next action
+                // Once the message tool has been used, remove it from available
+                // tools so the LLM cannot send redundant follow-up messages.
+                // Subsequent responses will flow through the loop's text return
+                // path instead (sent exactly once by the caller).
                 if last_used_delivery_tool {
-                    messages.push(Message::user(
-                        "You already delivered a response to the user via the message tool. \
-                         Do NOT call the message tool again unless there is genuinely new, \
-                         different information to share. If you are done, provide a brief \
-                         internal summary (without using the message tool)."
-                            .to_string(),
-                    ));
-                } else {
-                    messages.push(Message::user(
-                        "Review the results and continue. Use more tools if needed, or provide your final response to the user.".to_string()
-                    ));
+                    tools_defs.retain(|td| td.name != "message");
                 }
+
+                // Inject reflection prompt to guide next action
+                messages.push(Message::user(
+                    "Review the results and continue. Use more tools if needed, or provide your final response to the user.".to_string()
+                ));
 
                 // Send composing indicator so the user sees progress during LLM thinking
                 if let Some(ref ctx) = typing_context {
