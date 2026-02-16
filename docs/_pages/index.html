@@ -15,18 +15,7 @@ max_width: 1120px
       gap: 4rem;
       align-items: center;
     }
-    .hero-text .badge {
-      display: inline-block;
-      font-family: var(--mono);
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: var(--accent);
-      background: rgba(14, 165, 233, 0.08);
-      border: 1px solid rgba(14, 165, 233, 0.2);
-      padding: 0.25rem 0.75rem;
-      border-radius: 999px;
-      margin-bottom: 1.5rem;
-    }
+    .hero-logo { width: 96px; height: 96px; image-rendering: pixelated; margin-bottom: 1.25rem; }
     .hero-text h1 {
       font-size: 3.25rem;
       font-weight: 800;
@@ -381,7 +370,7 @@ max_width: 1120px
 <!-- HERO -->
 <section class="hero">
   <div class="hero-text">
-    <div class="badge">v0.9.5 &middot; MIT Licensed</div>
+    <img src="oxicrab.png" alt="oxicrab" class="hero-logo">
     <h1>Multi-channel AI agents, built in Rust.</h1>
     <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 24 built-in tools, long-term memory, subagents, cron scheduling, and MCP support.</p>
     <div class="hero-actions">
