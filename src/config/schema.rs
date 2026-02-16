@@ -1022,6 +1022,54 @@ pub struct ToolsConfig {
     pub obsidian: ObsidianConfig,
     #[serde(default)]
     pub browser: BrowserConfig,
+    #[serde(default, rename = "imageGen")]
+    pub image_gen: ImageGenConfig,
+}
+
+fn default_image_gen_provider() -> String {
+    "openai".to_string()
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ImageGenConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_image_gen_provider", rename = "defaultProvider")]
+    pub default_provider: String,
+    /// Runtime-injected from providers.openai.apiKey
+    #[serde(skip)]
+    pub openai_api_key: Option<String>,
+    /// Runtime-injected from providers.gemini.apiKey
+    #[serde(skip)]
+    pub google_api_key: Option<String>,
+}
+
+impl std::fmt::Debug for ImageGenConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImageGenConfig")
+            .field("enabled", &self.enabled)
+            .field("default_provider", &self.default_provider)
+            .field(
+                "openai_api_key",
+                &self.openai_api_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "google_api_key",
+                &self.google_api_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
+}
+
+impl Default for ImageGenConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_provider: default_image_gen_provider(),
+            openai_api_key: None,
+            google_api_key: None,
+        }
+    }
 }
 
 fn default_transcription_api_base() -> String {

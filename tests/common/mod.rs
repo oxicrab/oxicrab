@@ -136,6 +136,7 @@ pub async fn create_test_agent_with(
         voice_config: None,
         memory_config: None,
         browser_config: None,
+        image_gen_config: None,
     };
 
     AgentLoop::new(config)

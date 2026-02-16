@@ -437,6 +437,18 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
             voice_config: Some(config.voice.clone()),
             memory_config: Some(config.agents.defaults.memory.clone()),
             browser_config: Some(config.tools.browser.clone()),
+            image_gen_config: {
+                let mut ig = config.tools.image_gen.clone();
+                if ig.enabled {
+                    if !config.providers.openai.api_key.is_empty() {
+                        ig.openai_api_key = Some(config.providers.openai.api_key.clone());
+                    }
+                    if !config.providers.gemini.api_key.is_empty() {
+                        ig.google_api_key = Some(config.providers.gemini.api_key.clone());
+                    }
+                }
+                Some(ig)
+            },
         })
         .await?,
     );

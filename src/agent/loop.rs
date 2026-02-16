@@ -10,6 +10,7 @@ use crate::agent::tools::{
     google_calendar::GoogleCalendarTool,
     google_mail::GoogleMailTool,
     http::HttpTool,
+    image_gen::ImageGenTool,
     media::MediaTool,
     memory_search::MemorySearchTool,
     message::MessageTool,
@@ -508,6 +509,11 @@ fn format_tool_status(name: &str, args: &serde_json::Value) -> String {
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             format!("\u{1f4d3} Obsidian {}: {}", action, path)
         }
+        "image_gen" => {
+            let p = args.get("prompt").and_then(|v| v.as_str()).unwrap_or("...");
+            let truncated: String = p.chars().take(60).collect();
+            format!("\u{1f3a8} Generating image: {}", truncated)
+        }
         "exec" => "\u{2699}\u{fe0f} Running command".to_string(),
         "read_file" | "write_file" | "edit_file" => {
             let p = args.get("path").and_then(|v| v.as_str()).unwrap_or("...");
@@ -562,6 +568,8 @@ pub struct AgentLoopConfig {
     pub memory_config: Option<crate::config::MemoryConfig>,
     /// Browser tool configuration
     pub browser_config: Option<crate::config::BrowserConfig>,
+    /// Image generation tool configuration
+    pub image_gen_config: Option<crate::config::ImageGenConfig>,
 }
 
 pub struct AgentLoop {
@@ -622,6 +630,7 @@ impl AgentLoop {
             voice_config,
             memory_config,
             browser_config,
+            image_gen_config,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -743,6 +752,18 @@ impl AgentLoop {
             if browser_cfg.enabled {
                 tools.register(Arc::new(BrowserTool::new(browser_cfg)));
                 info!("Browser tool registered");
+            }
+        }
+
+        // Register image generation tool if configured
+        if let Some(ref ig_cfg) = image_gen_config {
+            if ig_cfg.enabled {
+                tools.register(Arc::new(ImageGenTool::new(
+                    ig_cfg.openai_api_key.clone(),
+                    ig_cfg.google_api_key.clone(),
+                    ig_cfg.default_provider.clone(),
+                )));
+                info!("Image generation tool registered");
             }
         }
 

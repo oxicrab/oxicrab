@@ -7,6 +7,7 @@ pub mod google_calendar;
 pub mod google_common;
 pub mod google_mail;
 pub mod http;
+pub mod image_gen;
 pub mod media;
 pub mod memory_search;
 pub mod message;
