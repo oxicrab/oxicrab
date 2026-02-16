@@ -417,37 +417,6 @@ fn start_typing(
     }
 }
 
-/// Format a human-readable status line for a tool call about to execute.
-fn format_tool_status(name: &str, args: &serde_json::Value) -> String {
-    match name {
-        "web_search" => {
-            let q = args.get("query").and_then(|v| v.as_str()).unwrap_or("...");
-            format!("\u{1f50d} Searching: {}", q)
-        }
-        "web_fetch" => {
-            let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("...");
-            let domain = url.split('/').nth(2).unwrap_or(url);
-            format!("\u{1f310} Fetching: {}", domain)
-        }
-        "obsidian" => {
-            let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("...");
-            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            format!("\u{1f4d3} Obsidian {}: {}", action, path)
-        }
-        "image_gen" => {
-            let p = args.get("prompt").and_then(|v| v.as_str()).unwrap_or("...");
-            let truncated: String = p.chars().take(60).collect();
-            format!("\u{1f3a8} Generating image: {}", truncated)
-        }
-        "exec" => "\u{2699}\u{fe0f} Running command".to_string(),
-        "read_file" | "write_file" | "edit_file" => {
-            let p = args.get("path").and_then(|v| v.as_str()).unwrap_or("...");
-            format!("\u{1f4c1} {}: {}", name, p)
-        }
-        _ => format!("\u{1f527} {}", name),
-    }
-}
-
 /// Configuration for creating an [`AgentLoop`] instance.
 pub struct AgentLoopConfig {
     pub bus: Arc<Mutex<MessageBus>>,
@@ -1040,31 +1009,6 @@ impl AgentLoop {
                     Some(response.tool_calls.clone()),
                     response.reasoning_content.as_deref(),
                 );
-
-                // Send status update showing which tools are about to run
-                let status_parts: Vec<String> = response
-                    .tool_calls
-                    .iter()
-                    .map(|tc| format_tool_status(&tc.name, &tc.arguments))
-                    .collect();
-                let status_msg = status_parts.join("\n");
-
-                if let Some(ref ctx) = typing_context {
-                    let _ = self
-                        .outbound_tx
-                        .send(OutboundMessage {
-                            channel: ctx.0.clone(),
-                            chat_id: ctx.1.clone(),
-                            content: status_msg,
-                            reply_to: None,
-                            media: vec![],
-                            metadata: HashMap::from([(
-                                "status".to_string(),
-                                serde_json::Value::Bool(true),
-                            )]),
-                        })
-                        .await;
-                }
 
                 // Start periodic typing indicator before tool execution
                 let typing_handle = start_typing(self.typing_tx.as_ref(), typing_context.as_ref());
