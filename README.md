@@ -24,6 +24,31 @@
 - **Security**: Shell command allowlist/blocklist, SSRF protection, path traversal prevention, secret redaction
 - **Async-first**: Built on Tokio for high-performance async I/O
 
+## Installation
+
+### Pre-built binaries
+
+Download the latest release from [GitHub Releases](https://github.com/oxicrab/oxicrab/releases/latest):
+
+| Platform | Archive |
+|----------|---------|
+| Linux x86_64 | `oxicrab-*-linux-x86_64.tar.gz` |
+| macOS x86_64 (Intel) | `oxicrab-*-macos-x86_64.tar.gz` |
+| macOS ARM64 (Apple Silicon) | `oxicrab-*-macos-arm64.tar.gz` |
+
+```bash
+# Example: download and install linux-x86_64
+tar xzf oxicrab-*-linux-x86_64.tar.gz
+sudo cp oxicrab-*/oxicrab /usr/local/bin/
+```
+
+### Docker
+
+```bash
+docker pull ghcr.io/oxicrab/oxicrab:latest
+docker run -v ~/.oxicrab:/home/oxicrab/.oxicrab ghcr.io/oxicrab/oxicrab
+```
+
 ## Building
 
 Each channel is behind a Cargo feature flag, so you can compile only what you need:

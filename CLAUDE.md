@@ -48,6 +48,23 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 CI treats clippy warnings as errors. No custom rustfmt/clippy config — uses defaults.
 
+## Releasing
+
+Tag-based releases via `scripts/release.sh`. Pushing a `v*` tag triggers `.github/workflows/release.yml` which builds multi-platform binaries (Linux x86_64, macOS x86_64, macOS ARM64), pushes a Docker image to GHCR, generates a changelog with git-cliff, and creates a GitHub Release.
+
+```bash
+# Bump and tag (does not push)
+./scripts/release.sh patch      # 0.9.5 → 0.9.6
+./scripts/release.sh minor      # 0.9.5 → 0.10.0
+./scripts/release.sh major      # 0.9.5 → 1.0.0
+./scripts/release.sh 1.0.0-rc.1 # explicit version
+
+# Review, then push
+git push origin main --follow-tags
+```
+
+The script updates `Cargo.toml`, runs `cargo check` to sync `Cargo.lock`, generates `CHANGELOG.md`, commits, and creates an annotated tag. It requires a clean working tree on `main`, up to date with origin.
+
 ## Architecture
 
 Multi-channel AI assistant that connects chat platforms to LLM providers via an agent loop.
