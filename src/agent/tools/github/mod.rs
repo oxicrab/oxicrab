@@ -2,6 +2,7 @@ use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
+use base64::Engine;
 use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
@@ -76,11 +77,43 @@ impl GitHubTool {
         Ok(result)
     }
 
-    async fn list_issues(&self, owner: &str, repo: &str, state: &str) -> Result<String> {
+    async fn api_post_no_content(&self, path: &str, body: &Value) -> Result<()> {
+        let resp = self
+            .client
+            .post(format!("{}{}", self.base_url, path))
+            .json(body)
+            .header("Authorization", format!("Bearer {}", self.token))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "oxicrab")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            let msg = serde_json::from_str::<Value>(&text)
+                .ok()
+                .and_then(|v| v["message"].as_str().map(String::from))
+                .unwrap_or_else(|| "Unknown error".to_string());
+            anyhow::bail!("GitHub API {}: {}", status, msg);
+        }
+        Ok(())
+    }
+
+    async fn list_issues(
+        &self,
+        owner: &str,
+        repo: &str,
+        state: &str,
+        page: &str,
+        per_page: &str,
+    ) -> Result<String> {
         let json = self
             .api_get(
                 &format!("/repos/{}/{}/issues", owner, repo),
-                &[("state", state), ("per_page", "10")],
+                &[("state", state), ("page", page), ("per_page", per_page)],
             )
             .await?;
 
@@ -110,10 +143,11 @@ impl GitHubTool {
             .collect();
 
         Ok(format!(
-            "Issues ({}) in {}/{}:\n{}",
+            "Issues ({}) in {}/{} (page {}):\n{}",
             state,
             owner,
             repo,
+            page,
             lines.join("\n")
         ))
     }
@@ -124,10 +158,14 @@ impl GitHubTool {
         repo: &str,
         title: &str,
         body: Option<&str>,
+        labels: Option<&Vec<&str>>,
     ) -> Result<String> {
         let mut payload = serde_json::json!({ "title": title });
         if let Some(b) = body {
             payload["body"] = Value::String(b.to_string());
+        }
+        if let Some(l) = labels {
+            payload["labels"] = serde_json::json!(l);
         }
 
         let result = self
@@ -139,11 +177,18 @@ impl GitHubTool {
         Ok(format!("Created issue #{}: {}", number, url))
     }
 
-    async fn list_prs(&self, owner: &str, repo: &str, state: &str) -> Result<String> {
+    async fn list_prs(
+        &self,
+        owner: &str,
+        repo: &str,
+        state: &str,
+        page: &str,
+        per_page: &str,
+    ) -> Result<String> {
         let json = self
             .api_get(
                 &format!("/repos/{}/{}/pulls", owner, repo),
-                &[("state", state), ("per_page", "10")],
+                &[("state", state), ("page", page), ("per_page", per_page)],
             )
             .await?;
 
@@ -174,10 +219,11 @@ impl GitHubTool {
             .collect();
 
         Ok(format!(
-            "Pull requests ({}) in {}/{}:\n{}",
+            "Pull requests ({}) in {}/{} (page {}):\n{}",
             state,
             owner,
             repo,
+            page,
             lines.join("\n")
         ))
     }
@@ -246,6 +292,274 @@ impl GitHubTool {
         ))
     }
 
+    async fn get_issue(&self, owner: &str, repo: &str, number: u64) -> Result<String> {
+        let issue = self
+            .api_get(&format!("/repos/{}/{}/issues/{}", owner, repo, number), &[])
+            .await?;
+
+        let title = issue["title"].as_str().unwrap_or("");
+        let state = issue["state"].as_str().unwrap_or("");
+        let user = issue["user"]["login"].as_str().unwrap_or("?");
+        let body = issue["body"].as_str().unwrap_or("(no description)");
+        let comments = issue["comments"].as_u64().unwrap_or(0);
+        let url = issue["html_url"].as_str().unwrap_or("");
+
+        let labels: Vec<&str> = issue["labels"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|l| l["name"].as_str()).collect())
+            .unwrap_or_default();
+        let label_str = if labels.is_empty() {
+            String::new()
+        } else {
+            format!("\nLabels: {}", labels.join(", "))
+        };
+
+        let assignees: Vec<&str> = issue["assignees"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|u| u["login"].as_str()).collect())
+            .unwrap_or_default();
+        let assignee_str = if assignees.is_empty() {
+            String::new()
+        } else {
+            format!("\nAssignees: {}", assignees.join(", "))
+        };
+
+        // Truncate body
+        let body_preview: String = body.chars().take(500).collect();
+        let body_truncated = if body_preview.len() < body.len() {
+            format!("{}...", body_preview)
+        } else {
+            body_preview
+        };
+
+        Ok(format!(
+            "Issue #{} — {} ({})\nBy: {} | {} comments{}{}\n{}\n\n{}",
+            number, title, state, user, comments, label_str, assignee_str, url, body_truncated
+        ))
+    }
+
+    async fn get_pr_files(&self, owner: &str, repo: &str, number: u64) -> Result<String> {
+        let json = self
+            .api_get(
+                &format!("/repos/{}/{}/pulls/{}/files", owner, repo, number),
+                &[("per_page", "100")],
+            )
+            .await?;
+
+        let files = json.as_array().map(Vec::as_slice).unwrap_or_default();
+        if files.is_empty() {
+            return Ok(format!("No files changed in PR #{}", number));
+        }
+
+        let lines: Vec<String> = files
+            .iter()
+            .map(|f| {
+                let filename = f["filename"].as_str().unwrap_or("?");
+                let status = f["status"].as_str().unwrap_or("?");
+                let additions = f["additions"].as_u64().unwrap_or(0);
+                let deletions = f["deletions"].as_u64().unwrap_or(0);
+                let patch: String = f["patch"]
+                    .as_str()
+                    .unwrap_or("")
+                    .chars()
+                    .take(200)
+                    .collect();
+                let patch_str = if patch.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n  {}", patch.replace('\n', "\n  "))
+                };
+                format!(
+                    "{} ({}) +{} −{}{}",
+                    filename, status, additions, deletions, patch_str
+                )
+            })
+            .collect();
+
+        Ok(format!(
+            "Files in PR #{} ({} files):\n{}",
+            number,
+            files.len(),
+            lines.join("\n\n")
+        ))
+    }
+
+    async fn create_pr_review(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        event: &str,
+        body: &str,
+    ) -> Result<String> {
+        let payload = serde_json::json!({
+            "event": event,
+            "body": body,
+        });
+
+        let result = self
+            .api_post(
+                &format!("/repos/{}/{}/pulls/{}/reviews", owner, repo, number),
+                &payload,
+            )
+            .await?;
+
+        let review_id = result["id"].as_u64().unwrap_or(0);
+        let state = result["state"].as_str().unwrap_or("");
+        Ok(format!(
+            "Created review #{} on PR #{}: {}",
+            review_id, number, state
+        ))
+    }
+
+    async fn get_file_content(
+        &self,
+        owner: &str,
+        repo: &str,
+        file_path: &str,
+        git_ref: Option<&str>,
+    ) -> Result<String> {
+        let mut query: Vec<(&str, &str)> = Vec::new();
+        if let Some(r) = git_ref {
+            query.push(("ref", r));
+        }
+
+        let json = self
+            .api_get(
+                &format!("/repos/{}/{}/contents/{}", owner, repo, file_path),
+                &query,
+            )
+            .await?;
+
+        // Handle directory listing (array response)
+        if let Some(entries) = json.as_array() {
+            let lines: Vec<String> = entries
+                .iter()
+                .map(|e| {
+                    let name = e["name"].as_str().unwrap_or("?");
+                    let kind = e["type"].as_str().unwrap_or("?");
+                    let size = e["size"].as_u64().unwrap_or(0);
+                    format!("{} ({}, {} bytes)", name, kind, size)
+                })
+                .collect();
+            return Ok(format!(
+                "Directory {}/{}:\n{}",
+                owner,
+                file_path,
+                lines.join("\n")
+            ));
+        }
+
+        // Handle file content
+        let encoding = json["encoding"].as_str().unwrap_or("");
+        let content_b64 = json["content"].as_str().unwrap_or("");
+        let name = json["name"].as_str().unwrap_or(file_path);
+        let size = json["size"].as_u64().unwrap_or(0);
+
+        if encoding != "base64" {
+            return Ok(format!(
+                "File {} ({} bytes, encoding: {})",
+                name, size, encoding
+            ));
+        }
+
+        // Decode base64 content (GitHub adds newlines in the base64)
+        let cleaned: String = content_b64.chars().filter(|c| !c.is_whitespace()).collect();
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&cleaned)
+            .map_err(|e| anyhow::anyhow!("Failed to decode base64: {}", e))?;
+        let text = String::from_utf8_lossy(&decoded);
+
+        // Truncate at 10k chars
+        let truncated: String = text.chars().take(10_000).collect();
+        let suffix = if truncated.len() < text.len() {
+            "\n\n... (truncated)"
+        } else {
+            ""
+        };
+
+        Ok(format!(
+            "File: {} ({} bytes)\n\n{}{}",
+            name, size, truncated, suffix
+        ))
+    }
+
+    async fn trigger_workflow(
+        &self,
+        owner: &str,
+        repo: &str,
+        workflow_id: &str,
+        git_ref: &str,
+        inputs: Option<&Value>,
+    ) -> Result<String> {
+        let mut payload = serde_json::json!({ "ref": git_ref });
+        if let Some(inp) = inputs {
+            payload["inputs"] = inp.clone();
+        }
+
+        self.api_post_no_content(
+            &format!(
+                "/repos/{}/{}/actions/workflows/{}/dispatches",
+                owner, repo, workflow_id
+            ),
+            &payload,
+        )
+        .await?;
+
+        Ok(format!(
+            "Triggered workflow {} on {}/{} (ref: {})",
+            workflow_id, owner, repo, git_ref
+        ))
+    }
+
+    async fn get_workflow_runs(
+        &self,
+        owner: &str,
+        repo: &str,
+        workflow_id: Option<&str>,
+    ) -> Result<String> {
+        let path = match workflow_id {
+            Some(wid) => format!("/repos/{}/{}/actions/workflows/{}/runs", owner, repo, wid),
+            None => format!("/repos/{}/{}/actions/runs", owner, repo),
+        };
+
+        let json = self.api_get(&path, &[("per_page", "10")]).await?;
+
+        let runs = json["workflow_runs"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+
+        if runs.is_empty() {
+            return Ok(format!("No workflow runs found in {}/{}.", owner, repo));
+        }
+
+        let lines: Vec<String> = runs
+            .iter()
+            .map(|r| {
+                let id = r["id"].as_u64().unwrap_or(0);
+                let name = r["name"].as_str().unwrap_or("?");
+                let status = r["status"].as_str().unwrap_or("?");
+                let conclusion = r["conclusion"].as_str().unwrap_or("pending");
+                let branch = r["head_branch"].as_str().unwrap_or("?");
+                let created = r["created_at"].as_str().unwrap_or("?");
+                let url = r["html_url"].as_str().unwrap_or("");
+                format!(
+                    "#{} {} — {} ({}) on {} [{}]\n  {}",
+                    id, name, status, conclusion, branch, created, url
+                )
+            })
+            .collect();
+
+        Ok(format!(
+            "Workflow runs in {}/{} ({} shown):\n{}",
+            owner,
+            repo,
+            runs.len(),
+            lines.join("\n")
+        ))
+    }
+
     async fn list_notifications(&self) -> Result<String> {
         let json = self
             .api_get("/notifications", &[("per_page", "15")])
@@ -282,11 +596,13 @@ impl Tool for GitHubTool {
     }
 
     fn description(&self) -> &'static str {
-        "Interact with GitHub. Actions: list_issues, create_issue, list_prs, get_pr, notifications."
+        "Interact with GitHub. Actions: list_issues, create_issue, get_issue, list_prs, get_pr, \
+         get_pr_files, create_pr_review, get_file_content, trigger_workflow, get_workflow_runs, \
+         notifications."
     }
 
     fn version(&self) -> ToolVersion {
-        ToolVersion::new(1, 0, 0)
+        ToolVersion::new(1, 1, 0)
     }
 
     fn parameters(&self) -> Value {
@@ -295,7 +611,12 @@ impl Tool for GitHubTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list_issues", "create_issue", "list_prs", "get_pr", "notifications"],
+                    "enum": [
+                        "list_issues", "create_issue", "get_issue",
+                        "list_prs", "get_pr", "get_pr_files", "create_pr_review",
+                        "get_file_content", "trigger_workflow", "get_workflow_runs",
+                        "notifications"
+                    ],
                     "description": "Action to perform"
                 },
                 "owner": {
@@ -314,7 +635,7 @@ impl Tool for GitHubTool {
                 },
                 "number": {
                     "type": "integer",
-                    "description": "Issue or PR number (for get_pr)"
+                    "description": "Issue or PR number"
                 },
                 "title": {
                     "type": "string",
@@ -322,7 +643,43 @@ impl Tool for GitHubTool {
                 },
                 "body": {
                     "type": "string",
-                    "description": "Issue body (for create_issue)"
+                    "description": "Issue/review body text"
+                },
+                "labels": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Labels to add (for create_issue)"
+                },
+                "path": {
+                    "type": "string",
+                    "description": "File path in repo (for get_file_content)"
+                },
+                "ref": {
+                    "type": "string",
+                    "description": "Git ref — branch, tag, or SHA (for get_file_content, trigger_workflow)"
+                },
+                "event": {
+                    "type": "string",
+                    "enum": ["APPROVE", "REQUEST_CHANGES", "COMMENT"],
+                    "description": "Review event type (for create_pr_review)"
+                },
+                "workflow_id": {
+                    "type": "string",
+                    "description": "Workflow ID or filename (for trigger_workflow, get_workflow_runs)"
+                },
+                "inputs": {
+                    "type": "object",
+                    "description": "Workflow dispatch inputs (for trigger_workflow)"
+                },
+                "page": {
+                    "type": "integer",
+                    "default": 1,
+                    "description": "Page number for pagination (for list_issues/list_prs)"
+                },
+                "per_page": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Results per page, max 100 (for list_issues/list_prs)"
                 }
             },
             "required": ["action"]
@@ -335,7 +692,9 @@ impl Tool for GitHubTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
 
         match action {
-            "list_issues" | "list_prs" | "create_issue" | "get_pr" => {
+            "list_issues" | "list_prs" | "create_issue" | "get_pr" | "get_issue"
+            | "get_pr_files" | "create_pr_review" | "get_file_content" | "trigger_workflow"
+            | "get_workflow_runs" => {
                 let Some(owner) = params["owner"].as_str() else {
                     return Ok(ToolResult::error("Missing 'owner' parameter".to_string()));
                 };
@@ -343,27 +702,97 @@ impl Tool for GitHubTool {
                     return Ok(ToolResult::error("Missing 'repo' parameter".to_string()));
                 };
 
+                // Extract pagination params with defaults and cap
+                let page_num = params["page"].as_u64().unwrap_or(1).max(1);
+                let per_page_num = params["per_page"].as_u64().unwrap_or(10).clamp(1, 100);
+                let page = page_num.to_string();
+                let per_page = per_page_num.to_string();
+
                 let result = match action {
                     "list_issues" => {
                         let state = params["state"].as_str().unwrap_or("open");
-                        self.list_issues(owner, repo, state).await
+                        self.list_issues(owner, repo, state, &page, &per_page).await
                     }
                     "list_prs" => {
                         let state = params["state"].as_str().unwrap_or("open");
-                        self.list_prs(owner, repo, state).await
+                        self.list_prs(owner, repo, state, &page, &per_page).await
                     }
                     "create_issue" => {
                         let Some(title) = params["title"].as_str() else {
                             return Ok(ToolResult::error("Missing 'title' parameter".to_string()));
                         };
-                        self.create_issue(owner, repo, title, params["body"].as_str())
-                            .await
+                        let labels: Option<Vec<&str>> = params["labels"]
+                            .as_array()
+                            .map(|a| a.iter().filter_map(|v| v.as_str()).collect());
+                        self.create_issue(
+                            owner,
+                            repo,
+                            title,
+                            params["body"].as_str(),
+                            labels.as_ref(),
+                        )
+                        .await
                     }
                     "get_pr" => {
                         let Some(number) = params["number"].as_u64() else {
                             return Ok(ToolResult::error("Missing 'number' parameter".to_string()));
                         };
                         self.get_pr(owner, repo, number).await
+                    }
+                    "get_issue" => {
+                        let Some(number) = params["number"].as_u64() else {
+                            return Ok(ToolResult::error("Missing 'number' parameter".to_string()));
+                        };
+                        self.get_issue(owner, repo, number).await
+                    }
+                    "get_pr_files" => {
+                        let Some(number) = params["number"].as_u64() else {
+                            return Ok(ToolResult::error("Missing 'number' parameter".to_string()));
+                        };
+                        self.get_pr_files(owner, repo, number).await
+                    }
+                    "create_pr_review" => {
+                        let Some(number) = params["number"].as_u64() else {
+                            return Ok(ToolResult::error("Missing 'number' parameter".to_string()));
+                        };
+                        let Some(event) = params["event"].as_str() else {
+                            return Ok(ToolResult::error("Missing 'event' parameter".to_string()));
+                        };
+                        if !matches!(event, "APPROVE" | "REQUEST_CHANGES" | "COMMENT") {
+                            return Ok(ToolResult::error(format!(
+                                "Invalid event '{}'. Must be APPROVE, REQUEST_CHANGES, or COMMENT",
+                                event
+                            )));
+                        }
+                        let body = params["body"].as_str().unwrap_or("");
+                        self.create_pr_review(owner, repo, number, event, body)
+                            .await
+                    }
+                    "get_file_content" => {
+                        let Some(file_path) = params["path"].as_str() else {
+                            return Ok(ToolResult::error("Missing 'path' parameter".to_string()));
+                        };
+                        self.get_file_content(owner, repo, file_path, params["ref"].as_str())
+                            .await
+                    }
+                    "trigger_workflow" => {
+                        let Some(workflow_id) = params["workflow_id"].as_str() else {
+                            return Ok(ToolResult::error(
+                                "Missing 'workflow_id' parameter".to_string(),
+                            ));
+                        };
+                        let git_ref = params["ref"].as_str().unwrap_or("main");
+                        let inputs = if params["inputs"].is_null() {
+                            None
+                        } else {
+                            Some(&params["inputs"])
+                        };
+                        self.trigger_workflow(owner, repo, workflow_id, git_ref, inputs)
+                            .await
+                    }
+                    "get_workflow_runs" => {
+                        self.get_workflow_runs(owner, repo, params["workflow_id"].as_str())
+                            .await
                     }
                     _ => unreachable!(),
                 };

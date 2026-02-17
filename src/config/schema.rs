@@ -75,16 +75,57 @@ pub struct TelegramConfig {
 
 redact_debug!(TelegramConfig, enabled, redact(token), allow_from,);
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscordCommand {
+    pub name: String,
+    pub description: String,
+    #[serde(default)]
+    pub options: Vec<DiscordCommandOption>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscordCommandOption {
+    pub name: String,
+    pub description: String,
+    #[serde(default = "default_true")]
+    pub required: bool,
+}
+
+fn default_discord_commands() -> Vec<DiscordCommand> {
+    vec![DiscordCommand {
+        name: "ask".to_string(),
+        description: "Ask the AI assistant".to_string(),
+        options: vec![DiscordCommandOption {
+            name: "question".to_string(),
+            description: "Your question or message".to_string(),
+            required: true,
+        }],
+    }]
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DiscordConfig {
     pub enabled: bool,
     #[serde(default)]
     pub token: String,
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
+    #[serde(default = "default_discord_commands")]
+    pub commands: Vec<DiscordCommand>,
 }
 
-redact_debug!(DiscordConfig, enabled, redact(token), allow_from,);
+impl Default for DiscordConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            token: String::new(),
+            allow_from: Vec::new(),
+            commands: default_discord_commands(),
+        }
+    }
+}
+
+redact_debug!(DiscordConfig, enabled, redact(token), allow_from, commands,);
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct SlackConfig {

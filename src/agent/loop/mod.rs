@@ -1068,7 +1068,7 @@ impl AgentLoop {
                 content,
                 reply_to: None,
                 media: collected_media,
-                metadata: HashMap::new(),
+                metadata: msg.metadata,
             }))
         } else {
             Ok(None)

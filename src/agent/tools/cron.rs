@@ -566,6 +566,7 @@ mod tests {
                 enabled: true,
                 token: String::new(),
                 allow_from: vec!["123456789".to_string()],
+                commands: Vec::new(),
             },
             telegram: TelegramConfig {
                 enabled: true,
