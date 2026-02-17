@@ -136,11 +136,20 @@ Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowe
 
 ### Doctor (`src/cli/doctor.rs`)
 
-`oxicrab doctor` — system diagnostics command. Checks: config exists/parses/validates, workspace writable, provider API keys configured, provider connectivity (warmup with latency), per-channel status (compiled + enabled + tokens), voice transcription backends, external tools (ffmpeg, git), MCP servers. Output: PASS/FAIL/SKIP per check with summary counts. Returns exit code 1 if config file missing.
+`oxicrab doctor` — system diagnostics command. Checks: config exists/parses/validates, workspace writable, provider API keys configured, provider connectivity (warmup with latency), per-channel status (compiled + enabled + tokens), voice transcription backends, external tools (ffmpeg, git), MCP servers. Includes security audit: config file permissions, directory permissions, empty allowlists, pairing store status. Output: PASS/FAIL/SKIP per check with summary counts. Returns exit code 1 if config file missing.
+
+### Security Hardening
+
+- **Env var overrides** (`src/config/loader.rs`): `apply_env_overrides()` checks `OXICRAB_*` env vars after deserialization, before validation. Env vars take precedence over config file values. Supported: `OXICRAB_ANTHROPIC_API_KEY`, `OXICRAB_OPENAI_API_KEY`, `OXICRAB_OPENROUTER_API_KEY`, `OXICRAB_GEMINI_API_KEY`, `OXICRAB_DEEPSEEK_API_KEY`, `OXICRAB_GROQ_API_KEY`, `OXICRAB_TELEGRAM_TOKEN`, `OXICRAB_DISCORD_TOKEN`, `OXICRAB_SLACK_BOT_TOKEN`, `OXICRAB_SLACK_APP_TOKEN`, `OXICRAB_TWILIO_ACCOUNT_SID`, `OXICRAB_TWILIO_AUTH_TOKEN`, `OXICRAB_GITHUB_TOKEN`.
+- **Default-deny allowlists** (`src/channels/utils.rs`): Empty `allowFrom` arrays now deny all senders. Use `["*"]` for open access.
+- **DM pairing** (`src/pairing/mod.rs`): `PairingStore` provides file-backed per-channel allowlists at `~/.oxicrab/pairing/`. 8-char human-friendly codes with 15-min TTL. CLI: `oxicrab pairing list|approve|revoke`.
+- **Leak detection** (`src/safety/leak_detector.rs`): `LeakDetector` scans outbound messages for API key patterns (Anthropic, OpenAI, Slack, GitHub, Groq, Telegram, Discord). Integrated into `MessageBus::publish_outbound()` — redacts before sending.
+- **Config permissions**: `check_file_permissions()` warns on startup if config file is world-readable (unix). `save_config()` uses atomic writes via `crate::utils::atomic_write()`.
+- **Constant-time comparison**: Twilio webhook signature uses `subtle::ConstantTimeEq` instead of `==`.
 
 ### CLI Commands
 
-`oxicrab gateway` — full multi-channel daemon. `oxicrab agent -m "message"` — single-turn CLI. `oxicrab onboard` — first-time setup. `oxicrab cron` — manage cron jobs. `oxicrab auth` — OAuth flows. `oxicrab channels` — channel status and WhatsApp login. `oxicrab status` — quick setup overview. `oxicrab doctor` — system diagnostics.
+`oxicrab gateway` — full multi-channel daemon. `oxicrab agent -m "message"` — single-turn CLI. `oxicrab onboard` — first-time setup. `oxicrab cron` — manage cron jobs. `oxicrab auth` — OAuth flows. `oxicrab channels` — channel status and WhatsApp login. `oxicrab status` — quick setup overview. `oxicrab doctor` — system diagnostics. `oxicrab pairing` — manage DM pairing for sender authentication (list/approve/revoke).
 
 ## Code Style & Patterns
 
@@ -187,3 +196,4 @@ Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowe
 - **MemoryDB**: holds a persistent `std::sync::Mutex<Connection>`, not per-operation connections.
 - **Cron 5-field expressions**: `compute_next_run()` normalizes by prepending "0 " for the seconds field.
 - **No `#[allow(dead_code)]`**: Do not add `#[allow(dead_code)]` or `#![allow(dead_code)]` anywhere. If code is unused, remove it. CI runs `clippy -D warnings` which catches dead code.
+- **Empty `allowFrom` is now deny-all**: Channels with empty `allowFrom` will reject all senders. Add `["*"]` for the old behavior, or use the pairing system.

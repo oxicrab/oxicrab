@@ -24,7 +24,9 @@ pub mod config;
 pub mod cron;
 pub(crate) mod errors;
 pub(crate) mod heartbeat;
+pub mod pairing;
 pub mod providers;
+pub mod safety;
 pub mod session;
 pub(crate) mod utils;
 

@@ -14,6 +14,7 @@ use hmac::{Hmac, Mac};
 use sha1::Sha1;
 use std::collections::HashMap;
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -74,7 +75,7 @@ fn validate_twilio_signature(
     let result = mac.finalize();
     let expected = base64::engine::general_purpose::STANDARD.encode(result.into_bytes());
 
-    expected == signature
+    expected.as_bytes().ct_eq(signature.as_bytes()).into()
 }
 
 async fn webhook_handler(

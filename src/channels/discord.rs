@@ -489,7 +489,9 @@ impl BaseChannel for DiscordChannel {
                 info!("Connecting to Discord gateway...");
                 match Client::builder(
                     &token,
-                    GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT,
+                    GatewayIntents::GUILD_MESSAGES
+                        | GatewayIntents::DIRECT_MESSAGES
+                        | GatewayIntents::MESSAGE_CONTENT,
                 )
                 .event_handler(handler)
                 .await

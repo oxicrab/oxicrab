@@ -9,7 +9,13 @@
     feature = "channel-twilio",
 ))]
 pub fn check_allowed_sender(sender: &str, allow_list: &[String]) -> bool {
+    // Default-deny: empty allowlist denies all senders
     if allow_list.is_empty() {
+        return false;
+    }
+
+    // Explicit wildcard allows all senders
+    if allow_list.iter().any(|a| a == "*") {
         return true;
     }
 
@@ -56,8 +62,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_empty_allow_list_allows_all() {
-        assert!(check_allowed_sender("anyone", &[]));
+    fn test_empty_allow_list_denies_all() {
+        assert!(!check_allowed_sender("anyone", &[]));
+    }
+
+    #[test]
+    fn test_wildcard_allows_all() {
+        let list = vec!["*".to_string()];
+        assert!(check_allowed_sender("anyone", &list));
+        assert!(check_allowed_sender("other_user", &list));
     }
 
     #[test]

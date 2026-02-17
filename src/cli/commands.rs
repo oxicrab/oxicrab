@@ -56,6 +56,11 @@ enum Commands {
     Status,
     /// Run system diagnostics
     Doctor,
+    /// Manage sender pairing (authorize new users to message the bot)
+    Pairing {
+        #[command(subcommand)]
+        cmd: PairingCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -146,6 +151,24 @@ enum AuthCommands {
 }
 
 #[derive(Subcommand)]
+enum PairingCommands {
+    /// List pending pairing requests and paired sender counts
+    List,
+    /// Approve a pending request by its 8-character code (e.g. ABC12345)
+    Approve {
+        /// The pairing code shown by `oxicrab pairing list`
+        code: String,
+    },
+    /// Revoke a previously approved sender's access
+    Revoke {
+        /// Channel name: telegram, discord, slack, whatsapp, or twilio
+        channel: String,
+        /// The sender ID to remove (same format as allowFrom entries)
+        sender_id: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum ChannelCommands {
     /// Show channel status
     Status,
@@ -180,6 +203,9 @@ pub async fn run() -> Result<()> {
         }
         Commands::Doctor => {
             crate::cli::doctor::doctor_command().await?;
+        }
+        Commands::Pairing { cmd } => {
+            pairing_command(cmd)?;
         }
     }
 
@@ -1363,6 +1389,57 @@ fn status_command() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn pairing_command(cmd: PairingCommands) -> Result<()> {
+    match cmd {
+        PairingCommands::List => {
+            let store = crate::pairing::PairingStore::new()?;
+            let pending = store.list_pending();
+            if pending.is_empty() {
+                println!("No pending pairing requests.");
+            } else {
+                println!("Pending pairing requests:");
+                for req in pending {
+                    let age_secs = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                        .saturating_sub(req.created_at);
+                    let remaining = (15u64 * 60).saturating_sub(age_secs);
+                    println!(
+                        "  [{}] {}:{} (expires in {}m {}s)",
+                        req.code,
+                        req.channel,
+                        req.sender_id,
+                        remaining / 60,
+                        remaining % 60,
+                    );
+                }
+            }
+            println!("\nPaired senders: {}", store.paired_count());
+        }
+        PairingCommands::Approve { code } => {
+            let mut store = crate::pairing::PairingStore::new()?;
+            match store.approve(&code)? {
+                Some((channel, sender_id)) => {
+                    println!("Approved: {}:{}", channel, sender_id);
+                }
+                None => {
+                    println!("Invalid or expired code: {}", code);
+                }
+            }
+        }
+        PairingCommands::Revoke { channel, sender_id } => {
+            let mut store = crate::pairing::PairingStore::new()?;
+            if store.revoke(&channel, &sender_id)? {
+                println!("Revoked: {}:{}", channel, sender_id);
+            } else {
+                println!("Sender not found: {}:{}", channel, sender_id);
+            }
+        }
+    }
     Ok(())
 }
 

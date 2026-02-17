@@ -177,6 +177,17 @@ docker run -d \
   -v ~/.oxicrab:/home/oxicrab/.oxicrab \
   oxicrab</code></pre>
 
+    <h3>Environment variable secrets</h3>
+    <p>API keys and tokens can be injected via <code>OXICRAB_*</code> environment variables instead of storing them in the config file. This is the recommended approach for containers:</p>
+    <pre><code>docker run -d \
+  --name oxicrab \
+  --restart unless-stopped \
+  -e OXICRAB_ANTHROPIC_API_KEY=sk-ant-... \
+  -e OXICRAB_TELEGRAM_TOKEN=123456:AA... \
+  -v ~/.oxicrab:/home/oxicrab/.oxicrab \
+  oxicrab</code></pre>
+    <p>See the <a href="https://github.com/oxicrab/oxicrab#environment-variable-overrides">full env var table</a> in the README.</p>
+
     <div class="note"><strong>WhatsApp:</strong> The first run displays a QR code in the terminal. Use <code>docker run -it</code> (interactive) for the initial link, then switch to <code>-d</code> (detached) for subsequent runs. The session is persisted in the mounted volume.</div>
   </div>
 
@@ -195,7 +206,10 @@ docker run -d \
     ports:
       - "8080:8080"  # Only needed for Twilio webhooks
     environment:
-      - RUST_LOG=info</code></pre>
+      - RUST_LOG=info
+      # Inject secrets via env vars (recommended over config file)
+      - OXICRAB_ANTHROPIC_API_KEY=${OXICRAB_ANTHROPIC_API_KEY}
+      - OXICRAB_TELEGRAM_TOKEN=${OXICRAB_TELEGRAM_TOKEN}</code></pre>
 
     <pre><code># Start
 docker compose up -d
@@ -260,6 +274,9 @@ RestartSec=5
 
 Environment=RUST_LOG=info
 Environment=RUST_BACKTRACE=1
+# Secrets via env vars (recommended — keeps them out of config.json)
+# Environment=OXICRAB_ANTHROPIC_API_KEY=sk-ant-...
+# Environment=OXICRAB_TELEGRAM_TOKEN=123456:AA...
 
 # Logging
 StandardOutput=journal

@@ -1,4 +1,5 @@
 use crate::bus::{InboundMessage, OutboundMessage};
+use crate::safety::LeakDetector;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -18,6 +19,7 @@ pub struct MessageBus {
     rate_limit: usize,
     rate_window: Duration,
     sender_timestamps: HashMap<String, Vec<Instant>>,
+    leak_detector: LeakDetector,
 }
 
 impl MessageBus {
@@ -37,6 +39,7 @@ impl MessageBus {
             rate_limit,
             rate_window: Duration::from_secs_f64(rate_window_secs),
             sender_timestamps: HashMap::new(),
+            leak_detector: LeakDetector::new(),
         }
     }
 }
@@ -95,7 +98,17 @@ impl MessageBus {
         Ok(())
     }
 
-    pub async fn publish_outbound(&self, msg: OutboundMessage) -> Result<()> {
+    pub async fn publish_outbound(&self, mut msg: OutboundMessage) -> Result<()> {
+        // Scan for leaked secrets before sending
+        let matches = self.leak_detector.scan(&msg.content);
+        if !matches.is_empty() {
+            warn!(
+                "potential secret leak detected in outbound message: {:?}",
+                matches.iter().map(|m| m.name).collect::<Vec<_>>()
+            );
+            msg.content = self.leak_detector.redact(&msg.content);
+        }
+
         let channel = msg.channel.clone();
         let chat_id = msg.chat_id.clone();
         self.outbound_tx

@@ -675,9 +675,19 @@ mod tests {
     }
 
     #[test]
-    fn test_no_skip_when_allow_from_empty() {
-        // Empty allowFrom means allow everyone — process
+    fn test_skip_when_allow_from_empty() {
+        // Empty allowFrom now means deny-all (default-deny)
         let allow: Vec<String> = vec![];
+        assert!(should_skip_own_message(
+            Some("19876543210@s.whatsapp.net"),
+            &allow,
+        ));
+    }
+
+    #[test]
+    fn test_no_skip_when_allow_from_wildcard() {
+        // Wildcard "*" means allow everyone — process
+        let allow = vec!["*".to_string()];
         assert!(!should_skip_own_message(
             Some("19876543210@s.whatsapp.net"),
             &allow,

@@ -3176,6 +3176,7 @@ dependencies = [
  "serenity",
  "sha1",
  "sha2",
+ "subtle",
  "teloxide",
  "tempfile",
  "thiserror 2.0.18",

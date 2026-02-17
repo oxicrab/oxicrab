@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tracing::warn;
 
 pub fn get_config_path() -> Result<PathBuf> {
     Ok(get_oxicrab_home()?.join("config.json"))
@@ -26,8 +27,14 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
         // expect the original camelCase keys from JSON. The conversion was causing
         // fields with `rename` attributes to not be deserialized correctly.
 
-        let config: Config =
+        let mut config: Config =
             serde_json::from_value(data).with_context(|| "Failed to deserialize config")?;
+
+        // Apply environment variable overrides
+        apply_env_overrides(&mut config);
+
+        // Check file permissions (unix only, warn-only)
+        check_file_permissions(path);
 
         // Validate configuration
         config
@@ -37,12 +44,100 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
         return Ok(config);
     }
 
-    let default_config = Config::default();
+    let mut default_config = Config::default();
+    // Apply environment variable overrides even with default config
+    apply_env_overrides(&mut default_config);
     // Validate default config too (should always pass, but good practice)
     default_config
         .validate()
         .with_context(|| "Default configuration validation failed")?;
     Ok(default_config)
+}
+
+/// Override config fields from environment variables.
+///
+/// Any `OXICRAB_*` env var that is set and non-empty will overwrite the
+/// corresponding config field, allowing secrets to be injected without
+/// touching the config file (useful for containers and CI).
+fn apply_env_overrides(config: &mut Config) {
+    macro_rules! env_override {
+        ($var:literal, $field:expr) => {
+            if let Ok(val) = std::env::var($var) {
+                if !val.is_empty() {
+                    $field = val;
+                }
+            }
+        };
+    }
+
+    // Provider API keys
+    env_override!(
+        "OXICRAB_ANTHROPIC_API_KEY",
+        config.providers.anthropic.api_key
+    );
+    env_override!("OXICRAB_OPENAI_API_KEY", config.providers.openai.api_key);
+    env_override!(
+        "OXICRAB_OPENROUTER_API_KEY",
+        config.providers.openrouter.api_key
+    );
+    env_override!("OXICRAB_GEMINI_API_KEY", config.providers.gemini.api_key);
+    env_override!(
+        "OXICRAB_DEEPSEEK_API_KEY",
+        config.providers.deepseek.api_key
+    );
+    env_override!("OXICRAB_GROQ_API_KEY", config.providers.groq.api_key);
+
+    // Channel tokens
+    env_override!("OXICRAB_TELEGRAM_TOKEN", config.channels.telegram.token);
+    env_override!("OXICRAB_DISCORD_TOKEN", config.channels.discord.token);
+    env_override!("OXICRAB_SLACK_BOT_TOKEN", config.channels.slack.bot_token);
+    env_override!("OXICRAB_SLACK_APP_TOKEN", config.channels.slack.app_token);
+    env_override!(
+        "OXICRAB_TWILIO_ACCOUNT_SID",
+        config.channels.twilio.account_sid
+    );
+    env_override!(
+        "OXICRAB_TWILIO_AUTH_TOKEN",
+        config.channels.twilio.auth_token
+    );
+
+    // Tool tokens
+    env_override!("OXICRAB_GITHUB_TOKEN", config.tools.github.token);
+}
+
+/// Warn if the config file or its parent directory has overly permissive permissions.
+#[cfg(unix)]
+fn check_file_permissions(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    if let Ok(meta) = std::fs::metadata(path) {
+        let mode = meta.permissions().mode();
+        if mode & 0o077 != 0 {
+            warn!(
+                "config file {} has permissions {:o} — recommend 0600",
+                path.display(),
+                mode & 0o777
+            );
+        }
+    }
+
+    if let Some(parent) = path.parent()
+        && let Ok(meta) = std::fs::metadata(parent)
+    {
+        let mode = meta.permissions().mode();
+        if mode & 0o077 != 0 {
+            warn!(
+                "config directory {} has permissions {:o} — recommend 0700",
+                parent.display(),
+                mode & 0o777
+            );
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn check_file_permissions(_path: &Path) {
+    // Permission checks only apply on unix systems
 }
 
 fn migrate_config(data: Value) -> Value {
@@ -72,7 +167,7 @@ pub fn save_config(config: &Config, config_path: Option<&Path>) -> Result<()> {
     data = convert_to_camel(data);
 
     let content = serde_json::to_string_pretty(&data)?;
-    fs::write(path, content)
+    crate::utils::atomic_write(path, &content)
         .with_context(|| format!("Failed to write config to {}", path.display()))?;
 
     // Restrict permissions (best-effort, may fail on Windows)
@@ -292,5 +387,70 @@ mod tests {
         config
             .validate()
             .expect("config.example.json should pass validation");
+    }
+
+    #[test]
+    fn test_env_override_applies() {
+        let mut config = Config::default();
+        assert!(config.providers.anthropic.api_key.is_empty());
+
+        // Set env var and apply
+        unsafe { std::env::set_var("OXICRAB_ANTHROPIC_API_KEY", "test-key-from-env") };
+        apply_env_overrides(&mut config);
+        assert_eq!(config.providers.anthropic.api_key, "test-key-from-env");
+
+        // Clean up
+        unsafe { std::env::remove_var("OXICRAB_ANTHROPIC_API_KEY") };
+    }
+
+    #[test]
+    fn test_env_override_empty_string_ignored() {
+        let mut config = Config::default();
+        config.providers.openai.api_key = "original-key".to_string();
+
+        unsafe { std::env::set_var("OXICRAB_OPENAI_API_KEY", "") };
+        apply_env_overrides(&mut config);
+        assert_eq!(config.providers.openai.api_key, "original-key");
+
+        unsafe { std::env::remove_var("OXICRAB_OPENAI_API_KEY") };
+    }
+
+    #[test]
+    fn test_env_override_channel_tokens() {
+        let mut config = Config::default();
+
+        unsafe { std::env::set_var("OXICRAB_TELEGRAM_TOKEN", "tg-token") };
+        unsafe { std::env::set_var("OXICRAB_DISCORD_TOKEN", "dc-token") };
+        unsafe { std::env::set_var("OXICRAB_GITHUB_TOKEN", "gh-token") };
+        apply_env_overrides(&mut config);
+
+        assert_eq!(config.channels.telegram.token, "tg-token");
+        assert_eq!(config.channels.discord.token, "dc-token");
+        assert_eq!(config.tools.github.token, "gh-token");
+
+        unsafe { std::env::remove_var("OXICRAB_TELEGRAM_TOKEN") };
+        unsafe { std::env::remove_var("OXICRAB_DISCORD_TOKEN") };
+        unsafe { std::env::remove_var("OXICRAB_GITHUB_TOKEN") };
+    }
+
+    #[test]
+    fn test_save_config_atomic_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let config = Config::default();
+        save_config(&config, Some(&path)).unwrap();
+
+        // Verify file exists and can be loaded
+        assert!(path.exists());
+        let loaded = load_config(Some(&path)).unwrap();
+        assert_eq!(loaded.agents.defaults.model, config.agents.defaults.model);
+
+        // On unix, check permissions are 0600
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
     }
 }

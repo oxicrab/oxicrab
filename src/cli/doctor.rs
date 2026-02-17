@@ -282,6 +282,123 @@ fn check_external_command(name: &str, args: &[&str]) -> CheckResult {
     }
 }
 
+fn check_config_file_permissions() -> CheckResult {
+    let Ok(path) = crate::config::get_config_path() else {
+        return CheckResult::Skip("cannot determine path".to_string());
+    };
+    if !path.exists() {
+        return CheckResult::Skip("config file not found".to_string());
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&path) {
+            let mode = meta.permissions().mode() & 0o777;
+            if mode.trailing_zeros() >= 6 {
+                CheckResult::Pass(format!("{:o}", mode))
+            } else {
+                CheckResult::Fail(format!(
+                    "{:o} (world/group readable — run: chmod 600 {})",
+                    mode,
+                    path.display()
+                ))
+            }
+        } else {
+            CheckResult::Skip("cannot read metadata".to_string())
+        }
+    }
+
+    #[cfg(not(unix))]
+    CheckResult::Skip("permission check not available on this platform".to_string())
+}
+
+fn check_config_dir_permissions() -> CheckResult {
+    let Ok(path) = crate::config::get_config_path() else {
+        return CheckResult::Skip("cannot determine path".to_string());
+    };
+    let Some(parent) = path.parent() else {
+        return CheckResult::Skip("config has no parent dir".to_string());
+    };
+    if !parent.exists() {
+        return CheckResult::Skip("config directory not found".to_string());
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(parent) {
+            let mode = meta.permissions().mode() & 0o777;
+            if mode.trailing_zeros() >= 6 {
+                CheckResult::Pass(format!("{:o}", mode))
+            } else {
+                CheckResult::Fail(format!(
+                    "{:o} (world/group accessible — run: chmod 700 {})",
+                    mode,
+                    parent.display()
+                ))
+            }
+        } else {
+            CheckResult::Skip("cannot read metadata".to_string())
+        }
+    }
+
+    #[cfg(not(unix))]
+    CheckResult::Skip("permission check not available on this platform".to_string())
+}
+
+fn check_empty_allowlists() -> CheckResult {
+    let Ok(config) = crate::config::load_config(None) else {
+        return CheckResult::Skip("config not available".to_string());
+    };
+
+    let mut open_channels = Vec::new();
+
+    #[cfg(feature = "channel-telegram")]
+    if config.channels.telegram.enabled && config.channels.telegram.allow_from.is_empty() {
+        open_channels.push("telegram");
+    }
+
+    #[cfg(feature = "channel-discord")]
+    if config.channels.discord.enabled && config.channels.discord.allow_from.is_empty() {
+        open_channels.push("discord");
+    }
+
+    #[cfg(feature = "channel-slack")]
+    if config.channels.slack.enabled && config.channels.slack.allow_from.is_empty() {
+        open_channels.push("slack");
+    }
+
+    #[cfg(feature = "channel-twilio")]
+    if config.channels.twilio.enabled && config.channels.twilio.allow_from.is_empty() {
+        open_channels.push("twilio");
+    }
+
+    if open_channels.is_empty() {
+        CheckResult::Pass("all enabled channels have allowlists or are disabled".to_string())
+    } else {
+        CheckResult::Fail(format!(
+            "{} (use pairing or add \"*\" to allowFrom)",
+            open_channels.join(", ")
+        ))
+    }
+}
+
+fn check_pairing_store() -> CheckResult {
+    if !crate::pairing::PairingStore::store_exists() {
+        return CheckResult::Skip("not initialized (run oxicrab pairing list)".to_string());
+    }
+
+    match crate::pairing::PairingStore::new() {
+        Ok(store) => {
+            let paired = store.paired_count();
+            let pending = store.list_pending().len();
+            CheckResult::Pass(format!("{} paired sender(s), {} pending", paired, pending))
+        }
+        Err(e) => CheckResult::Fail(format!("cannot load: {}", e)),
+    }
+}
+
 fn check_mcp_servers() -> CheckResult {
     match crate::config::load_config(None) {
         Ok(config) => {
@@ -378,6 +495,22 @@ pub async fn doctor_command() -> Result<()> {
 
     let r = check_external_command("git", &["--version"]);
     record("git", &r);
+
+    // Security
+    println!("\n  Security");
+    println!("  {}", "-".repeat(56));
+
+    let r = check_config_file_permissions();
+    record("Config file permissions", &r);
+
+    let r = check_config_dir_permissions();
+    record("Config dir permissions", &r);
+
+    let r = check_empty_allowlists();
+    record("Empty allowlists", &r);
+
+    let r = check_pairing_store();
+    record("Pairing store", &r);
 
     // MCP
     println!("\n  MCP");

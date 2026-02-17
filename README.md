@@ -260,6 +260,26 @@ Configuration is stored in `~/.oxicrab/config.json`. Create this file with the f
 }
 ```
 
+### Environment Variable Overrides
+
+All API keys and channel tokens can be set via environment variables, which take precedence over `config.json`. This is recommended for containerized deployments and CI.
+
+| Variable | Config Field |
+|----------|-------------|
+| `OXICRAB_ANTHROPIC_API_KEY` | `providers.anthropic.apiKey` |
+| `OXICRAB_OPENAI_API_KEY` | `providers.openai.apiKey` |
+| `OXICRAB_OPENROUTER_API_KEY` | `providers.openrouter.apiKey` |
+| `OXICRAB_GEMINI_API_KEY` | `providers.gemini.apiKey` |
+| `OXICRAB_DEEPSEEK_API_KEY` | `providers.deepseek.apiKey` |
+| `OXICRAB_GROQ_API_KEY` | `providers.groq.apiKey` |
+| `OXICRAB_TELEGRAM_TOKEN` | `channels.telegram.token` |
+| `OXICRAB_DISCORD_TOKEN` | `channels.discord.token` |
+| `OXICRAB_SLACK_BOT_TOKEN` | `channels.slack.botToken` |
+| `OXICRAB_SLACK_APP_TOKEN` | `channels.slack.appToken` |
+| `OXICRAB_TWILIO_ACCOUNT_SID` | `channels.twilio.accountSid` |
+| `OXICRAB_TWILIO_AUTH_TOKEN` | `channels.twilio.authToken` |
+| `OXICRAB_GITHUB_TOKEN` | `tools.github.token` |
+
 ## Channel Setup
 
 ### Telegram
@@ -459,6 +479,8 @@ Configuration is stored in `~/.oxicrab/config.json`. Create this file with the f
    - `webhookUrl` must match exactly what Twilio POSTs to (used for signature validation)
    - `allowFrom` empty means all senders are allowed; add phone numbers to restrict
 
+> **Breaking change**: Empty `allowFrom` now defaults to deny-all. Use `["*"]` to allow all senders, or use `oxicrab pairing approve` to onboard specific users.
+
 ## Running
 
 ### Gateway Mode
@@ -513,6 +535,21 @@ Jobs support optional auto-stop limits via the LLM tool interface:
 - **`expires_at`**: ISO 8601 datetime after which the job auto-disables (e.g. stop a recurring ping after 5 minutes)
 - **`max_runs`**: Maximum number of executions before auto-disabling (e.g. "ping 7 times then stop")
 
+### Pairing
+
+Manage sender access for channels:
+
+```bash
+# Show pending pairing requests
+./target/release/oxicrab pairing list
+
+# Approve a pairing request
+./target/release/oxicrab pairing approve <code>
+
+# Revoke access for a specific sender
+./target/release/oxicrab pairing revoke <channel> <sender_id>
+```
+
 ### Authentication
 
 ```bash
@@ -528,7 +565,7 @@ Run `oxicrab doctor` to check your entire setup:
 ./target/release/oxicrab doctor
 ```
 
-Checks config file, workspace, provider API keys and connectivity (warmup latency), each channel's status and credentials, voice transcription backends, external tools (ffmpeg, git), and MCP servers. Reports PASS/FAIL/SKIP for every check with a summary at the end.
+Checks config file, workspace, provider API keys and connectivity (warmup latency), each channel's status and credentials, voice transcription backends, external tools (ffmpeg, git), and MCP servers. Now includes a **Security** section checking config file permissions, directory permissions, empty allowlists, and pairing store status. Reports PASS/FAIL/SKIP for every check with a summary at the end.
 
 ### Voice Transcription
 
@@ -843,7 +880,7 @@ src/
 - **CostGuard**: Pre-flight budget check (`check_allowed()`) and post-flight cost recording (`record_llm_call()`). Daily budget in cents with midnight UTC reset, hourly rate limiting via sliding window, embedded pricing for 50+ models with config overrides, AtomicBool fast-path for exceeded budgets. Config under `agents.defaults.costGuard`
 - **Circuit breaker**: `CircuitBreakerProvider` wraps `Arc<dyn LLMProvider>`. Three states: Closed (normal), Open (rejecting — after N consecutive transient failures), HalfOpen (probing). Non-transient errors (auth, invalid key, permission) do not trip the breaker. Config under `providers.circuitBreaker`
 - **Hallucination detection**: Regex-based action claim detection, tool-name mention counting, and false no-tools-claim detection with automatic retry prevent the LLM from fabricating actions or denying tool access; first-iteration forced tool use and tools nudge (up to 2 retries) prevent text-only hallucinations
-- **Security**: Shell command allowlist + blocklist with pipe/chain operator parsing; SSRF protection blocking private IPs, loopback, and metadata endpoints; path traversal prevention; OAuth credential file permissions (0o600); config secret redaction in Debug impls
+- **Security**: Shell command allowlist + blocklist with pipe/chain operator parsing; SSRF protection blocking private IPs, loopback, and metadata endpoints; path traversal prevention; OAuth credential file permissions (0o600); config secret redaction in Debug impls; outbound message scanning for leaked API keys with automatic redaction; atomic config file writes to prevent corruption; config file permission checks on startup (warns if world-readable); Twilio webhook signature validation using constant-time comparison
 
 ## Development
 

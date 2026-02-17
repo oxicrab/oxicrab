@@ -129,6 +129,7 @@
             <li><a href="#cron">cron</a></li>
             <li><a href="#auth">auth</a></li>
             <li><a href="#channels">channels</a></li>
+            <li><a href="#pairing">pairing</a></li>
             <li><a href="#status">status</a></li>
             <li><a href="#doctor">doctor</a></li>
         </ul>
@@ -267,6 +268,47 @@ oxicrab cron add -n "Reminder" -m "Meeting in 5 minutes" --at "2026-03-01T14:55:
     <p>Link a WhatsApp device via QR code. Displays a QR code in the terminal to scan with your phone. Session is saved to <code>~/.oxicrab/whatsapp/whatsapp.db</code>.</p>
     <p>Requires the <code>channel-whatsapp</code> feature to be compiled.</p>
 
+    <!-- PAIRING -->
+    <h2 id="pairing">pairing</h2>
+    <div class="cmd-sig">oxicrab pairing &lt;SUBCOMMAND&gt;</div>
+    <p>Manage sender pairing &mdash; authorize new users to message the bot. When a channel uses an empty <code>allowFrom</code> list (default-deny), unknown senders receive a pairing code. Use these commands to approve or manage access.</p>
+
+    <h3>pairing list</h3>
+    <div class="cmd-sig">oxicrab pairing list</div>
+    <p>Show all pending pairing requests with their codes, channels, sender IDs, and time remaining. Also shows the total count of already-paired senders.</p>
+    <pre>$ oxicrab pairing list
+Pending pairing requests:
+  [ABC12345] telegram:123456789 (expires in 12m 30s)
+  [XYZ98765] discord:987654321 (expires in 8m 15s)
+
+Paired senders: 3</pre>
+
+    <h3>pairing approve</h3>
+    <div class="cmd-sig">oxicrab pairing approve &lt;CODE&gt;</div>
+    <p>Approve a pending pairing request by its 8-character code. The sender is added to a persistent per-channel allowlist at <code>~/.oxicrab/pairing/</code>.</p>
+    <pre>$ oxicrab pairing approve ABC12345
+Approved: telegram:123456789</pre>
+
+    <h3>pairing revoke</h3>
+    <div class="cmd-sig">oxicrab pairing revoke &lt;CHANNEL&gt; &lt;SENDER_ID&gt;</div>
+    <p>Remove a previously approved sender from the pairing allowlist.</p>
+    <table class="flag-table">
+        <tr><th>Argument</th><th>Description</th></tr>
+        <tr><td>CHANNEL</td><td>Channel name: <code>telegram</code>, <code>discord</code>, <code>slack</code>, <code>whatsapp</code>, or <code>twilio</code></td></tr>
+        <tr><td>SENDER_ID</td><td>The sender ID to remove (same format as <code>allowFrom</code> entries)</td></tr>
+    </table>
+
+    <h3>Onboarding workflow</h3>
+    <p>The recommended way to set up a new channel with controlled access:</p>
+    <ol>
+        <li>Configure the channel in <code>config.json</code> with an empty <code>allowFrom: []</code></li>
+        <li>Start the gateway: <code>oxicrab gateway</code></li>
+        <li>Send a message to the bot from the account you want to authorize</li>
+        <li>In another terminal: <code>oxicrab pairing list</code> &mdash; note the code</li>
+        <li><code>oxicrab pairing approve &lt;CODE&gt;</code> &mdash; the sender is now permanently authorized</li>
+    </ol>
+    <p>Pairing codes expire after 15 minutes. Max 3 pending requests per channel. Failed approval attempts are rate-limited.</p>
+
     <!-- STATUS -->
     <h2 id="status">status</h2>
     <div class="cmd-sig">oxicrab status</div>
@@ -285,6 +327,7 @@ oxicrab cron add -n "Reminder" -m "Meeting in 5 minutes" --at "2026-03-01T14:55:
         <tr><td>Channels</td><td>Each channel (Telegram, Discord, Slack, WhatsApp, Twilio): compiled, enabled, tokens/credentials configured</td></tr>
         <tr><td>Voice</td><td>Transcription backend availability (local model, cloud API, or both)</td></tr>
         <tr><td>External Tools</td><td>ffmpeg and git available in PATH (with version info)</td></tr>
+        <tr><td>Security</td><td>Config file permissions (0600), config directory permissions (0700), empty allowlists on enabled channels, pairing store status</td></tr>
         <tr><td>MCP</td><td>MCP servers configured and enabled</td></tr>
     </table>
 
@@ -323,12 +366,19 @@ oxicrab doctor
   PASS   ffmpeg                         ffmpeg version 6.1.1
   PASS   git                            git version 2.43.0
 
+  Security
+  --------------------------------------------------------
+  PASS   Config file permissions        600
+  PASS   Config dir permissions         700
+  PASS   Empty allowlists               all enabled channels have allowlists or are disabled
+  PASS   Pairing store                  3 paired sender(s), 0 pending
+
   MCP
   --------------------------------------------------------
   PASS   MCP servers                    2 server(s): filesystem, git
 
 ============================================================
-  14 passed, 0 failed, 3 skipped
+  18 passed, 0 failed, 3 skipped
 
   All checks passed!</pre>
 
