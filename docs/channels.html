@@ -220,15 +220,26 @@
     "discord": {
       "enabled": true,
       "token": "your-discord-bot-token",
-      "allowFrom": ["123456789012345678"]
+      "allowFrom": ["123456789012345678"],
+      "commands": [
+        {
+          "name": "ask",
+          "description": "Ask the AI assistant",
+          "options": [{ "name": "question", "description": "Your question", "required": true }]
+        }
+      ]
     }
   }
 }</code></pre>
     </div>
+    <div class="note"><strong>commands</strong> defines Discord slash commands registered on startup. The default <code>/ask</code> command is registered automatically if omitted. Each command supports string options that are concatenated and sent to the agent.</div>
 
     <h3>Supported features</h3>
     <div class="features-list">
       <span>Text messages</span>
+      <span>Slash commands</span>
+      <span>Button components</span>
+      <span>Rich embeds</span>
       <span>Image attachments</span>
       <span>Audio attachments</span>
       <span>Typing indicators</span>

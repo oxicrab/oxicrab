@@ -84,7 +84,7 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 - **`Tool`** (`src/agent/tools/base.rs`): `name()`, `description()`, `parameters()` (JSON Schema), `execute(Value, &ExecutionContext) → ToolResult`. Optional: `cacheable()`.
 - **`ToolMiddleware`** (`src/agent/tools/base.rs`): `before_execute()` (can short-circuit), `after_execute()` (can modify result). Built-in: `CacheMiddleware`, `TruncationMiddleware`, `LoggingMiddleware`.
 - **`ExecutionContext`** (`src/agent/tools/base.rs`): Passed to every `execute()` call. Fields: `channel`, `chat_id`, `context_summary`.
-- **`BaseChannel`** (`src/channels/base.rs`): `start()`, `stop()`, `send()`. Optional: `send_typing()`, `send_and_get_id()`, `edit_message()`, `delete_message()`.
+- **`BaseChannel`** (`src/channels/base.rs`): `start()`, `stop()`, `send()`. Optional: `send_typing()`, `send_and_get_id()`, `edit_message()`, `delete_message()`. Discord supports slash commands, button component interactions, embeds, and interaction webhook followups — metadata keys `discord_interaction_token`/`discord_application_id` route responses through webhook API instead of channel messages.
 - **`LLMProvider`** (`src/providers/base.rs`): `chat(ChatRequest) → LLMResponse`, `default_model()`, `warmup()`. Has default `chat_with_retry()` with exponential backoff. `warmup()` pre-warms HTTP connections on startup (default no-op, implemented for Anthropic/OpenAI/Gemini).
 
 ### Provider Selection
@@ -154,7 +154,7 @@ JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in 
 - Constructor: `pub fn new(...)` builds the client with timeouts
 - Test constructor: `#[cfg(test)] fn with_base_url(...)` for mock server testing
 - Implement `Tool` trait: `name()`, `description()`, `version()`, `parameters()`, `execute(params, ctx)`
-- Action-based tools use `params["action"].as_str()` dispatch pattern
+- Action-based tools use `params["action"].as_str()` dispatch pattern (e.g. GitHub tool has 11 actions: list_issues, create_issue, list_prs, get_pr, get_issue, get_pr_files, create_pr_review, get_file_content, trigger_workflow, get_workflow_runs, search_repos)
 - Registration: Each module has a `register_*()` function in `src/agent/tools/setup.rs`
 
 ### Error Handling

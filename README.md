@@ -10,7 +10,7 @@
 
 ## Features
 
-- **Multi-channel support**: Telegram, Discord, Slack, WhatsApp, Twilio (SMS/MMS) — each behind a Cargo feature flag for slim builds
+- **Multi-channel support**: Telegram, Discord (slash commands, embeds, button components), Slack, WhatsApp, Twilio (SMS/MMS) — each behind a Cargo feature flag for slim builds
 - **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), plus OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, vLLM), with OAuth support and local model fallback
 - **22+ built-in tools**: Filesystem, shell, web, HTTP, browser automation, Google Workspace, GitHub, scheduling, memory, media management, and more — plus MCP (Model Context Protocol) for external tool servers
 - **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
@@ -139,7 +139,14 @@ Configuration is stored in `~/.oxicrab/config.json`. Create this file with the f
     "discord": {
       "enabled": true,
       "token": "your-discord-bot-token",
-      "allowFrom": ["user_id1", "user_id2"]
+      "allowFrom": ["user_id1", "user_id2"],
+      "commands": [
+        {
+          "name": "ask",
+          "description": "Ask the AI assistant",
+          "options": [{ "name": "question", "description": "Your question", "required": true }]
+        }
+      ]
     },
     "slack": {
       "enabled": true,
@@ -289,9 +296,18 @@ Configuration is stored in `~/.oxicrab/config.json`. Create this file with the f
    "discord": {
      "enabled": true,
      "token": "your-discord-bot-token",
-     "allowFrom": ["123456789012345678"]
+     "allowFrom": ["123456789012345678"],
+     "commands": [
+       {
+         "name": "ask",
+         "description": "Ask the AI assistant",
+         "options": [{ "name": "question", "description": "Your question", "required": true }]
+       }
+     ]
    }
    ```
+
+   The `commands` array defines Discord slash commands registered on startup. The default `/ask` command is registered automatically if omitted. Each command supports string options that are concatenated and sent to the agent. Button component interactions are also handled — clicking a button sends `[button:{custom_id}]` to the agent.
 
 ### Slack
 
@@ -690,7 +706,7 @@ The agent has access to 22 built-in tools, plus any tools provided by MCP server
 |------|-------------|-----------------|
 | `google_mail` | Gmail: search, read, send, reply, label | `tools.google.*` + OAuth |
 | `google_calendar` | Google Calendar: list, create, update, delete events | `tools.google.*` + OAuth |
-| `github` | GitHub API: issues, PRs, repos | `tools.github.token` |
+| `github` | GitHub API: issues, PRs, file content, PR reviews, CI/CD workflows | `tools.github.token` |
 | `weather` | Weather forecasts via OpenWeatherMap | `tools.weather.apiKey` |
 | `todoist` | Todoist task management: list, create, complete, update | `tools.todoist.token` |
 | `media` | Radarr/Sonarr: search, add, monitor movies & TV | `tools.media.*` |
@@ -787,6 +803,7 @@ src/
 - **Message bus**: Decoupled channel-agent communication via inbound/outbound message bus
 - **Connection resilience**: All channels (Telegram, Discord, Slack, WhatsApp, Twilio) use exponential backoff retry loops for automatic reconnection after disconnects
 - **Channel edit/delete**: `BaseChannel` trait provides `send_and_get_id`, `edit_message`, and `delete_message` with default no-ops; implemented for Telegram, Discord, and Slack
+- **Discord interactions**: Slash commands (configurable via `commands` config), button component handling, rich embeds, and interaction webhook followups. Metadata keys propagate interaction tokens through the agent loop for deferred responses
 - **Session management**: SQLite-backed sessions with automatic TTL cleanup
 - **Memory**: SQLite FTS5 for semantic memory indexing with background indexer, automatic fact extraction, optional hybrid vector+keyword search via local ONNX embeddings (fastembed), and automatic memory hygiene (archive old notes, purge expired archives, clean orphaned entries)
 - **Compaction**: Automatic conversation summarization when context exceeds token threshold
