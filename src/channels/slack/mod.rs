@@ -482,8 +482,7 @@ impl BaseChannel for SlackChannel {
 
     async fn send_typing(&self, chat_id: &str) -> Result<()> {
         // Slack has no typing indicator API for bots (only legacy RTM supported it).
-        // Visible progress is provided via editable status messages instead
-        // (tool status lines, "Composing response...").
+        // Visible progress is provided via editable status messages instead.
         debug!("Slack typing indicator requested for {} (no-op)", chat_id);
         Ok(())
     }

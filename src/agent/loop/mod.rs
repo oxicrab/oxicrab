@@ -1249,24 +1249,6 @@ impl AgentLoop {
                         is_error,
                     );
                 }
-
-                // Send composing indicator so the user sees progress during LLM thinking
-                if let Some(ref ctx) = typing_context {
-                    let _ = self
-                        .outbound_tx
-                        .send(OutboundMessage {
-                            channel: ctx.0.clone(),
-                            chat_id: ctx.1.clone(),
-                            content: "\u{270d}\u{fe0f} Composing response...".to_string(),
-                            reply_to: None,
-                            media: vec![],
-                            metadata: HashMap::from([(
-                                "status".to_string(),
-                                serde_json::Value::Bool(true),
-                            )]),
-                        })
-                        .await;
-                }
             } else if let Some(content) = response.content {
                 // Nudge the LLM to use tools if it responded with text before calling any.
                 // Skip iteration 1 since tool_choice="any" already forces tool use there.
