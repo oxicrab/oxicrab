@@ -1,5 +1,5 @@
 use crate::config::TranscriptionConfig;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use reqwest::Client;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,10 +21,10 @@ pub struct TranscriptionService {
 
 /// Expand a leading `~/` in a path to the user's home directory.
 fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(rest);
-        }
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(rest);
     }
     PathBuf::from(path)
 }
@@ -217,10 +217,10 @@ impl TranscriptionService {
             let num_segments = state.full_n_segments();
             let mut result = String::new();
             for i in 0..num_segments {
-                if let Some(segment) = state.get_segment(i) {
-                    if let Ok(text) = segment.to_str_lossy() {
-                        result.push_str(&text);
-                    }
+                if let Some(segment) = state.get_segment(i)
+                    && let Ok(text) = segment.to_str_lossy()
+                {
+                    result.push_str(&text);
                 }
             }
 

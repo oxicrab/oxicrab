@@ -268,10 +268,10 @@ impl ProviderFactory {
     pub async fn create_provider(&self, model: &str) -> Result<Arc<dyn LLMProvider>> {
         // Try each strategy in order
         for strategy in &self.strategies {
-            if strategy.can_handle(model) {
-                if let Some(provider) = strategy.create_provider(model).await? {
-                    return Ok(provider);
-                }
+            if strategy.can_handle(model)
+                && let Some(provider) = strategy.create_provider(model).await?
+            {
+                return Ok(provider);
             }
         }
 
@@ -347,9 +347,11 @@ mod tests {
         let strategy = ApiKeyProviderStrategy::new(config);
 
         // Native providers should not match OpenAI-compat keywords
-        assert!(strategy
-            .try_openai_compat("claude-sonnet-4-5-20250929")
-            .is_none());
+        assert!(
+            strategy
+                .try_openai_compat("claude-sonnet-4-5-20250929")
+                .is_none()
+        );
         assert!(strategy.try_openai_compat("gpt-4o").is_none());
         assert!(strategy.try_openai_compat("gemini-pro").is_none());
     }

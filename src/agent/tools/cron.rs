@@ -586,18 +586,26 @@ mod tests {
         let cfg = make_test_channels_config();
         let targets = resolve_all_channel_targets_from_config(Some(&cfg));
         assert_eq!(targets.len(), 4);
-        assert!(targets
-            .iter()
-            .any(|t| t.channel == "slack" && t.to == "U08G6HBC89X"));
-        assert!(targets
-            .iter()
-            .any(|t| t.channel == "discord" && t.to == "123456789"));
-        assert!(targets
-            .iter()
-            .any(|t| t.channel == "telegram" && t.to == "987654321"));
-        assert!(targets
-            .iter()
-            .any(|t| t.channel == "whatsapp" && t.to == "15551234567@s.whatsapp.net"));
+        assert!(
+            targets
+                .iter()
+                .any(|t| t.channel == "slack" && t.to == "U08G6HBC89X")
+        );
+        assert!(
+            targets
+                .iter()
+                .any(|t| t.channel == "discord" && t.to == "123456789")
+        );
+        assert!(
+            targets
+                .iter()
+                .any(|t| t.channel == "telegram" && t.to == "987654321")
+        );
+        assert!(
+            targets
+                .iter()
+                .any(|t| t.channel == "whatsapp" && t.to == "15551234567@s.whatsapp.net")
+        );
     }
 
     #[test]

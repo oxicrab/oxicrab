@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use oxicrab::agent::compaction::{estimate_tokens, MessageCompactor};
+use oxicrab::agent::compaction::{MessageCompactor, estimate_tokens};
 use oxicrab::agent::{AgentLoop, AgentLoopConfig};
 use oxicrab::bus::MessageBus;
 use oxicrab::config::CompactionConfig;

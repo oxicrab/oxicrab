@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use tracing::debug;
@@ -194,10 +194,10 @@ impl MemoryDB {
             )
             .ok();
 
-        if let Some(existing_mtime) = existing {
-            if existing_mtime == mtime_ns {
-                return Ok(()); // unchanged
-            }
+        if let Some(existing_mtime) = existing
+            && existing_mtime == mtime_ns
+        {
+            return Ok(()); // unchanged
         }
 
         // Wipe old entries
@@ -245,10 +245,10 @@ impl MemoryDB {
         for entry in std::fs::read_dir(memory_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension() == Some(std::ffi::OsStr::new("md")) {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    self.index_file(name, &path)?;
-                }
+            if path.extension() == Some(std::ffi::OsStr::new("md"))
+                && let Some(name) = path.file_name().and_then(|n| n.to_str())
+            {
+                self.index_file(name, &path)?;
             }
         }
 
@@ -408,10 +408,9 @@ impl MemoryDB {
                         "SELECT source_key FROM memory_entries WHERE id = ?",
                         [entry_id],
                         |row| row.get::<_, String>(0),
-                    ) {
-                        if let Some(entry) = vec_scores.get_mut(&entry_id) {
-                            entry.1 = key;
-                        }
+                    ) && let Some(entry) = vec_scores.get_mut(&entry_id)
+                    {
+                        entry.1 = key;
                     }
                 }
             }

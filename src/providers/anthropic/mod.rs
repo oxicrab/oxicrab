@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::json;
 use std::time::Duration;
+use tracing::{debug, info};
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const CONNECT_TIMEOUT_SECS: u64 = 30;
@@ -53,6 +54,10 @@ impl AnthropicProvider {
 #[async_trait]
 impl LLMProvider for AnthropicProvider {
     async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+        debug!(
+            "anthropic chat: model={}",
+            req.model.unwrap_or(&self.default_model)
+        );
         let (system, anthropic_messages) = anthropic_common::convert_messages(req.messages);
 
         let mut payload = json!({
@@ -106,7 +111,12 @@ impl LLMProvider for AnthropicProvider {
             }
         }
 
-        Ok(anthropic_common::parse_response(&json))
+        let response = anthropic_common::parse_response(&json);
+        debug!(
+            "anthropic chat complete: input_tokens={:?}, output_tokens={:?}",
+            response.input_tokens, response.output_tokens
+        );
+        Ok(response)
     }
 
     fn default_model(&self) -> &str {
@@ -114,7 +124,6 @@ impl LLMProvider for AnthropicProvider {
     }
 
     async fn warmup(&self) -> Result<()> {
-        use tracing::info;
         let start = std::time::Instant::now();
         let payload = json!({
             "model": self.default_model,

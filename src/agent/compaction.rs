@@ -3,6 +3,7 @@ use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::debug;
 
 const COMPACTION_PROMPT: &str = r"Summarize this conversation history concisely while preserving:
 1. Key decisions made and their reasoning
@@ -51,12 +52,11 @@ pub fn estimate_messages_tokens(messages: &[HashMap<String, Value>]) -> usize {
                 total += estimate_tokens(text);
             } else if let Some(arr) = content.as_array() {
                 for part in arr {
-                    if let Some(obj) = part.as_object() {
-                        if obj.get("type") == Some(&Value::String("text".to_string())) {
-                            if let Some(text) = obj.get("text").and_then(|v| v.as_str()) {
-                                total += estimate_tokens(text);
-                            }
-                        }
+                    if let Some(obj) = part.as_object()
+                        && obj.get("type") == Some(&Value::String("text".to_string()))
+                        && let Some(text) = obj.get("text").and_then(|v| v.as_str())
+                    {
+                        total += estimate_tokens(text);
                     }
                 }
             }
@@ -80,6 +80,7 @@ impl MessageCompactor {
         messages: &[HashMap<String, Value>],
         previous_summary: &str,
     ) -> Result<String> {
+        debug!("compaction: summarizing {} messages", messages.len());
         let formatted: Vec<String> = messages
             .iter()
             .map(|m| {
@@ -108,7 +109,9 @@ impl MessageCompactor {
             })
             .await?;
 
-        Ok(response.content.unwrap_or_default())
+        let summary = response.content.unwrap_or_default();
+        debug!("compaction complete: summary_len={}", summary.len());
+        Ok(summary)
     }
 
     pub async fn extract_facts(
@@ -116,6 +119,7 @@ impl MessageCompactor {
         user_message: &str,
         assistant_message: &str,
     ) -> Result<String> {
+        debug!("extracting facts from exchange");
         let prompt = EXTRACTION_PROMPT
             .replace("{user_message}", user_message)
             .replace("{assistant_message}", assistant_message);
@@ -138,8 +142,10 @@ impl MessageCompactor {
         // The LLM sometimes returns "NOTHING" with an explanation in parens.
         // Treat any response starting with "NOTHING" as no facts extracted.
         if content.trim().to_ascii_uppercase().starts_with("NOTHING") {
+            debug!("fact extraction: nothing");
             Ok(String::new())
         } else {
+            debug!("fact extraction: facts found");
             Ok(content)
         }
     }

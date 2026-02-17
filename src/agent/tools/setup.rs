@@ -1,8 +1,8 @@
 use crate::agent::memory::MemoryStore;
 use crate::agent::subagent::{SubagentConfig, SubagentManager};
-use crate::agent::tools::mcp::proxy::AttenuatedMcpTool;
-use crate::agent::tools::mcp::McpManager;
 use crate::agent::tools::ToolRegistry;
+use crate::agent::tools::mcp::McpManager;
+use crate::agent::tools::mcp::proxy::AttenuatedMcpTool;
 use crate::bus::{MessageBus, OutboundMessage};
 use crate::config;
 use crate::cron::service::CronService;
@@ -166,26 +166,26 @@ fn register_tmux(registry: &mut ToolRegistry) {
 fn register_browser(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::browser::BrowserTool;
 
-    if let Some(ref browser_cfg) = ctx.browser_config {
-        if browser_cfg.enabled {
-            registry.register(Arc::new(BrowserTool::new(browser_cfg)));
-            info!("Browser tool registered");
-        }
+    if let Some(ref browser_cfg) = ctx.browser_config
+        && browser_cfg.enabled
+    {
+        registry.register(Arc::new(BrowserTool::new(browser_cfg)));
+        info!("Browser tool registered");
     }
 }
 
 fn register_image_gen(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::image_gen::ImageGenTool;
 
-    if let Some(ref ig_cfg) = ctx.image_gen_config {
-        if ig_cfg.enabled {
-            registry.register(Arc::new(ImageGenTool::new(
-                ig_cfg.openai_api_key.clone(),
-                ig_cfg.google_api_key.clone(),
-                ig_cfg.default_provider.clone(),
-            )));
-            info!("Image generation tool registered");
-        }
+    if let Some(ref ig_cfg) = ctx.image_gen_config
+        && ig_cfg.enabled
+    {
+        registry.register(Arc::new(ImageGenTool::new(
+            ig_cfg.openai_api_key.clone(),
+            ig_cfg.google_api_key.clone(),
+            ig_cfg.default_provider.clone(),
+        )));
+        info!("Image generation tool registered");
     }
 }
 
@@ -204,27 +204,26 @@ async fn register_google(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::google_calendar::GoogleCalendarTool;
     use crate::agent::tools::google_mail::GoogleMailTool;
 
-    if let Some(ref google_cfg) = ctx.google_config {
-        if google_cfg.enabled
-            && !google_cfg.client_id.is_empty()
-            && !google_cfg.client_secret.is_empty()
+    if let Some(ref google_cfg) = ctx.google_config
+        && google_cfg.enabled
+        && !google_cfg.client_id.is_empty()
+        && !google_cfg.client_secret.is_empty()
+    {
+        match crate::auth::google::get_credentials(
+            &google_cfg.client_id,
+            &google_cfg.client_secret,
+            Some(&google_cfg.scopes),
+            None,
+        )
+        .await
         {
-            match crate::auth::google::get_credentials(
-                &google_cfg.client_id,
-                &google_cfg.client_secret,
-                Some(&google_cfg.scopes),
-                None,
-            )
-            .await
-            {
-                Ok(creds) => {
-                    registry.register(Arc::new(GoogleMailTool::new(creds.clone())));
-                    registry.register(Arc::new(GoogleCalendarTool::new(creds)));
-                    info!("Google tools registered (gmail, calendar)");
-                }
-                Err(e) => {
-                    warn!("Google tools not available: {}", e);
-                }
+            Ok(creds) => {
+                registry.register(Arc::new(GoogleMailTool::new(creds.clone())));
+                registry.register(Arc::new(GoogleCalendarTool::new(creds)));
+                info!("Google tools registered (gmail, calendar)");
+            }
+            Err(e) => {
+                warn!("Google tools not available: {}", e);
             }
         }
     }
@@ -233,74 +232,76 @@ async fn register_google(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
 fn register_github(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::github::GitHubTool;
 
-    if let Some(ref gh_cfg) = ctx.github_config {
-        if gh_cfg.enabled && !gh_cfg.token.is_empty() {
-            registry.register(Arc::new(GitHubTool::new(gh_cfg.token.clone())));
-            info!("GitHub tool registered");
-        }
+    if let Some(ref gh_cfg) = ctx.github_config
+        && gh_cfg.enabled
+        && !gh_cfg.token.is_empty()
+    {
+        registry.register(Arc::new(GitHubTool::new(gh_cfg.token.clone())));
+        info!("GitHub tool registered");
     }
 }
 
 fn register_weather(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::weather::WeatherTool;
 
-    if let Some(ref weather_cfg) = ctx.weather_config {
-        if weather_cfg.enabled && !weather_cfg.api_key.is_empty() {
-            registry.register(Arc::new(WeatherTool::new(weather_cfg.api_key.clone())));
-            info!("Weather tool registered");
-        }
+    if let Some(ref weather_cfg) = ctx.weather_config
+        && weather_cfg.enabled
+        && !weather_cfg.api_key.is_empty()
+    {
+        registry.register(Arc::new(WeatherTool::new(weather_cfg.api_key.clone())));
+        info!("Weather tool registered");
     }
 }
 
 fn register_todoist(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::todoist::TodoistTool;
 
-    if let Some(ref todoist_cfg) = ctx.todoist_config {
-        if todoist_cfg.enabled && !todoist_cfg.token.is_empty() {
-            registry.register(Arc::new(TodoistTool::new(todoist_cfg.token.clone())));
-            info!("Todoist tool registered");
-        }
+    if let Some(ref todoist_cfg) = ctx.todoist_config
+        && todoist_cfg.enabled
+        && !todoist_cfg.token.is_empty()
+    {
+        registry.register(Arc::new(TodoistTool::new(todoist_cfg.token.clone())));
+        info!("Todoist tool registered");
     }
 }
 
 fn register_media(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::media::MediaTool;
 
-    if let Some(ref media_cfg) = ctx.media_config {
-        if media_cfg.enabled {
-            registry.register(Arc::new(MediaTool::new(media_cfg)));
-            info!("Media tool registered (Radarr/Sonarr)");
-        }
+    if let Some(ref media_cfg) = ctx.media_config
+        && media_cfg.enabled
+    {
+        registry.register(Arc::new(MediaTool::new(media_cfg)));
+        info!("Media tool registered (Radarr/Sonarr)");
     }
 }
 
 fn register_obsidian(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::obsidian::{ObsidianSyncService, ObsidianTool};
 
-    if let Some(ref obsidian_cfg) = ctx.obsidian_config {
-        if obsidian_cfg.enabled
-            && !obsidian_cfg.api_url.is_empty()
-            && !obsidian_cfg.api_key.is_empty()
-        {
-            match ObsidianTool::new(
-                &obsidian_cfg.api_url,
-                &obsidian_cfg.api_key,
-                &obsidian_cfg.vault_name,
-                obsidian_cfg.timeout,
-            ) {
-                Ok((tool, cache)) => {
-                    registry.register(Arc::new(tool));
-                    let sync_svc = ObsidianSyncService::new(cache, obsidian_cfg.sync_interval);
-                    tokio::spawn(async move {
-                        if let Err(e) = sync_svc.start().await {
-                            error!("Obsidian sync failed to start: {}", e);
-                        }
-                    });
-                    info!("Obsidian tool registered");
-                }
-                Err(e) => {
-                    warn!("Obsidian tool not available: {}", e);
-                }
+    if let Some(ref obsidian_cfg) = ctx.obsidian_config
+        && obsidian_cfg.enabled
+        && !obsidian_cfg.api_url.is_empty()
+        && !obsidian_cfg.api_key.is_empty()
+    {
+        match ObsidianTool::new(
+            &obsidian_cfg.api_url,
+            &obsidian_cfg.api_key,
+            &obsidian_cfg.vault_name,
+            obsidian_cfg.timeout,
+        ) {
+            Ok((tool, cache)) => {
+                registry.register(Arc::new(tool));
+                let sync_svc = ObsidianSyncService::new(cache, obsidian_cfg.sync_interval);
+                tokio::spawn(async move {
+                    if let Err(e) = sync_svc.start().await {
+                        error!("Obsidian sync failed to start: {}", e);
+                    }
+                });
+                info!("Obsidian tool registered");
+            }
+            Err(e) => {
+                warn!("Obsidian tool not available: {}", e);
             }
         }
     }

@@ -4,7 +4,7 @@ use crate::agent::tools::{Tool, ToolResult};
 use crate::auth::google::GoogleCredentials;
 use anyhow::Result;
 use async_trait::async_trait;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::Value;
 
 pub struct GoogleMailTool {
@@ -119,17 +119,17 @@ impl Tool for GoogleMailTool {
                         urlencoding::encode(msg_id)
                     );
                     let msg = self.api.call(&endpoint, "GET", None).await?;
-                    let headers: std::collections::HashMap<String, String> = msg["payload"]
-                        ["headers"]
-                        .as_array()
-                        .unwrap_or(&vec![])
-                        .iter()
-                        .filter_map(|h| {
-                            let name = h["name"].as_str()?;
-                            let value = h["value"].as_str()?;
-                            Some((name.to_string(), value.to_string()))
-                        })
-                        .collect();
+                    let headers: std::collections::HashMap<String, String> =
+                        msg["payload"]["headers"]
+                            .as_array()
+                            .unwrap_or(&vec![])
+                            .iter()
+                            .filter_map(|h| {
+                                let name = h["name"].as_str()?;
+                                let value = h["value"].as_str()?;
+                                Some((name.to_string(), value.to_string()))
+                            })
+                            .collect();
                     let snippet = msg["snippet"].as_str().unwrap_or("");
 
                     lines.push(format!(
@@ -220,17 +220,17 @@ impl Tool for GoogleMailTool {
                     urlencoding::encode(message_id)
                 );
                 let original = self.api.call(&endpoint, "GET", None).await?;
-                let headers: std::collections::HashMap<String, String> = original["payload"]
-                    ["headers"]
-                    .as_array()
-                    .unwrap_or(&vec![])
-                    .iter()
-                    .filter_map(|h| {
-                        let name = h["name"].as_str()?;
-                        let value = h["value"].as_str()?;
-                        Some((name.to_string(), value.to_string()))
-                    })
-                    .collect();
+                let headers: std::collections::HashMap<String, String> =
+                    original["payload"]["headers"]
+                        .as_array()
+                        .unwrap_or(&vec![])
+                        .iter()
+                        .filter_map(|h| {
+                            let name = h["name"].as_str()?;
+                            let value = h["value"].as_str()?;
+                            Some((name.to_string(), value.to_string()))
+                        })
+                        .collect();
                 let thread_id = original["threadId"].as_str().unwrap_or("");
 
                 let empty_str = String::new();
@@ -334,34 +334,30 @@ impl Tool for GoogleMailTool {
 
 fn extract_body(payload: &Value) -> String {
     // Direct body
-    if payload["mimeType"].as_str() == Some("text/plain") {
-        if let Some(data) = payload["body"]["data"].as_str() {
-            if let Ok(decoded) = URL_SAFE_NO_PAD.decode(data) {
-                if let Ok(text) = String::from_utf8(decoded) {
-                    return text;
-                }
-            }
-        }
+    if payload["mimeType"].as_str() == Some("text/plain")
+        && let Some(data) = payload["body"]["data"].as_str()
+        && let Ok(decoded) = URL_SAFE_NO_PAD.decode(data)
+        && let Ok(text) = String::from_utf8(decoded)
+    {
+        return text;
     }
 
     // Multipart - look for text/plain first, then text/html
     if let Some(parts) = payload["parts"].as_array() {
         for mime in &["text/plain", "text/html"] {
             for part in parts {
-                if part["mimeType"].as_str() == Some(mime) {
-                    if let Some(data) = part["body"]["data"].as_str() {
-                        if let Ok(decoded) = URL_SAFE_NO_PAD.decode(data) {
-                            if let Ok(text) = String::from_utf8(decoded) {
-                                if *mime == "text/html" {
-                                    // Strip HTML tags using shared regex pattern
-                                    return crate::utils::regex::RegexPatterns::html_tags()
-                                        .replace_all(&text, "")
-                                        .to_string();
-                                }
-                                return text;
-                            }
-                        }
+                if part["mimeType"].as_str() == Some(mime)
+                    && let Some(data) = part["body"]["data"].as_str()
+                    && let Ok(decoded) = URL_SAFE_NO_PAD.decode(data)
+                    && let Ok(text) = String::from_utf8(decoded)
+                {
+                    if *mime == "text/html" {
+                        // Strip HTML tags using shared regex pattern
+                        return crate::utils::regex::RegexPatterns::html_tags()
+                            .replace_all(&text, "")
+                            .to_string();
                     }
+                    return text;
                 }
                 // Nested multipart
                 if part["parts"].is_array() {

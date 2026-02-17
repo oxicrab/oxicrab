@@ -21,6 +21,9 @@
 - **Editable status messages**: Tool progress shown as a single message that edits in-place (Telegram, Discord, Slack), with composing indicator and automatic cleanup
 - **Connection resilience**: All channels auto-reconnect with exponential backoff
 - **Voice transcription**: Local whisper.cpp inference (via whisper-rs) with cloud API fallback, automatic audio conversion via ffmpeg
+- **CostGuard**: Daily budget cap (cents) and hourly rate limiting with embedded pricing data for 50+ models, automatic midnight UTC reset
+- **Circuit breaker**: Three-state circuit breaker (Closed/Open/HalfOpen) wraps the LLM provider, tripping only on transient errors (429, 5xx, timeout), with configurable threshold and recovery
+- **Doctor command**: Run `oxicrab doctor` to check config, workspace, provider connectivity, channels, voice, external tools, and MCP servers
 - **Security**: Shell command allowlist/blocklist, SSRF protection, path traversal prevention, secret redaction
 - **Async-first**: Built on Tokio for high-performance async I/O
 
@@ -102,6 +105,10 @@ Configuration is stored in `~/.oxicrab/config.json`. Create this file with the f
         "keepRecent": 10,
         "extractionEnabled": true
       },
+      "costGuard": {
+        "dailyBudgetCents": 500,
+        "maxActionsPerHour": 100
+      },
       "daemon": {
         "enabled": true,
         "interval": 300,
@@ -128,6 +135,12 @@ Configuration is stored in `~/.oxicrab/config.json`. Create this file with the f
     },
     "openrouter": {
       "apiKey": "your-openrouter-api-key"
+    },
+    "circuitBreaker": {
+      "enabled": false,
+      "failureThreshold": 5,
+      "recoveryTimeoutSecs": 60,
+      "halfOpenProbes": 2
     }
   },
   "channels": {
@@ -507,6 +520,16 @@ Jobs support optional auto-stop limits via the LLM tool interface:
 ./target/release/oxicrab auth google
 ```
 
+### System Diagnostics
+
+Run `oxicrab doctor` to check your entire setup:
+
+```bash
+./target/release/oxicrab doctor
+```
+
+Checks config file, workspace, provider API keys and connectivity (warmup latency), each channel's status and credentials, voice transcription backends, external tools (ffmpeg, git), and MCP servers. Reports PASS/FAIL/SKIP for every check with a summary at the end.
+
 ### Voice Transcription
 
 Voice messages from channels are automatically transcribed to text. Two backends are supported:
@@ -817,6 +840,8 @@ src/
 - **Heartbeat/Daemon**: Periodic background check-ins driven by a strategy file (`HEARTBEAT.md`)
 - **Voice transcription**: Dual-backend transcription service (local whisper.cpp via `whisper-rs` + cloud Whisper API). Audio converted to 16kHz mono f32 PCM via ffmpeg subprocess; local inference runs on a blocking thread pool. Configurable routing (`preferLocal`) with automatic fallback between backends.
 - **Skills**: Extensible via workspace SKILL.md files with YAML frontmatter, dependency checking, and auto-include
+- **CostGuard**: Pre-flight budget check (`check_allowed()`) and post-flight cost recording (`record_llm_call()`). Daily budget in cents with midnight UTC reset, hourly rate limiting via sliding window, embedded pricing for 50+ models with config overrides, AtomicBool fast-path for exceeded budgets. Config under `agents.defaults.costGuard`
+- **Circuit breaker**: `CircuitBreakerProvider` wraps `Arc<dyn LLMProvider>`. Three states: Closed (normal), Open (rejecting — after N consecutive transient failures), HalfOpen (probing). Non-transient errors (auth, invalid key, permission) do not trip the breaker. Config under `providers.circuitBreaker`
 - **Hallucination detection**: Regex-based action claim detection, tool-name mention counting, and false no-tools-claim detection with automatic retry prevent the LLM from fabricating actions or denying tool access; first-iteration forced tool use and tools nudge (up to 2 retries) prevent text-only hallucinations
 - **Security**: Shell command allowlist + blocklist with pipe/chain operator parsing; SSRF protection blocking private IPs, loopback, and metadata endpoints; path traversal prevention; OAuth credential file permissions (0o600); config secret redaction in Debug impls
 

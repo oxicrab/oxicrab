@@ -1,8 +1,8 @@
+use crate::agent::memory::MemoryDB;
 /// Background memory indexer service
 ///
 /// Periodically indexes memory files in the background to avoid blocking queries.
 use crate::agent::memory::embeddings::EmbeddingService;
-use crate::agent::memory::MemoryDB;
 use anyhow::Result;
 use chrono::Datelike;
 use std::path::{Path, PathBuf};

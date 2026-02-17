@@ -487,6 +487,27 @@ max_width: 1120px
           <p>Connect external tool servers via child processes. Tools are auto-discovered at startup and registered as native tools with full middleware pipeline.</p>
         </div>
       </div>
+      <div class="feature-row">
+        <div class="feature-name">CostGuard</div>
+        <div class="feature-detail">
+          <h3>Daily budget and rate limiting</h3>
+          <p>Set a daily spending cap in cents and an hourly action limit. Embedded pricing data for 50+ models with automatic midnight UTC reset. AtomicBool fast-path for exceeded budgets.</p>
+        </div>
+      </div>
+      <div class="feature-row">
+        <div class="feature-name">Circuit Breaker</div>
+        <div class="feature-detail">
+          <h3>Provider resilience</h3>
+          <p>Three-state circuit breaker (Closed &rarr; Open &rarr; HalfOpen) wraps the LLM provider. Trips on transient errors (429, 5xx, timeout) but ignores auth failures. Configurable threshold, recovery timeout, and probe count.</p>
+        </div>
+      </div>
+      <div class="feature-row">
+        <div class="feature-name">Doctor</div>
+        <div class="feature-detail">
+          <h3>System diagnostics</h3>
+          <p>Run <code>oxicrab doctor</code> to check config, workspace, provider connectivity, channel status, voice backends, external tools, and MCP servers. PASS/FAIL/SKIP output for every check.</p>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -680,6 +701,10 @@ cp config.example.json ~/.oxicrab/config.json</pre>
         <span class="hl-key">"embeddingsEnabled"</span>: <span class="hl-num">false</span>,
         <span class="hl-key">"embeddingsModel"</span>: <span class="hl-str">"BAAI/bge-small-en-v1.5"</span>,
         <span class="hl-key">"hybridWeight"</span>: <span class="hl-num">0.5</span>
+      },
+      <span class="hl-key">"costGuard"</span>: {
+        <span class="hl-key">"dailyBudgetCents"</span>: <span class="hl-num">500</span>,
+        <span class="hl-key">"maxActionsPerHour"</span>: <span class="hl-num">100</span>
       }
     }
   },
@@ -730,6 +755,12 @@ cp config.example.json ~/.oxicrab/config.json</pre>
       <span class="hl-key">"apiBase"</span>: <span class="hl-num">null</span>
     }
     <span class="hl-comment">// Also: OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, vLLM</span>
+    <span class="hl-key">"circuitBreaker"</span>: {
+      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
+      <span class="hl-key">"failureThreshold"</span>: <span class="hl-num">5</span>,
+      <span class="hl-key">"recoveryTimeoutSecs"</span>: <span class="hl-num">60</span>,
+      <span class="hl-key">"halfOpenProbes"</span>: <span class="hl-num">2</span>
+    }
   },
   <span class="hl-key">"gateway"</span>: {
     <span class="hl-key">"host"</span>: <span class="hl-str">"0.0.0.0"</span>,

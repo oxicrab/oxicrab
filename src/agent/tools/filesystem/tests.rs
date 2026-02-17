@@ -31,10 +31,12 @@ fn test_check_path_allowed_nonexistent_path() {
     let roots = Some(vec![std::env::temp_dir()]);
     let result = check_path_allowed(Path::new("/tmp/does_not_exist_12345"), roots.as_ref());
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("Cannot resolve path"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Cannot resolve path")
+    );
 }
 
 // --- ReadFileTool ---

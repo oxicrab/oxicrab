@@ -70,10 +70,10 @@ fn compute_next_run(schedule: &CronSchedule, now_ms: i64) -> Option<i64> {
                 } else {
                     DateTime::from_timestamp(now_sec, 0).map(|dt| dt.with_timezone(&Tz::UTC))
                 };
-                if let Some(now_dt) = now_dt {
-                    if let Some(next) = sched.after(&now_dt).next() {
-                        return Some(next.timestamp_millis());
-                    }
+                if let Some(now_dt) = now_dt
+                    && let Some(next) = sched.after(&now_dt).next()
+                {
+                    return Some(next.timestamp_millis());
                 }
             }
             None
@@ -126,10 +126,8 @@ impl CronService {
 
     pub async fn load_store(&self, force_reload: bool) -> Result<CronStore> {
         let mut store_guard = self.store.lock().await;
-        if !force_reload {
-            if let Some(ref store) = *store_guard {
-                return Ok(store.clone());
-            }
+        if !force_reload && let Some(ref store) = *store_guard {
+            return Ok(store.clone());
         }
 
         if self.store_path.exists() {
@@ -165,11 +163,11 @@ impl CronService {
         error: Option<String>,
     ) -> Result<()> {
         let mut store_guard = self.store.lock().await;
-        if let Some(store) = store_guard.as_mut() {
-            if let Some(job) = store.jobs.iter_mut().find(|j| j.id == job_id) {
-                job.state.last_status = Some(status);
-                job.state.last_error = error;
-            }
+        if let Some(store) = store_guard.as_mut()
+            && let Some(job) = store.jobs.iter_mut().find(|j| j.id == job_id)
+        {
+            job.state.last_status = Some(status);
+            job.state.last_error = error;
         }
         drop(store_guard);
         self.save_store().await
@@ -285,10 +283,8 @@ impl CronService {
                 first_tick = false;
 
                 // Persist updated state so fired jobs don't re-trigger
-                if store_dirty {
-                    if let Err(e) = service.save_store().await {
-                        warn!("Failed to persist cron store after tick: {}", e);
-                    }
+                if store_dirty && let Err(e) = service.save_store().await {
+                    warn!("Failed to persist cron store after tick: {}", e);
                 }
 
                 // Spawn job tasks outside the lock

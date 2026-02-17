@@ -49,25 +49,25 @@ impl SkillsLoader {
         }
 
         // Built-in skills
-        if let Some(ref builtin) = self.builtin_skills {
-            if builtin.exists() {
-                for entry in WalkDir::new(builtin).max_depth(1).into_iter().flatten() {
-                    if entry.file_type().is_dir() && entry.path() != builtin {
-                        let skill_file = entry.path().join("SKILL.md");
-                        if skill_file.exists() {
-                            let name = entry.file_name().to_string_lossy().to_string();
-                            if !skills.iter().any(|s| s.get("name") == Some(&name)) {
-                                skills.push({
-                                    let mut map = HashMap::new();
-                                    map.insert("name".to_string(), name);
-                                    map.insert(
-                                        "path".to_string(),
-                                        skill_file.to_string_lossy().to_string(),
-                                    );
-                                    map.insert("source".to_string(), "builtin".to_string());
-                                    map
-                                });
-                            }
+        if let Some(ref builtin) = self.builtin_skills
+            && builtin.exists()
+        {
+            for entry in WalkDir::new(builtin).max_depth(1).into_iter().flatten() {
+                if entry.file_type().is_dir() && entry.path() != builtin {
+                    let skill_file = entry.path().join("SKILL.md");
+                    if skill_file.exists() {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        if !skills.iter().any(|s| s.get("name") == Some(&name)) {
+                            skills.push({
+                                let mut map = HashMap::new();
+                                map.insert("name".to_string(), name);
+                                map.insert(
+                                    "path".to_string(),
+                                    skill_file.to_string_lossy().to_string(),
+                                );
+                                map.insert("source".to_string(), "builtin".to_string());
+                                map
+                            });
                         }
                     }
                 }
@@ -170,24 +170,24 @@ impl SkillsLoader {
 
     fn get_missing_requirements(meta: Option<&Value>) -> String {
         let mut missing = Vec::new();
-        if let Some(meta) = meta {
-            if let Some(requires) = meta.get("requires") {
-                if let Some(bins) = requires.get("bins").and_then(|v| v.as_array()) {
-                    for bin in bins {
-                        if let Some(bin_str) = bin.as_str() {
-                            if which::which(bin_str).is_err() {
-                                missing.push(format!("CLI: {}", bin_str));
-                            }
-                        }
+        if let Some(meta) = meta
+            && let Some(requires) = meta.get("requires")
+        {
+            if let Some(bins) = requires.get("bins").and_then(|v| v.as_array()) {
+                for bin in bins {
+                    if let Some(bin_str) = bin.as_str()
+                        && which::which(bin_str).is_err()
+                    {
+                        missing.push(format!("CLI: {}", bin_str));
                     }
                 }
-                if let Some(env) = requires.get("env").and_then(|v| v.as_array()) {
-                    for env_var in env {
-                        if let Some(env_str) = env_var.as_str() {
-                            if std::env::var(env_str).is_err() {
-                                missing.push(format!("ENV: {}", env_str));
-                            }
-                        }
+            }
+            if let Some(env) = requires.get("env").and_then(|v| v.as_array()) {
+                for env_var in env {
+                    if let Some(env_str) = env_var.as_str()
+                        && std::env::var(env_str).is_err()
+                    {
+                        missing.push(format!("ENV: {}", env_str));
                     }
                 }
             }
@@ -205,34 +205,34 @@ impl SkillsLoader {
     }
 
     fn strip_frontmatter(content: &str) -> String {
-        if let Some(rest) = content.strip_prefix("---") {
-            if let Some(end_idx) = rest.find("\n---\n") {
-                let after = end_idx + 5; // skip past "\n---\n"
-                return rest[after..].trim().to_string();
-            }
+        if let Some(rest) = content.strip_prefix("---")
+            && let Some(end_idx) = rest.find("\n---\n")
+        {
+            let after = end_idx + 5; // skip past "\n---\n"
+            return rest[after..].trim().to_string();
         }
         content.to_string()
     }
 
     fn check_requirements(meta: Option<&Value>) -> bool {
-        if let Some(meta) = meta {
-            if let Some(requires) = meta.get("requires") {
-                if let Some(bins) = requires.get("bins").and_then(|v| v.as_array()) {
-                    for bin in bins {
-                        if let Some(bin_str) = bin.as_str() {
-                            if which::which(bin_str).is_err() {
-                                return false;
-                            }
-                        }
+        if let Some(meta) = meta
+            && let Some(requires) = meta.get("requires")
+        {
+            if let Some(bins) = requires.get("bins").and_then(|v| v.as_array()) {
+                for bin in bins {
+                    if let Some(bin_str) = bin.as_str()
+                        && which::which(bin_str).is_err()
+                    {
+                        return false;
                     }
                 }
-                if let Some(env) = requires.get("env").and_then(|v| v.as_array()) {
-                    for env_var in env {
-                        if let Some(env_str) = env_var.as_str() {
-                            if std::env::var(env_str).is_err() {
-                                return false;
-                            }
-                        }
+            }
+            if let Some(env) = requires.get("env").and_then(|v| v.as_array()) {
+                for env_var in env {
+                    if let Some(env_str) = env_var.as_str()
+                        && std::env::var(env_str).is_err()
+                    {
+                        return false;
                     }
                 }
             }

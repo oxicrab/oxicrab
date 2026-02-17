@@ -1,5 +1,5 @@
 use crate::bus::{InboundMessage, OutboundMessage};
-use crate::channels::base::{split_message, BaseChannel};
+use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{check_allowed_sender, exponential_backoff_delay};
 use crate::config::{DiscordCommand, DiscordConfig};
 use anyhow::Result;
@@ -740,46 +740,45 @@ impl DiscordChannel {
                         payload["embeds"] = serde_json::json!(embed_json);
                     }
                 }
-                if !components.is_empty() {
-                    if let Some(raw_components) = msg.metadata.get("discord_components") {
-                        // Convert to Discord API component format
-                        let rows: Vec<serde_json::Value> = raw_components
-                            .as_array()
-                            .unwrap_or(&Vec::new())
-                            .iter()
-                            .map(|row| {
-                                let buttons = row["buttons"]
-                                    .as_array()
-                                    .unwrap_or(&Vec::new())
-                                    .iter()
-                                    .filter_map(|b| {
-                                        let custom_id = b["custom_id"].as_str()?;
-                                        let label = b["label"].as_str().unwrap_or(custom_id);
-                                        let style = match b["style"].as_str().unwrap_or("secondary")
-                                        {
-                                            "primary" => 1,
-                                            "success" => 3,
-                                            "danger" => 4,
-                                            _ => 2,
-                                        };
-                                        let disabled = b["disabled"].as_bool().unwrap_or(false);
-                                        Some(serde_json::json!({
-                                            "type": 2,
-                                            "custom_id": custom_id,
-                                            "label": label,
-                                            "style": style,
-                                            "disabled": disabled
-                                        }))
-                                    })
-                                    .collect::<Vec<_>>();
-                                serde_json::json!({
-                                    "type": 1,
-                                    "components": buttons
+                if !components.is_empty()
+                    && let Some(raw_components) = msg.metadata.get("discord_components")
+                {
+                    // Convert to Discord API component format
+                    let rows: Vec<serde_json::Value> = raw_components
+                        .as_array()
+                        .unwrap_or(&Vec::new())
+                        .iter()
+                        .map(|row| {
+                            let buttons = row["buttons"]
+                                .as_array()
+                                .unwrap_or(&Vec::new())
+                                .iter()
+                                .filter_map(|b| {
+                                    let custom_id = b["custom_id"].as_str()?;
+                                    let label = b["label"].as_str().unwrap_or(custom_id);
+                                    let style = match b["style"].as_str().unwrap_or("secondary") {
+                                        "primary" => 1,
+                                        "success" => 3,
+                                        "danger" => 4,
+                                        _ => 2,
+                                    };
+                                    let disabled = b["disabled"].as_bool().unwrap_or(false);
+                                    Some(serde_json::json!({
+                                        "type": 2,
+                                        "custom_id": custom_id,
+                                        "label": label,
+                                        "style": style,
+                                        "disabled": disabled
+                                    }))
                                 })
+                                .collect::<Vec<_>>();
+                            serde_json::json!({
+                                "type": 1,
+                                "components": buttons
                             })
-                            .collect();
-                        payload["components"] = serde_json::json!(rows);
-                    }
+                        })
+                        .collect();
+                    payload["components"] = serde_json::json!(rows);
                 }
             }
 

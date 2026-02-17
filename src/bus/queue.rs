@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use tracing::warn;
+use tracing::{debug, warn};
 
 const DEFAULT_RATE_LIMIT: usize = 30;
 const DEFAULT_RATE_WINDOW_S: f64 = 60.0;
@@ -82,18 +82,30 @@ impl MessageBus {
         }
 
         timestamps.push(now);
+        let channel = msg.channel.clone();
+        let sender_id = msg.sender_id.clone();
         self.inbound_tx
             .send(msg)
             .await
             .context("Failed to send inbound message - receiver closed")?;
+        debug!(
+            "inbound message queued: channel={}, sender={}",
+            channel, sender_id
+        );
         Ok(())
     }
 
     pub async fn publish_outbound(&self, msg: OutboundMessage) -> Result<()> {
+        let channel = msg.channel.clone();
+        let chat_id = msg.chat_id.clone();
         self.outbound_tx
             .send(msg)
             .await
             .context("Failed to send outbound message - receiver closed")?;
+        debug!(
+            "outbound message queued: channel={}, chat_id={}",
+            channel, chat_id
+        );
         Ok(())
     }
 }

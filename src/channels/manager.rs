@@ -40,7 +40,9 @@ impl ChannelManager {
         }
         #[cfg(not(feature = "channel-telegram"))]
         if config.channels.telegram.enabled {
-            warn!("Telegram is enabled in config but not compiled (missing 'channel-telegram' feature)");
+            warn!(
+                "Telegram is enabled in config but not compiled (missing 'channel-telegram' feature)"
+            );
         }
 
         #[cfg(feature = "channel-discord")]
@@ -87,7 +89,9 @@ impl ChannelManager {
         }
         #[cfg(not(feature = "channel-whatsapp"))]
         if config.channels.whatsapp.enabled {
-            warn!("WhatsApp is enabled in config but not compiled (missing 'channel-whatsapp' feature)");
+            warn!(
+                "WhatsApp is enabled in config but not compiled (missing 'channel-whatsapp' feature)"
+            );
         }
 
         #[cfg(feature = "channel-twilio")]

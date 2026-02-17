@@ -48,14 +48,12 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
 fn migrate_config(data: Value) -> Value {
     // Move tools.exec.restrictToWorkspace → tools.restrictToWorkspace
     if let Value::Object(mut map) = data {
-        if let Some(Value::Object(ref mut tools_map)) = map.get_mut("tools") {
-            if let Some(Value::Object(ref mut exec_map)) = tools_map.get_mut("exec") {
-                if let Some(restrict) = exec_map.remove("restrictToWorkspace") {
-                    if !tools_map.contains_key("restrictToWorkspace") {
-                        tools_map.insert("restrictToWorkspace".to_string(), restrict);
-                    }
-                }
-            }
+        if let Some(Value::Object(tools_map)) = map.get_mut("tools")
+            && let Some(Value::Object(exec_map)) = tools_map.get_mut("exec")
+            && let Some(restrict) = exec_map.remove("restrictToWorkspace")
+            && !tools_map.contains_key("restrictToWorkspace")
+        {
+            tools_map.insert("restrictToWorkspace".to_string(), restrict);
         }
         Value::Object(map)
     } else {

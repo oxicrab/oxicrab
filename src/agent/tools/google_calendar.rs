@@ -121,7 +121,10 @@ impl Tool for GoogleCalendarTool {
 
                 let endpoint = format!(
                     "calendars/{}/events?timeMin={}&timeMax={}&maxResults={}&singleEvents=true&orderBy=startTime",
-                    urlencoding::encode(cal_id), urlencoding::encode(&time_min), urlencoding::encode(&time_max), max_results
+                    urlencoding::encode(cal_id),
+                    urlencoding::encode(&time_min),
+                    urlencoding::encode(&time_max),
+                    max_results
                 );
                 let result = self.api.call(&endpoint, "GET", None).await?;
                 let empty_vec: Vec<serde_json::Value> = vec![];

@@ -1,12 +1,13 @@
 use crate::agent::tools::base::{ExecutionContext, Tool, ToolResult};
 use async_trait::async_trait;
+use rmcp::RoleClient;
 use rmcp::model::{CallToolRequestParams, RawContent};
 use rmcp::service::Peer;
-use rmcp::RoleClient;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::fmt::Write;
 use std::sync::Arc;
+use tracing::{debug, warn};
 
 /// Wraps a single MCP server tool as an `impl Tool` for the oxicrab agent.
 pub struct McpProxyTool {
@@ -52,6 +53,7 @@ impl Tool for McpProxyTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
+        debug!("MCP tool call: {}", self.tool_name);
         // Convert params Value to a Map for the MCP call
         let arguments = match params {
             Value::Object(map) => Some(map),
@@ -71,11 +73,10 @@ impl Tool for McpProxyTool {
             task: None,
         };
 
-        let result = self
-            .peer
-            .call_tool(request)
-            .await
-            .map_err(|e| anyhow::anyhow!("MCP tool '{}' call failed: {}", self.tool_name, e))?;
+        let result = self.peer.call_tool(request).await.map_err(|e| {
+            warn!("MCP tool '{}' failed: {}", self.tool_name, e);
+            anyhow::anyhow!("MCP tool '{}' call failed: {}", self.tool_name, e)
+        })?;
 
         let is_error = result.is_error.unwrap_or(false);
 
@@ -124,6 +125,13 @@ impl Tool for McpProxyTool {
         if output.is_empty() {
             output = "(no output)".to_string();
         }
+
+        debug!(
+            "MCP tool result: {} (error={}, len={})",
+            self.tool_name,
+            is_error,
+            output.len()
+        );
 
         if is_error {
             Ok(ToolResult::error(output))

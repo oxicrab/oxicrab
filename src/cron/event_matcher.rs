@@ -43,10 +43,10 @@ impl EventMatcher {
         let mut matched = Vec::new();
         for (_, regex, channel_filter, job) in &self.matchers {
             // Channel filter: skip if job is restricted to a different channel
-            if let Some(required_channel) = channel_filter {
-                if required_channel != channel {
-                    continue;
-                }
+            if let Some(required_channel) = channel_filter
+                && required_channel != channel
+            {
+                continue;
             }
 
             // Regex match
@@ -55,12 +55,12 @@ impl EventMatcher {
             }
 
             // Cooldown check
-            if let Some(cooldown) = job.cooldown_secs {
-                if let Some(last_fired) = job.state.last_fired_at_ms {
-                    let elapsed_secs = (now_ms - last_fired) / 1000;
-                    if elapsed_secs < cooldown as i64 {
-                        continue;
-                    }
+            if let Some(cooldown) = job.cooldown_secs
+                && let Some(last_fired) = job.state.last_fired_at_ms
+            {
+                let elapsed_secs = (now_ms - last_fired) / 1000;
+                if elapsed_secs < cooldown as i64 {
+                    continue;
                 }
             }
 
@@ -134,9 +134,11 @@ mod tests {
         // Should match on slack
         assert_eq!(matcher.check_message("deploy now", "slack", 1000).len(), 1);
         // Should not match on discord
-        assert!(matcher
-            .check_message("deploy now", "discord", 1000)
-            .is_empty());
+        assert!(
+            matcher
+                .check_message("deploy now", "discord", 1000)
+                .is_empty()
+        );
     }
 
     #[test]
@@ -147,9 +149,11 @@ mod tests {
 
         let matcher = EventMatcher::from_jobs(&[job]);
         // Within cooldown (50s < 60s)
-        assert!(matcher
-            .check_message("deploy now", "slack", 1_000_000)
-            .is_empty());
+        assert!(
+            matcher
+                .check_message("deploy now", "slack", 1_000_000)
+                .is_empty()
+        );
         // After cooldown (70s > 60s)
         assert_eq!(
             matcher

@@ -1,8 +1,8 @@
 use crate::agent::tools::{
+    ToolRegistry,
     filesystem::{ListDirTool, ReadFileTool, WriteFileTool},
     shell::ExecTool,
     web::{WebFetchTool, WebSearchTool},
-    ToolRegistry,
 };
 use crate::agent::truncation::truncate_tool_result;
 use crate::bus::{InboundMessage, MessageBus};

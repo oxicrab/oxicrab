@@ -1,7 +1,7 @@
 [package]
 name = "oxicrab"
-version = "0.9.6"
-edition = "2021"
+version = "0.10.1"
+edition = "2024"
 authors = ["James Turnbull <james@ltl.so>"]
 description = "A high-performance Rust multi-channel AI assistant framework"
 license = "MIT"

@@ -1,7 +1,7 @@
 use crate::config::CostGuardConfig;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use tracing::{info, warn};
 
@@ -164,14 +164,14 @@ impl CostGuard {
             }
             daily.total_cents += cost_cents;
 
-            if let Some(budget) = self.config.daily_budget_cents {
-                if daily.total_cents >= budget as f64 {
-                    self.budget_exceeded.store(true, Ordering::Relaxed);
-                    warn!(
-                        "daily budget exceeded: {:.1} cents spent (limit: {} cents)",
-                        daily.total_cents, budget
-                    );
-                }
+            if let Some(budget) = self.config.daily_budget_cents
+                && daily.total_cents >= budget as f64
+            {
+                self.budget_exceeded.store(true, Ordering::Relaxed);
+                warn!(
+                    "daily budget exceeded: {:.1} cents spent (limit: {} cents)",
+                    daily.total_cents, budget
+                );
             }
         }
 

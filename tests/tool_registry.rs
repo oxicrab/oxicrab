@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use oxicrab::agent::tools::base::ExecutionContext;
 use oxicrab::agent::tools::{Tool, ToolRegistry, ToolResult};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 /// A simple test tool that echoes back its parameters.

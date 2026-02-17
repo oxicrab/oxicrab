@@ -143,10 +143,12 @@ async fn test_fetch_html_page() {
     let json = parse_fetch_result(&result);
     assert_eq!(json["status"], 200);
     assert_eq!(json["extractor"], "readability");
-    assert!(json["text"]
-        .as_str()
-        .unwrap()
-        .contains("Hello from the article"));
+    assert!(
+        json["text"]
+            .as_str()
+            .unwrap()
+            .contains("Hello from the article")
+    );
 }
 
 #[tokio::test]

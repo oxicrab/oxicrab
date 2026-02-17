@@ -105,12 +105,15 @@ impl HttpTool {
                 if let Some(ext) = extension_from_content_type(&content_type) {
                     let bytes = resp.bytes().await.unwrap_or_default();
                     return match save_media_file(&bytes, "http", ext) {
-                        Ok(path) => {
-                            Ok(ToolResult::new(format!(
+                        Ok(path) => Ok(ToolResult::new(format!(
                             "HTTP {} {}{}\n\nBinary content saved to: {}\nSize: {} bytes\nType: {}",
-                            status, method, header_str, path, bytes.len(), content_type
-                        )))
-                        }
+                            status,
+                            method,
+                            header_str,
+                            path,
+                            bytes.len(),
+                            content_type
+                        ))),
                         Err(e) => Ok(ToolResult::error(format!(
                             "HTTP {} {} — failed to save binary response: {}",
                             status, method, e

@@ -1,8 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
-use crate::channels::base::{split_message, BaseChannel};
+use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{check_allowed_sender, exponential_backoff_delay};
 use crate::config::SlackConfig;
-use crate::utils::regex::{compile_slack_mention, RegexPatterns};
+use crate::utils::regex::{RegexPatterns, compile_slack_mention};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -306,7 +306,9 @@ impl BaseChannel for SlackChannel {
                         .unwrap_or("unknown");
                     error!("Slack apps.connections.open error: {}", error);
                     if error == "invalid_auth" {
-                        warn!("Invalid app_token - check that it starts with 'xapp-' and has 'connections:write' scope");
+                        warn!(
+                            "Invalid app_token - check that it starts with 'xapp-' and has 'connections:write' scope"
+                        );
                     }
                     let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                     reconnect_attempt += 1;
@@ -373,52 +375,59 @@ impl BaseChannel for SlackChannel {
 
                                         // Acknowledge events_api messages via WebSocket
                                         // Slack Socket Mode requires acknowledgments to be sent back through the WebSocket
-                                        if event_type == "events_api" {
-                                            if let Some(envelope_id) = event.get("envelope_id") {
-                                                let envelope_id_str =
-                                                    envelope_id.as_str().unwrap_or("");
-                                                let ack_msg = serde_json::json!({
-                                                    "envelope_id": envelope_id_str,
-                                                    "payload": {}
-                                                });
-                                                debug!("Sending Socket Mode acknowledgment for envelope_id: {}", envelope_id_str);
-                                                if let Err(e) = write
-                                                    .send(Message::text(ack_msg.to_string()))
-                                                    .await
-                                                {
-                                                    error!("Failed to send Socket Mode acknowledgment: {}", e);
-                                                }
+                                        if event_type == "events_api"
+                                            && let Some(envelope_id) = event.get("envelope_id")
+                                        {
+                                            let envelope_id_str =
+                                                envelope_id.as_str().unwrap_or("");
+                                            let ack_msg = serde_json::json!({
+                                                "envelope_id": envelope_id_str,
+                                                "payload": {}
+                                            });
+                                            debug!(
+                                                "Sending Socket Mode acknowledgment for envelope_id: {}",
+                                                envelope_id_str
+                                            );
+                                            if let Err(e) =
+                                                write.send(Message::text(ack_msg.to_string())).await
+                                            {
+                                                error!(
+                                                    "Failed to send Socket Mode acknowledgment: {}",
+                                                    e
+                                                );
                                             }
                                         }
 
                                         // Process the event
-                                        if event_type == "events_api" {
-                                            if let Some(payload) = event.get("payload") {
-                                                if let Some(event_data) = payload.get("event") {
-                                                    let inner_event_type = event_data
-                                                        .get("type")
-                                                        .and_then(Value::as_str)
-                                                        .unwrap_or("");
+                                        if event_type == "events_api"
+                                            && let Some(payload) = event.get("payload")
+                                            && let Some(event_data) = payload.get("event")
+                                        {
+                                            let inner_event_type = event_data
+                                                .get("type")
+                                                .and_then(Value::as_str)
+                                                .unwrap_or("");
 
-                                                    match inner_event_type {
-                                                        "message" | "app_mention" => {
-                                                            if let Err(e) = handle_slack_event(
-                                                                event_data,
-                                                                &bot_user_id,
-                                                                &seen_messages,
-                                                                &inbound_tx,
-                                                                &config_allow,
-                                                                &bot_token,
-                                                                &ws_client,
-                                                            )
-                                                            .await
-                                                            {
-                                                                error!("Error handling Slack message event: {}", e);
-                                                            }
-                                                        }
-                                                        _ => {}
+                                            match inner_event_type {
+                                                "message" | "app_mention" => {
+                                                    if let Err(e) = handle_slack_event(
+                                                        event_data,
+                                                        &bot_user_id,
+                                                        &seen_messages,
+                                                        &inbound_tx,
+                                                        &config_allow,
+                                                        &bot_token,
+                                                        &ws_client,
+                                                    )
+                                                    .await
+                                                    {
+                                                        error!(
+                                                            "Error handling Slack message event: {}",
+                                                            e
+                                                        );
                                                     }
                                                 }
+                                                _ => {}
                                             }
                                         }
                                     }
@@ -446,8 +455,12 @@ impl BaseChannel for SlackChannel {
                         error!("Slack Socket Mode connection error: {}", error_str);
                         if error_str.contains("400") {
                             warn!("400 Bad Request - The token format might be incorrect.");
-                            warn!("Make sure your app_token starts with 'xapp-' and is a Socket Mode token.");
-                            warn!("You can generate a new token at: https://api.slack.com/apps/<your-app-id>/socket-mode");
+                            warn!(
+                                "Make sure your app_token starts with 'xapp-' and is a Socket Mode token."
+                            );
+                            warn!(
+                                "You can generate a new token at: https://api.slack.com/apps/<your-app-id>/socket-mode"
+                            );
                         } else if error_str.contains("403") {
                             warn!("403 Forbidden - Check that:");
                             warn!("  1. Socket Mode is enabled in your Slack app settings");
@@ -675,10 +688,10 @@ async fn handle_slack_event(
     client: &reqwest::Client,
 ) -> Result<()> {
     // Ignore bot messages and message_changed subtypes, but allow file_share
-    if let Some(subtype) = event.get("subtype").and_then(Value::as_str) {
-        if subtype != "file_share" {
-            return Ok(());
-        }
+    if let Some(subtype) = event.get("subtype").and_then(Value::as_str)
+        && subtype != "file_share"
+    {
+        return Ok(());
     }
 
     let user_id = event.get("user").and_then(Value::as_str).unwrap_or("");
@@ -694,11 +707,11 @@ async fn handle_slack_event(
     }
 
     // Ignore messages from the bot itself
-    if let Some(ref bot_id) = *bot_user_id.lock().await {
-        if user_id == bot_id {
-            debug!("Ignoring message from bot itself (user_id: {})", user_id);
-            return Ok(());
-        }
+    if let Some(ref bot_id) = *bot_user_id.lock().await
+        && user_id == bot_id
+    {
+        debug!("Ignoring message from bot itself (user_id: {})", user_id);
+        return Ok(());
     }
 
     // Deduplicate messages
@@ -755,16 +768,14 @@ async fn handle_slack_event(
     let mut form = HashMap::new();
     form.insert("token", Value::String(bot_token.to_string()));
     form.insert("user", Value::String(user_id.to_string()));
-    if let Ok(response) = client.post(url).form(&form).send().await {
-        if let Ok(user_info) = response.json::<Value>().await {
-            if let Some(name) = user_info
-                .get("user")
-                .and_then(|u| u.get("name"))
-                .and_then(|n| n.as_str())
-            {
-                sender_id = format!("{}|{}", user_id, name);
-            }
-        }
+    if let Ok(response) = client.post(url).form(&form).send().await
+        && let Ok(user_info) = response.json::<Value>().await
+        && let Some(name) = user_info
+            .get("user")
+            .and_then(|u| u.get("name"))
+            .and_then(|n| n.as_str())
+    {
+        sender_id = format!("{}|{}", user_id, name);
     }
 
     // Handle file attachments

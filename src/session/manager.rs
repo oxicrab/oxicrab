@@ -11,7 +11,7 @@ use std::fs;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 const MAX_CACHED_SESSIONS: usize = 64;
 const MAX_SESSION_MESSAGES: usize = 200;
@@ -132,12 +132,19 @@ impl SessionManager {
         };
 
         if let Some(session) = cached_session {
+            debug!("session cache hit: {}", key);
             return Ok(session);
         }
 
         // Try to load from disk
-        let session = self.load(key)?;
-        let session = session.unwrap_or_else(|| Session::new(key.to_string()));
+        let loaded = self.load(key)?;
+        let session = if let Some(s) = loaded {
+            debug!("session loaded from disk: {}", key);
+            s
+        } else {
+            debug!("session created: {}", key);
+            Session::new(key.to_string())
+        };
 
         // Put in cache - double-check pattern to avoid duplicates
         {
@@ -306,6 +313,11 @@ impl SessionManager {
 
         atomic_write(&path, &content)
             .with_context(|| format!("Failed to write session file: {}", path.display()))?;
+        debug!(
+            "session saved: {} ({} messages)",
+            session.key,
+            session.messages.len()
+        );
 
         // Update cache
         {

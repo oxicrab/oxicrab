@@ -1,7 +1,7 @@
 use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::utils::media::{extension_from_content_type, save_media_file};
-use crate::utils::regex::{compile_regex, RegexPatterns};
+use crate::utils::regex::{RegexPatterns, compile_regex};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;

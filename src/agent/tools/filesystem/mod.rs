@@ -12,10 +12,10 @@ fn check_path_allowed(file_path: &Path, allowed_roots: Option<&Vec<PathBuf>>) ->
             .canonicalize()
             .map_err(|_| anyhow::anyhow!("Error: Cannot resolve path '{}'", file_path.display()))?;
         for root in roots {
-            if let Ok(root_resolved) = root.canonicalize() {
-                if resolved == root_resolved || resolved.starts_with(&root_resolved) {
-                    return Ok(());
-                }
+            if let Ok(root_resolved) = root.canonicalize()
+                && (resolved == root_resolved || resolved.starts_with(&root_resolved))
+            {
+                return Ok(());
             }
         }
         let roots_str = roots

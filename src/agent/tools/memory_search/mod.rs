@@ -49,7 +49,7 @@ impl Tool for MemorySearchTool {
             _ => {
                 return Ok(ToolResult::error(
                     "Missing or empty 'query' parameter".to_string(),
-                ))
+                ));
             }
         };
 

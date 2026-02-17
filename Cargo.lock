@@ -3137,7 +3137,7 @@ dependencies = [
 
 [[package]]
 name = "oxicrab"
-version = "0.9.6"
+version = "0.10.1"
 dependencies = [
  "anyhow",
  "async-trait",

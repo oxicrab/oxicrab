@@ -3,9 +3,9 @@ use crate::agent::tools::{Tool, ToolResult};
 use crate::utils::media::save_media_file;
 use anyhow::Result;
 use async_trait::async_trait;
+use chromiumoxide::Page;
 use chromiumoxide::browser::{Browser, BrowserConfig as ChromeBrowserConfig};
 use chromiumoxide::page::ScreenshotParams;
-use chromiumoxide::Page;
 use futures::StreamExt;
 use serde_json::Value;
 use std::path::PathBuf;
@@ -680,34 +680,54 @@ impl Tool for BrowserTool {
             "open" => {
                 let url = match params["url"].as_str() {
                     Some(u) if !u.trim().is_empty() => u,
-                    _ => return Ok(ToolResult::error("'open' action requires 'url' parameter".to_string())),
+                    _ => {
+                        return Ok(ToolResult::error(
+                            "'open' action requires 'url' parameter".to_string(),
+                        ));
+                    }
                 };
                 self.action_open(url).await
             }
             "click" => {
                 let selector = match params["selector"].as_str() {
                     Some(s) if !s.trim().is_empty() => s,
-                    _ => return Ok(ToolResult::error("'click' action requires 'selector' parameter".to_string())),
+                    _ => {
+                        return Ok(ToolResult::error(
+                            "'click' action requires 'selector' parameter".to_string(),
+                        ));
+                    }
                 };
                 self.action_click(selector).await
             }
             "type" => {
                 let selector = match params["selector"].as_str() {
                     Some(s) if !s.trim().is_empty() => s,
-                    _ => return Ok(ToolResult::error("'type' action requires 'selector' parameter".to_string())),
+                    _ => {
+                        return Ok(ToolResult::error(
+                            "'type' action requires 'selector' parameter".to_string(),
+                        ));
+                    }
                 };
                 let Some(text) = params["text"].as_str() else {
-                    return Ok(ToolResult::error("'type' action requires 'text' parameter".to_string()));
+                    return Ok(ToolResult::error(
+                        "'type' action requires 'text' parameter".to_string(),
+                    ));
                 };
                 self.action_type(selector, text).await
             }
             "fill" => {
                 let selector = match params["selector"].as_str() {
                     Some(s) if !s.trim().is_empty() => s,
-                    _ => return Ok(ToolResult::error("'fill' action requires 'selector' parameter".to_string())),
+                    _ => {
+                        return Ok(ToolResult::error(
+                            "'fill' action requires 'selector' parameter".to_string(),
+                        ));
+                    }
                 };
                 let Some(text) = params["text"].as_str() else {
-                    return Ok(ToolResult::error("'fill' action requires 'text' parameter".to_string()));
+                    return Ok(ToolResult::error(
+                        "'fill' action requires 'text' parameter".to_string(),
+                    ));
                 };
                 self.action_fill(selector, text).await
             }
@@ -716,21 +736,31 @@ impl Tool for BrowserTool {
             "eval" => {
                 let js = match params["javascript"].as_str() {
                     Some(j) if !j.trim().is_empty() => j,
-                    _ => return Ok(ToolResult::error("'eval' action requires 'javascript' parameter".to_string())),
+                    _ => {
+                        return Ok(ToolResult::error(
+                            "'eval' action requires 'javascript' parameter".to_string(),
+                        ));
+                    }
                 };
                 self.action_eval(js).await
             }
             "get" => {
                 let what = match params["what"].as_str() {
                     Some(w) if !w.trim().is_empty() => w,
-                    _ => return Ok(ToolResult::error("'get' action requires 'what' parameter".to_string())),
+                    _ => {
+                        return Ok(ToolResult::error(
+                            "'get' action requires 'what' parameter".to_string(),
+                        ));
+                    }
                 };
                 let selector = params["selector"].as_str();
                 self.action_get(what, selector).await
             }
             "scroll" => {
                 let Some(direction) = params["direction"].as_str() else {
-                    return Ok(ToolResult::error("'scroll' action requires 'direction' parameter".to_string()));
+                    return Ok(ToolResult::error(
+                        "'scroll' action requires 'direction' parameter".to_string(),
+                    ));
                 };
                 let pixels = params["pixels"].as_u64();
                 self.action_scroll(direction, pixels).await
@@ -743,7 +773,10 @@ impl Tool for BrowserTool {
             "close" => self.action_close().await,
             "navigate" => {
                 let Some(nav) = params["navigation"].as_str() else {
-                    return Ok(ToolResult::error("'navigate' action requires 'navigation' parameter (back/forward/reload)".to_string()));
+                    return Ok(ToolResult::error(
+                        "'navigate' action requires 'navigation' parameter (back/forward/reload)"
+                            .to_string(),
+                    ));
                 };
                 self.action_navigate(nav).await
             }

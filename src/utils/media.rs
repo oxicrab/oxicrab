@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
 
 const MAX_MEDIA_SIZE: usize = 20 * 1024 * 1024; // 20MB
@@ -251,9 +251,11 @@ mod tests {
         assert!(result.is_ok());
         let path = result.unwrap();
         assert!(path.contains("test_"));
-        assert!(std::path::Path::new(&path)
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("png")));
+        assert!(
+            std::path::Path::new(&path)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
+        );
         // Cleanup
         let _ = std::fs::remove_file(&path);
     }
@@ -263,9 +265,11 @@ mod tests {
         let result = save_media_file(b"arbitrary binary data", "test", "bin");
         assert!(result.is_ok());
         let path = result.unwrap();
-        assert!(std::path::Path::new(&path)
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("bin")));
+        assert!(
+            std::path::Path::new(&path)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("bin"))
+        );
         let _ = std::fs::remove_file(&path);
     }
 }

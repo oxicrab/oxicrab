@@ -309,10 +309,12 @@ mod tests {
         // Should reject immediately without reaching inner provider
         let result = provider.chat(make_request()).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Circuit breaker is open"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Circuit breaker is open")
+        );
     }
 
     #[tokio::test]

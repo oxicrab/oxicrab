@@ -229,7 +229,7 @@ impl Tool for RedditTool {
             None => {
                 return Ok(ToolResult::error(
                     "Missing 'subreddit' parameter".to_string(),
-                ))
+                ));
             }
         };
 

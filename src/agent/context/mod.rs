@@ -154,7 +154,14 @@ impl ContextBuilder {
     ) -> String {
         format!(
             "{}\n\n## Current Context\n\n**Date**: {}\n**Timezone**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md",
-            identity_content, now, tz, runtime, workspace_path, workspace_path, workspace_path, workspace_path,
+            identity_content,
+            now,
+            tz,
+            runtime,
+            workspace_path,
+            workspace_path,
+            workspace_path,
+            workspace_path,
         )
     }
 
@@ -173,22 +180,20 @@ impl ContextBuilder {
                 continue; // Handled separately
             }
             let file_path = self.workspace.join(filename);
-            if file_path.exists() {
-                if let Ok(metadata) = std::fs::metadata(&file_path) {
-                    if let Ok(mtime) = metadata.modified() {
-                        if let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH) {
-                            current_mtimes.insert(filename.to_string(), duration.as_secs());
-                        }
-                    }
-                }
+            if file_path.exists()
+                && let Ok(metadata) = std::fs::metadata(&file_path)
+                && let Ok(mtime) = metadata.modified()
+                && let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH)
+            {
+                current_mtimes.insert(filename.to_string(), duration.as_secs());
             }
         }
 
         // Return cached if unchanged
-        if let Some(ref cache) = self.bootstrap_cache {
-            if current_mtimes == self.bootstrap_mtimes {
-                return cache.clone();
-            }
+        if let Some(ref cache) = self.bootstrap_cache
+            && current_mtimes == self.bootstrap_mtimes
+        {
+            return cache.clone();
         }
 
         // Rebuild from disk
@@ -198,10 +203,10 @@ impl ContextBuilder {
                 continue;
             }
             let file_path = self.workspace.join(filename);
-            if file_path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&file_path) {
-                    parts.push(format!("## {}\n\n{}", filename, content));
-                }
+            if file_path.exists()
+                && let Ok(content) = std::fs::read_to_string(&file_path)
+            {
+                parts.push(format!("## {}\n\n{}", filename, content));
             }
         }
 
@@ -240,14 +245,13 @@ impl ContextBuilder {
             if let (Some(role), Some(content)) = (
                 msg.get("role").and_then(|v| v.as_str()),
                 msg.get("content").and_then(|v| v.as_str()),
-            ) {
-                if !content.is_empty() {
-                    messages.push(crate::providers::base::Message {
-                        role: role.to_string(),
-                        content: content.to_string(),
-                        ..Default::default()
-                    });
-                }
+            ) && !content.is_empty()
+            {
+                messages.push(crate::providers::base::Message {
+                    role: role.to_string(),
+                    content: content.to_string(),
+                    ..Default::default()
+                });
             }
         }
 

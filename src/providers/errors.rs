@@ -14,41 +14,41 @@ impl ProviderErrorHandler {
     /// Parse API error response and return a typed error
     pub fn parse_api_error(status: u16, error_text: &str) -> Result<(), OxicrabError> {
         // Try to parse error JSON if possible to provide better error messages
-        if let Ok(error_json) = serde_json::from_str::<Value>(error_text) {
-            if let Some(err) = error_json.get("error") {
-                let error_type = err
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
-                let error_msg = err
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown error");
+        if let Ok(error_json) = serde_json::from_str::<Value>(error_text)
+            && let Some(err) = error_json.get("error")
+        {
+            let error_type = err
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let error_msg = err
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error");
 
-                // Provide helpful message for model not found errors
-                if error_type == "not_found_error" && error_msg.contains("model:") {
-                    let model_name = error_msg.replace("model: ", "").trim().to_string();
-                    return Err(OxicrabError::Provider {
-                        message: format!(
-                            "Model '{}' not found. This model may be deprecated or incorrect.\n\
+            // Provide helpful message for model not found errors
+            if error_type == "not_found_error" && error_msg.contains("model:") {
+                let model_name = error_msg.replace("model: ", "").trim().to_string();
+                return Err(OxicrabError::Provider {
+                    message: format!(
+                        "Model '{}' not found. This model may be deprecated or incorrect.\n\
                             Please update your config file (~/.oxicrab/config.json) to use a valid model:\n\
                             - claude-sonnet-4-5-20250929 (recommended)\n\
                             - claude-haiku-4-5-20251001 (fastest)\n\
                             - claude-opus-4-5-20251101 (most capable)\n\
                             \n\
                             Or remove the 'model' field from your config to use the default.",
-                            model_name
-                        ),
-                        retryable: false,
-                    });
-                }
-
-                let retryable = status == 500 || status == 502 || status == 503;
-                return Err(OxicrabError::Provider {
-                    message: format!("API error ({}): {}", error_type, error_msg),
-                    retryable,
+                        model_name
+                    ),
+                    retryable: false,
                 });
             }
+
+            let retryable = status == 500 || status == 502 || status == 503;
+            return Err(OxicrabError::Provider {
+                message: format!("API error ({}): {}", error_type, error_msg),
+                retryable,
+            });
         }
 
         let retryable = status == 500 || status == 502 || status == 503;

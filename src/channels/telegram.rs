@@ -1,5 +1,5 @@
 use crate::bus::{InboundMessage, OutboundMessage};
-use crate::channels::base::{split_message, BaseChannel};
+use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{check_allowed_sender, exponential_backoff_delay};
 use crate::config::TelegramConfig;
 use crate::utils::regex::RegexPatterns;
@@ -81,8 +81,8 @@ impl BaseChannel for TelegramChannel {
                             }
 
                             // Handle photos
-                            if let Some(photos) = msg.photo() {
-                                if let Some(photo) = photos.last() {
+                            if let Some(photos) = msg.photo()
+                                && let Some(photo) = photos.last() {
                                     let text = msg.caption().unwrap_or("").to_string();
                                     let mut media_paths = Vec::new();
                                     let mut content = text.clone();
@@ -144,7 +144,6 @@ impl BaseChannel for TelegramChannel {
                                     }
                                     return Ok(());
                                 }
-                            }
 
                             // Handle voice messages
                             if let Some(voice) = msg.voice() {

@@ -1,11 +1,11 @@
-use crate::agent::compaction::{estimate_messages_tokens, MessageCompactor};
+use crate::agent::compaction::{MessageCompactor, estimate_messages_tokens};
 use crate::agent::context::ContextBuilder;
 use crate::agent::cost_guard::CostGuard;
 use crate::agent::memory::MemoryStore;
 use crate::agent::subagent::{SubagentConfig, SubagentManager};
+use crate::agent::tools::ToolRegistry;
 use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::setup::ToolBuildContext;
-use crate::agent::tools::ToolRegistry;
 use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
 use crate::cron::event_matcher::EventMatcher;
 use crate::cron::service::CronService;
@@ -34,12 +34,11 @@ fn extract_media_paths(result: &str) -> Vec<String> {
     let mut paths = Vec::new();
 
     // Try JSON parsing for mediaPath
-    if let Ok(json) = serde_json::from_str::<Value>(result) {
-        if let Some(path) = json.get("mediaPath").and_then(Value::as_str) {
-            if std::path::Path::new(path).exists() {
-                paths.push(path.to_string());
-            }
-        }
+    if let Ok(json) = serde_json::from_str::<Value>(result)
+        && let Some(path) = json.get("mediaPath").and_then(Value::as_str)
+        && std::path::Path::new(path).exists()
+    {
+        paths.push(path.to_string());
     }
 
     // Text pattern: "saved to: /path" (browser screenshots, http binary)
@@ -69,10 +68,10 @@ pub(crate) fn validate_tool_params(
     // Check required fields
     if let Some(required) = schema["required"].as_array() {
         for field in required {
-            if let Some(field_name) = field.as_str() {
-                if params.get(field_name).is_none() || params[field_name].is_null() {
-                    errors.push(format!("missing required parameter '{}'", field_name));
-                }
+            if let Some(field_name) = field.as_str()
+                && (params.get(field_name).is_none() || params[field_name].is_null())
+            {
+                errors.push(format!("missing required parameter '{}'", field_name));
             }
         }
     }
@@ -80,26 +79,25 @@ pub(crate) fn validate_tool_params(
     // Check types of provided fields
     if let Some(properties) = schema["properties"].as_object() {
         for (field_name, field_schema) in properties {
-            if let Some(value) = params.get(field_name) {
-                if !value.is_null() {
-                    if let Some(expected_type) = field_schema["type"].as_str() {
-                        let type_ok = match expected_type {
-                            "string" => value.is_string(),
-                            "number" | "integer" => value.is_number(),
-                            "boolean" => value.is_boolean(),
-                            "array" => value.is_array(),
-                            "object" => value.is_object(),
-                            _ => true,
-                        };
-                        if !type_ok {
-                            errors.push(format!(
-                                "parameter '{}' should be {} but got {}",
-                                field_name,
-                                expected_type,
-                                value_type_name(value)
-                            ));
-                        }
-                    }
+            if let Some(value) = params.get(field_name)
+                && !value.is_null()
+                && let Some(expected_type) = field_schema["type"].as_str()
+            {
+                let type_ok = match expected_type {
+                    "string" => value.is_string(),
+                    "number" | "integer" => value.is_number(),
+                    "boolean" => value.is_boolean(),
+                    "array" => value.is_array(),
+                    "object" => value.is_object(),
+                    _ => true,
+                };
+                if !type_ok {
+                    errors.push(format!(
+                        "parameter '{}' should be {} but got {}",
+                        field_name,
+                        expected_type,
+                        value_type_name(value)
+                    ));
                 }
             }
         }
@@ -153,14 +151,14 @@ async fn execute_tool_call(
     }
 
     // Validate params against schema before execution
-    if let Some(tool) = registry.get(tc_name) {
-        if let Some(validation_error) = validate_tool_params(tool.as_ref(), tc_args) {
-            warn!(
-                "Tool '{}' param validation failed: {}",
-                tc_name, validation_error
-            );
-            return (validation_error, true);
-        }
+    if let Some(tool) = registry.get(tc_name)
+        && let Some(validation_error) = validate_tool_params(tool.as_ref(), tc_args)
+    {
+        warn!(
+            "Tool '{}' param validation failed: {}",
+            tc_name, validation_error
+        );
+        return (validation_error, true);
     }
 
     match registry.execute(tc_name, tc_args.clone(), ctx).await {
@@ -381,14 +379,13 @@ fn cleanup_old_media(ttl_days: u32) -> Result<()> {
     for entry in std::fs::read_dir(&media_dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_file() {
-            if let Ok(metadata) = std::fs::metadata(&path) {
-                if let Ok(modified) = metadata.modified() {
-                    if modified < cutoff && std::fs::remove_file(&path).is_ok() {
-                        removed += 1;
-                    }
-                }
-            }
+        if path.is_file()
+            && let Ok(metadata) = std::fs::metadata(&path)
+            && let Ok(modified) = metadata.modified()
+            && modified < cutoff
+            && std::fs::remove_file(&path).is_ok()
+        {
+            removed += 1;
         }
     }
     if removed > 0 {
@@ -850,13 +847,22 @@ impl AgentLoop {
             };
 
             if let Some(msg) = msg_opt {
-                info!("Agent received inbound message: channel={}, sender_id={}, chat_id={}, content_len={}",
-                    msg.channel, msg.sender_id, msg.chat_id, msg.content.len());
+                info!(
+                    "Agent received inbound message: channel={}, sender_id={}, chat_id={}, content_len={}",
+                    msg.channel,
+                    msg.sender_id,
+                    msg.chat_id,
+                    msg.content.len()
+                );
                 match self.process_message(msg).await {
                     Ok(Some(outbound_msg)) => {
                         // Send response back through the bus
-                        info!("Agent generated outbound message: channel={}, chat_id={}, content_len={}", 
-                            outbound_msg.channel, outbound_msg.chat_id, outbound_msg.content.len());
+                        info!(
+                            "Agent generated outbound message: channel={}, chat_id={}, content_len={}",
+                            outbound_msg.channel,
+                            outbound_msg.chat_id,
+                            outbound_msg.content.len()
+                        );
                         if let Err(e) = self.outbound_tx.send(outbound_msg).await {
                             error!("Failed to send outbound message: {}", e);
                         } else {
@@ -923,7 +929,7 @@ impl AgentLoop {
         info!("Processing message from {}:{}", msg.channel, msg.sender_id);
 
         // Check for event-triggered cron jobs in the background
-        if let (Some(ref matcher), Some(ref cron_svc)) = (&self.event_matcher, &self.cron_service) {
+        if let (Some(matcher), Some(cron_svc)) = (&self.event_matcher, &self.cron_service) {
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as i64);
@@ -1042,39 +1048,40 @@ impl AgentLoop {
         self.sessions.save(&session).await?;
 
         // Background fact extraction
-        if let (Some(ref compactor), Some(ref content)) = (&self.compactor, &final_content) {
-            if self.compaction_config.extraction_enabled && msg.channel != "system" {
-                let compactor = compactor.clone();
-                let memory = self.memory.clone();
-                let user_msg = msg.content.clone();
-                let assistant_msg = content.clone();
-                let task_tracker = self.task_tracker.clone();
-                let task_name = format!("fact_extraction_{}", chrono::Utc::now().timestamp());
-                // Use spawn_auto_cleanup since this is a one-off task that should remove itself
-                task_tracker
-                    .spawn_auto_cleanup(task_name, async move {
-                        match compactor.extract_facts(&user_msg, &assistant_msg).await {
-                            Ok(facts) => {
-                                if !facts.is_empty() {
-                                    if let Err(e) =
-                                        memory.append_today(&format!("\n## Facts\n\n{}\n", facts))
-                                    {
-                                        warn!("Failed to save facts to daily note: {}", e);
-                                    } else {
-                                        debug!(
-                                            "Saved extracted facts to daily note ({} bytes)",
-                                            facts.len()
-                                        );
-                                    }
+        if let (Some(compactor), Some(content)) = (&self.compactor, &final_content)
+            && self.compaction_config.extraction_enabled
+            && msg.channel != "system"
+        {
+            let compactor = compactor.clone();
+            let memory = self.memory.clone();
+            let user_msg = msg.content.clone();
+            let assistant_msg = content.clone();
+            let task_tracker = self.task_tracker.clone();
+            let task_name = format!("fact_extraction_{}", chrono::Utc::now().timestamp());
+            // Use spawn_auto_cleanup since this is a one-off task that should remove itself
+            task_tracker
+                .spawn_auto_cleanup(task_name, async move {
+                    match compactor.extract_facts(&user_msg, &assistant_msg).await {
+                        Ok(facts) => {
+                            if !facts.is_empty() {
+                                if let Err(e) =
+                                    memory.append_today(&format!("\n## Facts\n\n{}\n", facts))
+                                {
+                                    warn!("Failed to save facts to daily note: {}", e);
+                                } else {
+                                    debug!(
+                                        "Saved extracted facts to daily note ({} bytes)",
+                                        facts.len()
+                                    );
                                 }
                             }
-                            Err(e) => {
-                                warn!("Failed to extract facts from conversation: {}", e);
-                            }
                         }
-                    })
-                    .await;
-            }
+                        Err(e) => {
+                            warn!("Failed to extract facts from conversation: {}", e);
+                        }
+                    }
+                })
+                .await;
         }
 
         if let Some(content) = final_content {
@@ -1156,11 +1163,11 @@ impl AgentLoop {
             };
 
             // Cost guard pre-flight check
-            if let Some(ref cg) = self.cost_guard {
-                if let Err(msg) = cg.check_allowed() {
-                    warn!("cost guard blocked LLM call: {}", msg);
-                    return Ok((Some(msg), last_input_tokens, tools_used, collected_media));
-                }
+            if let Some(ref cg) = self.cost_guard
+                && let Err(msg) = cg.check_allowed()
+            {
+                warn!("cost guard blocked LLM call: {}", msg);
+                return Ok((Some(msg), last_input_tokens, tools_used, collected_media));
             }
 
             let response = self
@@ -1307,7 +1314,10 @@ impl AgentLoop {
 
                 // Detect false "no tools" claims and retry with correction
                 if !tool_names.is_empty() && is_false_no_tools_claim(&content) {
-                    warn!("False no-tools claim detected: LLM claims tools unavailable but {} tools are registered", tool_names.len());
+                    warn!(
+                        "False no-tools claim detected: LLM claims tools unavailable but {} tools are registered",
+                        tool_names.len()
+                    );
                     ContextBuilder::add_assistant_message(
                         &mut messages,
                         Some(&content),
@@ -1394,15 +1404,14 @@ impl AgentLoop {
                     Some(crate::providers::base::RetryConfig::default()),
                 )
                 .await
+                && let Some(content) = response.content
             {
-                if let Some(content) = response.content {
-                    return Ok((
-                        Some(content),
-                        last_input_tokens,
-                        tools_used,
-                        collected_media,
-                    ));
-                }
+                return Ok((
+                    Some(content),
+                    last_input_tokens,
+                    tools_used,
+                    collected_media,
+                ));
             }
         }
 

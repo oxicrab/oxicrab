@@ -125,15 +125,14 @@ impl ExecTool {
             }
         }
 
-        if self.restrict_to_workspace {
-            if let Some(workspace) = &self.working_dir {
-                if !cwd.starts_with(workspace) {
-                    return Some(format!(
-                        "Error: Working directory '{}' is outside workspace",
-                        cwd.display()
-                    ));
-                }
-            }
+        if self.restrict_to_workspace
+            && let Some(workspace) = &self.working_dir
+            && !cwd.starts_with(workspace)
+        {
+            return Some(format!(
+                "Error: Working directory '{}' is outside workspace",
+                cwd.display()
+            ));
         }
 
         None
@@ -306,9 +305,10 @@ mod tests {
     #[test]
     fn test_allowed_pipe() {
         let t = tool(allowed());
-        assert!(t
-            .guard_command("cat file | grep foo", Path::new("/tmp"))
-            .is_none());
+        assert!(
+            t.guard_command("cat file | grep foo", Path::new("/tmp"))
+                .is_none()
+        );
     }
 
     #[test]
@@ -330,9 +330,10 @@ mod tests {
     #[test]
     fn test_empty_allowlist_permits_all() {
         let t = tool(vec![]);
-        assert!(t
-            .guard_command("anything_goes", Path::new("/tmp"))
-            .is_none());
+        assert!(
+            t.guard_command("anything_goes", Path::new("/tmp"))
+                .is_none()
+        );
     }
 
     #[test]
@@ -350,9 +351,10 @@ mod tests {
     fn test_full_path_resolved() {
         let t = tool(allowed());
         // /usr/bin/ls should resolve to "ls" which is allowed
-        assert!(t
-            .guard_command("/usr/bin/ls -la", Path::new("/tmp"))
-            .is_none());
+        assert!(
+            t.guard_command("/usr/bin/ls -la", Path::new("/tmp"))
+                .is_none()
+        );
     }
 
     #[test]

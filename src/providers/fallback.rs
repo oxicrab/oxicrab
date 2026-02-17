@@ -1,7 +1,7 @@
 use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse, ToolCallRequest};
 use async_trait::async_trait;
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{debug, warn};
 
 /// An LLM provider that tries a primary (cloud) provider first,
 /// falling back to a secondary (local) provider on error or malformed tool calls.
@@ -85,7 +85,9 @@ impl LLMProvider for FallbackProvider {
             tool_choice: req.tool_choice,
         };
 
-        self.fallback.chat(fallback_req).await
+        let response = self.fallback.chat(fallback_req).await?;
+        debug!("fallback provider ({}) succeeded", self.fallback_model);
+        Ok(response)
     }
 
     fn default_model(&self) -> &str {

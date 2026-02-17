@@ -1,0 +1,238 @@
+---
+title: CLI Reference - oxicrab
+description: Complete reference for the oxicrab command-line interface. Commands for gateway, agent, cron, auth, channels, status, and doctor.
+active: cli
+max_width: 820px
+---
+<style>
+    h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin: 3rem 0 0.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
+    h2:first-of-type { border-top: none; padding-top: 0; }
+    h3 { font-size: 1.1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+    p { color: var(--text); font-size: 0.9rem; margin-bottom: 0.75rem; }
+    .cmd-sig { font-family: var(--mono); font-size: 0.85rem; color: var(--accent); background: var(--bg-alt); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 1rem; display: inline-block; margin-bottom: 0.75rem; }
+    .flag-table { width: 100%; border-collapse: collapse; margin: 0.75rem 0 1.5rem; font-size: 0.85rem; }
+    .flag-table th { text-align: left; font-family: var(--mono); font-size: 0.75rem; color: var(--text-light); text-transform: uppercase; letter-spacing: 0.08em; padding: 0.5rem 0.75rem; border-bottom: 2px solid var(--border); }
+    .flag-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .flag-table td:first-child { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); white-space: nowrap; }
+    .flag-table td:last-child { color: var(--text-muted); }
+</style>
+
+<div class="page-header">
+    <h1>CLI Reference</h1>
+    <p>All oxicrab commands and their options.</p>
+</div>
+
+<div class="content">
+    <div class="toc">
+        <div class="toc-title">Commands</div>
+        <ul>
+            <li><a href="#onboard">onboard</a></li>
+            <li><a href="#gateway">gateway</a></li>
+            <li><a href="#agent">agent</a></li>
+            <li><a href="#cron">cron</a></li>
+            <li><a href="#auth">auth</a></li>
+            <li><a href="#channels">channels</a></li>
+            <li><a href="#status">status</a></li>
+            <li><a href="#doctor">doctor</a></li>
+        </ul>
+    </div>
+
+    <!-- ONBOARD -->
+    <h2 id="onboard">onboard</h2>
+    <div class="cmd-sig">oxicrab onboard</div>
+    <p>Initialize oxicrab configuration and workspace. Creates <code>~/.oxicrab/config.json</code> with defaults, sets up the workspace directory, and generates template files (<code>USER.md</code>, <code>AGENTS.md</code>, <code>TOOLS.md</code>, <code>memory/MEMORY.md</code>).</p>
+    <p>If a config file already exists, prompts for confirmation before overwriting.</p>
+
+    <!-- GATEWAY -->
+    <h2 id="gateway">gateway</h2>
+    <div class="cmd-sig">oxicrab gateway [--model &lt;MODEL&gt;]</div>
+    <p>Start the multi-channel gateway daemon. Loads configuration, initializes the LLM provider (with optional circuit breaker), starts all enabled channels, the agent loop, cron service, and heartbeat service. Runs until interrupted with Ctrl+C.</p>
+    <table class="flag-table">
+        <tr><th>Flag</th><th>Description</th></tr>
+        <tr><td>--model</td><td>Override the default LLM model for this session</td></tr>
+    </table>
+    <pre>oxicrab gateway
+oxicrab gateway --model gpt-4o</pre>
+
+    <!-- AGENT -->
+    <h2 id="agent">agent</h2>
+    <div class="cmd-sig">oxicrab agent [-m &lt;MESSAGE&gt;] [-s &lt;SESSION&gt;]</div>
+    <p>Interact with the agent directly from the terminal. Without <code>-m</code>, starts an interactive REPL. With <code>-m</code>, sends a single message and prints the response.</p>
+    <table class="flag-table">
+        <tr><th>Flag</th><th>Description</th></tr>
+        <tr><td>-m, --message</td><td>Send a single message (non-interactive)</td></tr>
+        <tr><td>-s, --session</td><td>Session key (default: <code>cli:default</code>)</td></tr>
+    </table>
+    <pre><span class="hl-comment"># Interactive REPL</span>
+oxicrab agent
+
+<span class="hl-comment"># Single message</span>
+oxicrab agent -m "What's the weather in London?"
+
+<span class="hl-comment"># Named session for persistent context</span>
+oxicrab agent -s "project-x" -m "Summarize yesterday's work"</pre>
+
+    <!-- CRON -->
+    <h2 id="cron">cron</h2>
+    <div class="cmd-sig">oxicrab cron &lt;SUBCOMMAND&gt;</div>
+    <p>Manage scheduled jobs. Jobs can run in <strong>agent mode</strong> (full LLM turn with tools) or <strong>echo mode</strong> (deliver message directly). Supports cron expressions, intervals, and one-shot timers.</p>
+
+    <h3>cron list</h3>
+    <div class="cmd-sig">oxicrab cron list [-a]</div>
+    <table class="flag-table">
+        <tr><th>Flag</th><th>Description</th></tr>
+        <tr><td>-a, --all</td><td>Include disabled jobs</td></tr>
+    </table>
+
+    <h3>cron add</h3>
+    <div class="cmd-sig">oxicrab cron add -n &lt;NAME&gt; -m &lt;MESSAGE&gt; &lt;SCHEDULE&gt; &lt;TARGET&gt;</div>
+    <table class="flag-table">
+        <tr><th>Flag</th><th>Description</th></tr>
+        <tr><td>-n, --name</td><td>Job name (required)</td></tr>
+        <tr><td>-m, --message</td><td>Message to process or deliver (required)</td></tr>
+        <tr><td>-e, --every</td><td>Run every N seconds (interval schedule)</td></tr>
+        <tr><td>-c, --cron</td><td>Cron expression (e.g. <code>"0 9 * * *"</code>)</td></tr>
+        <tr><td>--at</td><td>One-shot ISO 8601 datetime</td></tr>
+        <tr><td>--tz</td><td>Timezone for cron expressions (auto-detected if omitted)</td></tr>
+        <tr><td>--agent-echo</td><td>Deliver agent response to targets after processing</td></tr>
+        <tr><td>--channel</td><td>Target channel (use with <code>--to</code>)</td></tr>
+        <tr><td>--to</td><td>Target chat ID (use with <code>--channel</code>)</td></tr>
+        <tr><td>--all-channels</td><td>Target all enabled channels with allowFrom configured</td></tr>
+    </table>
+    <pre><span class="hl-comment"># Every hour</span>
+oxicrab cron add -n "Hourly check" -m "Check my inbox" -e 3600 --channel telegram --to 123456
+
+<span class="hl-comment"># Cron expression with timezone</span>
+oxicrab cron add -n "Morning briefing" -m "Morning briefing" -c "0 9 * * *" --tz "America/New_York" --all-channels
+
+<span class="hl-comment"># One-shot at a specific time</span>
+oxicrab cron add -n "Reminder" -m "Meeting in 5 minutes" --at "2026-03-01T14:55:00Z" --channel discord --to 123456</pre>
+
+    <h3>cron remove</h3>
+    <div class="cmd-sig">oxicrab cron remove --id &lt;ID&gt;</div>
+
+    <h3>cron enable</h3>
+    <div class="cmd-sig">oxicrab cron enable --id &lt;ID&gt; [--disable]</div>
+    <table class="flag-table">
+        <tr><th>Flag</th><th>Description</th></tr>
+        <tr><td>--id</td><td>Job ID (required)</td></tr>
+        <tr><td>--disable</td><td>Disable instead of enable</td></tr>
+    </table>
+
+    <h3>cron edit</h3>
+    <div class="cmd-sig">oxicrab cron edit --id &lt;ID&gt; [OPTIONS]</div>
+    <p>Modify an existing job. Any flag not provided is left unchanged.</p>
+    <table class="flag-table">
+        <tr><th>Flag</th><th>Description</th></tr>
+        <tr><td>--id</td><td>Job ID (required)</td></tr>
+        <tr><td>-n, --name</td><td>New name</td></tr>
+        <tr><td>-m, --message</td><td>New message</td></tr>
+        <tr><td>-e, --every</td><td>New interval (seconds)</td></tr>
+        <tr><td>-c, --cron</td><td>New cron expression</td></tr>
+        <tr><td>--tz</td><td>New timezone</td></tr>
+        <tr><td>--channel / --to / --all-channels</td><td>New targets</td></tr>
+    </table>
+
+    <h3>cron run</h3>
+    <div class="cmd-sig">oxicrab cron run --id &lt;ID&gt; [-f]</div>
+    <table class="flag-table">
+        <tr><th>Flag</th><th>Description</th></tr>
+        <tr><td>--id</td><td>Job ID (required)</td></tr>
+        <tr><td>-f, --force</td><td>Run even if the job is disabled</td></tr>
+    </table>
+
+    <!-- AUTH -->
+    <h2 id="auth">auth</h2>
+    <div class="cmd-sig">oxicrab auth &lt;SUBCOMMAND&gt;</div>
+    <p>Manage authentication for external services.</p>
+
+    <h3>auth google</h3>
+    <div class="cmd-sig">oxicrab auth google [-p &lt;PORT&gt;] [--headless]</div>
+    <p>Start the Google OAuth2 flow for Gmail and Calendar access. Opens a browser for authentication (or uses manual mode if <code>--headless</code>). Tokens are saved to <code>~/.oxicrab/google_tokens.json</code>.</p>
+    <p>Requires <code>tools.google.clientId</code> and <code>tools.google.clientSecret</code> in config.</p>
+    <table class="flag-table">
+        <tr><th>Flag</th><th>Description</th></tr>
+        <tr><td>-p, --port</td><td>Local redirect port (default: 8099)</td></tr>
+        <tr><td>--headless</td><td>Use manual code entry instead of browser redirect</td></tr>
+    </table>
+
+    <!-- CHANNELS -->
+    <h2 id="channels">channels</h2>
+    <div class="cmd-sig">oxicrab channels &lt;SUBCOMMAND&gt;</div>
+    <p>Manage channel connections.</p>
+
+    <h3>channels status</h3>
+    <div class="cmd-sig">oxicrab channels status</div>
+    <p>Show the status of all channels: enabled/disabled, token configuration, and WhatsApp session state.</p>
+
+    <h3>channels login</h3>
+    <div class="cmd-sig">oxicrab channels login</div>
+    <p>Link a WhatsApp device via QR code. Displays a QR code in the terminal to scan with your phone. Session is saved to <code>~/.oxicrab/whatsapp/whatsapp.db</code>.</p>
+    <p>Requires the <code>channel-whatsapp</code> feature to be compiled.</p>
+
+    <!-- STATUS -->
+    <h2 id="status">status</h2>
+    <div class="cmd-sig">oxicrab status</div>
+    <p>Show a quick overview of your oxicrab setup: config path, workspace, active model, configured API keys, voice transcription status, and Google authentication state.</p>
+
+    <!-- DOCTOR -->
+    <h2 id="doctor">doctor</h2>
+    <div class="cmd-sig">oxicrab doctor</div>
+    <p>Run comprehensive system diagnostics. Checks each component and reports PASS, FAIL, or SKIP with details.</p>
+
+    <h3>Checks performed</h3>
+    <table class="flag-table">
+        <tr><th>Category</th><th>Checks</th></tr>
+        <tr><td>Core</td><td>Config file exists, parses as valid JSON, passes validation, workspace directory exists and is writable</td></tr>
+        <tr><td>Provider</td><td>API keys configured for any provider, provider connectivity (warmup test with latency measurement)</td></tr>
+        <tr><td>Channels</td><td>Each channel (Telegram, Discord, Slack, WhatsApp, Twilio): compiled, enabled, tokens/credentials configured</td></tr>
+        <tr><td>Voice</td><td>Transcription backend availability (local model, cloud API, or both)</td></tr>
+        <tr><td>External Tools</td><td>ffmpeg and git available in PATH (with version info)</td></tr>
+        <tr><td>MCP</td><td>MCP servers configured and enabled</td></tr>
+    </table>
+
+    <pre><span class="hl-comment"># Example output</span>
+$ oxicrab doctor
+oxicrab doctor
+
+============================================================
+
+  Core
+  --------------------------------------------------------
+  PASS   Config file                    /home/user/.oxicrab/config.json
+  PASS   Config parses                  valid JSON
+  PASS   Config validates               all checks passed
+  PASS   Workspace                      /home/user/.oxicrab/workspace (writable)
+
+  Provider
+  --------------------------------------------------------
+  PASS   API keys                       anthropic, openrouter
+  PASS   Provider connectivity          claude-sonnet-4-5 (warmup: 342ms)
+
+  Channels
+  --------------------------------------------------------
+  PASS   telegram                       enabled, token configured
+  PASS   discord                        enabled, token configured
+  SKIP   slack                          disabled
+  SKIP   whatsapp                       disabled
+  SKIP   twilio                         disabled
+
+  Voice
+  --------------------------------------------------------
+  PASS   Transcription                  local + cloud fallback
+
+  External Tools
+  --------------------------------------------------------
+  PASS   ffmpeg                         ffmpeg version 6.1.1
+  PASS   git                            git version 2.43.0
+
+  MCP
+  --------------------------------------------------------
+  PASS   MCP servers                    2 server(s): filesystem, git
+
+============================================================
+  14 passed, 0 failed, 3 skipped
+
+  All checks passed!</pre>
+
+</div>

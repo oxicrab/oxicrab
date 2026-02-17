@@ -6,7 +6,7 @@ use chrono::{Datelike, Utc};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{debug, warn};
 
 pub struct MemoryStore {
     _workspace: PathBuf,
@@ -151,13 +151,19 @@ impl MemoryStore {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("embeddings not available"))?;
         let query_embedding = emb_svc.embed_query(query)?;
-        self.db.hybrid_search(
+        let hits = self.db.hybrid_search(
             query,
             &query_embedding,
             limit,
             exclude_sources,
             self.hybrid_weight,
-        )
+        )?;
+        debug!(
+            "memory hybrid search: query_len={}, results={}",
+            query.len(),
+            hits.len()
+        );
+        Ok(hits)
     }
 
     /// Start the background memory indexer
@@ -222,22 +228,22 @@ impl MemoryStore {
             }
         }
 
+        debug!("memory context: {} chunks from query", chunks.len());
+
         // Always include MEMORY.md content (fallback when no query or no FTS results)
-        if chunks.is_empty() || query.is_none() {
-            if let Ok(long_term) = self.read_long_term() {
-                if !long_term.trim().is_empty() {
-                    chunks.insert(0, format!("## Long-term Memory\n{}", long_term));
-                }
-            }
+        if (chunks.is_empty() || query.is_none())
+            && let Ok(long_term) = self.read_long_term()
+            && !long_term.trim().is_empty()
+        {
+            chunks.insert(0, format!("## Long-term Memory\n{}", long_term));
         }
 
         // Include today's note
-        if today_file.exists() {
-            if let Ok(content) = std::fs::read_to_string(&today_file) {
-                if !content.trim().is_empty() {
-                    chunks.push(format!("**Today's Notes ({})**:\n{}", today_key, content));
-                }
-            }
+        if today_file.exists()
+            && let Ok(content) = std::fs::read_to_string(&today_file)
+            && !content.trim().is_empty()
+        {
+            chunks.push(format!("**Today's Notes ({})**:\n{}", today_key, content));
         }
 
         Ok(chunks.join("\n\n---\n\n"))

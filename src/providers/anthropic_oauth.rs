@@ -4,7 +4,7 @@ use crate::providers::errors::ProviderErrorHandler;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -87,22 +87,22 @@ impl AnthropicOAuthProvider {
                             Ok(guard) => *guard,
                             Err(_) => return,
                         };
-                        if cached_at > current_expires {
-                            if let (Some(access), Some(refresh)) = (
+                        if cached_at > current_expires
+                            && let (Some(access), Some(refresh)) = (
                                 data.get("access_token").and_then(Value::as_str),
                                 data.get("refresh_token").and_then(Value::as_str),
-                            ) {
-                                if let Ok(mut guard) = self.access_token.try_lock() {
-                                    *guard = access.to_string();
-                                }
-                                if let Ok(mut guard) = self.refresh_token.try_lock() {
-                                    *guard = refresh.to_string();
-                                }
-                                if let Ok(mut guard) = self.expires_at.try_lock() {
-                                    *guard = cached_at;
-                                }
-                                info!("Loaded refreshed OAuth tokens from cache");
+                            )
+                        {
+                            if let Ok(mut guard) = self.access_token.try_lock() {
+                                *guard = access.to_string();
                             }
+                            if let Ok(mut guard) = self.refresh_token.try_lock() {
+                                *guard = refresh.to_string();
+                            }
+                            if let Ok(mut guard) = self.expires_at.try_lock() {
+                                *guard = cached_at;
+                            }
+                            info!("Loaded refreshed OAuth tokens from cache");
                         }
                     }
                 }
@@ -198,11 +198,11 @@ impl AnthropicOAuthProvider {
     }
 
     async fn save_credentials(&self, path: &Path) {
-        if let Some(parent) = path.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                warn!("Failed to create credentials directory: {}", e);
-                return;
-            }
+        if let Some(parent) = path.parent()
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            warn!("Failed to create credentials directory: {}", e);
+            return;
         }
 
         let data = json!({
@@ -291,10 +291,10 @@ impl AnthropicOAuthProvider {
 
         // Try lastGood first, then any anthropic profile
         let mut candidates = Vec::new();
-        if let Some(last_good) = data.get("lastGood").and_then(Value::as_object) {
-            if let Some(anthropic_id) = last_good.get("anthropic").and_then(Value::as_str) {
-                candidates.push(anthropic_id.to_string());
-            }
+        if let Some(last_good) = data.get("lastGood").and_then(Value::as_object)
+            && let Some(anthropic_id) = last_good.get("anthropic").and_then(Value::as_str)
+        {
+            candidates.push(anthropic_id.to_string());
         }
 
         for (pid, _) in profiles {
@@ -323,18 +323,18 @@ impl AnthropicOAuthProvider {
                                 Some(store_path),
                             )?));
                         }
-                    } else if cred_type == "token" {
-                        if let Some(token) = cred.get("token").and_then(Value::as_str) {
-                            let expires = cred.get("expires").and_then(Value::as_i64).unwrap_or(0);
+                    } else if cred_type == "token"
+                        && let Some(token) = cred.get("token").and_then(Value::as_str)
+                    {
+                        let expires = cred.get("expires").and_then(Value::as_i64).unwrap_or(0);
 
-                            return Ok(Some(Self::new(
-                                token.to_string(),
-                                String::new(),
-                                expires,
-                                default_model,
-                                Some(store_path),
-                            )?));
-                        }
+                        return Ok(Some(Self::new(
+                            token.to_string(),
+                            String::new(),
+                            expires,
+                            default_model,
+                            Some(store_path),
+                        )?));
                     }
                 }
             }

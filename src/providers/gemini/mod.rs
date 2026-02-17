@@ -5,9 +5,10 @@ use crate::providers::errors::ProviderErrorHandler;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Mutex;
 use std::time::Duration;
+use tracing::{debug, info};
 
 const CONNECT_TIMEOUT_SECS: u64 = 30;
 const REQUEST_TIMEOUT_SECS: u64 = 120;
@@ -106,6 +107,10 @@ impl GeminiProvider {
 #[async_trait]
 impl LLMProvider for GeminiProvider {
     async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+        debug!(
+            "gemini chat: model={}",
+            req.model.unwrap_or(&self.default_model)
+        );
         let gemini_contents: Vec<Value> = req
             .messages
             .into_iter()
@@ -177,18 +182,22 @@ impl LLMProvider for GeminiProvider {
         {
             if let Ok(mut metrics) = self.metrics.lock() {
                 metrics.request_count += 1;
-                if let Some(usage) = json.get("usageMetadata").and_then(|u| u.as_object()) {
-                    if let Some(tokens) = usage
+                if let Some(usage) = json.get("usageMetadata").and_then(|u| u.as_object())
+                    && let Some(tokens) = usage
                         .get("totalTokenCount")
                         .and_then(serde_json::Value::as_u64)
-                    {
-                        metrics.token_count += tokens;
-                    }
+                {
+                    metrics.token_count += tokens;
                 }
             }
         }
 
-        Self::parse_response(&json)
+        let response = Self::parse_response(&json)?;
+        debug!(
+            "gemini chat complete: input_tokens={:?}, output_tokens={:?}",
+            response.input_tokens, response.output_tokens
+        );
+        Ok(response)
     }
 
     fn default_model(&self) -> &str {
@@ -196,7 +205,6 @@ impl LLMProvider for GeminiProvider {
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {
-        use tracing::info;
         let start = std::time::Instant::now();
         let url = format!(
             "{}/models/{}:generateContent?key={}",

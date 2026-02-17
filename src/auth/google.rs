@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use oauth2::{
-    basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl,
-    Scope, TokenResponse, TokenUrl,
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl, Scope,
+    TokenResponse, TokenUrl, basic::BasicClient,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -86,10 +86,9 @@ impl GoogleCredentials {
         if let Some(expires_in) = token_data
             .get("expires_in")
             .and_then(serde_json::Value::as_u64)
+            && let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH)
         {
-            if let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) {
-                self.expiry = Some(duration.as_secs() + expires_in);
-            }
+            self.expiry = Some(duration.as_secs() + expires_in);
         }
 
         Ok(())
@@ -370,16 +369,15 @@ async fn run_manual_flow(
 fn extract_code_from_request(request: &str) -> Result<String> {
     // Parse HTTP request and extract code from query string
     let lines: Vec<&str> = request.lines().collect();
-    if let Some(first_line) = lines.first() {
-        if let Some(path_part) = first_line.split_whitespace().nth(1) {
-            if let Some(query_part) = path_part.split('?').nth(1) {
-                for pair in query_part.split('&') {
-                    if let Some((key, value)) = pair.split_once('=') {
-                        if key == "code" {
-                            return Ok(urlencoding::decode(value)?.to_string());
-                        }
-                    }
-                }
+    if let Some(first_line) = lines.first()
+        && let Some(path_part) = first_line.split_whitespace().nth(1)
+        && let Some(query_part) = path_part.split('?').nth(1)
+    {
+        for pair in query_part.split('&') {
+            if let Some((key, value)) = pair.split_once('=')
+                && key == "code"
+            {
+                return Ok(urlencoding::decode(value)?.to_string());
             }
         }
     }

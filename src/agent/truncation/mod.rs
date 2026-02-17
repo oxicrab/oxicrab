@@ -12,22 +12,21 @@ pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
     }
 
     let stripped = clean.trim_start();
-    if stripped.starts_with('{') || stripped.starts_with('[') {
-        if let Ok(parsed) = serde_json::from_str::<Value>(&clean) {
-            if let Ok(pretty) = serde_json::to_string_pretty(&parsed) {
-                if pretty.len() <= max_chars {
-                    return pretty;
-                }
-                let budget = max_chars.saturating_sub(120);
-                let safe_budget = floor_char_boundary(&pretty, budget);
-                return format!(
-                    "{}\n\n... [JSON truncated - showed {} of {} chars. Do NOT re-run this tool to see more.]",
-                    &pretty[..safe_budget],
-                    safe_budget,
-                    pretty.len()
-                );
-            }
+    if (stripped.starts_with('{') || stripped.starts_with('['))
+        && let Ok(parsed) = serde_json::from_str::<Value>(&clean)
+        && let Ok(pretty) = serde_json::to_string_pretty(&parsed)
+    {
+        if pretty.len() <= max_chars {
+            return pretty;
         }
+        let budget = max_chars.saturating_sub(120);
+        let safe_budget = floor_char_boundary(&pretty, budget);
+        return format!(
+            "{}\n\n... [JSON truncated - showed {} of {} chars. Do NOT re-run this tool to see more.]",
+            &pretty[..safe_budget],
+            safe_budget,
+            pretty.len()
+        );
     }
 
     let budget = max_chars.saturating_sub(100);

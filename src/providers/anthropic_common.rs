@@ -1,6 +1,6 @@
 use crate::providers::base::{LLMResponse, Message, ToolCallRequest, ToolDefinition};
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Debug, Serialize)]
 pub struct AnthropicMessage {
@@ -277,7 +277,7 @@ mod tests {
 
         assert!(system.is_some());
         assert_eq!(result.len(), 3); // user, assistant, user
-                                     // First user has image (array)
+        // First user has image (array)
         assert!(result[0].content.is_array());
         // Second user is text-only (string)
         assert!(result[2].content.is_string());

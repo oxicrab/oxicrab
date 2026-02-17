@@ -1,13 +1,13 @@
 use crate::bus::{InboundMessage, OutboundMessage};
-use crate::channels::base::{split_message, BaseChannel};
+use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::check_allowed_sender;
 use crate::config::TwilioConfig;
 use anyhow::Result;
 use async_trait::async_trait;
+use axum::Router;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::post;
-use axum::Router;
 use base64::Engine;
 use chrono::Utc;
 use hmac::{Hmac, Mac};

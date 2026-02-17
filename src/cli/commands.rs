@@ -1,7 +1,7 @@
 use crate::agent::AgentLoop;
 use crate::bus::MessageBus;
 use crate::channels::manager::ChannelManager;
-use crate::config::{load_config, Config};
+use crate::config::{Config, load_config};
 use crate::cron::service::CronService;
 use crate::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule};
 use crate::heartbeat::service::HeartbeatService;
@@ -747,10 +747,10 @@ fn start_channels_loop(
                     }
                 } else {
                     // Regular message — delete status message if one exists, then send
-                    if let Some(msg_id) = status_msg_ids.remove(&key) {
-                        if let Err(e) = channels.delete_message(&key.0, &key.1, &msg_id).await {
-                            debug!("Status delete failed: {}", e);
-                        }
+                    if let Some(msg_id) = status_msg_ids.remove(&key)
+                        && let Err(e) = channels.delete_message(&key.0, &key.1, &msg_id).await
+                    {
+                        debug!("Status delete failed: {}", e);
                     }
                     status_content.remove(&key);
 
@@ -1140,7 +1140,9 @@ async fn auth_command(cmd: AuthCommands) -> Result<()> {
 
             println!("\n✓ Google authentication successful!");
             println!("  Tokens saved to ~/.oxicrab/google_tokens.json");
-            println!("\nMake sure tools.google.enabled is true in your config, then restart the gateway.");
+            println!(
+                "\nMake sure tools.google.enabled is true in your config, then restart the gateway."
+            );
         }
     }
     Ok(())

@@ -5,9 +5,10 @@ use crate::providers::errors::ProviderErrorHandler;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Mutex;
 use std::time::Duration;
+use tracing::{debug, info};
 
 const API_URL: &str = "https://api.openai.com/v1/chat/completions";
 const CONNECT_TIMEOUT_SECS: u64 = 30;
@@ -126,6 +127,11 @@ impl OpenAIProvider {
 #[async_trait]
 impl LLMProvider for OpenAIProvider {
     async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+        debug!(
+            "{} chat: model={}",
+            self.provider_name,
+            req.model.unwrap_or(&self.default_model)
+        );
         let openai_messages: Vec<Value> = req
             .messages
             .into_iter()
@@ -156,21 +162,23 @@ impl LLMProvider for OpenAIProvider {
                 });
 
                 if let Some(tool_calls) = msg.tool_calls {
-                    m["tool_calls"] = json!(tool_calls
-                        .into_iter()
-                        .map(|tc| {
-                            let args_str = serde_json::to_string(&tc.arguments)
-                                .unwrap_or_else(|_| "{}".to_string());
-                            json!({
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tc.name,
-                                    "arguments": args_str
-                                }
+                    m["tool_calls"] = json!(
+                        tool_calls
+                            .into_iter()
+                            .map(|tc| {
+                                let args_str = serde_json::to_string(&tc.arguments)
+                                    .unwrap_or_else(|_| "{}".to_string());
+                                json!({
+                                    "id": tc.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc.name,
+                                        "arguments": args_str
+                                    }
+                                })
                             })
-                        })
-                        .collect::<Vec<_>>());
+                            .collect::<Vec<_>>()
+                    );
                 }
 
                 if let Some(tool_call_id) = msg.tool_call_id {
@@ -189,17 +197,19 @@ impl LLMProvider for OpenAIProvider {
         });
 
         if let Some(tools) = req.tools {
-            payload["tools"] = json!(tools
-                .into_iter()
-                .map(|t| json!({
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.parameters
-                    }
-                }))
-                .collect::<Vec<_>>());
+            payload["tools"] = json!(
+                tools
+                    .into_iter()
+                    .map(|t| json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.parameters
+                        }
+                    }))
+                    .collect::<Vec<_>>()
+            );
             if let Some(ref choice) = req.tool_choice {
                 payload["tool_choice"] = json!(choice);
             }
@@ -225,18 +235,22 @@ impl LLMProvider for OpenAIProvider {
         {
             if let Ok(mut metrics) = self.metrics.lock() {
                 metrics.request_count += 1;
-                if let Some(usage) = json.get("usage").and_then(|u| u.as_object()) {
-                    if let Some(tokens) = usage
+                if let Some(usage) = json.get("usage").and_then(|u| u.as_object())
+                    && let Some(tokens) = usage
                         .get("total_tokens")
                         .and_then(serde_json::Value::as_u64)
-                    {
-                        metrics.token_count += tokens;
-                    }
+                {
+                    metrics.token_count += tokens;
                 }
             }
         }
 
-        Self::parse_response(&json)
+        let response = Self::parse_response(&json)?;
+        debug!(
+            "{} chat complete: input_tokens={:?}, output_tokens={:?}",
+            self.provider_name, response.input_tokens, response.output_tokens
+        );
+        Ok(response)
     }
 
     fn default_model(&self) -> &str {
@@ -244,7 +258,6 @@ impl LLMProvider for OpenAIProvider {
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {
-        use tracing::info;
         let start = std::time::Instant::now();
         let payload = json!({
             "model": self.default_model,

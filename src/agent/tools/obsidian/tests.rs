@@ -1,8 +1,8 @@
+use super::ObsidianTool;
 use super::cache::ObsidianCache;
 use super::client::ObsidianApiClient;
-use super::ObsidianTool;
-use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::Tool;
+use crate::agent::tools::base::ExecutionContext;
 use std::sync::Arc;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

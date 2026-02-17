@@ -1298,19 +1298,19 @@ impl Config {
         let model = model.unwrap_or(&self.agents.defaults.model);
         let factory = ProviderFactory::new(self);
 
-        if let Some(ref local_model) = self.agents.defaults.local_model {
-            if !local_model.is_empty() {
-                let cloud = factory.create_provider(model).await?;
-                let local = factory.create_provider(local_model).await?;
-                return Ok(std::sync::Arc::new(
-                    crate::providers::fallback::FallbackProvider::new(
-                        cloud,
-                        local,
-                        model.to_string(),
-                        local_model.clone(),
-                    ),
-                ));
-            }
+        if let Some(ref local_model) = self.agents.defaults.local_model
+            && !local_model.is_empty()
+        {
+            let cloud = factory.create_provider(model).await?;
+            let local = factory.create_provider(local_model).await?;
+            return Ok(std::sync::Arc::new(
+                crate::providers::fallback::FallbackProvider::new(
+                    cloud,
+                    local,
+                    model.to_string(),
+                    local_model.clone(),
+                ),
+            ));
         }
 
         factory.create_provider(model).await

@@ -446,10 +446,12 @@ mod tests {
         let ctx = ExecutionContext::default();
 
         // No cache hit initially
-        assert!(cache_mw
-            .before_execute("cache_test", &params, &ctx, &tool)
-            .await
-            .is_none());
+        assert!(
+            cache_mw
+                .before_execute("cache_test", &params, &ctx, &tool)
+                .await
+                .is_none()
+        );
 
         // Store a result
         let mut result = ToolResult::new("cached_value");

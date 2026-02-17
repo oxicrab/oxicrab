@@ -11,7 +11,10 @@ fn test_resolve_slack_redirect() {
             "https://myworkspace.slack.com/?redir=%2Ffiles-pri%2FT123-F456%2Fdownload%2Fimage.png",
             "https://myworkspace.slack.com/files-pri/T123-F456/download/image.png",
         ),
-        ("https://cdn.slack.com/files/image.png", "https://cdn.slack.com/files/image.png"),
+        (
+            "https://cdn.slack.com/files/image.png",
+            "https://cdn.slack.com/files/image.png",
+        ),
         ("not-a-url", "not-a-url"),
         (
             "https://ws.slack.com/?redir=%2Ffiles-pri%2FT1-F2%2Fdownload%2Fscreenshot%202026%4016.45.png",

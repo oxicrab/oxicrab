@@ -389,9 +389,11 @@ async fn test_create_issue_success() {
 
     assert!(!result.is_error);
     assert!(result.content.contains("#99"));
-    assert!(result
-        .content
-        .contains("https://github.com/octo/repo/issues/99"));
+    assert!(
+        result
+            .content
+            .contains("https://github.com/octo/repo/issues/99")
+    );
 }
 
 #[tokio::test]
