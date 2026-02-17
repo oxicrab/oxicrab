@@ -279,6 +279,62 @@ fn default_max_iterations() -> usize {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelCost {
+    #[serde(default, rename = "inputPerMillion")]
+    pub input_per_million: f64,
+    #[serde(default, rename = "outputPerMillion")]
+    pub output_per_million: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CostGuardConfig {
+    #[serde(default, rename = "dailyBudgetCents")]
+    pub daily_budget_cents: Option<u64>,
+    #[serde(default, rename = "maxActionsPerHour")]
+    pub max_actions_per_hour: Option<u64>,
+    #[serde(default, rename = "modelCosts")]
+    pub model_costs: std::collections::HashMap<String, ModelCost>,
+}
+
+fn default_failure_threshold() -> u32 {
+    5
+}
+
+fn default_recovery_timeout_secs() -> u64 {
+    60
+}
+
+fn default_half_open_probes() -> u32 {
+    2
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CircuitBreakerConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_failure_threshold", rename = "failureThreshold")]
+    pub failure_threshold: u32,
+    #[serde(
+        default = "default_recovery_timeout_secs",
+        rename = "recoveryTimeoutSecs"
+    )]
+    pub recovery_timeout_secs: u64,
+    #[serde(default = "default_half_open_probes", rename = "halfOpenProbes")]
+    pub half_open_probes: u32,
+}
+
+impl Default for CircuitBreakerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            failure_threshold: default_failure_threshold(),
+            recovery_timeout_secs: default_recovery_timeout_secs(),
+            half_open_probes: default_half_open_probes(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentDefaults {
     #[serde(default = "default_workspace")]
     pub workspace: String,
@@ -312,6 +368,8 @@ pub struct AgentDefaults {
     pub local_model: Option<String>,
     #[serde(default)]
     pub memory: MemoryConfig,
+    #[serde(default, rename = "costGuard")]
+    pub cost_guard: CostGuardConfig,
 }
 
 impl Default for AgentDefaults {
@@ -330,6 +388,7 @@ impl Default for AgentDefaults {
             max_concurrent_subagents: default_max_concurrent_subagents(),
             local_model: None,
             memory: MemoryConfig::default(),
+            cost_guard: CostGuardConfig::default(),
         }
     }
 }
@@ -497,6 +556,8 @@ pub struct ProvidersConfig {
     pub moonshot: ProviderConfig,
     #[serde(default)]
     pub ollama: ProviderConfig,
+    #[serde(default, rename = "circuitBreaker")]
+    pub circuit_breaker: CircuitBreakerConfig,
 }
 
 impl ProvidersConfig {

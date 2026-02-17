@@ -19,6 +19,9 @@ pub struct LLMResponse {
     /// Input token count reported by the provider (if available).
     /// Used for precise compaction threshold checks.
     pub input_tokens: Option<u64>,
+    /// Output token count reported by the provider (if available).
+    /// Used for cost tracking.
+    pub output_tokens: Option<u64>,
 }
 
 impl LLMResponse {
@@ -245,6 +248,7 @@ mod tests {
             tool_calls: vec![],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         };
         assert!(!empty.has_tool_calls());
 
@@ -257,6 +261,7 @@ mod tests {
             }],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         };
         assert!(with_tools.has_tool_calls());
     }
@@ -271,6 +276,7 @@ mod tests {
                 tool_calls: vec![],
                 reasoning_content: None,
                 input_tokens: None,
+                output_tokens: None,
             })
         }
         fn default_model(&self) -> &'static str {

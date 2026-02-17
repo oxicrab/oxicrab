@@ -15,6 +15,7 @@ fn text_response(content: &str) -> LLMResponse {
         tool_calls: vec![],
         reasoning_content: None,
         input_tokens: None,
+        output_tokens: None,
     }
 }
 
@@ -46,6 +47,7 @@ impl LLMProvider for CompactionMockProvider {
             tool_calls: vec![],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         }))
     }
 

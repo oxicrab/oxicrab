@@ -42,6 +42,7 @@ impl LLMProvider for MockLLMProvider {
             tool_calls: vec![],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         }))
     }
 
@@ -58,6 +59,7 @@ pub fn text_response(content: &str) -> LLMResponse {
         tool_calls: vec![],
         reasoning_content: None,
         input_tokens: None,
+        output_tokens: None,
     }
 }
 
@@ -67,6 +69,7 @@ pub fn tool_response(calls: Vec<ToolCallRequest>) -> LLMResponse {
         tool_calls: calls,
         reasoning_content: None,
         input_tokens: None,
+        output_tokens: None,
     }
 }
 

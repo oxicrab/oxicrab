@@ -1,5 +1,6 @@
 use crate::agent::compaction::{estimate_messages_tokens, MessageCompactor};
 use crate::agent::context::ContextBuilder;
+use crate::agent::cost_guard::CostGuard;
 use crate::agent::memory::MemoryStore;
 use crate::agent::subagent::{SubagentConfig, SubagentManager};
 use crate::agent::tools::base::ExecutionContext;
@@ -467,6 +468,8 @@ pub struct AgentLoopConfig {
     pub image_gen_config: Option<crate::config::ImageGenConfig>,
     /// MCP (Model Context Protocol) server configuration
     pub mcp_config: Option<crate::config::McpConfig>,
+    /// Cost guard configuration for budget and rate limiting
+    pub cost_guard_config: crate::config::CostGuardConfig,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -532,6 +535,7 @@ impl AgentLoopConfig {
             browser_config: Some(config.tools.browser.clone()),
             image_gen_config: Some(image_gen),
             mcp_config: Some(config.tools.mcp.clone()),
+            cost_guard_config: config.agents.defaults.cost_guard.clone(),
         }
     }
 
@@ -585,6 +589,7 @@ impl AgentLoopConfig {
             browser_config: None,
             image_gen_config: None,
             mcp_config: None,
+            cost_guard_config: crate::config::CostGuardConfig::default(),
         }
     }
 }
@@ -613,6 +618,7 @@ pub struct AgentLoop {
     transcriber: Option<Arc<crate::utils::transcription::TranscriptionService>>,
     event_matcher: Option<EventMatcher>,
     cron_service: Option<Arc<CronService>>,
+    cost_guard: Option<CostGuard>,
 }
 
 impl AgentLoop {
@@ -651,6 +657,7 @@ impl AgentLoop {
             browser_config,
             image_gen_config,
             mcp_config,
+            cost_guard_config,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -780,6 +787,19 @@ impl AgentLoop {
             None
         };
 
+        // Create cost guard if any limit is configured
+        let cost_guard = if cost_guard_config.daily_budget_cents.is_some()
+            || cost_guard_config.max_actions_per_hour.is_some()
+        {
+            info!(
+                "cost guard enabled (daily_budget={:?} cents, max_actions_per_hour={:?})",
+                cost_guard_config.daily_budget_cents, cost_guard_config.max_actions_per_hour
+            );
+            Some(CostGuard::new(cost_guard_config))
+        } else {
+            None
+        };
+
         Ok(Self {
             inbound_rx,
             provider,
@@ -804,6 +824,7 @@ impl AgentLoop {
             transcriber,
             event_matcher,
             cron_service,
+            cost_guard,
         })
     }
 
@@ -829,7 +850,7 @@ impl AgentLoop {
             };
 
             if let Some(msg) = msg_opt {
-                info!("Agent received inbound message: channel={}, sender_id={}, chat_id={}, content_len={}", 
+                info!("Agent received inbound message: channel={}, sender_id={}, chat_id={}, content_len={}",
                     msg.channel, msg.sender_id, msg.chat_id, msg.content.len());
                 match self.process_message(msg).await {
                     Ok(Some(outbound_msg)) => {
@@ -1134,6 +1155,14 @@ impl AgentLoop {
                 None // defaults to "auto" in provider
             };
 
+            // Cost guard pre-flight check
+            if let Some(ref cg) = self.cost_guard {
+                if let Err(msg) = cg.check_allowed() {
+                    warn!("cost guard blocked LLM call: {}", msg);
+                    return Ok((Some(msg), last_input_tokens, tools_used, collected_media));
+                }
+            }
+
             let response = self
                 .provider
                 .chat_with_retry(
@@ -1159,6 +1188,11 @@ impl AgentLoop {
             // Track provider-reported input token count for precise compaction decisions
             if response.input_tokens.is_some() {
                 last_input_tokens = response.input_tokens;
+            }
+
+            // Record cost for budget tracking
+            if let Some(ref cg) = self.cost_guard {
+                cg.record_llm_call(&self.model, response.input_tokens, response.output_tokens);
             }
 
             if response.has_tool_calls() {

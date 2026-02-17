@@ -141,18 +141,21 @@ async fn test_empty_llm_response_handled() {
             tool_calls: vec![],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         },
         LLMResponse {
             content: None,
             tool_calls: vec![],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         },
         LLMResponse {
             content: None,
             tool_calls: vec![],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         },
         text_response("Finally responding."),
     ]);

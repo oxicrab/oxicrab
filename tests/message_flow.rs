@@ -43,6 +43,7 @@ impl LLMProvider for ToolCapturingProvider {
             tool_calls: vec![],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         }))
     }
 

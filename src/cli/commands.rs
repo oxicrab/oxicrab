@@ -54,6 +54,8 @@ enum Commands {
     },
     /// Show oxicrab status
     Status,
+    /// Run system diagnostics
+    Doctor,
 }
 
 #[derive(Subcommand)]
@@ -175,6 +177,9 @@ pub async fn run() -> Result<()> {
         }
         Commands::Status => {
             status_command()?;
+        }
+        Commands::Doctor => {
+            crate::cli::doctor::doctor_command().await?;
         }
     }
 
@@ -408,6 +413,23 @@ async fn setup_provider(
         "Provider created successfully. Default model: {}",
         provider.default_model()
     );
+
+    // Wrap with circuit breaker if enabled
+    let provider = if config.providers.circuit_breaker.enabled {
+        info!(
+            "circuit breaker enabled (threshold={}, recovery={}s, probes={})",
+            config.providers.circuit_breaker.failure_threshold,
+            config.providers.circuit_breaker.recovery_timeout_secs,
+            config.providers.circuit_breaker.half_open_probes,
+        );
+        crate::providers::circuit_breaker::CircuitBreakerProvider::wrap(
+            provider,
+            &config.providers.circuit_breaker,
+        )
+    } else {
+        provider
+    };
+
     Ok(provider)
 }
 

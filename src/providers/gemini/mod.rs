@@ -83,11 +83,22 @@ impl GeminiProvider {
             }
         }
 
+        let input_tokens = json
+            .get("usageMetadata")
+            .and_then(|u| u.get("promptTokenCount"))
+            .and_then(serde_json::Value::as_u64);
+
+        let output_tokens = json
+            .get("usageMetadata")
+            .and_then(|u| u.get("candidatesTokenCount"))
+            .and_then(serde_json::Value::as_u64);
+
         Ok(LLMResponse {
             content,
             tool_calls,
             reasoning_content: None,
-            input_tokens: None,
+            input_tokens,
+            output_tokens,
         })
     }
 }

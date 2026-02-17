@@ -1,0 +1,206 @@
+[
+  {
+    "match": "starts_with",
+    "pattern": "claude-opus-4",
+    "input_mtok": 15.0,
+    "output_mtok": 75.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "claude-sonnet-4",
+    "input_mtok": 3.0,
+    "output_mtok": 15.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "claude-haiku-4",
+    "input_mtok": 0.80,
+    "output_mtok": 4.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "claude-3-5-sonnet",
+    "input_mtok": 3.0,
+    "output_mtok": 15.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "claude-3-5-haiku",
+    "input_mtok": 0.80,
+    "output_mtok": 4.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "claude-3-opus",
+    "input_mtok": 15.0,
+    "output_mtok": 75.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "claude-3-sonnet",
+    "input_mtok": 3.0,
+    "output_mtok": 15.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "claude-3-haiku",
+    "input_mtok": 0.25,
+    "output_mtok": 1.25
+  },
+  {
+    "match": "starts_with",
+    "pattern": "gpt-4.1",
+    "input_mtok": 2.0,
+    "output_mtok": 8.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "gpt-4o-mini",
+    "input_mtok": 0.15,
+    "output_mtok": 0.60
+  },
+  {
+    "match": "starts_with",
+    "pattern": "gpt-4o",
+    "input_mtok": 2.50,
+    "output_mtok": 10.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "gpt-4-turbo",
+    "input_mtok": 10.0,
+    "output_mtok": 30.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "gpt-4",
+    "input_mtok": 30.0,
+    "output_mtok": 60.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "o3-mini",
+    "input_mtok": 1.10,
+    "output_mtok": 4.40
+  },
+  {
+    "match": "starts_with",
+    "pattern": "o3",
+    "input_mtok": 2.0,
+    "output_mtok": 8.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "o4-mini",
+    "input_mtok": 1.10,
+    "output_mtok": 4.40
+  },
+  {
+    "match": "starts_with",
+    "pattern": "o1-mini",
+    "input_mtok": 3.0,
+    "output_mtok": 12.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "o1",
+    "input_mtok": 15.0,
+    "output_mtok": 60.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "gemini-2.0-flash",
+    "input_mtok": 0.10,
+    "output_mtok": 0.40
+  },
+  {
+    "match": "starts_with",
+    "pattern": "gemini-2.5-pro",
+    "input_mtok": 1.25,
+    "output_mtok": 10.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "gemini-2.5-flash",
+    "input_mtok": 0.15,
+    "output_mtok": 0.60
+  },
+  {
+    "match": "starts_with",
+    "pattern": "gemini-1.5-pro",
+    "input_mtok": 1.25,
+    "output_mtok": 5.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "gemini-1.5-flash",
+    "input_mtok": 0.075,
+    "output_mtok": 0.30
+  },
+  {
+    "match": "starts_with",
+    "pattern": "deepseek-chat",
+    "input_mtok": 0.27,
+    "output_mtok": 1.10
+  },
+  {
+    "match": "starts_with",
+    "pattern": "deepseek-reasoner",
+    "input_mtok": 0.55,
+    "output_mtok": 2.19
+  },
+  {
+    "match": "starts_with",
+    "pattern": "llama-3.3-70b",
+    "input_mtok": 0.59,
+    "output_mtok": 0.79
+  },
+  {
+    "match": "starts_with",
+    "pattern": "llama-3.1-70b",
+    "input_mtok": 0.59,
+    "output_mtok": 0.79
+  },
+  {
+    "match": "starts_with",
+    "pattern": "llama-3.1-8b",
+    "input_mtok": 0.05,
+    "output_mtok": 0.08
+  },
+  {
+    "match": "starts_with",
+    "pattern": "mistral-large",
+    "input_mtok": 2.0,
+    "output_mtok": 6.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "mistral-small",
+    "input_mtok": 0.10,
+    "output_mtok": 0.30
+  },
+  {
+    "match": "starts_with",
+    "pattern": "codestral",
+    "input_mtok": 0.30,
+    "output_mtok": 0.90
+  },
+  {
+    "match": "starts_with",
+    "pattern": "command-r-plus",
+    "input_mtok": 2.50,
+    "output_mtok": 10.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "command-r",
+    "input_mtok": 0.15,
+    "output_mtok": 0.60
+  },
+  {
+    "match": "starts_with",
+    "pattern": "qwen",
+    "input_mtok": 0.30,
+    "output_mtok": 0.60
+  }
+]

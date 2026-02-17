@@ -145,6 +145,7 @@ mod tests {
             tool_calls: vec![],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         }
     }
 
@@ -158,6 +159,7 @@ mod tests {
             }],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         }
     }
 
@@ -216,6 +218,7 @@ mod tests {
             }],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         };
 
         let primary = MockProvider::ok("local-model", bad_response);
@@ -247,6 +250,7 @@ mod tests {
             }],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         };
 
         let primary = MockProvider::ok("local-model", bad_response);

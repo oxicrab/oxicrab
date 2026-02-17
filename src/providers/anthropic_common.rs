@@ -164,11 +164,17 @@ pub fn parse_response(json: &Value) -> LLMResponse {
         .and_then(|u| u.get("input_tokens"))
         .and_then(serde_json::Value::as_u64);
 
+    let output_tokens = json
+        .get("usage")
+        .and_then(|u| u.get("output_tokens"))
+        .and_then(serde_json::Value::as_u64);
+
     LLMResponse {
         content,
         tool_calls,
         reasoning_content,
         input_tokens,
+        output_tokens,
     }
 }
 

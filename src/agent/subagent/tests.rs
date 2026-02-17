@@ -22,6 +22,7 @@ impl MockProvider {
             tool_calls: vec![],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         }])
     }
 
@@ -43,6 +44,7 @@ impl LLMProvider for MockProvider {
             tool_calls: vec![],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         }))
     }
     fn default_model(&self) -> &'static str {
@@ -64,6 +66,7 @@ impl LLMProvider for DelayedProvider {
             tool_calls: vec![],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         })
     }
     fn default_model(&self) -> &'static str {
@@ -174,6 +177,7 @@ impl LLMProvider for ConcurrencyTracker {
             tool_calls: vec![],
             reasoning_content: None,
             input_tokens: None,
+            output_tokens: None,
         })
     }
     fn default_model(&self) -> &'static str {
