@@ -1122,6 +1122,17 @@ pub struct VoiceConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CredentialHelperConfig {
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Format adapter: "json" (default), "1password", "bitwarden", "line"
+    #[serde(default)]
+    pub format: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub agents: AgentsConfig,
@@ -1135,6 +1146,8 @@ pub struct Config {
     pub tools: ToolsConfig,
     #[serde(default)]
     pub voice: VoiceConfig,
+    #[serde(default, rename = "credentialHelper")]
+    pub credential_helper: CredentialHelperConfig,
 }
 
 impl Config {
@@ -1407,5 +1420,35 @@ mod tests {
         // Call with no model parameter and no match - should fall back to first available
         let api_key = config.get_api_key(Some("unknown-model"));
         assert_eq!(api_key, Some("test-anthropic-key"));
+    }
+
+    #[test]
+    fn test_credential_helper_config_default() {
+        let config = Config::default();
+        assert!(config.credential_helper.command.is_empty());
+        assert!(config.credential_helper.args.is_empty());
+        assert!(config.credential_helper.format.is_empty());
+    }
+
+    #[test]
+    fn test_credential_helper_config_deserializes() {
+        let json = r#"{
+            "credentialHelper": {
+                "command": "op",
+                "args": ["--vault", "oxicrab"],
+                "format": "1password"
+            }
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.credential_helper.command, "op");
+        assert_eq!(config.credential_helper.args, vec!["--vault", "oxicrab"]);
+        assert_eq!(config.credential_helper.format, "1password");
+    }
+
+    #[test]
+    fn test_credential_helper_config_missing_is_default() {
+        let json = r"{}";
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert!(config.credential_helper.command.is_empty());
     }
 }

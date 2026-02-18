@@ -22,7 +22,8 @@ name = "oxicrab"
 path = "src/main.rs"
 
 [features]
-default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio"]
+default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio", "keyring-store"]
+keyring-store = ["dep:keyring"]
 channel-telegram = ["dep:teloxide"]
 channel-discord = ["dep:serenity"]
 channel-slack = ["dep:tokio-tungstenite"]
@@ -46,6 +47,7 @@ futures-util = "0.3"
 hex = "0.4"
 hmac = { version = "0.12", optional = true }
 html-escape = "0.2"
+keyring = { version = "3", optional = true }
 lru = "0.16"
 oauth2 = "5.0"
 open = "5.0"

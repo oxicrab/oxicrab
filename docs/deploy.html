@@ -128,6 +128,7 @@
     <ul>
       <li><a href="#docker">Docker</a></li>
       <li><a href="#docker-compose">Docker Compose</a></li>
+      <li><a href="#credentials">Credential Backends</a></li>
       <li><a href="#systemd">systemd (Linux)</a></li>
       <li><a href="#launchd">launchd (macOS)</a></li>
     </ul>
@@ -219,6 +220,82 @@ docker compose logs -f
 
 # Rebuild after updates
 docker compose up -d --build</code></pre>
+  </div>
+
+  <!-- CREDENTIAL BACKENDS -->
+  <div id="credentials" class="deploy-section">
+    <h2>Credential Backends</h2>
+    <p>Oxicrab supports multiple credential backends. Each layer only fills fields that are still empty, so higher-priority sources always win:</p>
+    <ol>
+      <li><strong>Environment variables</strong> (<code>OXICRAB_*</code>) &mdash; highest priority, best for containers and CI</li>
+      <li><strong>Credential helper</strong> &mdash; external process (1Password, Bitwarden, custom scripts)</li>
+      <li><strong>OS keyring</strong> &mdash; macOS Keychain, GNOME Keyring, Windows Credential Manager (requires <code>keyring-store</code> feature)</li>
+      <li><strong>config.json</strong> &mdash; lowest priority, stored in plaintext</li>
+    </ol>
+
+    <h3>Containers: use env vars</h3>
+    <p>OS keyring is not available inside containers. Use <code>OXICRAB_*</code> environment variables instead:</p>
+    <pre><code>docker run -d \
+  --name oxicrab \
+  -e OXICRAB_ANTHROPIC_API_KEY=sk-ant-... \
+  -e OXICRAB_TELEGRAM_TOKEN=123456:AA... \
+  -e OXICRAB_GITHUB_TOKEN=ghp_... \
+  -v ~/.oxicrab:/home/oxicrab/.oxicrab \
+  oxicrab</code></pre>
+
+    <h3>Desktop: use keyring</h3>
+    <p>Store credentials in your OS keychain for security without env vars:</p>
+    <pre><code># Store credentials
+oxicrab credentials set anthropic-api-key
+oxicrab credentials set telegram-token
+
+# Import existing secrets from config.json
+oxicrab credentials import
+
+# Verify
+oxicrab credentials list</code></pre>
+
+    <h3>1Password setup</h3>
+    <p>Install the <a href="https://developer.1password.com/docs/cli/">1Password CLI</a> (<code>op</code>) and authenticate before starting oxicrab:</p>
+    <ul class="plain">
+      <li><strong>Desktop</strong>: Run <code>op signin</code> once &mdash; the CLI caches the session and can use biometric unlock</li>
+      <li><strong>CI/containers</strong>: Set <code>OP_SERVICE_ACCOUNT_TOKEN</code> env var with a <a href="https://developer.1password.com/docs/service-accounts/">service account token</a></li>
+    </ul>
+    <p>Store each credential in a vault named <code>oxicrab</code> (item name = slot name, e.g. <code>anthropic-api-key</code>):</p>
+    <pre><code>{
+  "credentialHelper": {
+    "command": "op",
+    "args": ["--account", "my.1password.com"],
+    "format": "1password"
+  }
+}</code></pre>
+
+    <h3>Bitwarden setup</h3>
+    <p>Install the <a href="https://bitwarden.com/help/cli/">Bitwarden CLI</a> (<code>bw</code>) and authenticate before starting oxicrab:</p>
+    <ul class="plain">
+      <li><strong>Desktop</strong>: Run <code>bw login</code> then <code>bw unlock</code> &mdash; export the <code>BW_SESSION</code> token</li>
+      <li><strong>CI/containers</strong>: Set <code>BW_SESSION</code> env var</li>
+    </ul>
+    <p>Store each credential as a login item at <code>oxicrab/{slot-name}</code> (e.g. <code>oxicrab/anthropic-api-key</code>):</p>
+    <pre><code>{
+  "credentialHelper": {
+    "command": "bw",
+    "format": "bitwarden"
+  }
+}</code></pre>
+
+    <h3>Custom script</h3>
+    <p>Use the <code>line</code> format for any custom script that prints the secret to stdout:</p>
+    <pre><code>{
+  "credentialHelper": {
+    "command": "/path/to/my-secret-fetcher",
+    "args": ["--vault", "production"],
+    "format": "line"
+  }
+}</code></pre>
+    <p>The script is called as: <code>/path/to/my-secret-fetcher --vault production {credential-name}</code></p>
+
+    <div class="note"><strong>Tip:</strong> Run <code>oxicrab doctor</code> to verify your credential helper is working. The Security section shows keyring availability and credential helper status.</div>
   </div>
 
   <!-- SYSTEMD -->

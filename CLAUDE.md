@@ -101,18 +101,19 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 
 `AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. First iteration forces `tool_choice="any"` to prevent text-only hallucinations. Tools nudge (up to 2 retries) catches subsequent iterations where the LLM returns text without having called any tools. Hallucination detection runs on final text responses. Responses flow through the loop's return value (no message tool); the caller sends them exactly once.
 
-### Feature Flags (channel selection)
+### Feature Flags (channel selection + optional features)
 
 ```toml
-default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio"]
+default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio", "keyring-store"]
 channel-telegram = ["dep:teloxide"]
 channel-discord = ["dep:serenity"]
 channel-slack = ["dep:tokio-tungstenite"]
 channel-whatsapp = ["dep:whatsapp-rust", ...]
 channel-twilio = ["dep:axum", "dep:hmac", "dep:sha1"]
+keyring-store = ["dep:keyring"]
 ```
 
-Channels are conditionally compiled via `#[cfg(feature = "channel-*")]` in `src/channels/mod.rs`.
+Channels are conditionally compiled via `#[cfg(feature = "channel-*")]` in `src/channels/mod.rs`. Keyring support (`keyring-store`) is default-on for desktop; containers should build with `--no-default-features` and use env vars instead.
 
 ### Voice Transcription (`src/utils/transcription.rs`)
 
@@ -138,9 +139,19 @@ Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowe
 
 `oxicrab doctor` — system diagnostics command. Checks: config exists/parses/validates, workspace writable, provider API keys configured, provider connectivity (warmup with latency), per-channel status (compiled + enabled + tokens), voice transcription backends, external tools (ffmpeg, git), MCP servers. Includes security audit: config file permissions, directory permissions, empty allowlists, pairing store status. Output: PASS/FAIL/SKIP per check with summary counts. Returns exit code 1 if config file missing.
 
+### Credential Registry (`src/config/credentials.rs`)
+
+Unified credential management via `define_credentials!` macro. Adding a new credential = one line in the macro. All backends (env vars, keyring, credential helper) are generated from a single declarative table of 28 credential slots. Resolution order: env var → credential helper → keyring → config.json.
+
+- **`apply_env_overrides()`**: Checks `OXICRAB_*` env vars for all 28 credential slots
+- **`apply_credential_helper()`**: Fetches secrets from external processes (1Password, Bitwarden, custom scripts)
+- **`apply_keyring_overrides()`** (behind `keyring-store` feature): Loads from OS keychain
+- **`detect_source()`**: Identifies where a credential came from (env/keyring/config/helper/empty)
+- **`CredentialHelperConfig`** in `src/config/schema.rs`: `command`, `args`, `format` (json/1password/bitwarden/line)
+
 ### Security Hardening
 
-- **Env var overrides** (`src/config/loader.rs`): `apply_env_overrides()` checks `OXICRAB_*` env vars after deserialization, before validation. Env vars take precedence over config file values. Supported: `OXICRAB_ANTHROPIC_API_KEY`, `OXICRAB_OPENAI_API_KEY`, `OXICRAB_OPENROUTER_API_KEY`, `OXICRAB_GEMINI_API_KEY`, `OXICRAB_DEEPSEEK_API_KEY`, `OXICRAB_GROQ_API_KEY`, `OXICRAB_TELEGRAM_TOKEN`, `OXICRAB_DISCORD_TOKEN`, `OXICRAB_SLACK_BOT_TOKEN`, `OXICRAB_SLACK_APP_TOKEN`, `OXICRAB_TWILIO_ACCOUNT_SID`, `OXICRAB_TWILIO_AUTH_TOKEN`, `OXICRAB_GITHUB_TOKEN`.
+- **Credential backends** (`src/config/credentials.rs`): Three-tier credential resolution (env > helper > keyring > config.json). All 28 credential slots covered by `OXICRAB_*` env vars. OS keychain via `keyring` crate (optional, `keyring-store` feature). External helper protocol supports 1Password (`op`), Bitwarden (`bw`), and custom scripts.
 - **Default-deny allowlists** (`src/channels/utils.rs`): Empty `allowFrom` arrays now deny all senders. Use `["*"]` for open access.
 - **DM pairing** (`src/pairing/mod.rs`): `PairingStore` provides file-backed per-channel allowlists at `~/.oxicrab/pairing/`. 8-char human-friendly codes with 15-min TTL. CLI: `oxicrab pairing list|approve|revoke`.
 - **Leak detection** (`src/safety/leak_detector.rs`): `LeakDetector` scans outbound messages for API key patterns (Anthropic, OpenAI, Slack, GitHub, Groq, Telegram, Discord). Integrated into `MessageBus::publish_outbound()` — redacts before sending.
@@ -149,7 +160,7 @@ Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowe
 
 ### CLI Commands
 
-`oxicrab gateway` — full multi-channel daemon. `oxicrab agent -m "message"` — single-turn CLI. `oxicrab onboard` — first-time setup. `oxicrab cron` — manage cron jobs. `oxicrab auth` — OAuth flows. `oxicrab channels` — channel status and WhatsApp login. `oxicrab status` — quick setup overview. `oxicrab doctor` — system diagnostics. `oxicrab pairing` — manage DM pairing for sender authentication (list/approve/revoke).
+`oxicrab gateway` — full multi-channel daemon. `oxicrab agent -m "message"` — single-turn CLI. `oxicrab onboard` — first-time setup. `oxicrab cron` — manage cron jobs. `oxicrab auth` — OAuth flows. `oxicrab channels` — channel status and WhatsApp login. `oxicrab credentials` — manage credentials (set/get/delete/list/import via OS keychain). `oxicrab status` — quick setup overview. `oxicrab doctor` — system diagnostics. `oxicrab pairing` — manage DM pairing for sender authentication (list/approve/revoke).
 
 ## Code Style & Patterns
 
@@ -197,3 +208,4 @@ Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowe
 - **Cron 5-field expressions**: `compute_next_run()` normalizes by prepending "0 " for the seconds field.
 - **No `#[allow(dead_code)]`**: Do not add `#[allow(dead_code)]` or `#![allow(dead_code)]` anywhere. If code is unused, remove it. CI runs `clippy -D warnings` which catches dead code.
 - **Empty `allowFrom` is now deny-all**: Channels with empty `allowFrom` will reject all senders. Add `["*"]` for the old behavior, or use the pairing system.
+- **Adding a new credential**: Add one line to `define_credentials!` in `src/config/credentials.rs`. This auto-generates env var override, keyring access, credential helper lookup, CLI listing, and source detection.

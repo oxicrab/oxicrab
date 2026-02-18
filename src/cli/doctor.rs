@@ -386,6 +386,33 @@ fn check_empty_allowlists() -> CheckResult {
     }
 }
 
+fn check_keyring() -> CheckResult {
+    #[cfg(not(feature = "keyring-store"))]
+    return CheckResult::Skip("not compiled (enable 'keyring-store' feature)".to_string());
+
+    #[cfg(feature = "keyring-store")]
+    match keyring::Entry::new("oxicrab", "_doctor_probe") {
+        Ok(_) => CheckResult::Pass("available".to_string()),
+        Err(e) => CheckResult::Fail(format!("unavailable: {e}")),
+    }
+}
+
+fn check_credential_helper() -> CheckResult {
+    let Ok(config) = crate::config::load_config(None) else {
+        return CheckResult::Skip("config not available".to_string());
+    };
+
+    if config.credential_helper.command.is_empty() {
+        return CheckResult::Skip("not configured".to_string());
+    }
+
+    let cmd = &config.credential_helper.command;
+    match which::which(cmd) {
+        Ok(path) => CheckResult::Pass(format!("{} ({})", cmd, path.display())),
+        Err(_) => CheckResult::Fail(format!("{cmd} not found in PATH")),
+    }
+}
+
 fn check_pairing_store() -> CheckResult {
     if !crate::pairing::PairingStore::store_exists() {
         return CheckResult::Skip("not initialized (run oxicrab pairing list)".to_string());
@@ -507,6 +534,12 @@ pub async fn doctor_command() -> Result<()> {
 
     let r = check_config_dir_permissions();
     record("Config dir permissions", &r);
+
+    let r = check_keyring();
+    record("Keyring", &r);
+
+    let r = check_credential_helper();
+    record("Credential helper", &r);
 
     let r = check_empty_allowlists();
     record("Empty allowlists", &r);

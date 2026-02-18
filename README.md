@@ -56,13 +56,14 @@ docker run -v ~/.oxicrab:/home/oxicrab/.oxicrab ghcr.io/oxicrab/oxicrab
 
 Each channel is behind a Cargo feature flag, so you can compile only what you need:
 
-| Feature | Channel | Default |
-|---------|---------|---------|
+| Feature | Description | Default |
+|---------|-------------|---------|
 | `channel-telegram` | Telegram (teloxide) | Yes |
 | `channel-discord` | Discord (serenity) | Yes |
 | `channel-slack` | Slack (tokio-tungstenite) | Yes |
 | `channel-whatsapp` | WhatsApp (whatsapp-rust) | Yes |
 | `channel-twilio` | Twilio SMS/MMS (axum webhook) | Yes |
+| `keyring-store` | OS keychain credential storage (keyring crate) | Yes |
 
 ```bash
 # Full build (all channels)
@@ -260,9 +261,89 @@ Configuration is stored in `~/.oxicrab/config.json`. Create this file with the f
 }
 ```
 
-### Environment Variable Overrides
+### Credential Management
 
-All API keys and channel tokens can be set via environment variables, which take precedence over `config.json`. This is recommended for containerized deployments and CI.
+Oxicrab supports multiple credential backends with the following resolution order (highest priority wins):
+
+```
+Environment variables (OXICRAB_*) → Credential helper → OS keyring → config.json
+```
+
+Each layer only fills fields that are still empty, so higher-priority sources always win.
+
+#### OS Keyring (desktop)
+
+Store credentials in your OS keychain (macOS Keychain, GNOME Keyring, Windows Credential Manager) via the `keyring-store` feature (enabled by default):
+
+```bash
+# Store a credential
+oxicrab credentials set anthropic-api-key
+
+# Check what's configured
+oxicrab credentials list
+
+# Import all secrets from config.json into keyring
+oxicrab credentials import
+
+# Remove a credential
+oxicrab credentials delete anthropic-api-key
+```
+
+#### Credential Helper (1Password, Bitwarden, etc.)
+
+Configure an external credential helper to fetch secrets from a password manager. The helper CLI must already be authenticated before oxicrab starts — oxicrab calls it non-interactively.
+
+**1Password** — install the [1Password CLI](https://developer.1password.com/docs/cli/), then authenticate:
+- **Desktop**: Run `op signin` once; 1Password CLI caches the session and can use biometric unlock
+- **CI/containers**: Set `OP_SERVICE_ACCOUNT_TOKEN` env var with a [service account token](https://developer.1password.com/docs/service-accounts/)
+
+Store each credential in a 1Password vault named `oxicrab` (item name = slot name, e.g. `anthropic-api-key`), then configure:
+
+```json
+{
+  "credentialHelper": {
+    "command": "op",
+    "args": ["--account", "my.1password.com"],
+    "format": "1password"
+  }
+}
+```
+
+**Bitwarden** — install the [Bitwarden CLI](https://bitwarden.com/help/cli/), then `bw login && bw unlock` (or set `BW_SESSION` env var). Store items at `oxicrab/{slot-name}`:
+
+```json
+{
+  "credentialHelper": {
+    "command": "bw",
+    "format": "bitwarden"
+  }
+}
+```
+
+**Custom script** — any executable that prints the secret to stdout:
+
+```json
+{
+  "credentialHelper": {
+    "command": "/path/to/my-secret-fetcher",
+    "args": ["--vault", "production"],
+    "format": "line"
+  }
+}
+```
+
+Supported formats:
+
+| Format | Invocation |
+|--------|-----------|
+| `1password` | `op read "op://oxicrab/{key}" {args}` |
+| `bitwarden` | `bw get password "oxicrab/{key}" {args}` |
+| `line` | `{command} {args} {key}` (raw value on stdout) |
+| `json` (default) | `{command} {args}` with `{"action":"get","key":"{key}"}` on stdin |
+
+#### Environment Variable Overrides
+
+All API keys and channel tokens can be set via environment variables, which take precedence over all other backends. This is recommended for containerized deployments and CI.
 
 | Variable | Config Field |
 |----------|-------------|
@@ -272,6 +353,13 @@ All API keys and channel tokens can be set via environment variables, which take
 | `OXICRAB_GEMINI_API_KEY` | `providers.gemini.apiKey` |
 | `OXICRAB_DEEPSEEK_API_KEY` | `providers.deepseek.apiKey` |
 | `OXICRAB_GROQ_API_KEY` | `providers.groq.apiKey` |
+| `OXICRAB_MOONSHOT_API_KEY` | `providers.moonshot.apiKey` |
+| `OXICRAB_ZHIPU_API_KEY` | `providers.zhipu.apiKey` |
+| `OXICRAB_DASHSCOPE_API_KEY` | `providers.dashscope.apiKey` |
+| `OXICRAB_VLLM_API_KEY` | `providers.vllm.apiKey` |
+| `OXICRAB_OLLAMA_API_KEY` | `providers.ollama.apiKey` |
+| `OXICRAB_ANTHROPIC_OAUTH_ACCESS` | `providers.anthropicOAuth.accessToken` |
+| `OXICRAB_ANTHROPIC_OAUTH_REFRESH` | `providers.anthropicOAuth.refreshToken` |
 | `OXICRAB_TELEGRAM_TOKEN` | `channels.telegram.token` |
 | `OXICRAB_DISCORD_TOKEN` | `channels.discord.token` |
 | `OXICRAB_SLACK_BOT_TOKEN` | `channels.slack.botToken` |
@@ -279,6 +367,14 @@ All API keys and channel tokens can be set via environment variables, which take
 | `OXICRAB_TWILIO_ACCOUNT_SID` | `channels.twilio.accountSid` |
 | `OXICRAB_TWILIO_AUTH_TOKEN` | `channels.twilio.authToken` |
 | `OXICRAB_GITHUB_TOKEN` | `tools.github.token` |
+| `OXICRAB_WEATHER_API_KEY` | `tools.weather.apiKey` |
+| `OXICRAB_TODOIST_TOKEN` | `tools.todoist.token` |
+| `OXICRAB_WEB_SEARCH_API_KEY` | `tools.web.search.apiKey` |
+| `OXICRAB_GOOGLE_CLIENT_SECRET` | `tools.google.clientSecret` |
+| `OXICRAB_OBSIDIAN_API_KEY` | `tools.obsidian.apiKey` |
+| `OXICRAB_MEDIA_RADARR_API_KEY` | `tools.media.radarr.apiKey` |
+| `OXICRAB_MEDIA_SONARR_API_KEY` | `tools.media.sonarr.apiKey` |
+| `OXICRAB_TRANSCRIPTION_API_KEY` | `voice.transcription.apiKey` |
 
 ## Channel Setup
 
@@ -565,7 +661,7 @@ Run `oxicrab doctor` to check your entire setup:
 ./target/release/oxicrab doctor
 ```
 
-Checks config file, workspace, provider API keys and connectivity (warmup latency), each channel's status and credentials, voice transcription backends, external tools (ffmpeg, git), and MCP servers. Now includes a **Security** section checking config file permissions, directory permissions, empty allowlists, and pairing store status. Reports PASS/FAIL/SKIP for every check with a summary at the end.
+Checks config file, workspace, provider API keys and connectivity (warmup latency), each channel's status and credentials, voice transcription backends, external tools (ffmpeg, git), and MCP servers. Includes a **Security** section checking config file permissions, directory permissions, empty allowlists, pairing store status, OS keyring availability, and credential helper status. Reports PASS/FAIL/SKIP for every check with a summary at the end.
 
 ### Voice Transcription
 

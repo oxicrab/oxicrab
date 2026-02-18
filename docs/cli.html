@@ -129,6 +129,7 @@
             <li><a href="#cron">cron</a></li>
             <li><a href="#auth">auth</a></li>
             <li><a href="#channels">channels</a></li>
+            <li><a href="#credentials">credentials</a></li>
             <li><a href="#pairing">pairing</a></li>
             <li><a href="#status">status</a></li>
             <li><a href="#doctor">doctor</a></li>
@@ -268,6 +269,57 @@ oxicrab cron add -n "Reminder" -m "Meeting in 5 minutes" --at "2026-03-01T14:55:
     <p>Link a WhatsApp device via QR code. Displays a QR code in the terminal to scan with your phone. Session is saved to <code>~/.oxicrab/whatsapp/whatsapp.db</code>.</p>
     <p>Requires the <code>channel-whatsapp</code> feature to be compiled.</p>
 
+    <!-- CREDENTIALS -->
+    <h2 id="credentials">credentials</h2>
+    <div class="cmd-sig">oxicrab credentials &lt;SUBCOMMAND&gt;</div>
+    <p>Manage credentials stored in the OS keychain. Requires the <code>keyring-store</code> feature (enabled by default). Resolution order: env vars &gt; credential helper &gt; keyring &gt; config.json.</p>
+
+    <h3>credentials set</h3>
+    <div class="cmd-sig">oxicrab credentials set &lt;NAME&gt; [VALUE]</div>
+    <p>Store a credential in the OS keychain. If <code>VALUE</code> is omitted, reads from stdin (useful for piping).</p>
+    <table class="flag-table">
+        <tr><th>Argument</th><th>Description</th></tr>
+        <tr><td>NAME</td><td>Credential slot name (e.g. <code>anthropic-api-key</code>, <code>telegram-token</code>)</td></tr>
+        <tr><td>VALUE</td><td>The secret value (optional &mdash; reads stdin if omitted)</td></tr>
+    </table>
+    <pre>oxicrab credentials set anthropic-api-key sk-ant-api03-...
+echo "my-token" | oxicrab credentials set telegram-token</pre>
+
+    <h3>credentials get</h3>
+    <div class="cmd-sig">oxicrab credentials get &lt;NAME&gt;</div>
+    <p>Check whether a credential is stored in the keychain. Shows <code>[set]</code> or <code>[empty]</code> &mdash; does not print the actual secret.</p>
+
+    <h3>credentials delete</h3>
+    <div class="cmd-sig">oxicrab credentials delete &lt;NAME&gt;</div>
+    <p>Remove a credential from the OS keychain.</p>
+
+    <h3>credentials list</h3>
+    <div class="cmd-sig">oxicrab credentials list</div>
+    <p>Show all 28 credential slots with their source (env, keyring, config, helper, or empty).</p>
+    <pre>$ oxicrab credentials list
+Credential                     Source
+──────────────────────────────────────────
+anthropic-api-key              keyring
+openai-api-key                 env
+telegram-token                 config
+discord-token                  [empty]
+github-token                   config/helper</pre>
+
+    <h3>credentials import</h3>
+    <div class="cmd-sig">oxicrab credentials import</div>
+    <p>Import all non-empty credentials from <code>config.json</code> into the OS keychain. Does not modify the config file &mdash; remove secrets from config.json manually after verifying the import.</p>
+
+    <h3>Credential slot names</h3>
+    <p>Use <code>oxicrab credentials list</code> to see all available slot names. Common ones:</p>
+    <table class="flag-table">
+        <tr><th>Name</th><th>Config Field</th></tr>
+        <tr><td>anthropic-api-key</td><td>providers.anthropic.apiKey</td></tr>
+        <tr><td>openai-api-key</td><td>providers.openai.apiKey</td></tr>
+        <tr><td>telegram-token</td><td>channels.telegram.token</td></tr>
+        <tr><td>discord-token</td><td>channels.discord.token</td></tr>
+        <tr><td>github-token</td><td>tools.github.token</td></tr>
+    </table>
+
     <!-- PAIRING -->
     <h2 id="pairing">pairing</h2>
     <div class="cmd-sig">oxicrab pairing &lt;SUBCOMMAND&gt;</div>
@@ -327,7 +379,7 @@ Approved: telegram:123456789</pre>
         <tr><td>Channels</td><td>Each channel (Telegram, Discord, Slack, WhatsApp, Twilio): compiled, enabled, tokens/credentials configured</td></tr>
         <tr><td>Voice</td><td>Transcription backend availability (local model, cloud API, or both)</td></tr>
         <tr><td>External Tools</td><td>ffmpeg and git available in PATH (with version info)</td></tr>
-        <tr><td>Security</td><td>Config file permissions (0600), config directory permissions (0700), empty allowlists on enabled channels, pairing store status</td></tr>
+        <tr><td>Security</td><td>Config file permissions (0600), config directory permissions (0700), empty allowlists on enabled channels, pairing store status, OS keyring availability, credential helper status</td></tr>
         <tr><td>MCP</td><td>MCP servers configured and enabled</td></tr>
     </table>
 
@@ -372,13 +424,15 @@ oxicrab doctor
   PASS   Config dir permissions         700
   PASS   Empty allowlists               all enabled channels have allowlists or are disabled
   PASS   Pairing store                  3 paired sender(s), 0 pending
+  PASS   Keyring                        available
+  SKIP   Credential helper              not configured
 
   MCP
   --------------------------------------------------------
   PASS   MCP servers                    2 server(s): filesystem, git
 
 ============================================================
-  18 passed, 0 failed, 3 skipped
+  20 passed, 0 failed, 3 skipped
 
   All checks passed!</pre>
 

@@ -505,6 +505,16 @@ oxicrab pairing revoke telegram 123456789</code></pre>
       <li>Run <code>oxicrab pairing approve &lt;code&gt;</code> to authorize.</li>
     </ol>
 
+    <h3>Token storage</h3>
+    <p>Channel tokens can be stored in any of these backends (in priority order):</p>
+    <ol>
+      <li><strong>Environment variables</strong>: <code>OXICRAB_TELEGRAM_TOKEN</code>, <code>OXICRAB_DISCORD_TOKEN</code>, <code>OXICRAB_SLACK_BOT_TOKEN</code>, etc.</li>
+      <li><strong>Credential helper</strong>: Configure a <code>credentialHelper</code> in config.json (1Password, Bitwarden, custom scripts)</li>
+      <li><strong>OS keyring</strong>: <code>oxicrab credentials set telegram-token</code></li>
+      <li><strong>config.json</strong>: Direct in the config file (least secure)</li>
+    </ol>
+    <p>See the <a href="deploy.html#credentials">Credential Backends</a> guide for setup details.</p>
+
     <h3>Media handling</h3>
     <p>Inbound media (images, voice messages) is downloaded and saved to <code>~/.oxicrab/media/</code> with channel-specific prefixes. Voice messages are automatically transcribed if the transcription service is configured.</p>
 
