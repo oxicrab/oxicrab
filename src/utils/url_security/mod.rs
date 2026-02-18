@@ -29,12 +29,17 @@ pub fn validate_url(url_str: &str) -> Result<(), String> {
         url::Host::Domain(domain) => {
             // Hostname — resolve via DNS to check the actual IP
             // Use std::net for synchronous resolution (sufficient for validation)
-            if let Ok(addrs) = std::net::ToSocketAddrs::to_socket_addrs(&(domain, 80)) {
-                for addr in addrs {
-                    check_ip_allowed(addr.ip())?;
+            match std::net::ToSocketAddrs::to_socket_addrs(&(domain, 80)) {
+                Ok(addrs) => {
+                    for addr in addrs {
+                        check_ip_allowed(addr.ip())?;
+                    }
                 }
-            } else {
-                // DNS resolution failed — allow through (will fail at fetch time)
+                Err(_) => {
+                    // DNS resolution failed — block by default to prevent SSRF bypass
+                    // (attacker could use a hostname that resolves differently at validation vs fetch)
+                    return Err(format!("DNS resolution failed for domain: {}", domain));
+                }
             }
         }
     }

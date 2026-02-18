@@ -60,7 +60,7 @@ fn check_config_validates() -> CheckResult {
             Ok(()) => CheckResult::Pass("all checks passed".to_string()),
             Err(e) => CheckResult::Fail(format!("{}", e)),
         },
-        Err(_) => CheckResult::Skip("config did not parse".to_string()),
+        Err(e) => CheckResult::Skip(format!("config did not parse: {}", e)),
     }
 }
 

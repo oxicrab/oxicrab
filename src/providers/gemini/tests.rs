@@ -1,6 +1,6 @@
 use super::*;
 use crate::providers::base::Message;
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // --- Wiremock tests ---
@@ -21,7 +21,6 @@ async fn test_chat_success() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/models/gemini-pro:generateContent"))
-        .and(query_param("key", "test_key"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "candidates": [{
                 "content": {

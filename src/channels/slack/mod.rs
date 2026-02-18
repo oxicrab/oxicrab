@@ -19,7 +19,8 @@ pub struct SlackChannel {
     bot_user_id: Arc<tokio::sync::Mutex<Option<String>>>,
     running: Arc<tokio::sync::Mutex<bool>>,
     ws_handle: Option<tokio::task::JoinHandle<()>>,
-    seen_messages: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+    seen_messages: Arc<tokio::sync::Mutex<indexmap::IndexSet<String>>>,
+    user_cache: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     client: reqwest::Client,
 }
 
@@ -31,7 +32,8 @@ impl SlackChannel {
             bot_user_id: Arc::new(tokio::sync::Mutex::new(None)),
             running: Arc::new(tokio::sync::Mutex::new(false)),
             ws_handle: None,
-            seen_messages: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
+            seen_messages: Arc::new(tokio::sync::Mutex::new(indexmap::IndexSet::new())),
+            user_cache: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             client: reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .timeout(std::time::Duration::from_secs(30))
@@ -245,6 +247,7 @@ impl BaseChannel for SlackChannel {
         let inbound_tx = self.inbound_tx.clone();
         let bot_user_id = self.bot_user_id.clone();
         let seen_messages = self.seen_messages.clone();
+        let user_cache = self.user_cache.clone();
         let ws_client = self.client.clone();
 
         let ws_task = tokio::spawn(async move {
@@ -414,6 +417,7 @@ impl BaseChannel for SlackChannel {
                                                         event_data,
                                                         &bot_user_id,
                                                         &seen_messages,
+                                                        &user_cache,
                                                         &inbound_tx,
                                                         &config_allow,
                                                         &bot_token,
@@ -677,11 +681,12 @@ fn resolve_slack_redirect(location: &str) -> String {
 use crate::utils::media::is_image_magic_bytes;
 
 /// Standalone message handler that uses shared state instead of constructing a new `SlackChannel`.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 async fn handle_slack_event(
     event: &Value,
     bot_user_id: &Arc<tokio::sync::Mutex<Option<String>>>,
-    seen_messages: &Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+    seen_messages: &Arc<tokio::sync::Mutex<indexmap::IndexSet<String>>>,
+    user_cache: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     inbound_tx: &Arc<mpsc::Sender<InboundMessage>>,
     allow_from: &[String],
     bot_token: &str,
@@ -724,13 +729,10 @@ async fn handle_slack_event(
         }
         seen.insert(msg_key.clone());
         // Evict oldest entries when set grows too large (keep ~500 most recent).
-        // HashSet has no ordering; we remove a random half to avoid unbounded growth
-        // while retaining enough entries to catch most duplicates.
+        // IndexSet preserves insertion order, so drain from the front.
         if seen.len() > 1000 {
-            let to_remove: Vec<String> = seen.iter().take(500).cloned().collect();
-            for key in to_remove {
-                seen.remove(&key);
-            }
+            let drain_count = seen.len() - 500;
+            seen.drain(..drain_count);
             debug!("Pruned Slack dedup set to {} entries", seen.len());
         }
     }
@@ -762,21 +764,34 @@ async fn handle_slack_event(
         return Ok(());
     }
 
-    // Build sender_id — try to enrich with username
-    let mut sender_id = user_id.to_string();
-    let url = "https://slack.com/api/users.info";
-    let mut form = HashMap::new();
-    form.insert("token", Value::String(bot_token.to_string()));
-    form.insert("user", Value::String(user_id.to_string()));
-    if let Ok(response) = client.post(url).form(&form).send().await
-        && let Ok(user_info) = response.json::<Value>().await
-        && let Some(name) = user_info
-            .get("user")
-            .and_then(|u| u.get("name"))
-            .and_then(|n| n.as_str())
-    {
-        sender_id = format!("{}|{}", user_id, name);
-    }
+    // Build sender_id — try to enrich with username (cached per user_id)
+    let sender_id = {
+        let cache = user_cache.lock().await;
+        cache.get(user_id).cloned()
+    };
+    let sender_id = if let Some(cached) = sender_id {
+        cached
+    } else {
+        let mut enriched = user_id.to_string();
+        let url = "https://slack.com/api/users.info";
+        let mut form = HashMap::new();
+        form.insert("token", Value::String(bot_token.to_string()));
+        form.insert("user", Value::String(user_id.to_string()));
+        if let Ok(response) = client.post(url).form(&form).send().await
+            && let Ok(user_info) = response.json::<Value>().await
+            && let Some(name) = user_info
+                .get("user")
+                .and_then(|u| u.get("name"))
+                .and_then(|n| n.as_str())
+        {
+            enriched = format!("{}|{}", user_id, name);
+        }
+        user_cache
+            .lock()
+            .await
+            .insert(user_id.to_string(), enriched.clone());
+        enriched
+    };
 
     // Handle file attachments
     let mut media_paths = Vec::new();

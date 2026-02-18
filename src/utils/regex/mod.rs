@@ -168,36 +168,45 @@ pub fn compile_slack_mention(bot_id: &str) -> Result<Regex> {
     })
 }
 
-/// Compile security patterns for command validation
+/// Get cached security patterns for command validation.
+/// Patterns are compiled once on first call and reused.
 pub fn compile_security_patterns() -> Result<Vec<Regex>> {
-    let patterns = vec![
-        r"\brm\s+-[rf]{1,2}\b",
-        r"\brm\s+--(?:recursive|force)\b",
-        r"\bdel\s+/[fq]\b",
-        r"\brmdir\s+/s\b",
-        r"\b(format|mkfs|diskpart)\b",
-        r"\bdd\s+if=",
-        r">\s*/dev/sd",
-        r"\b(shutdown|reboot|poweroff)\b",
-        r":\(\)\s*\{.*\};\s*:",
-        r"\beval\b",
-        r"\bbase64\b.*\|\s*(sh|bash|zsh)\b",
-        r"\b(curl|wget)\b.*\|\s*(sh|bash|zsh|python)\b",
-        r"\bpython[23]?\s+-c\b",
-        r"\bchmod\b.*\bo?[0-7]*7[0-7]{0,2}\b",
-        r"\bchown\b",
-        r"\b(useradd|userdel|usermod|passwd|adduser|deluser)\b",
-        // Shell metacharacter injection: command substitution and variable expansion
-        r"\$\(",        // $(command) substitution
-        r"`[^`]+`",     // `command` backtick substitution
-        r"\$\{[^}]+\}", // ${VAR} variable expansion
-    ];
+    static PATTERNS: std::sync::LazyLock<Result<Vec<Regex>, String>> =
+        std::sync::LazyLock::new(|| {
+            let patterns = vec![
+                r"\brm\s+-[rf]{1,2}\b",
+                r"\brm\s+--(?:recursive|force)\b",
+                r"\bdel\s+/[fq]\b",
+                r"\brmdir\s+/s\b",
+                r"\b(format|mkfs|diskpart)\b",
+                r"\bdd\s+if=",
+                r">\s*/dev/sd",
+                r"\b(shutdown|reboot|poweroff)\b",
+                r":\(\)\s*\{.*\};\s*:",
+                r"\beval\b",
+                r"\bbase64\b.*\|\s*(sh|bash|zsh)\b",
+                r"\b(curl|wget)\b.*\|\s*(sh|bash|zsh|python)\b",
+                r"\bpython[23]?\s+-c\b",
+                r"\bchmod\b.*\bo?[0-7]*7[0-7]{0,2}\b",
+                r"\bchown\b",
+                r"\b(useradd|userdel|usermod|passwd|adduser|deluser)\b",
+                // Shell metacharacter injection: command substitution and variable expansion
+                r"\$\(",        // $(command) substitution
+                r"`[^`]+`",     // `command` backtick substitution
+                r"\$\{[^}]+\}", // ${VAR} variable expansion
+            ];
 
-    let mut compiled = Vec::new();
-    for pattern in patterns {
-        compiled.push(compile_regex(pattern)?);
-    }
-    Ok(compiled)
+            let mut compiled = Vec::new();
+            for pattern in patterns {
+                compiled.push(compile_regex(pattern).map_err(|e| e.to_string())?);
+            }
+            Ok(compiled)
+        });
+
+    PATTERNS
+        .as_ref()
+        .map(Clone::clone)
+        .map_err(|e| anyhow::anyhow!("{}", e))
 }
 
 #[cfg(test)]

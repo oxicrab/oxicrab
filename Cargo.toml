@@ -47,6 +47,7 @@ futures-util = "0.3"
 hex = "0.4"
 hmac = { version = "0.12", optional = true }
 html-escape = "0.2"
+indexmap = "2"
 keyring = { version = "3", optional = true }
 lru = "0.16"
 oauth2 = "5.0"
@@ -103,6 +104,4 @@ strip = true          # Strip debug symbols
 panic = "abort"       # Abort on panic (smaller than unwinding)
 
 [dev-dependencies]
-tokio-test = "0.4"
-tempfile = "3.10"
 wiremock = "0.6.5"

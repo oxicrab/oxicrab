@@ -9,7 +9,6 @@ use std::sync::Arc;
 use tracing::{debug, warn};
 
 pub struct MemoryStore {
-    _workspace: PathBuf,
     memory_dir: PathBuf,
     db: Arc<MemoryDB>,
     indexer: Option<Arc<MemoryIndexer>>,
@@ -76,7 +75,6 @@ impl MemoryStore {
         ));
 
         Ok(Self {
-            _workspace: workspace.to_path_buf(),
             memory_dir,
             db,
             indexer: Some(indexer),
@@ -125,7 +123,6 @@ impl MemoryStore {
         ));
 
         Ok(Self {
-            _workspace: workspace.to_path_buf(),
             memory_dir,
             db,
             indexer: Some(indexer),

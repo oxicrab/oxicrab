@@ -332,6 +332,10 @@ async fn register_mcp(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         }
         match McpManager::new(mcp_cfg).await {
             Ok(manager) => {
+                use std::sync::OnceLock;
+                static MCP_MANAGER: OnceLock<crate::agent::tools::mcp::McpManager> =
+                    OnceLock::new();
+
                 let tools = manager.discover_tools().await;
                 let mut registered = 0usize;
                 for (trust, tool) in tools {
@@ -381,10 +385,9 @@ async fn register_mcp(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
                 if registered > 0 {
                     info!("Registered {} MCP tool(s)", registered);
                 }
-                // Store manager so child processes stay alive.
-                // We leak it intentionally — MCP servers run for the process lifetime.
-                // The processes will be killed when the oxicrab process exits.
-                std::mem::forget(manager);
+                // Store manager in a static so child processes stay alive for the
+                // process lifetime while still being properly dropped on shutdown.
+                let _ = MCP_MANAGER.set(manager);
             }
             Err(e) => {
                 error!("MCP initialization failed: {}", e);

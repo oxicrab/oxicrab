@@ -23,9 +23,9 @@ impl LeakDetector {
     pub fn new() -> Self {
         let patterns = vec![
             // Anthropic API keys
-            ("anthropic_api_key", r"sk-ant-api[0-9a-zA-Z\-_]{20,}"),
+            ("anthropic_api_key", r"sk-ant-api[0-9a-zA-Z\-_]{20,200}"),
             // OpenAI API keys
-            ("openai_api_key", r"sk-[a-zA-Z0-9]{20,}"),
+            ("openai_api_key", r"sk-[a-zA-Z0-9]{20,200}"),
             // Slack bot tokens
             ("slack_bot_token", r"xoxb-[0-9]+-[0-9]+-[a-zA-Z0-9]+"),
             // Slack app tokens
@@ -33,13 +33,13 @@ impl LeakDetector {
             // GitHub PATs
             ("github_pat", r"ghp_[a-zA-Z0-9]{36}"),
             // Groq API keys
-            ("groq_api_key", r"gsk_[a-zA-Z0-9]{20,}"),
+            ("groq_api_key", r"gsk_[a-zA-Z0-9]{20,200}"),
             // Telegram bot tokens
             ("telegram_bot_token", r"[0-9]+:AA[A-Za-z0-9_\-]{33}"),
             // Discord bot tokens
             (
                 "discord_bot_token",
-                r"[A-Za-z0-9_\-]{24}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,}",
+                r"[A-Za-z0-9_\-]{24}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,200}",
             ),
         ];
 

@@ -29,6 +29,7 @@ impl AnthropicProvider {
             base_url: API_URL.to_string(),
             client: Client::builder()
                 .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             metrics: std::sync::Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),

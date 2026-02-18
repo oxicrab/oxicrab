@@ -286,15 +286,17 @@ fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
     images
 }
 
-/// Strip `[image: /path/to/file]` tags from message content.
-/// These tags are added by channels when images are downloaded, but become
-/// redundant (and misleading) once images are base64-encoded into content blocks.
-fn strip_image_tags(content: &str) -> String {
+/// Replace `[prefix /path/to/file]` tags in content with an optional replacement string.
+/// If `replacement` is `None`, the tags are removed entirely.
+fn replace_bracketed_tags(content: &str, prefix: &str, replacement: Option<&str>) -> String {
     let mut result = String::with_capacity(content.len());
     let mut remaining = content;
-    while let Some(start) = remaining.find("[image: ") {
+    while let Some(start) = remaining.find(prefix) {
         result.push_str(&remaining[..start]);
         if let Some(end) = remaining[start..].find(']') {
+            if let Some(rep) = replacement {
+                result.push_str(rep);
+            }
             remaining = &remaining[start + end + 1..];
         } else {
             // No closing bracket — keep the rest as-is
@@ -306,23 +308,21 @@ fn strip_image_tags(content: &str) -> String {
     result.trim().to_string()
 }
 
+/// Strip `[image: /path/to/file]` tags from message content.
+/// These tags are added by channels when images are downloaded, but become
+/// redundant (and misleading) once images are base64-encoded into content blocks.
+fn strip_image_tags(content: &str) -> String {
+    replace_bracketed_tags(content, "[image: ", None)
+}
+
 /// Replace `[audio: /path/to/file]` tags with a notice when transcription is not configured.
 /// This ensures the LLM knows a voice message was sent even without transcription.
 fn strip_audio_tags(content: &str) -> String {
-    let mut result = String::with_capacity(content.len());
-    let mut remaining = content;
-    while let Some(start) = remaining.find("[audio: ") {
-        result.push_str(&remaining[..start]);
-        if let Some(end) = remaining[start..].find(']') {
-            result.push_str("[Voice message received, but transcription is not configured]");
-            remaining = &remaining[start + end + 1..];
-        } else {
-            remaining = &remaining[start..];
-            break;
-        }
-    }
-    result.push_str(remaining);
-    result.trim().to_string()
+    replace_bracketed_tags(
+        content,
+        "[audio: ",
+        Some("[Voice message received, but transcription is not configured]"),
+    )
 }
 
 /// Replace `[audio: /path/to/file]` tags with transcribed text.

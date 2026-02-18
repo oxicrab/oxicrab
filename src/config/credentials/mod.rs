@@ -153,7 +153,11 @@ fn fetch_from_helper(helper: &CredentialHelperConfig, key: &str) -> Result<Strin
             let output = run_helper_process(&helper.command, &helper.args, Some(&stdin_data))?;
             let parsed: serde_json::Value =
                 serde_json::from_str(&output).context("credential helper returned invalid JSON")?;
-            Ok(parsed["value"].as_str().unwrap_or("").to_string())
+            Ok(parsed
+                .get("value")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string())
         }
     }
 }

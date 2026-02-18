@@ -221,13 +221,13 @@ impl ApiKeyProviderStrategy {
             let provider_name = keyword[..1].to_uppercase() + &keyword[1..];
 
             // Strip the "keyword/" prefix if present — providers expect the bare model name
-            let api_model =
-                model_lower
-                    .strip_prefix(&format!("{}/", keyword))
-                    .map_or(model, |suffix| {
-                        // Preserve original casing from the user's model string
-                        &model[model.len() - suffix.len()..]
-                    });
+            let prefix = format!("{}/", keyword);
+            let api_model = if model_lower.starts_with(&prefix) {
+                // Preserve original casing; prefix is ASCII so byte offset is safe
+                &model[prefix.len()..]
+            } else {
+                model
+            };
 
             info!(
                 "Using OpenAI-compatible provider ({}) for model: {} (api_model: {})",

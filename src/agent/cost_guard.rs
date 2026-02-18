@@ -92,29 +92,19 @@ impl CostGuard {
 
     /// Pre-flight check before an LLM call. Returns `Err(message)` if blocked.
     pub fn check_allowed(&self) -> Result<(), String> {
-        // Fast path: budget already exceeded
-        if self.budget_exceeded.load(Ordering::Relaxed) {
-            // Double-check: might have rolled over to a new day
-            let mut daily = self.daily_cost.lock().unwrap();
-            let today = chrono::Utc::now().date_naive();
-            if daily.date == today {
-                return Err(format!(
-                    "Daily budget exceeded ({:.1} cents spent, limit {} cents). Try again tomorrow.",
-                    daily.total_cents,
-                    self.config.daily_budget_cents.unwrap_or(0)
-                ));
-            }
-            daily.total_cents = 0.0;
-            daily.date = today;
-            self.budget_exceeded.store(false, Ordering::Relaxed);
-        }
-
-        // Check daily budget
+        // Check daily budget (always take the lock to avoid TOCTOU race)
         if let Some(budget) = self.config.daily_budget_cents {
-            let daily = self.daily_cost.lock().unwrap();
+            let Ok(mut daily) = self.daily_cost.lock() else {
+                return Ok(()); // poisoned mutex — allow through rather than panic
+            };
             let today = chrono::Utc::now().date_naive();
-            if daily.date == today && daily.total_cents >= budget as f64 {
-                self.budget_exceeded.store(true, Ordering::Relaxed);
+            if daily.date != today {
+                // Day rolled over — reset
+                daily.total_cents = 0.0;
+                daily.date = today;
+                self.budget_exceeded.store(false, Ordering::Release);
+            } else if daily.total_cents >= budget as f64 {
+                self.budget_exceeded.store(true, Ordering::Release);
                 return Err(format!(
                     "Daily budget exceeded ({:.1} cents spent, limit {} cents). Try again tomorrow.",
                     daily.total_cents, budget
@@ -124,10 +114,12 @@ impl CostGuard {
 
         // Check hourly rate limit
         if let Some(max_actions) = self.config.max_actions_per_hour {
-            let mut actions = self.hourly_actions.lock().unwrap();
+            let Ok(mut actions) = self.hourly_actions.lock() else {
+                return Ok(());
+            };
             let cutoff = Instant::now()
                 .checked_sub(std::time::Duration::from_hours(1))
-                .unwrap();
+                .unwrap_or(Instant::now());
             while actions.front().is_some_and(|t| *t < cutoff) {
                 actions.pop_front();
             }
@@ -154,20 +146,19 @@ impl CostGuard {
             self.estimate_cost_cents(model, input_tokens.unwrap_or(0), output_tokens.unwrap_or(0));
 
         // Update daily cost
-        {
-            let mut daily = self.daily_cost.lock().unwrap();
+        if let Ok(mut daily) = self.daily_cost.lock() {
             let today = chrono::Utc::now().date_naive();
             if daily.date != today {
                 daily.total_cents = 0.0;
                 daily.date = today;
-                self.budget_exceeded.store(false, Ordering::Relaxed);
+                self.budget_exceeded.store(false, Ordering::Release);
             }
             daily.total_cents += cost_cents;
 
             if let Some(budget) = self.config.daily_budget_cents
                 && daily.total_cents >= budget as f64
             {
-                self.budget_exceeded.store(true, Ordering::Relaxed);
+                self.budget_exceeded.store(true, Ordering::Release);
                 warn!(
                     "daily budget exceeded: {:.1} cents spent (limit: {} cents)",
                     daily.total_cents, budget
@@ -176,8 +167,9 @@ impl CostGuard {
         }
 
         // Record action for rate limiting
-        if self.config.max_actions_per_hour.is_some() {
-            let mut actions = self.hourly_actions.lock().unwrap();
+        if self.config.max_actions_per_hour.is_some()
+            && let Ok(mut actions) = self.hourly_actions.lock()
+        {
             actions.push_back(Instant::now());
         }
 
@@ -389,7 +381,7 @@ mod tests {
     }
 
     #[test]
-    fn test_budget_exceeded_fast_path() {
+    fn test_budget_exceeded_blocks() {
         let config = CostGuardConfig {
             daily_budget_cents: Some(1),
             max_actions_per_hour: None,
@@ -397,10 +389,11 @@ mod tests {
         };
         let guard = CostGuard::new(config);
 
-        // Force the fast-path flag
-        guard.budget_exceeded.store(true, Ordering::Relaxed);
+        // Simulate spending over budget
+        if let Ok(mut daily) = guard.daily_cost.lock() {
+            daily.total_cents = 2.0; // exceeds 1 cent budget
+        }
 
-        // Should still be blocked (date is today)
         let result = guard.check_allowed();
         assert!(result.is_err());
     }

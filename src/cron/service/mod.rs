@@ -98,6 +98,7 @@ pub struct CronService {
     on_job: Arc<tokio::sync::Mutex<Option<CronJobCallback>>>,
     running: Arc<tokio::sync::Mutex<bool>>,
     task_tracker: Arc<TaskTracker>,
+    last_mtime: Arc<Mutex<Option<SystemTime>>>,
 }
 
 impl CronService {
@@ -108,6 +109,7 @@ impl CronService {
             on_job: Arc::new(tokio::sync::Mutex::new(None)),
             running: Arc::new(tokio::sync::Mutex::new(false)),
             task_tracker: Arc::new(TaskTracker::new()),
+            last_mtime: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -186,9 +188,24 @@ impl CronService {
                     break;
                 }
 
-                // Force-reload from disk each tick to pick up external CLI changes,
-                // then work through the shared store mutex.
-                if let Err(e) = service.load_store(true).await {
+                // Reload from disk only when the file has changed (mtime check),
+                // to pick up external CLI changes without redundant I/O each tick.
+                let file_changed = match std::fs::metadata(&service.store_path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                {
+                    None => true,
+                    Some(mtime) => {
+                        let mut prev = service.last_mtime.lock().await;
+                        if prev.is_none_or(|prev| mtime != prev) {
+                            *prev = Some(mtime);
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                };
+                if let Err(e) = service.load_store(file_changed).await {
                     warn!("Failed to reload cron store: {}", e);
                     tokio::time::sleep(tokio::time::Duration::from_secs(POLL_WHEN_EMPTY_SEC)).await;
                     continue;
@@ -359,9 +376,10 @@ impl CronService {
             .iter()
             .any(|j| j.name.to_lowercase() == base_lower);
         if has_dup {
-            // Find next available suffix
+            // Find next available suffix (bounded to prevent pathological loops)
             let mut n = 2u32;
-            loop {
+            let mut found = false;
+            for _ in 0..10_000 {
                 let candidate = format!("{} ({})", job.name, n);
                 let cand_lower = candidate.to_lowercase();
                 if !store
@@ -370,9 +388,13 @@ impl CronService {
                     .any(|j| j.name.to_lowercase() == cand_lower)
                 {
                     job.name = candidate;
+                    found = true;
                     break;
                 }
                 n += 1;
+            }
+            if !found {
+                anyhow::bail!("unable to find unique name for job after 10000 attempts");
             }
         }
 

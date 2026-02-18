@@ -163,14 +163,12 @@ impl LLMProvider for GeminiProvider {
         }
 
         let model_name = req.model.unwrap_or(&self.default_model);
-        let url = format!(
-            "{}/models/{}:generateContent?key={}",
-            self.base_url, model_name, self.api_key
-        );
+        let url = format!("{}/models/{}:generateContent", self.base_url, model_name);
 
         let resp = self
             .client
             .post(&url)
+            .header("x-goog-api-key", &self.api_key)
             .json(&payload)
             .send()
             .await
@@ -207,8 +205,8 @@ impl LLMProvider for GeminiProvider {
     async fn warmup(&self) -> anyhow::Result<()> {
         let start = std::time::Instant::now();
         let url = format!(
-            "{}/models/{}:generateContent?key={}",
-            self.base_url, self.default_model, self.api_key
+            "{}/models/{}:generateContent",
+            self.base_url, self.default_model
         );
         let payload = json!({
             "contents": [{"parts": [{"text": "hi"}]}],
@@ -217,6 +215,7 @@ impl LLMProvider for GeminiProvider {
         let result = self
             .client
             .post(&url)
+            .header("x-goog-api-key", &self.api_key)
             .header("Content-Type", "application/json")
             .timeout(Duration::from_secs(15))
             .json(&payload)

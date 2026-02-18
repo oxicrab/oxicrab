@@ -3,7 +3,7 @@ use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, warn};
 
 const COMPACTION_PROMPT: &str = r"Summarize this conversation history concisely while preserving:
 1. Key decisions made and their reasoning
@@ -110,6 +110,10 @@ impl MessageCompactor {
             .await?;
 
         let summary = response.content.unwrap_or_default();
+        if summary.trim().is_empty() {
+            warn!("compaction returned empty summary, keeping previous context");
+            return Err(anyhow::anyhow!("compaction produced empty summary"));
+        }
         debug!("compaction complete: summary_len={}", summary.len());
         Ok(summary)
     }

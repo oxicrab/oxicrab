@@ -15,7 +15,7 @@ pub fn media_dir() -> Result<PathBuf> {
 
 /// Save binary data to a file in `~/.oxicrab/media/`.
 ///
-/// Validates size (10MB max) and image magic bytes for image extensions.
+/// Validates size (20MB max) and image magic bytes for image extensions.
 /// Returns the absolute path to the saved file.
 pub fn save_media_file(bytes: &[u8], prefix: &str, extension: &str) -> Result<String> {
     if bytes.is_empty() {

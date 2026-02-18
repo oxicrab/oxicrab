@@ -266,6 +266,17 @@ impl SessionManager {
                 continue;
             };
             if modified < cutoff {
+                // Evict from in-memory cache before deleting from disk
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or_default()
+                    .to_string();
+                if !stem.is_empty()
+                    && let Ok(mut cache) = self.cache.try_lock()
+                {
+                    cache.pop(&stem);
+                }
                 if let Err(e) = fs::remove_file(&path) {
                     warn!("Failed to delete old session {}: {}", path.display(), e);
                 } else {
