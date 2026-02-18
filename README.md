@@ -24,7 +24,8 @@
 - **CostGuard**: Daily budget cap (cents) and hourly rate limiting with embedded pricing data for 50+ models, automatic midnight UTC reset
 - **Circuit breaker**: Three-state circuit breaker (Closed/Open/HalfOpen) wraps the LLM provider, tripping only on transient errors (429, 5xx, timeout), with configurable threshold and recovery
 - **Doctor command**: Run `oxicrab doctor` to check config, workspace, provider connectivity, channels, voice, external tools, and MCP servers
-- **Security**: Shell command allowlist/blocklist, SSRF protection, path traversal prevention, secret redaction
+- **Credential management**: OS keyring (macOS Keychain, GNOME Keyring, Windows Credential Manager), external credential helpers (1Password, Bitwarden, custom scripts), and 28 `OXICRAB_*` env var overrides. Resolution: env → helper → keyring → config.json
+- **Security**: Default-deny sender allowlists with DM pairing system, outbound leak detection (scans for API key patterns and redacts before sending), shell command allowlist/blocklist, SSRF protection, path traversal prevention, secret redaction in logs, constant-time webhook signature validation
 - **Async-first**: Built on Tokio for high-performance async I/O
 
 ## Installation

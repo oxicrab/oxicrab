@@ -564,10 +564,17 @@
         </div>
       </div>
       <div class="feature-row">
+        <div class="feature-name">Credentials</div>
+        <div class="feature-detail">
+          <h3>Multi-backend credential management</h3>
+          <p>OS keyring (macOS Keychain, GNOME Keyring, Windows Credential Manager), external credential helpers (1Password, Bitwarden, custom scripts), and 28 OXICRAB_* env var overrides. Resolution: env &rarr; helper &rarr; keyring &rarr; config.json.</p>
+        </div>
+      </div>
+      <div class="feature-row">
         <div class="feature-name">Security</div>
         <div class="feature-detail">
           <h3>Defense in depth</h3>
-          <p>Shell command allowlists + blocklists, SSRF protection, path traversal prevention, secret redaction in logs, per-channel sender allowlists, OAuth credential protection.</p>
+          <p>Default-deny sender allowlists with DM pairing, outbound leak detection (scans for API key patterns and redacts before sending), shell command allowlists + blocklists, SSRF protection, path traversal prevention, secret redaction in logs, constant-time webhook signature validation.</p>
         </div>
       </div>
       <div class="feature-row">
