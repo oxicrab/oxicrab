@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM rust:slim-bookworm AS builder
+FROM rust:slim-trixie AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -26,7 +26,7 @@ RUN if [ "$FEATURES" = "default" ]; then \
     fi
 
 # Stage 2: Runtime
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
