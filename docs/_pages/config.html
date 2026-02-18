@@ -1,0 +1,427 @@
+---
+title: Configuration - oxicrab
+description: Complete configuration reference for oxicrab. Models, credentials, agent defaults, cost guard, circuit breaker, and logging.
+active: config
+max_width: 820px
+---
+<style>
+    .cfg-section { margin-bottom: 3.5rem; scroll-margin-top: 80px; }
+    .cfg-section h2 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.5rem; padding-bottom: 0.75rem; border-bottom: 2px solid var(--border); }
+    .cfg-section h3 { font-size: 1.1rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+    .cfg-section p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.75rem; }
+    .cfg-section a { color: var(--accent); text-decoration: none; }
+    .cfg-section a:hover { text-decoration: underline; }
+    .cfg-table { width: 100%; border-collapse: collapse; margin: 0.75rem 0 1.5rem; font-size: 0.85rem; }
+    .cfg-table th { text-align: left; font-family: var(--mono); font-size: 0.75rem; color: var(--text-light); text-transform: uppercase; letter-spacing: 0.08em; padding: 0.5rem 0.75rem; border-bottom: 2px solid var(--border); }
+    .cfg-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .cfg-table td:first-child { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); white-space: nowrap; }
+    .cfg-table td:last-child { color: var(--text-muted); }
+    .flow-diagram { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0 1.5rem; font-size: 0.85rem; }
+    .flow-step { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.8rem; font-weight: 600; color: var(--text); }
+    .flow-arrow { color: var(--text-light); font-size: 1.1rem; }
+    .config-label { margin-top: 0.5rem; }
+    ul.plain { list-style: disc; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+    ul.plain li { margin-bottom: 0.25rem; font-size: 0.88rem; color: var(--text-muted); }
+</style>
+
+<div class="page-header">
+    <h1>Configuration</h1>
+    <p>Complete reference for <code>~/.oxicrab/config.json</code> (or <code>$OXICRAB_HOME/config.json</code>). Uses camelCase keys in JSON.</p>
+</div>
+
+<div class="content">
+
+    <div class="toc">
+        <div class="toc-title">Sections</div>
+        <ul>
+            <li><a href="#models">Models</a></li>
+            <li><a href="#credentials">Credentials</a></li>
+            <li><a href="#agent-defaults">Agent Defaults</a></li>
+            <li><a href="#cost-guard">Cost Guard</a></li>
+            <li><a href="#circuit-breaker">Circuit Breaker</a></li>
+            <li><a href="#logging">Logging</a></li>
+        </ul>
+    </div>
+
+    <!-- MODELS -->
+    <div id="models" class="cfg-section">
+        <h2>Models</h2>
+        <p>Set the default model in <code>agents.defaults.model</code> and provide the corresponding API key under <code>providers</code>. The provider is auto-detected from the model name.</p>
+
+        <h3 id="api-key-models">API Key Models</h3>
+        <p>For models that use API keys (most models):</p>
+        <pre><code>{
+  "agents": {
+    "defaults": {
+      "model": "claude-sonnet-4-5-20250929"
+    }
+  },
+  "providers": {
+    "anthropic": {
+      "apiKey": "sk-ant-api03-..."
+    }
+  }
+}</code></pre>
+
+        <p>Available API key models:</p>
+        <ul class="plain">
+            <li><strong>claude-sonnet-4-5-20250929</strong> (Anthropic) &mdash; recommended, best balance</li>
+            <li><strong>claude-haiku-4-5-20251001</strong> (Anthropic) &mdash; fastest</li>
+            <li><strong>claude-opus-4-5-20251101</strong> (Anthropic) &mdash; most capable</li>
+            <li><strong>gpt-4</strong>, <strong>gpt-3.5-turbo</strong> (OpenAI)</li>
+            <li><strong>gemini-pro</strong> (Google)</li>
+        </ul>
+
+        <h3 id="openai-compatible">OpenAI-Compatible Models</h3>
+        <p>Any model whose name contains a supported provider keyword is automatically routed to that provider's OpenAI-compatible API. Set the API key in config &mdash; no other setup needed:</p>
+        <pre><code>{
+  "agents": {
+    "defaults": {
+      "model": "deepseek-chat"
+    }
+  },
+  "providers": {
+    "deepseek": {
+      "apiKey": "sk-..."
+    }
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Provider</th><th>Keyword</th><th>Default Base URL</th></tr>
+            <tr><td>OpenRouter</td><td>openrouter</td><td>https://openrouter.ai/api/v1/chat/completions</td></tr>
+            <tr><td>DeepSeek</td><td>deepseek</td><td>https://api.deepseek.com/v1/chat/completions</td></tr>
+            <tr><td>Groq</td><td>groq</td><td>https://api.groq.com/openai/v1/chat/completions</td></tr>
+            <tr><td>Moonshot</td><td>moonshot</td><td>https://api.moonshot.cn/v1/chat/completions</td></tr>
+            <tr><td>Zhipu</td><td>zhipu</td><td>https://open.bigmodel.cn/api/paas/v4/chat/completions</td></tr>
+            <tr><td>DashScope</td><td>dashscope</td><td>https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions</td></tr>
+            <tr><td>vLLM</td><td>vllm</td><td>http://localhost:8000/v1/chat/completions</td></tr>
+            <tr><td>Ollama</td><td>ollama</td><td>http://localhost:11434/v1/chat/completions</td></tr>
+        </table>
+
+        <p>Local providers (Ollama and vLLM) do not require an API key. Use the <code>provider/model</code> prefix format to route to them &mdash; the prefix is stripped before sending to the API (e.g. <code>ollama/qwen3-coder:30b</code> sends <code>qwen3-coder:30b</code> to the Ollama API).</p>
+
+        <p>To override the default endpoint, set <code>apiBase</code> on the provider:</p>
+        <pre><code>{
+  "providers": {
+    "vllm": {
+      "apiKey": "token-abc123",
+      "apiBase": "http://my-server:8080/v1/chat/completions"
+    }
+  }
+}</code></pre>
+
+        <h3 id="local-model-fallback">Local Model Fallback</h3>
+        <p>Configure a local model (e.g. Ollama) as a fallback. The cloud model remains primary &mdash; the local model is only used if the cloud provider fails or returns malformed tool calls:</p>
+        <pre><code>{
+  "agents": {
+    "defaults": {
+      "model": "claude-sonnet-4-5-20250929",
+      "localModel": "ollama/qwen3-coder:30b"
+    }
+  },
+  "providers": {
+    "anthropic": {
+      "apiKey": "sk-ant-api03-..."
+    }
+  }
+}</code></pre>
+        <p>When <code>localModel</code> is set, each LLM call tries the cloud model first. If it returns an error (network failure, rate limit) or malformed tool calls (empty name, non-object arguments), the request is automatically retried against the local model.</p>
+
+        <h3 id="oauth-models">OAuth Models</h3>
+        <p>Some Anthropic models require OAuth authentication (models prefixed with <code>anthropic/</code>):</p>
+        <ul class="plain">
+            <li><strong>anthropic/claude-opus-4-5</strong></li>
+            <li><strong>anthropic/claude-opus-4-6</strong></li>
+        </ul>
+
+        <p>For OAuth models, either install <a href="https://github.com/anthropics/claude-cli">Claude CLI</a> (auto-detected) or configure credentials manually:</p>
+        <pre><code>{
+  "providers": {
+    "anthropicOAuth": {
+      "enabled": true,
+      "autoDetect": true,
+      "credentialsPath": "~/.anthropic/credentials.json"
+    }
+  }
+}</code></pre>
+    </div>
+
+    <!-- CREDENTIALS -->
+    <div id="credentials" class="cfg-section">
+        <h2>Credentials</h2>
+        <p>Oxicrab supports multiple credential backends. Each layer only fills fields that are still empty, so higher-priority sources always win.</p>
+
+        <h3 id="resolution-order">Resolution Order</h3>
+        <div class="flow-diagram">
+            <span class="flow-step">Environment variables</span>
+            <span class="flow-arrow">&rarr;</span>
+            <span class="flow-step">Credential helper</span>
+            <span class="flow-arrow">&rarr;</span>
+            <span class="flow-step">OS keyring</span>
+            <span class="flow-arrow">&rarr;</span>
+            <span class="flow-step">config.json</span>
+        </div>
+        <p>Use <code>oxicrab credentials list</code> to see where each credential comes from.</p>
+
+        <h3 id="os-keyring">OS Keyring</h3>
+        <p>Credentials can be stored in the OS keychain (macOS Keychain, GNOME Keyring, Windows Credential Manager) via the <code>keyring-store</code> feature (default-on). Containers should use <code>OXICRAB_*</code> env vars instead. See <a href="cli.html#credentials">CLI Reference &rarr; credentials</a> for keyring management commands.</p>
+
+        <h3 id="credential-helper">Credential Helper</h3>
+        <p>External programs (1Password, Bitwarden, custom scripts) can supply credentials at startup. Configure under the top-level <code>credentialHelper</code> key.</p>
+
+        <h3>1Password (desktop)</h3>
+        <pre><code>{
+  "credentialHelper": {
+    "command": "op",
+    "args": ["item", "get", "oxicrab", "--format", "json"],
+    "format": "1password"
+  }
+}</code></pre>
+
+        <h3>1Password (CI / containers)</h3>
+        <pre><code>{
+  "credentialHelper": {
+    "command": "op",
+    "args": ["read", "-"],
+    "format": "json"
+  }
+}</code></pre>
+
+        <h3>Bitwarden</h3>
+        <pre><code>{
+  "credentialHelper": {
+    "command": "bw",
+    "args": ["get", "item", "oxicrab"],
+    "format": "bitwarden"
+  }
+}</code></pre>
+
+        <h3>Custom script</h3>
+        <pre><code>{
+  "credentialHelper": {
+    "command": "/path/to/my-script.sh",
+    "args": [],
+    "format": "json"
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Format</th><th>Description</th></tr>
+            <tr><td>1password</td><td>Parses 1Password <code>op item get</code> JSON output (fields array)</td></tr>
+            <tr><td>bitwarden</td><td>Parses Bitwarden <code>bw get item</code> JSON output (fields array)</td></tr>
+            <tr><td>json</td><td>Expects a flat JSON object: <code>{"anthropic-api-key": "sk-...", ...}</code></td></tr>
+            <tr><td>line</td><td>Expects <code>key=value</code> pairs, one per line</td></tr>
+        </table>
+
+        <h3 id="environment-variables">Environment Variables</h3>
+        <p>All 28 credential slots can be set via environment variables. Recommended for containers and CI.</p>
+
+        <h3>Providers</h3>
+        <table class="cfg-table">
+            <tr><th>Variable</th><th>Config Field</th></tr>
+            <tr><td>OXICRAB_ANTHROPIC_API_KEY</td><td>providers.anthropic.apiKey</td></tr>
+            <tr><td>OXICRAB_OPENAI_API_KEY</td><td>providers.openai.apiKey</td></tr>
+            <tr><td>OXICRAB_OPENROUTER_API_KEY</td><td>providers.openrouter.apiKey</td></tr>
+            <tr><td>OXICRAB_GEMINI_API_KEY</td><td>providers.gemini.apiKey</td></tr>
+            <tr><td>OXICRAB_DEEPSEEK_API_KEY</td><td>providers.deepseek.apiKey</td></tr>
+            <tr><td>OXICRAB_GROQ_API_KEY</td><td>providers.groq.apiKey</td></tr>
+            <tr><td>OXICRAB_MOONSHOT_API_KEY</td><td>providers.moonshot.apiKey</td></tr>
+            <tr><td>OXICRAB_ZHIPU_API_KEY</td><td>providers.zhipu.apiKey</td></tr>
+            <tr><td>OXICRAB_DASHSCOPE_API_KEY</td><td>providers.dashscope.apiKey</td></tr>
+            <tr><td>OXICRAB_VLLM_API_KEY</td><td>providers.vllm.apiKey</td></tr>
+            <tr><td>OXICRAB_OLLAMA_API_KEY</td><td>providers.ollama.apiKey</td></tr>
+        </table>
+
+        <h3>OAuth</h3>
+        <table class="cfg-table">
+            <tr><th>Variable</th><th>Config Field</th></tr>
+            <tr><td>OXICRAB_ANTHROPIC_OAUTH_ACCESS</td><td>providers.anthropicOAuth.accessToken</td></tr>
+            <tr><td>OXICRAB_ANTHROPIC_OAUTH_REFRESH</td><td>providers.anthropicOAuth.refreshToken</td></tr>
+        </table>
+
+        <h3>Channels</h3>
+        <table class="cfg-table">
+            <tr><th>Variable</th><th>Config Field</th></tr>
+            <tr><td>OXICRAB_TELEGRAM_TOKEN</td><td>channels.telegram.token</td></tr>
+            <tr><td>OXICRAB_DISCORD_TOKEN</td><td>channels.discord.token</td></tr>
+            <tr><td>OXICRAB_SLACK_BOT_TOKEN</td><td>channels.slack.botToken</td></tr>
+            <tr><td>OXICRAB_SLACK_APP_TOKEN</td><td>channels.slack.appToken</td></tr>
+            <tr><td>OXICRAB_TWILIO_ACCOUNT_SID</td><td>channels.twilio.accountSid</td></tr>
+            <tr><td>OXICRAB_TWILIO_AUTH_TOKEN</td><td>channels.twilio.authToken</td></tr>
+        </table>
+
+        <h3>Tools</h3>
+        <table class="cfg-table">
+            <tr><th>Variable</th><th>Config Field</th></tr>
+            <tr><td>OXICRAB_GITHUB_TOKEN</td><td>tools.github.token</td></tr>
+            <tr><td>OXICRAB_WEATHER_API_KEY</td><td>tools.weather.apiKey</td></tr>
+            <tr><td>OXICRAB_TODOIST_TOKEN</td><td>tools.todoist.token</td></tr>
+            <tr><td>OXICRAB_WEB_SEARCH_API_KEY</td><td>tools.web.search.apiKey</td></tr>
+            <tr><td>OXICRAB_GOOGLE_CLIENT_SECRET</td><td>tools.google.clientSecret</td></tr>
+            <tr><td>OXICRAB_OBSIDIAN_API_KEY</td><td>tools.obsidian.apiKey</td></tr>
+            <tr><td>OXICRAB_MEDIA_RADARR_API_KEY</td><td>tools.media.radarr.apiKey</td></tr>
+            <tr><td>OXICRAB_MEDIA_SONARR_API_KEY</td><td>tools.media.sonarr.apiKey</td></tr>
+        </table>
+
+        <h3>Voice</h3>
+        <table class="cfg-table">
+            <tr><th>Variable</th><th>Config Field</th></tr>
+            <tr><td>OXICRAB_TRANSCRIPTION_API_KEY</td><td>voice.transcription.apiKey</td></tr>
+        </table>
+    </div>
+
+    <!-- AGENT DEFAULTS -->
+    <div id="agent-defaults" class="cfg-section">
+        <h2>Agent Defaults</h2>
+        <p>All agent defaults live under <code>agents.defaults</code> in config.json.</p>
+
+        <h3>Top-level Fields</h3>
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>workspace</td><td>string</td><td>~/.oxicrab/workspace</td><td>Path to workspace directory</td></tr>
+            <tr><td>model</td><td>string</td><td>claude-sonnet-4-5-20250929</td><td>Default LLM model</td></tr>
+            <tr><td>maxTokens</td><td>u32</td><td>8192</td><td>Max tokens per LLM response</td></tr>
+            <tr><td>temperature</td><td>f32</td><td>0.7</td><td>LLM sampling temperature (0.0&ndash;2.0)</td></tr>
+            <tr><td>maxToolIterations</td><td>usize</td><td>20</td><td>Max agent loop iterations per turn</td></tr>
+            <tr><td>sessionTtlDays</td><td>u32</td><td>30</td><td>Days before inactive sessions are pruned</td></tr>
+            <tr><td>memoryIndexerInterval</td><td>u64</td><td>300</td><td>Seconds between memory indexer runs</td></tr>
+            <tr><td>mediaTtlDays</td><td>u32</td><td>7</td><td>Days before cached media files are cleaned up</td></tr>
+            <tr><td>maxConcurrentSubagents</td><td>usize</td><td>5</td><td>Max simultaneous background subagents</td></tr>
+            <tr><td>localModel</td><td>string?</td><td>null</td><td>Fallback model for cloud failures (see <a href="#local-model-fallback">Local Model Fallback</a>)</td></tr>
+        </table>
+
+        <h3>Compaction</h3>
+        <p>Config path: <code>agents.defaults.compaction</code></p>
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>true</td><td>Enable automatic context compaction</td></tr>
+            <tr><td>thresholdTokens</td><td>u32</td><td>40000</td><td>Token count that triggers compaction</td></tr>
+            <tr><td>keepRecent</td><td>usize</td><td>10</td><td>Number of recent messages to preserve verbatim</td></tr>
+            <tr><td>extractionEnabled</td><td>bool</td><td>true</td><td>Extract facts to memory during compaction</td></tr>
+            <tr><td>model</td><td>string?</td><td>null</td><td>Override model for compaction (uses default if null)</td></tr>
+        </table>
+
+        <h3>Daemon</h3>
+        <p>Config path: <code>agents.defaults.daemon</code></p>
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>true</td><td>Enable heartbeat/daemon service</td></tr>
+            <tr><td>interval</td><td>u64</td><td>300</td><td>Seconds between daemon check-ins</td></tr>
+            <tr><td>executionModel</td><td>string?</td><td>null</td><td>Override model for daemon runs</td></tr>
+            <tr><td>executionProvider</td><td>string?</td><td>null</td><td>Override provider for daemon runs</td></tr>
+            <tr><td>strategyFile</td><td>string</td><td>HEARTBEAT.md</td><td>Workspace file defining daemon behavior</td></tr>
+            <tr><td>maxIterations</td><td>usize</td><td>25</td><td>Max agent loop iterations per daemon run</td></tr>
+        </table>
+
+        <h3>Memory</h3>
+        <p>Config path: <code>agents.defaults.memory</code></p>
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>archiveAfterDays</td><td>u32</td><td>30</td><td>Days before notes are archived</td></tr>
+            <tr><td>purgeAfterDays</td><td>u32</td><td>90</td><td>Days before archived notes are purged (must be &gt; archiveAfterDays)</td></tr>
+            <tr><td>embeddingsEnabled</td><td>bool</td><td>false</td><td>Enable hybrid vector+keyword search via local ONNX embeddings</td></tr>
+            <tr><td>embeddingsModel</td><td>string</td><td>BAAI/bge-small-en-v1.5</td><td>Embedding model for vector search</td></tr>
+            <tr><td>hybridWeight</td><td>f32</td><td>0.5</td><td>Blend weight: 0.0 = keyword only, 1.0 = vector only</td></tr>
+        </table>
+    </div>
+
+    <!-- COST GUARD -->
+    <div id="cost-guard" class="cfg-section">
+        <h2>Cost Guard</h2>
+        <p>Pre-flight budget gating and post-flight cost tracking. Blocks LLM calls if the daily budget is exceeded or the hourly rate limit is hit. Daily budget resets at midnight UTC.</p>
+
+        <p>Config path: <code>agents.defaults.costGuard</code></p>
+        <pre><code>{
+  "agents": {
+    "defaults": {
+      "costGuard": {
+        "dailyBudgetCents": 500,
+        "maxActionsPerHour": 100,
+        "modelCosts": {
+          "claude-sonnet": {
+            "inputPerMillion": 3.0,
+            "outputPerMillion": 15.0
+          }
+        }
+      }
+    }
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>dailyBudgetCents</td><td>u64?</td><td>null</td><td>Maximum daily spend in cents (null = unlimited)</td></tr>
+            <tr><td>maxActionsPerHour</td><td>u64?</td><td>null</td><td>Maximum LLM calls per hour (null = unlimited)</td></tr>
+            <tr><td>modelCosts</td><td>object</td><td>{}</td><td>Per-model cost overrides keyed by model name prefix</td></tr>
+        </table>
+
+        <p>Each entry in <code>modelCosts</code> has:</p>
+        <ul class="plain">
+            <li><strong>inputPerMillion</strong> &mdash; cost in dollars per million input tokens</li>
+            <li><strong>outputPerMillion</strong> &mdash; cost in dollars per million output tokens</li>
+        </ul>
+
+        <p>Embedded pricing data covers 50+ models. Config overrides take precedence for any model name prefix match.</p>
+    </div>
+
+    <!-- CIRCUIT BREAKER -->
+    <div id="circuit-breaker" class="cfg-section">
+        <h2>Circuit Breaker</h2>
+        <p>Wraps the LLM provider with a three-state circuit breaker that trips only on transient errors, preventing cascading failures during outages.</p>
+
+        <p>Config path: <code>providers.circuitBreaker</code></p>
+        <pre><code>{
+  "providers": {
+    "circuitBreaker": {
+      "enabled": true,
+      "failureThreshold": 5,
+      "recoveryTimeoutSecs": 60,
+      "halfOpenProbes": 2
+    }
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable circuit breaker wrapping</td></tr>
+            <tr><td>failureThreshold</td><td>u32</td><td>5</td><td>Consecutive transient failures before opening</td></tr>
+            <tr><td>recoveryTimeoutSecs</td><td>u64</td><td>60</td><td>Seconds to wait in Open state before probing</td></tr>
+            <tr><td>halfOpenProbes</td><td>u32</td><td>2</td><td>Successful probes needed to close again</td></tr>
+        </table>
+
+        <h3>States</h3>
+        <ul class="plain">
+            <li><strong>Closed</strong> &mdash; normal operation, requests pass through</li>
+            <li><strong>Open</strong> &mdash; all requests rejected immediately (after <code>failureThreshold</code> consecutive transient failures)</li>
+            <li><strong>HalfOpen</strong> &mdash; allows <code>halfOpenProbes</code> test requests after <code>recoveryTimeoutSecs</code></li>
+        </ul>
+
+        <h3>Transient vs Non-Transient Errors</h3>
+        <p><strong>Transient</strong> (trip the breaker): HTTP 429, 5xx, timeout, connection refused/reset.</p>
+        <p><strong>Non-transient</strong> (do not trip): auth errors, invalid API key, permission denied, context length exceeded.</p>
+    </div>
+
+    <!-- LOGGING -->
+    <div id="logging" class="cfg-section">
+        <h2>Logging</h2>
+        <p>Logging is controlled by the <code>RUST_LOG</code> environment variable. Oxicrab uses the <a href="https://docs.rs/tracing-subscriber/latest/tracing_subscriber/struct.EnvFilter.html">tracing-subscriber</a> format.</p>
+
+        <pre><span class="hl-comment"># Default: info level, noisy dependencies suppressed</span>
+./target/release/oxicrab gateway
+
+<span class="hl-comment"># Debug logging</span>
+RUST_LOG=debug ./target/release/oxicrab gateway
+
+<span class="hl-comment"># Custom filtering</span>
+RUST_LOG=info,whatsapp_rust=warn,oxicrab::channels=debug ./target/release/oxicrab gateway</pre>
+
+        <p>Common filters:</p>
+        <ul class="plain">
+            <li><code>RUST_LOG=debug</code> &mdash; verbose, includes all oxicrab internals</li>
+            <li><code>RUST_LOG=info,whatsapp_rust=warn</code> &mdash; suppress noisy WhatsApp crate logs</li>
+            <li><code>RUST_LOG=oxicrab::agent=debug</code> &mdash; debug only the agent loop</li>
+        </ul>
+    </div>
+
+</div>

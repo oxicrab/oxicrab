@@ -280,7 +280,7 @@ oxicrab pairing approve ABC12345</pre>
     <!-- CREDENTIALS -->
     <h2 id="credentials">credentials</h2>
     <div class="cmd-sig">oxicrab credentials &lt;SUBCOMMAND&gt;</div>
-    <p>Manage credentials stored in the OS keyring. Credential resolution order: <strong>env vars &rarr; credential helper &rarr; OS keyring &rarr; config.json</strong>. Requires the <code>keyring-store</code> feature (default-on). Containers should use <code>OXICRAB_*</code> env vars instead.</p>
+    <p>Manage credentials stored in the OS keyring. Credential resolution order: <strong>env vars &rarr; credential helper &rarr; OS keyring &rarr; config.json</strong>. Requires the <code>keyring-store</code> feature (default-on). Containers should use <code>OXICRAB_*</code> env vars instead. See <a href="config.html#credentials">Config &rarr; Credentials</a> for env var tables, credential helper setup, and the full resolution order.</p>
 
     <h3>credentials set</h3>
     <div class="cmd-sig">oxicrab credentials set &lt;NAME&gt; [VALUE]</div>

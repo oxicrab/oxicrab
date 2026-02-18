@@ -123,6 +123,7 @@
     <a href="index.html" class="nav-logo"><img src="oxicrab.png" alt="" width="28" height="28"><span class="oxi">oxi</span>crab</a>
     <ul class="nav-links">
       <li><a href="index.html" >Home</a></li>
+      <li><a href="config.html" >Config</a></li>
       <li><a href="channels.html" >Channels</a></li>
       <li><a href="tools.html" class="active">Tools</a></li>
       <li><a href="workspace.html" >Workspace</a></li>
@@ -583,7 +584,7 @@
     <p class="desc">Generate images from text prompts. Supports OpenAI gpt-image-1 (DALL-E) and Google Imagen 3.</p>
 
     <h3>Setup</h3>
-    <p>Uses API keys from the <code>providers</code> section. At least one provider key is required:</p>
+    <p>Uses API keys from the <a href="config.html#models">providers</a> section. At least one provider key is required:</p>
     <ul class="plain">
       <li><strong>OpenAI:</strong> Set <code>providers.openai.apiKey</code></li>
       <li><strong>Google:</strong> Set <code>providers.gemini.apiKey</code></li>
@@ -642,7 +643,7 @@
   <!-- VOICE -->
   <div class="cat-header">Voice Transcription</div>
 
-  <div id="voice" class="tool-section">
+  <div id="voice-transcription" class="tool-section">
     <h2>Voice Transcription</h2>
     <p class="desc">Voice messages from channels are automatically transcribed to text. Not a tool itself, but a service that feeds into the agent. Supports dual backends with automatic fallback.</p>
 

@@ -52,7 +52,7 @@ def build():
         print("No pages found in", PAGES_DIR)
         sys.exit(1)
 
-    nav_keys = ['index', 'channels', 'tools', 'workspace', 'deploy', 'cli']
+    nav_keys = ['index', 'config', 'channels', 'tools', 'workspace', 'deploy', 'cli']
 
     for filename in pages:
         with open(os.path.join(PAGES_DIR, filename)) as f:

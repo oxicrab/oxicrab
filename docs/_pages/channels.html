@@ -22,7 +22,7 @@ max_width: 820px
 </style>
 <div class="page-header">
   <h1>Channel Setup</h1>
-  <p>Step-by-step setup for each messaging platform. Each channel is a compile-time feature flag.</p>
+  <p>Step-by-step setup for each messaging platform. Each channel is a compile-time feature flag. Channel tokens can be stored via <a href="config.html#credentials" style="color: var(--accent); text-decoration: none;">env vars, keyring, or credential helper</a> instead of config.json.</p>
 </div>
 
 <div class="content">
@@ -345,7 +345,7 @@ max_width: 820px
 }</code></pre>
     </div>
 
-    <div class="note"><strong>webhookUrl</strong> must match exactly what Twilio POSTs to (used for HMAC-SHA1 signature validation). <strong>allowFrom</strong> empty means all senders are allowed; add phone numbers to restrict.</div>
+    <div class="note"><strong>webhookUrl</strong> must match exactly what Twilio POSTs to (used for HMAC-SHA1 signature validation). Empty <strong>allowFrom</strong> denies all senders &mdash; add phone numbers or use <code>["*"]</code> for open access.</div>
 
     <h3>Supported features</h3>
     <div class="features-list">
@@ -373,7 +373,7 @@ cargo build --release --no-default-features --features channel-telegram,channel-
 cargo build --release --no-default-features</code></pre>
 
     <h3>Allowlist filtering</h3>
-    <p>All channels support an optional <code>allowFrom</code> array. When empty, all senders are accepted. When populated, only listed IDs can interact with the bot.</p>
+    <p>All channels support an <code>allowFrom</code> array. Empty <code>allowFrom</code> defaults to <strong>deny-all</strong> &mdash; use <code>["*"]</code> to allow all senders, or use <a href="cli.html#pairing">DM pairing</a> to onboard specific users. When populated, only listed IDs can interact with the bot.</p>
 
     <h3>Media handling</h3>
     <p>Inbound media (images, voice messages) is downloaded and saved to <code>~/.oxicrab/media/</code> with channel-specific prefixes. Voice messages are automatically transcribed if the transcription service is configured.</p>
