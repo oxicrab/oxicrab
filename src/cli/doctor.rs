@@ -159,6 +159,7 @@ async fn check_provider_connectivity() -> CheckResult {
     }
 }
 
+#[allow(unused_variables)]
 fn check_channels() -> Vec<(&'static str, CheckResult)> {
     let mut results = Vec::new();
 
@@ -347,12 +348,13 @@ fn check_config_dir_permissions() -> CheckResult {
     CheckResult::Skip("permission check not available on this platform".to_string())
 }
 
+#[allow(unused_variables, unused_mut)]
 fn check_empty_allowlists() -> CheckResult {
     let Ok(config) = crate::config::load_config(None) else {
         return CheckResult::Skip("config not available".to_string());
     };
 
-    let mut open_channels = Vec::new();
+    let mut open_channels: Vec<&str> = Vec::new();
 
     #[cfg(feature = "channel-telegram")]
     if config.channels.telegram.enabled && config.channels.telegram.allow_from.is_empty() {

@@ -1174,12 +1174,11 @@ async fn auth_command(cmd: AuthCommands) -> Result<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, unused_variables, clippy::unused_async)]
 async fn channels_command(cmd: ChannelCommands) -> Result<()> {
     match cmd {
         ChannelCommands::Status => {
             let config = load_config(None)?;
-            let _ = &config; // suppress unused warning when no channel features compiled
 
             println!("Channel Status");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
