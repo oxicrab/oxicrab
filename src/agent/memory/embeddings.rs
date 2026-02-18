@@ -1,10 +1,12 @@
 /// Local embedding generation via fastembed (ONNX-based, no API key needed).
+use std::sync::Mutex;
+
 use anyhow::Result;
-use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
 use tracing::info;
 
 pub struct EmbeddingService {
-    model: TextEmbedding,
+    model: Mutex<TextEmbedding>,
 }
 
 impl EmbeddingService {
@@ -21,22 +23,27 @@ impl EmbeddingService {
             }
         };
 
-        let model =
-            TextEmbedding::try_new(InitOptions::new(model_type).with_show_download_progress(true))?;
+        let model = TextEmbedding::try_new(
+            TextInitOptions::new(model_type).with_show_download_progress(true),
+        )?;
         info!("embedding model loaded: {}", model_name);
-        Ok(Self { model })
+        Ok(Self {
+            model: Mutex::new(model),
+        })
     }
 
     /// Embed multiple texts (batch). Returns one vector per text.
     pub fn embed_texts(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         let docs: Vec<String> = texts.iter().map(std::string::ToString::to_string).collect();
-        let embeddings = self.model.embed(docs, None)?;
+        let mut model = self.model.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let embeddings = model.embed(docs, None)?;
         Ok(embeddings)
     }
 
     /// Embed a single query string.
     pub fn embed_query(&self, query: &str) -> Result<Vec<f32>> {
-        let embeddings = self.model.embed(vec![query.to_string()], None)?;
+        let mut model = self.model.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let embeddings = model.embed(vec![query.to_string()], None)?;
         embeddings
             .into_iter()
             .next()
