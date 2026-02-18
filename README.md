@@ -37,6 +37,7 @@ Download the latest release from [GitHub Releases](https://github.com/oxicrab/ox
 | Platform | Archive |
 |----------|---------|
 | Linux x86_64 | `oxicrab-*-linux-x86_64.tar.gz` |
+| Linux ARM64 (aarch64) | `oxicrab-*-linux-arm64.tar.gz` |
 | macOS x86_64 (Intel) | `oxicrab-*-macos-x86_64.tar.gz` |
 | macOS ARM64 (Apple Silicon) | `oxicrab-*-macos-arm64.tar.gz` |
 
