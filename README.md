@@ -6,18 +6,18 @@
 
 <p align="center">A high-performance Rust multi-channel AI assistant framework.</p>
 
-**[Documentation](https://oxicrab.github.io/oxicrab/)** | [Channel Setup](https://oxicrab.github.io/oxicrab/channels.html) | [Tool Reference](https://oxicrab.github.io/oxicrab/tools.html) | [Deployment](https://oxicrab.github.io/oxicrab/deploy.html)
+**[Documentation](https://oxicrab.github.io/oxicrab/)** | [Channel Setup](https://oxicrab.github.io/oxicrab/channels.html) | [Tool Reference](https://oxicrab.github.io/oxicrab/tools.html) | [CLI Reference](https://oxicrab.github.io/oxicrab/cli.html) | [Deployment](https://oxicrab.github.io/oxicrab/deploy.html)
 
 ## Features
 
 - **Multi-channel support**: Telegram, Discord (slash commands, embeds, button components), Slack, WhatsApp, Twilio (SMS/MMS) — each behind a Cargo feature flag for slim builds
 - **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), plus OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, vLLM), with OAuth support and local model fallback
-- **22+ built-in tools**: Filesystem, shell, web, HTTP, browser automation, Google Workspace, GitHub, scheduling, memory, media management, and more — plus MCP (Model Context Protocol) for external tool servers
+- **23 built-in tools**: Filesystem, shell, web, HTTP, browser automation, image generation, Google Workspace, GitHub, scheduling, memory, media management, and more — plus MCP (Model Context Protocol) for external tool servers
 - **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
 - **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode (LLM-free delivery), multi-channel targeting, auto-expiry (`expires_at`) and run limits (`max_runs`)
 - **Memory system**: SQLite FTS5-backed long-term memory with background indexing, automatic fact extraction, optional hybrid vector+keyword search (local ONNX embeddings via fastembed), and automatic memory hygiene (archive/purge old notes)
 - **Session management**: Persistent sessions with automatic compaction and context summarization
-- **Hallucination detection**: Action claim detection, false no-tools-claim retry, tool facts injection, and reflection turns
+- **Hallucination detection**: Action claim detection, false no-tools-claim retry, and tool facts injection
 - **Editable status messages**: Tool progress shown as a single message that edits in-place (Telegram, Discord, Slack), with composing indicator and automatic cleanup
 - **Connection resilience**: All channels auto-reconnect with exponential backoff
 - **Voice transcription**: Local whisper.cpp inference (via whisper-rs) with cloud API fallback, automatic audio conversion via ffmpeg
@@ -379,6 +379,8 @@ All API keys and channel tokens can be set via environment variables, which take
 
 ## Channel Setup
 
+> **Detailed channel setup guides:** [oxicrab.github.io/oxicrab/channels.html](https://oxicrab.github.io/oxicrab/channels.html)
+
 ### Telegram
 
 1. **Create a bot**:
@@ -396,7 +398,6 @@ All API keys and channel tokens can be set via environment variables, which take
      "enabled": true,
      "token": "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
      "allowFrom": ["123456789"],
-     "proxy": null
    }
    ```
 
@@ -580,89 +581,45 @@ All API keys and channel tokens can be set via environment variables, which take
 
 ## Running
 
-### Gateway Mode
-
-Start the gateway to run all enabled channels and the agent:
+> **Full CLI reference with all flags and examples:** [oxicrab.github.io/oxicrab/cli.html](https://oxicrab.github.io/oxicrab/cli.html)
 
 ```bash
-./target/release/oxicrab gateway
+# First-time setup — creates config and workspace
+oxicrab onboard
+
+# Start the multi-channel gateway daemon
+oxicrab gateway
+
+# Interactive agent REPL / single message
+oxicrab agent
+oxicrab agent -m "What's the weather?"
+
+# Cron scheduling — agent mode or echo mode
+oxicrab cron list
+oxicrab cron add -n "Briefing" -m "Morning briefing" -c "0 9 * * *" --all-channels
+oxicrab cron run --id abc12345 --force
+
+# Channel management
+oxicrab channels status
+oxicrab channels login           # WhatsApp QR code pairing
+
+# Credentials — resolution: env vars → helper → OS keyring → config.json
+oxicrab credentials set anthropic-api-key
+oxicrab credentials list
+oxicrab credentials import       # bulk-migrate config.json → keyring
+
+# Sender access control (DM pairing)
+oxicrab pairing list
+oxicrab pairing approve ABC12345
+oxicrab pairing revoke telegram 123456789
+
+# Authentication
+oxicrab auth google              # OAuth2 for Gmail + Calendar
+
+# Diagnostics
+oxicrab status                   # quick setup overview
+oxicrab doctor                   # full system health check
 ```
-
-### CLI Mode
-
-Interact with the agent directly from the terminal:
-
-```bash
-# Interactive session
-./target/release/oxicrab agent
-
-# Single message
-./target/release/oxicrab agent -m "What's the weather?"
-```
-
-### Cron Jobs
-
-Manage scheduled jobs from the CLI:
-
-```bash
-# List jobs
-./target/release/oxicrab cron list
-
-# Add a recurring job (every 3600 seconds)
-./target/release/oxicrab cron add -n "Hourly check" -m "Check my inbox" -e 3600 --channel telegram --to 123456789
-
-# Add a cron-expression job targeting all channels
-./target/release/oxicrab cron add -n "Morning briefing" -m "Give me a morning briefing" -c "0 9 * * *" --tz "America/New_York" --all-channels
-
-# Remove a job
-./target/release/oxicrab cron remove --id abc12345
-
-# Enable/disable
-./target/release/oxicrab cron enable --id abc12345
-./target/release/oxicrab cron enable --id abc12345 --disable
-
-# Edit a job
-./target/release/oxicrab cron edit --id abc12345 -m "New message" --all-channels
-
-# Manually trigger a job
-./target/release/oxicrab cron run --id abc12345 --force
-```
-
-Jobs support optional auto-stop limits via the LLM tool interface:
-- **`expires_at`**: ISO 8601 datetime after which the job auto-disables (e.g. stop a recurring ping after 5 minutes)
-- **`max_runs`**: Maximum number of executions before auto-disabling (e.g. "ping 7 times then stop")
-
-### Pairing
-
-Manage sender access for channels:
-
-```bash
-# Show pending pairing requests
-./target/release/oxicrab pairing list
-
-# Approve a pairing request
-./target/release/oxicrab pairing approve <code>
-
-# Revoke access for a specific sender
-./target/release/oxicrab pairing revoke <channel> <sender_id>
-```
-
-### Authentication
-
-```bash
-# Authenticate with Google (Gmail, Calendar)
-./target/release/oxicrab auth google
-```
-
-### System Diagnostics
-
-Run `oxicrab doctor` to check your entire setup:
-
-```bash
-./target/release/oxicrab doctor
-```
-
-Checks config file, workspace, provider API keys and connectivity (warmup latency), each channel's status and credentials, voice transcription backends, external tools (ffmpeg, git), and MCP servers. Includes a **Security** section checking config file permissions, directory permissions, empty allowlists, pairing store status, OS keyring availability, and credential helper status. Reports PASS/FAIL/SKIP for every check with a summary at the end.
 
 ### Voice Transcription
 
@@ -836,39 +793,13 @@ For OAuth models, you need to:
 
 ## Tools
 
-The agent has access to 22 built-in tools, plus any tools provided by MCP servers:
+> **Full tool reference with all actions, parameters, and setup instructions:** [oxicrab.github.io/oxicrab/tools.html](https://oxicrab.github.io/oxicrab/tools.html)
 
-### Core Tools (always available)
+23 built-in tools plus MCP. Every tool has timeout protection, panic isolation, result caching, and truncation middleware.
 
-| Tool | Description |
-|------|-------------|
-| `read_file` | Read files from disk |
-| `write_file` | Write files to disk (with automatic versioned backups) |
-| `edit_file` | Edit files with find/replace diffs |
-| `list_dir` | List directory contents |
-| `exec` | Execute shell commands (allowlist/blocklist secured) |
-| `tmux` | Manage persistent tmux shell sessions (create, send, read, list, kill) |
-| `web_search` | Search the web (configurable: Brave API or DuckDuckGo) |
-| `web_fetch` | Fetch and extract web page content (binary/image URLs auto-saved to disk) |
-| `http` | Make HTTP requests (GET, POST, PUT, PATCH, DELETE); binary responses auto-saved to disk |
-| `spawn` | Spawn background subagents for parallel task execution |
-| `subagent_control` | List running subagents, check capacity, or cancel by ID |
-| `cron` | Schedule tasks: agent or echo mode, with optional `expires_at` and `max_runs` auto-stop |
-| `memory_search` | Search long-term memory and daily notes (FTS5, optional hybrid vector+keyword) |
-| `reddit` | Fetch posts from Reddit subreddits (hot, new, top) |
+**Core** (always available): `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`, `tmux`, `web_search`, `web_fetch`, `http`, `spawn`, `subagent_control`, `cron`, `memory_search`, `reddit`
 
-### Configurable Tools (require setup)
-
-| Tool | Description | Config Required |
-|------|-------------|-----------------|
-| `google_mail` | Gmail: search, read, send, reply, label | `tools.google.*` + OAuth |
-| `google_calendar` | Google Calendar: list, create, update, delete events | `tools.google.*` + OAuth |
-| `github` | GitHub API: issues, PRs, file content, PR reviews, CI/CD workflows | `tools.github.token` |
-| `weather` | Weather forecasts via OpenWeatherMap | `tools.weather.apiKey` |
-| `todoist` | Todoist task management: list, get, create, update, complete, delete tasks; add/list comments; list projects | `tools.todoist.token` |
-| `media` | Radarr/Sonarr: search, add, monitor movies & TV | `tools.media.*` |
-| `obsidian` | Obsidian vault: read, write, append, search, list notes | `tools.obsidian.*` |
-| `browser` | Browser automation via Chrome DevTools Protocol: open, click, type, screenshot (saved to disk), eval JS | `tools.browser.enabled` |
+**Configurable** (require setup): `google_mail`, `google_calendar`, `github`, `weather`, `todoist`, `media`, `obsidian`, `browser`, `image_gen`
 
 ### MCP (Model Context Protocol)
 

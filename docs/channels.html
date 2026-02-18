@@ -443,7 +443,7 @@
 }</code></pre>
     </div>
 
-    <div class="note"><strong>webhookUrl</strong> must match exactly what Twilio POSTs to (used for constant-time HMAC-SHA1 signature validation). <strong>allowFrom</strong> empty means all senders are <strong>denied</strong> (default-deny). Add <code>"*"</code> to allow all senders, or add specific phone numbers.</div>
+    <div class="note"><strong>webhookUrl</strong> must match exactly what Twilio POSTs to (used for HMAC-SHA1 signature validation). <strong>allowFrom</strong> empty means all senders are allowed; add phone numbers to restrict.</div>
 
     <h3>Supported features</h3>
     <div class="features-list">
@@ -470,50 +470,8 @@ cargo build --release --no-default-features --features channel-telegram,channel-
 # No channels (agent CLI only)
 cargo build --release --no-default-features</code></pre>
 
-    <h3>Allowlist filtering (default-deny)</h3>
-    <div class="note" style="border-left-color: var(--coral);"><strong>Breaking change:</strong> Empty <code>allowFrom</code> arrays now <strong>deny all senders</strong> instead of allowing all. To allow everyone, set <code>"allowFrom": ["*"]</code>.</div>
-    <p>All channels support an <code>allowFrom</code> array that controls who can interact with the bot:</p>
-    <ul style="margin: 0.75rem 0 0.75rem 1.5rem;">
-      <li><strong>Empty array <code>[]</code></strong> &mdash; denies all senders (default-deny). Unknown senders receive a pairing code if the pairing system is used.</li>
-      <li><strong>Wildcard <code>["*"]</code></strong> &mdash; allows all senders (open access).</li>
-      <li><strong>Specific IDs <code>["123456", "789012"]</code></strong> &mdash; only listed sender IDs can interact.</li>
-    </ul>
-
-    <h3 id="pairing">Sender onboarding (DM pairing)</h3>
-    <p>The pairing system provides controlled onboarding of new senders without editing config files. When an unknown sender messages the bot on any channel, the bot can issue an 8-character pairing code. An operator then approves the code via CLI.</p>
-    <pre><code># List pending pairing requests (shows code, channel, sender, expiry)
-oxicrab pairing list
-
-# Approve a request — adds sender to the persistent allowlist
-oxicrab pairing approve ABC12345
-
-# Revoke a previously approved sender
-oxicrab pairing revoke telegram 123456789</code></pre>
-    <p><strong>How it works:</strong></p>
-    <ul style="margin: 0.75rem 0 0.75rem 1.5rem;">
-      <li>Pairing codes use a human-friendly alphabet (no 0/O/1/I) and expire after <strong>15 minutes</strong>.</li>
-      <li>Approved senders are stored in <code>~/.oxicrab/pairing/{channel}-allowlist.json</code>.</li>
-      <li>Max 3 pending requests per channel. Failed approval attempts are rate-limited (10 per 5 minutes).</li>
-      <li>The <code>oxicrab doctor</code> command shows pairing store status in the Security section.</li>
-    </ul>
-    <p><strong>Recommended setup for new channels:</strong></p>
-    <ol style="margin: 0.75rem 0 0.75rem 1.5rem;">
-      <li>Configure the channel with an empty <code>allowFrom: []</code> (default-deny).</li>
-      <li>Start the gateway: <code>oxicrab gateway</code></li>
-      <li>Send a message to the bot from the account you want to authorize.</li>
-      <li>Run <code>oxicrab pairing list</code> to see the pending code.</li>
-      <li>Run <code>oxicrab pairing approve &lt;code&gt;</code> to authorize.</li>
-    </ol>
-
-    <h3>Token storage</h3>
-    <p>Channel tokens can be stored in any of these backends (in priority order):</p>
-    <ol>
-      <li><strong>Environment variables</strong>: <code>OXICRAB_TELEGRAM_TOKEN</code>, <code>OXICRAB_DISCORD_TOKEN</code>, <code>OXICRAB_SLACK_BOT_TOKEN</code>, etc.</li>
-      <li><strong>Credential helper</strong>: Configure a <code>credentialHelper</code> in config.json (1Password, Bitwarden, custom scripts)</li>
-      <li><strong>OS keyring</strong>: <code>oxicrab credentials set telegram-token</code></li>
-      <li><strong>config.json</strong>: Direct in the config file (least secure)</li>
-    </ol>
-    <p>See the <a href="deploy.html#credentials">Credential Backends</a> guide for setup details.</p>
+    <h3>Allowlist filtering</h3>
+    <p>All channels support an optional <code>allowFrom</code> array. When empty, all senders are accepted. When populated, only listed IDs can interact with the bot.</p>
 
     <h3>Media handling</h3>
     <p>Inbound media (images, voice messages) is downloaded and saved to <code>~/.oxicrab/media/</code> with channel-specific prefixes. Voice messages are automatically transcribed if the transcription service is configured.</p>

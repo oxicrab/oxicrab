@@ -536,6 +536,13 @@
         </div>
       </div>
       <div class="feature-row">
+        <div class="feature-name">LLM Providers</div>
+        <div class="feature-detail">
+          <h3>Anthropic, OpenAI, Google, and OpenAI-compatible</h3>
+          <p>Claude, GPT, Gemini natively, plus OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, and vLLM via OpenAI-compatible adapter. OAuth support and automatic provider selection by model name.</p>
+        </div>
+      </div>
+      <div class="feature-row">
         <div class="feature-name">Long-Term Memory</div>
         <div class="feature-detail">
           <h3>SQLite FTS5 with optional vector search</h3>
@@ -554,6 +561,34 @@
         <div class="feature-detail">
           <h3>Parallel background task execution</h3>
           <p>Semaphore-based concurrency control, context injection from compaction summaries, silent mode for daemon tasks, and lifecycle management.</p>
+        </div>
+      </div>
+      <div class="feature-row">
+        <div class="feature-name">Sessions</div>
+        <div class="feature-detail">
+          <h3>Persistent sessions with automatic compaction</h3>
+          <p>Per-channel session management with context summarization. Long conversations are automatically compacted to stay within context limits while preserving key information.</p>
+        </div>
+      </div>
+      <div class="feature-row">
+        <div class="feature-name">Hallucination Detection</div>
+        <div class="feature-detail">
+          <h3>Catches false claims and phantom actions</h3>
+          <p>Action claim detection, false no-tools-claim retry, tool facts injection, and reflection turns. Prevents the agent from claiming it did something it didn&rsquo;t.</p>
+        </div>
+      </div>
+      <div class="feature-row">
+        <div class="feature-name">Status Messages</div>
+        <div class="feature-detail">
+          <h3>Live tool progress in a single editable message</h3>
+          <p>Tool execution progress shown as a single message that edits in-place (Telegram, Discord, Slack). Includes typing indicator and automatic cleanup on completion.</p>
+        </div>
+      </div>
+      <div class="feature-row">
+        <div class="feature-name">Connection Resilience</div>
+        <div class="feature-detail">
+          <h3>Auto-reconnect with exponential backoff</h3>
+          <p>All channels automatically reconnect on disconnection with exponential backoff. No manual intervention needed for transient network issues.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -704,14 +739,14 @@ cargo build --release --no-default-features \
       <div>
         <div class="tool-cat-label">Integrations</div>
         <div class="tool-grid">
-          <div class="tool-item" data-detail="Interact with Gmail. Actions: search, read, send, reply, list_labels, label. Requires Google OAuth configuration."><span class="tool-dot setup"></span><div><span class="tool-name">google_mail</span><br><span class="tool-desc">Gmail read, send, and manage</span></div></div>
-          <div class="tool-item" data-detail="Interact with Google Calendar. Actions: list_events, get_event, create_event, update_event, delete_event, list_calendars. Requires Google OAuth configuration."><span class="tool-dot setup"></span><div><span class="tool-name">google_calendar</span><br><span class="tool-desc">Event management</span></div></div>
-          <div class="tool-item" data-detail="Interact with GitHub. Actions: list_issues, create_issue, list_prs, get_pr, notifications. Requires a GitHub personal access token."><span class="tool-dot setup"></span><div><span class="tool-name">github</span><br><span class="tool-desc">Issues, PRs, and repos</span></div></div>
+          <div class="tool-item" data-detail="Interact with Gmail. Requires Google OAuth configuration."><span class="tool-dot setup"></span><div><span class="tool-name">google_mail</span><br><span class="tool-desc">Gmail read, send, and manage</span></div></div>
+          <div class="tool-item" data-detail="Interact with Google Calendar. Requires Google OAuth configuration."><span class="tool-dot setup"></span><div><span class="tool-name">google_calendar</span><br><span class="tool-desc">Event management</span></div></div>
+          <div class="tool-item" data-detail="Interact with GitHub. Issues, pull requests, file content, PR reviews, and CI/CD workflows. Requires a GitHub personal access token."><span class="tool-dot setup"></span><div><span class="tool-name">github</span><br><span class="tool-desc">Issues, PRs, and repos</span></div></div>
           <div class="tool-item" data-detail="Get current weather or forecast for a location. Uses OpenWeatherMap API."><span class="tool-dot setup"></span><div><span class="tool-name">weather</span><br><span class="tool-desc">OpenWeatherMap forecasts</span></div></div>
-          <div class="tool-item" data-detail="Manage Todoist tasks and projects. Actions: list_tasks, get_task, create_task, update_task, complete_task, delete_task, add_comment, list_comments, list_projects."><span class="tool-dot setup"></span><div><span class="tool-name">todoist</span><br><span class="tool-desc">Task management</span></div></div>
-          <div class="tool-item" data-detail="Manage movies and TV series via Radarr (movies) and Sonarr (TV). Actions: search_movie, add_movie, get_movie, list_movies, search_series, add_series, get_series, list_series."><span class="tool-dot setup"></span><div><span class="tool-name">media</span><br><span class="tool-desc">Radarr and Sonarr integration</span></div></div>
-          <div class="tool-item" data-detail="Read, write, search, and list notes in an Obsidian vault. Actions: read, write (auto-generates YAML frontmatter for new notes), append, search (full-text), list (optionally filtered by folder)."><span class="tool-dot setup"></span><div><span class="tool-name">obsidian</span><br><span class="tool-desc">Vault read, write, and search</span></div></div>
-          <div class="tool-item" data-detail="Generate images from text prompts using AI. Supports OpenAI gpt-image-1 (DALL-E) and Google Imagen 3."><span class="tool-dot setup"></span><div><span class="tool-name">image_gen</span><br><span class="tool-desc">OpenAI DALL-E / Google Imagen</span></div></div>
+          <div class="tool-item" data-detail="Manage Todoist tasks and projects with comments. Requires a Todoist API token."><span class="tool-dot setup"></span><div><span class="tool-name">todoist</span><br><span class="tool-desc">Task management</span></div></div>
+          <div class="tool-item" data-detail="Manage movies and TV series via Radarr and Sonarr. Requires API keys for each service."><span class="tool-dot setup"></span><div><span class="tool-name">media</span><br><span class="tool-desc">Radarr and Sonarr integration</span></div></div>
+          <div class="tool-item" data-detail="Read, write, search, and list notes in an Obsidian vault. Requires vault path configuration."><span class="tool-dot setup"></span><div><span class="tool-name">obsidian</span><br><span class="tool-desc">Vault read, write, and search</span></div></div>
+          <div class="tool-item" data-detail="Generate images from text prompts using AI. Supports OpenAI DALL-E and Google Imagen 3."><span class="tool-dot setup"></span><div><span class="tool-name">image_gen</span><br><span class="tool-desc">OpenAI DALL-E / Google Imagen</span></div></div>
           <div class="tool-item" data-detail="Connect external tool servers via Model Context Protocol. Tools are auto-discovered at startup from child processes and registered as native tools with full middleware pipeline support."><span class="tool-dot ext"></span><div><span class="tool-name">MCP servers</span><br><span class="tool-desc">Auto-discovered external tools</span></div></div>
         </div>
       </div>
@@ -1116,7 +1151,8 @@ cp config.example.json ~/.oxicrab/config.json</pre>
       // Create and insert detail panel after the clicked item
       const detail = document.createElement('div');
       detail.className = 'tool-detail visible';
-      detail.innerHTML = '<div class="tool-detail-name">' + name + '</div><p>' + item.dataset.detail + '</p>';
+      const toolId = name.toLowerCase().replace(/\s+/g, '_');
+      detail.innerHTML = '<div class="tool-detail-name">' + name + '</div><p>' + item.dataset.detail + '</p><p><a href="tools.html#' + toolId + '" style="color:var(--accent);font-size:0.85rem">Full reference &rarr;</a></p>';
       item.after(detail);
       item.classList.add('active');
     });

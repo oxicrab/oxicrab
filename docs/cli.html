@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CLI Reference - oxicrab</title>
-  <meta name="description" content="Complete reference for the oxicrab command-line interface. Commands for gateway, agent, cron, auth, channels, status, and doctor.">
+  <meta name="description" content="Complete reference for the oxicrab command-line interface. Commands for gateway, agent, cron, auth, channels, credentials, pairing, status, and doctor.">
   <meta name="theme-color" content="#0ea5e9">
   <link rel="icon" href="oxicrab.png">
   <style>
@@ -129,10 +129,10 @@
             <li><a href="#cron">cron</a></li>
             <li><a href="#auth">auth</a></li>
             <li><a href="#channels">channels</a></li>
-            <li><a href="#credentials">credentials</a></li>
-            <li><a href="#pairing">pairing</a></li>
             <li><a href="#status">status</a></li>
             <li><a href="#doctor">doctor</a></li>
+            <li><a href="#pairing">pairing</a></li>
+            <li><a href="#credentials">credentials</a></li>
         </ul>
     </div>
 
@@ -269,98 +269,6 @@ oxicrab cron add -n "Reminder" -m "Meeting in 5 minutes" --at "2026-03-01T14:55:
     <p>Link a WhatsApp device via QR code. Displays a QR code in the terminal to scan with your phone. Session is saved to <code>~/.oxicrab/whatsapp/whatsapp.db</code>.</p>
     <p>Requires the <code>channel-whatsapp</code> feature to be compiled.</p>
 
-    <!-- CREDENTIALS -->
-    <h2 id="credentials">credentials</h2>
-    <div class="cmd-sig">oxicrab credentials &lt;SUBCOMMAND&gt;</div>
-    <p>Manage credentials stored in the OS keychain. Requires the <code>keyring-store</code> feature (enabled by default). Resolution order: env vars &gt; credential helper &gt; keyring &gt; config.json.</p>
-
-    <h3>credentials set</h3>
-    <div class="cmd-sig">oxicrab credentials set &lt;NAME&gt; [VALUE]</div>
-    <p>Store a credential in the OS keychain. If <code>VALUE</code> is omitted, reads from stdin (useful for piping).</p>
-    <table class="flag-table">
-        <tr><th>Argument</th><th>Description</th></tr>
-        <tr><td>NAME</td><td>Credential slot name (e.g. <code>anthropic-api-key</code>, <code>telegram-token</code>)</td></tr>
-        <tr><td>VALUE</td><td>The secret value (optional &mdash; reads stdin if omitted)</td></tr>
-    </table>
-    <pre>oxicrab credentials set anthropic-api-key sk-ant-api03-...
-echo "my-token" | oxicrab credentials set telegram-token</pre>
-
-    <h3>credentials get</h3>
-    <div class="cmd-sig">oxicrab credentials get &lt;NAME&gt;</div>
-    <p>Check whether a credential is stored in the keychain. Shows <code>[set]</code> or <code>[empty]</code> &mdash; does not print the actual secret.</p>
-
-    <h3>credentials delete</h3>
-    <div class="cmd-sig">oxicrab credentials delete &lt;NAME&gt;</div>
-    <p>Remove a credential from the OS keychain.</p>
-
-    <h3>credentials list</h3>
-    <div class="cmd-sig">oxicrab credentials list</div>
-    <p>Show all 28 credential slots with their source (env, keyring, config, helper, or empty).</p>
-    <pre>$ oxicrab credentials list
-Credential                     Source
-──────────────────────────────────────────
-anthropic-api-key              keyring
-openai-api-key                 env
-telegram-token                 config
-discord-token                  [empty]
-github-token                   config/helper</pre>
-
-    <h3>credentials import</h3>
-    <div class="cmd-sig">oxicrab credentials import</div>
-    <p>Import all non-empty credentials from <code>config.json</code> into the OS keychain. Does not modify the config file &mdash; remove secrets from config.json manually after verifying the import.</p>
-
-    <h3>Credential slot names</h3>
-    <p>Use <code>oxicrab credentials list</code> to see all available slot names. Common ones:</p>
-    <table class="flag-table">
-        <tr><th>Name</th><th>Config Field</th></tr>
-        <tr><td>anthropic-api-key</td><td>providers.anthropic.apiKey</td></tr>
-        <tr><td>openai-api-key</td><td>providers.openai.apiKey</td></tr>
-        <tr><td>telegram-token</td><td>channels.telegram.token</td></tr>
-        <tr><td>discord-token</td><td>channels.discord.token</td></tr>
-        <tr><td>github-token</td><td>tools.github.token</td></tr>
-    </table>
-
-    <!-- PAIRING -->
-    <h2 id="pairing">pairing</h2>
-    <div class="cmd-sig">oxicrab pairing &lt;SUBCOMMAND&gt;</div>
-    <p>Manage sender pairing &mdash; authorize new users to message the bot. When a channel uses an empty <code>allowFrom</code> list (default-deny), unknown senders receive a pairing code. Use these commands to approve or manage access.</p>
-
-    <h3>pairing list</h3>
-    <div class="cmd-sig">oxicrab pairing list</div>
-    <p>Show all pending pairing requests with their codes, channels, sender IDs, and time remaining. Also shows the total count of already-paired senders.</p>
-    <pre>$ oxicrab pairing list
-Pending pairing requests:
-  [ABC12345] telegram:123456789 (expires in 12m 30s)
-  [XYZ98765] discord:987654321 (expires in 8m 15s)
-
-Paired senders: 3</pre>
-
-    <h3>pairing approve</h3>
-    <div class="cmd-sig">oxicrab pairing approve &lt;CODE&gt;</div>
-    <p>Approve a pending pairing request by its 8-character code. The sender is added to a persistent per-channel allowlist at <code>~/.oxicrab/pairing/</code>.</p>
-    <pre>$ oxicrab pairing approve ABC12345
-Approved: telegram:123456789</pre>
-
-    <h3>pairing revoke</h3>
-    <div class="cmd-sig">oxicrab pairing revoke &lt;CHANNEL&gt; &lt;SENDER_ID&gt;</div>
-    <p>Remove a previously approved sender from the pairing allowlist.</p>
-    <table class="flag-table">
-        <tr><th>Argument</th><th>Description</th></tr>
-        <tr><td>CHANNEL</td><td>Channel name: <code>telegram</code>, <code>discord</code>, <code>slack</code>, <code>whatsapp</code>, or <code>twilio</code></td></tr>
-        <tr><td>SENDER_ID</td><td>The sender ID to remove (same format as <code>allowFrom</code> entries)</td></tr>
-    </table>
-
-    <h3>Onboarding workflow</h3>
-    <p>The recommended way to set up a new channel with controlled access:</p>
-    <ol>
-        <li>Configure the channel in <code>config.json</code> with an empty <code>allowFrom: []</code></li>
-        <li>Start the gateway: <code>oxicrab gateway</code></li>
-        <li>Send a message to the bot from the account you want to authorize</li>
-        <li>In another terminal: <code>oxicrab pairing list</code> &mdash; note the code</li>
-        <li><code>oxicrab pairing approve &lt;CODE&gt;</code> &mdash; the sender is now permanently authorized</li>
-    </ol>
-    <p>Pairing codes expire after 15 minutes. Max 3 pending requests per channel. Failed approval attempts are rate-limited.</p>
-
     <!-- STATUS -->
     <h2 id="status">status</h2>
     <div class="cmd-sig">oxicrab status</div>
@@ -379,7 +287,6 @@ Approved: telegram:123456789</pre>
         <tr><td>Channels</td><td>Each channel (Telegram, Discord, Slack, WhatsApp, Twilio): compiled, enabled, tokens/credentials configured</td></tr>
         <tr><td>Voice</td><td>Transcription backend availability (local model, cloud API, or both)</td></tr>
         <tr><td>External Tools</td><td>ffmpeg and git available in PATH (with version info)</td></tr>
-        <tr><td>Security</td><td>Config file permissions (0600), config directory permissions (0700), empty allowlists on enabled channels, pairing store status, OS keyring availability, credential helper status</td></tr>
         <tr><td>MCP</td><td>MCP servers configured and enabled</td></tr>
     </table>
 
@@ -418,23 +325,96 @@ oxicrab doctor
   PASS   ffmpeg                         ffmpeg version 6.1.1
   PASS   git                            git version 2.43.0
 
-  Security
-  --------------------------------------------------------
-  PASS   Config file permissions        600
-  PASS   Config dir permissions         700
-  PASS   Empty allowlists               all enabled channels have allowlists or are disabled
-  PASS   Pairing store                  3 paired sender(s), 0 pending
-  PASS   Keyring                        available
-  SKIP   Credential helper              not configured
-
   MCP
   --------------------------------------------------------
   PASS   MCP servers                    2 server(s): filesystem, git
 
 ============================================================
-  20 passed, 0 failed, 3 skipped
+  14 passed, 0 failed, 3 skipped
 
   All checks passed!</pre>
+
+    <!-- PAIRING -->
+    <h2 id="pairing">pairing</h2>
+    <div class="cmd-sig">oxicrab pairing &lt;SUBCOMMAND&gt;</div>
+    <p>Manage sender pairing for DM access control. Channels with empty <code>allowFrom</code> arrays deny all senders by default. The pairing system lets new senders request access via an 8-character code that you approve from the CLI.</p>
+
+    <h3>pairing list</h3>
+    <div class="cmd-sig">oxicrab pairing list</div>
+    <p>Show pending pairing requests (with code, channel, sender ID, and time remaining) and count of already-paired senders. Codes expire after 15 minutes; max 3 pending per channel.</p>
+
+    <h3>pairing approve</h3>
+    <div class="cmd-sig">oxicrab pairing approve &lt;CODE&gt;</div>
+    <p>Approve a pending request by its 8-character code. The sender is permanently added to the per-channel allowlist at <code>~/.oxicrab/pairing/</code>.</p>
+    <table class="flag-table">
+        <tr><th>Argument</th><th>Description</th></tr>
+        <tr><td>CODE</td><td>The 8-character pairing code (e.g. <code>ABC12345</code>)</td></tr>
+    </table>
+
+    <h3>pairing revoke</h3>
+    <div class="cmd-sig">oxicrab pairing revoke &lt;CHANNEL&gt; &lt;SENDER_ID&gt;</div>
+    <p>Remove a previously approved sender from the pairing allowlist.</p>
+    <table class="flag-table">
+        <tr><th>Argument</th><th>Description</th></tr>
+        <tr><td>CHANNEL</td><td>Channel name: telegram, discord, slack, whatsapp, or twilio</td></tr>
+        <tr><td>SENDER_ID</td><td>The sender ID to revoke (same format as allowFrom entries)</td></tr>
+    </table>
+
+    <h3>Workflow</h3>
+    <pre><span class="hl-comment"># 1. Configure a channel with empty allowFrom (deny-all)</span>
+"allowFrom": []
+
+<span class="hl-comment"># 2. Start the gateway</span>
+oxicrab gateway
+
+<span class="hl-comment"># 3. Send a message from the account you want to authorize</span>
+<span class="hl-comment"># 4. In another terminal, check pending requests</span>
+oxicrab pairing list
+
+<span class="hl-comment"># 5. Approve the request</span>
+oxicrab pairing approve ABC12345</pre>
+
+    <!-- CREDENTIALS -->
+    <h2 id="credentials">credentials</h2>
+    <div class="cmd-sig">oxicrab credentials &lt;SUBCOMMAND&gt;</div>
+    <p>Manage credentials stored in the OS keyring. Credential resolution order: <strong>env vars &rarr; credential helper &rarr; OS keyring &rarr; config.json</strong>. Requires the <code>keyring-store</code> feature (default-on). Containers should use <code>OXICRAB_*</code> env vars instead.</p>
+
+    <h3>credentials set</h3>
+    <div class="cmd-sig">oxicrab credentials set &lt;NAME&gt; [VALUE]</div>
+    <p>Store a credential in the OS keychain (macOS Keychain, GNOME Keyring, Windows Credential Manager). If VALUE is omitted, reads from stdin.</p>
+    <table class="flag-table">
+        <tr><th>Argument</th><th>Description</th></tr>
+        <tr><td>NAME</td><td>Credential slot name (e.g. <code>anthropic-api-key</code>)</td></tr>
+        <tr><td>VALUE</td><td>Value to store (optional; prompted if omitted)</td></tr>
+    </table>
+
+    <h3>credentials get</h3>
+    <div class="cmd-sig">oxicrab credentials get &lt;NAME&gt;</div>
+    <p>Check if a credential is stored. Shows <code>[set]</code> or <code>[empty]</code> &mdash; never prints the actual secret.</p>
+
+    <h3>credentials delete</h3>
+    <div class="cmd-sig">oxicrab credentials delete &lt;NAME&gt;</div>
+    <p>Remove a credential from the OS keyring.</p>
+
+    <h3>credentials list</h3>
+    <div class="cmd-sig">oxicrab credentials list</div>
+    <p>Show all 28 credential slots with their source: <code>env</code>, <code>keyring</code>, <code>config</code>, <code>config/helper</code>, or <code>[empty]</code>.</p>
+
+    <h3>credentials import</h3>
+    <div class="cmd-sig">oxicrab credentials import</div>
+    <p>Bulk-import all non-empty credentials from <code>config.json</code> into the OS keyring. Does not modify the config file &mdash; you can remove secrets from it afterward.</p>
+
+    <pre><span class="hl-comment"># Store a credential (prompts for value)</span>
+oxicrab credentials set anthropic-api-key
+
+<span class="hl-comment"># Check what's configured</span>
+oxicrab credentials list
+
+<span class="hl-comment"># Migrate secrets from config.json to keyring</span>
+oxicrab credentials import
+
+<span class="hl-comment"># Remove a credential</span>
+oxicrab credentials delete anthropic-api-key</pre>
 
 </div>
 

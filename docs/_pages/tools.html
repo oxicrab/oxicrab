@@ -289,7 +289,7 @@ max_width: 820px
 
   <div id="github" class="tool-section">
     <h2>github <span class="badge badge-config">Requires config</span></h2>
-    <p class="desc">Interact with GitHub. List and create issues, view pull requests, and check notifications.</p>
+    <p class="desc">Interact with GitHub. Issues, pull requests, file content, PR reviews, CI/CD workflows, and notifications.</p>
 
     <h3>Actions</h3>
     <table class="action-table">
@@ -297,8 +297,14 @@ max_width: 820px
       <tbody>
         <tr><td>list_issues</td><td>List issues for a repository</td></tr>
         <tr><td>create_issue</td><td>Create a new issue</td></tr>
+        <tr><td>get_issue</td><td>Get issue details</td></tr>
         <tr><td>list_prs</td><td>List pull requests</td></tr>
         <tr><td>get_pr</td><td>Get pull request details</td></tr>
+        <tr><td>get_pr_files</td><td>List files changed in a pull request</td></tr>
+        <tr><td>create_pr_review</td><td>Submit a PR review (approve, request changes, or comment)</td></tr>
+        <tr><td>get_file_content</td><td>Get file content from a repository</td></tr>
+        <tr><td>trigger_workflow</td><td>Trigger a GitHub Actions workflow</td></tr>
+        <tr><td>get_workflow_runs</td><td>List recent workflow runs</td></tr>
         <tr><td>notifications</td><td>List recent notifications</td></tr>
       </tbody>
     </table>
