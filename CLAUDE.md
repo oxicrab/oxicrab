@@ -89,7 +89,7 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 
 ### Provider Selection
 
-`ProviderFactory` in `src/providers/strategy.rs` picks provider by model name prefix. Tries Anthropic OAuth first, falls back to API key strategy. Within the API key strategy, OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Moonshot, Zhipu, DashScope, vLLM) are matched first by keyword in the model name, then native providers (Anthropic, OpenAI, Gemini). OpenAI-compat providers use `OpenAIProvider::with_config()` with a configurable base URL (defaulting per-provider) and provider name for error messages.
+`ProviderFactory` in `src/providers/strategy.rs` picks provider by model name prefix. Tries Anthropic OAuth first, falls back to API key strategy. Within the API key strategy, OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Moonshot, Zhipu, DashScope, vLLM) are matched first by keyword in the model name, then native providers (Anthropic, OpenAI, Gemini). OpenAI-compat providers use `OpenAIProvider::with_config()` with a configurable base URL (defaulting per-provider) and provider name for error messages. Custom HTTP headers can be injected into all requests via `ProviderConfig.headers` — passed through to `OpenAIProvider::with_config_and_headers()`.
 
 ### Tool System
 
@@ -99,7 +99,7 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 
 ### Agent Loop (`src/agent/loop.rs`)
 
-`AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. First iteration forces `tool_choice="any"` to prevent text-only hallucinations. Tools nudge (up to 2 retries) catches subsequent iterations where the LLM returns text without having called any tools. Hallucination detection runs on final text responses. Responses flow through the loop's return value (no message tool); the caller sends them exactly once.
+`AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. First iteration forces `tool_choice="any"` to prevent text-only hallucinations. Tools nudge (up to 2 retries) catches subsequent iterations where the LLM returns text without having called any tools. Hallucination detection runs on final text responses. Responses flow through the loop's return value (no message tool); the caller sends them exactly once. At 70% of `max_iterations`, a system message prompts the LLM to begin wrapping up. Post-compaction recovery instructions include the last user message and most recent checkpoint. Periodic checkpoints (configurable via `CompactionConfig.checkpoint`) snapshot conversation state every N iterations for recovery after compaction.
 
 ### Feature Flags (channel selection + optional features)
 
@@ -121,7 +121,7 @@ Channels are conditionally compiled via `#[cfg(feature = "channel-*")]` in `src/
 
 ### Config
 
-JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in JSON, snake_case in Rust (serde `rename` attrs). Schema in `src/config/schema.rs` — 11 structs have custom `Debug` impls that redact secrets. Validated on startup via `config.validate()`.
+JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in JSON, snake_case in Rust (serde `rename` attrs). Schema in `src/config/schema.rs` — 11 structs have custom `Debug` impls that redact secrets. Validated on startup via `config.validate()`. Notable config fields: `providers.*.headers` (custom HTTP headers for OpenAI-compatible providers), `agents.defaults.compaction.checkpoint` (`CheckpointConfig` with `enabled` and `intervalIterations`).
 
 ### Error Handling
 
@@ -153,10 +153,16 @@ Unified credential management via `define_credentials!` macro. Adding a new cred
 
 - **Credential backends** (`src/config/credentials.rs`): Three-tier credential resolution (env > helper > keyring > config.json). All 28 credential slots covered by `OXICRAB_*` env vars. OS keychain via `keyring` crate (optional, `keyring-store` feature). External helper protocol supports 1Password (`op`), Bitwarden (`bw`), and custom scripts.
 - **Default-deny allowlists** (`src/channels/utils.rs`): Empty `allowFrom` arrays now deny all senders. Use `["*"]` for open access.
-- **DM pairing** (`src/pairing/mod.rs`): `PairingStore` provides file-backed per-channel allowlists at `~/.oxicrab/pairing/`. 8-char human-friendly codes with 15-min TTL. CLI: `oxicrab pairing list|approve|revoke`.
+- **DM pairing** (`src/pairing/mod.rs`): `PairingStore` provides file-backed per-channel allowlists at `~/.oxicrab/pairing/`. 8-char human-friendly codes with 15-min TTL. Per-client lockout tracking (`HashMap<String, Vec<u64>>`) prevents brute-force code guessing with bounded map (1000 clients max). CLI: `oxicrab pairing list|approve|revoke`.
 - **Leak detection** (`src/safety/leak_detector.rs`): `LeakDetector` scans outbound messages for API key patterns (Anthropic, OpenAI, Slack, GitHub, Groq, Telegram, Discord). Integrated into `MessageBus::publish_outbound()` — redacts before sending.
+- **Subprocess env scrubbing** (`src/utils/subprocess.rs`): `scrubbed_command()` calls `env_clear()` then copies only allowlisted vars (`PATH`, `HOME`, `USER`, `LANG`, `LC_ALL`, `TZ`, `TERM`, `RUST_LOG`, `TMPDIR`, `XDG_RUNTIME_DIR`). Applied to all child processes: shell exec, MCP servers, ffmpeg, tmux.
+- **HTTP body limits** (`src/utils/http.rs`): `limited_body()` and `limited_text()` stream response bodies with Content-Length pre-check and chunk-based size cap (default 10 MB). Applied to http tool, web_fetch, and web_search.
+- **Shell output cap**: Combined stdout+stderr truncated at 1 MB with `[output truncated at 1MB]` marker. PCM audio capped at 50 MB.
+- **Shell injection patterns** (`src/utils/regex/mod.rs`): Security blocklist includes patterns for `rm -rf`, raw device access, fork bombs, `eval`, piped downloads, netcat listeners, hex decode to shell, `$VAR` expansion, and input redirection from absolute/home paths.
+- **Workspace path validation** (`src/agent/tools/shell.rs`): When `restrict_to_workspace` is enabled, absolute paths in commands are canonicalized and checked against the workspace boundary.
 - **Config permissions**: `check_file_permissions()` warns on startup if config file is world-readable (unix). `save_config()` uses atomic writes via `crate::utils::atomic_write()`.
 - **Constant-time comparison**: Twilio webhook signature uses `subtle::ConstantTimeEq` instead of `==`.
+- **Gitleaks CI** (`.github/workflows/gitleaks.yml`): Scans for secrets on push and pull request.
 
 ### CLI Commands
 

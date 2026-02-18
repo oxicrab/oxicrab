@@ -234,11 +234,20 @@ impl ApiKeyProviderStrategy {
                 provider_name, model, api_model
             );
 
-            return Some(Arc::new(OpenAIProvider::with_config(
+            if provider_config.headers.is_empty() {
+                return Some(Arc::new(OpenAIProvider::with_config(
+                    provider_config.api_key.clone(),
+                    api_model.to_string(),
+                    base_url,
+                    provider_name,
+                )));
+            }
+            return Some(Arc::new(OpenAIProvider::with_config_and_headers(
                 provider_config.api_key.clone(),
                 api_model.to_string(),
                 base_url,
                 provider_name,
+                provider_config.headers.clone(),
             )));
         }
 

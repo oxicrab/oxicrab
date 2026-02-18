@@ -200,6 +200,27 @@ pub struct ChannelsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_checkpoint_interval", rename = "intervalIterations")]
+    pub interval_iterations: u32,
+}
+
+impl Default for CheckpointConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_iterations: default_checkpoint_interval(),
+        }
+    }
+}
+
+fn default_checkpoint_interval() -> u32 {
+    10
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompactionConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -211,6 +232,8 @@ pub struct CompactionConfig {
     pub extraction_enabled: bool,
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default)]
+    pub checkpoint: CheckpointConfig,
 }
 
 impl Default for CompactionConfig {
@@ -221,6 +244,7 @@ impl Default for CompactionConfig {
             keep_recent: default_keep_recent(),
             extraction_enabled: true,
             model: None,
+            checkpoint: CheckpointConfig::default(),
         }
     }
 }
@@ -487,9 +511,12 @@ pub struct ProviderConfig {
     pub api_key: String,
     #[serde(default, rename = "apiBase")]
     pub api_base: Option<String>,
+    /// Custom HTTP headers injected into every request to this provider.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub headers: std::collections::HashMap<String, String>,
 }
 
-redact_debug!(ProviderConfig, redact(api_key), api_base,);
+redact_debug!(ProviderConfig, redact(api_key), api_base, headers,);
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AnthropicOAuthConfig {

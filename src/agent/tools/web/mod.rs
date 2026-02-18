@@ -56,7 +56,11 @@ impl WebSearchTool {
 
         match resp {
             Ok(resp) => {
-                let html = resp.text().await?;
+                let html = crate::utils::http::limited_text(
+                    resp,
+                    crate::utils::http::DEFAULT_MAX_BODY_BYTES,
+                )
+                .await?;
                 let document = Html::parse_document(&html);
 
                 let result_sel = Selector::parse(".result")
@@ -250,7 +254,11 @@ impl WebFetchTool {
 
                 // Handle binary content (images, etc.) — save to disk
                 if let Some(ext) = extension_from_content_type(&content_type) {
-                    let bytes = resp.bytes().await?;
+                    let bytes = crate::utils::http::limited_body(
+                        resp,
+                        crate::utils::http::DEFAULT_MAX_BODY_BYTES,
+                    )
+                    .await?;
                     match save_media_file(&bytes, "fetch", ext) {
                         Ok(path) => {
                             let result = serde_json::json!({
@@ -272,7 +280,11 @@ impl WebFetchTool {
                     }
                 }
 
-                let text = resp.text().await?;
+                let text = crate::utils::http::limited_text(
+                    resp,
+                    crate::utils::http::DEFAULT_MAX_BODY_BYTES,
+                )
+                .await?;
 
                 let (extracted_text, extractor) = if content_type.contains("application/json") {
                     let json: Value = serde_json::from_str(&text)?;

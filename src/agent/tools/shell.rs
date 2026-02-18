@@ -7,8 +7,10 @@ use regex::Regex;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tokio::process::Command;
 use tracing::warn;
+
+/// Maximum combined stdout+stderr size before truncation.
+const MAX_OUTPUT_BYTES: usize = 1024 * 1024; // 1 MB
 
 pub struct ExecTool {
     timeout: u64,
@@ -127,14 +129,46 @@ impl ExecTool {
 
         if self.restrict_to_workspace
             && let Some(workspace) = &self.working_dir
-            && !cwd.starts_with(workspace)
         {
-            return Some(format!(
-                "Error: Working directory '{}' is outside workspace",
-                cwd.display()
-            ));
+            if !cwd.starts_with(workspace) {
+                return Some(format!(
+                    "Error: Working directory '{}' is outside workspace",
+                    cwd.display()
+                ));
+            }
+
+            // Check path-like tokens in the command for workspace escape
+            if let Some(err) = Self::check_paths_in_workspace(command, workspace) {
+                return Some(err);
+            }
         }
 
+        None
+    }
+
+    /// Extract absolute path tokens from a command and verify they resolve
+    /// inside the workspace. Returns an error message if any path escapes.
+    fn check_paths_in_workspace(command: &str, workspace: &Path) -> Option<String> {
+        for token in command.split_whitespace() {
+            // Only check tokens that look like absolute paths
+            if !token.starts_with('/') {
+                continue;
+            }
+            // Strip shell quoting characters
+            let cleaned = token.trim_matches(|c| c == '\'' || c == '"');
+            if cleaned.is_empty() || cleaned == "/" {
+                continue;
+            }
+            let path = Path::new(cleaned);
+            // Use canonicalize if the path exists, otherwise check lexically
+            let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            if !resolved.starts_with(workspace) {
+                return Some(format!(
+                    "Error: path '{}' is outside the workspace",
+                    cleaned
+                ));
+            }
+        }
         None
     }
 }
@@ -197,15 +231,31 @@ impl Tool for ExecTool {
             return Ok(ToolResult::error(err));
         }
 
-        let mut cmd = Command::new("sh");
+        let mut cmd = crate::utils::subprocess::scrubbed_command("sh");
         cmd.arg("-c").arg(command);
         cmd.current_dir(&cwd);
         cmd.kill_on_drop(true);
 
         match tokio::time::timeout(Duration::from_secs(self.timeout), cmd.output()).await {
             Ok(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
+                let combined_len = output.stdout.len() + output.stderr.len();
+                let truncated = combined_len > MAX_OUTPUT_BYTES;
+
+                // Truncate raw bytes before UTF-8 conversion to bound memory
+                let stdout_bytes = if output.stdout.len() > MAX_OUTPUT_BYTES {
+                    &output.stdout[..MAX_OUTPUT_BYTES]
+                } else {
+                    &output.stdout
+                };
+                let remaining = MAX_OUTPUT_BYTES.saturating_sub(stdout_bytes.len());
+                let stderr_bytes = if output.stderr.len() > remaining {
+                    &output.stderr[..remaining]
+                } else {
+                    &output.stderr
+                };
+
+                let stdout = String::from_utf8_lossy(stdout_bytes);
+                let stderr = String::from_utf8_lossy(stderr_bytes);
 
                 let mut result = String::new();
                 if !stdout.is_empty() {
@@ -216,6 +266,9 @@ impl Tool for ExecTool {
                         result.push_str("\n--- stderr ---\n");
                     }
                     result.push_str(&stderr);
+                }
+                if truncated {
+                    result.push_str("\n[output truncated at 1MB]");
                 }
 
                 if output.status.success() {
@@ -398,5 +451,79 @@ mod tests {
         let result = t.guard_command("rm --recursive --force /tmp", Path::new("/tmp"));
         assert!(result.is_some());
         assert!(result.unwrap().contains("security policy"));
+    }
+
+    // --- check_paths_in_workspace tests ---
+
+    #[test]
+    fn test_paths_inside_workspace_allowed() {
+        let workspace = Path::new("/tmp");
+        let result = ExecTool::check_paths_in_workspace("cat /tmp/file.txt", workspace);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_paths_outside_workspace_blocked() {
+        let workspace = Path::new("/tmp/workspace");
+        let result = ExecTool::check_paths_in_workspace("cat /etc/passwd", workspace);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("outside the workspace"));
+    }
+
+    #[test]
+    fn test_paths_relative_paths_ignored() {
+        let workspace = Path::new("/tmp/workspace");
+        let result = ExecTool::check_paths_in_workspace("cat relative/path.txt", workspace);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_paths_root_slash_ignored() {
+        let workspace = Path::new("/tmp/workspace");
+        // Single "/" should be skipped
+        let result = ExecTool::check_paths_in_workspace("ls /", workspace);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_paths_quoted_paths_stripped() {
+        let workspace = Path::new("/tmp");
+        let result = ExecTool::check_paths_in_workspace("cat '/tmp/file.txt'", workspace);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_paths_workspace_enforced_via_guard() {
+        let t = ExecTool::new(
+            60,
+            Some(PathBuf::from("/tmp/workspace")),
+            true,
+            vec!["cat".to_string()],
+        )
+        .unwrap();
+        let result = t.guard_command("cat /etc/shadow", Path::new("/tmp/workspace"));
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("outside the workspace"));
+    }
+
+    #[test]
+    fn test_paths_workspace_disabled_allows_all() {
+        let t = ExecTool::new(
+            60,
+            Some(PathBuf::from("/tmp/workspace")),
+            false,
+            vec!["cat".to_string()],
+        )
+        .unwrap();
+        // With restrict_to_workspace=false, paths outside workspace are allowed
+        let result = t.guard_command("cat /etc/hostname", Path::new("/tmp/workspace"));
+        assert!(result.is_none());
+    }
+
+    // --- output truncation constants ---
+
+    #[test]
+    fn test_max_output_bytes_is_1mb() {
+        assert_eq!(MAX_OUTPUT_BYTES, 1024 * 1024);
     }
 }

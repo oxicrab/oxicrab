@@ -209,6 +209,21 @@
   }
 }</code></pre>
 
+        <h3 id="custom-headers">Custom Headers</h3>
+        <p>Inject custom HTTP headers into every request for an OpenAI-compatible provider. Useful for authentication proxies, routing, or API gateways:</p>
+        <pre><code>{
+  "providers": {
+    "openrouter": {
+      "apiKey": "sk-...",
+      "headers": {
+        "X-Custom-Header": "value",
+        "HTTP-Referer": "https://myapp.example.com"
+      }
+    }
+  }
+}</code></pre>
+        <p>Headers are merged into every chat and warmup request alongside the standard <code>Authorization</code> and <code>Content-Type</code> headers.</p>
+
         <h3 id="local-model-fallback">Local Model Fallback</h3>
         <p>Configure a local model (e.g. Ollama) as a fallback. The cloud model remains primary &mdash; the local model is only used if the cloud provider fails or returns malformed tool calls:</p>
         <pre><code>{
@@ -398,6 +413,16 @@
             <tr><td>keepRecent</td><td>usize</td><td>10</td><td>Number of recent messages to preserve verbatim</td></tr>
             <tr><td>extractionEnabled</td><td>bool</td><td>true</td><td>Extract facts to memory during compaction</td></tr>
             <tr><td>model</td><td>string?</td><td>null</td><td>Override model for compaction (uses default if null)</td></tr>
+            <tr><td>checkpoint</td><td>object</td><td>see below</td><td>Periodic checkpoint configuration</td></tr>
+        </table>
+
+        <h3>Checkpoint</h3>
+        <p>Config path: <code>agents.defaults.compaction.checkpoint</code></p>
+        <p>Periodic checkpoints snapshot conversation state during long agent runs, providing recovery context if compaction occurs.</p>
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable periodic checkpoints</td></tr>
+            <tr><td>intervalIterations</td><td>u32</td><td>10</td><td>Iterations between checkpoints</td></tr>
         </table>
 
         <h3>Daemon</h3>

@@ -16,6 +16,7 @@ use anyhow::Result;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -563,6 +564,7 @@ impl AgentLoopConfig {
                 keep_recent: 10,
                 extraction_enabled: false,
                 model: None,
+                checkpoint: crate::config::CheckpointConfig::default(),
             },
             outbound_tx,
             cron_service: None,
@@ -616,6 +618,8 @@ pub struct AgentLoop {
     event_matcher: Option<EventMatcher>,
     cron_service: Option<Arc<CronService>>,
     cost_guard: Option<CostGuard>,
+    /// Most recent checkpoint summary (updated periodically during long loops)
+    last_checkpoint: Arc<Mutex<Option<String>>>,
 }
 
 impl AgentLoop {
@@ -822,6 +826,7 @@ impl AgentLoop {
             event_matcher,
             cron_service,
             cost_guard,
+            last_checkpoint: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -1143,7 +1148,17 @@ impl AgentLoop {
             }
         }
 
+        let wrapup_threshold = (self.max_iterations as f64 * 0.7).ceil() as usize;
+
         for iteration in 1..=self.max_iterations {
+            // Inject wrap-up hint when approaching iteration limit
+            if iteration == wrapup_threshold && any_tools_called {
+                messages.push(Message::system(format!(
+                    "You have used {} of {} iterations. Begin wrapping up — summarize progress and deliver results.",
+                    iteration, self.max_iterations
+                )));
+            }
+
             // Start periodic typing indicator before LLM call
             let typing_handle = start_typing(self.typing_tx.as_ref(), typing_context.as_ref());
 
@@ -1289,6 +1304,43 @@ impl AgentLoop {
                         &result_str,
                         is_error,
                     );
+                }
+
+                // Periodic checkpoint: summarize progress via compactor
+                if self.compaction_config.checkpoint.enabled
+                    && iteration > 1
+                    && (iteration as u32)
+                        .is_multiple_of(self.compaction_config.checkpoint.interval_iterations)
+                    && let Some(ref compactor) = self.compactor
+                {
+                    let compactor = compactor.clone();
+                    let msgs_snapshot = messages.clone();
+                    let last_cp = self.last_checkpoint.clone();
+                    // Run checkpoint in background to avoid blocking the loop
+                    tokio::spawn(async move {
+                        let history: Vec<std::collections::HashMap<String, Value>> = msgs_snapshot
+                            .iter()
+                            .map(|m| {
+                                let mut map = std::collections::HashMap::new();
+                                map.insert("role".to_string(), Value::String(m.role.clone()));
+                                map.insert("content".to_string(), Value::String(m.content.clone()));
+                                map
+                            })
+                            .collect();
+                        match compactor.compact(&history, "").await {
+                            Ok(summary) => {
+                                debug!(
+                                    "checkpoint at iteration {}: {} chars",
+                                    iteration,
+                                    summary.len()
+                                );
+                                *last_cp.lock().await = Some(summary);
+                            }
+                            Err(e) => {
+                                warn!("checkpoint generation failed: {}", e);
+                            }
+                        }
+                    });
                 }
             } else if let Some(content) = response.content {
                 // Nudge the LLM to use tools if it responded with text before calling any.
@@ -1472,25 +1524,55 @@ impl AgentLoop {
             .unwrap_or("")
             .to_string();
 
+        // Extract last user message for recovery context
+        let last_user_msg = full_history
+            .iter()
+            .rev()
+            .find(|m| m.get("role").and_then(Value::as_str) == Some("user"))
+            .and_then(|m| m.get("content").and_then(Value::as_str))
+            .unwrap_or("")
+            .to_string();
+
+        // Get most recent checkpoint if available
+        let checkpoint = self.last_checkpoint.lock().await.clone();
+
         // Compact old messages
         if let Some(ref compactor) = self.compactor {
             match compactor.compact(old_messages, &previous_summary).await {
                 Ok(summary) => {
+                    // Build recovery-enriched summary
+                    let mut recovery_summary = summary.clone();
+                    if let Some(ref cp) = checkpoint {
+                        let _ = write!(recovery_summary, "\n\n[Checkpoint] {}", cp);
+                    }
+                    if !last_user_msg.is_empty() {
+                        // Truncate last user message to avoid bloating the summary
+                        let truncated_msg: String = last_user_msg.chars().take(200).collect();
+                        let _ = write!(
+                            recovery_summary,
+                            "\n\n[Recovery] The conversation was compacted. \
+                             Continue from where you left off. Last user request: {}",
+                            truncated_msg
+                        );
+                    }
+
                     // Update session metadata with new summary
                     let session_key = session.key.clone();
                     let mut updated_session = self.sessions.get_or_create(&session_key).await?;
-                    updated_session.metadata.insert(
-                        "compaction_summary".to_string(),
-                        Value::String(summary.clone()),
-                    );
+                    updated_session
+                        .metadata
+                        .insert("compaction_summary".to_string(), Value::String(summary));
                     self.sessions.save(&updated_session).await?;
 
-                    // Return summary + recent messages
+                    // Return recovery-enriched summary + recent messages
                     let mut result = vec![HashMap::from([
                         ("role".to_string(), Value::String("system".to_string())),
                         (
                             "content".to_string(),
-                            Value::String(format!("[Previous conversation summary: {}]", summary)),
+                            Value::String(format!(
+                                "[Previous conversation summary: {}]",
+                                recovery_summary
+                            )),
                         ),
                     ])];
                     result.extend(recent_messages.iter().cloned());

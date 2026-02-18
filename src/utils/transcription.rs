@@ -239,9 +239,12 @@ impl TranscriptionService {
     }
 }
 
+/// Maximum PCM data size from ffmpeg (50 MB).
+const MAX_PCM_BYTES: usize = 50 * 1024 * 1024;
+
 /// Convert an audio file to 16kHz mono f32 PCM using ffmpeg.
 async fn convert_audio_to_pcm(audio_path: &Path) -> Result<Vec<f32>> {
-    let output = tokio::process::Command::new("ffmpeg")
+    let output = crate::utils::subprocess::scrubbed_command("ffmpeg")
         .args([
             "-i",
             audio_path
@@ -270,6 +273,13 @@ async fn convert_audio_to_pcm(audio_path: &Path) -> Result<Vec<f32>> {
     }
 
     let bytes = &output.stdout;
+    if bytes.len() > MAX_PCM_BYTES {
+        bail!(
+            "ffmpeg PCM output too large ({} bytes, max {})",
+            bytes.len(),
+            MAX_PCM_BYTES
+        );
+    }
     if bytes.len() % 4 != 0 {
         bail!(
             "ffmpeg output has unexpected length ({} bytes, not a multiple of 4)",

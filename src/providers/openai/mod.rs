@@ -21,6 +21,7 @@ pub struct OpenAIProvider {
     provider_name: String,
     client: Client,
     metrics: std::sync::Arc<Mutex<ProviderMetrics>>,
+    custom_headers: std::collections::HashMap<String, String>,
 }
 
 impl OpenAIProvider {
@@ -36,6 +37,7 @@ impl OpenAIProvider {
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
+            custom_headers: std::collections::HashMap::new(),
         }
     }
 
@@ -56,6 +58,30 @@ impl OpenAIProvider {
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
+            custom_headers: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Create a provider with custom headers injected into every request.
+    pub fn with_config_and_headers(
+        api_key: String,
+        default_model: String,
+        base_url: String,
+        provider_name: String,
+        custom_headers: std::collections::HashMap<String, String>,
+    ) -> Self {
+        Self {
+            api_key,
+            default_model,
+            base_url,
+            provider_name,
+            client: Client::builder()
+                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
+            metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
+            custom_headers,
         }
     }
 
@@ -72,6 +98,7 @@ impl OpenAIProvider {
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
+            custom_headers: std::collections::HashMap::new(),
         }
     }
 
@@ -215,18 +242,18 @@ impl LLMProvider for OpenAIProvider {
             }
         }
 
-        let resp = self
+        let mut req = self
             .client
             .post(&self.base_url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&payload)
-            .send()
-            .await
-            .context(format!(
-                "Failed to send request to {} API",
-                self.provider_name
-            ))?;
+            .header("Content-Type", "application/json");
+        for (k, v) in &self.custom_headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let resp = req.json(&payload).send().await.context(format!(
+            "Failed to send request to {} API",
+            self.provider_name
+        ))?;
 
         let json =
             ProviderErrorHandler::check_response(resp, &self.provider_name, &self.metrics).await?;
@@ -264,15 +291,16 @@ impl LLMProvider for OpenAIProvider {
             "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 1,
         });
-        let result = self
+        let mut req = self
             .client
             .post(&self.base_url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
-            .timeout(Duration::from_secs(15))
-            .json(&payload)
-            .send()
-            .await;
+            .timeout(Duration::from_secs(15));
+        for (k, v) in &self.custom_headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let result = req.json(&payload).send().await;
         match result {
             Ok(_) => info!(
                 "{} provider warmed up in {}ms",

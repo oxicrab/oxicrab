@@ -204,7 +204,14 @@
 
   <div id="exec" class="tool-section">
     <h2>exec <span class="badge badge-core">Core</span></h2>
-    <p class="desc">Execute a shell command and return its output. Secured with configurable command allowlists. Dangerous patterns (rm -rf, raw device access, redirects) are blocked.</p>
+    <p class="desc">Execute a shell command and return its output. Secured with configurable command allowlists, environment scrubbing, and output size limits. Dangerous patterns (rm -rf, raw device access, command substitution, netcat, hex decode piping) are blocked.</p>
+
+    <h3>Security</h3>
+    <ul class="plain">
+      <li><strong>Environment scrubbing</strong> &mdash; child processes inherit only safe variables (PATH, HOME, USER, LANG, TZ, TERM, RUST_LOG, TMPDIR). Secrets are never leaked.</li>
+      <li><strong>Output cap</strong> &mdash; combined stdout+stderr is truncated at 1 MB to prevent memory exhaustion.</li>
+      <li><strong>Workspace enforcement</strong> &mdash; when <code>restrictToWorkspace</code> is enabled, absolute paths in commands are validated against the workspace boundary.</li>
+    </ul>
 
     <h3>Configuration</h3>
     <div class="config-label">~/.oxicrab/config.json</div>

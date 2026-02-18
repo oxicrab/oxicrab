@@ -103,7 +103,12 @@ impl HttpTool {
 
                 // Handle binary content — save to disk
                 if let Some(ext) = extension_from_content_type(&content_type) {
-                    let bytes = resp.bytes().await.unwrap_or_default();
+                    let bytes = crate::utils::http::limited_body(
+                        resp,
+                        crate::utils::http::DEFAULT_MAX_BODY_BYTES,
+                    )
+                    .await
+                    .unwrap_or_default();
                     return match save_media_file(&bytes, "http", ext) {
                         Ok(path) => Ok(ToolResult::new(format!(
                             "HTTP {} {}{}\n\nBinary content saved to: {}\nSize: {} bytes\nType: {}",
@@ -121,7 +126,12 @@ impl HttpTool {
                     };
                 }
 
-                let body_text = resp.text().await.unwrap_or_default();
+                let body_text = crate::utils::http::limited_text(
+                    resp,
+                    crate::utils::http::DEFAULT_MAX_BODY_BYTES,
+                )
+                .await
+                .unwrap_or_default();
 
                 // Try to pretty-print JSON
                 let body_display = if content_type.contains("json") {

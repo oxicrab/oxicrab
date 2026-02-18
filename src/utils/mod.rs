@@ -1,6 +1,7 @@
 pub mod http;
 pub mod media;
 pub mod regex;
+pub mod subprocess;
 pub mod task_tracker;
 pub mod transcription;
 pub mod url_security;

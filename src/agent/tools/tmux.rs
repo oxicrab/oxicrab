@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Stdio;
-use tokio::process::Command;
 use tracing::debug;
 
 const SOCKET_DIR: &str = "oxicrab-tmux-sockets";
@@ -34,7 +33,7 @@ impl TmuxTool {
             std::fs::create_dir_all(parent)?;
         }
 
-        let output = Command::new("tmux")
+        let output = crate::utils::subprocess::scrubbed_command("tmux")
             .arg("-S")
             .arg(socket_path.as_os_str())
             .args(args)
@@ -103,7 +102,12 @@ impl Tool for TmuxTool {
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         // Check if tmux is available
-        if Command::new("tmux").arg("-V").output().await.is_err() {
+        if tokio::process::Command::new("tmux")
+            .arg("-V")
+            .output()
+            .await
+            .is_err()
+        {
             return Ok(ToolResult::error(
                 "Error: tmux is not installed or not found on PATH".to_string(),
             ));

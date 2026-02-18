@@ -194,6 +194,16 @@ pub fn compile_security_patterns() -> Result<Vec<Regex>> {
                 r"\$\(",        // $(command) substitution
                 r"`[^`]+`",     // `command` backtick substitution
                 r"\$\{[^}]+\}", // ${VAR} variable expansion
+                // Input redirection from absolute or home path
+                r"<\s*/|<\s*~",
+                // Bare $VAR expansion (uppercase env vars)
+                r"\$[A-Z_][A-Z0-9_]*",
+                // Netcat listeners/pipes
+                r"\b(nc|ncat|netcat)\b.*-[elp]",
+                // Hex decode piped to shell
+                r"\bxxd\b.*-r.*\|\s*(sh|bash|zsh)\b",
+                // Printf hex piped to shell
+                r"\bprintf\b.*\\x.*\|\s*(sh|bash|zsh)\b",
             ];
 
             let mut compiled = Vec::new();

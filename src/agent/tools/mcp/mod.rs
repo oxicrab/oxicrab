@@ -6,7 +6,6 @@ use anyhow::Result;
 use rmcp::ServiceExt;
 use rmcp::transport::TokioChildProcess;
 use std::sync::Arc;
-use tokio::process::Command;
 use tracing::{info, warn};
 
 use proxy::McpProxyTool;
@@ -66,7 +65,7 @@ impl McpManager {
         env: &std::collections::HashMap<String, String>,
         trust: &str,
     ) -> Result<RunningMcpServer> {
-        let mut cmd = Command::new(command);
+        let mut cmd = crate::utils::subprocess::scrubbed_command(command);
         cmd.args(args);
         for (k, v) in env {
             cmd.env(k, v);

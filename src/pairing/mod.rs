@@ -12,6 +12,7 @@ const CODE_TTL_SECS: u64 = 15 * 60; // 15 minutes
 const MAX_PENDING_PER_CHANNEL: usize = 3;
 const MAX_FAILED_ATTEMPTS: usize = 10;
 const FAILED_ATTEMPT_WINDOW_SECS: u64 = 5 * 60; // 5 minutes
+const MAX_LOCKOUT_CLIENTS: usize = 1000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingRequest {
@@ -35,7 +36,7 @@ pub struct PairingStore {
     base_dir: PathBuf,
     allowlists: HashMap<String, AllowlistData>,
     pending: PendingData,
-    failed_attempts: Vec<u64>,
+    failed_attempts: HashMap<String, Vec<u64>>,
 }
 
 impl PairingStore {
@@ -48,7 +49,7 @@ impl PairingStore {
             base_dir,
             allowlists: HashMap::new(),
             pending: PendingData::default(),
-            failed_attempts: Vec::new(),
+            failed_attempts: HashMap::new(),
         };
         store.load_all()?;
         Ok(store)
@@ -61,7 +62,7 @@ impl PairingStore {
             base_dir,
             allowlists: HashMap::new(),
             pending: PendingData::default(),
-            failed_attempts: Vec::new(),
+            failed_attempts: HashMap::new(),
         };
         store.load_all()?;
         Ok(store)
@@ -167,14 +168,36 @@ impl PairingStore {
         Ok(Some(code))
     }
 
-    /// Approve a pairing request by code. Returns `(channel, sender_id)` on success.
-    pub fn approve(&mut self, code: &str) -> Result<Option<(String, String)>> {
+    /// Approve a pairing request by code, with per-client lockout.
+    /// `client_id` identifies the approver (e.g. CLI user, admin session).
+    /// Returns `(channel, sender_id)` on success.
+    pub fn approve_with_client(
+        &mut self,
+        code: &str,
+        client_id: &str,
+    ) -> Result<Option<(String, String)>> {
         let now = Self::now_secs();
 
-        // Rate limit failed attempts
-        self.failed_attempts
-            .retain(|&t| now.saturating_sub(t) < FAILED_ATTEMPT_WINDOW_SECS);
-        if self.failed_attempts.len() >= MAX_FAILED_ATTEMPTS {
+        // Evict oldest client entries if map is too large (DoS protection)
+        if self.failed_attempts.len() > MAX_LOCKOUT_CLIENTS {
+            // Find the client with the oldest most-recent attempt and remove it
+            if let Some(oldest_key) = self
+                .failed_attempts
+                .iter()
+                .min_by_key(|(_, attempts)| attempts.last().copied().unwrap_or(0))
+                .map(|(k, _)| k.clone())
+            {
+                self.failed_attempts.remove(&oldest_key);
+            }
+        }
+
+        // Per-client rate limiting
+        let attempts = self
+            .failed_attempts
+            .entry(client_id.to_string())
+            .or_default();
+        attempts.retain(|&t| now.saturating_sub(t) < FAILED_ATTEMPT_WINDOW_SECS);
+        if attempts.len() >= MAX_FAILED_ATTEMPTS {
             anyhow::bail!("too many failed approval attempts, try again later");
         }
 
@@ -185,7 +208,10 @@ impl PairingStore {
             });
 
         let Some(idx) = idx else {
-            self.failed_attempts.push(now);
+            self.failed_attempts
+                .entry(client_id.to_string())
+                .or_default()
+                .push(now);
             return Ok(None);
         };
 
@@ -203,6 +229,12 @@ impl PairingStore {
         self.save_allowlist(&channel)?;
 
         Ok(Some((channel, sender_id)))
+    }
+
+    /// Approve a pairing request by code. Returns `(channel, sender_id)` on success.
+    /// Uses a default client ID for lockout tracking.
+    pub fn approve(&mut self, code: &str) -> Result<Option<(String, String)>> {
+        self.approve_with_client(code, "default")
     }
 
     /// Check if a sender is in the pairing store's allowlist for a channel.
@@ -396,6 +428,121 @@ mod tests {
 
         // But a different channel should still work
         let result = store.request_pairing("discord", "overflow_user").unwrap();
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_approve_with_client_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+
+        let code = store
+            .request_pairing("telegram", "user123")
+            .unwrap()
+            .unwrap();
+        let result = store.approve_with_client(&code, "admin1").unwrap();
+        assert!(result.is_some());
+        let (channel, sender) = result.unwrap();
+        assert_eq!(channel, "telegram");
+        assert_eq!(sender, "user123");
+        assert!(store.is_paired("telegram", "user123"));
+    }
+
+    #[test]
+    fn test_approve_with_client_records_failed_attempts() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+
+        store
+            .request_pairing("telegram", "user123")
+            .unwrap()
+            .unwrap();
+
+        // Try a bad code
+        let result = store.approve_with_client("BADCODE1", "admin1").unwrap();
+        assert!(result.is_none());
+
+        // Should have recorded one failed attempt
+        assert_eq!(store.failed_attempts["admin1"].len(), 1);
+    }
+
+    #[test]
+    fn test_approve_with_client_locks_out_after_max_failures() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+
+        store
+            .request_pairing("telegram", "user123")
+            .unwrap()
+            .unwrap();
+
+        // Exhaust the failure budget
+        for _ in 0..MAX_FAILED_ATTEMPTS {
+            let _ = store.approve_with_client("BADCODE1", "admin1");
+        }
+
+        // Next attempt should bail
+        let result = store.approve_with_client("BADCODE1", "admin1");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("too many failed approval attempts")
+        );
+    }
+
+    #[test]
+    fn test_approve_with_client_separate_limits_per_client() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+
+        let code = store
+            .request_pairing("telegram", "user123")
+            .unwrap()
+            .unwrap();
+
+        // Exhaust admin1's budget
+        for _ in 0..MAX_FAILED_ATTEMPTS {
+            let _ = store.approve_with_client("BADCODE1", "admin1");
+        }
+
+        // admin1 is locked out
+        assert!(store.approve_with_client("BADCODE1", "admin1").is_err());
+
+        // admin2 can still approve successfully
+        let result = store.approve_with_client(&code, "admin2").unwrap();
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_approve_default_uses_default_client() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+
+        store
+            .request_pairing("telegram", "user123")
+            .unwrap()
+            .unwrap();
+
+        // approve() delegates to approve_with_client("default")
+        let _ = store.approve("BADCODE1");
+        assert!(store.failed_attempts.contains_key("default"));
+    }
+
+    #[test]
+    fn test_case_insensitive_code_matching() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+
+        let code = store
+            .request_pairing("telegram", "user123")
+            .unwrap()
+            .unwrap();
+
+        // Approve with lowercase version of the code
+        let lower = code.to_lowercase();
+        let result = store.approve(&lower).unwrap();
         assert!(result.is_some());
     }
 }
