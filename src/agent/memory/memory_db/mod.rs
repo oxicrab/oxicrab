@@ -641,5 +641,4 @@ fn fts_query(text: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "memory_db_tests.rs"]
 mod tests;

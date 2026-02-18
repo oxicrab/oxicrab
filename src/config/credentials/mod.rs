@@ -293,5 +293,4 @@ pub fn detect_source(name: &str, config: &Config) -> &'static str {
 }
 
 #[cfg(test)]
-#[path = "credentials_tests.rs"]
 mod tests;

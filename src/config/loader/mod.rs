@@ -171,5 +171,4 @@ fn snake_to_camel(name: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "loader_tests.rs"]
 mod tests;

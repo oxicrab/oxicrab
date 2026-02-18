@@ -194,6 +194,14 @@ Unified credential management via `define_credentials!` macro. Adding a new cred
 - Return `ToolResult::error(...)` for user-facing tool errors (not `Err(...)`)
 - Use `Err(anyhow::anyhow!(...))` or `anyhow::bail!(...)` for internal failures
 
+### Unit Test Organization
+Two patterns, one convention: **inline** for small test suites, **directory module** for extracted tests.
+
+- **Inline** (small tests): `#[cfg(test)] mod tests { ... }` at the bottom of the source file. Use this when tests are short and closely tied to the source.
+- **Directory module** (extracted tests): Convert `foo.rs` to `foo/mod.rs` + `foo/tests.rs` with `#[cfg(test)] mod tests;` in `mod.rs`. Use this when the test suite is large enough to warrant a separate file.
+
+Do **not** use `#[path = "foo_tests.rs"]` — this was previously used in 4 modules but has been standardized to the directory module pattern. The module path (`crate::config::loader`) is unchanged whether `loader` is a file or directory.
+
 ## Common Pitfalls
 
 - **Adding fields to `AgentLoopConfig`**: must update `src/cli/commands.rs` (`setup_agent`), destructure in `AgentLoop::new()`, add to `ToolBuildContext` if tool-related, AND update `tests/common/mod.rs` `create_test_agent()` AND `tests/compaction_integration.rs` `create_compaction_agent()`.
