@@ -63,33 +63,38 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
 }
 
 /// Warn if the config file or its parent directory has overly permissive permissions.
+/// Only emits warnings once per process to avoid spam when config is loaded multiple times.
 #[cfg(unix)]
 fn check_file_permissions(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
+    use std::sync::Once;
 
-    if let Ok(meta) = std::fs::metadata(path) {
-        let mode = meta.permissions().mode();
-        if mode & 0o077 != 0 {
-            warn!(
-                "config file {} has permissions {:o} — recommend 0600",
-                path.display(),
-                mode & 0o777
-            );
+    static WARNED: Once = Once::new();
+    WARNED.call_once(|| {
+        if let Ok(meta) = std::fs::metadata(path) {
+            let mode = meta.permissions().mode();
+            if mode & 0o077 != 0 {
+                warn!(
+                    "config file {} has permissions {:o} — recommend 0600",
+                    path.display(),
+                    mode & 0o777
+                );
+            }
         }
-    }
 
-    if let Some(parent) = path.parent()
-        && let Ok(meta) = std::fs::metadata(parent)
-    {
-        let mode = meta.permissions().mode();
-        if mode & 0o077 != 0 {
-            warn!(
-                "config directory {} has permissions {:o} — recommend 0700",
-                parent.display(),
-                mode & 0o777
-            );
+        if let Some(parent) = path.parent()
+            && let Ok(meta) = std::fs::metadata(parent)
+        {
+            let mode = meta.permissions().mode();
+            if mode & 0o077 != 0 {
+                warn!(
+                    "config directory {} has permissions {:o} — recommend 0700",
+                    parent.display(),
+                    mode & 0o777
+                );
+            }
         }
-    }
+    });
 }
 
 #[cfg(not(unix))]
