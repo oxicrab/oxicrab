@@ -40,7 +40,7 @@ chrono-tz = "0.10"
 clap = { version = "4.5", features = ["derive"] }
 cron = "0.15"
 dirs = "5.0"
-fastembed = { version = "4", default-features = false, features = ["hf-hub", "hf-hub-rustls-tls", "ort-download-binaries"] }
+fastembed = { version = "5", default-features = false, features = ["hf-hub", "hf-hub-rustls-tls", "ort-download-binaries"] }
 fastrand = "2.0"
 form_urlencoded = "1.2"
 futures-util = "0.3"
