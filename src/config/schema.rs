@@ -514,9 +514,20 @@ pub struct ProviderConfig {
     /// Custom HTTP headers injected into every request to this provider.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub headers: std::collections::HashMap<String, String>,
+    /// Enable prompt-guided tool calling for local models that don't support
+    /// native function calling. Injects tool definitions into the system prompt
+    /// and parses `<tool_call>` XML blocks from text responses.
+    #[serde(default, rename = "promptGuidedTools")]
+    pub prompt_guided_tools: bool,
 }
 
-redact_debug!(ProviderConfig, redact(api_key), api_base, headers,);
+redact_debug!(
+    ProviderConfig,
+    redact(api_key),
+    api_base,
+    headers,
+    prompt_guided_tools,
+);
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AnthropicOAuthConfig {
@@ -1342,7 +1353,10 @@ impl Config {
             && !local_model.is_empty()
         {
             let cloud = factory.create_provider(model).await?;
-            let local = factory.create_provider(local_model).await?;
+            let mut local = factory.create_provider(local_model).await?;
+            if self.should_use_prompt_guided_tools(local_model) {
+                local = crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(local);
+            }
             return Ok(std::sync::Arc::new(
                 crate::providers::fallback::FallbackProvider::new(
                     cloud,
@@ -1353,7 +1367,27 @@ impl Config {
             ));
         }
 
-        factory.create_provider(model).await
+        let provider = factory.create_provider(model).await?;
+        if self.should_use_prompt_guided_tools(model) {
+            return Ok(crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(provider));
+        }
+
+        Ok(provider)
+    }
+
+    /// Check if a model should use prompt-guided tool calling based on its
+    /// provider config.
+    fn should_use_prompt_guided_tools(&self, model: &str) -> bool {
+        let model_lower = model.to_lowercase();
+        for (keyword, config) in [
+            ("ollama", &self.providers.ollama),
+            ("vllm", &self.providers.vllm),
+        ] {
+            if model_lower.contains(keyword) {
+                return config.prompt_guided_tools;
+            }
+        }
+        false
     }
 }
 

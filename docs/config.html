@@ -199,6 +199,26 @@
 
         <p>Local providers (Ollama and vLLM) do not require an API key. Use the <code>provider/model</code> prefix format to route to them &mdash; the prefix is stripped before sending to the API (e.g. <code>ollama/qwen3-coder:30b</code> sends <code>qwen3-coder:30b</code> to the Ollama API).</p>
 
+        <h3 id="prompt-guided-tools">Prompt-Guided Tool Calling</h3>
+        <p>Local models often ignore native JSON tool schemas, responding with plain text instead of structured tool calls. Enable <code>promptGuidedTools</code> on the provider to work around this:</p>
+        <pre><code>{
+  "providers": {
+    "ollama": {
+      "promptGuidedTools": true
+    }
+  }
+}</code></pre>
+
+        <p>When enabled, the <code>PromptGuidedToolsProvider</code> wrapper:</p>
+        <ul class="plain">
+            <li>Injects tool definitions as structured text into the system prompt</li>
+            <li>Strips native <code>tools</code>/<code>tool_choice</code> from the API request</li>
+            <li>Parses <code>&lt;tool_call&gt;</code> XML blocks from the model's text response into tool calls</li>
+            <li>Rewrites conversation history so tool results work without native tool support</li>
+        </ul>
+
+        <p>This works with both direct local models and the <a href="#local-model-fallback">local model fallback</a> configuration. Currently supported for Ollama and vLLM providers.</p>
+
         <p>To override the default endpoint, set <code>apiBase</code> on the provider:</p>
         <pre><code>{
   "providers": {

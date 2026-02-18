@@ -44,6 +44,9 @@ fn validate_tool_calls(tool_calls: &[ToolCallRequest]) -> bool {
 #[async_trait]
 impl LLMProvider for FallbackProvider {
     async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+        let had_tools = req.tools.as_ref().is_some_and(|t| !t.is_empty());
+        let tool_choice_was_any = req.tool_choice.as_deref() == Some("any");
+
         // Build a request for the primary (local) model.
         // Use model: None so the provider uses its own default_model() (already stripped of prefix).
         let primary_req = ChatRequest {
@@ -61,6 +64,11 @@ impl LLMProvider for FallbackProvider {
                 if response.has_tool_calls() && !validate_tool_calls(&response.tool_calls) {
                     warn!(
                         "primary provider ({}) returned malformed tool calls, falling back to {}",
+                        self.primary_model, self.fallback_model
+                    );
+                } else if had_tools && tool_choice_was_any && !response.has_tool_calls() {
+                    warn!(
+                        "primary provider ({}) returned text-only despite tool_choice=any, falling back to {}",
                         self.primary_model, self.fallback_model
                     );
                 } else {

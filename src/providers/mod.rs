@@ -7,4 +7,5 @@ pub mod errors;
 pub mod fallback;
 pub mod gemini;
 pub mod openai;
+pub mod prompt_guided;
 pub mod strategy;
