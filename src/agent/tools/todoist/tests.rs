@@ -1,6 +1,6 @@
 use super::*;
 use crate::agent::tools::base::ExecutionContext;
-use wiremock::matchers::{header, method, path, query_param};
+use wiremock::matchers::{body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn tool() -> TodoistTool {
@@ -413,4 +413,357 @@ async fn test_complete_task_not_found() {
 
     assert!(result.is_error);
     assert!(result.content.contains("404"));
+}
+
+// --- Validation tests for new actions ---
+
+#[tokio::test]
+async fn test_get_task_missing_id() {
+    let result = tool()
+        .execute(
+            serde_json::json!({"action": "get_task"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("task_id"));
+}
+
+#[tokio::test]
+async fn test_update_task_missing_id() {
+    let result = tool()
+        .execute(
+            serde_json::json!({"action": "update_task"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("task_id"));
+}
+
+#[tokio::test]
+async fn test_delete_task_missing_id() {
+    let result = tool()
+        .execute(
+            serde_json::json!({"action": "delete_task"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("task_id"));
+}
+
+#[tokio::test]
+async fn test_add_comment_missing_id() {
+    let result = tool()
+        .execute(
+            serde_json::json!({"action": "add_comment", "comment_content": "hello"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("task_id"));
+}
+
+#[tokio::test]
+async fn test_add_comment_missing_content() {
+    let result = tool()
+        .execute(
+            serde_json::json!({"action": "add_comment", "task_id": "t1"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("comment_content"));
+}
+
+#[tokio::test]
+async fn test_list_comments_missing_id() {
+    let result = tool()
+        .execute(
+            serde_json::json!({"action": "list_comments"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("task_id"));
+}
+
+// --- Wiremock tests for new actions ---
+
+#[tokio::test]
+async fn test_get_task_success() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tasks/task_abc"))
+        .and(header("Authorization", "Bearer test_token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "task_abc",
+            "content": "Review PR",
+            "description": "Check the new feature branch",
+            "priority": 2,
+            "due": {"string": "tomorrow"},
+            "labels": ["code", "review"],
+            "project_id": "proj_1",
+            "is_completed": false
+        })))
+        .mount(&server)
+        .await;
+
+    let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({"action": "get_task", "task_id": "task_abc"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    assert!(result.content.contains("task_abc"));
+    assert!(result.content.contains("Review PR"));
+    assert!(result.content.contains("Check the new feature branch"));
+    assert!(result.content.contains("Priority: 2"));
+    assert!(result.content.contains("Due: tomorrow"));
+    assert!(result.content.contains("code, review"));
+    assert!(result.content.contains("proj_1"));
+    assert!(result.content.contains("Status: open"));
+}
+
+#[tokio::test]
+async fn test_update_task_success() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/tasks/task_abc"))
+        .and(header("Authorization", "Bearer test_token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "task_abc",
+            "content": "Updated title",
+            "priority": 1
+        })))
+        .mount(&server)
+        .await;
+
+    let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "update_task",
+                "task_id": "task_abc",
+                "content": "Updated title",
+                "priority": 1
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    assert!(result.content.contains("task_abc"));
+    assert!(result.content.contains("updated"));
+}
+
+#[tokio::test]
+async fn test_delete_task_success() {
+    let server = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path("/tasks/task_abc"))
+        .and(header("Authorization", "Bearer test_token"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+
+    let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({"action": "delete_task", "task_id": "task_abc"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    assert!(result.content.contains("task_abc"));
+    assert!(result.content.contains("deleted"));
+}
+
+#[tokio::test]
+async fn test_add_comment_success() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/comments"))
+        .and(header("Authorization", "Bearer test_token"))
+        .and(body_json(serde_json::json!({
+            "task_id": "task_abc",
+            "content": "Looks good to me"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "comment_1",
+            "task_id": "task_abc",
+            "content": "Looks good to me",
+            "posted_at": "2026-02-18T10:00:00Z"
+        })))
+        .mount(&server)
+        .await;
+
+    let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "add_comment",
+                "task_id": "task_abc",
+                "comment_content": "Looks good to me"
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    assert!(result.content.contains("comment_1"));
+    assert!(result.content.contains("task_abc"));
+}
+
+#[tokio::test]
+async fn test_list_comments_success() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/comments"))
+        .and(query_param("task_id", "task_abc"))
+        .and(header("Authorization", "Bearer test_token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "results": [
+                {
+                    "id": "c1",
+                    "content": "First comment",
+                    "posted_at": "2026-02-17T09:00:00Z"
+                },
+                {
+                    "id": "c2",
+                    "content": "Second comment",
+                    "posted_at": "2026-02-18T10:00:00Z"
+                }
+            ],
+            "next_cursor": null
+        })))
+        .mount(&server)
+        .await;
+
+    let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({"action": "list_comments", "task_id": "task_abc"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    assert!(result.content.contains("First comment"));
+    assert!(result.content.contains("Second comment"));
+    assert!(result.content.contains("(2)"));
+}
+
+#[tokio::test]
+async fn test_list_comments_empty() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/comments"))
+        .and(query_param("task_id", "task_abc"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "results": [],
+            "next_cursor": null
+        })))
+        .mount(&server)
+        .await;
+
+    let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({"action": "list_comments", "task_id": "task_abc"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    assert!(result.content.contains("No comments"));
+}
+
+// --- Error tests for new actions ---
+
+#[tokio::test]
+async fn test_get_task_not_found() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tasks/nonexistent"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("Task not found"))
+        .mount(&server)
+        .await;
+
+    let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({"action": "get_task", "task_id": "nonexistent"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(result.is_error);
+    assert!(result.content.contains("404"));
+}
+
+#[tokio::test]
+async fn test_delete_task_not_found() {
+    let server = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path("/tasks/nonexistent"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("Task not found"))
+        .mount(&server)
+        .await;
+
+    let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({"action": "delete_task", "task_id": "nonexistent"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(result.is_error);
+    assert!(result.content.contains("404"));
+}
+
+#[tokio::test]
+async fn test_add_comment_bad_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/comments"))
+        .respond_with(ResponseTemplate::new(400).set_body_string("Bad request"))
+        .mount(&server)
+        .await;
+
+    let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "add_comment",
+                "task_id": "bad_task",
+                "comment_content": "test"
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(result.is_error);
+    assert!(result.content.contains("400"));
 }

@@ -865,7 +865,7 @@ The agent has access to 22 built-in tools, plus any tools provided by MCP server
 | `google_calendar` | Google Calendar: list, create, update, delete events | `tools.google.*` + OAuth |
 | `github` | GitHub API: issues, PRs, file content, PR reviews, CI/CD workflows | `tools.github.token` |
 | `weather` | Weather forecasts via OpenWeatherMap | `tools.weather.apiKey` |
-| `todoist` | Todoist task management: list, create, complete, update | `tools.todoist.token` |
+| `todoist` | Todoist task management: list, get, create, update, complete, delete tasks; add/list comments; list projects | `tools.todoist.token` |
 | `media` | Radarr/Sonarr: search, add, monitor movies & TV | `tools.media.*` |
 | `obsidian` | Obsidian vault: read, write, append, search, list notes | `tools.obsidian.*` |
 | `browser` | Browser automation via Chrome DevTools Protocol: open, click, type, screenshot (saved to disk), eval JS | `tools.browser.enabled` |

@@ -245,6 +245,184 @@ impl TodoistTool {
             lines.join("\n")
         ))
     }
+
+    async fn get_task(&self, task_id: &str) -> Result<String> {
+        let resp = self
+            .client
+            .get(format!("{}/tasks/{}", self.base_url, task_id))
+            .header("Authorization", self.auth_header())
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await?;
+
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            anyhow::bail!("Todoist API {}: {}", status, text);
+        }
+        let t: Value = serde_json::from_str(&text).map_err(|e| {
+            anyhow::anyhow!(
+                "Invalid JSON from Todoist: {} (body: {})",
+                e,
+                &text[..text.len().min(200)]
+            )
+        })?;
+
+        let id = t["id"].as_str().unwrap_or("?");
+        let content = t["content"].as_str().unwrap_or("");
+        let description = t["description"].as_str().unwrap_or("");
+        let priority = t["priority"].as_u64().unwrap_or(1);
+        let due = t["due"]["string"].as_str().unwrap_or("no due date");
+        let labels: Vec<&str> = t["labels"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|l| l.as_str()).collect())
+            .unwrap_or_default();
+        let project_id = t["project_id"].as_str().unwrap_or("?");
+        let is_completed = t["is_completed"].as_bool().unwrap_or(false);
+        let url = format!("https://app.todoist.com/app/task/{}", id);
+
+        let label_str = if labels.is_empty() {
+            String::new()
+        } else {
+            format!("\nLabels: {}", labels.join(", "))
+        };
+        let desc_str = if description.is_empty() {
+            String::new()
+        } else {
+            format!("\nDescription: {}", description)
+        };
+        let status_str = if is_completed { "completed" } else { "open" };
+
+        Ok(format!(
+            "Task ({id}): {content}{desc_str}\nPriority: {priority}\nDue: {due}{label_str}\nProject: {project_id}\nStatus: {status_str}\nURL: {url}"
+        ))
+    }
+
+    async fn update_task(
+        &self,
+        task_id: &str,
+        content: Option<&str>,
+        description: Option<&str>,
+        due_string: Option<&str>,
+        priority: Option<u64>,
+        labels: Option<Vec<&str>>,
+    ) -> Result<String> {
+        let mut payload = serde_json::json!({});
+        if let Some(c) = content {
+            payload["content"] = Value::String(c.to_string());
+        }
+        if let Some(d) = description {
+            payload["description"] = Value::String(d.to_string());
+        }
+        if let Some(due) = due_string {
+            payload["due_string"] = Value::String(due.to_string());
+        }
+        if let Some(p) = priority {
+            payload["priority"] = Value::Number(p.into());
+        }
+        if let Some(l) = labels {
+            payload["labels"] = Value::Array(
+                l.into_iter()
+                    .map(|s| Value::String(s.to_string()))
+                    .collect(),
+            );
+        }
+
+        let resp = self
+            .client
+            .post(format!("{}/tasks/{}", self.base_url, task_id))
+            .json(&payload)
+            .header("Authorization", self.auth_header())
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await?;
+
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            anyhow::bail!("Todoist API {}: {}", status, text);
+        }
+
+        Ok(format!("Task {} updated.", task_id))
+    }
+
+    async fn delete_task(&self, task_id: &str) -> Result<String> {
+        let resp = self
+            .client
+            .delete(format!("{}/tasks/{}", self.base_url, task_id))
+            .header("Authorization", self.auth_header())
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await?;
+
+        if resp.status().is_success() {
+            Ok(format!("Task {} deleted.", task_id))
+        } else {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("Todoist API {}: {}", status, body);
+        }
+    }
+
+    async fn add_comment(&self, task_id: &str, content: &str) -> Result<String> {
+        let payload = serde_json::json!({
+            "task_id": task_id,
+            "content": content,
+        });
+
+        let resp = self
+            .client
+            .post(format!("{}/comments", self.base_url))
+            .json(&payload)
+            .header("Authorization", self.auth_header())
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await?;
+
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            anyhow::bail!("Todoist API {}: {}", status, text);
+        }
+        let body: Value = serde_json::from_str(&text).map_err(|e| {
+            anyhow::anyhow!(
+                "Invalid JSON from Todoist: {} (body: {})",
+                e,
+                &text[..text.len().min(200)]
+            )
+        })?;
+
+        let id = body["id"].as_str().unwrap_or("?");
+        Ok(format!("Comment ({}) added to task {}.", id, task_id))
+    }
+
+    async fn list_comments(&self, task_id: &str) -> Result<String> {
+        let query = vec![("task_id", task_id), ("limit", "200")];
+        let comments = self
+            .paginated_get(&format!("{}/comments", self.base_url), &query)
+            .await?;
+
+        if comments.is_empty() {
+            return Ok(format!("No comments on task {}.", task_id));
+        }
+
+        let lines: Vec<String> = comments
+            .iter()
+            .map(|c| {
+                let id = c["id"].as_str().unwrap_or("?");
+                let content = c["content"].as_str().unwrap_or("");
+                let posted = c["posted_at"].as_str().unwrap_or("?");
+                format!("- ({}) [{}] {}", id, posted, content)
+            })
+            .collect();
+
+        Ok(format!(
+            "Comments on task {} ({}):\n{}",
+            task_id,
+            comments.len(),
+            lines.join("\n")
+        ))
+    }
 }
 
 #[async_trait]
@@ -254,11 +432,11 @@ impl Tool for TodoistTool {
     }
 
     fn description(&self) -> &'static str {
-        "Manage Todoist tasks and projects. Actions: list_tasks, create_task, complete_task, list_projects."
+        "Manage Todoist tasks and projects. Actions: list_tasks, get_task, create_task, update_task, complete_task, delete_task, add_comment, list_comments, list_projects."
     }
 
     fn version(&self) -> ToolVersion {
-        ToolVersion::new(1, 0, 0)
+        ToolVersion::new(1, 1, 0)
     }
 
     fn parameters(&self) -> Value {
@@ -267,16 +445,16 @@ impl Tool for TodoistTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list_tasks", "create_task", "complete_task", "list_projects"],
+                    "enum": ["list_tasks", "get_task", "create_task", "update_task", "complete_task", "delete_task", "add_comment", "list_comments", "list_projects"],
                     "description": "Action to perform"
                 },
                 "content": {
                     "type": "string",
-                    "description": "Task content/title (for create_task)"
+                    "description": "Task content/title (for create_task, update_task)"
                 },
                 "description": {
                     "type": "string",
-                    "description": "Task description (for create_task)"
+                    "description": "Task description (for create_task, update_task)"
                 },
                 "project_id": {
                     "type": "string",
@@ -288,7 +466,7 @@ impl Tool for TodoistTool {
                 },
                 "task_id": {
                     "type": "string",
-                    "description": "Task ID (for complete_task)"
+                    "description": "Task ID (for get_task, update_task, complete_task, delete_task, add_comment, list_comments)"
                 },
                 "due_string": {
                     "type": "string",
@@ -303,6 +481,10 @@ impl Tool for TodoistTool {
                     "type": "array",
                     "items": { "type": "string" },
                     "description": "Labels to apply to the task"
+                },
+                "comment_content": {
+                    "type": "string",
+                    "description": "Comment text (for add_comment)"
                 }
             },
             "required": ["action"]
@@ -318,6 +500,12 @@ impl Tool for TodoistTool {
             "list_tasks" => {
                 self.list_tasks(params["project_id"].as_str(), params["filter"].as_str())
                     .await
+            }
+            "get_task" => {
+                let Some(task_id) = params["task_id"].as_str() else {
+                    return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()));
+                };
+                self.get_task(task_id).await
             }
             "create_task" => {
                 let Some(content) = params["content"].as_str() else {
@@ -336,11 +524,51 @@ impl Tool for TodoistTool {
                 )
                 .await
             }
+            "update_task" => {
+                let Some(task_id) = params["task_id"].as_str() else {
+                    return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()));
+                };
+                let labels: Option<Vec<&str>> = params["labels"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_str()).collect());
+                self.update_task(
+                    task_id,
+                    params["content"].as_str(),
+                    params["description"].as_str(),
+                    params["due_string"].as_str(),
+                    params["priority"].as_u64(),
+                    labels,
+                )
+                .await
+            }
             "complete_task" => {
                 let Some(task_id) = params["task_id"].as_str() else {
                     return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()));
                 };
                 self.complete_task(task_id).await
+            }
+            "delete_task" => {
+                let Some(task_id) = params["task_id"].as_str() else {
+                    return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()));
+                };
+                self.delete_task(task_id).await
+            }
+            "add_comment" => {
+                let Some(task_id) = params["task_id"].as_str() else {
+                    return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()));
+                };
+                let Some(content) = params["comment_content"].as_str() else {
+                    return Ok(ToolResult::error(
+                        "Missing 'comment_content' parameter".to_string(),
+                    ));
+                };
+                self.add_comment(task_id, content).await
+            }
+            "list_comments" => {
+                let Some(task_id) = params["task_id"].as_str() else {
+                    return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()));
+                };
+                self.list_comments(task_id).await
             }
             "list_projects" => self.list_projects().await,
             _ => return Ok(ToolResult::error(format!("Unknown action: {}", action))),

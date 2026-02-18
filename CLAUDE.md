@@ -204,9 +204,9 @@ Do **not** use `#[path = "foo_tests.rs"]` — this was previously used in 4 modu
 
 ## Common Pitfalls
 
+- **Docs are part of the implementation**: No feature, tool change, config change, or CLI change is complete until `README.md`, `CLAUDE.md`, and the relevant `docs/*.html` pages (AND their `docs/_pages/*.html` counterparts) are updated. The docs site has pages for channels (`docs/channels.html`), tools (`docs/tools.html`), and deployment (`docs/deploy.html`). Always check all five locations: `README.md`, `CLAUDE.md`, `docs/<page>.html`, `docs/_pages/<page>.html`, and `docs/index.html` + `docs/_pages/index.html` if there's a summary reference.
 - **Adding fields to `AgentLoopConfig`**: must update `src/cli/commands.rs` (`setup_agent`), destructure in `AgentLoop::new()`, add to `ToolBuildContext` if tool-related, AND update `tests/common/mod.rs` `create_test_agent()` AND `tests/compaction_integration.rs` `create_compaction_agent()`.
 - **Adding a new tool**: Add a `register_*()` function in `src/agent/tools/setup.rs`, call it from `register_all_tools()`. Update `README.md` and the workspace files (`AGENTS.md`, `MEMORY.md`) if they exist.
-- **Keeping docs in sync**: When making user-facing changes (new features, config changes, CLI changes, new tools, channels), update `README.md`, `CLAUDE.md`, and the relevant docs pages (`docs/*.html`). The docs site has pages for channels (`docs/channels.html`), tools (`docs/tools.html`), and deployment (`docs/deploy.html`).
 - **Adding fields to config structs with manual `Default` impl**: update both the struct definition and `Default::default()`.
 - **YAML parsing**: uses `serde_yaml_ng` (not the deprecated `serde_yaml`).
 - **`main.rs` and `lib.rs` both declare `mod errors`**: binary has its own module tree.
