@@ -1,6 +1,36 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.10.2] - 2026-02-18
+
+### CI/CD
+
+- bump actions/upload-pages-artifact from 3 to 4 by @dependabot[bot] ([e248515](https://github.com/oxicrab/oxicrab/commit/e2485154b0e57122082f0274b453b1740d9c13a2))
+
+### Miscellaneous
+
+- use std::sync::Once to ensure the permission by @jamtur01 ([cf95748](https://github.com/oxicrab/oxicrab/commit/cf95748b38ca093d7d18bd4d30b5cfc88edd1cfa))
+- Packages updates for rmcp, dirs, and fastembed by @jamtur01 ([03ca622](https://github.com/oxicrab/oxicrab/commit/03ca622f79ecf8568afdc3436911b3a2b6cce5bd))
+- bump uuid from 1.20.0 to 1.21.0 by @dependabot[bot] ([61399ce](https://github.com/oxicrab/oxicrab/commit/61399ce9f3827695189ee77f47e095a5ab986acc))
+- bump futures from 0.3.31 to 0.3.32 by @dependabot[bot] ([a1d4a86](https://github.com/oxicrab/oxicrab/commit/a1d4a86684ba5cfe72c8e04a61d7d25731ad7bca))
+- bump clap from 4.5.57 to 4.5.59 by @dependabot[bot] ([ea5121d](https://github.com/oxicrab/oxicrab/commit/ea5121d84d75fb05ba9ab200dabb842c8a87794c))
+- 1. Dependabot — .github/dependabot.yml — weekly checks for both Cargo deps by @jamtur01 ([58193b8](https://github.com/oxicrab/oxicrab/commit/58193b890760269936cc7702090a6ff036c2cbd5))
+- Fixed me some bugs by @jamtur01 ([6f5bafb](https://github.com/oxicrab/oxicrab/commit/6f5bafb09e694e6baadfe8417d814cbf96223a41))
+- Did some tests re-organization by @jamtur01 ([a66175f](https://github.com/oxicrab/oxicrab/commit/a66175f1dbf6305d15b0dcab738b8e8e98cf709b))
+- Security updates to docs by @jamtur01 ([fcb5924](https://github.com/oxicrab/oxicrab/commit/fcb5924a1f6092a1b8e45023da1ea077c7d7552c))
+- Added credentials helper and keychain support by @jamtur01 ([273469c](https://github.com/oxicrab/oxicrab/commit/273469c08fb153f2d00b8aa8fe00d496b9ea66f0))
+- Fixed some clippy issues by @jamtur01 ([cafb384](https://github.com/oxicrab/oxicrab/commit/cafb384e5bc393d4763609e64e383777c37edf93))
+- Security Hardening — Phase 1 Summary by @jamtur01 ([aebc8a2](https://github.com/oxicrab/oxicrab/commit/aebc8a2031069dbe0b024faf757a0a7485b73136))
+## [0.10.1] - 2026-02-17
+
+### Miscellaneous
+
+- v0.10.1 - Added logging, docs, upgrade to edition 2024 by @jamtur01 ([97f9afc](https://github.com/oxicrab/oxicrab/commit/97f9afc342aafd3d41d3aabddc19ff79072a79a6))
+- Added costguard, circuit breaker, and doctor command by @jamtur01 ([ab9c779](https://github.com/oxicrab/oxicrab/commit/ab9c779d583de2fd4d7bcc5ea41f3b9ac1bc1947))
+- removed composing reply message by @jamtur01 ([ea907b5](https://github.com/oxicrab/oxicrab/commit/ea907b5b8e96a03fef2315d0b7195ca1e0fe0735))
+- Docs updates for discord and github by @jamtur01 ([57994de](https://github.com/oxicrab/oxicrab/commit/57994debfb3c96caddc14bb4fbe5bec71fe18e3b))
+- Part 1: GitHub Tool Expansion (src/agent/tools/github/mod.rs) by @jamtur01 ([780a560](https://github.com/oxicrab/oxicrab/commit/780a560ad60b36f94d0037b89c12dfc7a658b75f))
+- Updated GH Actions versions by @jamtur01 ([0422873](https://github.com/oxicrab/oxicrab/commit/0422873e9b6f933efc6a42313fdeceeba90a3397))
 ## [0.9.6] - 2026-02-16
 
 ### Miscellaneous
