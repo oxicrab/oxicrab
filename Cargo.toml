@@ -75,7 +75,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Note: Ensure >= 0.3.20 for RUSTSEC-2025-0055 (ANSI escape sequence injection) - current: 0.3.22
 url = "2.5"
 urlencoding = "2.1"
-uuid = { version = "1.20", features = ["v4", "serde"] }
+uuid = { version = "1.21", features = ["v4", "serde"] }
 walkdir = "2.5"
 whatsapp-rust = { git = "https://github.com/jlucaso1/whatsapp-rust", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
 whatsapp-rust-tokio-transport = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-tokio-transport", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
