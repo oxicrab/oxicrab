@@ -1,3 +1,4 @@
+use crate::agent::cognitive::CheckpointTracker;
 use crate::agent::compaction::{MessageCompactor, estimate_messages_tokens};
 use crate::agent::context::ContextBuilder;
 use crate::agent::cost_guard::CostGuard;
@@ -468,6 +469,8 @@ pub struct AgentLoopConfig {
     pub mcp_config: Option<crate::config::McpConfig>,
     /// Cost guard configuration for budget and rate limiting
     pub cost_guard_config: crate::config::CostGuardConfig,
+    /// Cognitive routines configuration for checkpoint pressure signals
+    pub cognitive_config: crate::config::CognitiveConfig,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -534,6 +537,7 @@ impl AgentLoopConfig {
             image_gen_config: Some(image_gen),
             mcp_config: Some(config.tools.mcp.clone()),
             cost_guard_config: config.agents.defaults.cost_guard.clone(),
+            cognitive_config: config.agents.defaults.cognitive.clone(),
         }
     }
 
@@ -589,6 +593,7 @@ impl AgentLoopConfig {
             image_gen_config: None,
             mcp_config: None,
             cost_guard_config: crate::config::CostGuardConfig::default(),
+            cognitive_config: crate::config::CognitiveConfig::default(),
         }
     }
 }
@@ -620,6 +625,9 @@ pub struct AgentLoop {
     cost_guard: Option<CostGuard>,
     /// Most recent checkpoint summary (updated periodically during long loops)
     last_checkpoint: Arc<Mutex<Option<String>>>,
+    cognitive_config: crate::config::CognitiveConfig,
+    /// Cognitive breadcrumb for compaction recovery (updated during long loops)
+    cognitive_breadcrumb: Arc<Mutex<Option<String>>>,
 }
 
 impl AgentLoop {
@@ -659,6 +667,7 @@ impl AgentLoop {
             image_gen_config,
             mcp_config,
             cost_guard_config,
+            cognitive_config,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -827,6 +836,8 @@ impl AgentLoop {
             cron_service,
             cost_guard,
             last_checkpoint: Arc::new(Mutex::new(None)),
+            cognitive_config,
+            cognitive_breadcrumb: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -1125,6 +1136,7 @@ impl AgentLoop {
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
+        let mut checkpoint_tracker = CheckpointTracker::new(self.cognitive_config.clone());
 
         let tools_defs = self.tools.get_tool_definitions();
 
@@ -1146,6 +1158,22 @@ impl AgentLoop {
             } else {
                 messages.push(Message::user(tool_facts));
             }
+        }
+
+        // Inject static cognitive routines instructions when enabled
+        if self.cognitive_config.enabled && messages.len() > 1 {
+            messages.insert(
+                2,
+                Message::system(
+                    "## Cognitive Routines\n\n\
+                     When working on complex tasks with many tool calls:\n\
+                     - Periodically summarize your progress in your responses\n\
+                     - If you receive a checkpoint hint, briefly note: what's done, \
+                     what's in progress, what's next\n\
+                     - Keep track of your overall plan and remaining steps"
+                        .to_string(),
+                ),
+            );
         }
 
         let wrapup_threshold = (self.max_iterations as f64 * 0.7).ceil() as usize;
@@ -1306,6 +1334,19 @@ impl AgentLoop {
                     );
                 }
 
+                // Record tool calls for cognitive checkpoint tracking
+                checkpoint_tracker.record_tool_calls(&called_tool_names);
+
+                // Inject cognitive pressure message if a new threshold was crossed
+                if let Some(pressure_msg) = checkpoint_tracker.pressure_message() {
+                    messages.push(Message::system(pressure_msg));
+                }
+
+                // Update cognitive breadcrumb for compaction recovery
+                if self.cognitive_config.enabled {
+                    *self.cognitive_breadcrumb.lock().await = Some(checkpoint_tracker.breadcrumb());
+                }
+
                 // Periodic checkpoint: summarize progress via compactor
                 if self.compaction_config.checkpoint.enabled
                     && iteration > 1
@@ -1341,6 +1382,8 @@ impl AgentLoop {
                             }
                         }
                     });
+                    // Reset cognitive tracker when periodic checkpoint fires
+                    checkpoint_tracker.reset();
                 }
             } else if let Some(content) = response.content {
                 // Nudge the LLM to use tools if it responded with text before calling any.
@@ -1535,6 +1578,7 @@ impl AgentLoop {
 
         // Get most recent checkpoint if available
         let checkpoint = self.last_checkpoint.lock().await.clone();
+        let cognitive_crumb = self.cognitive_breadcrumb.lock().await.clone();
 
         // Compact old messages
         if let Some(ref compactor) = self.compactor {
@@ -1544,6 +1588,9 @@ impl AgentLoop {
                     let mut recovery_summary = summary.clone();
                     if let Some(ref cp) = checkpoint {
                         let _ = write!(recovery_summary, "\n\n[Checkpoint] {}", cp);
+                    }
+                    if let Some(ref crumb) = cognitive_crumb {
+                        let _ = write!(recovery_summary, "\n\n{}", crumb);
                     }
                     if !last_user_msg.is_empty() {
                         // Truncate last user message to avoid bloating the summary

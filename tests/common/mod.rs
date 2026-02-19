@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use oxicrab::agent::{AgentLoop, AgentLoopConfig};
 use oxicrab::bus::MessageBus;
-use oxicrab::config::CompactionConfig;
+use oxicrab::config::{CognitiveConfig, CompactionConfig};
 use oxicrab::providers::base::{ChatRequest, LLMProvider, LLMResponse, Message, ToolCallRequest};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -90,6 +90,7 @@ pub struct TestAgentOverrides {
     pub compaction_config: Option<CompactionConfig>,
     pub restrict_to_workspace: Option<bool>,
     pub max_iterations: Option<usize>,
+    pub cognitive_config: Option<CognitiveConfig>,
 }
 
 pub async fn create_test_agent_with(
@@ -121,6 +122,9 @@ pub async fn create_test_agent_with(
     }
     if let Some(v) = overrides.max_iterations {
         config.max_iterations = v;
+    }
+    if let Some(v) = overrides.cognitive_config {
+        config.cognitive_config = v;
     }
 
     AgentLoop::new(config)

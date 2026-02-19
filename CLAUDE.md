@@ -135,6 +135,10 @@ Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowe
 
 `CircuitBreakerProvider::wrap(inner, config)` returns `Arc<dyn LLMProvider>` wrapping the inner provider. Three states: Closed (passes through), Open (rejects immediately after `failure_threshold` consecutive transient failures), HalfOpen (allows `half_open_probes` test requests after `recovery_timeout_secs`). Transient errors: 429, 5xx, timeout, connection refused/reset. Non-transient errors (auth, invalid key, permission, context length) do **not** trip the breaker. Config under `providers.circuitBreaker`: `enabled` (default false), `failureThreshold` (default 5), `recoveryTimeoutSecs` (default 60), `halfOpenProbes` (default 2).
 
+### Cognitive Routines (`src/agent/cognitive.rs`)
+
+`CheckpointTracker` emits escalating pressure messages that nudge the LLM to self-checkpoint during long tool-heavy agent loop runs. Tracks tool call volume with a rolling window (`recent_tools_window`, default 10) and fires three one-shot pressure levels: gentle hint (`gentleThreshold`, default 12), firm warning (`firmThreshold`, default 20), urgent demand (`urgentThreshold`, default 30). Each level emits only once per cycle; counters reset when a periodic checkpoint fires. The tracker is local to each `run_agent_loop()` invocation (not persisted). A `breadcrumb()` method produces a cognitive state summary injected into compaction recovery context. Static cognitive instructions are injected as a system message when enabled. Config under `agents.defaults.cognitive`: `enabled` (default false), thresholds, `recentToolsWindow`.
+
 ### Doctor (`src/cli/doctor.rs`)
 
 `oxicrab doctor` — system diagnostics command. Checks: config exists/parses/validates, workspace writable, provider API keys configured, provider connectivity (warmup with latency), per-channel status (compiled + enabled + tokens), voice transcription backends, external tools (ffmpeg, git), MCP servers. Includes security audit: config file permissions, directory permissions, empty allowlists, pairing store status. Output: PASS/FAIL/SKIP per check with summary counts. Returns exit code 1 if config file missing.

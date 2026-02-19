@@ -39,6 +39,7 @@ max_width: 820px
             <li><a href="#agent-defaults">Agent Defaults</a></li>
             <li><a href="#cost-guard">Cost Guard</a></li>
             <li><a href="#circuit-breaker">Circuit Breaker</a></li>
+            <li><a href="#cognitive-routines">Cognitive Routines</a></li>
             <li><a href="#logging">Logging</a></li>
         </ul>
     </div>
@@ -445,6 +446,44 @@ max_width: 820px
         <h3>Transient vs Non-Transient Errors</h3>
         <p><strong>Transient</strong> (trip the breaker): HTTP 429, 5xx, timeout, connection refused/reset.</p>
         <p><strong>Non-transient</strong> (do not trip): auth errors, invalid API key, permission denied, context length exceeded.</p>
+    </div>
+
+    <!-- COGNITIVE ROUTINES -->
+    <div id="cognitive-routines" class="cfg-section">
+        <h2>Cognitive Routines</h2>
+        <p>Escalating pressure signals that nudge the LLM to self-checkpoint its progress during long tool-heavy agent loop runs. Prevents loss of context when compaction discards older messages.</p>
+
+        <p>Config path: <code>agents.defaults.cognitive</code></p>
+        <pre><code>{
+  "agents": {
+    "defaults": {
+      "cognitive": {
+        "enabled": true,
+        "gentleThreshold": 12,
+        "firmThreshold": 20,
+        "urgentThreshold": 30,
+        "recentToolsWindow": 10
+      }
+    }
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable cognitive checkpoint pressure signals</td></tr>
+            <tr><td>gentleThreshold</td><td>u32</td><td>12</td><td>Tool calls before a gentle hint to summarize progress</td></tr>
+            <tr><td>firmThreshold</td><td>u32</td><td>20</td><td>Tool calls before a firm warning to write a checkpoint</td></tr>
+            <tr><td>urgentThreshold</td><td>u32</td><td>30</td><td>Tool calls before an urgent demand to stop and summarize</td></tr>
+            <tr><td>recentToolsWindow</td><td>usize</td><td>10</td><td>Rolling window size for tracking recent tool names</td></tr>
+        </table>
+
+        <h3>Pressure Levels</h3>
+        <ul class="plain">
+            <li><strong>Gentle</strong> (hint) &mdash; suggests briefly noting progress</li>
+            <li><strong>Firm</strong> (warning) &mdash; asks the LLM to pause and write a checkpoint</li>
+            <li><strong>Urgent</strong> (STOP) &mdash; demands an immediate detailed progress summary</li>
+        </ul>
+        <p>Each level fires only once per checkpoint cycle. Counters reset when a periodic checkpoint fires.</p>
     </div>
 
     <!-- LOGGING -->

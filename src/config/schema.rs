@@ -358,6 +358,45 @@ impl Default for CircuitBreakerConfig {
     }
 }
 
+fn default_gentle_threshold() -> u32 {
+    12
+}
+fn default_firm_threshold() -> u32 {
+    20
+}
+fn default_urgent_threshold() -> u32 {
+    30
+}
+fn default_recent_tools_window() -> usize {
+    10
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CognitiveConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_gentle_threshold", rename = "gentleThreshold")]
+    pub gentle_threshold: u32,
+    #[serde(default = "default_firm_threshold", rename = "firmThreshold")]
+    pub firm_threshold: u32,
+    #[serde(default = "default_urgent_threshold", rename = "urgentThreshold")]
+    pub urgent_threshold: u32,
+    #[serde(default = "default_recent_tools_window", rename = "recentToolsWindow")]
+    pub recent_tools_window: usize,
+}
+
+impl Default for CognitiveConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            gentle_threshold: default_gentle_threshold(),
+            firm_threshold: default_firm_threshold(),
+            urgent_threshold: default_urgent_threshold(),
+            recent_tools_window: default_recent_tools_window(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentDefaults {
     #[serde(default = "default_workspace")]
@@ -394,6 +433,8 @@ pub struct AgentDefaults {
     pub memory: MemoryConfig,
     #[serde(default, rename = "costGuard")]
     pub cost_guard: CostGuardConfig,
+    #[serde(default)]
+    pub cognitive: CognitiveConfig,
 }
 
 impl Default for AgentDefaults {
@@ -413,6 +454,7 @@ impl Default for AgentDefaults {
             local_model: None,
             memory: MemoryConfig::default(),
             cost_guard: CostGuardConfig::default(),
+            cognitive: CognitiveConfig::default(),
         }
     }
 }
