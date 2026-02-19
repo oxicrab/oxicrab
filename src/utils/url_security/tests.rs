@@ -130,6 +130,32 @@ async fn resolve_blocks_localhost() {
     assert!(validate_and_resolve("http://127.0.0.1").await.is_err());
 }
 
+// --- NAT64 prefix tests ---
+
+#[tokio::test]
+async fn blocks_nat64_loopback() {
+    // 64:ff9b::127.0.0.1 = NAT64 prefix embedding loopback
+    assert!(validate("http://[64:ff9b::7f00:1]").await.is_err());
+}
+
+#[tokio::test]
+async fn blocks_nat64_private() {
+    // 64:ff9b::10.0.0.1 = NAT64 prefix embedding private IP
+    assert!(validate("http://[64:ff9b::a00:1]").await.is_err());
+}
+
+#[tokio::test]
+async fn blocks_nat64_metadata() {
+    // 64:ff9b::169.254.169.254 = NAT64 prefix embedding cloud metadata
+    assert!(validate("http://[64:ff9b::a9fe:a9fe]").await.is_err());
+}
+
+#[tokio::test]
+async fn allows_nat64_public() {
+    // 64:ff9b::1.1.1.1 = NAT64 prefix embedding public IP (should be allowed)
+    assert!(validate("http://[64:ff9b::101:101]").await.is_ok());
+}
+
 #[tokio::test]
 async fn resolve_returns_addrs_for_domain() {
     let resolved = validate_and_resolve("https://example.com").await;

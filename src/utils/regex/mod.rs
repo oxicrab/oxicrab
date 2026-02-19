@@ -208,6 +208,10 @@ pub fn compile_security_patterns() -> Result<Vec<Regex>> {
                 r"\bxxd\b.*-r.*\|\s*(sh|bash|zsh)\b",
                 // Printf hex piped to shell
                 r"\bprintf\b.*\\x.*\|\s*(sh|bash|zsh)\b",
+                // Node.js inline code execution
+                r"\bnode\b\s+-e\b",
+                // PHP inline code execution
+                r"\bphp\b\s+-r\b",
             ];
 
             let mut compiled = Vec::new();

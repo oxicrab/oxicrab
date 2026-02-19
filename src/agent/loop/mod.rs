@@ -790,6 +790,11 @@ impl AgentLoop {
                 max_tokens,
                 tool_temperature,
                 max_concurrent: max_concurrent_subagents,
+                exfil_blocked_tools: if exfiltration_guard.enabled {
+                    exfiltration_guard.blocked_tools.clone()
+                } else {
+                    vec![]
+                },
             },
             brave_api_key,
             allowed_commands,
@@ -1025,7 +1030,7 @@ impl AgentLoop {
         let session_key = msg.session_key();
         // Reuse session to avoid repeated lookups
         debug!("Loading session: {}", session_key);
-        let mut session = self.sessions.get_or_create(&session_key).await?;
+        let session = self.sessions.get_or_create(&session_key).await?;
 
         // Build execution context for tool calls
         let context_summary = session
@@ -1124,7 +1129,9 @@ impl AgentLoop {
         let (final_content, input_tokens, tools_used, collected_media) =
             self.run_agent_loop(messages, typing_ctx, &exec_ctx).await?;
 
-        // Save conversation (reuse session variable)
+        // Reload session in case compaction updated it during the agent loop
+        // (compaction saves a compaction_summary to session metadata)
+        let mut session = self.sessions.get_or_create(&session_key).await?;
         let extra = HashMap::new();
         session.add_message("user".to_string(), msg.content.clone(), extra.clone());
         if let Some(ref content) = final_content {
@@ -1817,15 +1824,17 @@ impl AgentLoop {
 
         let history = self.get_compacted_history(&session).await?;
 
-        let mut context = self.context.lock().await;
-        let messages = context.build_messages(
-            &history,
-            &msg.content,
-            Some(origin_channel.as_str()),
-            Some(origin_chat_id.as_str()),
-            None,
-            vec![],
-        )?;
+        let messages = {
+            let mut context = self.context.lock().await;
+            context.build_messages(
+                &history,
+                &msg.content,
+                Some(origin_channel.as_str()),
+                Some(origin_chat_id.as_str()),
+                None,
+                vec![],
+            )?
+        };
 
         let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
         let exec_ctx = Self::build_execution_context(&origin_channel, &origin_chat_id, None);

@@ -117,14 +117,14 @@ jobs:
       - name: Build DEB package
         if: runner.os == 'Linux'
         run: |
-          cargo install cargo-deb
+          cargo install cargo-deb --force
           cargo deb --no-build --target ${{ matrix.target }}
           cp target/${{ matrix.target }}/debian/*.deb .
 
       - name: Build RPM package
         if: runner.os == 'Linux'
         run: |
-          cargo install cargo-generate-rpm
+          cargo install cargo-generate-rpm --force
           cargo generate-rpm --target ${{ matrix.target }}
           cp target/${{ matrix.target }}/generate-rpm/*.rpm .
 

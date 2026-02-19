@@ -104,6 +104,22 @@ fn check_ip_allowed(ip: IpAddr) -> Result<(), String> {
             if segments[0] == 0x2002 {
                 return Err(format!("Blocked: requests to {} are not allowed", v6));
             }
+            // 64:ff9b::/96 NAT64 well-known prefix (maps IPv4 into last 32 bits)
+            if segments[0] == 0x0064
+                && segments[1] == 0xff9b
+                && segments[2] == 0
+                && segments[3] == 0
+                && segments[4] == 0
+                && segments[5] == 0
+            {
+                let v4 = std::net::Ipv4Addr::new(
+                    (segments[6] >> 8) as u8,
+                    segments[6] as u8,
+                    (segments[7] >> 8) as u8,
+                    segments[7] as u8,
+                );
+                return check_ip_allowed(IpAddr::V4(v4));
+            }
         }
     }
     Ok(())

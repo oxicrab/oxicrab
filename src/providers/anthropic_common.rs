@@ -109,7 +109,33 @@ pub fn convert_messages(messages: Vec<Message>) -> (Option<String>, Vec<Anthropi
         Some(system_parts.join("\n\n"))
     };
 
-    (system, anthropic_messages)
+    // Merge consecutive user messages (Anthropic API rejects consecutive same-role messages).
+    // This happens when multiple tool results appear in a row since each becomes role: "user".
+    let mut merged: Vec<AnthropicMessage> = Vec::new();
+    for msg in anthropic_messages {
+        if let Some(last) = merged.last_mut()
+            && last.role == "user"
+            && msg.role == "user"
+        {
+            let existing = match &last.content {
+                Value::Array(arr) => arr.clone(),
+                Value::String(s) => vec![json!({"type": "text", "text": s})],
+                other => vec![other.clone()],
+            };
+            let new_items = match &msg.content {
+                Value::Array(arr) => arr.clone(),
+                Value::String(s) => vec![json!({"type": "text", "text": s})],
+                other => vec![other.clone()],
+            };
+            let mut combined = existing;
+            combined.extend(new_items);
+            last.content = Value::Array(combined);
+            continue;
+        }
+        merged.push(msg);
+    }
+
+    (system, merged)
 }
 
 /// Convert generic tool definitions to Anthropic API format.
@@ -280,5 +306,64 @@ mod tests {
         assert!(result[0].content.is_array());
         // Second user is text-only (string)
         assert!(result[2].content.is_string());
+    }
+
+    #[test]
+    fn test_consecutive_tool_results_merged() {
+        // Two tool results (both become role: "user") should be merged into one user message
+        let messages = vec![
+            Message::user("do things"),
+            Message::assistant(
+                "",
+                Some(vec![
+                    crate::providers::base::ToolCallRequest {
+                        id: "tc1".to_string(),
+                        name: "tool_a".to_string(),
+                        arguments: json!({}),
+                    },
+                    crate::providers::base::ToolCallRequest {
+                        id: "tc2".to_string(),
+                        name: "tool_b".to_string(),
+                        arguments: json!({}),
+                    },
+                ]),
+            ),
+            Message::tool_result("tc1".to_string(), "result1".to_string(), false),
+            Message::tool_result("tc2".to_string(), "result2".to_string(), false),
+        ];
+        let (_, result) = convert_messages(messages);
+
+        // Should be: user, assistant, user (merged tool results)
+        assert_eq!(
+            result.len(),
+            3,
+            "consecutive user messages should be merged"
+        );
+        assert_eq!(result[2].role, "user");
+        // Merged content should have 2 tool_result blocks
+        let content = result[2].content.as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "tool_result");
+        assert_eq!(content[1]["type"], "tool_result");
+    }
+
+    #[test]
+    fn test_user_after_tool_result_merged() {
+        // A user message following a tool result should be merged
+        let messages = vec![
+            Message::user("first"),
+            Message::assistant("ok", None),
+            Message::tool_result("tc1".to_string(), "result".to_string(), false),
+            Message::user("follow up"),
+        ];
+        let (_, result) = convert_messages(messages);
+
+        // Should be: user, assistant, user (merged tool_result + text)
+        assert_eq!(result.len(), 3);
+        let content = result[2].content.as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "tool_result");
+        assert_eq!(content[1]["type"], "text");
+        assert_eq!(content[1]["text"], "follow up");
     }
 }

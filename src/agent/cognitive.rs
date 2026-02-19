@@ -16,7 +16,29 @@ pub struct CheckpointTracker {
 }
 
 impl CheckpointTracker {
-    pub fn new(config: CognitiveConfig) -> Self {
+    pub fn new(mut config: CognitiveConfig) -> Self {
+        // Ensure thresholds are properly ordered: gentle <= firm <= urgent
+        if config.gentle_threshold > config.firm_threshold {
+            tracing::warn!(
+                "cognitive gentle_threshold ({}) > firm_threshold ({}), swapping",
+                config.gentle_threshold,
+                config.firm_threshold
+            );
+            std::mem::swap(&mut config.gentle_threshold, &mut config.firm_threshold);
+        }
+        if config.firm_threshold > config.urgent_threshold {
+            tracing::warn!(
+                "cognitive firm_threshold ({}) > urgent_threshold ({}), swapping",
+                config.firm_threshold,
+                config.urgent_threshold
+            );
+            std::mem::swap(&mut config.firm_threshold, &mut config.urgent_threshold);
+        }
+        // Re-check gentle after firm/urgent swap
+        if config.gentle_threshold > config.firm_threshold {
+            std::mem::swap(&mut config.gentle_threshold, &mut config.firm_threshold);
+        }
+
         Self {
             config,
             total_tool_calls: 0,

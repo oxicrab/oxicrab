@@ -293,6 +293,12 @@ impl Tool for CronTool {
                 }
 
                 let schedule = if let Some(every_secs) = params["every_seconds"].as_u64() {
+                    if every_secs == 0 || every_secs > 31_536_000 {
+                        return Ok(ToolResult::error(
+                            "Error: every_seconds must be between 1 and 31536000 (1 year)"
+                                .to_string(),
+                        ));
+                    }
                     CronSchedule::Every {
                         every_ms: Some((every_secs * 1000) as i64),
                     }

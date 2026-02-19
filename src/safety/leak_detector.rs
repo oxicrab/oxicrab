@@ -58,8 +58,15 @@ impl LeakDetector {
                 "slack_app_token",
                 r"xapp-[0-9]+-[A-Z0-9]+-[0-9]+-[A-Fa-f0-9]+",
             ),
-            // GitHub PATs
+            // GitHub PATs (classic)
             ("github_pat", r"ghp_[a-zA-Z0-9]{36}"),
+            // GitHub fine-grained PATs
+            (
+                "github_fine_grained_pat",
+                r"github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}",
+            ),
+            // AWS access key IDs
+            ("aws_access_key", r"AKIA[0-9A-Z]{16}"),
             // Groq API keys
             ("groq_api_key", r"gsk_[a-zA-Z0-9]{20,200}"),
             // Telegram bot tokens
@@ -233,12 +240,24 @@ impl LeakDetector {
         // (covers cases where LLM encodes a secret to bypass plaintext detection)
         let encoded_matches = self.scan_encoded(&result);
         if !encoded_matches.is_empty() {
+            // Merge overlapping ranges to prevent corruption from overlapping replace_range calls
+            let mut ranges: Vec<(usize, usize)> =
+                encoded_matches.iter().map(|m| (m.start, m.end)).collect();
+            ranges.sort_by_key(|r| r.0);
+            let mut merged: Vec<(usize, usize)> = Vec::new();
+            for (start, end) in ranges {
+                if let Some(last) = merged.last_mut()
+                    && start <= last.1
+                {
+                    last.1 = last.1.max(end);
+                    continue;
+                }
+                merged.push((start, end));
+            }
             // Replace from end to start to preserve indices
-            let mut sorted = encoded_matches;
-            sorted.sort_by_key(|m| std::cmp::Reverse(m.start));
-            for m in sorted {
-                if m.start <= result.len() && m.end <= result.len() {
-                    result.replace_range(m.start..m.end, "[REDACTED]");
+            for (start, end) in merged.into_iter().rev() {
+                if start <= result.len() && end <= result.len() {
+                    result.replace_range(start..end, "[REDACTED]");
                 }
             }
         }

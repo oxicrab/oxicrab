@@ -7,9 +7,6 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
-/// Task tracker for managing background tasks
-///
-/// Provides centralized tracking and cleanup of background tasks spawned with `tokio::spawn`.
 pub struct TaskTracker {
     tasks: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
 }
@@ -39,16 +36,16 @@ impl TaskTracker {
     {
         let tasks = self.tasks.clone();
         let name_clone = name.clone();
+
+        // Hold the lock while spawning and inserting to prevent a race condition:
+        // the spawned task removes itself on completion, so we must insert the handle
+        // before the task can finish and try to remove itself.
+        let mut tasks_guard = self.tasks.lock().await;
         let handle = tokio::spawn(async move {
             future.await;
             tasks.lock().await.remove(&name_clone);
             debug!("Task '{}' completed and removed from tracker", name_clone);
         });
-
-        // Insert handle immediately under the same lock-free path
-        // Since we hold no lock here and the task may complete before we insert,
-        // the worst case is a no-op remove in the spawned future.
-        let mut tasks_guard = self.tasks.lock().await;
         tasks_guard.insert(name, handle);
     }
 

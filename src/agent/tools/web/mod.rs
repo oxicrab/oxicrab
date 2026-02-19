@@ -265,7 +265,7 @@ impl WebFetchTool {
 
                 // Handle binary content (images, etc.) — save to disk
                 if let Some(ext) = extension_from_content_type(&content_type) {
-                    let bytes = crate::utils::http::limited_body(
+                    let (bytes, _truncated) = crate::utils::http::limited_body(
                         resp,
                         crate::utils::http::DEFAULT_MAX_BODY_BYTES,
                     )

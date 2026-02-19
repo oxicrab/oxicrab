@@ -161,7 +161,6 @@ impl ImageGenTool {
             aspect_ratio
         );
 
-        let url = format!("{}?key={}", self.google_base_url, api_key);
         let body = serde_json::json!({
             "instances": [{ "prompt": prompt }],
             "parameters": {
@@ -170,7 +169,13 @@ impl ImageGenTool {
             }
         });
 
-        let resp = self.client.post(&url).json(&body).send().await?;
+        let resp = self
+            .client
+            .post(&self.google_base_url)
+            .header("x-goog-api-key", api_key)
+            .json(&body)
+            .send()
+            .await?;
 
         let status = resp.status();
         let json: Value = resp.json().await?;
@@ -286,7 +291,7 @@ impl Tool for ImageGenTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{header, method, path, query_param};
+    use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn make_png_bytes() -> Vec<u8> {
@@ -451,7 +456,7 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/"))
-            .and(query_param("key", "test_google_key"))
+            .and(header("x-goog-api-key", "test_google_key"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "predictions": [{
                     "bytesBase64Encoded": b64,

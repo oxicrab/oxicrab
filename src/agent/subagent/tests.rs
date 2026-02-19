@@ -88,6 +88,7 @@ fn make_manager(provider: Arc<dyn LLMProvider>, max_concurrent: usize) -> Subage
             max_tokens: 1024,
             tool_temperature: 0.0,
             max_concurrent,
+            exfil_blocked_tools: vec![],
         },
         bus,
     )
@@ -238,6 +239,7 @@ async fn test_silent_mode_no_bus_message() {
             max_tokens: 1024,
             tool_temperature: 0.0,
             max_concurrent: 5,
+            exfil_blocked_tools: vec![],
         },
         bus.clone(),
     );
@@ -292,6 +294,7 @@ async fn test_non_silent_mode_publishes_bus_message() {
             max_tokens: 1024,
             tool_temperature: 0.0,
             max_concurrent: 5,
+            exfil_blocked_tools: vec![],
         },
         bus.clone(),
     );

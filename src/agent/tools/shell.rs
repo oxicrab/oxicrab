@@ -39,28 +39,43 @@ impl ExecTool {
         })
     }
 
+    /// Known prefix commands that wrap another command.
+    const PREFIX_COMMANDS: &'static [&'static str] = &[
+        "sudo", "env", "command", "nohup", "nice", "time", "doas", "xargs",
+    ];
+
     /// Extract the base command name from a shell command string.
     /// Handles leading env vars (FOO=bar cmd), sudo/command prefixes,
     /// and returns the first actual executable token.
     fn extract_command_name(token: &str) -> &str {
         let token = token.trim();
-        // Skip env var assignments (KEY=value)
         let parts: Vec<&str> = token.split_whitespace().collect();
+        let mut found_prefix = false;
         for part in &parts {
+            // Skip env var assignments (KEY=value)
             if part.contains('=') && !part.starts_with('-') {
+                continue;
+            }
+            // Skip flags (e.g., sudo -u root, env -i, nice -n 10)
+            if found_prefix && part.starts_with('-') {
                 continue;
             }
             // Get basename in case of full path like /usr/bin/ls
             let name = part.rsplit('/').next().unwrap_or(part);
+            // Skip known prefix commands to find the actual command
+            if Self::PREFIX_COMMANDS.contains(&name) {
+                found_prefix = true;
+                continue;
+            }
             return name;
         }
         token
     }
 
     /// Extract all command names from a shell pipeline/chain.
-    /// Splits on |, &&, ||, and ; to find each command.
+    /// Splits on |, &&, ||, ;, and newlines to find each command.
     fn extract_all_commands(command: &str) -> Vec<&str> {
-        // Split on shell operators: |, &&, ||, ;
+        // Split on shell operators: |, &&, ||, ;, \n
         // We need to handle these carefully to extract command names
         let mut commands = Vec::new();
         let mut remaining = command;
@@ -81,6 +96,7 @@ impl ExecTool {
                     }
                 }))
                 .chain(remaining.find(';').map(|i| (i, 1)))
+                .chain(remaining.find('\n').map(|i| (i, 1)))
                 .filter(|(pos, _)| *pos != usize::MAX)
                 .min_by_key(|(pos, _)| *pos);
 
@@ -150,12 +166,11 @@ impl ExecTool {
     /// inside the workspace. Returns an error message if any path escapes.
     fn check_paths_in_workspace(command: &str, workspace: &Path) -> Option<String> {
         for token in command.split_whitespace() {
-            // Only check tokens that look like absolute paths
-            if !token.starts_with('/') {
+            // Strip shell quoting characters BEFORE checking for absolute path
+            let cleaned = token.trim_matches(|c| c == '\'' || c == '"');
+            if !cleaned.starts_with('/') {
                 continue;
             }
-            // Strip shell quoting characters
-            let cleaned = token.trim_matches(|c| c == '\'' || c == '"');
             if cleaned.is_empty() || cleaned == "/" {
                 continue;
             }
@@ -355,6 +370,44 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_sudo_prefix() {
+        assert_eq!(ExecTool::extract_command_name("sudo rm -rf /"), "rm");
+    }
+
+    #[test]
+    fn test_extract_env_prefix() {
+        assert_eq!(
+            ExecTool::extract_command_name("env -i PATH=/usr/bin ls"),
+            "ls"
+        );
+    }
+
+    #[test]
+    fn test_extract_nohup_prefix() {
+        assert_eq!(
+            ExecTool::extract_command_name("nohup python3 app.py"),
+            "python3"
+        );
+    }
+
+    #[test]
+    fn test_extract_sudo_with_simple_flags() {
+        // sudo -n doesn't take an argument, so cat is correctly found
+        assert_eq!(
+            ExecTool::extract_command_name("sudo -n cat /etc/shadow"),
+            "cat"
+        );
+    }
+
+    #[test]
+    fn test_extract_chained_prefixes() {
+        assert_eq!(
+            ExecTool::extract_command_name("sudo env FOO=bar python3 script.py"),
+            "python3"
+        );
+    }
+
+    #[test]
     fn test_extract_all_pipe() {
         let cmds = ExecTool::extract_all_commands("cat file.txt | grep foo | sort");
         assert_eq!(cmds, vec!["cat", "grep", "sort"]);
@@ -416,6 +469,15 @@ mod tests {
             t.guard_command("anything_goes", Path::new("/tmp"))
                 .is_none()
         );
+    }
+
+    #[test]
+    fn test_sudo_prefix_blocked_by_allowlist() {
+        // "sudo rm" should extract "rm", which is not in the allowlist
+        let t = tool(allowed());
+        let result = t.guard_command("sudo rm -rf /tmp/data", Path::new("/tmp"));
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("rm"));
     }
 
     #[test]

@@ -101,7 +101,7 @@ opt-level = "z"       # Optimize for binary size
 lto = true            # Fat link-time optimization
 codegen-units = 1     # Single codegen unit for maximum optimization
 strip = true          # Strip debug symbols
-panic = "abort"       # Abort on panic (smaller than unwinding)
+panic = "unwind"      # Unwind on panic (required for tool panic isolation via tokio::task::spawn)
 
 [dev-dependencies]
 wiremock = "0.6.5"

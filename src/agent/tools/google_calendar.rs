@@ -117,7 +117,7 @@ impl Tool for GoogleCalendarTool {
                     || (now + chrono::Duration::days(7)).to_rfc3339(),
                     ensure_rfc3339_tz,
                 );
-                let max_results = params["max_results"].as_u64().unwrap_or(20) as u32;
+                let max_results = params["max_results"].as_u64().unwrap_or(20).min(100) as u32;
 
                 let endpoint = format!(
                     "calendars/{}/events?timeMin={}&timeMax={}&maxResults={}&singleEvents=true&orderBy=startTime",

@@ -92,7 +92,26 @@ impl CostGuard {
 
     /// Pre-flight check before an LLM call. Returns `Err(message)` if blocked.
     pub fn check_allowed(&self) -> Result<(), String> {
-        // Check daily budget (always take the lock to avoid TOCTOU race)
+        // Fast-path: if budget was already exceeded, skip the mutex unless it's a new day
+        if self.budget_exceeded.load(Ordering::Acquire) && self.config.daily_budget_cents.is_some()
+        {
+            // Still need to check for date rollover — take the lock
+            let Ok(daily) = self.daily_cost.lock() else {
+                return Ok(());
+            };
+            let today = chrono::Utc::now().date_naive();
+            if daily.date == today {
+                return Err(format!(
+                    "Daily budget exceeded ({:.1} cents spent, limit {} cents). Try again tomorrow.",
+                    daily.total_cents,
+                    self.config.daily_budget_cents.unwrap_or(0)
+                ));
+            }
+            // Day rolled over — fall through to the full check which will reset
+            drop(daily);
+        }
+
+        // Check daily budget
         if let Some(budget) = self.config.daily_budget_cents {
             let Ok(mut daily) = self.daily_cost.lock() else {
                 warn!("cost guard daily_cost mutex poisoned — budget enforcement bypassed");

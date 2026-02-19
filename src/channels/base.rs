@@ -93,7 +93,8 @@ pub fn split_message(text: &str, limit: usize) -> Vec<String> {
         chunks.push(remaining.trim().to_string());
     }
 
-    chunks
+    // Filter out empty chunks (e.g., from leading "\n\n" producing a trimmed empty string)
+    chunks.into_iter().filter(|c| !c.is_empty()).collect()
 }
 
 #[cfg(test)]

@@ -276,6 +276,32 @@ fn security_patterns_allow_safe_perl_ruby() {
 }
 
 #[test]
+fn security_patterns_block_node_php_execution() {
+    let patterns = compile_security_patterns().unwrap();
+    let dangerous = vec![
+        "node -e 'require(\"child_process\").exec(\"id\")'",
+        "php -r 'system(\"cat /etc/passwd\");'",
+    ];
+    for cmd in dangerous {
+        let blocked = patterns.iter().any(|p| p.is_match(cmd));
+        assert!(blocked, "Should block: {}", cmd);
+    }
+}
+
+#[test]
+fn security_patterns_allow_safe_node_php() {
+    let patterns = compile_security_patterns().unwrap();
+    let safe = vec![
+        "node server.js",    // running a script file is fine
+        "php artisan serve", // running a command is fine
+    ];
+    for cmd in safe {
+        let blocked = patterns.iter().any(|p| p.is_match(cmd));
+        assert!(!blocked, "Should allow: {}", cmd);
+    }
+}
+
+#[test]
 fn security_patterns_word_boundaries_no_false_positives() {
     let patterns = compile_security_patterns().unwrap();
     // "medieval" should not trigger eval pattern (\beval\b)

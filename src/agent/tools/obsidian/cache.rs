@@ -34,6 +34,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
+/// Maximum number of queued writes when the API is unreachable.
+const MAX_QUEUE_SIZE: usize = 100;
+
 /// Metadata for a single cached file.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CachedFileMeta {
@@ -179,13 +182,24 @@ impl ObsidianCache {
 
     /// Case-insensitive full-text search across cached files.
     pub async fn search_cached(&self, query: &str) -> Vec<(String, String)> {
-        let state = self.state.lock().await;
+        // Collect file paths under lock, then drop it before blocking I/O
+        let file_paths: Vec<(String, std::path::PathBuf)> = {
+            let state = self.state.lock().await;
+            state
+                .files
+                .keys()
+                .filter_map(|path| {
+                    self.safe_cache_path(path)
+                        .map(|file_path| (path.clone(), file_path))
+                })
+                .collect()
+        };
+
         let query_lower = query.to_lowercase();
         let mut results = Vec::new();
 
-        for path in state.files.keys() {
-            let file_path = self.cache_dir.join(path);
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
+        for (path, file_path) in &file_paths {
+            if let Ok(content) = std::fs::read_to_string(file_path) {
                 for line in content.lines() {
                     if line.to_lowercase().contains(&query_lower) {
                         results.push((path.clone(), line.to_string()));
@@ -457,6 +471,12 @@ impl ObsidianCache {
         };
 
         let mut queue = self.write_queue.lock().await;
+        if queue.len() >= MAX_QUEUE_SIZE {
+            anyhow::bail!(
+                "write queue full ({} items) — API has been unreachable too long",
+                MAX_QUEUE_SIZE
+            );
+        }
         queue.push(QueuedWrite {
             path: path.to_string(),
             content: content.to_string(),

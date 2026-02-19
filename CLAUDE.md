@@ -48,6 +48,11 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 CI treats clippy warnings as errors. No custom rustfmt/clippy config — uses defaults.
 
+## Git Commits
+
+- Do **not** add `Co-Authored-By` trailers to commits.
+- Use conventional commit style (`fix:`, `feat:`, `chore:`, `refactor:`, etc.).
+
 ## Releasing
 
 Tag-based releases via `scripts/release.sh`. Pushing a `v*` tag triggers `.github/workflows/release.yml` which builds multi-platform binaries (Linux x86_64, Linux ARM64, macOS ARM64), pushes a Docker image to GHCR, generates a changelog with git-cliff, and creates a GitHub Release.

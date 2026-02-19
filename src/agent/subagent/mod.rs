@@ -34,6 +34,9 @@ pub struct SubagentConfig {
     pub max_tokens: u32,
     pub tool_temperature: f32,
     pub max_concurrent: usize,
+    /// Tools blocked by the exfiltration guard (e.g., `web_fetch`, `web_search`).
+    /// When non-empty, these tools are NOT registered in the subagent.
+    pub exfil_blocked_tools: Vec<String>,
 }
 
 pub struct SubagentManager {
@@ -54,6 +57,7 @@ struct SubagentInner {
     allowed_commands: Vec<String>,
     max_tokens: u32,
     tool_temperature: f32,
+    exfil_blocked_tools: Vec<String>,
 }
 
 impl SubagentManager {
@@ -72,6 +76,7 @@ impl SubagentManager {
             allowed_commands: config.allowed_commands,
             max_tokens: config.max_tokens,
             tool_temperature: config.tool_temperature,
+            exfil_blocked_tools: config.exfil_blocked_tools,
         });
         Self {
             config: inner,
@@ -110,6 +115,9 @@ impl SubagentManager {
         let running_tasks = self.running_tasks.clone();
         let semaphore = self.semaphore.clone();
 
+        // Hold the lock while spawning to prevent the race where the task
+        // finishes and tries to remove itself before we insert the handle.
+        let mut tasks = self.running_tasks.lock().await;
         let bg_task = tokio::spawn(async move {
             // Acquire semaphore permit — blocks if all slots are busy
             let Ok(_permit) = semaphore.acquire().await else {
@@ -132,11 +140,8 @@ impl SubagentManager {
             )
             .await;
         });
-
-        self.running_tasks
-            .lock()
-            .await
-            .insert(task_id.clone(), bg_task);
+        tasks.insert(task_id.clone(), bg_task);
+        drop(tasks);
 
         info!("Spawned subagent [{}]: {}", task_id, display_label);
         Ok(format!(
@@ -264,11 +269,22 @@ async fn run_subagent_inner(
         config.restrict_to_workspace,
         config.allowed_commands.clone(),
     )?));
-    tools.register(Arc::new(WebSearchTool::new(
-        config.brave_api_key.clone(),
-        5,
-    )));
-    tools.register(Arc::new(WebFetchTool::new(MAX_WEB_FETCH_CHARS)?));
+    // Only register outbound tools if not blocked by exfiltration guard
+    if !config
+        .exfil_blocked_tools
+        .contains(&"web_search".to_string())
+    {
+        tools.register(Arc::new(WebSearchTool::new(
+            config.brave_api_key.clone(),
+            5,
+        )));
+    }
+    if !config
+        .exfil_blocked_tools
+        .contains(&"web_fetch".to_string())
+    {
+        tools.register(Arc::new(WebFetchTool::new(MAX_WEB_FETCH_CHARS)?));
+    }
 
     // Build messages
     let system_prompt = build_subagent_prompt(task, &config.workspace, context);

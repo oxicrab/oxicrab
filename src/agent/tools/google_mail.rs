@@ -89,7 +89,7 @@ impl Tool for GoogleMailTool {
                 let query = params["query"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
-                let max_results = params["max_results"].as_u64().unwrap_or(10) as u32;
+                let max_results = params["max_results"].as_u64().unwrap_or(10).min(50) as u32;
 
                 let endpoint = format!(
                     "users/me/messages?q={}&maxResults={}",
@@ -343,6 +343,14 @@ impl Tool for GoogleMailTool {
 }
 
 fn extract_body(payload: &Value) -> String {
+    extract_body_inner(payload, 0)
+}
+
+fn extract_body_inner(payload: &Value, depth: u32) -> String {
+    if depth > 10 {
+        return "(nested too deep)".to_string();
+    }
+
     // Direct body
     if payload["mimeType"].as_str() == Some("text/plain")
         && let Some(data) = payload["body"]["data"].as_str()
@@ -371,8 +379,8 @@ fn extract_body(payload: &Value) -> String {
                 }
                 // Nested multipart
                 if part["parts"].is_array() {
-                    let nested = extract_body(part);
-                    if !nested.is_empty() {
+                    let nested = extract_body_inner(part, depth + 1);
+                    if nested != "(no readable body)" {
                         return nested;
                     }
                 }

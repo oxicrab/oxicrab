@@ -19,9 +19,10 @@ pub fn default_http_client() -> Client {
 /// Download a response body as bytes with a size limit.
 ///
 /// - Checks the `Content-Length` header first; rejects immediately if over limit.
-/// - Streams via `chunk()` with a running counter; truncates and appends a marker
-///   if the limit is exceeded mid-stream.
-pub async fn limited_body(resp: Response, max_bytes: usize) -> Result<Vec<u8>> {
+/// - Streams via `chunk()` with a running counter; truncates at the limit.
+/// - Returns `(bytes, was_truncated)`. The bytes are raw with no marker appended,
+///   so binary content (images, audio) is not corrupted on truncation.
+pub async fn limited_body(resp: Response, max_bytes: usize) -> Result<(Vec<u8>, bool)> {
     // Pre-check Content-Length header
     if let Some(cl) = resp.content_length()
         && cl as usize > max_bytes
@@ -39,20 +40,24 @@ pub async fn limited_body(resp: Response, max_bytes: usize) -> Result<Vec<u8>> {
         if buf.len() + chunk.len() > max_bytes {
             let remaining = max_bytes.saturating_sub(buf.len());
             buf.extend_from_slice(&chunk[..remaining]);
-            buf.extend_from_slice(b"\n[truncated]");
-            return Ok(buf);
+            return Ok((buf, true));
         }
         buf.extend_from_slice(&chunk);
     }
-    Ok(buf)
+    Ok((buf, false))
 }
 
 /// Download a response body as a UTF-8 string with a size limit.
 ///
-/// Same semantics as [`limited_body`] but converts the result to a `String`.
+/// Same semantics as [`limited_body`] but converts the result to a `String`
+/// and appends a `\n[truncated]` marker when the body exceeds the limit.
 pub async fn limited_text(resp: Response, max_bytes: usize) -> Result<String> {
-    let bytes = limited_body(resp, max_bytes).await?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    let (bytes, truncated) = limited_body(resp, max_bytes).await?;
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    if truncated {
+        text.push_str("\n[truncated]");
+    }
+    Ok(text)
 }
 
 #[cfg(test)]
@@ -83,8 +88,9 @@ mod tests {
             .mount(&server)
             .await;
         let resp = get_response(&server).await;
-        let result = limited_body(resp, 1024).await.unwrap();
+        let (result, truncated) = limited_body(resp, 1024).await.unwrap();
         assert_eq!(result, b"hello world");
+        assert!(!truncated);
     }
 
     #[tokio::test]
@@ -96,8 +102,9 @@ mod tests {
             .mount(&server)
             .await;
         let resp = get_response(&server).await;
-        let result = limited_body(resp, 100).await.unwrap();
+        let (result, truncated) = limited_body(resp, 100).await.unwrap();
         assert_eq!(result, body);
+        assert!(!truncated);
     }
 
     #[tokio::test]
@@ -134,10 +141,11 @@ mod tests {
             .await
             .unwrap();
         assert!(resp.content_length().is_none());
-        let result = limited_body(resp, 50).await.unwrap();
-        assert!(result.ends_with(b"\n[truncated]"));
-        let marker_len = b"\n[truncated]".len();
-        assert_eq!(result.len(), 50 + marker_len);
+        let (result, truncated) = limited_body(resp, 50).await.unwrap();
+        assert!(truncated);
+        // No marker appended — raw bytes only
+        assert_eq!(result.len(), 50);
+        assert!(result.iter().all(|&b| b == b'x'));
         handle.await.unwrap();
     }
 
@@ -189,7 +197,8 @@ mod tests {
             .mount(&server)
             .await;
         let resp = get_response(&server).await;
-        let result = limited_body(resp, 1024).await.unwrap();
+        let (result, truncated) = limited_body(resp, 1024).await.unwrap();
         assert!(result.is_empty());
+        assert!(!truncated);
     }
 }

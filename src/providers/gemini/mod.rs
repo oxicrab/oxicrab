@@ -74,8 +74,11 @@ impl GeminiProvider {
             for (i, part) in parts.iter().enumerate() {
                 // Gemini returns singular `functionCall` per part (not plural array)
                 if let Some(fc) = part.get("functionCall") {
-                    // Gemini doesn't return tool call IDs; generate one
-                    let id = format!("gemini_tc_{}", i);
+                    // Gemini doesn't return tool call IDs; use function name as ID
+                    // since Gemini's functionResponse.name needs the actual function name
+                    let id = fc["name"]
+                        .as_str()
+                        .map_or_else(|| format!("gemini_tc_{}", i), str::to_string);
                     tool_calls.push(ToolCallRequest {
                         id,
                         name: fc["name"].as_str().unwrap_or("").to_string(),
