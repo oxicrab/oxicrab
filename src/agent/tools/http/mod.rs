@@ -9,22 +9,12 @@ use std::time::Duration;
 
 const MAX_RESPONSE_CHARS: usize = 50000;
 
+#[derive(Default)]
 pub struct HttpTool {
+    /// Only used by test helpers (`send_request`); production path builds a
+    /// per-request pinned client via `pinned_client()`.
+    #[cfg(test)]
     client: Client,
-}
-
-impl Default for HttpTool {
-    fn default() -> Self {
-        let user_agent = format!("oxicrab/{}", env!("CARGO_PKG_VERSION"));
-        Self {
-            client: Client::builder()
-                .user_agent(user_agent)
-                .redirect(reqwest::redirect::Policy::limited(5))
-                .timeout(Duration::from_secs(30))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
-        }
-    }
 }
 
 impl HttpTool {
@@ -33,16 +23,22 @@ impl HttpTool {
     }
 
     /// Build a one-shot client with DNS pinned to the resolved addresses.
-    fn pinned_client(&self, resolved: &crate::utils::url_security::ResolvedUrl) -> Client {
+    ///
+    /// Redirects are disabled to prevent SSRF bypass: an attacker's server could
+    /// redirect to an internal IP that wasn't validated. Callers receive the 3xx
+    /// response as-is (the Location header is included in filtered response headers).
+    fn pinned_client(resolved: &crate::utils::url_security::ResolvedUrl) -> Result<Client, String> {
         let user_agent = format!("oxicrab/{}", env!("CARGO_PKG_VERSION"));
         let mut builder = Client::builder()
             .user_agent(user_agent)
-            .redirect(reqwest::redirect::Policy::limited(5))
+            .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(30));
         for addr in &resolved.addrs {
             builder = builder.resolve(&resolved.host, *addr);
         }
-        builder.build().unwrap_or_else(|_| self.client.clone())
+        builder
+            .build()
+            .map_err(|e| format!("failed to build pinned HTTP client: {}", e))
     }
 
     /// HTTP execution with DNS-pinned client (used by `execute()` for SSRF-safe requests).
@@ -51,7 +47,10 @@ impl HttpTool {
         params: &Value,
         resolved: &crate::utils::url_security::ResolvedUrl,
     ) -> Result<ToolResult> {
-        let client = self.pinned_client(resolved);
+        let client = match Self::pinned_client(resolved) {
+            Ok(c) => c,
+            Err(e) => return Ok(ToolResult::error(e)),
+        };
         self.send_request_with_client(params, &client).await
     }
 

@@ -117,17 +117,35 @@ impl AnthropicOAuthProvider {
     }
 
     async fn ensure_valid_token(&self) -> Result<String> {
-        let expires_at = *self.expires_at.lock().await;
+        // Read expires_at and drop lock before potentially refreshing.
+        // refresh_token_internal() takes its own locks, so we must not hold one here.
+        // Minor race: two concurrent callers may both see expired and refresh.
+        // This is harmless — the second refresh just wastes one API call.
+        let needs_refresh = {
+            let expires_at = *self.expires_at.lock().await;
+            if expires_at > 0 {
+                let now_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .context("System time is before UNIX epoch")
+                    .map(|d| d.as_millis() as i64)?;
+                now_ms > expires_at
+            } else {
+                false
+            }
+        };
 
-        if expires_at > 0 {
-            let now_ms = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .context("System time is before UNIX epoch")
-                .map(|d| d.as_millis() as i64)?;
-
-            if now_ms > expires_at {
-                let refresh_token = self.refresh_token.lock().await.clone();
-                if !refresh_token.is_empty() {
+        if needs_refresh {
+            let refresh_token = self.refresh_token.lock().await.clone();
+            if !refresh_token.is_empty() {
+                // Re-check after acquiring refresh token (another caller may have refreshed)
+                let still_expired = {
+                    let expires_at = *self.expires_at.lock().await;
+                    let now_ms = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map_or(0, |d| d.as_millis() as i64);
+                    now_ms > expires_at
+                };
+                if still_expired {
                     info!("OAuth token expired, refreshing...");
                     match self.refresh_token_internal(&refresh_token).await {
                         Ok(()) => {

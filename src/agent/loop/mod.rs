@@ -1028,7 +1028,7 @@ impl AgentLoop {
                         m.category, m.pattern_name
                     );
                 }
-                if self.prompt_guard_config.action == "block" && guard.should_block(&msg_content) {
+                if self.prompt_guard_config.action == "block" {
                     return Ok(Some(OutboundMessage {
                         channel: msg.channel,
                         chat_id: msg.chat_id,

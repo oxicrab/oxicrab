@@ -68,6 +68,22 @@ impl McpManager {
         let mut cmd = crate::utils::subprocess::scrubbed_command(command);
         cmd.args(args);
         for (k, v) in env {
+            // Warn if an env var looks like it might contain a secret
+            let v_lower = v.to_lowercase();
+            if v.len() > 20
+                && (k.to_lowercase().contains("key")
+                    || k.to_lowercase().contains("secret")
+                    || k.to_lowercase().contains("token")
+                    || k.to_lowercase().contains("password")
+                    || v_lower.starts_with("sk-")
+                    || v_lower.starts_with("ghp_")
+                    || v_lower.starts_with("xoxb-"))
+            {
+                warn!(
+                    "MCP server '{}' env var '{}' may contain a secret — consider using a credential helper instead",
+                    name, k
+                );
+            }
             cmd.env(k, v);
         }
         // Pipe stdin/stdout for MCP communication, inherit stderr for logging

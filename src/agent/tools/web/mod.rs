@@ -2,7 +2,9 @@ use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::utils::media::{extension_from_content_type, save_media_file};
 use crate::utils::regex::{RegexPatterns, compile_regex};
-use anyhow::{Context, Result};
+#[cfg(test)]
+use anyhow::Context;
+use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
 use scraper::{Html, Selector};
@@ -10,6 +12,7 @@ use serde_json::Value;
 use std::time::Duration;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36";
+#[cfg(test)]
 const MAX_REDIRECTS: u32 = 5;
 
 pub struct WebSearchTool {
@@ -208,6 +211,9 @@ impl Tool for WebSearchTool {
 
 pub struct WebFetchTool {
     max_chars: usize,
+    /// Only used by test helpers (`fetch_url`); production path builds a
+    /// per-request pinned client in `execute()`.
+    #[cfg(test)]
     client: Client,
 }
 
@@ -215,6 +221,7 @@ impl WebFetchTool {
     pub fn new(max_chars: usize) -> Result<Self> {
         Ok(Self {
             max_chars,
+            #[cfg(test)]
             client: Client::builder()
                 .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS as usize))
                 .timeout(Duration::from_secs(30))
@@ -398,15 +405,24 @@ impl Tool for WebFetchTool {
             Err(e) => return Ok(ToolResult::error(e)),
         };
 
-        // Build a pinned client to prevent DNS rebinding
+        // Build a pinned client to prevent DNS rebinding.
+        // Redirects are disabled: an attacker could redirect to an internal IP.
         let pinned = {
             let mut builder = Client::builder()
-                .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS as usize))
+                .redirect(reqwest::redirect::Policy::none())
                 .timeout(Duration::from_secs(30));
             for addr in &resolved.addrs {
                 builder = builder.resolve(&resolved.host, *addr);
             }
-            builder.build().unwrap_or_else(|_| self.client.clone())
+            match builder.build() {
+                Ok(c) => c,
+                Err(e) => {
+                    return Ok(ToolResult::error(format!(
+                        "failed to build pinned HTTP client: {}",
+                        e
+                    )));
+                }
+            }
         };
 
         self.fetch_url_with_client(&params, &pinned).await

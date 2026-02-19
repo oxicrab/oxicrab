@@ -1352,6 +1352,19 @@ impl Config {
             ));
         }
 
+        // Validate prompt guard config
+        if self.agents.defaults.prompt_guard.enabled
+            && !matches!(
+                self.agents.defaults.prompt_guard.action.as_str(),
+                "warn" | "block"
+            )
+        {
+            return Err(OxicrabError::Config(format!(
+                "agents.defaults.promptGuard.action must be \"warn\" or \"block\", got \"{}\"",
+                self.agents.defaults.prompt_guard.action
+            )));
+        }
+
         // Validate gateway config
         if self.gateway.port == 0 {
             return Err(OxicrabError::Config("gateway.port must be > 0".into()));

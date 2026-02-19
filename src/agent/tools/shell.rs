@@ -160,8 +160,13 @@ impl ExecTool {
                 continue;
             }
             let path = Path::new(cleaned);
-            // Use canonicalize if the path exists, otherwise check lexically
-            let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            // Use canonicalize if the path exists (resolves symlinks).
+            // For non-existent paths, use lexical normalization to prevent
+            // symlink-based workspace escapes (canonicalize fails on non-existent
+            // paths, returning the raw path which could contain `..` components).
+            let resolved = path
+                .canonicalize()
+                .unwrap_or_else(|_| lexical_normalize(path));
             if !resolved.starts_with(workspace) {
                 return Some(format!(
                     "Error: path '{}' is outside the workspace",
@@ -171,6 +176,27 @@ impl ExecTool {
         }
         None
     }
+}
+
+/// Normalize a path lexically (without touching the filesystem).
+/// Resolves `.` and `..` components so that `/workspace/../etc/passwd`
+/// correctly normalizes to `/etc/passwd` rather than passing through
+/// as if it starts with `/workspace`.
+fn lexical_normalize(path: &Path) -> PathBuf {
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                // Pop the last normal component (but never pop past root)
+                if matches!(components.last(), Some(std::path::Component::Normal(_))) {
+                    components.pop();
+                }
+            }
+            std::path::Component::CurDir => {} // skip "."
+            other => components.push(other),
+        }
+    }
+    components.iter().collect()
 }
 
 #[async_trait]

@@ -124,7 +124,7 @@ impl PromptGuard {
     pub fn scan(&self, text: &str) -> Vec<InjectionMatch> {
         let mut matches = Vec::new();
         for pattern in &self.patterns {
-            if let Some(m) = pattern.regex.find(text) {
+            for m in pattern.regex.find_iter(text) {
                 matches.push(InjectionMatch {
                     category: pattern.category.clone(),
                     pattern_name: pattern.name,

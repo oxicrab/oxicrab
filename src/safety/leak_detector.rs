@@ -48,13 +48,16 @@ impl LeakDetector {
             // Slack bot tokens
             ("slack_bot_token", r"xoxb-[0-9]+-[0-9]+-[a-zA-Z0-9]+"),
             // Slack app tokens
-            ("slack_app_token", r"xapp-[0-9]+-[A-Z0-9]+-[0-9]+-[a-f0-9]+"),
+            (
+                "slack_app_token",
+                r"xapp-[0-9]+-[A-Z0-9]+-[0-9]+-[A-Fa-f0-9]+",
+            ),
             // GitHub PATs
             ("github_pat", r"ghp_[a-zA-Z0-9]{36}"),
             // Groq API keys
             ("groq_api_key", r"gsk_[a-zA-Z0-9]{20,200}"),
             // Telegram bot tokens
-            ("telegram_bot_token", r"[0-9]+:AA[A-Za-z0-9_\-]{33}"),
+            ("telegram_bot_token", r"[0-9]+:AA[A-Za-z0-9_\-]{33,}"),
             // Discord bot tokens
             (
                 "discord_bot_token",
@@ -76,8 +79,9 @@ impl LeakDetector {
         Self {
             patterns,
             known_secrets: Vec::new(),
-            base64_candidate_re: Regex::new(r"[A-Za-z0-9+/]{20,}={0,3}").unwrap(),
-            hex_candidate_re: Regex::new(r"[0-9a-fA-F]{40,}").unwrap(),
+            // Upper bounds prevent DoS via large payloads; API keys never exceed ~200 chars
+            base64_candidate_re: Regex::new(r"[A-Za-z0-9+/]{20,500}={0,3}").unwrap(),
+            hex_candidate_re: Regex::new(r"[0-9a-fA-F]{40,512}").unwrap(),
         }
     }
 

@@ -71,6 +71,7 @@ fn check_ip_allowed(ip: IpAddr) -> Result<(), String> {
                 || v4.is_private()
                 || v4.is_link_local()
                 || v4.is_broadcast()
+                || v4.is_multicast()
                 || v4.is_unspecified()
                 || v4.octets()[0] == 0
             // 0.0.0.0/8
@@ -79,20 +80,28 @@ fn check_ip_allowed(ip: IpAddr) -> Result<(), String> {
             }
         }
         IpAddr::V6(v6) => {
-            if v6.is_loopback() || v6.is_unspecified() {
+            if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
                 return Err(format!("Blocked: requests to {} are not allowed", v6));
             }
             // Check for IPv4-mapped addresses (::ffff:127.0.0.1 etc)
             if let Some(v4) = v6.to_ipv4_mapped() {
                 return check_ip_allowed(IpAddr::V4(v4));
             }
-            // fe80::/10 link-local
             let segments = v6.segments();
+            // fe80::/10 link-local
             if segments[0] & 0xffc0 == 0xfe80 {
                 return Err(format!("Blocked: requests to {} are not allowed", v6));
             }
             // fc00::/7 unique local
             if segments[0] & 0xfe00 == 0xfc00 {
+                return Err(format!("Blocked: requests to {} are not allowed", v6));
+            }
+            // 2001:db8::/32 documentation
+            if segments[0] == 0x2001 && segments[1] == 0x0db8 {
+                return Err(format!("Blocked: requests to {} are not allowed", v6));
+            }
+            // 2002::/16 6to4 tunneling (can embed arbitrary IPv4)
+            if segments[0] == 0x2002 {
                 return Err(format!("Blocked: requests to {} are not allowed", v6));
             }
         }

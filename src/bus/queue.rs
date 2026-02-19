@@ -91,6 +91,15 @@ impl MessageBus {
         }
 
         timestamps.push(now);
+
+        // Prune inactive senders periodically to prevent unbounded growth.
+        // Every 1000 messages, remove entries with no recent timestamps.
+        if self.sender_timestamps.len() > 1000 {
+            let rate_window = self.rate_window;
+            self.sender_timestamps
+                .retain(|_, ts| ts.iter().any(|&t| now.duration_since(t) < rate_window));
+        }
+
         let channel = msg.channel.clone();
         let sender_id = msg.sender_id.clone();
         self.inbound_tx

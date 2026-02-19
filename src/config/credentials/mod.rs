@@ -162,15 +162,41 @@ fn fetch_from_helper(helper: &CredentialHelperConfig, key: &str) -> Result<Strin
     }
 }
 
+/// Build a `std::process::Command` with a scrubbed environment.
+/// Mirrors `crate::utils::subprocess::scrubbed_command` but for synchronous code
+/// (credential helpers run during config loading, before the async runtime).
+fn scrubbed_sync_command(program: &str) -> std::process::Command {
+    const ALLOWED: &[&str] = &[
+        "PATH",
+        "HOME",
+        "USER",
+        "LANG",
+        "LC_ALL",
+        "TZ",
+        "TERM",
+        "RUST_LOG",
+        "TMPDIR",
+        "XDG_RUNTIME_DIR",
+    ];
+    let mut cmd = std::process::Command::new(program);
+    cmd.env_clear();
+    for &var in ALLOWED {
+        if let Ok(val) = std::env::var(var) {
+            cmd.env(var, val);
+        }
+    }
+    cmd
+}
+
 fn run_helper_process(cmd: &str, args: &[String], stdin_data: Option<&str>) -> Result<String> {
     use std::io::Write;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
 
     if let Some(data) = stdin_data {
         // When stdin is needed, use spawn() to write stdin first, then drain
         // pipes concurrently via wait_with_output(). We must drop stdin before
         // waiting so the child sees EOF and can produce its output.
-        let mut child = Command::new(cmd)
+        let mut child = scrubbed_sync_command(cmd)
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -192,7 +218,7 @@ fn run_helper_process(cmd: &str, args: &[String], stdin_data: Option<&str>) -> R
         }
     } else {
         // No stdin needed — use output() which safely drains pipes concurrently
-        let output = Command::new(cmd)
+        let output = scrubbed_sync_command(cmd)
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

@@ -80,6 +80,29 @@ fn rejects_no_scheme() {
     assert!(validate("not-a-url").is_err());
 }
 
+// --- multicast / documentation / 6to4 blocks ---
+
+#[test]
+fn blocks_ipv4_multicast() {
+    assert!(validate("http://224.0.0.1").is_err());
+    assert!(validate("http://239.255.255.250").is_err());
+}
+
+#[test]
+fn blocks_ipv6_multicast() {
+    assert!(validate("http://[ff02::1]").is_err());
+}
+
+#[test]
+fn blocks_ipv6_documentation() {
+    assert!(validate("http://[2001:db8::1]").is_err());
+}
+
+#[test]
+fn blocks_ipv6_6to4() {
+    assert!(validate("http://[2002::1]").is_err());
+}
+
 // --- validate_and_resolve tests ---
 
 #[test]
