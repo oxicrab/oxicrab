@@ -110,7 +110,7 @@ max_width: 820px
     <h3>Security</h3>
     <ul class="plain">
       <li><strong>Shell AST analysis</strong> &mdash; pre-execution structural analysis via brush-parser detects subshells, command/process substitution, eval/source, interpreter inline execution (python -c, perl -e), dangerous pipe targets (| bash), function definitions, and dangerous device redirections. Runs before regex blocklist for defense-in-depth.</li>
-      <li><strong>Landlock sandbox</strong> &mdash; on Linux, kernel-level Landlock LSM restricts filesystem access (read-only for system dirs, read-write for workspace + /tmp) and blocks network connections. Degrades gracefully on older kernels.</li>
+      <li><strong>Process sandbox</strong> &mdash; kernel-level sandboxing restricts filesystem access (read-only for system dirs, read-write for workspace + /tmp) and blocks network connections. On Linux, uses Landlock LSM (degrades gracefully on older kernels). On macOS, uses Seatbelt (<code>sandbox_init</code>). No-op on other platforms.</li>
       <li><strong>Environment scrubbing</strong> &mdash; child processes inherit only safe variables (PATH, HOME, USER, LANG, TZ, TERM, RUST_LOG, TMPDIR). Secrets are never leaked.</li>
       <li><strong>Output cap</strong> &mdash; combined stdout+stderr is truncated at 1 MB to prevent memory exhaustion.</li>
       <li><strong>Workspace enforcement</strong> &mdash; when <code>restrictToWorkspace</code> is enabled, absolute paths in commands are validated against the workspace boundary.</li>
@@ -135,7 +135,7 @@ max_width: 820px
 }</code></pre>
     <p>The default allowlist includes 50+ commands: file ops (<code>ls</code>, <code>find</code>, <code>tree</code>), text processing (<code>grep</code>, <code>awk</code>, <code>sed</code>, <code>jq</code>), dev tools (<code>git</code>, <code>cargo</code>, <code>npm</code>, <code>python3</code>), and networking (<code>curl</code>, <code>wget</code>, <code>dig</code>). Override with your own list in config.</p>
     <p>Set <code>restrictToWorkspace: true</code> to restrict filesystem access to the workspace directory.</p>
-    <p>The <code>sandbox</code> block controls Landlock kernel sandboxing (Linux only). Default read-only: <code>/usr</code>, <code>/lib</code>, <code>/lib64</code>, <code>/bin</code>, <code>/sbin</code>, <code>/etc</code>. Default read-write: workspace dir, <code>/tmp</code>, <code>/var/tmp</code>. Use <code>additionalReadPaths</code>/<code>additionalWritePaths</code> to extend. Set <code>blockNetwork: false</code> to allow outbound connections from shell commands.</p>
+    <p>The <code>sandbox</code> block controls kernel-level process sandboxing. On <strong>Linux</strong>, uses Landlock LSM. On <strong>macOS</strong>, uses Seatbelt (<code>sandbox_init</code>). Default read-only: <code>/usr</code>, <code>/lib</code>, <code>/lib64</code>, <code>/bin</code>, <code>/sbin</code>, <code>/etc</code> (plus <code>/System</code>, <code>/Library</code>, <code>/opt/homebrew</code>, <code>/usr/local</code> on macOS). Default read-write: workspace dir, <code>/tmp</code>, <code>/var/tmp</code> (plus <code>/private/tmp</code>, <code>/private/var/folders</code> on macOS). Use <code>additionalReadPaths</code>/<code>additionalWritePaths</code> to extend. Set <code>blockNetwork: false</code> to allow outbound connections from shell commands.</p>
   </div>
 
   <div id="tmux" class="tool-section">
@@ -557,7 +557,7 @@ max_width: 820px
         <tr><td>env</td><td>Environment variables passed to the child process</td></tr>
         <tr><td>enabled</td><td>Set to <code>false</code> to skip without removing the config</td></tr>
         <tr><td>trust</td><td>Trust level: <code>"local"</code> (default, full tool access), <code>"verified"</code> (requires approval per call), or <code>"community"</code> (read-only safe tools only)</td></tr>
-        <tr><td>sandbox</td><td>Landlock sandbox config for the server process. Same fields as <a href="/oxicrab/config.html#sandbox"><code>tools.exec.sandbox</code></a>: <code>enabled</code> (default true), <code>additionalReadPaths</code>, <code>additionalWritePaths</code>, <code>blockNetwork</code> (default true). Restricts the MCP server's filesystem and network access at the kernel level.</td></tr>
+        <tr><td>sandbox</td><td>Process sandbox config for the server process. Same fields as <a href="/oxicrab/config.html#sandbox"><code>tools.exec.sandbox</code></a>: <code>enabled</code> (default true), <code>additionalReadPaths</code>, <code>additionalWritePaths</code>, <code>blockNetwork</code> (default true). Restricts the MCP server's filesystem and network access at the kernel level (Landlock on Linux, Seatbelt on macOS).</td></tr>
       </tbody>
     </table>
 

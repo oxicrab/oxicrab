@@ -52,7 +52,6 @@ hmac = { version = "0.12", optional = true }
 html-escape = "0.2"
 indexmap = "2"
 keyring = { version = "3", optional = true }
-landlock = "0.4"
 lru = "0.16"
 oauth2 = "5.0"
 open = "5.0"
@@ -88,6 +87,9 @@ whatsapp-rust-ureq-http-client = { git = "https://github.com/jlucaso1/whatsapp-r
 chromiumoxide = { version = "0.8", default-features = false, features = ["tokio-runtime"] }
 which = "8.0"
 whisper-rs = { version = "0.15", features = ["tracing_backend"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4"
 
 # Security: Force minimum versions of transitive dependencies to resolve vulnerabilities
 # - CVE-2022-23639 / GHSA-qc84-gqf4-9926: crossbeam-utils AtomicCell unsoundness (fixed in >= 0.8.7)

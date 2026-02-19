@@ -512,7 +512,7 @@ max_width: 1120px
         <div class="feature-name">Security</div>
         <div class="feature-detail">
           <h3>Defense in depth</h3>
-          <p>Per-channel DM policy (allowlist/pairing/open) with default-deny sender allowlists, outbound leak detection (scans for API key patterns and redacts before sending), shell AST analysis (structural command validation via brush-parser), Landlock kernel sandbox (Linux filesystem/network isolation), shell command allowlists + regex blocklists, SSRF protection, path traversal prevention, secret redaction in logs, constant-time webhook signature validation.</p>
+          <p>Per-channel DM policy (allowlist/pairing/open) with default-deny sender allowlists, outbound leak detection (scans for API key patterns and redacts before sending), shell AST analysis (structural command validation via brush-parser), kernel-level process sandbox (Landlock on Linux, Seatbelt on macOS), shell command allowlists + regex blocklists, SSRF protection, path traversal prevention, secret redaction in logs, constant-time webhook signature validation.</p>
         </div>
       </div>
       <div class="feature-row">

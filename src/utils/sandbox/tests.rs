@@ -55,7 +55,11 @@ fn test_sandbox_rules_network_disabled() {
 #[test]
 fn test_is_available_does_not_panic() {
     // Just verify it returns a bool without panicking
-    let _ = is_available();
+    let available = is_available();
+    #[cfg(target_os = "macos")]
+    assert!(available, "Seatbelt should always be available on macOS");
+    #[cfg(not(target_os = "macos"))]
+    let _ = available;
 }
 
 #[cfg(target_os = "linux")]
@@ -145,6 +149,109 @@ fn test_sandboxed_write_workspace() {
             assert!(
                 output.status.success(),
                 "writing to workspace should succeed under sandbox"
+            );
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn test_seatbelt_profile_structure() {
+    let config = SandboxConfig::default();
+    let rules = SandboxRules::for_shell(Path::new("/workspace"), &config);
+    let profile = build_seatbelt_profile(&rules);
+
+    assert!(profile.starts_with("(version 1)"));
+    assert!(profile.contains("(deny default)"));
+    assert!(profile.contains("(allow process-exec)"));
+    assert!(profile.contains("(allow mach-lookup)"));
+    // Rules paths
+    assert!(profile.contains("(subpath \"/usr\")"));
+    assert!(profile.contains("(subpath \"/workspace\")"));
+    // macOS system paths
+    assert!(profile.contains("(subpath \"/System\")"));
+    assert!(profile.contains("(subpath \"/Library\")"));
+    assert!(profile.contains("(subpath \"/opt/homebrew\")"));
+    // Symlink targets
+    assert!(profile.contains("(subpath \"/private/tmp\")"));
+    assert!(profile.contains("(subpath \"/private/var/folders\")"));
+    // Network blocked by default
+    assert!(!profile.contains("(allow network*)"));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn test_seatbelt_profile_network_allowed() {
+    let config = SandboxConfig {
+        block_network: false,
+        ..SandboxConfig::default()
+    };
+    let rules = SandboxRules::for_shell(Path::new("/ws"), &config);
+    let profile = build_seatbelt_profile(&rules);
+    assert!(profile.contains("(allow network*)"));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn test_seatbelt_profile_escapes_quotes() {
+    let config = SandboxConfig {
+        additional_read_paths: vec!["/path/with \"quotes\"".to_string()],
+        ..SandboxConfig::default()
+    };
+    let rules = SandboxRules::for_shell(Path::new("/ws"), &config);
+    let profile = build_seatbelt_profile(&rules);
+    assert!(profile.contains(r#"(subpath "/path/with \"quotes\"")"#));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn test_sandboxed_read_system() {
+    let config = SandboxConfig::default();
+    let rules = SandboxRules::for_shell(Path::new("/tmp"), &config);
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    rt.block_on(async {
+        let mut cmd = tokio::process::Command::new("cat");
+        cmd.arg("/etc/hosts");
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+        let _ = apply_to_command(&mut cmd, &rules);
+        if let Ok(output) = cmd.output().await {
+            assert!(
+                output.status.success(),
+                "reading /etc/hosts should succeed under Seatbelt sandbox"
+            );
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn test_sandboxed_write_workspace() {
+    let config = SandboxConfig::default();
+    let tmp = tempfile::TempDir::new().unwrap();
+    let rules = SandboxRules::for_shell(tmp.path(), &config);
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    rt.block_on(async {
+        let test_file = tmp.path().join("seatbelt_test");
+        let mut cmd = tokio::process::Command::new("touch");
+        cmd.arg(&test_file);
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+        let _ = apply_to_command(&mut cmd, &rules);
+        if let Ok(output) = cmd.output().await {
+            assert!(
+                output.status.success(),
+                "writing to workspace should succeed under Seatbelt sandbox"
             );
         }
     });

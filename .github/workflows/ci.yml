@@ -16,8 +16,16 @@ env:
 
 jobs:
   build:
-    name: Build
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: ubuntu-latest
+          - name: macos
+            runner: macos-15
 
     steps:
       - uses: actions/checkout@v6
@@ -41,12 +49,18 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-${{ env.NIGHTLY_VERSION }}-
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake
 
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake
+
       - name: Check formatting
+        if: matrix.name == 'linux'
         run: cargo fmt -- --check
 
       - name: Clippy
@@ -67,6 +81,7 @@ jobs:
           OXICRAB_HOME: ${{ runner.temp }}/oxicrab-test
 
       - name: Security audit
+        if: matrix.name == 'linux'
         run: |
           cargo install cargo-audit --quiet 2>/dev/null || true
           cargo audit || true

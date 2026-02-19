@@ -443,18 +443,26 @@ fn check_credential_helper() -> CheckResult {
     }
 }
 
-fn check_landlock() -> CheckResult {
+fn check_sandbox() -> CheckResult {
     if crate::utils::sandbox::is_available() {
-        CheckResult::Pass("Landlock LSM available".to_string())
-    } else {
         #[cfg(target_os = "linux")]
-        {
-            CheckResult::Fail("Landlock not supported (kernel too old or disabled)".to_string())
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            CheckResult::Skip("Landlock is Linux-only".to_string())
-        }
+        return CheckResult::Pass("Landlock LSM available".to_string());
+        #[cfg(target_os = "macos")]
+        return CheckResult::Pass("Seatbelt sandbox available".to_string());
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        return CheckResult::Pass("sandbox available".to_string());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        CheckResult::Fail("Landlock not supported (kernel too old or disabled)".to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        CheckResult::Fail("Seatbelt sandbox unavailable".to_string())
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        CheckResult::Skip("no sandbox available for this platform".to_string())
     }
 }
 
@@ -586,8 +594,8 @@ pub async fn doctor_command() -> Result<()> {
     let r = check_credential_helper();
     record("Credential helper", &r);
 
-    let r = check_landlock();
-    record("Landlock sandbox", &r);
+    let r = check_sandbox();
+    record("Process sandbox", &r);
 
     let r = check_empty_allowlists();
     record("Empty allowlists", &r);
