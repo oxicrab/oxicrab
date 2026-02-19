@@ -166,30 +166,46 @@ fn run_helper_process(cmd: &str, args: &[String], stdin_data: Option<&str>) -> R
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    let mut child = Command::new(cmd)
-        .args(args)
-        .stdin(if stdin_data.is_some() {
-            Stdio::piped()
+    if let Some(data) = stdin_data {
+        // When stdin is needed, use spawn() to write stdin first, then drain
+        // pipes concurrently via wait_with_output(). We must drop stdin before
+        // waiting so the child sees EOF and can produce its output.
+        let mut child = Command::new(cmd)
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("failed to spawn {cmd}"))?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(data.as_bytes())?;
+            // stdin is dropped here, sending EOF to child
+        }
+
+        let output = child.wait_with_output()?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
         } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .with_context(|| format!("failed to spawn {cmd}"))?;
-
-    if let Some(data) = stdin_data
-        && let Some(mut stdin) = child.stdin.take()
-    {
-        stdin.write_all(data.as_bytes())?;
-    }
-
-    let output = child.wait_with_output()?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("exited with {}: {}", output.status, stderr.trim())
+        }
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("exited with {}: {}", output.status, stderr.trim())
+        // No stdin needed — use output() which safely drains pipes concurrently
+        let output = Command::new(cmd)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .with_context(|| format!("failed to run {cmd}"))?;
+
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("exited with {}: {}", output.status, stderr.trim())
+        }
     }
 }
 

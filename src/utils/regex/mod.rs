@@ -171,8 +171,8 @@ pub fn compile_slack_mention(bot_id: &str) -> Result<Regex> {
 /// Get cached security patterns for command validation.
 /// Patterns are compiled once on first call and reused.
 pub fn compile_security_patterns() -> Result<Vec<Regex>> {
-    static PATTERNS: std::sync::LazyLock<Result<Vec<Regex>, String>> =
-        std::sync::LazyLock::new(|| {
+    static PATTERNS: std::sync::LazyLock<Result<Vec<Regex>, String>> = std::sync::LazyLock::new(
+        || {
             let patterns = vec![
                 r"\brm\s+-[rf]{1,2}\b",
                 r"\brm\s+--(?:recursive|force)\b",
@@ -186,7 +186,11 @@ pub fn compile_security_patterns() -> Result<Vec<Regex>> {
                 r"\beval\b",
                 r"\bbase64\b.*\|\s*(sh|bash|zsh)\b",
                 r"\b(curl|wget)\b.*\|\s*(sh|bash|zsh|python)\b",
+                // Curl/wget file upload exfiltration (-d @file, -F, --data, --post-file)
+                r"\b(curl|wget)\b.*(-d\s*@|--data(-binary|-raw|-urlencode)?\s*@|-F\s|--form\s|--post-file)",
                 r"\bpython[23]?\s+-c\b",
+                // Perl/Ruby inline code execution
+                r"\b(perl|ruby)\b\s+-[Ee]",
                 r"\bchmod\b.*\bo?[0-7]*7[0-7]{0,2}\b",
                 r"\bchown\b",
                 r"\b(useradd|userdel|usermod|passwd|adduser|deluser)\b",
@@ -211,7 +215,8 @@ pub fn compile_security_patterns() -> Result<Vec<Regex>> {
                 compiled.push(compile_regex(pattern).map_err(|e| e.to_string())?);
             }
             Ok(compiled)
-        });
+        },
+    );
 
     PATTERNS
         .as_ref()
