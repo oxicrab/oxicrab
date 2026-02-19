@@ -1,14 +1,10 @@
 mod common;
 
-use async_trait::async_trait;
 use common::{
-    MockLLMProvider, TestAgentOverrides, create_test_agent_with, text_response, tool_call,
-    tool_response,
+    MockLLMProvider, TestAgentOverrides, ToolCapturingProvider, create_test_agent_with,
+    text_response, tool_call, tool_response,
 };
-use oxicrab::providers::base::{ChatRequest, LLMProvider, LLMResponse, ToolDefinition};
 use serde_json::json;
-use std::collections::VecDeque;
-use std::sync::Arc;
 use tempfile::TempDir;
 
 fn default_agent(
@@ -16,40 +12,6 @@ fn default_agent(
     tmp: &TempDir,
 ) -> impl std::future::Future<Output = oxicrab::agent::AgentLoop> + '_ {
     create_test_agent_with(provider, tmp, TestAgentOverrides::default())
-}
-
-/// A mock provider that also captures tool definitions passed by the agent loop.
-struct ToolCapturingProvider {
-    responses: Arc<std::sync::Mutex<VecDeque<LLMResponse>>>,
-    pub tool_defs: Arc<std::sync::Mutex<Vec<Option<Vec<ToolDefinition>>>>>,
-}
-
-impl ToolCapturingProvider {
-    fn new() -> Self {
-        Self {
-            responses: Arc::new(std::sync::Mutex::new(VecDeque::new())),
-            tool_defs: Arc::new(std::sync::Mutex::new(Vec::new())),
-        }
-    }
-}
-
-#[async_trait]
-impl LLMProvider for ToolCapturingProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
-        self.tool_defs.lock().unwrap().push(req.tools);
-        let response = self.responses.lock().unwrap().pop_front();
-        Ok(response.unwrap_or_else(|| LLMResponse {
-            content: Some("Mock response".to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
-        }))
-    }
-
-    fn default_model(&self) -> &str {
-        "mock-model"
-    }
 }
 
 #[tokio::test]

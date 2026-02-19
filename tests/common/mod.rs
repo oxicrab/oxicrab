@@ -1,10 +1,15 @@
+// Shared test helpers — not all items used by every test binary.
+#![allow(dead_code)]
+
 use async_trait::async_trait;
 use oxicrab::agent::{AgentLoop, AgentLoopConfig};
 use oxicrab::bus::MessageBus;
 use oxicrab::config::{
     CognitiveConfig, CompactionConfig, ExfiltrationGuardConfig, PromptGuardConfig,
 };
-use oxicrab::providers::base::{ChatRequest, LLMProvider, LLMResponse, Message, ToolCallRequest};
+use oxicrab::providers::base::{
+    ChatRequest, LLMProvider, LLMResponse, Message, ToolCallRequest, ToolDefinition,
+};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -80,6 +85,52 @@ pub fn tool_call(id: &str, name: &str, arguments: serde_json::Value) -> ToolCall
         id: id.to_string(),
         name: name.to_string(),
         arguments,
+    }
+}
+
+// --- Tool-capturing provider ---
+
+/// A mock provider that captures tool definitions passed by the agent loop.
+pub struct ToolCapturingProvider {
+    responses: Arc<std::sync::Mutex<VecDeque<LLMResponse>>>,
+    pub tool_defs: Arc<std::sync::Mutex<Vec<Option<Vec<ToolDefinition>>>>>,
+    pub default_response: String,
+}
+
+impl ToolCapturingProvider {
+    pub fn new() -> Self {
+        Self {
+            responses: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+            tool_defs: Arc::new(std::sync::Mutex::new(Vec::new())),
+            default_response: "Mock response".to_string(),
+        }
+    }
+
+    pub fn with_responses(responses: Vec<LLMResponse>) -> Self {
+        Self {
+            responses: Arc::new(std::sync::Mutex::new(VecDeque::from(responses))),
+            tool_defs: Arc::new(std::sync::Mutex::new(Vec::new())),
+            default_response: "Mock response".to_string(),
+        }
+    }
+}
+
+#[async_trait]
+impl LLMProvider for ToolCapturingProvider {
+    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+        self.tool_defs.lock().unwrap().push(req.tools);
+        let response = self.responses.lock().unwrap().pop_front();
+        Ok(response.unwrap_or_else(|| LLMResponse {
+            content: Some(self.default_response.clone()),
+            tool_calls: vec![],
+            reasoning_content: None,
+            input_tokens: None,
+            output_tokens: None,
+        }))
+    }
+
+    fn default_model(&self) -> &str {
+        "mock-model"
     }
 }
 
