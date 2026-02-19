@@ -166,7 +166,7 @@ Unified credential management via `define_credentials!` macro. Adding a new cred
 - **Workspace path validation** (`src/agent/tools/shell.rs`): When `restrict_to_workspace` is enabled, absolute paths in commands are canonicalized and checked against the workspace boundary.
 - **Config permissions**: `check_file_permissions()` warns on startup if config file is world-readable (unix). `save_config()` uses atomic writes via `crate::utils::atomic_write()`.
 - **Constant-time comparison**: Twilio webhook signature uses `subtle::ConstantTimeEq` instead of `==`.
-- **Gitleaks CI** (`.github/workflows/gitleaks.yml`): Scans for secrets on push and pull request.
+- **TruffleHog CI** (`.github/workflows/trufflehog.yml`): Scans for verified secrets on push and pull request.
 
 ### CLI Commands
 
