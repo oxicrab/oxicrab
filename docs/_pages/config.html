@@ -42,6 +42,8 @@ max_width: 820px
             <li><a href="#cognitive-routines">Cognitive Routines</a></li>
             <li><a href="#exfiltration-guard">Exfiltration Guard</a></li>
             <li><a href="#prompt-guard">Prompt Guard</a></li>
+            <li><a href="#gateway">Gateway</a></li>
+            <li><a href="#sandbox">Sandbox</a></li>
             <li><a href="#channels">Channels</a></li>
             <li><a href="#logging">Logging</a></li>
         </ul>
@@ -542,6 +544,56 @@ max_width: 820px
             <li><strong>Jailbreak</strong> &mdash; common jailbreak prefixes ("DAN mode", "developer mode", "jailbreak")</li>
         </ul>
         <p>User messages are scanned with the configured action. Tool output is always warn-only (tool output may legitimately contain these phrases).</p>
+    </div>
+
+    <!-- GATEWAY -->
+    <div id="gateway" class="cfg-section">
+        <h2>Gateway</h2>
+        <p>Controls the HTTP gateway server used by <code>oxicrab gateway</code>. Config path: <code>gateway</code></p>
+
+        <pre><code>{
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 18790
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>host</td><td>string</td><td>127.0.0.1</td><td>Bind address for the gateway HTTP server</td></tr>
+            <tr><td>port</td><td>u16</td><td>18790</td><td>Port for the gateway HTTP server</td></tr>
+        </table>
+
+        <p>Set <code>host</code> to <code>"0.0.0.0"</code> to listen on all interfaces (required for Docker/container deployments). The Twilio channel uses this same gateway for its webhook listener.</p>
+    </div>
+
+    <!-- SANDBOX -->
+    <div id="sandbox" class="cfg-section">
+        <h2>Sandbox</h2>
+        <p>Kernel-enforced filesystem and network restrictions for shell commands via Linux Landlock LSM. Graceful no-op on non-Linux or unsupported kernels. Config path: <code>tools.exec.sandbox</code></p>
+
+        <pre><code>{
+  "tools": {
+    "exec": {
+      "sandbox": {
+        "enabled": true,
+        "additionalReadPaths": ["/opt/data"],
+        "additionalWritePaths": ["/home/user/output"],
+        "blockNetwork": true
+      }
+    }
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>true</td><td>Enable Landlock filesystem/network sandboxing</td></tr>
+            <tr><td>additionalReadPaths</td><td>string[]</td><td>[]</td><td>Extra paths to grant read-only access (beyond <code>/usr</code>, <code>/lib</code>, <code>/lib64</code>, <code>/bin</code>, <code>/sbin</code>, <code>/etc</code>)</td></tr>
+            <tr><td>additionalWritePaths</td><td>string[]</td><td>[]</td><td>Extra paths to grant read-write access (beyond workspace + <code>/tmp</code> + <code>/var/tmp</code>)</td></tr>
+            <tr><td>blockNetwork</td><td>bool</td><td>true</td><td>Block all outbound TCP connections from shell commands</td></tr>
+        </table>
+
+        <p>Default access grants: system dirs (<code>/usr</code>, <code>/lib</code>, <code>/lib64</code>, <code>/bin</code>, <code>/sbin</code>, <code>/etc</code>) are read-only. The workspace directory, <code>/tmp</code>, and <code>/var/tmp</code> are read-write. All other filesystem access and network connections are denied. Use <code>oxicrab doctor</code> to check Landlock availability on your system.</p>
     </div>
 
     <!-- CHANNELS -->

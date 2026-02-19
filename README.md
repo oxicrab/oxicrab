@@ -249,7 +249,13 @@ Configuration is stored in `~/.oxicrab/config.json`. Create this file with the f
     },
     "exec": {
       "timeout": 60,
-      "allowedCommands": ["ls", "grep", "git", "cargo"]
+      "allowedCommands": ["ls", "grep", "git", "cargo"],
+      "sandbox": {
+        "enabled": true,
+        "additionalReadPaths": [],
+        "additionalWritePaths": [],
+        "blockNetwork": true
+      }
     },
     "mcp": {
       "servers": {

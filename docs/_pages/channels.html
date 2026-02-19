@@ -126,11 +126,21 @@ max_width: 820px
       "enabled": true,
       "token": "your-discord-bot-token",
       "allowFrom": ["123456789012345678"],
-      "dmPolicy": "allowlist"
+      "dmPolicy": "allowlist",
+      "commands": [
+        {
+          "name": "ask",
+          "description": "Ask the AI assistant",
+          "options": [{ "name": "question", "description": "Your question", "required": true }]
+        }
+      ]
     }
   }
 }</code></pre>
     </div>
+
+    <h3>Slash commands</h3>
+    <p>The <code>commands</code> array defines Discord slash commands registered at startup. Default: a single <code>/ask</code> command. Each command has <code>name</code>, <code>description</code>, and an array of <code>options</code> (each with <code>name</code>, <code>description</code>, <code>required</code>).</p>
 
     <h3>Supported features</h3>
     <div class="features-list">
