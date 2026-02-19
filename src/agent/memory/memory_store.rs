@@ -257,18 +257,31 @@ impl MemoryStore {
     }
 
     pub fn append_today(&self, content: &str) -> Result<()> {
+        use fs2::FileExt;
         use std::io::Write;
         let today_file = self.get_today_file();
         let today = Utc::now();
         let date_str = format!("{}-{:02}-{:02}", today.year(), today.month(), today.day());
 
+        // Cross-process lock to prevent CLI + daemon from corrupting daily notes
+        let lock_path = today_file.with_extension("md.lock");
+        let lock_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&lock_path)
+            .with_context(|| "failed to open memory notes lock file")?;
+        lock_file
+            .lock_exclusive()
+            .with_context(|| "failed to acquire memory notes lock")?;
+
         if !today_file.exists() {
             let header = format!("# {}\n\n", date_str);
             std::fs::write(&today_file, header)?;
         }
-        // Use append mode to avoid read-modify-write race
         let mut file = std::fs::OpenOptions::new().append(true).open(&today_file)?;
         writeln!(file, "{}", content)?;
+        // lock released when lock_file drops
         Ok(())
     }
 

@@ -506,12 +506,21 @@ fn load_credentials(path: &Path, scopes: &[&str]) -> Result<Option<GoogleCredent
 }
 
 fn save_credentials(creds: &GoogleCredentials, path: &Path) -> Result<()> {
+    use fs2::FileExt;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
+    let lock_path = path.with_extension("json.lock");
+    let lock_file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&lock_path)?;
+    lock_file.lock_exclusive()?;
+
     let content = serde_json::to_string_pretty(creds)?;
-    std::fs::write(path, content)?;
+    crate::utils::atomic_write(path, &content)?;
 
     // Restrict permissions on Unix
     #[cfg(unix)]

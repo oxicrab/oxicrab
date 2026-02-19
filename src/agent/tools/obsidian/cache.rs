@@ -105,6 +105,8 @@ impl ObsidianCache {
         let queue_path = base.join("write_queue.json");
 
         let state = if state_path.exists() {
+            let file = std::fs::File::open(&state_path)?;
+            fs2::FileExt::lock_shared(&file)?;
             let data = std::fs::read_to_string(&state_path)?;
             serde_json::from_str(&data).unwrap_or_default()
         } else {
@@ -112,6 +114,8 @@ impl ObsidianCache {
         };
 
         let write_queue = if queue_path.exists() {
+            let file = std::fs::File::open(&queue_path)?;
+            fs2::FileExt::lock_shared(&file)?;
             let data = std::fs::read_to_string(&queue_path)?;
             serde_json::from_str(&data).unwrap_or_default()
         } else {
