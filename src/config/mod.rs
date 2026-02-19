@@ -8,6 +8,7 @@ pub use schema::{
     CompactionConfig, Config, CostGuardConfig, CredentialHelperConfig, DiscordCommand,
     DiscordCommandOption, DiscordConfig, DmPolicy, ExfiltrationGuardConfig, GitHubConfig,
     GoogleConfig, ImageGenConfig, McpConfig, MediaConfig, MemoryConfig, ModelCost, ObsidianConfig,
-    PromptGuardAction, PromptGuardConfig, SlackConfig, TelegramConfig, TodoistConfig,
-    TranscriptionConfig, TwilioConfig, VoiceConfig, WeatherConfig, WebSearchConfig, WhatsAppConfig,
+    PromptGuardAction, PromptGuardConfig, SandboxConfig, SlackConfig, TelegramConfig,
+    TodoistConfig, TranscriptionConfig, TwilioConfig, VoiceConfig, WeatherConfig, WebSearchConfig,
+    WhatsAppConfig,
 };

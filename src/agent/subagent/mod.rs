@@ -286,6 +286,7 @@ async fn run_subagent_inner(
         Some(config.workspace.clone()),
         config.restrict_to_workspace,
         config.allowed_commands.clone(),
+        crate::config::SandboxConfig::default(),
     )?));
     // Only register outbound tools if not blocked by exfiltration guard
     if !config

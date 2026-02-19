@@ -443,6 +443,21 @@ fn check_credential_helper() -> CheckResult {
     }
 }
 
+fn check_landlock() -> CheckResult {
+    if crate::utils::sandbox::is_available() {
+        CheckResult::Pass("Landlock LSM available".to_string())
+    } else {
+        #[cfg(target_os = "linux")]
+        {
+            CheckResult::Fail("Landlock not supported (kernel too old or disabled)".to_string())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            CheckResult::Skip("Landlock is Linux-only".to_string())
+        }
+    }
+}
+
 fn check_pairing_store() -> CheckResult {
     if !crate::pairing::PairingStore::store_exists() {
         return CheckResult::Skip("not initialized (run oxicrab pairing list)".to_string());
@@ -570,6 +585,9 @@ pub async fn doctor_command() -> Result<()> {
 
     let r = check_credential_helper();
     record("Credential helper", &r);
+
+    let r = check_landlock();
+    record("Landlock sandbox", &r);
 
     let r = check_empty_allowlists();
     record("Empty allowlists", &r);

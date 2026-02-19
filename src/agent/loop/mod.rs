@@ -507,6 +507,8 @@ pub struct AgentLoopConfig {
     pub exfiltration_guard: crate::config::ExfiltrationGuardConfig,
     /// Prompt injection detection configuration
     pub prompt_guard_config: crate::config::PromptGuardConfig,
+    /// Landlock sandbox configuration for shell commands
+    pub sandbox_config: crate::config::SandboxConfig,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -576,6 +578,7 @@ impl AgentLoopConfig {
             cognitive_config: config.agents.defaults.cognitive.clone(),
             exfiltration_guard: config.tools.exfiltration_guard.clone(),
             prompt_guard_config: config.agents.defaults.prompt_guard.clone(),
+            sandbox_config: config.tools.exec.sandbox.clone(),
         }
     }
 
@@ -634,6 +637,10 @@ impl AgentLoopConfig {
             cognitive_config: crate::config::CognitiveConfig::default(),
             exfiltration_guard: crate::config::ExfiltrationGuardConfig::default(),
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
+            sandbox_config: crate::config::SandboxConfig {
+                enabled: false,
+                ..crate::config::SandboxConfig::default()
+            },
         }
     }
 }
@@ -719,6 +726,7 @@ impl AgentLoop {
             cognitive_config,
             exfiltration_guard,
             prompt_guard_config,
+            sandbox_config,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -816,6 +824,7 @@ impl AgentLoop {
             brave_api_key,
             allowed_commands,
             mcp_config,
+            sandbox_config,
         };
 
         let (tools, subagents, mcp_manager) =

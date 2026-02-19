@@ -987,11 +987,40 @@ pub struct WebToolsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SandboxConfig {
+    /// Enable Landlock filesystem/network sandboxing for shell commands.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Extra paths to grant read-only access (beyond default system dirs).
+    #[serde(default, rename = "additionalReadPaths")]
+    pub additional_read_paths: Vec<String>,
+    /// Extra paths to grant read-write access (beyond workspace + /tmp).
+    #[serde(default, rename = "additionalWritePaths")]
+    pub additional_write_paths: Vec<String>,
+    /// Block all outbound network connections from shell commands.
+    #[serde(default = "default_true", rename = "blockNetwork")]
+    pub block_network: bool,
+}
+
+impl Default for SandboxConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            additional_read_paths: Vec::new(),
+            additional_write_paths: Vec::new(),
+            block_network: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecToolConfig {
     #[serde(default = "default_timeout")]
     pub timeout: u64,
     #[serde(default = "default_allowed_commands", rename = "allowedCommands")]
     pub allowed_commands: Vec<String>,
+    #[serde(default)]
+    pub sandbox: SandboxConfig,
 }
 
 impl Default for ExecToolConfig {
@@ -999,6 +1028,7 @@ impl Default for ExecToolConfig {
         Self {
             timeout: default_timeout(),
             allowed_commands: default_allowed_commands(),
+            sandbox: SandboxConfig::default(),
         }
     }
 }

@@ -1,5 +1,6 @@
 use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::config::SandboxConfig;
 use crate::utils::regex::compile_security_patterns;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -18,6 +19,7 @@ pub struct ExecTool {
     deny_patterns: Vec<Regex>,
     allowed_commands: Vec<String>,
     restrict_to_workspace: bool,
+    sandbox_config: SandboxConfig,
 }
 
 impl ExecTool {
@@ -26,6 +28,7 @@ impl ExecTool {
         working_dir: Option<PathBuf>,
         restrict_to_workspace: bool,
         allowed_commands: Vec<String>,
+        sandbox_config: SandboxConfig,
     ) -> Result<Self> {
         let deny_patterns = compile_security_patterns()
             .context("Failed to compile security patterns for exec tool")?;
@@ -36,6 +39,7 @@ impl ExecTool {
             deny_patterns,
             allowed_commands,
             restrict_to_workspace,
+            sandbox_config,
         })
     }
 
@@ -121,6 +125,18 @@ impl ExecTool {
         // Normalize shell line continuations before security checks so that
         // "rm \\\n-rf /" is treated as "rm -rf /" by the patterns below.
         let command = &command.replace("\\\n", " ");
+
+        // AST structural analysis: catches patterns that regex can't reliably
+        // detect (interpreter inline exec, pipe targets, function definitions,
+        // subshells, process substitution). If parsing fails, falls through
+        // silently to the regex layer.
+        let violations = crate::utils::shell_ast::analyze_command(command);
+        if let Some(v) = violations.first() {
+            return Some(format!(
+                "Error: Command blocked by structural analysis ({:?}): {}",
+                v.kind, v.description
+            ));
+        }
 
         // Allowlist check: verify all commands in the pipeline are allowed
         if !self.allowed_commands.is_empty() {
@@ -284,6 +300,13 @@ impl Tool for ExecTool {
         cmd.current_dir(&cwd);
         cmd.kill_on_drop(true);
 
+        if self.sandbox_config.enabled {
+            let rules = crate::utils::sandbox::SandboxRules::for_shell(&cwd, &self.sandbox_config);
+            if let Err(e) = crate::utils::sandbox::apply_to_command(&mut cmd, &rules) {
+                warn!("failed to apply sandbox: {}, continuing without", e);
+            }
+        }
+
         match tokio::time::timeout(Duration::from_secs(self.timeout), cmd.output()).await {
             Ok(Ok(output)) => {
                 let combined_len = output.stdout.len() + output.stderr.len();
@@ -352,7 +375,17 @@ mod tests {
     }
 
     fn tool(cmds: Vec<String>) -> ExecTool {
-        ExecTool::new(60, Some(PathBuf::from("/tmp")), false, cmds).unwrap()
+        ExecTool::new(
+            60,
+            Some(PathBuf::from("/tmp")),
+            false,
+            cmds,
+            SandboxConfig {
+                enabled: false,
+                ..SandboxConfig::default()
+            },
+        )
+        .unwrap()
     }
 
     #[test]
@@ -518,18 +551,30 @@ mod tests {
     #[test]
     fn test_blocklist_blocks_command_substitution() {
         // Even with an empty allowlist, command substitution is blocked
+        // (now caught by AST structural analysis before regex)
         let t = tool(vec![]);
         let result = t.guard_command("$(echo rm) -rf /", Path::new("/tmp"));
         assert!(result.is_some());
-        assert!(result.unwrap().contains("security policy"));
+        let msg = result.unwrap();
+        assert!(
+            msg.contains("structural analysis") || msg.contains("security policy"),
+            "expected block message, got: {}",
+            msg
+        );
     }
 
     #[test]
     fn test_blocklist_blocks_backtick_substitution() {
+        // (now caught by AST structural analysis before regex)
         let t = tool(vec![]);
         let result = t.guard_command("echo `cat /etc/passwd`", Path::new("/tmp"));
         assert!(result.is_some());
-        assert!(result.unwrap().contains("security policy"));
+        let msg = result.unwrap();
+        assert!(
+            msg.contains("structural analysis") || msg.contains("security policy"),
+            "expected block message, got: {}",
+            msg
+        );
     }
 
     #[test]
@@ -594,6 +639,10 @@ mod tests {
             Some(PathBuf::from("/tmp/workspace")),
             true,
             vec!["cat".to_string()],
+            SandboxConfig {
+                enabled: false,
+                ..SandboxConfig::default()
+            },
         )
         .unwrap();
         let result = t.guard_command("cat /etc/shadow", Path::new("/tmp/workspace"));
@@ -608,6 +657,10 @@ mod tests {
             Some(PathBuf::from("/tmp/workspace")),
             false,
             vec!["cat".to_string()],
+            SandboxConfig {
+                enabled: false,
+                ..SandboxConfig::default()
+            },
         )
         .unwrap();
         // With restrict_to_workspace=false, paths outside workspace are allowed

@@ -1,6 +1,8 @@
 pub mod http;
 pub mod media;
 pub mod regex;
+pub mod sandbox;
+pub mod shell_ast;
 pub mod subprocess;
 pub mod task_tracker;
 pub mod transcription;

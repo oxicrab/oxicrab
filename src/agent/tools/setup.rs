@@ -42,6 +42,7 @@ pub struct ToolBuildContext {
     pub restrict_to_workspace: bool,
     pub exec_timeout: u64,
     pub allowed_commands: Vec<String>,
+    pub sandbox_config: config::SandboxConfig,
     pub outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     pub bus: Arc<Mutex<MessageBus>>,
     pub brave_api_key: Option<String>,
@@ -125,6 +126,7 @@ fn register_shell(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Result
         Some(ctx.workspace.clone()),
         ctx.restrict_to_workspace,
         ctx.allowed_commands.clone(),
+        ctx.sandbox_config.clone(),
     )?));
     Ok(())
 }
