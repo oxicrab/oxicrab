@@ -257,18 +257,18 @@ impl MemoryStore {
     }
 
     pub fn append_today(&self, content: &str) -> Result<()> {
+        use std::io::Write;
         let today_file = self.get_today_file();
         let today = Utc::now();
         let date_str = format!("{}-{:02}-{:02}", today.year(), today.month(), today.day());
 
-        if today_file.exists() {
-            let existing = std::fs::read_to_string(&today_file)?;
-            let new_content = format!("{}\n{}", existing, content);
-            std::fs::write(&today_file, new_content)?;
-        } else {
+        if !today_file.exists() {
             let header = format!("# {}\n\n", date_str);
-            std::fs::write(&today_file, format!("{}{}", header, content))?;
+            std::fs::write(&today_file, header)?;
         }
+        // Use append mode to avoid read-modify-write race
+        let mut file = std::fs::OpenOptions::new().append(true).open(&today_file)?;
+        writeln!(file, "{}", content)?;
         Ok(())
     }
 

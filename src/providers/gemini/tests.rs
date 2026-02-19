@@ -50,11 +50,10 @@ async fn test_chat_with_tool_calls() {
             "candidates": [{
                 "content": {
                     "parts": [{
-                        "functionCalls": [{
-                            "id": "fc_1",
+                        "functionCall": {
                             "name": "weather",
                             "args": {"city": "London"}
-                        }]
+                        }
                     }],
                     "role": "model"
                 },
@@ -190,7 +189,7 @@ async fn test_chat_custom_model() {
 }
 
 #[tokio::test]
-async fn test_system_message_mapped_to_user() {
+async fn test_system_message_as_system_instruction() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/models/gemini-pro:generateContent"))

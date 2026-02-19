@@ -26,7 +26,7 @@ const DISCORD_API_BASE: &str = "https://discord.com/api/v10";
 struct Handler {
     inbound_tx: mpsc::Sender<InboundMessage>,
     allow_list: Vec<String>,
-    dm_policy: String,
+    dm_policy: crate::config::DmPolicy,
     http_client: reqwest::Client,
     commands: Vec<DiscordCommand>,
 }
@@ -620,7 +620,7 @@ impl BaseChannel for DiscordChannel {
         // Regular channel message path
         let id_val = msg.chat_id.parse::<u64>()?;
         let chunks = split_message(&msg.content, 2000);
-        let http = serenity::http::Http::new(&self.config.token);
+        let http = &self.serenity_http;
 
         // Check if chat_id is a user ID (from allow_from) — if so, open a DM channel
         let is_user_id = self
@@ -709,11 +709,16 @@ impl BaseChannel for DiscordChannel {
         }
         let id_val = msg.chat_id.parse::<u64>()?;
         let target = serenity::model::id::ChannelId::new(id_val);
-        let sent = target
-            .say(&self.serenity_http, &msg.content)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {}", e))?;
-        Ok(Some(sent.id.to_string()))
+        let chunks = split_message(&msg.content, 2000);
+        let mut last_id = None;
+        for chunk in &chunks {
+            let sent = target
+                .say(&self.serenity_http, chunk)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {}", e))?;
+            last_id = Some(sent.id.to_string());
+        }
+        Ok(last_id)
     }
 
     async fn edit_message(&self, chat_id: &str, message_id: &str, content: &str) -> Result<()> {

@@ -136,8 +136,11 @@ impl SessionManager {
             return Ok(session);
         }
 
-        // Try to load from disk
-        let loaded = self.load(key)?;
+        // Try to load from disk (in spawn_blocking to avoid blocking async runtime)
+        let path = self.get_session_path(key);
+        let loaded = tokio::task::spawn_blocking(move || Self::load_from_path(&path))
+            .await
+            .map_err(|e| anyhow::anyhow!("session load task failed: {}", e))??;
         let session = if let Some(s) = loaded {
             debug!("session loaded from disk: {}", key);
             s
@@ -159,18 +162,26 @@ impl SessionManager {
         Ok(session)
     }
 
-    fn load(&self, key: &str) -> Result<Option<Session>> {
-        let path = self.get_session_path(key);
+    /// Load a session from a file path. Extracted as a static method so it can
+    /// be called from `spawn_blocking` without borrowing `self`.
+    fn load_from_path(path: &std::path::Path) -> Result<Option<Session>> {
         if !path.exists() {
             return Ok(None);
         }
 
-        let content = fs::read_to_string(&path)
+        let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read session file: {}", path.display()))?;
 
         let mut messages = Vec::new();
         let mut metadata = HashMap::new();
         let mut created_at = None;
+
+        // Derive session key from filename (strip .jsonl extension)
+        let key = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
 
         for line in content.lines() {
             let line = line.trim();
@@ -234,7 +245,7 @@ impl SessionManager {
         }
 
         Ok(Some(Session {
-            key: key.to_string(),
+            key,
             messages,
             created_at: created_at.unwrap_or_else(Utc::now),
             updated_at: Utc::now(),
@@ -266,16 +277,22 @@ impl SessionManager {
                 continue;
             };
             if modified < cutoff {
-                // Evict from in-memory cache before deleting from disk
-                let stem = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or_default()
-                    .to_string();
-                if !stem.is_empty()
-                    && let Ok(mut cache) = self.cache.try_lock()
-                {
-                    cache.pop(&stem);
+                // Evict from in-memory cache before deleting from disk.
+                // The cache is keyed by the original session key (e.g. "telegram:12345"),
+                // but the filename is a safe_filename version of that key. We need to
+                // try evicting by reconstructing the original key pattern. Since the
+                // exact original key isn't stored in the filename, we iterate the cache
+                // to find entries whose path matches this file.
+                if let Ok(mut cache) = self.cache.try_lock() {
+                    // Collect keys to evict (can't mutate during iteration)
+                    let keys_to_evict: Vec<String> = cache
+                        .iter()
+                        .filter(|(k, _)| self.get_session_path(k) == path)
+                        .map(|(k, _)| k.clone())
+                        .collect();
+                    for k in keys_to_evict {
+                        cache.pop(&k);
+                    }
                 }
                 if let Err(e) = fs::remove_file(&path) {
                     warn!("Failed to delete old session {}: {}", path.display(), e);

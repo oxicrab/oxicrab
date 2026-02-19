@@ -637,7 +637,13 @@ fn fts_query(text: &str) -> String {
         }
     }
 
-    unique.join(" OR ")
+    // Double-quote each term to prevent FTS5 operator injection
+    // (e.g. user searching for "NOT important" won't trigger NOT operator)
+    unique
+        .iter()
+        .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" OR ")
 }
 
 #[cfg(test)]

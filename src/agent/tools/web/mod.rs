@@ -400,7 +400,7 @@ impl Tool for WebFetchTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'url' parameter"))?;
 
         // Validate URL and resolve DNS for pinning (prevents TOCTOU rebinding)
-        let resolved = match crate::utils::url_security::validate_and_resolve(url_str) {
+        let resolved = match crate::utils::url_security::validate_and_resolve(url_str).await {
             Ok(r) => r,
             Err(e) => return Ok(ToolResult::error(e)),
         };

@@ -42,13 +42,28 @@ fn now_ms() -> i64 {
 }
 
 fn compute_next_run(schedule: &CronSchedule, now_ms: i64) -> Option<i64> {
+    compute_next_run_with_last(schedule, now_ms, None)
+}
+
+fn compute_next_run_with_last(
+    schedule: &CronSchedule,
+    now_ms: i64,
+    last_run_ms: Option<i64>,
+) -> Option<i64> {
     match schedule {
         CronSchedule::At { at_ms } => {
             at_ms.and_then(|at| if at > now_ms { Some(at) } else { None })
         }
         CronSchedule::Every { every_ms } => every_ms.and_then(|every| {
             if every > 0 {
-                Some(now_ms + every)
+                // Anchor from last run time to prevent drift accumulation.
+                // If the computed next time is in the past, advance by intervals.
+                let anchor = last_run_ms.unwrap_or(now_ms);
+                let mut next = anchor + every;
+                while next <= now_ms {
+                    next += every;
+                }
+                Some(next)
             } else {
                 None
             }
@@ -277,7 +292,8 @@ impl CronService {
                             job.state.last_status = Some("running".to_string());
                             job.state.last_error = None;
                             job.state.run_count += 1;
-                            job.state.next_run_at_ms = compute_next_run(&job.schedule, now);
+                            job.state.next_run_at_ms =
+                                compute_next_run_with_last(&job.schedule, now, Some(now));
                             job.updated_at_ms = now;
                             store_dirty = true;
 
@@ -538,7 +554,8 @@ impl CronService {
                             j.state.last_run_at_ms = Some(now);
                             j.state.last_status = Some("success".to_string());
                             j.state.run_count += 1;
-                            j.state.next_run_at_ms = compute_next_run(&j.schedule, now);
+                            j.state.next_run_at_ms =
+                                compute_next_run_with_last(&j.schedule, now, Some(now));
                             j.updated_at_ms = now;
                             break;
                         }

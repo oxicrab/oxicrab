@@ -58,7 +58,17 @@ impl AnthropicOAuthProvider {
             access_token: Arc::new(Mutex::new(access_token)),
             refresh_token: Arc::new(Mutex::new(refresh_token)),
             expires_at: Arc::new(Mutex::new(expires_at)),
-            default_model: default_model.unwrap_or_else(|| "anthropic/claude-opus-4-6".to_string()),
+            default_model: default_model.map_or_else(
+                || "claude-opus-4-6".to_string(),
+                |m| {
+                    // Strip provider prefix for API usage
+                    if let Some(stripped) = m.strip_prefix("anthropic/") {
+                        stripped.to_string()
+                    } else {
+                        m
+                    }
+                },
+            ),
             credentials_path,
             client,
         };

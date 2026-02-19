@@ -150,6 +150,23 @@ impl Tool for TmuxTool {
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter for send"))?;
 
+                // Basic security check: block dangerous patterns in tmux send
+                let dangerous_patterns = [
+                    "rm -rf /",
+                    "mkfs.",
+                    "dd if=/dev/zero",
+                    "> /dev/sd",
+                    ":(){ :|:& };:",
+                ];
+                for pattern in &dangerous_patterns {
+                    if command.contains(pattern) {
+                        return Ok(ToolResult::error(format!(
+                            "Error: command blocked by security policy: {}",
+                            command
+                        )));
+                    }
+                }
+
                 self.ensure_session(session_name).await?;
 
                 let (code, _, stderr) = self

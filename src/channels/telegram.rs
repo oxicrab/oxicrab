@@ -328,11 +328,17 @@ impl BaseChannel for TelegramChannel {
 
                 info!("Starting Telegram dispatcher...");
                 let mut dispatcher = Dispatcher::builder(bot_clone, handler).build();
+                let dispatch_start = std::time::Instant::now();
                 dispatcher.dispatch().await;
 
                 // Dispatcher returned — check if we should reconnect
                 if !*running.lock().await {
                     break;
+                }
+
+                // Reset backoff if the dispatcher ran for >60s (was a healthy connection)
+                if dispatch_start.elapsed().as_secs() > 60 {
+                    reconnect_attempt = 0;
                 }
 
                 let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
@@ -423,13 +429,18 @@ impl BaseChannel for TelegramChannel {
             return Ok(None);
         }
         let chat_id = msg.chat_id.parse::<i64>()?;
-        let html = markdown_to_telegram_html(&msg.content);
-        let sent = self
-            .bot
-            .send_message(ChatId(chat_id), &html)
-            .parse_mode(teloxide::types::ParseMode::Html)
-            .await?;
-        Ok(Some(sent.id.0.to_string()))
+        let chunks = split_message(&msg.content, 4096);
+        let mut last_id = None;
+        for chunk in &chunks {
+            let html = markdown_to_telegram_html(chunk);
+            let sent = self
+                .bot
+                .send_message(ChatId(chat_id), &html)
+                .parse_mode(teloxide::types::ParseMode::Html)
+                .await?;
+            last_id = Some(sent.id.0.to_string());
+        }
+        Ok(last_id)
     }
 
     async fn edit_message(&self, chat_id: &str, message_id: &str, content: &str) -> Result<()> {

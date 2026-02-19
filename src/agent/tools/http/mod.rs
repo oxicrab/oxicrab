@@ -243,7 +243,7 @@ impl Tool for HttpTool {
         };
 
         // Validate URL and resolve DNS for pinning (prevents TOCTOU rebinding)
-        let resolved = match crate::utils::url_security::validate_and_resolve(url) {
+        let resolved = match crate::utils::url_security::validate_and_resolve(url).await {
             Ok(r) => r,
             Err(e) => return Ok(ToolResult::error(e)),
         };

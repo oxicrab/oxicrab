@@ -55,18 +55,24 @@ impl ToolRegistry {
         Self {
             tools: HashMap::new(),
             middleware: vec![
+                // Order matters: truncation runs before cache in after_execute,
+                // so cached results are already truncated on cache hits.
+                Arc::new(TruncationMiddleware::new(DEFAULT_MAX_RESULT_CHARS)),
                 Arc::new(CacheMiddleware::new(
                     DEFAULT_CACHE_MAX_ENTRIES,
                     DEFAULT_CACHE_TTL_SECS,
                 )),
-                Arc::new(TruncationMiddleware::new(DEFAULT_MAX_RESULT_CHARS)),
                 Arc::new(LoggingMiddleware),
             ],
         }
     }
 
     pub fn register(&mut self, tool: Arc<dyn Tool>) {
-        self.tools.insert(tool.name().to_string(), tool);
+        let name = tool.name().to_string();
+        if self.tools.contains_key(&name) {
+            tracing::warn!("tool registry: overwriting duplicate tool '{}'", name);
+        }
+        self.tools.insert(name, tool);
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
@@ -74,7 +80,8 @@ impl ToolRegistry {
     }
 
     pub fn get_tool_definitions(&self) -> Vec<crate::providers::base::ToolDefinition> {
-        self.tools
+        let mut defs: Vec<_> = self
+            .tools
             .values()
             .map(|t| {
                 let schema = t.to_schema();
@@ -90,7 +97,9 @@ impl ToolRegistry {
                     parameters: schema["function"]["parameters"].clone(),
                 }
             })
-            .collect()
+            .collect();
+        defs.sort_by(|a, b| a.name.cmp(&b.name));
+        defs
     }
 
     /// Execute a tool through the full middleware pipeline:

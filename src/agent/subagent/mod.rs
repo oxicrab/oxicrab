@@ -399,6 +399,9 @@ async fn execute_subagent_tool(
             task_id, tool_name, tool_args
         );
 
+        // TODO: Route through ToolRegistry::execute() to get middleware pipeline
+        // (caching, timeout, panic isolation, logging). Currently subagents call
+        // tools directly, bypassing middleware.
         let ctx = crate::agent::tools::base::ExecutionContext::default();
         match tool.execute(tool_args.clone(), &ctx).await {
             Ok(result) => (

@@ -26,6 +26,10 @@ impl std::fmt::Display for CircuitState {
 struct BreakerState {
     state: CircuitState,
     consecutive_failures: u32,
+    /// Number of in-flight probe requests in `HalfOpen` state.
+    /// Prevents concurrent requests from all passing through before
+    /// any failure is recorded.
+    active_probes: u32,
 }
 
 pub struct CircuitBreakerProvider {
@@ -44,6 +48,7 @@ impl CircuitBreakerProvider {
             breaker: Mutex::new(BreakerState {
                 state: CircuitState::Closed,
                 consecutive_failures: 0,
+                active_probes: 0,
             }),
             config: config.clone(),
         })
@@ -84,7 +89,19 @@ impl CircuitBreakerProvider {
     async fn should_allow(&self) -> Result<(), anyhow::Error> {
         let mut breaker = self.breaker.lock().await;
         match &breaker.state {
-            CircuitState::Closed | CircuitState::HalfOpen { .. } => Ok(()),
+            CircuitState::Closed => Ok(()),
+            CircuitState::HalfOpen { successes } => {
+                // Limit concurrent probes: only allow half_open_probes in-flight at once
+                if breaker.active_probes + successes >= self.config.half_open_probes {
+                    Err(anyhow::anyhow!(
+                        "Circuit breaker is half-open with {} active probe(s). Waiting for results.",
+                        breaker.active_probes
+                    ))
+                } else {
+                    breaker.active_probes += 1;
+                    Ok(())
+                }
+            }
             CircuitState::Open { since } => {
                 let elapsed = since.elapsed();
                 if elapsed.as_secs() >= self.config.recovery_timeout_secs {
@@ -93,6 +110,7 @@ impl CircuitBreakerProvider {
                         elapsed.as_secs()
                     );
                     breaker.state = CircuitState::HalfOpen { successes: 0 };
+                    breaker.active_probes = 1; // This request is the first probe
                     Ok(())
                 } else {
                     Err(anyhow::anyhow!(
@@ -107,7 +125,8 @@ impl CircuitBreakerProvider {
     async fn record_success(&self) {
         let mut breaker = self.breaker.lock().await;
         breaker.consecutive_failures = 0;
-        if let CircuitState::HalfOpen { successes } = &breaker.state {
+        if let CircuitState::HalfOpen { successes } = breaker.state {
+            breaker.active_probes = breaker.active_probes.saturating_sub(1);
             let new_successes = successes + 1;
             if new_successes >= self.config.half_open_probes {
                 info!(
@@ -115,6 +134,7 @@ impl CircuitBreakerProvider {
                     new_successes
                 );
                 breaker.state = CircuitState::Closed;
+                breaker.active_probes = 0;
             } else {
                 breaker.state = CircuitState::HalfOpen {
                     successes: new_successes,
@@ -144,10 +164,12 @@ impl CircuitBreakerProvider {
                 }
             }
             CircuitState::HalfOpen { .. } => {
+                breaker.active_probes = breaker.active_probes.saturating_sub(1);
                 warn!("circuit breaker probe failed: HalfOpen -> Open");
                 breaker.state = CircuitState::Open {
                     since: Instant::now(),
                 };
+                breaker.active_probes = 0;
             }
             CircuitState::Open { .. } => {}
         }

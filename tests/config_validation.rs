@@ -1,4 +1,6 @@
-use oxicrab::config::{Config, ExfiltrationGuardConfig, McpConfig, PromptGuardConfig};
+use oxicrab::config::{
+    Config, ExfiltrationGuardConfig, McpConfig, PromptGuardAction, PromptGuardConfig,
+};
 
 fn default_config() -> Config {
     serde_json::from_str("{}").unwrap()
@@ -198,7 +200,7 @@ fn test_mcp_config_in_full_config() {
 fn test_prompt_guard_warn_action_valid() {
     let mut config = default_config();
     config.agents.defaults.prompt_guard.enabled = true;
-    config.agents.defaults.prompt_guard.action = "warn".to_string();
+    config.agents.defaults.prompt_guard.action = PromptGuardAction::Warn;
     assert!(config.validate().is_ok());
 }
 
@@ -206,33 +208,30 @@ fn test_prompt_guard_warn_action_valid() {
 fn test_prompt_guard_block_action_valid() {
     let mut config = default_config();
     config.agents.defaults.prompt_guard.enabled = true;
-    config.agents.defaults.prompt_guard.action = "block".to_string();
+    config.agents.defaults.prompt_guard.action = PromptGuardAction::Block;
     assert!(config.validate().is_ok());
 }
 
 #[test]
-fn test_prompt_guard_invalid_action_rejected() {
-    let mut config = default_config();
-    config.agents.defaults.prompt_guard.enabled = true;
-    config.agents.defaults.prompt_guard.action = "invalid".to_string();
-    let err = config.validate().unwrap_err();
-    assert!(err.to_string().contains("promptGuard.action"));
-}
-
-#[test]
-fn test_prompt_guard_disabled_ignores_bad_action() {
-    let mut config = default_config();
-    config.agents.defaults.prompt_guard.enabled = false;
-    config.agents.defaults.prompt_guard.action = "nonsense".to_string();
-    // Should pass — validation only applies when enabled
-    assert!(config.validate().is_ok());
+fn test_prompt_guard_invalid_action_rejected_by_serde() {
+    let json = serde_json::json!({
+        "agents": {
+            "defaults": {
+                "promptGuard": {
+                    "enabled": true,
+                    "action": "invalid"
+                }
+            }
+        }
+    });
+    assert!(serde_json::from_value::<Config>(json).is_err());
 }
 
 #[test]
 fn test_prompt_guard_default_config_valid() {
     let config: PromptGuardConfig = serde_json::from_str("{}").unwrap();
     assert!(!config.enabled);
-    assert_eq!(config.action, "warn");
+    assert_eq!(config.action, PromptGuardAction::Warn);
 }
 
 #[test]
@@ -249,7 +248,10 @@ fn test_prompt_guard_parses_from_json() {
     });
     let config: Config = serde_json::from_value(json).unwrap();
     assert!(config.agents.defaults.prompt_guard.enabled);
-    assert_eq!(config.agents.defaults.prompt_guard.action, "block");
+    assert_eq!(
+        config.agents.defaults.prompt_guard.action,
+        PromptGuardAction::Block
+    );
 }
 
 // --- Exfiltration Guard config ---

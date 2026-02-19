@@ -103,7 +103,16 @@ impl LLMProvider for FallbackProvider {
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {
-        self.primary.warmup().await
+        // Warm up both providers in parallel
+        let (primary_result, fallback_result) =
+            tokio::join!(self.primary.warmup(), self.fallback.warmup());
+        if let Err(e) = primary_result {
+            warn!("primary provider warmup failed: {}", e);
+        }
+        if let Err(e) = fallback_result {
+            warn!("fallback provider warmup failed: {}", e);
+        }
+        Ok(())
     }
 }
 

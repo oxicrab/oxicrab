@@ -133,6 +133,16 @@ impl ChannelManager {
             info!("Starting channel: {}", channel_name);
             if let Err(e) = channel.start().await {
                 error!("Failed to start channel {}: {}", channel_name, e);
+                // Stop any channels that were already started
+                for prev in &mut self.channels[..idx] {
+                    if let Err(stop_err) = prev.stop().await {
+                        warn!(
+                            "error stopping channel {} during cleanup: {}",
+                            prev.name(),
+                            stop_err
+                        );
+                    }
+                }
                 return Err(anyhow::anyhow!(
                     "Failed to start channel {}: {}",
                     channel_name,
@@ -146,7 +156,9 @@ impl ChannelManager {
 
     pub async fn stop_all(&mut self) -> Result<()> {
         for channel in &mut self.channels {
-            channel.stop().await?;
+            if let Err(e) = channel.stop().await {
+                tracing::warn!("error stopping channel {}: {}", channel.name(), e);
+            }
         }
         Ok(())
     }

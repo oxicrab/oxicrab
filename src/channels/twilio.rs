@@ -51,7 +51,7 @@ struct WebhookState {
     webhook_url: String,
     phone_number: String,
     allow_from: Vec<String>,
-    dm_policy: String,
+    dm_policy: crate::config::DmPolicy,
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
 }
 

@@ -25,7 +25,6 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 const EMPTY_RESPONSE_RETRIES: usize = 2;
-const AGENT_POLL_INTERVAL_MS: u64 = 100;
 
 /// Per-invocation overrides for the agent loop. Allows callers (e.g. the daemon
 /// heartbeat) to use a different model or iteration cap without constructing a
@@ -64,6 +63,7 @@ fn extract_media_paths(result: &str) -> Vec<String> {
         }
     }
 
+    paths.sort();
     paths.dedup();
     paths
 }
@@ -665,6 +665,8 @@ pub struct AgentLoop {
     cost_guard: Option<CostGuard>,
     /// Most recent checkpoint summary (updated periodically during long loops)
     last_checkpoint: Arc<Mutex<Option<String>>>,
+    /// Handle for the most recent background checkpoint task
+    checkpoint_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     cognitive_config: crate::config::CognitiveConfig,
     /// Cognitive breadcrumb for compaction recovery (updated during long loops)
     cognitive_breadcrumb: Arc<Mutex<Option<String>>>,
@@ -883,6 +885,7 @@ impl AgentLoop {
             cron_service,
             cost_guard,
             last_checkpoint: Arc::new(Mutex::new(None)),
+            checkpoint_handle: Arc::new(Mutex::new(None)),
             cognitive_config,
             cognitive_breadcrumb: Arc::new(Mutex::new(None)),
             exfiltration_guard,
@@ -950,8 +953,9 @@ impl AgentLoop {
                     }
                 }
             } else {
-                tokio::time::sleep(tokio::time::Duration::from_millis(AGENT_POLL_INTERVAL_MS))
-                    .await;
+                // Channel closed — all senders dropped
+                info!("Inbound channel closed, stopping agent loop");
+                break;
             }
         }
 
@@ -1050,7 +1054,7 @@ impl AgentLoop {
                         m.category, m.pattern_name
                     );
                 }
-                if self.prompt_guard_config.action == "block" {
+                if self.prompt_guard_config.action == crate::config::PromptGuardAction::Block {
                     return Ok(Some(OutboundMessage {
                         channel: msg.channel,
                         chat_id: msg.chat_id,
@@ -1229,6 +1233,7 @@ impl AgentLoop {
         let effective_max_iterations = overrides.max_iterations.unwrap_or(self.max_iterations);
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut any_tools_called = false;
+        let mut correction_sent = false;
         let mut tools_nudge_count: u32 = 0;
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
@@ -1305,10 +1310,12 @@ impl AgentLoop {
             // Use retry logic for provider calls
             // Use low temperature for tool-calling iterations (determinism),
             // normal temperature for final text responses
-            let current_temp = if tools_defs.is_empty() {
-                self.temperature
-            } else {
+            let current_temp = if any_tools_called {
+                // During active tool iteration, use low temp for determinism
                 self.tool_temperature
+            } else {
+                // For initial/text-only responses, use configured temperature
+                self.temperature
             };
             // Force tool use on first iteration to prevent text-only hallucinated responses
             let tool_choice = if iteration == 1 && !tools_defs.is_empty() {
@@ -1490,6 +1497,7 @@ impl AgentLoop {
                 // Periodic checkpoint: summarize progress via compactor
                 if self.compaction_config.checkpoint.enabled
                     && iteration > 1
+                    && self.compaction_config.checkpoint.interval_iterations > 0
                     && (iteration as u32)
                         .is_multiple_of(self.compaction_config.checkpoint.interval_iterations)
                     && let Some(ref compactor) = self.compactor
@@ -1497,8 +1505,8 @@ impl AgentLoop {
                     let compactor = compactor.clone();
                     let msgs_snapshot = messages.clone();
                     let last_cp = self.last_checkpoint.clone();
-                    // Run checkpoint in background to avoid blocking the loop
-                    tokio::spawn(async move {
+                    // Run checkpoint in background; awaited in get_compacted_history
+                    let handle = tokio::spawn(async move {
                         let history: Vec<std::collections::HashMap<String, Value>> = msgs_snapshot
                             .iter()
                             .map(|m| {
@@ -1522,6 +1530,7 @@ impl AgentLoop {
                             }
                         }
                     });
+                    *self.checkpoint_handle.lock().await = Some(handle);
                     // Reset cognitive tracker when periodic checkpoint fires
                     checkpoint_tracker.reset();
                 }
@@ -1530,6 +1539,7 @@ impl AgentLoop {
                 // Skip iteration 1 since tool_choice="any" already forces tool use there.
                 if iteration > 1
                     && !any_tools_called
+                    && !correction_sent
                     && tools_nudge_count < 2
                     && !tool_names.is_empty()
                 {
@@ -1565,12 +1575,13 @@ impl AgentLoop {
                          Please use the appropriate tool to fulfill the request.",
                         tool_list
                     )));
-                    any_tools_called = true; // Prevent infinite correction loop
+                    correction_sent = true; // Prevent infinite correction loop
                     continue;
                 }
 
                 // Detect hallucinated actions: LLM claims it did something but never called tools
                 if !any_tools_called
+                    && !correction_sent
                     && (contains_action_claims(&content)
                         || mentions_multiple_tools(&content, &tool_names))
                 {
@@ -1592,7 +1603,7 @@ impl AgentLoop {
                             .to_string(),
                     ));
                     // Allow one more iteration to self-correct
-                    any_tools_called = true; // Prevent infinite correction loop
+                    correction_sent = true; // Prevent infinite correction loop
                     continue;
                 }
                 return Ok((
@@ -1622,6 +1633,14 @@ impl AgentLoop {
         // If tools were called but the loop ended without final content,
         // make one more LLM call with no tools to force a text summary.
         if any_tools_called {
+            // Cost guard pre-flight check for summary call
+            if let Some(ref cg) = self.cost_guard
+                && let Err(msg) = cg.check_allowed()
+            {
+                warn!("cost guard blocked post-loop summary: {}", msg);
+                return Ok((Some(msg), last_input_tokens, tools_used, collected_media));
+            }
+
             messages.push(Message::user(
                 "Provide a brief summary of what you accomplished for the user.".to_string(),
             ));
@@ -1716,6 +1735,10 @@ impl AgentLoop {
             .unwrap_or("")
             .to_string();
 
+        // Await any in-flight checkpoint task before reading
+        if let Some(handle) = self.checkpoint_handle.lock().await.take() {
+            let _ = handle.await;
+        }
         // Get most recent checkpoint if available
         let checkpoint = self.last_checkpoint.lock().await.clone();
         let cognitive_crumb = self.cognitive_breadcrumb.lock().await.clone();
@@ -1865,6 +1888,8 @@ impl AgentLoop {
         chat_id: &str,
         overrides: &AgentRunOverrides,
     ) -> Result<String> {
+        // Acquire processing lock to prevent concurrent processing
+        let _lock = self.processing_lock.lock().await;
         let session = self.sessions.get_or_create(session_key).await?;
         let history = self.get_compacted_history(&session).await?;
 

@@ -135,8 +135,11 @@ impl BrowserTool {
     }
 
     async fn action_open(&self, url: &str) -> Result<ToolResult> {
-        // Validate URL (DNS pinning not applicable to browser — Chrome manages its own DNS)
-        if let Err(e) = crate::utils::url_security::validate_and_resolve(url) {
+        // Validate URL (DNS pinning not applicable to browser — Chrome manages its own DNS).
+        // NOTE: This only validates the initial URL. Chrome may follow redirects to internal
+        // IPs that would otherwise be blocked. Use network-level firewalling (e.g. Docker
+        // network isolation) for defense-in-depth against SSRF via browser redirects.
+        if let Err(e) = crate::utils::url_security::validate_and_resolve(url).await {
             return Ok(ToolResult::error(format!(
                 "URL blocked by security policy: {e}"
             )));

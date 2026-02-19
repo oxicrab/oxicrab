@@ -124,6 +124,12 @@ impl LLMProvider for AnthropicProvider {
         &self.default_model
     }
 
+    fn metrics(&self) -> ProviderMetrics {
+        self.metrics
+            .lock()
+            .map_or_else(|_| ProviderMetrics::default(), |m| m.clone())
+    }
+
     async fn warmup(&self) -> Result<()> {
         let start = std::time::Instant::now();
         let payload = json!({

@@ -196,6 +196,10 @@ impl Tool for GoogleMailTool {
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'body' parameter"))?;
 
+                // Sanitize header fields to prevent header injection via \r\n
+                let to = to.replace(['\r', '\n'], "");
+                let subject = subject.replace(['\r', '\n'], "");
+
                 let email = format!("To: {}\r\nSubject: {}\r\n\r\n{}", to, subject, body);
                 let raw = URL_SAFE_NO_PAD.encode(email.as_bytes());
 
@@ -234,8 +238,14 @@ impl Tool for GoogleMailTool {
                 let thread_id = original["threadId"].as_str().unwrap_or("");
 
                 let empty_str = String::new();
-                let reply_to = headers.get("From").unwrap_or(&empty_str);
-                let mut subject = headers.get("Subject").unwrap_or(&String::new()).clone();
+                let reply_to = headers
+                    .get("From")
+                    .unwrap_or(&empty_str)
+                    .replace(['\r', '\n'], "");
+                let mut subject = headers
+                    .get("Subject")
+                    .unwrap_or(&String::new())
+                    .replace(['\r', '\n'], "");
                 if !subject.to_lowercase().starts_with("re:") {
                     subject = format!("Re: {}", subject);
                 }

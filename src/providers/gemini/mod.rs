@@ -71,15 +71,16 @@ impl GeminiProvider {
 
         let mut tool_calls = Vec::new();
         if let Some(parts) = candidate["content"]["parts"].as_array() {
-            for part in parts {
-                if let Some(function_calls) = part["functionCalls"].as_array() {
-                    for fc in function_calls {
-                        tool_calls.push(ToolCallRequest {
-                            id: fc["id"].as_str().unwrap_or("").to_string(),
-                            name: fc["name"].as_str().unwrap_or("").to_string(),
-                            arguments: fc["args"].clone(),
-                        });
-                    }
+            for (i, part) in parts.iter().enumerate() {
+                // Gemini returns singular `functionCall` per part (not plural array)
+                if let Some(fc) = part.get("functionCall") {
+                    // Gemini doesn't return tool call IDs; generate one
+                    let id = format!("gemini_tc_{}", i);
+                    tool_calls.push(ToolCallRequest {
+                        id,
+                        name: fc["name"].as_str().unwrap_or("").to_string(),
+                        arguments: fc["args"].clone(),
+                    });
                 }
             }
         }
@@ -111,35 +112,38 @@ impl LLMProvider for GeminiProvider {
             "gemini chat: model={}",
             req.model.unwrap_or(&self.default_model)
         );
-        let gemini_contents: Vec<Value> = req
-            .messages
-            .into_iter()
-            .map(|msg| {
-                let role = match msg.role.as_str() {
-                    "assistant" => "model",
-                    "tool" => "function",
-                    // Gemini doesn't have system role; map everything else to "user"
-                    _ => "user",
-                };
+        // Separate system messages for systemInstruction; rest go into contents
+        let mut system_parts: Vec<String> = Vec::new();
+        let mut gemini_contents: Vec<Value> = Vec::new();
 
-                let mut parts = vec![json!({"text": msg.content})];
-                if msg.role == "user" {
-                    for img in &msg.images {
-                        parts.push(json!({
-                            "inline_data": {
-                                "mime_type": img.media_type,
-                                "data": img.data
-                            }
-                        }));
-                    }
+        for msg in req.messages {
+            if msg.role == "system" {
+                system_parts.push(msg.content);
+                continue;
+            }
+            let role = match msg.role.as_str() {
+                "assistant" => "model",
+                "tool" => "function",
+                _ => "user",
+            };
+
+            let mut parts = vec![json!({"text": msg.content})];
+            if msg.role == "user" {
+                for img in &msg.images {
+                    parts.push(json!({
+                        "inline_data": {
+                            "mime_type": img.media_type,
+                            "data": img.data
+                        }
+                    }));
                 }
+            }
 
-                json!({
-                    "role": role,
-                    "parts": parts
-                })
-            })
-            .collect();
+            gemini_contents.push(json!({
+                "role": role,
+                "parts": parts
+            }));
+        }
 
         let mut payload = json!({
             "contents": gemini_contents,
@@ -148,6 +152,13 @@ impl LLMProvider for GeminiProvider {
                 "temperature": req.temperature,
             },
         });
+
+        // Use Gemini's native systemInstruction field for system messages
+        if !system_parts.is_empty() {
+            payload["systemInstruction"] = json!({
+                "parts": [{"text": system_parts.join("\n\n")}]
+            });
+        }
 
         if let Some(tools) = req.tools {
             payload["tools"] = json!([{
@@ -160,6 +171,17 @@ impl LLMProvider for GeminiProvider {
                     }))
                     .collect::<Vec<_>>()
             }]);
+            // Map tool_choice to Gemini's functionCallingConfig
+            if let Some(ref choice) = req.tool_choice {
+                let mode = match choice.as_str() {
+                    "any" => "ANY",
+                    "none" => "NONE",
+                    _ => "AUTO",
+                };
+                payload["toolConfig"] = json!({
+                    "functionCallingConfig": { "mode": mode }
+                });
+            }
         }
 
         let model_name = req.model.unwrap_or(&self.default_model);
@@ -200,6 +222,12 @@ impl LLMProvider for GeminiProvider {
 
     fn default_model(&self) -> &str {
         &self.default_model
+    }
+
+    fn metrics(&self) -> ProviderMetrics {
+        self.metrics
+            .lock()
+            .map_or_else(|_| ProviderMetrics::default(), |m| m.clone())
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {

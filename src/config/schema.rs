@@ -63,7 +63,7 @@ pub struct WhatsAppConfig {
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
-    pub dm_policy: String,
+    pub dm_policy: DmPolicy,
 }
 
 impl Default for WhatsAppConfig {
@@ -84,7 +84,7 @@ pub struct TelegramConfig {
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
-    pub dm_policy: String,
+    pub dm_policy: DmPolicy,
 }
 
 impl Default for TelegramConfig {
@@ -144,7 +144,7 @@ pub struct DiscordConfig {
     #[serde(default = "default_discord_commands")]
     pub commands: Vec<DiscordCommand>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
-    pub dm_policy: String,
+    pub dm_policy: DmPolicy,
 }
 
 impl Default for DiscordConfig {
@@ -178,7 +178,7 @@ pub struct SlackConfig {
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
-    pub dm_policy: String,
+    pub dm_policy: DmPolicy,
 }
 
 impl Default for SlackConfig {
@@ -210,8 +210,31 @@ fn default_webhook_path() -> String {
     "/twilio/webhook".to_string()
 }
 
-fn default_dm_policy() -> String {
-    "allowlist".to_string()
+/// Policy for handling DMs from unknown senders.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DmPolicy {
+    /// Only allow senders on the allowlist (default). Unknown senders are silently denied.
+    #[default]
+    Allowlist,
+    /// Send a pairing code to unknown senders so they can request access.
+    Pairing,
+    /// Allow all senders regardless of allowlist.
+    Open,
+}
+
+impl std::fmt::Display for DmPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Allowlist => write!(f, "allowlist"),
+            Self::Pairing => write!(f, "pairing"),
+            Self::Open => write!(f, "open"),
+        }
+    }
+}
+
+fn default_dm_policy() -> DmPolicy {
+    DmPolicy::default()
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -232,7 +255,7 @@ pub struct TwilioConfig {
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
-    pub dm_policy: String,
+    pub dm_policy: DmPolicy,
 }
 
 impl Default for TwilioConfig {
@@ -459,17 +482,37 @@ impl Default for ExfiltrationGuardConfig {
     }
 }
 
-fn default_prompt_guard_action() -> String {
-    "warn".to_string()
+/// Action to take when prompt injection is detected.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PromptGuardAction {
+    /// Log a warning and continue processing (default).
+    #[default]
+    Warn,
+    /// Reject the message entirely.
+    Block,
+}
+
+impl std::fmt::Display for PromptGuardAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Warn => write!(f, "warn"),
+            Self::Block => write!(f, "block"),
+        }
+    }
+}
+
+fn default_prompt_guard_action() -> PromptGuardAction {
+    PromptGuardAction::default()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptGuardConfig {
     #[serde(default)]
     pub enabled: bool,
-    /// Action on detection: "warn" (log + continue) or "block" (reject message)
+    /// Action on detection: `Warn` (log + continue) or `Block` (reject message)
     #[serde(default = "default_prompt_guard_action")]
-    pub action: String,
+    pub action: PromptGuardAction,
 }
 
 impl Default for PromptGuardConfig {
@@ -689,13 +732,25 @@ pub struct ProviderConfig {
     pub prompt_guided_tools: bool,
 }
 
-redact_debug!(
-    ProviderConfig,
-    redact(api_key),
-    api_base,
-    headers,
-    prompt_guided_tools,
-);
+impl std::fmt::Debug for ProviderConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let redacted_headers: std::collections::HashMap<&String, &str> =
+            self.headers.keys().map(|k| (k, "[REDACTED]")).collect();
+        f.debug_struct("ProviderConfig")
+            .field(
+                "api_key",
+                &if self.api_key.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("api_base", &self.api_base)
+            .field("headers", &redacted_headers)
+            .field("prompt_guided_tools", &self.prompt_guided_tools)
+            .finish()
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AnthropicOAuthConfig {
@@ -1431,18 +1486,34 @@ impl Config {
             ));
         }
 
-        // Validate prompt guard config
-        if self.agents.defaults.prompt_guard.enabled
-            && !matches!(
-                self.agents.defaults.prompt_guard.action.as_str(),
-                "warn" | "block"
-            )
-        {
-            return Err(OxicrabError::Config(format!(
-                "agents.defaults.promptGuard.action must be \"warn\" or \"block\", got \"{}\"",
-                self.agents.defaults.prompt_guard.action
-            )));
+        // Validate cognitive config thresholds ordering
+        if self.agents.defaults.cognitive.enabled {
+            let c = &self.agents.defaults.cognitive;
+            if c.gentle_threshold >= c.firm_threshold || c.firm_threshold >= c.urgent_threshold {
+                return Err(OxicrabError::Config(
+                    "agents.defaults.cognitive thresholds must be ordered: gentle < firm < urgent"
+                        .into(),
+                ));
+            }
         }
+
+        // Validate checkpoint interval
+        if self.agents.defaults.compaction.checkpoint.enabled
+            && self
+                .agents
+                .defaults
+                .compaction
+                .checkpoint
+                .interval_iterations
+                == 0
+        {
+            return Err(OxicrabError::Config(
+                "agents.defaults.compaction.checkpoint.intervalIterations must be > 0 when enabled"
+                    .into(),
+            ));
+        }
+
+        // Prompt guard action validated by serde (PromptGuardAction enum)
 
         // Validate gateway config
         if self.gateway.port == 0 {
@@ -1502,31 +1573,7 @@ impl Config {
             }
         }
 
-        // Validate dmPolicy for all channels
-        let dm_policies = [
-            (
-                "channels.telegram.dmPolicy",
-                &self.channels.telegram.dm_policy,
-            ),
-            (
-                "channels.discord.dmPolicy",
-                &self.channels.discord.dm_policy,
-            ),
-            ("channels.slack.dmPolicy", &self.channels.slack.dm_policy),
-            (
-                "channels.whatsapp.dmPolicy",
-                &self.channels.whatsapp.dm_policy,
-            ),
-            ("channels.twilio.dmPolicy", &self.channels.twilio.dm_policy),
-        ];
-        for (field, value) in dm_policies {
-            if !matches!(value.as_str(), "allowlist" | "pairing" | "open") {
-                return Err(OxicrabError::Config(format!(
-                    "{} must be \"allowlist\", \"pairing\", or \"open\", got \"{}\"",
-                    field, value
-                )));
-            }
-        }
+        // dmPolicy validation is handled by serde's enum deserialization
 
         // Validate web search config
         if self.tools.web.search.max_results == 0 {
@@ -1581,6 +1628,13 @@ impl Config {
             ("todoist_token", &self.tools.todoist.token),
             ("obsidian_api_key", &self.tools.obsidian.api_key),
             ("web_search_api_key", &self.tools.web.search.api_key),
+            ("vllm_api_key", &self.providers.vllm.api_key),
+            ("ollama_api_key", &self.providers.ollama.api_key),
+            ("google_client_secret", &self.tools.google.client_secret),
+            ("radarr_api_key", &self.tools.media.radarr.api_key),
+            ("sonarr_api_key", &self.tools.media.sonarr.api_key),
+            ("transcription_api_key", &self.voice.transcription.api_key),
+            ("twilio_account_sid", &self.channels.twilio.account_sid),
         ];
         for &(name, value) in candidates {
             if !value.is_empty() {
@@ -1738,12 +1792,12 @@ mod tests {
 
     #[test]
     fn test_valid_dm_policy_values() {
-        for policy in &["allowlist", "pairing", "open"] {
+        for policy in &[DmPolicy::Allowlist, DmPolicy::Pairing, DmPolicy::Open] {
             let mut config = Config::default();
-            config.channels.telegram.dm_policy = policy.to_string();
+            config.channels.telegram.dm_policy = policy.clone();
             assert!(
                 config.validate().is_ok(),
-                "policy '{}' should be valid",
+                "policy '{:?}' should be valid",
                 policy
             );
         }
@@ -1751,20 +1805,23 @@ mod tests {
 
     #[test]
     fn test_invalid_dm_policy_rejected() {
-        let mut config = Config::default();
-        config.channels.telegram.dm_policy = "invalid".to_string();
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("dmPolicy"));
+        // Invalid dm_policy values are now rejected at deserialization time (serde enum)
+        let json = r#"{ "channels": { "telegram": { "enabled": false, "dmPolicy": "invalid" } } }"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "invalid dmPolicy should be rejected by serde"
+        );
     }
 
     #[test]
     fn test_dm_policy_default_is_allowlist() {
         let config = Config::default();
-        assert_eq!(config.channels.telegram.dm_policy, "allowlist");
-        assert_eq!(config.channels.discord.dm_policy, "allowlist");
-        assert_eq!(config.channels.slack.dm_policy, "allowlist");
-        assert_eq!(config.channels.whatsapp.dm_policy, "allowlist");
-        assert_eq!(config.channels.twilio.dm_policy, "allowlist");
+        assert_eq!(config.channels.telegram.dm_policy, DmPolicy::Allowlist);
+        assert_eq!(config.channels.discord.dm_policy, DmPolicy::Allowlist);
+        assert_eq!(config.channels.slack.dm_policy, DmPolicy::Allowlist);
+        assert_eq!(config.channels.whatsapp.dm_policy, DmPolicy::Allowlist);
+        assert_eq!(config.channels.twilio.dm_policy, DmPolicy::Allowlist);
     }
 
     #[test]
@@ -1776,10 +1833,10 @@ mod tests {
             }
         }"#;
         let config: Config = serde_json::from_str(json).unwrap();
-        assert_eq!(config.channels.telegram.dm_policy, "pairing");
-        assert_eq!(config.channels.discord.dm_policy, "open");
-        // Others default to "allowlist"
-        assert_eq!(config.channels.slack.dm_policy, "allowlist");
+        assert_eq!(config.channels.telegram.dm_policy, DmPolicy::Pairing);
+        assert_eq!(config.channels.discord.dm_policy, DmPolicy::Open);
+        // Others default to Allowlist
+        assert_eq!(config.channels.slack.dm_policy, DmPolicy::Allowlist);
     }
 
     #[test]

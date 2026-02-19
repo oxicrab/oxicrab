@@ -370,7 +370,7 @@ fn check_empty_allowlists() -> CheckResult {
 
     #[cfg(feature = "channel-telegram")]
     if config.channels.telegram.enabled
-        && config.channels.telegram.dm_policy == "allowlist"
+        && config.channels.telegram.dm_policy == crate::config::DmPolicy::Allowlist
         && config.channels.telegram.allow_from.is_empty()
         && !has_paired("telegram")
     {
@@ -379,7 +379,7 @@ fn check_empty_allowlists() -> CheckResult {
 
     #[cfg(feature = "channel-discord")]
     if config.channels.discord.enabled
-        && config.channels.discord.dm_policy == "allowlist"
+        && config.channels.discord.dm_policy == crate::config::DmPolicy::Allowlist
         && config.channels.discord.allow_from.is_empty()
         && !has_paired("discord")
     {
@@ -388,7 +388,7 @@ fn check_empty_allowlists() -> CheckResult {
 
     #[cfg(feature = "channel-slack")]
     if config.channels.slack.enabled
-        && config.channels.slack.dm_policy == "allowlist"
+        && config.channels.slack.dm_policy == crate::config::DmPolicy::Allowlist
         && config.channels.slack.allow_from.is_empty()
         && !has_paired("slack")
     {
@@ -397,7 +397,7 @@ fn check_empty_allowlists() -> CheckResult {
 
     #[cfg(feature = "channel-twilio")]
     if config.channels.twilio.enabled
-        && config.channels.twilio.dm_policy == "allowlist"
+        && config.channels.twilio.dm_policy == crate::config::DmPolicy::Allowlist
         && config.channels.twilio.allow_from.is_empty()
         && !has_paired("twilio")
     {

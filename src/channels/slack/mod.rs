@@ -252,6 +252,7 @@ impl BaseChannel for SlackChannel {
         let seen_messages = self.seen_messages.clone();
         let user_cache = self.user_cache.clone();
         let ws_client = self.client.clone();
+        let running = self.running.clone();
 
         let ws_task = tokio::spawn(async move {
             use futures_util::StreamExt;
@@ -263,6 +264,11 @@ impl BaseChannel for SlackChannel {
 
             let mut reconnect_attempt = 0u32;
             loop {
+                // Check running flag for clean shutdown
+                if !*running.lock().await {
+                    info!("Slack WebSocket shutting down (running=false)");
+                    break;
+                }
                 debug!("Attempting to connect to Slack Socket Mode...");
                 debug!(
                     "Slack app token configured (length: {} chars)",
@@ -693,7 +699,7 @@ async fn handle_slack_event(
     user_cache: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     inbound_tx: &Arc<mpsc::Sender<InboundMessage>>,
     allow_from: &[String],
-    dm_policy: &str,
+    dm_policy: &crate::config::DmPolicy,
     bot_token: &str,
     client: &reqwest::Client,
 ) -> Result<()> {

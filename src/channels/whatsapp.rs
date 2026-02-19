@@ -2,6 +2,7 @@ use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::BaseChannel;
 use crate::channels::utils::{
     DmCheckResult, check_allowed_sender, check_dm_access, exponential_backoff_delay,
+    format_pairing_reply,
 };
 use crate::config::WhatsAppConfig;
 use crate::utils::get_oxicrab_home;
@@ -11,6 +12,7 @@ use chrono::Utc;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -186,6 +188,32 @@ impl BaseChannel for WhatsAppChannel {
                                         DmCheckResult::PairingRequired { code } => {
                                             warn!("WhatsApp pairing code for {} (phone: {}): {} — approve with: oxicrab pairing approve whatsapp {}",
                                                 chat_id, phone_number, code, code);
+                                            // Send pairing reply back to the user
+                                            let reply = format_pairing_reply("whatsapp", &phone_number, &code);
+                                            let jid_str = if chat_id.contains('@') {
+                                                let parts: Vec<&str> = chat_id.split('@').collect();
+                                                if parts.len() == 2 {
+                                                    let user_part = if parts[0].contains(':') {
+                                                        parts[0].split(':').next().unwrap_or(parts[0])
+                                                    } else {
+                                                        parts[0]
+                                                    };
+                                                    format!("{}@{}", user_part, parts[1])
+                                                } else {
+                                                    chat_id.clone()
+                                                }
+                                            } else {
+                                                format!("{}@s.whatsapp.net", chat_id)
+                                            };
+                                            if let Ok(jid) = whatsapp_rust::Jid::from_str(&jid_str) {
+                                                let text_message = whatsapp_rust::waproto::whatsapp::Message {
+                                                    conversation: Some(reply),
+                                                    ..Default::default()
+                                                };
+                                                if let Err(e) = Box::pin(client.send_message(jid, text_message)).await {
+                                                    error!("failed to send WhatsApp pairing reply: {}", e);
+                                                }
+                                            }
                                             return;
                                         }
                                         DmCheckResult::Denied => {
@@ -408,8 +436,6 @@ impl BaseChannel for WhatsAppChannel {
     }
 
     async fn send_typing(&self, chat_id: &str) -> Result<()> {
-        use std::str::FromStr;
-
         let client_guard = self.client.lock().await;
         if let Some(client) = client_guard.as_ref() {
             // Format JID same way as send_whatsapp_message
@@ -447,7 +473,11 @@ impl BaseChannel for WhatsAppChannel {
         } else {
             warn!("WhatsApp client not available yet, queuing message");
             let mut queue = self.message_queue.lock().await;
-            queue.push(msg.clone());
+            if queue.len() < 100 {
+                queue.push(msg.clone());
+            } else {
+                warn!("WhatsApp message queue full (100), dropping message");
+            }
             Ok(None)
         }
     }
@@ -500,8 +530,12 @@ impl BaseChannel for WhatsAppChannel {
         } else {
             warn!("WhatsApp client not available yet, queuing message");
             let mut queue = self.message_queue.lock().await;
-            queue.push(msg.clone());
-            debug!("WhatsApp: queued message (queue size: {})", queue.len());
+            if queue.len() < 100 {
+                queue.push(msg.clone());
+                debug!("WhatsApp: queued message (queue size: {})", queue.len());
+            } else {
+                warn!("WhatsApp message queue full (100), dropping message");
+            }
             Ok(())
         }
     }
@@ -511,8 +545,6 @@ async fn send_whatsapp_message(
     client: &Arc<whatsapp_rust::client::Client>,
     msg: &OutboundMessage,
 ) -> Result<Option<String>> {
-    use std::str::FromStr;
-
     // Format chat_id - ensure it has @s.whatsapp.net suffix if it's a phone number
     // Note: WhatsApp JIDs should NOT include device ID when sending (e.g., use "15037348571@s.whatsapp.net" not "15037348571:20@s.whatsapp.net")
     let chat_id_str = if msg.chat_id.contains('@') {

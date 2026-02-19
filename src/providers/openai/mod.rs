@@ -284,6 +284,12 @@ impl LLMProvider for OpenAIProvider {
         &self.default_model
     }
 
+    fn metrics(&self) -> ProviderMetrics {
+        self.metrics
+            .lock()
+            .map_or_else(|_| ProviderMetrics::default(), |m| m.clone())
+    }
+
     async fn warmup(&self) -> anyhow::Result<()> {
         let start = std::time::Instant::now();
         let payload = json!({

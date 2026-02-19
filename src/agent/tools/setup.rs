@@ -341,8 +341,8 @@ async fn register_mcp(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
                 for (trust, tool) in tools {
                     let name = tool.name().to_string();
 
-                    // Reject tools that shadow built-in names
-                    if PROTECTED_TOOL_NAMES.contains(&name.as_str()) {
+                    // Reject tools that shadow built-in names (case-insensitive)
+                    if PROTECTED_TOOL_NAMES.contains(&name.to_lowercase().as_str()) {
                         warn!(
                             "MCP tool '{}' rejected: shadows a protected built-in tool",
                             name
@@ -386,7 +386,9 @@ async fn register_mcp(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
                     info!("Registered {} MCP tool(s)", registered);
                 }
                 // Store manager in a static so child processes stay alive for the
-                // process lifetime while still being properly dropped on shutdown.
+                // process lifetime. Note: McpManager::shutdown() is not called on exit;
+                // the OS cleans up child processes when the parent exits. Graceful MCP
+                // shutdown would require refactoring from OnceLock to Arc<Mutex<Option<..>>>.
                 let _ = MCP_MANAGER.set(manager);
             }
             Err(e) => {

@@ -6,6 +6,9 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
+/// Maximum file size that `read_file` will load (10 MB).
+const MAX_READ_BYTES: u64 = 10 * 1024 * 1024;
+
 fn check_path_allowed(file_path: &Path, allowed_roots: Option<&Vec<PathBuf>>) -> Result<()> {
     if let Some(roots) = allowed_roots {
         let resolved = file_path
@@ -159,6 +162,24 @@ impl Tool for ReadFileTool {
                 "Error: Not a file (path is a directory): {}. Use list_dir to list directory contents, or read_file with a file path.",
                 path_str
             )));
+        }
+
+        // Check file size before reading to prevent OOM on huge files
+        match std::fs::metadata(&expanded) {
+            Ok(meta) if meta.len() > MAX_READ_BYTES => {
+                return Ok(ToolResult::error(format!(
+                    "Error: file too large ({} bytes, max {}). Use shell tool to read partial content.",
+                    meta.len(),
+                    MAX_READ_BYTES
+                )));
+            }
+            Err(e) => {
+                return Ok(ToolResult::error(format!(
+                    "Error reading file metadata: {}",
+                    e
+                )));
+            }
+            _ => {}
         }
 
         match std::fs::read_to_string(&expanded) {

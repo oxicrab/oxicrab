@@ -5,7 +5,7 @@ use common::{
     tool_response,
 };
 use oxicrab::bus::{MessageBus, OutboundMessage};
-use oxicrab::config::{ExfiltrationGuardConfig, PromptGuardConfig};
+use oxicrab::config::{ExfiltrationGuardConfig, PromptGuardAction, PromptGuardConfig};
 use serde_json::json;
 use std::collections::HashMap;
 use tempfile::TempDir;
@@ -386,7 +386,7 @@ async fn test_exfil_and_prompt_guard_both_enabled() {
             }),
             prompt_guard_config: Some(PromptGuardConfig {
                 enabled: true,
-                action: "warn".to_string(),
+                action: PromptGuardAction::Warn,
             }),
             ..Default::default()
         },

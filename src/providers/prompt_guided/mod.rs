@@ -76,18 +76,20 @@ fn render_parameters(schema: &Value) -> String {
 }
 
 /// Regex for matching `<tool_call>...</tool_call>` XML blocks.
+/// Uses a greedy match with `</tool_call>` as the terminator to handle nested JSON braces.
 fn tool_call_xml_re() -> &'static Regex {
     static RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?s)<tool_call>\s*(\{.*?\})\s*</tool_call>")
+        Regex::new(r"(?s)<tool_call>\s*(\{.*?)</tool_call>")
             .expect("failed to compile tool_call XML regex")
     });
     &RE
 }
 
 /// Regex for matching `` ```json ... ``` `` code blocks containing tool calls.
+/// Uses a greedy match with closing backticks as the terminator to handle nested JSON braces.
 fn tool_call_json_block_re() -> &'static Regex {
     static RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?s)```json\s*(\{.*?\})\s*```")
+        Regex::new(r"(?s)```json\s*(\{.*?)```")
             .expect("failed to compile tool_call JSON block regex")
     });
     &RE

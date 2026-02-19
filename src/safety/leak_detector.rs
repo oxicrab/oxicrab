@@ -102,13 +102,18 @@ impl LeakDetector {
                     regex,
                 });
             }
-            let b64 = base64::engine::general_purpose::STANDARD.encode(value.as_bytes());
-            let b64_escaped = regex::escape(&b64);
-            if let Ok(regex) = Regex::new(&b64_escaped) {
-                self.known_secrets.push(KnownSecretPattern {
-                    name: format!("{}_base64", name),
-                    regex,
-                });
+            // Check both standard and URL-safe base64 encodings
+            let b64_standard = base64::engine::general_purpose::STANDARD.encode(value.as_bytes());
+            let b64_url_safe =
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(value.as_bytes());
+            for (suffix, b64) in [("base64", &b64_standard), ("base64url", &b64_url_safe)] {
+                let b64_escaped = regex::escape(b64);
+                if let Ok(regex) = Regex::new(&b64_escaped) {
+                    self.known_secrets.push(KnownSecretPattern {
+                        name: format!("{}_{}", name, suffix),
+                        regex,
+                    });
+                }
             }
             let mut hex_str = String::with_capacity(value.len() * 2);
             for b in value.as_bytes() {

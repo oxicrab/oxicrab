@@ -44,14 +44,16 @@ impl ProviderErrorHandler {
                 });
             }
 
-            let retryable = status == 500 || status == 502 || status == 503;
+            let retryable =
+                status == 500 || status == 502 || status == 503 || status == 504 || status == 529;
             return Err(OxicrabError::Provider {
                 message: format!("API error ({}): {}", error_type, error_msg),
                 retryable,
             });
         }
 
-        let retryable = status == 500 || status == 502 || status == 503;
+        let retryable =
+            status == 500 || status == 502 || status == 503 || status == 504 || status == 529;
         Err(OxicrabError::Provider {
             message: format!("API error ({}): {}", status, error_text),
             retryable,

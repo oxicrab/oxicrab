@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::Arc;
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +156,12 @@ pub trait LLMProvider: Send + Sync {
         Ok(())
     }
 
+    /// Return accumulated provider metrics (requests, tokens, errors).
+    /// Default returns zeroed metrics for providers that don't track them.
+    fn metrics(&self) -> ProviderMetrics {
+        ProviderMetrics::default()
+    }
+
     /// Chat with automatic retry on transient errors.
     async fn chat_with_retry(
         &self,
@@ -166,9 +171,8 @@ pub trait LLMProvider: Send + Sync {
         let config = retry_config.unwrap_or_default();
         let mut last_error = None;
 
-        // Use Arc to avoid cloning messages and tools on each retry
-        let messages_arc = Arc::new(req.messages);
-        let tools_arc = req.tools.map(Arc::new);
+        let messages = req.messages;
+        let tools = req.tools;
 
         for attempt in 0..=config.max_retries {
             if attempt > 0 {
@@ -184,8 +188,8 @@ pub trait LLMProvider: Send + Sync {
             }
             debug!("Sending chat request (attempt {})", attempt);
             let chat_req = ChatRequest {
-                messages: (*messages_arc).clone(),
-                tools: tools_arc.as_ref().map(|t| (**t).clone()),
+                messages: messages.clone(),
+                tools: tools.clone(),
                 model: req.model,
                 max_tokens: req.max_tokens,
                 temperature: req.temperature,
@@ -198,14 +202,33 @@ pub trait LLMProvider: Send + Sync {
                     return Ok(response);
                 }
                 Err(e) => {
+                    // Don't retry non-transient errors
+                    let is_transient =
+                        e.downcast_ref::<crate::errors::OxicrabError>()
+                            .is_none_or(|ox| match ox {
+                                crate::errors::OxicrabError::Provider { retryable, .. } => {
+                                    *retryable
+                                }
+                                crate::errors::OxicrabError::Auth(_) => false,
+                                _ => true, // RateLimit, Config, Internal all default to transient
+                            });
                     warn!("Chat request failed on attempt {}: {}", attempt, e);
+                    if !is_transient {
+                        return Err(e);
+                    }
                     last_error = Some(e);
                     if attempt < config.max_retries {
                         let delay = (config.initial_delay_ms as f64
                             * config.backoff_multiplier.powi(attempt as i32))
                         .min(config.max_delay_ms as f64) as u64;
-                        debug!("Waiting {}ms before retry", delay);
-                        tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+                        // Add jitter (up to 25% of delay) to avoid thundering herd
+                        let jitter = (delay as f64 * 0.25 * fastrand::f64()) as u64;
+                        let total_delay = delay + jitter;
+                        debug!(
+                            "Waiting {}ms before retry ({}ms base + {}ms jitter)",
+                            total_delay, delay, jitter
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(total_delay)).await;
                     }
                 }
             }

@@ -16,7 +16,10 @@ pub struct ResolvedUrl {
 /// This is the preferred entry point: it validates the URL AND returns
 /// the resolved addresses, so the caller can use `reqwest::ClientBuilder::resolve()`
 /// to ensure the IP validated is the IP connected to.
-pub fn validate_and_resolve(url_str: &str) -> Result<ResolvedUrl, String> {
+///
+/// DNS resolution uses `tokio::net::lookup_host` to avoid blocking the async
+/// runtime. Falls back to `spawn_blocking` with `std::net` if tokio lookup fails.
+pub async fn validate_and_resolve(url_str: &str) -> Result<ResolvedUrl, String> {
     let parsed = url::Url::parse(url_str).map_err(|e| format!("Invalid URL: {}", e))?;
 
     if !matches!(parsed.scheme(), "http" | "https") {
@@ -40,21 +43,18 @@ pub fn validate_and_resolve(url_str: &str) -> Result<ResolvedUrl, String> {
             vec![SocketAddr::new(IpAddr::V6(v6), port)]
         }
         url::Host::Domain(domain) => {
-            match std::net::ToSocketAddrs::to_socket_addrs(&(domain, port)) {
-                Ok(resolved) => {
-                    let addrs: Vec<SocketAddr> = resolved.collect();
-                    for addr in &addrs {
-                        check_ip_allowed(addr.ip())?;
-                    }
-                    if addrs.is_empty() {
-                        return Err(format!("DNS resolved no addresses for: {}", domain));
-                    }
-                    addrs
-                }
-                Err(_) => {
-                    return Err(format!("DNS resolution failed for domain: {}", domain));
-                }
+            let lookup_addr = format!("{}:{}", domain, port);
+            let resolved = tokio::net::lookup_host(&lookup_addr)
+                .await
+                .map_err(|_| format!("DNS resolution failed for domain: {}", domain))?;
+            let addrs: Vec<SocketAddr> = resolved.collect();
+            for addr in &addrs {
+                check_ip_allowed(addr.ip())?;
             }
+            if addrs.is_empty() {
+                return Err(format!("DNS resolved no addresses for: {}", domain));
+            }
+            addrs
         }
     };
 

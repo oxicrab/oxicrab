@@ -253,6 +253,9 @@ impl Tool for ExecTool {
                 })
         });
 
+        // Canonicalize cwd so symlinks and ".." are resolved before workspace check
+        let cwd = cwd.canonicalize().unwrap_or(cwd);
+
         if let Some(err) = self.guard_command(command, &cwd) {
             return Ok(ToolResult::error(err));
         }

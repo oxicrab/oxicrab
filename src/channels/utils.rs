@@ -111,9 +111,9 @@ pub fn check_dm_access(
     sender: &str,
     allow_list: &[String],
     channel: &str,
-    dm_policy: &str,
+    dm_policy: &crate::config::DmPolicy,
 ) -> DmCheckResult {
-    if dm_policy == "open" {
+    if *dm_policy == crate::config::DmPolicy::Open {
         return DmCheckResult::Allowed;
     }
 
@@ -121,7 +121,7 @@ pub fn check_dm_access(
         return DmCheckResult::Allowed;
     }
 
-    if dm_policy == "pairing" {
+    if *dm_policy == crate::config::DmPolicy::Pairing {
         match crate::pairing::PairingStore::new() {
             Ok(mut store) => match store.request_pairing(channel, sender) {
                 Ok(Some(code)) => return DmCheckResult::PairingRequired { code },
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn test_dm_access_open_allows_all() {
         assert!(matches!(
-            check_dm_access("anyone", &[], "test", "open"),
+            check_dm_access("anyone", &[], "test", &crate::config::DmPolicy::Open),
             DmCheckResult::Allowed
         ));
     }
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn test_dm_access_allowlist_denies_unknown() {
         assert!(matches!(
-            check_dm_access("unknown", &[], "test", "allowlist"),
+            check_dm_access("unknown", &[], "test", &crate::config::DmPolicy::Allowlist),
             DmCheckResult::Denied
         ));
     }
@@ -280,7 +280,7 @@ mod tests {
     fn test_dm_access_allowlist_allows_known() {
         let list = vec!["alice".to_string()];
         assert!(matches!(
-            check_dm_access("alice", &list, "test", "allowlist"),
+            check_dm_access("alice", &list, "test", &crate::config::DmPolicy::Allowlist),
             DmCheckResult::Allowed
         ));
     }
@@ -292,7 +292,12 @@ mod tests {
         unsafe { std::env::set_var("OXICRAB_HOME", dir.path().as_os_str()) };
         std::fs::create_dir_all(dir.path().join("pairing")).unwrap();
 
-        match check_dm_access("newuser", &[], "telegram", "pairing") {
+        match check_dm_access(
+            "newuser",
+            &[],
+            "telegram",
+            &crate::config::DmPolicy::Pairing,
+        ) {
             DmCheckResult::PairingRequired { code } => {
                 assert_eq!(code.len(), 8);
             }
@@ -314,7 +319,7 @@ mod tests {
     fn test_dm_access_pairing_allows_known() {
         let list = vec!["bob".to_string()];
         assert!(matches!(
-            check_dm_access("bob", &list, "test", "pairing"),
+            check_dm_access("bob", &list, "test", &crate::config::DmPolicy::Pairing),
             DmCheckResult::Allowed
         ));
     }

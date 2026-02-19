@@ -47,7 +47,7 @@ pub fn atomic_write(path: &Path, content: &str) -> Result<()> {
         .with_context(|| format!("Failed to create temp file in {}", parent.display()))?;
     tmp.write_all(content.as_bytes())
         .with_context(|| "Failed to write to temp file")?;
-    tmp.flush()?;
+    tmp.as_file().sync_all()?;
     tmp.persist(path)
         .with_context(|| format!("Failed to atomically rename to {}", path.display()))?;
     Ok(())

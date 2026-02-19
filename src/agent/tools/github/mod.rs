@@ -6,6 +6,7 @@ use base64::Engine;
 use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
+use tracing::warn;
 
 const GITHUB_API: &str = "https://api.github.com";
 
@@ -33,6 +34,25 @@ impl GitHubTool {
         }
     }
 
+    /// Log a warning when GitHub rate limit is running low.
+    fn check_rate_limit(resp: &reqwest::Response) {
+        let remaining = resp
+            .headers()
+            .get("x-ratelimit-remaining")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok());
+        let limit = resp
+            .headers()
+            .get("x-ratelimit-limit")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok());
+        if let (Some(rem), Some(lim)) = (remaining, limit)
+            && rem < lim / 10
+        {
+            warn!("GitHub API rate limit low: {}/{} remaining", rem, lim);
+        }
+    }
+
     async fn api_get(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
         let resp = self
             .client
@@ -47,6 +67,7 @@ impl GitHubTool {
             .await?;
 
         let status = resp.status();
+        Self::check_rate_limit(&resp);
         let body: Value = resp.json().await?;
         if !status.is_success() {
             let msg = body["message"].as_str().unwrap_or("Unknown error");
@@ -69,6 +90,7 @@ impl GitHubTool {
             .await?;
 
         let status = resp.status();
+        Self::check_rate_limit(&resp);
         let result: Value = resp.json().await?;
         if !status.is_success() {
             let msg = result["message"].as_str().unwrap_or("Unknown error");
@@ -91,6 +113,7 @@ impl GitHubTool {
             .await?;
 
         let status = resp.status();
+        Self::check_rate_limit(&resp);
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
             let msg = serde_json::from_str::<Value>(&text)
@@ -276,7 +299,7 @@ impl GitHubTool {
         };
 
         Ok(format!(
-            "PR #{} — {} ({})\nBy: {} | {} → {} | {}\n+{} −{} in {} files\n{}\n\n{}",
+            "PR #{} — {} ({})\nBy: {} | {} → {} | {}\n+{} −{} in {} files\n\n{}",
             number,
             title,
             status_str,
@@ -287,7 +310,6 @@ impl GitHubTool {
             additions,
             deletions,
             changed_files,
-            checks_str,
             body_truncated
         ))
     }
