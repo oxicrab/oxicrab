@@ -49,7 +49,7 @@ impl GoogleCredentials {
             .refresh_token
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("No refresh token available"))?;
-        let client = reqwest::Client::new();
+        let client = crate::utils::http::default_http_client();
         let mut params = HashMap::new();
         params.insert("refresh_token", refresh_token.clone());
         params.insert("client_id", self.client_id.clone());
@@ -212,7 +212,7 @@ pub async fn run_oauth_flow(
     };
 
     // Exchange code for token via direct HTTP (avoids reqwest version coupling with oauth2 crate)
-    let http_client = reqwest::Client::new();
+    let http_client = crate::utils::http::default_http_client();
     let mut params = HashMap::new();
     params.insert("code", code);
     params.insert("client_id", client_id.to_string());
@@ -483,6 +483,19 @@ fn load_credentials(path: &Path, scopes: &[&str]) -> Result<Option<GoogleCredent
     if !path.exists() {
         return Ok(None);
     }
+
+    // Acquire shared lock for consistent reads (save_credentials holds exclusive)
+    let _lock = (|| -> Option<std::fs::File> {
+        let lock_path = path.with_extension("json.lock");
+        let lock_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&lock_path)
+            .ok()?;
+        fs2::FileExt::lock_shared(&lock_file).ok()?;
+        Some(lock_file)
+    })();
 
     let content = std::fs::read_to_string(path).context(format!(
         "Failed to read credentials from {}",

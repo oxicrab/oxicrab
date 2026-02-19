@@ -24,7 +24,7 @@ pub struct SlackChannel {
     running: Arc<tokio::sync::Mutex<bool>>,
     ws_handle: Option<tokio::task::JoinHandle<()>>,
     seen_messages: Arc<tokio::sync::Mutex<indexmap::IndexSet<String>>>,
-    user_cache: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
+    user_cache: Arc<tokio::sync::Mutex<lru::LruCache<String, String>>>,
     client: reqwest::Client,
 }
 
@@ -37,7 +37,9 @@ impl SlackChannel {
             running: Arc::new(tokio::sync::Mutex::new(false)),
             ws_handle: None,
             seen_messages: Arc::new(tokio::sync::Mutex::new(indexmap::IndexSet::new())),
-            user_cache: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            user_cache: Arc::new(tokio::sync::Mutex::new(lru::LruCache::new(
+                std::num::NonZeroUsize::new(MAX_USER_CACHE).unwrap(),
+            ))),
             client: reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .timeout(std::time::Duration::from_secs(30))
@@ -73,7 +75,8 @@ impl SlackChannel {
             return Ok(());
         }
 
-        let file_bytes = std::fs::read(path)?;
+        let path_owned = path.to_path_buf();
+        let file_bytes = tokio::task::spawn_blocking(move || std::fs::read(&path_owned)).await??;
         let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
 
         // Step 1: Get upload URL
@@ -701,7 +704,7 @@ async fn handle_slack_event(
     event: &Value,
     bot_user_id: &Arc<tokio::sync::Mutex<Option<String>>>,
     seen_messages: &Arc<tokio::sync::Mutex<indexmap::IndexSet<String>>>,
-    user_cache: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
+    user_cache: &Arc<tokio::sync::Mutex<lru::LruCache<String, String>>>,
     inbound_tx: &Arc<mpsc::Sender<InboundMessage>>,
     allow_from: &[String],
     dm_policy: &crate::config::DmPolicy,
@@ -799,7 +802,7 @@ async fn handle_slack_event(
 
     // Build sender_id — try to enrich with username (cached per user_id)
     let sender_id = {
-        let cache = user_cache.lock().await;
+        let mut cache = user_cache.lock().await;
         cache.get(user_id).cloned()
     };
     let sender_id = if let Some(cached) = sender_id {
@@ -821,16 +824,7 @@ async fn handle_slack_event(
         }
         {
             let mut cache = user_cache.lock().await;
-            // Evict oldest entries when cache grows too large
-            if cache.len() >= MAX_USER_CACHE {
-                // Remove ~10% of entries to amortize eviction cost
-                let to_remove: Vec<String> =
-                    cache.keys().take(MAX_USER_CACHE / 10).cloned().collect();
-                for key in to_remove {
-                    cache.remove(&key);
-                }
-            }
-            cache.insert(user_id.to_string(), enriched.clone());
+            cache.put(user_id.to_string(), enriched.clone());
         }
         enriched
     };
@@ -877,7 +871,13 @@ async fn handle_slack_event(
                             Ok(bytes) => {
                                 if is_image_magic_bytes(&bytes) {
                                     info!("Downloaded Slack image: {} bytes", bytes.len());
-                                    if let Err(e) = std::fs::write(&file_path, &bytes) {
+                                    let fp = file_path.clone();
+                                    let b = bytes.clone();
+                                    if let Err(e) =
+                                        tokio::task::spawn_blocking(move || std::fs::write(&fp, &b))
+                                            .await
+                                            .unwrap_or_else(|e| Err(std::io::Error::other(e)))
+                                    {
                                         warn!("Failed to write Slack media file: {}", e);
                                     }
                                     let path_str = file_path.to_string_lossy().to_string();
@@ -916,7 +916,13 @@ async fn handle_slack_event(
                         match download_slack_file(client, bot_token, file_url).await {
                             Ok(bytes) => {
                                 info!("Downloaded Slack audio: {} bytes", bytes.len());
-                                if let Err(e) = std::fs::write(&file_path, &bytes) {
+                                let fp = file_path.clone();
+                                let b = bytes.clone();
+                                if let Err(e) =
+                                    tokio::task::spawn_blocking(move || std::fs::write(&fp, &b))
+                                        .await
+                                        .unwrap_or_else(|e| Err(std::io::Error::other(e)))
+                                {
                                     warn!("Failed to write Slack audio file: {}", e);
                                 }
                                 let path_str = file_path.to_string_lossy().to_string();

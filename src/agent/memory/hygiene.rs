@@ -5,11 +5,27 @@ use chrono::{NaiveDate, Utc};
 use std::path::Path;
 use tracing::{debug, info, warn};
 
+/// Acquire an exclusive lock on the memory directory for hygiene operations.
+/// This prevents races with `append_today()` and `get_memory_context()` reads.
+fn lock_memory_exclusive(memory_dir: &Path) -> Option<std::fs::File> {
+    let lock_path = memory_dir.join(".hygiene.lock");
+    let lock_file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&lock_path)
+        .ok()?;
+    fs2::FileExt::lock_exclusive(&lock_file).ok()?;
+    Some(lock_file)
+}
+
 /// Archive daily notes older than `archive_after_days` into `memory/archive/`.
 pub fn archive_old_notes(memory_dir: &Path, archive_after_days: u32) -> Result<u32> {
     if archive_after_days == 0 {
         return Ok(0);
     }
+
+    let _lock = lock_memory_exclusive(memory_dir);
 
     let archive_dir = memory_dir.join("archive");
     let cutoff = Utc::now().date_naive() - chrono::Duration::days(i64::from(archive_after_days));
@@ -61,6 +77,8 @@ pub fn purge_expired_archives(memory_dir: &Path, purge_after_days: u32) -> Resul
     if !archive_dir.is_dir() {
         return Ok(0);
     }
+
+    let _lock = lock_memory_exclusive(memory_dir);
 
     let cutoff = Utc::now().date_naive() - chrono::Duration::days(i64::from(purge_after_days));
     let mut count = 0;

@@ -54,9 +54,22 @@ fn is_sender_paired(channel: &str, sender: &str) -> bool {
     let Ok(home) = crate::utils::get_oxicrab_home() else {
         return false;
     };
-    let path = home
-        .join("pairing")
-        .join(format!("{}-allowlist.json", channel));
+    let pairing_dir = home.join("pairing");
+    let path = pairing_dir.join(format!("{}-allowlist.json", channel));
+
+    // Acquire shared lock for consistent reads (writers hold exclusive lock)
+    let _lock = (|| -> Option<std::fs::File> {
+        let lock_path = pairing_dir.join(".lock");
+        let lock_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&lock_path)
+            .ok()?;
+        fs2::FileExt::lock_shared(&lock_file).ok()?;
+        Some(lock_file)
+    })();
+
     let Ok(content) = std::fs::read_to_string(&path) else {
         return false;
     };

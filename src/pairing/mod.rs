@@ -92,7 +92,24 @@ impl PairingStore {
         Ok(store)
     }
 
+    /// Acquire a shared (read) lock on the pairing directory for cross-process safety.
+    /// Lock released when the returned file is dropped.
+    fn lock_shared(&self) -> Result<std::fs::File> {
+        let lock_path = self.base_dir.join(".lock");
+        let lock_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&lock_path)
+            .with_context(|| "failed to open pairing lock file")?;
+        fs2::FileExt::lock_shared(&lock_file)
+            .with_context(|| "failed to acquire pairing shared lock")?;
+        Ok(lock_file)
+    }
+
     fn load_all(&mut self) -> Result<()> {
+        let _lock = self.lock_shared()?;
+
         // Load pending requests
         let pending_path = self.base_dir.join("pending.json");
         if pending_path.exists() {

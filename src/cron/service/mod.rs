@@ -5,7 +5,6 @@ use anyhow::Result;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use cron::Schedule;
-use fs2::FileExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -150,20 +149,24 @@ impl CronService {
             return Ok(store.clone());
         }
 
-        if self.store_path.exists() {
-            let file = std::fs::File::open(&self.store_path)?;
-            file.lock_shared()?;
-            let content = std::fs::read_to_string(&self.store_path)?;
+        let store_path = self.store_path.clone();
+        let loaded = tokio::task::spawn_blocking(move || -> Result<Option<CronStore>> {
+            if !store_path.exists() {
+                return Ok(None);
+            }
+            let file = std::fs::File::open(&store_path)?;
+            fs2::FileExt::lock_shared(&file)?;
+            let content = std::fs::read_to_string(&store_path)?;
             // lock released when `file` drops
             let store: CronStore = serde_json::from_str(&content)?;
-            *store_guard = Some(store.clone());
-            return Ok(store);
-        }
+            Ok(Some(store))
+        })
+        .await??;
 
-        let store = CronStore {
+        let store = loaded.unwrap_or(CronStore {
             version: 1,
             jobs: vec![],
-        };
+        });
         *store_guard = Some(store.clone());
         Ok(store)
     }
@@ -171,16 +174,22 @@ impl CronService {
     async fn save_store(&self) -> Result<()> {
         let store_guard = self.store.lock().await;
         if let Some(store) = store_guard.as_ref() {
-            let lock_path = self.store_path.with_extension("json.lock");
-            let lock_file = std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&lock_path)?;
-            lock_file.lock_exclusive()?;
             let content = serde_json::to_string_pretty(store)?;
-            atomic_write(&self.store_path, &content)?;
-            // lock released when lock_file drops
+            let store_path = self.store_path.clone();
+            // Drop the async lock before blocking I/O
+            drop(store_guard);
+            tokio::task::spawn_blocking(move || -> Result<()> {
+                let lock_path = store_path.with_extension("json.lock");
+                let lock_file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(&lock_path)?;
+                fs2::FileExt::lock_exclusive(&lock_file)?;
+                atomic_write(&store_path, &content)?;
+                Ok(())
+            })
+            .await??;
         }
         Ok(())
     }

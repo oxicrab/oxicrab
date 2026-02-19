@@ -322,7 +322,6 @@ impl SessionManager {
 
     pub async fn save(&self, session: &Session) -> Result<()> {
         let path = self.get_session_path(&session.key);
-        ensure_dir(path.parent().context("Session path has no parent")?)?;
 
         let mut content = String::new();
 
@@ -351,24 +350,31 @@ impl SessionManager {
             content.push('\n');
         }
 
-        let lock_path = path.with_extension("jsonl.lock");
-        let lock_file = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&lock_path)
-            .with_context(|| "Failed to open session lock file")?;
-        lock_file
-            .lock_exclusive()
-            .with_context(|| "Failed to acquire exclusive lock on session file")?;
-        atomic_write(&path, &content)
-            .with_context(|| format!("Failed to write session file: {}", path.display()))?;
-        // lock released when lock_file drops
-        debug!(
-            "session saved: {} ({} messages)",
-            session.key,
-            session.messages.len()
-        );
+        let session_key = session.key.clone();
+        let msg_count = session.messages.len();
+
+        // Perform blocking file I/O (locking + atomic write) off the async runtime
+        let path_clone = path.clone();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            ensure_dir(path_clone.parent().context("Session path has no parent")?)?;
+            let lock_path = path_clone.with_extension("jsonl.lock");
+            let lock_file = fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&lock_path)
+                .with_context(|| "Failed to open session lock file")?;
+            lock_file
+                .lock_exclusive()
+                .with_context(|| "Failed to acquire exclusive lock on session file")?;
+            atomic_write(&path_clone, &content).with_context(|| {
+                format!("Failed to write session file: {}", path_clone.display())
+            })?;
+            Ok(())
+        })
+        .await??;
+
+        debug!("session saved: {} ({} messages)", session_key, msg_count);
 
         // Update cache
         {

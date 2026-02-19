@@ -200,28 +200,32 @@ impl ObsidianCache {
         };
 
         let query_lower = query.to_lowercase();
-        let mut results = Vec::new();
 
-        for (path, file_path) in &file_paths {
-            if let Ok(content) = std::fs::read_to_string(file_path) {
-                for line in content.lines() {
-                    if line.to_lowercase().contains(&query_lower) {
-                        results.push((path.clone(), line.to_string()));
-                        if results.len() >= 50 {
-                            return results;
+        // Read files off the async runtime to avoid blocking
+        tokio::task::spawn_blocking(move || {
+            let mut results = Vec::new();
+            for (path, file_path) in &file_paths {
+                if let Ok(content) = std::fs::read_to_string(file_path) {
+                    for line in content.lines() {
+                        if line.to_lowercase().contains(&query_lower) {
+                            results.push((path.clone(), line.to_string()));
+                            if results.len() >= 50 {
+                                return results;
+                            }
                         }
                     }
                 }
             }
-        }
-
-        results
+            results
+        })
+        .await
+        .unwrap_or_default()
     }
 
     /// Write a file. If online, write through to API + cache. If offline, queue.
     pub async fn write_file(&self, path: &str, content: &str) -> Result<String> {
         // Update cache optimistically
-        self.write_to_cache(path, content)?;
+        self.write_to_cache(path, content).await?;
         self.update_state_entry(path, content).await;
 
         if self.client.is_reachable().await {
@@ -262,7 +266,7 @@ impl ObsidianCache {
         let full_content = format!("{}{}", existing, content);
 
         // Update cache optimistically
-        self.write_to_cache(path, &full_content)?;
+        self.write_to_cache(path, &full_content).await?;
         self.update_state_entry(path, &full_content).await;
 
         if self.client.is_reachable().await {
@@ -321,7 +325,7 @@ impl ObsidianCache {
                             "Conflict detected for '{}', saving remote as '{}'",
                             item.path, conflict_path
                         );
-                        let _ = self.write_to_cache(&conflict_path, &remote_content);
+                        let _ = self.write_to_cache(&conflict_path, &remote_content).await;
                     }
                 } else {
                     // File doesn't exist remotely yet — no conflict
@@ -381,7 +385,7 @@ impl ObsidianCache {
                             state.files.get(file_path).map(|m| m.content_hash.as_str());
 
                         if existing_hash != Some(&hash) {
-                            if let Err(e) = self.write_to_cache(file_path, &content) {
+                            if let Err(e) = self.write_to_cache(file_path, &content).await {
                                 warn!("Failed to cache '{}': {}", file_path, e);
                                 continue;
                             }
@@ -424,7 +428,7 @@ impl ObsidianCache {
         let state_clone = state.clone();
         drop(state);
 
-        self.persist_state(&state_clone)?;
+        self.persist_state(&state_clone).await?;
 
         if added > 0 || updated > 0 || removed > 0 {
             info!(
@@ -440,14 +444,18 @@ impl ObsidianCache {
 
     // --- Private helpers ---
 
-    fn write_to_cache(&self, path: &str, content: &str) -> Result<()> {
+    async fn write_to_cache(&self, path: &str, content: &str) -> Result<()> {
         let file_path = self
             .safe_cache_path(path)
             .ok_or_else(|| anyhow::anyhow!("path traversal blocked: {}", path))?;
-        if let Some(parent) = file_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        crate::utils::atomic_write(&file_path, content)
+        let content = content.to_string();
+        tokio::task::spawn_blocking(move || {
+            if let Some(parent) = file_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            crate::utils::atomic_write(&file_path, &content)
+        })
+        .await?
     }
 
     async fn update_state_entry(&self, path: &str, content: &str) {
@@ -463,7 +471,7 @@ impl ObsidianCache {
         );
         let state_clone = state.clone();
         drop(state);
-        if let Err(e) = self.persist_state(&state_clone) {
+        if let Err(e) = self.persist_state(&state_clone).await {
             warn!("Failed to persist sync state: {}", e);
         }
     }
@@ -492,32 +500,39 @@ impl ObsidianCache {
         self.persist_queue().await
     }
 
-    fn persist_state(&self, state: &SyncState) -> Result<()> {
-        use fs2::FileExt;
-        let lock_path = self.state_path.with_extension("json.lock");
-        let lock_file = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&lock_path)?;
-        lock_file.lock_exclusive()?;
+    async fn persist_state(&self, state: &SyncState) -> Result<()> {
         let json = serde_json::to_string_pretty(state)?;
-        crate::utils::atomic_write(&self.state_path, &json)
+        let state_path = self.state_path.clone();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let lock_path = state_path.with_extension("json.lock");
+            let lock_file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&lock_path)?;
+            fs2::FileExt::lock_exclusive(&lock_file)?;
+            crate::utils::atomic_write(&state_path, &json)
+        })
+        .await?
     }
 
     async fn persist_queue(&self) -> Result<()> {
-        use fs2::FileExt;
-        let lock_path = self.queue_path.with_extension("json.lock");
-        let lock_file = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&lock_path)?;
-        lock_file.lock_exclusive()?;
         let queue = self.write_queue.lock().await;
         let json = serde_json::to_string_pretty(&*queue)?;
         drop(queue);
-        crate::utils::atomic_write(&self.queue_path, &json)
+
+        let queue_path = self.queue_path.clone();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let lock_path = queue_path.with_extension("json.lock");
+            let lock_file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&lock_path)?;
+            fs2::FileExt::lock_exclusive(&lock_file)?;
+            crate::utils::atomic_write(&queue_path, &json)
+        })
+        .await?
     }
 }
 

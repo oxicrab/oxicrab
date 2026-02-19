@@ -757,10 +757,10 @@ impl AgentLoop {
             });
         }
 
-        // Clean up old media files in background
+        // Clean up old media files in background (blocking I/O, not on reactor)
         if media_ttl_days > 0 {
             let ttl = media_ttl_days;
-            tokio::spawn(async move {
+            tokio::task::spawn_blocking(move || {
                 if let Err(e) = cleanup_old_media(ttl) {
                     warn!("Media cleanup failed: {}", e);
                 }

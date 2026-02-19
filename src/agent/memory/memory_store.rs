@@ -2,7 +2,7 @@ use crate::agent::memory::embeddings::EmbeddingService;
 use crate::agent::memory::{MemoryDB, MemoryIndexer};
 use crate::config::MemoryConfig;
 use anyhow::{Context, Result};
-use chrono::{Datelike, Utc};
+use chrono::Utc;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -193,12 +193,7 @@ impl MemoryStore {
                 self.db.index_file("MEMORY.md", &memory_file)?;
             }
             let today = Utc::now();
-            let today_key = format!(
-                "{}-{:02}-{:02}.md",
-                today.year(),
-                today.month(),
-                today.day()
-            );
+            let today_key = format!("{}.md", today.format("%Y-%m-%d"));
             let today_file = self.memory_dir.join(&today_key);
             if today_file.exists() {
                 self.db.index_file(&today_key, &today_file)?;
@@ -207,12 +202,7 @@ impl MemoryStore {
 
         // Get today's date for daily notes
         let today = Utc::now();
-        let today_key = format!(
-            "{}-{:02}-{:02}.md",
-            today.year(),
-            today.month(),
-            today.day()
-        );
+        let today_key = format!("{}.md", today.format("%Y-%m-%d"));
         let today_file = self.memory_dir.join(&today_key);
 
         // Search for relevant chunks if query provided
@@ -235,12 +225,14 @@ impl MemoryStore {
             chunks.insert(0, format!("## Long-term Memory\n{}", long_term));
         }
 
-        // Include today's note
-        if today_file.exists()
-            && let Ok(content) = std::fs::read_to_string(&today_file)
-            && !content.trim().is_empty()
-        {
-            chunks.push(format!("**Today's Notes ({})**:\n{}", today_key, content));
+        // Include today's note (shared lock prevents torn reads during append_today)
+        if today_file.exists() {
+            let _lock = Self::lock_daily_shared(&today_file);
+            if let Ok(content) = std::fs::read_to_string(&today_file)
+                && !content.trim().is_empty()
+            {
+                chunks.push(format!("**Today's Notes ({})**:\n{}", today_key, content));
+            }
         }
 
         Ok(chunks.join("\n\n---\n\n"))
@@ -248,12 +240,8 @@ impl MemoryStore {
 
     pub fn get_today_file(&self) -> PathBuf {
         let today = Utc::now();
-        self.memory_dir.join(format!(
-            "{}-{:02}-{:02}.md",
-            today.year(),
-            today.month(),
-            today.day()
-        ))
+        self.memory_dir
+            .join(format!("{}.md", today.format("%Y-%m-%d")))
     }
 
     pub fn append_today(&self, content: &str) -> Result<()> {
@@ -261,7 +249,7 @@ impl MemoryStore {
         use std::io::Write;
         let today_file = self.get_today_file();
         let today = Utc::now();
-        let date_str = format!("{}-{:02}-{:02}", today.year(), today.month(), today.day());
+        let date_str = today.format("%Y-%m-%d").to_string();
 
         // Cross-process lock to prevent CLI + daemon from corrupting daily notes
         let lock_path = today_file.with_extension("md.lock");
@@ -292,5 +280,19 @@ impl MemoryStore {
         } else {
             Ok(String::new())
         }
+    }
+
+    /// Acquire a shared lock on the daily notes lock file.
+    /// Returns None if the lock file cannot be created (non-fatal).
+    fn lock_daily_shared(today_file: &Path) -> Option<std::fs::File> {
+        let lock_path = today_file.with_extension("md.lock");
+        let lock_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&lock_path)
+            .ok()?;
+        fs2::FileExt::lock_shared(&lock_file).ok()?;
+        Some(lock_file)
     }
 }

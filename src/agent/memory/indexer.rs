@@ -4,7 +4,6 @@ use crate::agent::memory::MemoryDB;
 /// Periodically indexes memory files in the background to avoid blocking queries.
 use crate::agent::memory::embeddings::EmbeddingService;
 use anyhow::Result;
-use chrono::Datelike;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -180,12 +179,7 @@ impl MemoryIndexer {
 
                 // Index today's note
                 let today = chrono::Utc::now().date_naive();
-                let today_key = format!(
-                    "{}-{:02}-{:02}.md",
-                    today.year(),
-                    today.month(),
-                    today.day()
-                );
+                let today_key = format!("{}.md", today.format("%Y-%m-%d"));
                 let today_file = memory_dir.join(&today_key);
                 if today_file.exists() {
                     if let Err(e) = db.index_file(&today_key, &today_file) {

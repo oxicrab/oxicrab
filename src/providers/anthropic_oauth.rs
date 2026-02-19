@@ -87,6 +87,19 @@ impl AnthropicOAuthProvider {
             return;
         }
 
+        // Acquire shared lock for consistent reads (save_credentials holds exclusive)
+        let _lock = (|| -> Option<std::fs::File> {
+            let lock_path = path.with_extension("json.lock");
+            let lock_file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&lock_path)
+                .ok()?;
+            fs2::FileExt::lock_shared(&lock_file).ok()?;
+            Some(lock_file)
+        })();
+
         match std::fs::read_to_string(path) {
             Ok(content) => match serde_json::from_str::<Value>(&content) {
                 Ok(data) => {
@@ -239,13 +252,6 @@ impl AnthropicOAuthProvider {
     }
 
     async fn save_credentials(&self, path: &Path) {
-        if let Some(parent) = path.parent()
-            && let Err(e) = std::fs::create_dir_all(parent)
-        {
-            warn!("Failed to create credentials directory: {}", e);
-            return;
-        }
-
         let data = json!({
             "access_token": *self.access_token.lock().await,
             "refresh_token": *self.refresh_token.lock().await,
@@ -253,31 +259,38 @@ impl AnthropicOAuthProvider {
         });
 
         let json_str = serde_json::to_string_pretty(&data).unwrap_or_default();
-        // Cross-process lock to prevent concurrent token refresh races
-        let lock_path = path.with_extension("json.lock");
-        if let Ok(lock_file) = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&lock_path)
-        {
-            use fs2::FileExt;
-            let _ = lock_file.lock_exclusive();
-        }
-        if let Err(e) = crate::utils::atomic_write(path, &json_str) {
-            warn!("Failed to save OAuth credentials: {}", e);
-        } else {
+        let path = path.to_path_buf();
+
+        // Perform all blocking I/O off the async runtime
+        let result = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            // Cross-process lock to prevent concurrent token refresh races
+            let lock_path = path.with_extension("json.lock");
+            if let Ok(lock_file) = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&lock_path)
+            {
+                let _ = fs2::FileExt::lock_exclusive(&lock_file);
+            }
+            crate::utils::atomic_write(&path, &json_str)?;
             // Restrict permissions to owner-only (0o600) to protect tokens
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                if let Err(e) =
-                    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-                {
-                    warn!("Failed to set credentials file permissions: {}", e);
-                }
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
             }
-            debug!("OAuth credentials saved to {}", path.display());
+            Ok(())
+        })
+        .await;
+
+        match result {
+            Ok(Ok(())) => debug!("OAuth credentials saved"),
+            Ok(Err(e)) => warn!("Failed to save OAuth credentials: {}", e),
+            Err(e) => warn!("Failed to spawn credential save task: {}", e),
         }
     }
 
@@ -288,6 +301,19 @@ impl AnthropicOAuthProvider {
         if !path.exists() {
             return Ok(None);
         }
+
+        // Acquire shared lock for consistent reads (save_credentials holds exclusive)
+        let _lock = (|| -> Option<std::fs::File> {
+            let lock_path = path.with_extension("json.lock");
+            let lock_file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&lock_path)
+                .ok()?;
+            fs2::FileExt::lock_shared(&lock_file).ok()?;
+            Some(lock_file)
+        })();
 
         let content = std::fs::read_to_string(path).context("Failed to read credentials file")?;
 

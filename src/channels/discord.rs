@@ -256,7 +256,12 @@ impl EventHandler for Handler {
             match self.http_client.get(&attachment.url).send().await {
                 Ok(resp) => match resp.bytes().await {
                     Ok(bytes) => {
-                        if let Err(e) = std::fs::write(&file_path, &bytes) {
+                        let fp = file_path.clone();
+                        if let Err(e) =
+                            tokio::task::spawn_blocking(move || std::fs::write(&fp, &bytes))
+                                .await
+                                .unwrap_or_else(|e| Err(std::io::Error::other(e)))
+                        {
                             warn!("Failed to write Discord media file: {}", e);
                         }
                         let path_str = file_path.to_string_lossy().to_string();
