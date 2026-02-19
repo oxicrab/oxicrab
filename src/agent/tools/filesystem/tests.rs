@@ -29,8 +29,9 @@ fn test_check_path_allowed_outside_root() {
 #[test]
 fn test_check_path_allowed_nonexistent_inside_root() {
     // Non-existent paths inside an allowed root should be allowed (for write operations)
-    let roots = Some(vec![std::env::temp_dir()]);
-    let result = check_path_allowed(Path::new("/tmp/does_not_exist_12345"), roots.as_ref());
+    let tmp = std::env::temp_dir();
+    let roots = Some(vec![tmp.clone()]);
+    let result = check_path_allowed(&tmp.join("does_not_exist_12345"), roots.as_ref());
     assert!(result.is_ok());
 }
 

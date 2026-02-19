@@ -16,8 +16,16 @@ env:
 
 jobs:
   build:
-    name: Build
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: ubuntu-latest
+          - name: macos
+            runner: macos-15
 
     steps:
       - uses: actions/checkout@v6
@@ -41,32 +49,49 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-${{ env.NIGHTLY_VERSION }}-
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake
 
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake
+
       - name: Check formatting
+        if: matrix.name == 'linux'
         run: cargo fmt -- --check
 
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+        env:
+          # Disable native CPU detection in whisper.cpp/ggml to avoid ARM i8mm build failures on macOS CI
+          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
 
       - name: Build
         run: cargo build --verbose
+        env:
+          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
 
       - name: Build without optional channels
         run: cargo build --no-default-features --verbose
+        env:
+          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
 
       - name: Run unit tests
         run: cargo test --lib --verbose
+        env:
+          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
 
       - name: Run integration tests
         run: cargo test --test session_management --test cron_jobs --test tool_registry --test message_flow --test config_validation --test context_and_skills --test error_handling --test filesystem_tools --test memory_integration --test multi_turn_session --test shell_exec --test tool_context_caching --test compaction_integration --verbose -- --test-threads=1
         env:
           OXICRAB_HOME: ${{ runner.temp }}/oxicrab-test
+          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
 
       - name: Security audit
+        if: matrix.name == 'linux'
         run: |
           cargo install cargo-audit --quiet 2>/dev/null || true
           cargo audit || true

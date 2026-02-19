@@ -94,6 +94,8 @@ jobs:
         env:
           SOURCE_DATE_EPOCH: "1"
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && 'aarch64-linux-gnu-gcc' || '' }}
+          # Disable native CPU detection in whisper.cpp/ggml to avoid ARM i8mm build failures on macOS CI
+          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
 
       - name: Create archive
         run: |

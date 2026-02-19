@@ -298,6 +298,13 @@ impl Tool for TmuxTool {
 mod tests {
     use super::*;
 
+    fn tmux_available() -> bool {
+        std::process::Command::new("tmux")
+            .arg("-V")
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+
     #[test]
     fn test_is_session_missing_no_such_file() {
         assert!(TmuxTool::is_session_missing(
@@ -330,6 +337,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_missing_action() {
+        if !tmux_available() {
+            return;
+        }
         let tool = TmuxTool::new();
         let result = tool
             .execute(serde_json::json!({}), &ExecutionContext::default())
@@ -339,6 +349,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_unknown_action() {
+        if !tmux_available() {
+            return;
+        }
         let tool = TmuxTool::new();
         let result = tool
             .execute(
@@ -353,6 +366,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_missing_session_name() {
+        if !tmux_available() {
+            return;
+        }
         let tool = TmuxTool::new();
         let result = tool
             .execute(
@@ -365,6 +381,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_missing_command() {
+        if !tmux_available() {
+            return;
+        }
         let tool = TmuxTool::new();
         let result = tool
             .execute(
@@ -377,6 +396,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_missing_session_name() {
+        if !tmux_available() {
+            return;
+        }
         let tool = TmuxTool::new();
         let result = tool
             .execute(

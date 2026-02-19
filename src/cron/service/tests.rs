@@ -100,9 +100,11 @@ fn test_detect_system_timezone() {
     // Should succeed on any standard Linux/macOS system
     assert!(tz.is_some(), "should detect system timezone");
     let tz = tz.unwrap();
+    // IANA timezones are usually Area/City (e.g. "America/New_York"),
+    // but some systems (especially CI runners) return "UTC" or "GMT".
     assert!(
-        tz.contains('/'),
-        "timezone should be IANA format like Area/City, got: {}",
+        tz.contains('/') || tz == "UTC" || tz == "GMT",
+        "timezone should be IANA format, got: {}",
         tz
     );
 }

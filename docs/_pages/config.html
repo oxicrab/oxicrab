@@ -570,7 +570,7 @@ max_width: 820px
     <!-- SANDBOX -->
     <div id="sandbox" class="cfg-section">
         <h2>Sandbox</h2>
-        <p>Kernel-enforced filesystem and network restrictions via Linux Landlock LSM. Applied to both shell commands (<code>tools.exec.sandbox</code>) and MCP server child processes (<code>tools.mcp.servers.*.sandbox</code>). Graceful no-op on non-Linux or unsupported kernels.</p>
+        <p>Kernel-enforced filesystem and network restrictions applied to both shell commands (<code>tools.exec.sandbox</code>) and MCP server child processes (<code>tools.mcp.servers.*.sandbox</code>). On <strong>Linux</strong>, uses Landlock LSM. On <strong>macOS</strong>, uses Seatbelt (<code>sandbox_init</code>). Graceful no-op on unsupported platforms or older Linux kernels.</p>
 
         <pre><code>{
   "tools": {
@@ -587,13 +587,15 @@ max_width: 820px
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
-            <tr><td>enabled</td><td>bool</td><td>true</td><td>Enable Landlock filesystem/network sandboxing</td></tr>
+            <tr><td>enabled</td><td>bool</td><td>true</td><td>Enable kernel-level process sandboxing (Landlock on Linux, Seatbelt on macOS)</td></tr>
             <tr><td>additionalReadPaths</td><td>string[]</td><td>[]</td><td>Extra paths to grant read-only access (beyond <code>/usr</code>, <code>/lib</code>, <code>/lib64</code>, <code>/bin</code>, <code>/sbin</code>, <code>/etc</code>)</td></tr>
             <tr><td>additionalWritePaths</td><td>string[]</td><td>[]</td><td>Extra paths to grant read-write access (beyond workspace + <code>/tmp</code> + <code>/var/tmp</code>)</td></tr>
             <tr><td>blockNetwork</td><td>bool</td><td>true</td><td>Block all outbound TCP connections from shell commands</td></tr>
         </table>
 
-        <p>Default access grants: system dirs (<code>/usr</code>, <code>/lib</code>, <code>/lib64</code>, <code>/bin</code>, <code>/sbin</code>, <code>/etc</code>) are read-only. The workspace directory, <code>/tmp</code>, and <code>/var/tmp</code> are read-write. All other filesystem access and network connections are denied. Use <code>oxicrab doctor</code> to check Landlock availability on your system.</p>
+        <p><strong>Linux (Landlock):</strong> Default read-only: <code>/usr</code>, <code>/lib</code>, <code>/lib64</code>, <code>/bin</code>, <code>/sbin</code>, <code>/etc</code>. Default read-write: workspace dir, <code>/tmp</code>, <code>/var/tmp</code>. Degrades gracefully on older kernels via BestEffort mode.</p>
+        <p><strong>macOS (Seatbelt):</strong> Same default paths plus macOS-specific system paths (<code>/System</code>, <code>/Library</code>, <code>/opt/homebrew</code>, <code>/usr/local</code>) for read-only, and symlink targets (<code>/private/tmp</code>, <code>/private/var/folders</code>) for read-write. Also grants process execution, Mach IPC, and signal operations required for child processes.</p>
+        <p>All other filesystem access and network connections are denied. Use <code>oxicrab doctor</code> to check sandbox availability on your system.</p>
     </div>
 
     <!-- CHANNELS -->

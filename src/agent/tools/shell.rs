@@ -33,6 +33,11 @@ impl ExecTool {
         let deny_patterns = compile_security_patterns()
             .context("Failed to compile security patterns for exec tool")?;
 
+        // Canonicalize working_dir to resolve symlinks (e.g. /var → /private/var on macOS).
+        // This ensures the workspace comparison in guard_command() uses resolved paths
+        // on both sides, since cwd is also canonicalized at execution time.
+        let working_dir = working_dir.map(|p| p.canonicalize().unwrap_or(p));
+
         Ok(Self {
             timeout,
             working_dir,

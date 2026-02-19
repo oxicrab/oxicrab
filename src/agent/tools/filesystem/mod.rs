@@ -9,14 +9,24 @@ use tracing::warn;
 /// Maximum file size that `read_file` will load (10 MB).
 const MAX_READ_BYTES: u64 = 10 * 1024 * 1024;
 
+fn resolve_path(file_path: &Path) -> PathBuf {
+    // Use canonicalize if the path exists (resolves symlinks).
+    // For non-existent paths (e.g. write to new file), try to canonicalize
+    // the parent directory (to resolve symlinks like /var → /private/var on
+    // macOS) and append the filename. Final fallback: lexical normalization.
+    file_path.canonicalize().unwrap_or_else(|_| {
+        if let (Some(parent), Some(file_name)) = (file_path.parent(), file_path.file_name())
+            && let Ok(parent_resolved) = parent.canonicalize()
+        {
+            return parent_resolved.join(file_name);
+        }
+        crate::agent::tools::shell::lexical_normalize(file_path)
+    })
+}
+
 fn check_path_allowed(file_path: &Path, allowed_roots: Option<&Vec<PathBuf>>) -> Result<()> {
     if let Some(roots) = allowed_roots {
-        // Use canonicalize if the path exists (resolves symlinks).
-        // For non-existent paths (e.g. write to new file), use lexical
-        // normalization to prevent `..` traversal attacks.
-        let resolved = file_path
-            .canonicalize()
-            .unwrap_or_else(|_| crate::agent::tools::shell::lexical_normalize(file_path));
+        let resolved = resolve_path(file_path);
         for root in roots {
             if let Ok(root_resolved) = root.canonicalize()
                 && (resolved == root_resolved || resolved.starts_with(&root_resolved))
@@ -44,10 +54,8 @@ fn check_path_allowed(file_path: &Path, allowed_roots: Option<&Vec<PathBuf>>) ->
 /// conditions between path validation and file operations. Returns the Dir
 /// handle and the relative path from root to target.
 fn open_confined(target: &Path, allowed_roots: &[PathBuf]) -> Result<(cap_std::fs::Dir, PathBuf)> {
-    // Resolve the target path: canonicalize for existing paths, lexical normalize otherwise
-    let resolved = target
-        .canonicalize()
-        .unwrap_or_else(|_| crate::agent::tools::shell::lexical_normalize(target));
+    // Resolve the target path: canonicalize for existing paths, resolve parent for new files
+    let resolved = resolve_path(target);
 
     for root in allowed_roots {
         let Ok(root_resolved) = root.canonicalize() else {
