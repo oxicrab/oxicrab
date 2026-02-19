@@ -410,7 +410,7 @@ async fn gateway(model: Option<String>) -> Result<()> {
         warn!("provider warmup failed (non-fatal): {}", e);
     }
 
-    let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) = setup_message_bus()?;
+    let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) = setup_message_bus(&config)?;
     let cron = setup_cron_service()?;
     // Create typing indicator channel
     let (typing_tx, typing_rx) = tokio::sync::mpsc::channel::<(String, String)>(100);
@@ -499,9 +499,20 @@ type MessageBusSetup = (
     Arc<Mutex<MessageBus>>,
 );
 
-fn setup_message_bus() -> Result<MessageBusSetup> {
+fn setup_message_bus(config: &Config) -> Result<MessageBusSetup> {
     debug!("Creating message bus...");
     let mut bus = MessageBus::default();
+
+    // Register known secrets so the leak detector can find encoded variants
+    let secrets = config.collect_secrets();
+    if !secrets.is_empty() {
+        debug!(
+            "registering {} known secrets with leak detector",
+            secrets.len()
+        );
+        bus.add_known_secrets(&secrets);
+    }
+
     let inbound_tx = bus.inbound_tx.clone();
     let outbound_tx = Arc::new(bus.outbound_tx.clone());
     let outbound_rx = bus
@@ -867,7 +878,11 @@ async fn agent(message: Option<String>, session: String) -> Result<()> {
 
     let provider = config.create_provider(None).await?;
 
-    let bus = MessageBus::default();
+    let mut bus = MessageBus::default();
+    let secrets = config.collect_secrets();
+    if !secrets.is_empty() {
+        bus.add_known_secrets(&secrets);
+    }
     let outbound_tx = Arc::new(bus.outbound_tx.clone());
     let bus_for_agent = Arc::new(Mutex::new(bus));
 

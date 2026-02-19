@@ -129,7 +129,7 @@ JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in 
 
 ### CostGuard (`src/agent/cost_guard.rs`)
 
-Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowed()` blocks if daily budget exceeded or hourly rate limit hit. `record_llm_call()` updates counters after each LLM call. Embedded `pricing_data.json` covers 50+ models; config overrides via `agents.defaults.costGuard.modelCosts`. Daily budget resets at midnight UTC. AtomicBool fast-path skips mutex when budget already exceeded. Config fields (all optional): `dailyBudgetCents` (u64), `maxActionsPerHour` (u64), `modelCosts` (HashMap of prefix → {input_per_million, output_per_million}).
+Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowed()` blocks if daily budget exceeded or hourly rate limit hit. `record_llm_call()` updates counters after each LLM call. Embedded `pricing_data.json` covers 34 models; config overrides via `agents.defaults.costGuard.modelCosts`. Daily budget resets at midnight UTC. AtomicBool fast-path skips mutex when budget already exceeded. Config fields (all optional): `dailyBudgetCents` (u64), `maxActionsPerHour` (u64), `modelCosts` (HashMap of prefix → {input_per_million, output_per_million}).
 
 ### Circuit Breaker (`src/providers/circuit_breaker.rs`)
 
@@ -143,7 +143,7 @@ Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowe
 
 `oxicrab doctor` — system diagnostics command. Checks: config exists/parses/validates, workspace writable, provider API keys configured, provider connectivity (warmup with latency), per-channel status (compiled + enabled + tokens), voice transcription backends, external tools (ffmpeg, git), MCP servers. Includes security audit: config file permissions, directory permissions, empty allowlists, pairing store status. Output: PASS/FAIL/SKIP per check with summary counts. Returns exit code 1 if config file missing.
 
-### Credential Registry (`src/config/credentials.rs`)
+### Credential Registry (`src/config/credentials/mod.rs`)
 
 Unified credential management via `define_credentials!` macro. Adding a new credential = one line in the macro. All backends (env vars, keyring, credential helper) are generated from a single declarative table of 28 credential slots. Resolution order: env var → credential helper → keyring → config.json.
 
@@ -155,11 +155,11 @@ Unified credential management via `define_credentials!` macro. Adding a new cred
 
 ### Security Hardening
 
-- **Credential backends** (`src/config/credentials.rs`): Three-tier credential resolution (env > helper > keyring > config.json). All 28 credential slots covered by `OXICRAB_*` env vars. OS keychain via `keyring` crate (optional, `keyring-store` feature). External helper protocol supports 1Password (`op`), Bitwarden (`bw`), and custom scripts.
+- **Credential backends** (`src/config/credentials/mod.rs`): Three-tier credential resolution (env > helper > keyring > config.json). All 28 credential slots covered by `OXICRAB_*` env vars. OS keychain via `keyring` crate (optional, `keyring-store` feature). External helper protocol supports 1Password (`op`), Bitwarden (`bw`), and custom scripts.
 - **Default-deny allowlists** (`src/channels/utils.rs`): Empty `allowFrom` arrays now deny all senders. Use `["*"]` for open access.
 - **DM policy** (`src/channels/utils.rs`): Per-channel `dmPolicy` field controls access for unknown senders: `"allowlist"` (default, silent deny), `"pairing"` (send pairing code), `"open"` (allow all). `check_dm_access()` returns `DmCheckResult` (Allowed/Denied/PairingRequired). Each channel handles pairing replies natively (Telegram sends message, Discord sends ephemeral response, Slack posts via API, Twilio returns TwiML, WhatsApp logs the code).
 - **DM pairing** (`src/pairing/mod.rs`): `PairingStore` provides file-backed per-channel allowlists at `~/.oxicrab/pairing/`. 8-char human-friendly codes with 15-min TTL. Per-client lockout tracking (`HashMap<String, Vec<u64>>`) prevents brute-force code guessing with bounded map (1000 clients max). CLI: `oxicrab pairing list|approve|revoke`.
-- **Leak detection** (`src/safety/leak_detector.rs`): `LeakDetector` scans outbound messages for API key patterns (Anthropic, OpenAI, Slack, GitHub, Groq, Telegram, Discord). Three-encoding scanning: plaintext patterns, base64-decoded candidates (20+ chars), and hex-decoded candidates (40+ chars). `add_known_secrets()` registers actual config secret values for exact-match detection across all three encodings. `MessageBus::add_known_secrets()` passes provider API keys at startup. Integrated into `MessageBus::publish_outbound()` — redacts before sending.
+- **Leak detection** (`src/safety/leak_detector.rs`): `LeakDetector` scans outbound messages for API key patterns (Anthropic, OpenAI, Slack, GitHub, Groq, Telegram, Discord). Three-encoding scanning: plaintext patterns, base64-decoded candidates (20+ chars), and hex-decoded candidates (40+ chars). `add_known_secrets()` registers actual config secret values for exact-match detection across all three encodings. `Config::collect_secrets()` gathers all non-empty API keys and tokens; `setup_message_bus()` passes them to the leak detector at startup via `add_known_secrets()`. Integrated into `MessageBus::publish_outbound()` — redacts before sending.
 - **DNS rebinding defense** (`src/utils/url_security/mod.rs`): `validate_and_resolve()` resolves DNS and returns `ResolvedUrl` with pinned `SocketAddr`s. Callers (http, web_fetch tools) build one-shot reqwest clients with `.resolve()` to pin DNS, preventing TOCTOU rebinding attacks where DNS returns a different IP between validation and fetch.
 - **Exfiltration guard** (`src/config/schema.rs`): `ExfiltrationGuardConfig` with `enabled` (default false) and `blockedTools` (default: http, web_fetch, browser). When enabled, blocked tools are filtered from `tools_defs` before sending to the LLM, AND blocked at dispatch time in `execute_tool_call()`. Config under `tools.exfiltrationGuard`.
 - **Prompt injection detection** (`src/safety/prompt_guard.rs`): `PromptGuard` with regex patterns across 4 categories: role switching, instruction override, secret extraction, jailbreak. Scans user messages in `process_message_unlocked()` (configurable: warn or block) and tool output in `run_agent_loop()` (warn only). Config under `agents.defaults.promptGuard` with `enabled` (default false) and `action` ("warn" or "block").
@@ -236,4 +236,4 @@ Do **not** use `#[path = "foo_tests.rs"]` — this was previously used in 4 modu
 - **Cron 5-field expressions**: `compute_next_run()` normalizes by prepending "0 " for the seconds field.
 - **No `#[allow(dead_code)]`**: Do not add `#[allow(dead_code)]` or `#![allow(dead_code)]` anywhere. If code is unused, remove it. CI runs `clippy -D warnings` which catches dead code.
 - **Empty `allowFrom` is now deny-all**: Channels with empty `allowFrom` will reject all senders. Add `["*"]` for the old behavior, set `"dmPolicy": "pairing"` to let unknown senders request access, or set `"dmPolicy": "open"` to allow everyone.
-- **Adding a new credential**: Add one line to `define_credentials!` in `src/config/credentials.rs`. This auto-generates env var override, keyring access, credential helper lookup, CLI listing, and source detection.
+- **Adding a new credential**: Add one line to `define_credentials!` in `src/config/credentials/mod.rs`. This auto-generates env var override, keyring access, credential helper lookup, CLI listing, and source detection.

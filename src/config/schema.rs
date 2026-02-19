@@ -1546,6 +1546,50 @@ impl Config {
         self.providers.get_api_key(model)
     }
 
+    /// Collect all non-empty secret values for leak detection.
+    ///
+    /// Returns `(name, value)` pairs covering provider API keys, channel tokens,
+    /// and tool credentials. The leak detector uses these to scan outbound
+    /// messages for encoded variants (raw, base64, hex).
+    pub fn collect_secrets(&self) -> Vec<(&str, &str)> {
+        let mut secrets = Vec::new();
+        let candidates: &[(&str, &str)] = &[
+            ("anthropic_api_key", &self.providers.anthropic.api_key),
+            ("openai_api_key", &self.providers.openai.api_key),
+            ("openrouter_api_key", &self.providers.openrouter.api_key),
+            ("deepseek_api_key", &self.providers.deepseek.api_key),
+            ("groq_api_key", &self.providers.groq.api_key),
+            ("gemini_api_key", &self.providers.gemini.api_key),
+            ("moonshot_api_key", &self.providers.moonshot.api_key),
+            ("zhipu_api_key", &self.providers.zhipu.api_key),
+            ("dashscope_api_key", &self.providers.dashscope.api_key),
+            (
+                "anthropic_oauth_access",
+                &self.providers.anthropic_oauth.access_token,
+            ),
+            (
+                "anthropic_oauth_refresh",
+                &self.providers.anthropic_oauth.refresh_token,
+            ),
+            ("telegram_token", &self.channels.telegram.token),
+            ("discord_token", &self.channels.discord.token),
+            ("slack_bot_token", &self.channels.slack.bot_token),
+            ("slack_app_token", &self.channels.slack.app_token),
+            ("twilio_auth_token", &self.channels.twilio.auth_token),
+            ("github_token", &self.tools.github.token),
+            ("weather_api_key", &self.tools.weather.api_key),
+            ("todoist_token", &self.tools.todoist.token),
+            ("obsidian_api_key", &self.tools.obsidian.api_key),
+            ("web_search_api_key", &self.tools.web.search.api_key),
+        ];
+        for &(name, value) in candidates {
+            if !value.is_empty() {
+                secrets.push((name, value));
+            }
+        }
+        secrets
+    }
+
     /// Create an LLM provider instance based on configuration.
     ///
     /// Uses a strategy pattern to select the appropriate provider based on model name.
