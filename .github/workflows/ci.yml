@@ -65,20 +65,28 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+        env:
+          # Disable native CPU detection in whisper.cpp/ggml to avoid ARM i8mm build failures on macOS CI
+          GGML_NATIVE: ${{ runner.os == 'macOS' && 'OFF' || '' }}
 
       - name: Build
         run: cargo build --verbose
+        env:
+          GGML_NATIVE: ${{ runner.os == 'macOS' && 'OFF' || '' }}
 
       - name: Build without optional channels
         run: cargo build --no-default-features --verbose
 
       - name: Run unit tests
         run: cargo test --lib --verbose
+        env:
+          GGML_NATIVE: ${{ runner.os == 'macOS' && 'OFF' || '' }}
 
       - name: Run integration tests
         run: cargo test --test session_management --test cron_jobs --test tool_registry --test message_flow --test config_validation --test context_and_skills --test error_handling --test filesystem_tools --test memory_integration --test multi_turn_session --test shell_exec --test tool_context_caching --test compaction_integration --verbose -- --test-threads=1
         env:
           OXICRAB_HOME: ${{ runner.temp }}/oxicrab-test
+          GGML_NATIVE: ${{ runner.os == 'macOS' && 'OFF' || '' }}
 
       - name: Security audit
         if: matrix.name == 'linux'
