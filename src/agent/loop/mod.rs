@@ -27,6 +27,17 @@ use tracing::{debug, error, info, warn};
 const EMPTY_RESPONSE_RETRIES: usize = 2;
 const AGENT_POLL_INTERVAL_MS: u64 = 100;
 
+/// Per-invocation overrides for the agent loop. Allows callers (e.g. the daemon
+/// heartbeat) to use a different model or iteration cap without constructing a
+/// separate `AgentLoop`.
+#[derive(Default)]
+pub struct AgentRunOverrides {
+    /// Override the model used for LLM calls.
+    pub model: Option<String>,
+    /// Override the maximum number of iterations.
+    pub max_iterations: Option<usize>,
+}
+
 /// Extract media file paths from a tool result string.
 ///
 /// Looks for:
@@ -150,7 +161,7 @@ async fn execute_tool_call(
     }
 
     // Check if tool exists before delegating to registry
-    if registry.get(tc_name).is_none() {
+    let Some(tool) = registry.get(tc_name) else {
         warn!("LLM called unknown tool: {}", tc_name);
         return (
             format!(
@@ -160,12 +171,23 @@ async fn execute_tool_call(
             ),
             true,
         );
+    };
+
+    // Approval gate: block untrusted MCP tools
+    if tool.requires_approval() {
+        warn!("blocked untrusted MCP tool: {}", tc_name);
+        return (
+            format!(
+                "Error: tool '{}' is from an untrusted MCP server and requires approval. \
+                 Change the server's trust level to \"local\" in config to allow execution.",
+                tc_name
+            ),
+            true,
+        );
     }
 
     // Validate params against schema before execution
-    if let Some(tool) = registry.get(tc_name)
-        && let Some(validation_error) = validate_tool_params(tool.as_ref(), tc_args)
-    {
+    if let Some(validation_error) = validate_tool_params(tool.as_ref(), tc_args) {
         warn!(
             "Tool '{}' param validation failed: {}",
             tc_name, validation_error
@@ -1181,10 +1203,30 @@ impl AgentLoop {
     /// of media produced by tools (screenshots, downloaded images, etc.).
     async fn run_agent_loop(
         &self,
-        mut messages: Vec<Message>,
+        messages: Vec<Message>,
         typing_context: Option<(String, String)>,
         exec_ctx: &ExecutionContext,
     ) -> Result<(Option<String>, Option<u64>, Vec<String>, Vec<String>)> {
+        self.run_agent_loop_with_overrides(
+            messages,
+            typing_context,
+            exec_ctx,
+            &AgentRunOverrides::default(),
+        )
+        .await
+    }
+
+    /// Like [`run_agent_loop`](Self::run_agent_loop) but accepts per-invocation
+    /// overrides for model and `max_iterations`.
+    async fn run_agent_loop_with_overrides(
+        &self,
+        mut messages: Vec<Message>,
+        typing_context: Option<(String, String)>,
+        exec_ctx: &ExecutionContext,
+        overrides: &AgentRunOverrides,
+    ) -> Result<(Option<String>, Option<u64>, Vec<String>, Vec<String>)> {
+        let effective_model = overrides.model.as_deref().unwrap_or(&self.model);
+        let effective_max_iterations = overrides.max_iterations.unwrap_or(self.max_iterations);
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut any_tools_called = false;
         let mut tools_nudge_count: u32 = 0;
@@ -1246,14 +1288,14 @@ impl AgentLoop {
             );
         }
 
-        let wrapup_threshold = (self.max_iterations as f64 * 0.7).ceil() as usize;
+        let wrapup_threshold = (effective_max_iterations as f64 * 0.7).ceil() as usize;
 
-        for iteration in 1..=self.max_iterations {
+        for iteration in 1..=effective_max_iterations {
             // Inject wrap-up hint when approaching iteration limit
             if iteration == wrapup_threshold && any_tools_called {
                 messages.push(Message::system(format!(
                     "You have used {} of {} iterations. Begin wrapping up — summarize progress and deliver results.",
-                    iteration, self.max_iterations
+                    iteration, effective_max_iterations
                 )));
             }
 
@@ -1289,7 +1331,7 @@ impl AgentLoop {
                     crate::providers::base::ChatRequest {
                         messages: messages.clone(),
                         tools: Some(tools_defs.clone()),
-                        model: Some(&self.model),
+                        model: Some(effective_model),
                         max_tokens: self.max_tokens,
                         temperature: current_temp,
                         tool_choice,
@@ -1312,7 +1354,11 @@ impl AgentLoop {
 
             // Record cost for budget tracking
             if let Some(ref cg) = self.cost_guard {
-                cg.record_llm_call(&self.model, response.input_tokens, response.output_tokens);
+                cg.record_llm_call(
+                    effective_model,
+                    response.input_tokens,
+                    response.output_tokens,
+                );
             }
 
             if response.has_tool_calls() {
@@ -1585,7 +1631,7 @@ impl AgentLoop {
                     crate::providers::base::ChatRequest {
                         messages: messages.clone(),
                         tools: None,
-                        model: Some(&self.model),
+                        model: Some(effective_model),
                         max_tokens: self.max_tokens,
                         temperature: self.temperature,
                         tool_choice: None,
@@ -1799,6 +1845,26 @@ impl AgentLoop {
         channel: &str,
         chat_id: &str,
     ) -> Result<String> {
+        self.process_direct_with_overrides(
+            content,
+            session_key,
+            channel,
+            chat_id,
+            &AgentRunOverrides::default(),
+        )
+        .await
+    }
+
+    /// Like [`process_direct`](Self::process_direct) but accepts per-invocation
+    /// overrides for model and `max_iterations` (used by daemon heartbeats).
+    pub async fn process_direct_with_overrides(
+        &self,
+        content: &str,
+        session_key: &str,
+        channel: &str,
+        chat_id: &str,
+        overrides: &AgentRunOverrides,
+    ) -> Result<String> {
         let session = self.sessions.get_or_create(session_key).await?;
         let history = self.get_compacted_history(&session).await?;
 
@@ -1816,8 +1882,9 @@ impl AgentLoop {
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
         let exec_ctx = Self::build_execution_context(channel, chat_id, None);
-        let (response, _, tools_used, _collected_media) =
-            self.run_agent_loop(messages, typing_ctx, &exec_ctx).await?;
+        let (response, _, tools_used, _collected_media) = self
+            .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, overrides)
+            .await?;
         let response = response.unwrap_or_else(|| "No response generated.".to_string());
 
         let mut session = self.sessions.get_or_create(session_key).await?;

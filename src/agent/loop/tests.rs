@@ -567,6 +567,71 @@ async fn test_validation_rejects_before_execution() {
     assert!(result.contains("missing required parameter 'query'"));
 }
 
+// --- Approval gate tests ---
+
+/// A mock tool that requires approval (simulates an `AttenuatedMcpTool`).
+struct ApprovalRequiredTool;
+
+#[async_trait]
+impl Tool for ApprovalRequiredTool {
+    fn name(&self) -> &'static str {
+        "untrusted_mcp_tool"
+    }
+    fn description(&self) -> &'static str {
+        "mock untrusted tool"
+    }
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({})
+    }
+    async fn execute(
+        &self,
+        _params: serde_json::Value,
+        _ctx: &ExecutionContext,
+    ) -> anyhow::Result<ToolResult> {
+        Ok(ToolResult::new("should not reach here"))
+    }
+    fn requires_approval(&self) -> bool {
+        true
+    }
+}
+
+#[tokio::test]
+async fn test_requires_approval_blocks_execution() {
+    let registry = make_registry_with(vec![Arc::new(ApprovalRequiredTool)]);
+    let (result, is_error) = execute_tool_call(
+        &registry,
+        "untrusted_mcp_tool",
+        &serde_json::json!({}),
+        &empty_tools(),
+        &ExecutionContext::default(),
+        &[],
+    )
+    .await;
+    assert!(is_error);
+    assert!(result.contains("requires approval"));
+    assert!(result.contains("untrusted MCP server"));
+}
+
+#[tokio::test]
+async fn test_normal_tool_not_blocked_by_approval() {
+    let registry = make_registry_with(vec![Arc::new(MockTool {
+        tool_name: "safe_tool".into(),
+        delay_ms: 0,
+        response: "safe_result".into(),
+    })]);
+    let (result, is_error) = execute_tool_call(
+        &registry,
+        "safe_tool",
+        &serde_json::json!({}),
+        &empty_tools(),
+        &ExecutionContext::default(),
+        &[],
+    )
+    .await;
+    assert!(!is_error);
+    assert_eq!(result, "safe_result");
+}
+
 // --- Image loading tests ---
 
 // Minimal valid magic bytes for each format

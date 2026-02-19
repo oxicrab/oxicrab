@@ -656,15 +656,37 @@ fn setup_heartbeat(config: &Config, agent: &Arc<AgentLoop>) -> Arc<HeartbeatServ
         "  - Strategy file: {}",
         config.agents.defaults.daemon.strategy_file
     );
+
+    // Build daemon-specific overrides from config
+    let daemon_cfg = &config.agents.defaults.daemon;
+    let daemon_overrides = Arc::new(crate::agent::AgentRunOverrides {
+        model: daemon_cfg.execution_model.clone(),
+        max_iterations: Some(daemon_cfg.max_iterations),
+    });
+
+    if daemon_cfg.execution_model.is_some() {
+        info!(
+            "daemon will use model override: {}",
+            daemon_cfg.execution_model.as_deref().unwrap_or("(none)")
+        );
+    }
+    if daemon_cfg.execution_provider.is_some() {
+        warn!(
+            "daemon executionProvider is not yet supported and will be ignored; \
+             the default provider will be used"
+        );
+    }
+
     let agent_for_heartbeat = agent.clone();
     let heartbeat = HeartbeatService::new(
         config.workspace_path(),
         Some(Arc::new(move |prompt| {
             debug!("Heartbeat triggered with prompt: {}", prompt);
             let agent = agent_for_heartbeat.clone();
+            let overrides = daemon_overrides.clone();
             Box::pin(async move {
                 agent
-                    .process_direct(&prompt, "daemon", "cli", "direct")
+                    .process_direct_with_overrides(&prompt, "daemon", "cli", "direct", &overrides)
                     .await
             })
         })),

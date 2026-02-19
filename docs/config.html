@@ -450,15 +450,15 @@
         </table>
 
         <h3>Daemon</h3>
-        <p>Config path: <code>agents.defaults.daemon</code></p>
+        <p>Config path: <code>agents.defaults.daemon</code>. The daemon runs periodic heartbeat check-ins using the agent loop.</p>
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
             <tr><td>enabled</td><td>bool</td><td>true</td><td>Enable heartbeat/daemon service</td></tr>
             <tr><td>interval</td><td>u64</td><td>300</td><td>Seconds between daemon check-ins</td></tr>
-            <tr><td>executionModel</td><td>string?</td><td>null</td><td>Override model for daemon runs</td></tr>
-            <tr><td>executionProvider</td><td>string?</td><td>null</td><td>Override provider for daemon runs</td></tr>
+            <tr><td>executionModel</td><td>string?</td><td>null</td><td>Override model for daemon runs (e.g. use a cheaper model for heartbeats). Uses the default agent model when null.</td></tr>
+            <tr><td>executionProvider</td><td>string?</td><td>null</td><td>Override provider for daemon runs. <em>Not yet supported</em> &mdash; the default provider is always used. A warning is logged if set.</td></tr>
             <tr><td>strategyFile</td><td>string</td><td>HEARTBEAT.md</td><td>Workspace file defining daemon behavior</td></tr>
-            <tr><td>maxIterations</td><td>usize</td><td>25</td><td>Max agent loop iterations per daemon run</td></tr>
+            <tr><td>maxIterations</td><td>usize</td><td>25</td><td>Max agent loop iterations per daemon run (overrides the agent-level <code>maxToolIterations</code>)</td></tr>
         </table>
 
         <h3>Memory</h3>
