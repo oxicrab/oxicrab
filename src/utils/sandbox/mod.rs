@@ -223,7 +223,7 @@ pub fn apply_to_command(
     use std::ffi::{CStr, CString};
     use std::os::raw::{c_char, c_int};
 
-    extern "C" {
+    unsafe extern "C" {
         fn sandbox_init(profile: *const c_char, flags: u64, errorbuf: *mut *mut c_char) -> c_int;
         fn sandbox_free_error(errorbuf: *mut c_char);
     }
