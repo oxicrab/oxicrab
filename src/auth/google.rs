@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl, Scope,
-    TokenResponse, TokenUrl, basic::BasicClient,
+    AuthUrl, ClientId, ClientSecret, CsrfToken, RedirectUrl, Scope, TokenUrl, basic::BasicClient,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -201,36 +200,60 @@ pub async fn run_oauth_flow(
         }
     };
 
-    // Exchange code for token using oauth2 crate
-    let http_client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .context("Failed to build HTTP client for token exchange")?;
-    let token_result = client
-        .exchange_code(AuthorizationCode::new(code))
-        .request_async(&http_client)
-        .await
-        .map_err(|e| anyhow::anyhow!("Token exchange failed: {}", e))?;
+    // Exchange code for token via direct HTTP (avoids reqwest version coupling with oauth2 crate)
+    let http_client = reqwest::Client::new();
+    let mut params = HashMap::new();
+    params.insert("code", code);
+    params.insert("client_id", client_id.to_string());
+    params.insert("client_secret", client_secret.to_string());
+    params.insert("redirect_uri", format!("http://localhost:{}", port));
+    params.insert("grant_type", "authorization_code".to_string());
+
+    let response = http_client
+        .post("https://oauth2.googleapis.com/token")
+        .form(&params)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await?;
+        return Err(anyhow::anyhow!("Token exchange failed: {}", error_text));
+    }
+
+    let token_data: serde_json::Value = response.json().await?;
+
+    if let Some(_error) = token_data.get("error") {
+        let error_desc = token_data
+            .get("error_description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
+        return Err(anyhow::anyhow!("Token exchange failed: {}", error_desc));
+    }
+
+    let expiry = token_data
+        .get("expires_in")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|secs| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .ok()
+                .map(|now| now.as_secs() + secs)
+        });
 
     let creds = GoogleCredentials {
-        token: token_result.access_token().secret().clone(),
-        refresh_token: token_result.refresh_token().map(|rt| rt.secret().clone()),
+        token: token_data["access_token"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing access_token"))?
+            .to_string(),
+        refresh_token: token_data
+            .get("refresh_token")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
         token_uri: "https://oauth2.googleapis.com/token".to_string(),
         client_id: client_id.to_string(),
         client_secret: client_secret.to_string(),
-        scopes: token_result
-            .scopes()
-            .map(|s| s.iter().map(|scope| scope.to_string()).collect::<Vec<_>>())
-            .unwrap_or_default(),
-        expiry: token_result
-            .expires_in()
-            .map(|d: std::time::Duration| d.as_secs())
-            .and_then(|secs| {
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .ok()
-                    .map(|now| now.as_secs() + secs)
-            }),
+        scopes: scopes.iter().map(ToString::to_string).collect(),
+        expiry,
     };
 
     save_credentials(&creds, &token_path)?;
