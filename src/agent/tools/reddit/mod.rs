@@ -94,7 +94,7 @@ impl RedditTool {
                     String::new()
                 } else {
                     let truncated: String = selftext.chars().take(150).collect();
-                    if truncated.len() < selftext.len() {
+                    if selftext.chars().count() > 150 {
                         format!("\n   {}...", truncated)
                     } else {
                         format!("\n   {}", truncated)

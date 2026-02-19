@@ -176,12 +176,14 @@ impl SessionManager {
         let mut metadata = HashMap::new();
         let mut created_at = None;
 
-        // Derive session key from filename (strip .jsonl extension)
-        let key = path
+        // Derive session key from filename as fallback; prefer the key stored
+        // in the metadata line (added in v0.11+) for round-trip fidelity.
+        let fallback_key = path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_string();
+        let mut key = fallback_key;
 
         for line in content.lines() {
             let line = line.trim();
@@ -193,6 +195,9 @@ impl SessionManager {
                 serde_json::from_str(line).with_context(|| "Failed to parse session JSON line")?;
 
             if data.get("_type") == Some(&Value::String("metadata".to_string())) {
+                if let Some(stored_key) = data.get("key").and_then(|v| v.as_str()) {
+                    key = stored_key.to_string();
+                }
                 if let Some(meta) = data.get("metadata").and_then(|v| v.as_object()) {
                     for (k, v) in meta {
                         metadata.insert(k.clone(), v.clone());
@@ -315,9 +320,10 @@ impl SessionManager {
 
         let mut content = String::new();
 
-        // Write metadata line
+        // Write metadata line (includes original key for round-trip fidelity)
         let metadata_line = serde_json::json!({
             "_type": "metadata",
+            "key": session.key,
             "created_at": session.created_at.to_rfc3339(),
             "updated_at": session.updated_at.to_rfc3339(),
             "metadata": session.metadata,

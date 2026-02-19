@@ -169,7 +169,10 @@ pub fn format_pairing_reply(channel: &str, sender_id: &str, code: &str) -> Strin
 ))]
 pub fn exponential_backoff_delay(attempt: u32, base_delay_secs: u64, max_delay_secs: u64) -> u64 {
     let delay = (base_delay_secs as f64 * 2.0_f64.powi(attempt as i32)) as u64;
-    delay.min(max_delay_secs)
+    let capped = delay.min(max_delay_secs);
+    // Add up to 25% jitter to avoid thundering herd
+    let jitter = (capped as f64 * 0.25 * fastrand::f64()) as u64;
+    capped + jitter
 }
 
 #[cfg(test)]
@@ -334,20 +337,34 @@ mod tests {
 
     #[test]
     fn test_backoff_first_attempt() {
-        assert_eq!(exponential_backoff_delay(0, 1, 60), 1);
+        let d = exponential_backoff_delay(0, 1, 60);
+        assert!((1..=2).contains(&d), "expected 1..=2, got {d}");
     }
 
     #[test]
     fn test_backoff_grows_exponentially() {
-        assert_eq!(exponential_backoff_delay(0, 2, 120), 2);
-        assert_eq!(exponential_backoff_delay(1, 2, 120), 4);
-        assert_eq!(exponential_backoff_delay(2, 2, 120), 8);
-        assert_eq!(exponential_backoff_delay(3, 2, 120), 16);
+        // Each attempt should be >= base * 2^attempt (jitter adds up to 25%)
+        let d0 = exponential_backoff_delay(0, 2, 120);
+        assert!((2..=3).contains(&d0), "attempt 0: expected 2..=3, got {d0}");
+        let d1 = exponential_backoff_delay(1, 2, 120);
+        assert!((4..=5).contains(&d1), "attempt 1: expected 4..=5, got {d1}");
+        let d2 = exponential_backoff_delay(2, 2, 120);
+        assert!(
+            (8..=10).contains(&d2),
+            "attempt 2: expected 8..=10, got {d2}"
+        );
+        let d3 = exponential_backoff_delay(3, 2, 120);
+        assert!(
+            (16..=20).contains(&d3),
+            "attempt 3: expected 16..=20, got {d3}"
+        );
     }
 
     #[test]
     fn test_backoff_capped_at_max() {
-        assert_eq!(exponential_backoff_delay(10, 2, 60), 60);
-        assert_eq!(exponential_backoff_delay(20, 2, 60), 60);
+        let d = exponential_backoff_delay(10, 2, 60);
+        assert!((60..=75).contains(&d), "expected 60..=75, got {d}");
+        let d = exponential_backoff_delay(20, 2, 60);
+        assert!((60..=75).contains(&d), "expected 60..=75, got {d}");
     }
 }

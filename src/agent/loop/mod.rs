@@ -660,7 +660,7 @@ pub struct AgentLoop {
     max_tokens: u32,
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     transcriber: Option<Arc<crate::utils::transcription::TranscriptionService>>,
-    event_matcher: Option<EventMatcher>,
+    event_matcher: Option<std::sync::Mutex<EventMatcher>>,
     cron_service: Option<Arc<CronService>>,
     cost_guard: Option<CostGuard>,
     /// Most recent checkpoint summary (updated periodically during long loops)
@@ -834,7 +834,7 @@ impl AgentLoop {
                                 ))
                                 .count()
                         );
-                        Some(matcher)
+                        Some(std::sync::Mutex::new(matcher))
                     }
                 }
                 Err(e) => {
@@ -1002,11 +1002,14 @@ impl AgentLoop {
         info!("Processing message from {}:{}", msg.channel, msg.sender_id);
 
         // Check for event-triggered cron jobs in the background
-        if let (Some(matcher), Some(cron_svc)) = (&self.event_matcher, &self.cron_service) {
+        if let (Some(matcher_mutex), Some(cron_svc)) = (&self.event_matcher, &self.cron_service) {
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as i64);
-            let triggered = matcher.check_message(&msg.content, &msg.channel, now_ms);
+            let triggered = matcher_mutex
+                .lock()
+                .map(|mut matcher| matcher.check_message(&msg.content, &msg.channel, now_ms))
+                .unwrap_or_default();
             for job in triggered {
                 let cron_svc = cron_svc.clone();
                 let job_id = job.id.clone();

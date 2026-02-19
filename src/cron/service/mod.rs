@@ -293,7 +293,7 @@ impl CronService {
                             job.state.last_run_at_ms = Some(now);
                             job.state.last_status = Some("running".to_string());
                             job.state.last_error = None;
-                            job.state.run_count += 1;
+                            job.state.run_count = job.state.run_count.saturating_add(1);
                             job.state.next_run_at_ms =
                                 compute_next_run_with_last(&job.schedule, now, Some(now));
                             job.updated_at_ms = now;
@@ -570,7 +570,7 @@ impl CronService {
                         if j.id == job_id {
                             j.state.last_run_at_ms = Some(now);
                             j.state.last_status = Some("success".to_string());
-                            j.state.run_count += 1;
+                            j.state.run_count = j.state.run_count.saturating_add(1);
                             j.state.next_run_at_ms =
                                 compute_next_run_with_last(&j.schedule, now, Some(now));
                             j.updated_at_ms = now;

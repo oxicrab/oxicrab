@@ -20,6 +20,7 @@ pub struct MemoryIndexer {
     archive_after_days: u32,
     purge_after_days: u32,
     embedding_service: Option<Arc<EmbeddingService>>,
+    indexing_in_progress: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl MemoryIndexer {
@@ -33,6 +34,7 @@ impl MemoryIndexer {
             archive_after_days: 30,
             purge_after_days: 90,
             embedding_service: None,
+            indexing_in_progress: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -52,6 +54,7 @@ impl MemoryIndexer {
             archive_after_days,
             purge_after_days,
             embedding_service: None,
+            indexing_in_progress: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -72,6 +75,7 @@ impl MemoryIndexer {
             archive_after_days,
             purge_after_days,
             embedding_service,
+            indexing_in_progress: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -274,13 +278,29 @@ impl MemoryIndexer {
         }
     }
 
-    /// Trigger immediate indexing (non-blocking)
+    /// Trigger immediate indexing (non-blocking).
+    /// Skips if an indexing task is already in progress.
     pub fn trigger_index(&self) {
+        if self
+            .indexing_in_progress
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            debug!("indexing already in progress, skipping trigger");
+            return;
+        }
         let db = self.db.clone();
         let memory_dir = self.memory_dir.clone();
         let embedding_service = self.embedding_service.clone();
+        let flag = self.indexing_in_progress.clone();
         tokio::spawn(async move {
             Self::index_memory_files(&db, &memory_dir, embedding_service.as_ref()).await;
+            flag.store(false, std::sync::atomic::Ordering::Release);
         });
     }
 }

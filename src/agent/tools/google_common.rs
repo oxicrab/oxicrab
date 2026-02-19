@@ -50,12 +50,24 @@ impl GoogleApiClient {
             let retry_response = self
                 .send_request(&url, method, &new_token, body.as_ref())
                 .await?;
-            let data: Value = retry_response.error_for_status()?.json().await?;
-            return Ok(data);
+            return Self::parse_response(retry_response).await;
         }
 
-        let data: Value = response.error_for_status()?.json().await?;
-        Ok(data)
+        Self::parse_response(response).await
+    }
+
+    /// Parse a Google API response, handling empty bodies (e.g. 204 No Content from DELETE).
+    async fn parse_response(response: reqwest::Response) -> Result<Value> {
+        let resp = response.error_for_status()?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::NO_CONTENT {
+            return Ok(Value::Null);
+        }
+        let text = resp.text().await?;
+        if text.is_empty() {
+            return Ok(Value::Null);
+        }
+        Ok(serde_json::from_str(&text)?)
     }
 
     async fn send_request(

@@ -249,7 +249,12 @@ impl LLMProvider for OpenAIProvider {
                     .collect::<Vec<_>>()
             );
             if let Some(ref choice) = req.tool_choice {
-                payload["tool_choice"] = json!(choice);
+                // Map Anthropic-style "any" to OpenAI's "required"
+                let mapped = match choice.as_str() {
+                    "any" => "required",
+                    other => other,
+                };
+                payload["tool_choice"] = json!(mapped);
             }
         }
 

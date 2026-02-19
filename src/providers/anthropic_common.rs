@@ -150,9 +150,8 @@ pub fn parse_response(json: &Value) -> LLMResponse {
                     });
                 }
                 Some("thinking") => {
-                    reasoning_content = block["thinking"]
-                        .as_str()
-                        .map(std::string::ToString::to_string);
+                    reasoning_content =
+                        block["text"].as_str().map(std::string::ToString::to_string);
                 }
                 _ => {}
             }

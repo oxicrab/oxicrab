@@ -504,8 +504,11 @@ impl BaseChannel for WhatsAppChannel {
             msg.content.len()
         );
 
-        let client_guard = self.client.lock().await;
-        if let Some(client) = client_guard.as_ref() {
+        let client_arc = {
+            let guard = self.client.lock().await;
+            guard.clone()
+        };
+        if let Some(client) = client_arc.as_ref() {
             // Process any queued messages first
             let mut queue = self.message_queue.lock().await;
             let queued = queue.drain(..).collect::<Vec<_>>();

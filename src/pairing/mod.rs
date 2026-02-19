@@ -32,6 +32,13 @@ struct PendingData {
     requests: Vec<PendingRequest>,
 }
 
+/// Persisted failed approval attempts for brute-force lockout.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct FailedAttemptsData {
+    /// Map from `client_id` → list of attempt timestamps (unix secs)
+    clients: HashMap<String, Vec<u64>>,
+}
+
 pub struct PairingStore {
     base_dir: PathBuf,
     allowlists: HashMap<String, AllowlistData>,
@@ -76,6 +83,21 @@ impl PairingStore {
             self.pending = serde_json::from_str(&content).unwrap_or_default();
         }
 
+        // Load persisted failed attempts for brute-force lockout
+        let failed_path = self.base_dir.join("failed-attempts.json");
+        if failed_path.exists()
+            && let Ok(content) = std::fs::read_to_string(&failed_path)
+            && let Ok(data) = serde_json::from_str::<FailedAttemptsData>(&content)
+        {
+            self.failed_attempts = data.clients;
+            // Prune expired entries on load
+            let now = Self::now_secs();
+            self.failed_attempts.retain(|_, ts| {
+                ts.retain(|&t| now.saturating_sub(t) < FAILED_ATTEMPT_WINDOW_SECS);
+                !ts.is_empty()
+            });
+        }
+
         // Load per-channel allowlists
         for entry in std::fs::read_dir(&self.base_dir)? {
             let entry = entry?;
@@ -93,6 +115,16 @@ impl PairingStore {
     fn save_pending(&self) -> Result<()> {
         let path = self.base_dir.join("pending.json");
         let content = serde_json::to_string_pretty(&self.pending)?;
+        crate::utils::atomic_write(&path, &content)?;
+        Ok(())
+    }
+
+    fn save_failed_attempts(&self) -> Result<()> {
+        let path = self.base_dir.join("failed-attempts.json");
+        let data = FailedAttemptsData {
+            clients: self.failed_attempts.clone(),
+        };
+        let content = serde_json::to_string(&data)?;
         crate::utils::atomic_write(&path, &content)?;
         Ok(())
     }
@@ -212,6 +244,10 @@ impl PairingStore {
                 .entry(client_id.to_string())
                 .or_default()
                 .push(now);
+            // Persist so lockout survives PairingStore recreation
+            if let Err(e) = self.save_failed_attempts() {
+                warn!("failed to persist failed attempts: {}", e);
+            }
             return Ok(None);
         };
 

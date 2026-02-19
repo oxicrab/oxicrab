@@ -193,6 +193,9 @@ fn scrubbed_sync_command(program: &str) -> std::process::Command {
     cmd
 }
 
+/// Timeout for credential helper subprocesses (30 seconds).
+const HELPER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 fn run_helper_process(cmd: &str, args: &[String], stdin_data: Option<&str>) -> Result<String> {
     use std::io::Write;
     use std::process::Stdio;
@@ -214,7 +217,7 @@ fn run_helper_process(cmd: &str, args: &[String], stdin_data: Option<&str>) -> R
             // stdin is dropped here, sending EOF to child
         }
 
-        let output = child.wait_with_output()?;
+        let output = wait_with_timeout(child, HELPER_TIMEOUT, cmd)?;
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
         } else {
@@ -222,20 +225,44 @@ fn run_helper_process(cmd: &str, args: &[String], stdin_data: Option<&str>) -> R
             anyhow::bail!("exited with {}: {}", output.status, stderr.trim())
         }
     } else {
-        // No stdin needed — use output() which safely drains pipes concurrently
-        let output = scrubbed_sync_command(cmd)
+        // No stdin needed — spawn and wait with timeout
+        let child = scrubbed_sync_command(cmd)
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .output()
-            .with_context(|| format!("failed to run {cmd}"))?;
+            .spawn()
+            .with_context(|| format!("failed to spawn {cmd}"))?;
 
+        let output = wait_with_timeout(child, HELPER_TIMEOUT, cmd)?;
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
             anyhow::bail!("exited with {}: {}", output.status, stderr.trim())
+        }
+    }
+}
+
+/// Wait for a child process with a timeout. Kills the child if it exceeds the deadline.
+fn wait_with_timeout(
+    mut child: std::process::Child,
+    timeout: std::time::Duration,
+    cmd: &str,
+) -> Result<std::process::Output> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait()? {
+            Some(_status) => return child.wait_with_output().context("reading child output"),
+            None if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                anyhow::bail!(
+                    "credential helper '{cmd}' timed out after {}s",
+                    timeout.as_secs()
+                );
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(50)),
         }
     }
 }

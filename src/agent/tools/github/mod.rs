@@ -292,7 +292,7 @@ impl GitHubTool {
 
         // Truncate body
         let body_preview: String = body.chars().take(500).collect();
-        let body_truncated = if body_preview.len() < body.len() {
+        let body_truncated = if body.chars().count() > 500 {
             format!("{}...", body_preview)
         } else {
             body_preview
@@ -348,7 +348,7 @@ impl GitHubTool {
 
         // Truncate body
         let body_preview: String = body.chars().take(500).collect();
-        let body_truncated = if body_preview.len() < body.len() {
+        let body_truncated = if body.chars().count() > 500 {
             format!("{}...", body_preview)
         } else {
             body_preview
@@ -494,7 +494,7 @@ impl GitHubTool {
 
         // Truncate at 10k chars
         let truncated: String = text.chars().take(10_000).collect();
-        let suffix = if truncated.len() < text.len() {
+        let suffix = if text.chars().count() > 10_000 {
             "\n\n... (truncated)"
         } else {
             ""

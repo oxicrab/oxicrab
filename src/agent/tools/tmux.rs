@@ -7,7 +7,13 @@ use regex::Regex;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::LazyLock;
 use tracing::debug;
+
+/// Regex to validate tmux session names: only allow safe characters.
+/// Prevents injection via `:` (session:window separator) or `.` (window.pane separator).
+static SAFE_SESSION_NAME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap());
 
 const SOCKET_DIR: &str = "oxicrab-tmux-sockets";
 const SOCKET_NAME: &str = "oxicrab.sock";
@@ -129,6 +135,11 @@ impl Tool for TmuxTool {
                 let session_name = params["session_name"].as_str().ok_or_else(|| {
                     anyhow::anyhow!("Missing 'session_name' parameter for create")
                 })?;
+                if !SAFE_SESSION_NAME.is_match(session_name) {
+                    return Ok(ToolResult::error(
+                        "Error: session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
+                    ));
+                }
 
                 let (code, _stdout, stderr) = self
                     .run_tmux(&["new-session", "-d", "-s", session_name])
@@ -153,6 +164,11 @@ impl Tool for TmuxTool {
                 let session_name = params["session_name"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'session_name' parameter for send"))?;
+                if !SAFE_SESSION_NAME.is_match(session_name) {
+                    return Ok(ToolResult::error(
+                        "Error: session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
+                    ));
+                }
                 let command = params["command"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter for send"))?;
@@ -187,6 +203,11 @@ impl Tool for TmuxTool {
                 let session_name = params["session_name"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'session_name' parameter for read"))?;
+                if !SAFE_SESSION_NAME.is_match(session_name) {
+                    return Ok(ToolResult::error(
+                        "Error: session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
+                    ));
+                }
                 let lines = params["lines"].as_u64().unwrap_or(50) as i32;
 
                 self.ensure_session(session_name).await?;
@@ -242,6 +263,11 @@ impl Tool for TmuxTool {
                 let session_name = params["session_name"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'session_name' parameter for kill"))?;
+                if !SAFE_SESSION_NAME.is_match(session_name) {
+                    return Ok(ToolResult::error(
+                        "Error: session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
+                    ));
+                }
 
                 let (code, _, stderr) =
                     self.run_tmux(&["kill-session", "-t", session_name]).await?;

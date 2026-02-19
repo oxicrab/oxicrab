@@ -311,11 +311,11 @@ async fn run_subagent_inner(
                 })
                 .collect();
 
-            // Execute tools through the registry middleware pipeline (timeout,
-            // panic isolation, truncation, caching, logging).
-            let mut results = Vec::with_capacity(tool_lookups.len());
-            for (tc, tool_opt) in &tool_lookups {
-                results.push(
+            // Execute tools in parallel through the registry middleware pipeline
+            // (timeout, panic isolation, truncation, caching, logging).
+            let futs: Vec<_> = tool_lookups
+                .iter()
+                .map(|(tc, tool_opt)| {
                     execute_subagent_tool(
                         task_id,
                         &tc.name,
@@ -323,9 +323,9 @@ async fn run_subagent_inner(
                         &tools,
                         tool_opt.clone(),
                     )
-                    .await,
-                );
-            }
+                })
+                .collect();
+            let results = futures::future::join_all(futs).await;
 
             // Add all tool results to messages in order
             for ((tc, _), (result_str, is_error)) in tool_lookups.iter().zip(results.into_iter()) {

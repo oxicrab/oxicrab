@@ -544,12 +544,10 @@ impl BaseChannel for DiscordChannel {
                 .event_handler(handler)
                 .await
                 {
-                    Ok(mut client) => {
-                        reconnect_attempt = 0; // Reset on successful client creation
-                        if let Err(why) = client.start().await {
-                            error!("Discord client connection error: {:?}", why);
-                        }
-                    }
+                    Ok(mut client) => match client.start().await {
+                        Ok(()) => reconnect_attempt = 0,
+                        Err(why) => error!("Discord client connection error: {:?}", why),
+                    },
                     Err(e) => {
                         error!("Failed to create Discord client: {}", e);
                     }

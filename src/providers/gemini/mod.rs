@@ -121,9 +121,26 @@ impl LLMProvider for GeminiProvider {
                 system_parts.push(msg.content);
                 continue;
             }
+
+            if msg.role == "tool" {
+                // Gemini expects tool results as functionResponse parts
+                let tool_name = msg.tool_call_id.as_deref().unwrap_or("unknown");
+                let response_value: Value = serde_json::from_str(&msg.content)
+                    .unwrap_or_else(|_| json!({"result": msg.content}));
+                gemini_contents.push(json!({
+                    "role": "function",
+                    "parts": [{
+                        "functionResponse": {
+                            "name": tool_name,
+                            "response": response_value
+                        }
+                    }]
+                }));
+                continue;
+            }
+
             let role = match msg.role.as_str() {
                 "assistant" => "model",
-                "tool" => "function",
                 _ => "user",
             };
 

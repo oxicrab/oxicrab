@@ -63,7 +63,7 @@ impl LeakDetector {
             // Groq API keys
             ("groq_api_key", r"gsk_[a-zA-Z0-9]{20,200}"),
             // Telegram bot tokens
-            ("telegram_bot_token", r"[0-9]+:AA[A-Za-z0-9_\-]{33,}"),
+            ("telegram_bot_token", r"\b[0-9]+:AA[A-Za-z0-9_\-]{33,}"),
             // Discord bot tokens
             (
                 "discord_bot_token",
@@ -141,12 +141,15 @@ impl LeakDetector {
     fn scan_encoded(&self, text: &str) -> Vec<LeakMatch> {
         let mut matches = Vec::new();
 
-        // Scan base64 candidates
+        // Scan base64 candidates (try both standard and URL-safe decoders)
         for candidate in self.base64_candidate_re.find_iter(text) {
             let candidate_str = candidate.as_str();
-            if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(candidate_str)
-                && let Ok(decoded_str) = String::from_utf8(decoded)
-            {
+            let decoded_str = base64::engine::general_purpose::STANDARD
+                .decode(candidate_str)
+                .or_else(|_| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(candidate_str))
+                .ok()
+                .and_then(|bytes| String::from_utf8(bytes).ok());
+            if let Some(decoded_str) = decoded_str {
                 for pattern in &self.patterns {
                     if pattern.regex.is_match(&decoded_str) {
                         matches.push(LeakMatch {
@@ -215,14 +218,29 @@ impl LeakDetector {
     /// Redact any detected secrets in text, replacing them with `[REDACTED]`.
     pub fn redact(&self, text: &str) -> String {
         let mut result = text.to_string();
+        // Redact plaintext pattern matches
         for pattern in &self.patterns {
             result = pattern
                 .regex
                 .replace_all(&result, "[REDACTED]")
                 .into_owned();
         }
+        // Redact known secret exact matches (raw, base64, hex encodings)
         for ks in &self.known_secrets {
             result = ks.regex.replace_all(&result, "[REDACTED]").into_owned();
+        }
+        // Redact base64/hex-encoded blobs that decode to match generic patterns
+        // (covers cases where LLM encodes a secret to bypass plaintext detection)
+        let encoded_matches = self.scan_encoded(&result);
+        if !encoded_matches.is_empty() {
+            // Replace from end to start to preserve indices
+            let mut sorted = encoded_matches;
+            sorted.sort_by_key(|m| std::cmp::Reverse(m.start));
+            for m in sorted {
+                if m.start <= result.len() && m.end <= result.len() {
+                    result.replace_range(m.start..m.end, "[REDACTED]");
+                }
+            }
         }
         result
     }

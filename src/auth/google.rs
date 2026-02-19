@@ -175,10 +175,12 @@ pub async fn run_oauth_flow(
         )?)
         .set_redirect_uri(RedirectUrl::new(format!("http://localhost:{}", port))?);
 
-    let (auth_url, _csrf_token) = client
+    let (auth_url, csrf_token) = client
         .authorize_url(CsrfToken::new_random)
         .add_scopes(scopes.iter().map(|s| Scope::new(s.to_string())))
         .url();
+
+    let redirect_uri = format!("http://localhost:{}", port);
 
     if headless {
         return run_manual_flow(
@@ -187,16 +189,25 @@ pub async fn run_oauth_flow(
             &scopes,
             &token_path,
             auth_url.clone(),
+            &redirect_uri,
         )
         .await;
     }
 
     // Try browser flow to get auth code, fall back to manual if it fails
-    let code = match get_code_via_browser(auth_url.clone(), port).await {
+    let code = match get_code_via_browser(auth_url.clone(), port, csrf_token.secret()).await {
         Ok(code) => code,
         Err(e) => {
             warn!("Browser flow failed ({}), falling back to manual flow", e);
-            return run_manual_flow(client_id, client_secret, &scopes, &token_path, auth_url).await;
+            return run_manual_flow(
+                client_id,
+                client_secret,
+                &scopes,
+                &token_path,
+                auth_url,
+                &redirect_uri,
+            )
+            .await;
         }
     };
 
@@ -261,7 +272,11 @@ pub async fn run_oauth_flow(
     Ok(creds)
 }
 
-async fn get_code_via_browser(auth_url: url::Url, port: u16) -> Result<String> {
+async fn get_code_via_browser(
+    auth_url: url::Url,
+    port: u16,
+    expected_state: &str,
+) -> Result<String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
@@ -280,6 +295,16 @@ async fn get_code_via_browser(auth_url: url::Url, port: u16) -> Result<String> {
     let n = stream.read(&mut buffer).await?;
     let request = String::from_utf8_lossy(&buffer[..n]);
 
+    // Validate CSRF state parameter
+    let received_state = extract_param_from_request(&request, "state");
+    if received_state.as_deref() != Some(expected_state) {
+        let response = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n";
+        let _ = stream.write_all(response.as_bytes()).await;
+        return Err(anyhow::anyhow!(
+            "OAuth CSRF validation failed: state parameter mismatch"
+        ));
+    }
+
     // Extract code from request
     let code = extract_code_from_request(&request)?;
 
@@ -296,6 +321,7 @@ async fn run_manual_flow(
     scopes: &[&str],
     token_path: &Path,
     auth_url: url::Url,
+    redirect_uri: &str,
 ) -> Result<GoogleCredentials> {
     use std::io::{self, Write};
 
@@ -333,7 +359,7 @@ async fn run_manual_flow(
     params.insert("code", code);
     params.insert("client_id", client_id.to_string());
     params.insert("client_secret", client_secret.to_string());
-    params.insert("redirect_uri", "http://localhost".to_string());
+    params.insert("redirect_uri", redirect_uri.to_string());
     params.insert("grant_type", "authorization_code".to_string());
 
     let response = client
@@ -387,6 +413,23 @@ async fn run_manual_flow(
     info!("Google credentials saved to {}", token_path.display());
 
     Ok(creds)
+}
+
+fn extract_param_from_request(request: &str, param_name: &str) -> Option<String> {
+    let lines: Vec<&str> = request.lines().collect();
+    if let Some(first_line) = lines.first()
+        && let Some(path_part) = first_line.split_whitespace().nth(1)
+        && let Some(query_part) = path_part.split('?').nth(1)
+    {
+        for pair in query_part.split('&') {
+            if let Some((key, value)) = pair.split_once('=')
+                && key == param_name
+            {
+                return urlencoding::decode(value).ok().map(|v| v.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn extract_code_from_request(request: &str) -> Result<String> {

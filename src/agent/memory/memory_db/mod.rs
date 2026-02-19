@@ -27,19 +27,32 @@ pub struct MemoryDB {
 impl Clone for MemoryDB {
     fn clone(&self) -> Self {
         // Re-open a connection for clones (rare, needed for spawn_blocking patterns).
-        let new_conn = Connection::open(&self.db_path)
-            .expect("Failed to re-open DB for clone; path was valid at construction time");
-        new_conn
-            .execute_batch(
-                "PRAGMA journal_mode=WAL;
-                 PRAGMA synchronous=NORMAL;
-                 PRAGMA busy_timeout=3000;",
-            )
-            .expect("Failed to set PRAGMAs on cloned connection");
+        // Falls back to in-memory DB on failure to avoid panicking the process.
+        let (new_conn, has_fts) = match Connection::open(&self.db_path) {
+            Ok(conn) => {
+                let _ = conn.execute_batch(
+                    "PRAGMA journal_mode=WAL;
+                     PRAGMA synchronous=NORMAL;
+                     PRAGMA busy_timeout=3000;
+                     PRAGMA foreign_keys=ON;",
+                );
+                (conn, self.has_fts)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "failed to re-open DB at {} for clone: {} — using in-memory fallback",
+                    self.db_path,
+                    e
+                );
+                let conn =
+                    Connection::open_in_memory().expect("in-memory SQLite should always succeed");
+                (conn, false)
+            }
+        };
         Self {
             conn: std::sync::Mutex::new(new_conn),
             db_path: self.db_path.clone(),
-            has_fts: self.has_fts,
+            has_fts,
         }
     }
 }
@@ -61,7 +74,8 @@ impl MemoryDB {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
-             PRAGMA busy_timeout=3000;",
+             PRAGMA busy_timeout=3000;
+             PRAGMA foreign_keys=ON;",
         )?;
 
         let mut db = Self {
@@ -170,7 +184,7 @@ impl MemoryDB {
             .and_then(|m| {
                 m.modified().map(|t| {
                     t.duration_since(std::time::UNIX_EPOCH)
-                        .map_or(0, |d| d.as_nanos() as i64)
+                        .map_or(0, |d| d.as_millis().min(i64::MAX as u128) as i64)
                 })
             })
             .unwrap_or(0)
@@ -490,6 +504,13 @@ impl MemoryDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        // Explicitly delete embeddings (CASCADE requires PRAGMA foreign_keys=ON
+        // which may not have been set on older databases)
+        conn.execute(
+            "DELETE FROM memory_embeddings WHERE entry_id IN \
+             (SELECT id FROM memory_entries WHERE source_key = ?)",
+            [source_key],
+        )?;
         conn.execute(
             "DELETE FROM memory_entries WHERE source_key = ?",
             [source_key],

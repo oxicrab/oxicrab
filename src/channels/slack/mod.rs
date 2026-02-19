@@ -372,6 +372,7 @@ impl BaseChannel for SlackChannel {
                             "Connected to Slack Socket Mode (status: {})",
                             response.status()
                         );
+                        reconnect_attempt = 0;
                         let (mut write, mut read) = ws_stream.split();
 
                         while let Some(msg) = read.next().await {
@@ -450,7 +451,6 @@ impl BaseChannel for SlackChannel {
                                 }
                                 Ok(Message::Close(_)) => {
                                     info!("Slack Socket Mode connection closed");
-                                    reconnect_attempt = 0; // Reset on successful connection
                                     break;
                                 }
                                 Ok(Message::Ping(data)) => {

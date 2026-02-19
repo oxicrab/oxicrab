@@ -385,8 +385,12 @@ fn ensure_rfc3339_tz(s: &str) -> String {
             return trimmed.to_string();
         }
     }
-    // No timezone info — append Z
-    format!("{}Z", trimmed)
+    // Only append Z if this looks like a datetime (contains 'T'), not a date-only string
+    if trimmed.contains('T') {
+        format!("{}Z", trimmed)
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn format_event_detail(ev: &Value) -> String {
@@ -471,7 +475,8 @@ mod tests {
 
     #[test]
     fn test_ensure_rfc3339_tz_date_only() {
-        assert_eq!(ensure_rfc3339_tz("2026-03-07"), "2026-03-07Z");
+        // Date-only strings should not get Z appended (invalid RFC 3339)
+        assert_eq!(ensure_rfc3339_tz("2026-03-07"), "2026-03-07");
     }
 
     #[test]

@@ -746,7 +746,7 @@ async fn test_event_matcher_from_stored_jobs() {
 
     // Build event matcher from stored jobs
     let jobs = svc.list_jobs(false).await.unwrap();
-    let matcher = EventMatcher::from_jobs(&jobs);
+    let mut matcher = EventMatcher::from_jobs(&jobs);
 
     // Should only have 2 event matchers (regular job ignored)
     assert!(!matcher.is_empty());
@@ -793,7 +793,7 @@ async fn test_event_trigger_fires_cron_service() {
 
     // Build matcher from stored jobs
     let jobs = svc.list_jobs(false).await.unwrap();
-    let matcher = EventMatcher::from_jobs(&jobs);
+    let mut matcher = EventMatcher::from_jobs(&jobs);
 
     // Simulate an incoming message that matches
     let triggered = matcher.check_message("deploy to staging", "slack", 1000);
@@ -820,24 +820,19 @@ async fn test_event_job_with_cooldown_integration() {
 
     // Build matcher — initially no cooldown barrier
     let jobs = svc.list_jobs(false).await.unwrap();
-    let matcher = EventMatcher::from_jobs(&jobs);
+    let mut matcher = EventMatcher::from_jobs(&jobs);
 
     // First message should trigger (no last_fired_at_ms)
     let hits = matcher.check_message("alert: disk full", "slack", 1_000_000);
     assert_eq!(hits.len(), 1);
 
-    // Simulate: rebuild matcher with last_fired_at_ms set (as if job just ran)
-    let mut job2 = make_event_job("evt_cool", r"(?i)alert", None);
-    job2.cooldown_secs = Some(60);
-    job2.state.last_fired_at_ms = Some(1_000_000);
-    let matcher2 = EventMatcher::from_jobs(&[job2]);
-
+    // Same matcher tracks last_fired locally — cooldown should now apply
     // Within cooldown (30s later) — should NOT trigger
-    let hits = matcher2.check_message("alert: disk full", "slack", 1_030_000);
+    let hits = matcher.check_message("alert: disk full", "slack", 1_030_000);
     assert!(hits.is_empty());
 
     // After cooldown (90s later) — should trigger
-    let hits = matcher2.check_message("alert: disk full", "slack", 1_090_000);
+    let hits = matcher.check_message("alert: disk full", "slack", 1_090_000);
     assert_eq!(hits.len(), 1);
 }
 
@@ -856,6 +851,7 @@ async fn test_event_job_disabled_not_matched() {
 
     // Disabled job should not be in the matcher
     assert!(matcher.is_empty());
+    let mut matcher = matcher; // need mut for check_message
     let hits = matcher.check_message("deploy now", "slack", 1000);
     assert!(hits.is_empty());
 }

@@ -40,9 +40,13 @@ pub fn save_media_file(bytes: &[u8], prefix: &str, extension: &str) -> Result<St
 
     let media_dir = media_dir()?;
 
+    // Sanitize prefix and extension to prevent path traversal
+    let safe_prefix = crate::utils::safe_filename(prefix);
+    let safe_ext = crate::utils::safe_filename(extension);
+
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
     let random = fastrand::u32(..);
-    let filename = format!("{prefix}_{timestamp}_{random:08x}.{extension}");
+    let filename = format!("{safe_prefix}_{timestamp}_{random:08x}.{safe_ext}");
     let path = media_dir.join(&filename);
 
     std::fs::write(&path, bytes)

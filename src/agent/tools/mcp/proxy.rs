@@ -73,10 +73,16 @@ impl Tool for McpProxyTool {
             task: None,
         };
 
-        let result = self.peer.call_tool(request).await.map_err(|e| {
-            warn!("MCP tool '{}' failed: {}", self.tool_name, e);
-            anyhow::anyhow!("MCP tool '{}' call failed: {}", self.tool_name, e)
-        })?;
+        let result = match self.peer.call_tool(request).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("MCP tool '{}' failed: {}", self.tool_name, e);
+                return Ok(ToolResult::error(format!(
+                    "MCP tool '{}' call failed: {}",
+                    self.tool_name, e
+                )));
+            }
+        };
 
         let is_error = result.is_error.unwrap_or(false);
 

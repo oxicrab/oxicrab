@@ -188,6 +188,12 @@ impl AnthropicOAuthProvider {
             .await
             .context("Failed to refresh OAuth token")?;
 
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("OAuth token refresh failed (HTTP {}): {}", status, body);
+        }
+
         let data: Value = resp
             .json()
             .await
@@ -213,9 +219,16 @@ impl AnthropicOAuthProvider {
             .map(|d| d.as_millis() as i64)?;
         let expires_at = now_ms + (expires_in_secs * 1000) as i64 - 300_000;
 
-        *self.access_token.lock().await = access_token;
-        *self.refresh_token.lock().await = new_refresh_token;
-        *self.expires_at.lock().await = expires_at;
+        // Update all three fields atomically (hold all locks at once)
+        let (mut at_guard, mut rt_guard, mut ea_guard) = tokio::join!(
+            self.access_token.lock(),
+            self.refresh_token.lock(),
+            self.expires_at.lock()
+        );
+        *at_guard = access_token;
+        *rt_guard = new_refresh_token;
+        *ea_guard = expires_at;
+        drop((at_guard, rt_guard, ea_guard));
 
         // Persist refreshed credentials if path is configured
         if let Some(ref path) = self.credentials_path {
@@ -239,10 +252,8 @@ impl AnthropicOAuthProvider {
             "expires_at": *self.expires_at.lock().await,
         });
 
-        if let Err(e) = std::fs::write(
-            path,
-            serde_json::to_string_pretty(&data).unwrap_or_default(),
-        ) {
+        let json_str = serde_json::to_string_pretty(&data).unwrap_or_default();
+        if let Err(e) = crate::utils::atomic_write(path, &json_str) {
             warn!("Failed to save OAuth credentials: {}", e);
         } else {
             // Restrict permissions to owner-only (0o600) to protect tokens

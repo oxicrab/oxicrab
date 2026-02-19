@@ -124,9 +124,11 @@ pub fn save_config(config: &Config, config_path: Option<&Path>) -> Result<()> {
 
     ensure_dir(path.parent().context("Config path has no parent")?)?;
 
-    // Convert to camelCase
-    let mut data = serde_json::to_value(config)?;
-    data = convert_to_camel(data);
+    // serde `rename` attributes already produce camelCase keys during
+    // serialization, so no post-processing is needed. A prior convert_to_camel
+    // pass was removed because it corrupted HashMap keys (MCP server names,
+    // env vars, custom headers, model cost prefixes) that contain underscores.
+    let data = serde_json::to_value(config)?;
 
     let content = serde_json::to_string_pretty(&data)?;
     crate::utils::atomic_write(path, &content)
@@ -140,39 +142,6 @@ pub fn save_config(config: &Config, config_path: Option<&Path>) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn convert_to_camel(value: Value) -> Value {
-    match value {
-        Value::Object(map) => {
-            let mut new_map = serde_json::Map::new();
-            for (k, v) in map {
-                let new_key = snake_to_camel(&k);
-                new_map.insert(new_key, convert_to_camel(v));
-            }
-            Value::Object(new_map)
-        }
-        Value::Array(arr) => Value::Array(arr.into_iter().map(convert_to_camel).collect()),
-        _ => value,
-    }
-}
-
-fn snake_to_camel(name: &str) -> String {
-    let parts: Vec<&str> = name.split('_').collect();
-    if parts.is_empty() {
-        return String::new();
-    }
-    parts[0].to_string()
-        + &parts[1..]
-            .iter()
-            .map(|s| {
-                let mut chars = s.chars();
-                match chars.next() {
-                    None => String::new(),
-                    Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-                }
-            })
-            .collect::<String>()
 }
 
 #[cfg(test)]
