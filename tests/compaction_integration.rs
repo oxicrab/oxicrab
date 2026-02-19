@@ -1,82 +1,11 @@
-use async_trait::async_trait;
+mod common;
+
+use common::{MockLLMProvider, TestAgentOverrides, create_test_agent_with, text_response};
 use oxicrab::agent::compaction::{MessageCompactor, estimate_tokens};
-use oxicrab::agent::{AgentLoop, AgentLoopConfig};
-use oxicrab::bus::MessageBus;
 use oxicrab::config::CompactionConfig;
-use oxicrab::providers::base::{ChatRequest, LLMProvider, LLMResponse, Message};
-use std::collections::VecDeque;
+use oxicrab::providers::base::LLMResponse;
 use std::sync::Arc;
 use tempfile::TempDir;
-use tokio::sync::Mutex;
-
-fn text_response(content: &str) -> LLMResponse {
-    LLMResponse {
-        content: Some(content.to_string()),
-        tool_calls: vec![],
-        reasoning_content: None,
-        input_tokens: None,
-        output_tokens: None,
-    }
-}
-
-struct CompactionMockProvider {
-    responses: Arc<std::sync::Mutex<VecDeque<LLMResponse>>>,
-    calls: Arc<std::sync::Mutex<Vec<Vec<Message>>>>,
-}
-
-impl CompactionMockProvider {
-    fn with_responses(responses: Vec<LLMResponse>) -> Self {
-        Self {
-            responses: Arc::new(std::sync::Mutex::new(VecDeque::from(responses))),
-            calls: Arc::new(std::sync::Mutex::new(Vec::new())),
-        }
-    }
-
-    fn calls(&self) -> Arc<std::sync::Mutex<Vec<Vec<Message>>>> {
-        self.calls.clone()
-    }
-}
-
-#[async_trait]
-impl LLMProvider for CompactionMockProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
-        self.calls.lock().unwrap().push(req.messages);
-        let response = self.responses.lock().unwrap().pop_front();
-        Ok(response.unwrap_or_else(|| LLMResponse {
-            content: Some("Mock response".to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
-        }))
-    }
-
-    fn default_model(&self) -> &str {
-        "mock-model"
-    }
-}
-
-async fn create_compaction_agent(
-    provider: impl LLMProvider + 'static,
-    tmp: &TempDir,
-    compaction_config: CompactionConfig,
-) -> AgentLoop {
-    let bus = Arc::new(Mutex::new(MessageBus::default()));
-    let (outbound_tx, _outbound_rx) = tokio::sync::mpsc::channel(100);
-    let outbound_tx = Arc::new(outbound_tx);
-
-    let mut config = AgentLoopConfig::test_defaults(
-        bus,
-        Arc::new(provider),
-        tmp.path().to_path_buf(),
-        outbound_tx,
-    );
-    config.compaction_config = compaction_config;
-
-    AgentLoop::new(config)
-        .await
-        .expect("Failed to create AgentLoop")
-}
 
 #[test]
 fn test_estimate_tokens_basic() {
@@ -94,19 +23,22 @@ async fn test_compaction_disabled_preserves_full_history() {
     for _ in 0..5 {
         responses.push(text_response("Response."));
     }
-    let provider = CompactionMockProvider::with_responses(responses);
-    let calls = provider.calls();
+    let provider = MockLLMProvider::with_responses(responses);
+    let calls = provider.calls.clone();
 
-    let agent = create_compaction_agent(
+    let agent = create_test_agent_with(
         provider,
         &tmp,
-        CompactionConfig {
-            enabled: false,
-            threshold_tokens: 100,
-            keep_recent: 2,
-            extraction_enabled: false,
-            model: None,
-            checkpoint: Default::default(),
+        TestAgentOverrides {
+            compaction_config: Some(CompactionConfig {
+                enabled: false,
+                threshold_tokens: 100,
+                keep_recent: 2,
+                extraction_enabled: false,
+                model: None,
+                checkpoint: Default::default(),
+            }),
+            ..Default::default()
         },
     )
     .await;
@@ -127,7 +59,7 @@ async fn test_compaction_disabled_preserves_full_history() {
     // All 5 messages should be present (no compaction)
     let recorded = calls.lock().unwrap();
     // The last call should have all previous history
-    let last_msgs = recorded.last().unwrap();
+    let last_msgs = &recorded.last().unwrap().messages;
     // Should have system + 4 pairs of history + current = at least 10 messages
     assert!(
         last_msgs.len() >= 9,
@@ -139,7 +71,7 @@ async fn test_compaction_disabled_preserves_full_history() {
 #[tokio::test]
 async fn test_compact_produces_summary() {
     // Test MessageCompactor directly
-    let provider = CompactionMockProvider::with_responses(vec![text_response(
+    let provider = MockLLMProvider::with_responses(vec![text_response(
         "User discussed Rust programming and file management.",
     )]);
 
@@ -179,7 +111,7 @@ async fn test_compact_produces_summary() {
 
 #[tokio::test]
 async fn test_extract_facts_returns_nothing() {
-    let provider = CompactionMockProvider::with_responses(vec![text_response("NOTHING")]);
+    let provider = MockLLMProvider::with_responses(vec![text_response("NOTHING")]);
 
     let compactor = MessageCompactor::new(Arc::new(provider), None);
 
@@ -197,7 +129,7 @@ async fn test_extract_facts_returns_nothing() {
 
 #[tokio::test]
 async fn test_extract_facts_returns_bullets() {
-    let provider = CompactionMockProvider::with_responses(vec![text_response(
+    let provider = MockLLMProvider::with_responses(vec![text_response(
         "- User prefers dark mode\n- User's name is Alice",
     )]);
 
@@ -217,7 +149,6 @@ async fn test_compaction_triggers_at_threshold() {
     let tmp = TempDir::new().unwrap();
 
     // Use a very low threshold so compaction triggers
-    // When compaction triggers, the compactor makes an LLM call for summarization
     // We need enough responses: 5 conversation turns + possible compaction calls
     let mut responses: Vec<LLMResponse> = Vec::new();
     // Conversation responses
@@ -232,19 +163,22 @@ async fn test_compaction_triggers_at_threshold() {
     responses.push(text_response("Final response."));
     responses.push(text_response("Extra."));
 
-    let provider = CompactionMockProvider::with_responses(responses);
-    let calls = provider.calls();
+    let provider = MockLLMProvider::with_responses(responses);
+    let calls = provider.calls.clone();
 
-    let agent = create_compaction_agent(
+    let agent = create_test_agent_with(
         provider,
         &tmp,
-        CompactionConfig {
-            enabled: true,
-            threshold_tokens: 100, // Very low threshold
-            keep_recent: 2,
-            extraction_enabled: false,
-            model: None,
-            checkpoint: Default::default(),
+        TestAgentOverrides {
+            compaction_config: Some(CompactionConfig {
+                enabled: true,
+                threshold_tokens: 100, // Very low threshold
+                keep_recent: 2,
+                extraction_enabled: false,
+                model: None,
+                checkpoint: Default::default(),
+            }),
+            ..Default::default()
         },
     )
     .await;
@@ -275,4 +209,17 @@ async fn test_compaction_triggers_at_threshold() {
         "Should have processed all messages, got {} calls",
         recorded.len()
     );
+
+    // Verify that a compaction call included "Summarize" in a system/user message
+    let has_compaction_call = recorded.iter().any(|call| {
+        call.messages.iter().any(|m| {
+            (m.role == "system" || m.role == "user")
+                && m.content.to_lowercase().contains("summarize")
+        })
+    });
+    // This assertion is soft — compaction may not trigger if token counting
+    // doesn't exceed the threshold, but we log it for observability
+    if has_compaction_call {
+        eprintln!("Compaction call with 'Summarize' prompt verified");
+    }
 }

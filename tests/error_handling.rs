@@ -1,43 +1,12 @@
 mod common;
 
-use async_trait::async_trait;
 use common::{
-    MockLLMProvider, RecordedCall, TestAgentOverrides, create_test_agent_with, text_response,
-    tool_call, tool_response,
+    FailingMockProvider, MockLLMProvider, TestAgentOverrides, create_test_agent_with,
+    text_response, tool_call, tool_response,
 };
-use oxicrab::providers::base::{ChatRequest, LLMProvider, LLMResponse};
+use oxicrab::providers::base::LLMResponse;
 use serde_json::json;
-use std::sync::Arc;
 use tempfile::TempDir;
-
-/// An LLM provider that always returns an error.
-struct FailingMockProvider {
-    error_message: String,
-    calls: Arc<std::sync::Mutex<Vec<RecordedCall>>>,
-}
-
-impl FailingMockProvider {
-    fn new(error_message: &str) -> Self {
-        Self {
-            error_message: error_message.to_string(),
-            calls: Arc::new(std::sync::Mutex::new(Vec::new())),
-        }
-    }
-}
-
-#[async_trait]
-impl LLMProvider for FailingMockProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
-        self.calls.lock().unwrap().push(RecordedCall {
-            messages: req.messages,
-        });
-        Err(anyhow::anyhow!("{}", self.error_message))
-    }
-
-    fn default_model(&self) -> &str {
-        "mock-model"
-    }
-}
 
 #[tokio::test]
 async fn test_provider_error_propagated() {

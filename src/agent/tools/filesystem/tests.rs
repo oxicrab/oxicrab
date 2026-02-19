@@ -314,15 +314,15 @@ async fn test_list_dir_not_a_directory() {
 
 // --- backup_file ---
 
-#[test]
-fn test_backup_creates_copy() {
+#[tokio::test]
+async fn test_backup_creates_copy() {
     let dir = std::env::temp_dir().join("oxicrab_test_backup_basic");
     let backup_dir = dir.join("backups");
     fs::create_dir_all(&dir).unwrap();
     let file = dir.join("test.md");
     fs::write(&file, "original content").unwrap();
 
-    backup_file(&file, &backup_dir);
+    backup_file(&file, &backup_dir).await;
 
     assert!(backup_dir.exists());
     let backups: Vec<_> = fs::read_dir(&backup_dir).unwrap().flatten().collect();
@@ -339,19 +339,19 @@ fn test_backup_creates_copy() {
     fs::remove_dir_all(&dir).unwrap();
 }
 
-#[test]
-fn test_backup_skips_nonexistent_file() {
+#[tokio::test]
+async fn test_backup_skips_nonexistent_file() {
     let dir = std::env::temp_dir().join("oxicrab_test_backup_skip");
     let backup_dir = dir.join("backups");
     let _ = fs::remove_dir_all(&dir);
 
-    backup_file(&dir.join("nope.md"), &backup_dir);
+    backup_file(&dir.join("nope.md"), &backup_dir).await;
 
     assert!(!backup_dir.exists());
 }
 
-#[test]
-fn test_backup_prunes_old_copies() {
+#[tokio::test]
+async fn test_backup_prunes_old_copies() {
     let dir = std::env::temp_dir().join("oxicrab_test_backup_prune");
     let backup_dir = dir.join("backups");
     let _ = fs::remove_dir_all(&dir);
@@ -367,7 +367,7 @@ fn test_backup_prunes_old_copies() {
     }
 
     // Trigger backup which should prune to 14
-    backup_file(&file, &backup_dir);
+    backup_file(&file, &backup_dir).await;
 
     let count = fs::read_dir(&backup_dir)
         .unwrap()

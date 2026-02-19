@@ -62,10 +62,10 @@ pub struct ToolBuildContext {
 }
 
 /// Register all tools into the registry using decentralized per-module `register()` functions.
-/// Returns `(ToolRegistry, SubagentManager)`.
+/// Returns `(ToolRegistry, SubagentManager, Option<McpManager>)`.
 pub async fn register_all_tools(
     ctx: &ToolBuildContext,
-) -> Result<(ToolRegistry, Arc<SubagentManager>)> {
+) -> Result<(ToolRegistry, Arc<SubagentManager>, Option<McpManager>)> {
     let mut tools = ToolRegistry::new();
 
     register_filesystem(&mut tools, ctx);
@@ -85,9 +85,9 @@ pub async fn register_all_tools(
     register_http(&mut tools);
     register_reddit(&mut tools);
     register_memory_search(&mut tools, ctx);
-    register_mcp(&mut tools, ctx).await;
+    let mcp_manager = register_mcp(&mut tools, ctx).await;
 
-    Ok((tools, subagents))
+    Ok((tools, subagents, mcp_manager))
 }
 
 fn register_filesystem(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
@@ -325,75 +325,67 @@ fn register_memory_search(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     registry.register(Arc::new(MemorySearchTool::new(ctx.memory.clone())));
 }
 
-async fn register_mcp(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
-    if let Some(ref mcp_cfg) = ctx.mcp_config {
-        if mcp_cfg.servers.is_empty() {
-            return;
-        }
-        match McpManager::new(mcp_cfg).await {
-            Ok(manager) => {
-                use std::sync::OnceLock;
-                static MCP_MANAGER: OnceLock<crate::agent::tools::mcp::McpManager> =
-                    OnceLock::new();
+async fn register_mcp(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Option<McpManager> {
+    let mcp_cfg = ctx.mcp_config.as_ref()?;
+    if mcp_cfg.servers.is_empty() {
+        return None;
+    }
+    match McpManager::new(mcp_cfg).await {
+        Ok(manager) => {
+            let tools = manager.discover_tools().await;
+            let mut registered = 0usize;
+            for (trust, tool) in tools {
+                let name = tool.name().to_string();
 
-                let tools = manager.discover_tools().await;
-                let mut registered = 0usize;
-                for (trust, tool) in tools {
-                    let name = tool.name().to_string();
+                // Reject tools that shadow built-in names (case-insensitive)
+                if PROTECTED_TOOL_NAMES.contains(&name.to_lowercase().as_str()) {
+                    warn!(
+                        "MCP tool '{}' rejected: shadows a protected built-in tool",
+                        name
+                    );
+                    continue;
+                }
 
-                    // Reject tools that shadow built-in names (case-insensitive)
-                    if PROTECTED_TOOL_NAMES.contains(&name.to_lowercase().as_str()) {
-                        warn!(
-                            "MCP tool '{}' rejected: shadows a protected built-in tool",
-                            name
-                        );
-                        continue;
+                match trust.as_str() {
+                    "local" => {
+                        registry.register(tool);
+                        registered += 1;
                     }
-
-                    match trust.as_str() {
-                        "local" => {
-                            registry.register(tool);
-                            registered += 1;
-                        }
-                        "verified" => {
+                    "verified" => {
+                        registry.register(Arc::new(AttenuatedMcpTool::new(tool)));
+                        registered += 1;
+                    }
+                    "community" => {
+                        let name_lower = name.to_lowercase();
+                        if COMMUNITY_SAFE_KEYWORDS
+                            .iter()
+                            .any(|kw| name_lower.contains(kw))
+                        {
                             registry.register(Arc::new(AttenuatedMcpTool::new(tool)));
                             registered += 1;
-                        }
-                        "community" => {
-                            let name_lower = name.to_lowercase();
-                            if COMMUNITY_SAFE_KEYWORDS
-                                .iter()
-                                .any(|kw| name_lower.contains(kw))
-                            {
-                                registry.register(Arc::new(AttenuatedMcpTool::new(tool)));
-                                registered += 1;
-                            } else {
-                                warn!(
-                                    "MCP tool '{}' rejected: community trust, name does not contain a safe keyword",
-                                    name
-                                );
-                            }
-                        }
-                        other => {
+                        } else {
                             warn!(
-                                "MCP tool '{}' rejected: unknown trust level '{}'",
-                                name, other
+                                "MCP tool '{}' rejected: community trust, name does not contain a safe keyword",
+                                name
                             );
                         }
                     }
+                    other => {
+                        warn!(
+                            "MCP tool '{}' rejected: unknown trust level '{}'",
+                            name, other
+                        );
+                    }
                 }
-                if registered > 0 {
-                    info!("Registered {} MCP tool(s)", registered);
-                }
-                // Store manager in a static so child processes stay alive for the
-                // process lifetime. Note: McpManager::shutdown() is not called on exit;
-                // the OS cleans up child processes when the parent exits. Graceful MCP
-                // shutdown would require refactoring from OnceLock to Arc<Mutex<Option<..>>>.
-                let _ = MCP_MANAGER.set(manager);
             }
-            Err(e) => {
-                error!("MCP initialization failed: {}", e);
+            if registered > 0 {
+                info!("Registered {} MCP tool(s)", registered);
             }
+            Some(manager)
+        }
+        Err(e) => {
+            error!("MCP initialization failed: {}", e);
+            None
         }
     }
 }

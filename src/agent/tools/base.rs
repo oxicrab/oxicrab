@@ -139,6 +139,7 @@ pub trait ToolMiddleware: Send + Sync {
         _name: &str,
         _params: &Value,
         _ctx: &ExecutionContext,
+        _tool: &dyn Tool,
         _result: &mut ToolResult,
     ) {
     }

@@ -18,6 +18,10 @@ use tokio::sync::Mutex;
 #[derive(Debug, Clone)]
 pub struct RecordedCall {
     pub messages: Vec<Message>,
+    pub model: Option<String>,
+    pub tools: Option<Vec<ToolDefinition>>,
+    pub temperature: f32,
+    pub max_tokens: u32,
 }
 
 pub struct MockLLMProvider {
@@ -41,6 +45,10 @@ impl LLMProvider for MockLLMProvider {
     async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
         self.calls.lock().unwrap().push(RecordedCall {
             messages: req.messages,
+            model: req.model.map(|s| s.to_string()),
+            tools: req.tools,
+            temperature: req.temperature,
+            max_tokens: req.max_tokens,
         });
 
         let response = self.responses.lock().unwrap().pop_front();
@@ -191,4 +199,39 @@ pub async fn create_test_agent_with(
     AgentLoop::new(config)
         .await
         .expect("Failed to create AgentLoop")
+}
+
+// --- Failing mock provider ---
+
+/// An LLM provider that always returns an error.
+pub struct FailingMockProvider {
+    error_message: String,
+    pub calls: Arc<std::sync::Mutex<Vec<RecordedCall>>>,
+}
+
+impl FailingMockProvider {
+    pub fn new(error_message: &str) -> Self {
+        Self {
+            error_message: error_message.to_string(),
+            calls: Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
+}
+
+#[async_trait]
+impl LLMProvider for FailingMockProvider {
+    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+        self.calls.lock().unwrap().push(RecordedCall {
+            messages: req.messages,
+            model: req.model.map(|s| s.to_string()),
+            tools: req.tools,
+            temperature: req.temperature,
+            max_tokens: req.max_tokens,
+        });
+        Err(anyhow::anyhow!("{}", self.error_message))
+    }
+
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
 }

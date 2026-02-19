@@ -662,7 +662,7 @@ pub struct AgentLoop {
     transcriber: Option<Arc<crate::utils::transcription::TranscriptionService>>,
     event_matcher: Option<std::sync::Mutex<EventMatcher>>,
     cron_service: Option<Arc<CronService>>,
-    cost_guard: Option<CostGuard>,
+    cost_guard: Option<Arc<CostGuard>>,
     /// Most recent checkpoint summary (updated periodically during long loops)
     last_checkpoint: Arc<Mutex<Option<String>>>,
     /// Handle for the most recent background checkpoint task
@@ -675,6 +675,8 @@ pub struct AgentLoop {
     /// Prompt injection detection guard
     prompt_guard: Option<crate::safety::prompt_guard::PromptGuard>,
     prompt_guard_config: crate::config::PromptGuardConfig,
+    /// MCP manager kept alive for graceful child process shutdown
+    _mcp_manager: Option<crate::agent::tools::mcp::McpManager>,
 }
 
 impl AgentLoop {
@@ -761,6 +763,19 @@ impl AgentLoop {
         // Start background memory indexer
         memory.start_indexer().await?;
 
+        // Create cost guard early so it can be shared with subagents
+        let cost_guard = if cost_guard_config.daily_budget_cents.is_some()
+            || cost_guard_config.max_actions_per_hour.is_some()
+        {
+            info!(
+                "cost guard enabled (daily_budget={:?} cents, max_actions_per_hour={:?})",
+                cost_guard_config.daily_budget_cents, cost_guard_config.max_actions_per_hour
+            );
+            Some(Arc::new(CostGuard::new(cost_guard_config)))
+        } else {
+            None
+        };
+
         let tool_ctx = ToolBuildContext {
             workspace: workspace.clone(),
             restrict_to_workspace,
@@ -795,13 +810,16 @@ impl AgentLoop {
                 } else {
                     vec![]
                 },
+                cost_guard: cost_guard.clone(),
+                prompt_guard_config: prompt_guard_config.clone(),
             },
             brave_api_key,
             allowed_commands,
             mcp_config,
         };
 
-        let (tools, subagents) = crate::agent::tools::setup::register_all_tools(&tool_ctx).await?;
+        let (tools, subagents, mcp_manager) =
+            crate::agent::tools::setup::register_all_tools(&tool_ctx).await?;
         let tools = Arc::new(tools);
 
         let transcriber = voice_config
@@ -851,19 +869,6 @@ impl AgentLoop {
             None
         };
 
-        // Create cost guard if any limit is configured
-        let cost_guard = if cost_guard_config.daily_budget_cents.is_some()
-            || cost_guard_config.max_actions_per_hour.is_some()
-        {
-            info!(
-                "cost guard enabled (daily_budget={:?} cents, max_actions_per_hour={:?})",
-                cost_guard_config.daily_budget_cents, cost_guard_config.max_actions_per_hour
-            );
-            Some(CostGuard::new(cost_guard_config))
-        } else {
-            None
-        };
-
         Ok(Self {
             inbound_rx,
             provider,
@@ -900,6 +905,7 @@ impl AgentLoop {
                 None
             },
             prompt_guard_config,
+            _mcp_manager: mcp_manager,
         })
     }
 

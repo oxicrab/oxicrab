@@ -132,7 +132,8 @@ impl ToolRegistry {
 
         // Phase 3: after_execute middleware chain
         for mw in &self.middleware {
-            mw.after_execute(name, &params, ctx, &mut result).await;
+            mw.after_execute(name, &params, ctx, tool.as_ref(), &mut result)
+                .await;
         }
 
         Ok(result)
@@ -237,18 +238,12 @@ impl ToolMiddleware for CacheMiddleware {
         name: &str,
         params: &Value,
         _ctx: &ExecutionContext,
+        tool: &dyn Tool,
         result: &mut ToolResult,
     ) {
-        // Only cache successful, non-error results
-        if result.is_error {
+        if !tool.cacheable() || result.is_error {
             return;
         }
-        // We need to check cacheable here too, but we don't have the tool ref.
-        // Instead, we cache everything non-error and let before_execute filter by cacheable.
-        // Actually, we should only cache for cacheable tools. We can check via the name
-        // by storing whether the tool was cacheable. But simpler: always store, and
-        // before_execute only checks for cacheable tools, so non-cacheable tools never
-        // hit the cache. The worst case is wasting a few cache slots.
         let cache_key = format!("{}:{}", name, canonical_json(params));
         let mut cache = self.cache.lock().await;
         cache.put(
@@ -279,6 +274,7 @@ impl ToolMiddleware for TruncationMiddleware {
         _name: &str,
         _params: &Value,
         _ctx: &ExecutionContext,
+        _tool: &dyn Tool,
         result: &mut ToolResult,
     ) {
         result.content = truncate_tool_result(&result.content, self.max_chars);
@@ -306,6 +302,7 @@ impl ToolMiddleware for LoggingMiddleware {
         name: &str,
         _params: &Value,
         _ctx: &ExecutionContext,
+        _tool: &dyn Tool,
         result: &mut ToolResult,
     ) {
         if result.is_error {
@@ -362,12 +359,37 @@ mod tests {
 
     #[tokio::test]
     async fn test_middleware_truncation() {
+        use async_trait::async_trait;
+
+        struct DummyTool;
+        #[async_trait]
+        impl Tool for DummyTool {
+            fn name(&self) -> &str {
+                "dummy"
+            }
+            fn description(&self) -> &'static str {
+                "test"
+            }
+            fn parameters(&self) -> Value {
+                json!({})
+            }
+            async fn execute(
+                &self,
+                _params: Value,
+                _ctx: &ExecutionContext,
+            ) -> anyhow::Result<ToolResult> {
+                Ok(ToolResult::new("ok"))
+            }
+        }
+
         let mw = TruncationMiddleware::new(50);
+        let dummy = DummyTool;
         let mut result = ToolResult::new("a".repeat(500));
         mw.after_execute(
             "test",
             &json!({}),
             &ExecutionContext::default(),
+            &dummy,
             &mut result,
         )
         .await;
@@ -408,17 +430,28 @@ mod tests {
 
         let cache_mw = CacheMiddleware::new(10, 300);
         let tool = NonCacheableTool;
+        let params = json!({});
+        let ctx = ExecutionContext::default();
 
         // before_execute should return None for non-cacheable tools
         let result = cache_mw
-            .before_execute(
-                "non_cacheable",
-                &json!({}),
-                &ExecutionContext::default(),
-                &tool,
-            )
+            .before_execute("non_cacheable", &params, &ctx, &tool)
             .await;
         assert!(result.is_none());
+
+        // after_execute should NOT store results for non-cacheable tools
+        let mut result = ToolResult::new("should_not_cache");
+        cache_mw
+            .after_execute("non_cacheable", &params, &ctx, &tool, &mut result)
+            .await;
+        // Verify nothing was cached
+        let hit = cache_mw
+            .before_execute("non_cacheable", &params, &ctx, &tool)
+            .await;
+        assert!(
+            hit.is_none(),
+            "non-cacheable tool result should not be cached"
+        );
     }
 
     #[tokio::test]
@@ -465,7 +498,7 @@ mod tests {
         // Store a result
         let mut result = ToolResult::new("cached_value");
         cache_mw
-            .after_execute("cache_test", &params, &ctx, &mut result)
+            .after_execute("cache_test", &params, &ctx, &tool, &mut result)
             .await;
 
         // Now should get cache hit
@@ -512,21 +545,13 @@ mod tests {
         // Store an error result
         let mut result = ToolResult::error("fail");
         cache_mw
-            .after_execute("cache_err", &params, &ctx, &mut result)
+            .after_execute("cache_err", &params, &ctx, &tool, &mut result)
             .await;
 
-        // Error results should not produce cache hits
-        // (before_execute checks cacheable but after_execute skips storing errors)
-        // Actually after_execute stores everything; but before_execute only returns
-        // for cacheable tools. Let's verify the error IS stored but that's expected.
-        // The real protection is in the integration test test_error_result_not_cached.
-        // Here we just verify the middleware doesn't crash.
+        // after_execute skips storing errors (is_error check), so no cache hit
         let hit = cache_mw
             .before_execute("cache_err", &params, &ctx, &tool)
             .await;
-        // Error results are stored in cache but they ARE returned (the integration
-        // test relies on the registry NOT caching errors). Wait - let's check:
-        // after_execute has: if result.is_error { return; } - so errors are NOT stored.
         assert!(hit.is_none());
     }
 }

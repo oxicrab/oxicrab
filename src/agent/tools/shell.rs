@@ -118,6 +118,10 @@ impl ExecTool {
     }
 
     fn guard_command(&self, command: &str, cwd: &Path) -> Option<String> {
+        // Normalize shell line continuations before security checks so that
+        // "rm \\\n-rf /" is treated as "rm -rf /" by the patterns below.
+        let command = &command.replace("\\\n", " ");
+
         // Allowlist check: verify all commands in the pipeline are allowed
         if !self.allowed_commands.is_empty() {
             let cmd_names = Self::extract_all_commands(command);
@@ -609,6 +613,29 @@ mod tests {
         // With restrict_to_workspace=false, paths outside workspace are allowed
         let result = t.guard_command("cat /etc/hostname", Path::new("/tmp/workspace"));
         assert!(result.is_none());
+    }
+
+    // --- line continuation normalization ---
+
+    #[test]
+    fn test_line_continuation_blocked() {
+        // "rm \<newline>-rf /" should be caught after normalization
+        let t = tool(vec![]);
+        let result = t.guard_command("rm \\\n-rf /", Path::new("/tmp"));
+        assert!(
+            result.is_some(),
+            "line continuation should be normalized before security check"
+        );
+        assert!(result.unwrap().contains("security policy"));
+    }
+
+    #[test]
+    fn test_line_continuation_allowlist() {
+        // "r\<newline>m" joined = "r m" which won't match "rm" as a command,
+        // but "rm \\\n-rf" joined = "rm  -rf" should be caught
+        let t = tool(allowed());
+        let result = t.guard_command("rm \\\n-rf /tmp/data", Path::new("/tmp"));
+        assert!(result.is_some());
     }
 
     // --- output truncation constants ---

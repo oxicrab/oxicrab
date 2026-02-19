@@ -43,14 +43,14 @@ const MAX_BACKUPS: usize = 14;
 /// Create a timestamped backup of a file before overwriting it.
 /// Backups are stored in `backup_dir/{filename}.{timestamp}`.
 /// Keeps at most `MAX_BACKUPS` copies, deleting the oldest.
-fn backup_file(file_path: &Path, backup_dir: &Path) {
-    if !file_path.exists() {
+async fn backup_file(file_path: &Path, backup_dir: &Path) {
+    if tokio::fs::metadata(file_path).await.is_err() {
         return;
     }
     let Some(filename) = file_path.file_name().and_then(|f| f.to_str()) else {
         return;
     };
-    if let Err(e) = std::fs::create_dir_all(backup_dir) {
+    if let Err(e) = tokio::fs::create_dir_all(backup_dir).await {
         warn!(
             "Failed to create backup dir {}: {}",
             backup_dir.display(),
@@ -61,7 +61,7 @@ fn backup_file(file_path: &Path, backup_dir: &Path) {
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let backup_name = format!("{}.{}", filename, timestamp);
     let backup_path = backup_dir.join(&backup_name);
-    if let Err(e) = std::fs::copy(file_path, &backup_path) {
+    if let Err(e) = tokio::fs::copy(file_path, &backup_path).await {
         warn!(
             "Failed to backup {} → {}: {}",
             file_path.display(),
@@ -73,24 +73,23 @@ fn backup_file(file_path: &Path, backup_dir: &Path) {
 
     // Prune old backups: list all files matching "{filename}.*", sort, remove oldest
     let prefix = format!("{}.", filename);
-    let mut backups: Vec<PathBuf> = std::fs::read_dir(backup_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
+    let mut backups: Vec<PathBuf> = Vec::new();
+    if let Ok(mut rd) = tokio::fs::read_dir(backup_dir).await {
+        while let Ok(Some(entry)) = rd.next_entry().await {
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with(&prefix) && entry.path().is_file() {
-                Some(entry.path())
-            } else {
-                None
+            let path = entry.path();
+            if name.starts_with(&prefix)
+                && tokio::fs::metadata(&path).await.is_ok_and(|m| m.is_file())
+            {
+                backups.push(path);
             }
-        })
-        .collect();
+        }
+    }
 
     if backups.len() > MAX_BACKUPS {
         backups.sort();
         for old in &backups[..backups.len() - MAX_BACKUPS] {
-            let _ = std::fs::remove_file(old);
+            let _ = tokio::fs::remove_file(old).await;
         }
     }
 }
@@ -138,7 +137,7 @@ impl Tool for ReadFileTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
 
         let file_path = PathBuf::from(path_str);
-        let expanded = file_path.canonicalize().or_else(|_| {
+        let expanded = tokio::fs::canonicalize(&file_path).await.or_else(|_| {
             let home = dirs::home_dir()
                 .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
             let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
@@ -149,22 +148,14 @@ impl Tool for ReadFileTool {
             return Ok(ToolResult::error(err.to_string()));
         }
 
-        if !expanded.exists() {
-            return Ok(ToolResult::error(format!(
-                "Error: File not found: {}",
-                path_str
-            )));
-        }
-
-        if !expanded.is_file() {
-            return Ok(ToolResult::error(format!(
-                "Error: Not a file (path is a directory): {}. Use list_dir to list directory contents, or read_file with a file path.",
-                path_str
-            )));
-        }
-
-        // Check file size before reading to prevent OOM on huge files
-        match std::fs::metadata(&expanded) {
+        // Check file metadata (exists, is_file, size) in one call
+        match tokio::fs::metadata(&expanded).await {
+            Ok(meta) if meta.is_dir() => {
+                return Ok(ToolResult::error(format!(
+                    "Error: Not a file (path is a directory): {}. Use list_dir to list directory contents, or read_file with a file path.",
+                    path_str
+                )));
+            }
             Ok(meta) if meta.len() > MAX_READ_BYTES => {
                 return Ok(ToolResult::error(format!(
                     "Error: file too large ({} bytes, max {}). Use shell tool to read partial content.",
@@ -172,16 +163,16 @@ impl Tool for ReadFileTool {
                     MAX_READ_BYTES
                 )));
             }
-            Err(e) => {
+            Err(_) => {
                 return Ok(ToolResult::error(format!(
-                    "Error reading file metadata: {}",
-                    e
+                    "Error: File not found: {}",
+                    path_str
                 )));
             }
             _ => {}
         }
 
-        match std::fs::read_to_string(&expanded) {
+        match tokio::fs::read_to_string(&expanded).await {
             Ok(content) => Ok(ToolResult::new(content)),
             Err(e) => Ok(ToolResult::error(format!("Error reading file: {}", e))),
         }
@@ -238,7 +229,7 @@ impl Tool for WriteFileTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
 
         let file_path = PathBuf::from(path_str);
-        let expanded = file_path.canonicalize().or_else(|_| {
+        let expanded = tokio::fs::canonicalize(&file_path).await.or_else(|_| {
             let home = dirs::home_dir()
                 .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
             let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
@@ -251,14 +242,14 @@ impl Tool for WriteFileTool {
         }
 
         if let Some(ref backup_dir) = self.backup_dir {
-            backup_file(&expanded, backup_dir);
+            backup_file(&expanded, backup_dir).await;
         }
 
         if let Some(parent) = expanded.parent() {
-            std::fs::create_dir_all(parent)?;
+            tokio::fs::create_dir_all(parent).await?;
         }
 
-        match std::fs::write(&expanded, content) {
+        match tokio::fs::write(&expanded, content).await {
             Ok(()) => Ok(ToolResult::new(format!("File written: {}", path_str))),
             Err(e) => Ok(ToolResult::error(format!("Error writing file: {}", e))),
         }
@@ -322,7 +313,7 @@ impl Tool for EditFileTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'new_text' parameter"))?;
 
         let file_path = PathBuf::from(path_str);
-        let expanded = file_path.canonicalize().or_else(|_| {
+        let expanded = tokio::fs::canonicalize(&file_path).await.or_else(|_| {
             let home = dirs::home_dir()
                 .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
             let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
@@ -333,14 +324,14 @@ impl Tool for EditFileTool {
             return Ok(ToolResult::error(err.to_string()));
         }
 
-        if !expanded.exists() {
+        if tokio::fs::metadata(&expanded).await.is_err() {
             return Ok(ToolResult::error(format!(
                 "Error: File not found: {}",
                 path_str
             )));
         }
 
-        match std::fs::read_to_string(&expanded) {
+        match tokio::fs::read_to_string(&expanded).await {
             Ok(content) => {
                 if !content.contains(old_text) {
                     return Ok(ToolResult::error(
@@ -358,11 +349,11 @@ impl Tool for EditFileTool {
                 }
 
                 if let Some(ref backup_dir) = self.backup_dir {
-                    backup_file(&expanded, backup_dir);
+                    backup_file(&expanded, backup_dir).await;
                 }
 
                 let new_content = content.replacen(old_text, new_text, 1);
-                match std::fs::write(&expanded, new_content) {
+                match tokio::fs::write(&expanded, new_content).await {
                     Ok(()) => Ok(ToolResult::new(format!("Successfully edited {}", path_str))),
                     Err(e) => Ok(ToolResult::error(format!("Error writing file: {}", e))),
                 }
@@ -411,7 +402,7 @@ impl Tool for ListDirTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
 
         let dir_path = PathBuf::from(path_str);
-        let expanded = dir_path.canonicalize().or_else(|_| {
+        let expanded = tokio::fs::canonicalize(&dir_path).await.or_else(|_| {
             let home = dirs::home_dir()
                 .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
             let stripped = dir_path.strip_prefix("~").unwrap_or(dir_path.as_path());
@@ -422,27 +413,28 @@ impl Tool for ListDirTool {
             return Ok(ToolResult::error(err.to_string()));
         }
 
-        if !expanded.exists() {
-            return Ok(ToolResult::error(format!(
-                "Error: Directory not found: {}",
-                path_str
-            )));
-        }
-
-        if !expanded.is_dir() {
-            return Ok(ToolResult::error(format!(
-                "Error: Not a directory: {}",
-                path_str
-            )));
+        match tokio::fs::metadata(&expanded).await {
+            Err(_) => {
+                return Ok(ToolResult::error(format!(
+                    "Error: Directory not found: {}",
+                    path_str
+                )));
+            }
+            Ok(meta) if !meta.is_dir() => {
+                return Ok(ToolResult::error(format!(
+                    "Error: Not a directory: {}",
+                    path_str
+                )));
+            }
+            _ => {}
         }
 
         let mut entries = Vec::new();
-        match std::fs::read_dir(&expanded) {
-            Ok(rd) => {
-                for entry in rd.flatten() {
+        match tokio::fs::read_dir(&expanded).await {
+            Ok(mut rd) => {
+                while let Ok(Some(entry)) = rd.next_entry().await {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    let path = entry.path();
-                    let is_dir = path.is_dir();
+                    let is_dir = entry.metadata().await.is_ok_and(|m| m.is_dir());
                     entries.push(format!("{}{}", name, if is_dir { "/" } else { "" }));
                 }
                 entries.sort();

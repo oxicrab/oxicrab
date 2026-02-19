@@ -89,6 +89,8 @@ fn make_manager(provider: Arc<dyn LLMProvider>, max_concurrent: usize) -> Subage
             tool_temperature: 0.0,
             max_concurrent,
             exfil_blocked_tools: vec![],
+            cost_guard: None,
+            prompt_guard_config: crate::config::PromptGuardConfig::default(),
         },
         bus,
     )
@@ -240,6 +242,8 @@ async fn test_silent_mode_no_bus_message() {
             tool_temperature: 0.0,
             max_concurrent: 5,
             exfil_blocked_tools: vec![],
+            cost_guard: None,
+            prompt_guard_config: crate::config::PromptGuardConfig::default(),
         },
         bus.clone(),
     );
@@ -295,6 +299,8 @@ async fn test_non_silent_mode_publishes_bus_message() {
             tool_temperature: 0.0,
             max_concurrent: 5,
             exfil_blocked_tools: vec![],
+            cost_guard: None,
+            prompt_guard_config: crate::config::PromptGuardConfig::default(),
         },
         bus.clone(),
     );
