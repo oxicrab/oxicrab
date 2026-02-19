@@ -40,11 +40,24 @@ Download the latest release from [GitHub Releases](https://github.com/oxicrab/ox
 | Linux x86_64 | `oxicrab-*-linux-x86_64.tar.gz` |
 | Linux ARM64 (aarch64) | `oxicrab-*-linux-arm64.tar.gz` |
 | macOS ARM64 (Apple Silicon) | `oxicrab-*-macos-arm64.tar.gz` |
+| Debian/Ubuntu x86_64 | `oxicrab_*_amd64.deb` |
+| Debian/Ubuntu ARM64 | `oxicrab_*_arm64.deb` |
+| Fedora/RHEL x86_64 | `oxicrab-*.x86_64.rpm` |
+| Fedora/RHEL ARM64 | `oxicrab-*.aarch64.rpm` |
+| macOS ARM64 (DMG) | `oxicrab-*-arm64.dmg` |
 
 ```bash
-# Example: download and install linux-x86_64
+# Tarball
 tar xzf oxicrab-*-linux-x86_64.tar.gz
 sudo cp oxicrab-*/oxicrab /usr/local/bin/
+
+# Debian/Ubuntu
+sudo dpkg -i oxicrab_*_amd64.deb
+
+# Fedora/RHEL
+sudo rpm -i oxicrab-*.x86_64.rpm
+
+# macOS — open DMG and copy binary to /usr/local/bin
 ```
 
 ### Docker

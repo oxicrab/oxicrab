@@ -105,3 +105,23 @@ panic = "abort"       # Abort on panic (smaller than unwinding)
 
 [dev-dependencies]
 wiremock = "0.6.5"
+
+[package.metadata.deb]
+maintainer = "James Turnbull <james@ltl.so>"
+copyright = "2025, James Turnbull"
+section = "utils"
+priority = "optional"
+depends = "$auto"
+extended-description = "A high-performance Rust multi-channel AI assistant framework that connects chat platforms (Telegram, Discord, Slack, WhatsApp, Twilio) to LLM providers via an agent loop with tool execution."
+assets = [
+    ["target/release/oxicrab", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/oxicrab/README.md", "644"],
+    ["LICENSE", "usr/share/doc/oxicrab/LICENSE", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/oxicrab", dest = "/usr/bin/oxicrab", mode = "0755" },
+    { source = "README.md", dest = "/usr/share/doc/oxicrab/README.md", mode = "0644" },
+    { source = "LICENSE", dest = "/usr/share/doc/oxicrab/LICENSE", mode = "0644" },
+]

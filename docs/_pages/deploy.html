@@ -28,11 +28,55 @@ max_width: 820px
   <div class="toc">
     <div class="toc-title">Options</div>
     <ul>
+      <li><a href="#packages">Native Packages (DEB / RPM / DMG)</a></li>
       <li><a href="#docker">Docker</a></li>
       <li><a href="#docker-compose">Docker Compose</a></li>
       <li><a href="#systemd">systemd (Linux)</a></li>
       <li><a href="#launchd">launchd (macOS)</a></li>
     </ul>
+  </div>
+
+  <!-- NATIVE PACKAGES -->
+  <div id="packages" class="deploy-section">
+    <h2>Native Packages (DEB / RPM / DMG)</h2>
+    <p>Pre-built packages are published with every <a href="https://github.com/oxicrab/oxicrab/releases/latest">GitHub Release</a>. The binary installs to <code>/usr/bin/oxicrab</code>.</p>
+
+    <h3>Debian / Ubuntu (.deb)</h3>
+    <p>Available for x86_64 (<code>amd64</code>) and ARM64 (<code>arm64</code>).</p>
+    <pre><code># Download the .deb for your architecture
+curl -LO https://github.com/oxicrab/oxicrab/releases/latest/download/oxicrab_VERSION_amd64.deb
+
+# Install
+sudo dpkg -i oxicrab_*_amd64.deb
+
+# Verify
+oxicrab --version</code></pre>
+
+    <h3>Fedora / RHEL (.rpm)</h3>
+    <p>Available for x86_64 and aarch64.</p>
+    <pre><code># Download the .rpm for your architecture
+curl -LO https://github.com/oxicrab/oxicrab/releases/latest/download/oxicrab-VERSION.x86_64.rpm
+
+# Install
+sudo rpm -i oxicrab-*.x86_64.rpm
+
+# Verify
+oxicrab --version</code></pre>
+
+    <h3>macOS (.dmg)</h3>
+    <p>Available for Apple Silicon (ARM64).</p>
+    <pre><code># Download the DMG
+curl -LO https://github.com/oxicrab/oxicrab/releases/latest/download/oxicrab-VERSION-arm64.dmg
+
+# Mount, copy binary, unmount
+hdiutil attach oxicrab-*-arm64.dmg
+sudo cp "/Volumes/Oxicrab "*/oxicrab /usr/local/bin/
+hdiutil detach "/Volumes/Oxicrab "*
+
+# Verify
+oxicrab --version</code></pre>
+
+    <div class="note"><strong>Note:</strong> On macOS, the binary installs to <code>/usr/local/bin</code> (not <code>/usr/bin</code>). Make sure this directory is in your <code>PATH</code>.</div>
   </div>
 
   <!-- DOCKER -->

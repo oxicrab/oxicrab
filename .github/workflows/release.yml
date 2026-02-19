@@ -114,6 +114,30 @@ jobs:
             shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
           fi
 
+      - name: Build DEB package
+        if: runner.os == 'Linux'
+        run: |
+          cargo install cargo-deb
+          cargo deb --no-build --target ${{ matrix.target }}
+          cp target/${{ matrix.target }}/debian/*.deb .
+
+      - name: Build RPM package
+        if: runner.os == 'Linux'
+        run: |
+          cargo install cargo-generate-rpm
+          cargo generate-rpm --target ${{ matrix.target }}
+          cp target/${{ matrix.target }}/generate-rpm/*.rpm .
+
+      - name: Build DMG
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dmg-staging
+          cp "target/${{ matrix.target }}/release/oxicrab" dmg-staging/
+          cp README.md LICENSE dmg-staging/
+          hdiutil create -volname "Oxicrab ${VERSION}" \
+            -srcfolder dmg-staging -ov -format UDZO \
+            "oxicrab-${VERSION}-arm64.dmg"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
@@ -121,6 +145,9 @@ jobs:
           path: |
             ${{ env.ARCHIVE }}
             ${{ env.ARCHIVE }}.sha256
+            *.deb
+            *.rpm
+            oxicrab-*.dmg
 
   docker:
     name: Docker
@@ -176,7 +203,7 @@ jobs:
       - name: Collect release assets
         run: |
           mkdir -p release-assets
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.sha256" \) -exec cp {} release-assets/ \;
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.sha256" -o -name "*.deb" -o -name "*.rpm" -o -name "*.dmg" \) -exec cp {} release-assets/ \;
           cd release-assets
           cat *.sha256 > checksums-sha256.txt
 
