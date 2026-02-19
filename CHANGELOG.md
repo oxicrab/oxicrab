@@ -1,6 +1,23 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.10.3] - 2026-02-19
+
+### Miscellaneous
+
+- reqwest 0.12 → 0.13 Upgrade Summary by @jamtur01 ([baf65cd](https://github.com/oxicrab/oxicrab/commit/baf65cd46d662dad8e62737e4cc587b077eec646))
+- New Integration Tests by @jamtur01 ([cd6e63f](https://github.com/oxicrab/oxicrab/commit/cd6e63f77508929ef1356619c9be481f195f48cc))
+- Summary of fixes by @jamtur01 ([c0db806](https://github.com/oxicrab/oxicrab/commit/c0db806ac5aaa0b125eda3f47feb22cd543b1879))
+- Feature 1: Three-Encoding Leak Detection (src/safety/leak_detector.rs) by @jamtur01 ([d9fba06](https://github.com/oxicrab/oxicrab/commit/d9fba061f2d8badf8f6add18b2cad39c30da1d29))
+- Replace gitleaks with trufflehog by @jamtur01 ([7a4a6b5](https://github.com/oxicrab/oxicrab/commit/7a4a6b5c4787e585d7bacc47205faab96efff7ee))
+- New file: by @jamtur01 ([a5e094c](https://github.com/oxicrab/oxicrab/commit/a5e094c29a952a50ba593f46f0f24a1f80f28d62))
+- 1. Security patterns -- curl/wget file upload exfiltration by @jamtur01 ([3d774a4](https://github.com/oxicrab/oxicrab/commit/3d774a4e69f0ea296e5142716dc3b5172be0c218))
+- Now add the file by @jamtur01 ([0677791](https://github.com/oxicrab/oxicrab/commit/06777916b79455ba0c13b7d03f1157f0a3344734))
+- Prompt-Guided Tools Fallback by @jamtur01 ([4c2627d](https://github.com/oxicrab/oxicrab/commit/4c2627dd44368b2becda1c547e0586d248df6613))
+- Some security fixes by @jamtur01 ([6848d9c](https://github.com/oxicrab/oxicrab/commit/6848d9c785d5b797103e9572d5c5c91fe1f6b01c))
+- New docs by @jamtur01 ([71c7d4c](https://github.com/oxicrab/oxicrab/commit/71c7d4cea47db246f2a25336d9682382399b5bf5))
+- Docs upadates by @jamtur01 ([b7f9267](https://github.com/oxicrab/oxicrab/commit/b7f9267713e3d3c61e96f1c7da2b0146b03db346))
+- src/agent/tools/todoist/mod.rs — 5 new actions added: by @jamtur01 ([883f709](https://github.com/oxicrab/oxicrab/commit/883f7096ce2b260e8662034f213186d803f2aafa))
 ## [0.10.2] - 2026-02-18
 
 ### CI/CD
@@ -9,6 +26,8 @@ All notable changes to this project will be documented in this file.
 
 ### Miscellaneous
 
+- Fixed build issues, dropped macos Intel support by @jamtur01 ([a4939b7](https://github.com/oxicrab/oxicrab/commit/a4939b7e3defc17149ef954216daef0b61417beb))
+- Fixed docs and openssl include by @jamtur01 ([af9b337](https://github.com/oxicrab/oxicrab/commit/af9b3370395f0dbcd4f0f99f9a66c2ece5a42833))
 - use std::sync::Once to ensure the permission by @jamtur01 ([cf95748](https://github.com/oxicrab/oxicrab/commit/cf95748b38ca093d7d18bd4d30b5cfc88edd1cfa))
 - Packages updates for rmcp, dirs, and fastembed by @jamtur01 ([03ca622](https://github.com/oxicrab/oxicrab/commit/03ca622f79ecf8568afdc3436911b3a2b6cce5bd))
 - bump uuid from 1.20.0 to 1.21.0 by @dependabot[bot] ([61399ce](https://github.com/oxicrab/oxicrab/commit/61399ce9f3827695189ee77f47e095a5ab986acc))
