@@ -1,10 +1,21 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.11.0] - 2026-02-19
+
+### Miscellaneous
+
+- Finding: Subagent middleware bypass by @jamtur01 ([a4d6fe9](https://github.com/oxicrab/oxicrab/commit/a4d6fe997ecfc553bf129fcbed5e27a440c374e6))
+- So many bug fixes by @jamtur01 ([91d6bfa](https://github.com/oxicrab/oxicrab/commit/91d6bfadcec44cd86501605c2ac3f564f726aaca))
+- Fixed some bugs by @jamtur01 ([2c46a5f](https://github.com/oxicrab/oxicrab/commit/2c46a5fdcdf5f6300efd546009e2453aa66c44cc))
+- Updated claude.md by @jamtur01 ([5c24be4](https://github.com/oxicrab/oxicrab/commit/5c24be492483b566425d16df82fa2d71690589e6))
+- Fixed a few bugs by @jamtur01 ([e3fe907](https://github.com/oxicrab/oxicrab/commit/e3fe90764282b6d58bef3984098a4c1f1eda891e))
+- Added pairing docs and updates by @jamtur01 ([e248c62](https://github.com/oxicrab/oxicrab/commit/e248c628123407d004a0040fd691a692071992b7))
 ## [0.10.3] - 2026-02-19
 
 ### Miscellaneous
 
+- Added packages by @jamtur01 ([418c379](https://github.com/oxicrab/oxicrab/commit/418c3797398d4613830b8730db6d8181d24f6967))
 - reqwest 0.12 → 0.13 Upgrade Summary by @jamtur01 ([baf65cd](https://github.com/oxicrab/oxicrab/commit/baf65cd46d662dad8e62737e4cc587b077eec646))
 - New Integration Tests by @jamtur01 ([cd6e63f](https://github.com/oxicrab/oxicrab/commit/cd6e63f77508929ef1356619c9be481f195f48cc))
 - Summary of fixes by @jamtur01 ([c0db806](https://github.com/oxicrab/oxicrab/commit/c0db806ac5aaa0b125eda3f47feb22cd543b1879))
