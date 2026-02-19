@@ -253,6 +253,17 @@ impl AnthropicOAuthProvider {
         });
 
         let json_str = serde_json::to_string_pretty(&data).unwrap_or_default();
+        // Cross-process lock to prevent concurrent token refresh races
+        let lock_path = path.with_extension("json.lock");
+        if let Ok(lock_file) = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&lock_path)
+        {
+            use fs2::FileExt;
+            let _ = lock_file.lock_exclusive();
+        }
         if let Err(e) = crate::utils::atomic_write(path, &json_str) {
             warn!("Failed to save OAuth credentials: {}", e);
         } else {

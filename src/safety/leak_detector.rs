@@ -168,7 +168,7 @@ impl LeakDetector {
         // Scan hex candidates
         for candidate in self.hex_candidate_re.find_iter(text) {
             let candidate_str = candidate.as_str();
-            if let Some(decoded) = decode_hex(candidate_str)
+            if let Some(decoded) = hex::decode(candidate_str).ok()
                 && let Ok(decoded_str) = String::from_utf8(decoded)
             {
                 for pattern in &self.patterns {
@@ -259,11 +259,6 @@ impl LeakDetector {
         }
         result
     }
-}
-
-/// Decode a hex string to bytes. Returns None if odd length or invalid hex.
-fn decode_hex(input: &str) -> Option<Vec<u8>> {
-    hex::decode(input).ok()
 }
 
 impl Default for LeakDetector {
@@ -452,16 +447,16 @@ mod tests {
 
     #[test]
     fn test_decode_hex_valid() {
-        assert_eq!(decode_hex("48656c6c6f"), Some(b"Hello".to_vec()));
+        assert_eq!(hex::decode("48656c6c6f").ok(), Some(b"Hello".to_vec()));
     }
 
     #[test]
     fn test_decode_hex_odd_length() {
-        assert_eq!(decode_hex("123"), None);
+        assert!(hex::decode("123").is_err());
     }
 
     #[test]
     fn test_decode_hex_invalid_chars() {
-        assert_eq!(decode_hex("zzzz"), None);
+        assert!(hex::decode("zzzz").is_err());
     }
 }

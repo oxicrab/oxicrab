@@ -51,9 +51,10 @@ impl ExecTool {
     /// Extract the base command name from a shell command string.
     /// Handles leading env vars (FOO=bar cmd), sudo/command prefixes,
     /// and returns the first actual executable token.
-    fn extract_command_name(token: &str) -> &str {
+    fn extract_command_name(token: &str) -> String {
         let token = token.trim();
-        let parts: Vec<&str> = token.split_whitespace().collect();
+        // Use shlex for proper shell-aware tokenization (handles quoting/escaping)
+        let parts = shlex::split(token).unwrap_or_default();
         let mut found_prefix = false;
         for part in &parts {
             // Skip env var assignments (KEY=value)
@@ -71,14 +72,14 @@ impl ExecTool {
                 found_prefix = true;
                 continue;
             }
-            return name;
+            return name.to_string();
         }
-        token
+        token.to_string()
     }
 
     /// Extract all command names from a shell pipeline/chain.
     /// Splits on |, &&, ||, ;, and newlines to find each command.
-    fn extract_all_commands(command: &str) -> Vec<&str> {
+    fn extract_all_commands(command: &str) -> Vec<String> {
         // Split on shell operators: |, &&, ||, ;, \n
         // We need to handle these carefully to extract command names
         let mut commands = Vec::new();

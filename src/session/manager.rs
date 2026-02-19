@@ -3,6 +3,7 @@ use crate::utils::{atomic_write, ensure_dir, safe_filename};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use fs2::FileExt;
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -169,8 +170,13 @@ impl SessionManager {
             return Ok(None);
         }
 
+        let file = fs::File::open(path)
+            .with_context(|| format!("Failed to open session file: {}", path.display()))?;
+        file.lock_shared()
+            .with_context(|| "Failed to acquire shared lock on session file")?;
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read session file: {}", path.display()))?;
+        // lock released when `file` drops
 
         let mut messages = Vec::new();
         let mut metadata = HashMap::new();
@@ -345,8 +351,19 @@ impl SessionManager {
             content.push('\n');
         }
 
+        let lock_path = path.with_extension("jsonl.lock");
+        let lock_file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&lock_path)
+            .with_context(|| "Failed to open session lock file")?;
+        lock_file
+            .lock_exclusive()
+            .with_context(|| "Failed to acquire exclusive lock on session file")?;
         atomic_write(&path, &content)
             .with_context(|| format!("Failed to write session file: {}", path.display()))?;
+        // lock released when lock_file drops
         debug!(
             "session saved: {} ({} messages)",
             session.key,

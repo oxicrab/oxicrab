@@ -489,11 +489,27 @@ impl ObsidianCache {
     }
 
     fn persist_state(&self, state: &SyncState) -> Result<()> {
+        use fs2::FileExt;
+        let lock_path = self.state_path.with_extension("json.lock");
+        let lock_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&lock_path)?;
+        lock_file.lock_exclusive()?;
         let json = serde_json::to_string_pretty(state)?;
         crate::utils::atomic_write(&self.state_path, &json)
     }
 
     async fn persist_queue(&self) -> Result<()> {
+        use fs2::FileExt;
+        let lock_path = self.queue_path.with_extension("json.lock");
+        let lock_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&lock_path)?;
+        lock_file.lock_exclusive()?;
         let queue = self.write_queue.lock().await;
         let json = serde_json::to_string_pretty(&*queue)?;
         drop(queue);

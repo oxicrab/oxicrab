@@ -204,7 +204,9 @@ impl Tool for ReadFileTool {
 
             // All operations below use the confined Dir handle (openat)
             let path_str_owned = path_str.to_string();
+            let ws_owned = ws.map(Path::to_path_buf);
             return tokio::task::spawn_blocking(move || {
+                let ws_ref = ws_owned.as_deref();
                 // For root-relative access (e.g. open_confined returns "" for the root itself)
                 let target = if relative.as_os_str().is_empty() {
                     PathBuf::from(".")
@@ -232,7 +234,10 @@ impl Tool for ReadFileTool {
                 }
                 match dir.read_to_string(&target) {
                     Ok(content) => Ok(ToolResult::new(content)),
-                    Err(e) => Ok(ToolResult::error(format!("Error reading file: {}", e))),
+                    Err(e) => Ok(ToolResult::error(sanitize_err(
+                        &format!("Error reading file: {}", e),
+                        ws_ref,
+                    ))),
                 }
             })
             .await?;
@@ -354,7 +359,9 @@ impl Tool for WriteFileTool {
 
             let content_owned = content.to_string();
             let path_str_owned = path_str.to_string();
+            let ws_owned = ws.map(Path::to_path_buf);
             return tokio::task::spawn_blocking(move || {
+                let ws_ref = ws_owned.as_deref();
                 // Create parent dirs within the confined root
                 if let Some(parent) = relative.parent()
                     && !parent.as_os_str().is_empty()
@@ -365,7 +372,10 @@ impl Tool for WriteFileTool {
                 }
                 match dir.write(&relative, &content_owned) {
                     Ok(()) => Ok(ToolResult::new(format!("File written: {}", path_str_owned))),
-                    Err(e) => Ok(ToolResult::error(format!("Error writing file: {}", e))),
+                    Err(e) => Ok(ToolResult::error(sanitize_err(
+                        &format!("Error writing file: {}", e),
+                        ws_ref,
+                    ))),
                 }
             })
             .await?;
@@ -480,7 +490,9 @@ impl Tool for EditFileTool {
             let old_text_owned = old_text.to_string();
             let new_text_owned = new_text.to_string();
             let path_str_owned = path_str.to_string();
+            let ws_owned = ws.map(Path::to_path_buf);
             return tokio::task::spawn_blocking(move || {
+                let ws_ref = ws_owned.as_deref();
                 let Ok(content) = dir.read_to_string(&relative) else {
                     return Ok(ToolResult::error(format!(
                         "Error: file not found: {}",
@@ -509,7 +521,10 @@ impl Tool for EditFileTool {
                         "Successfully edited {}",
                         path_str_owned
                     ))),
-                    Err(e) => Ok(ToolResult::error(format!("Error writing file: {}", e))),
+                    Err(e) => Ok(ToolResult::error(sanitize_err(
+                        &format!("Error writing file: {}", e),
+                        ws_ref,
+                    ))),
                 }
             })
             .await?;
@@ -625,7 +640,9 @@ impl Tool for ListDirTool {
             };
 
             let path_str_owned = path_str.to_string();
+            let ws_owned = ws.map(Path::to_path_buf);
             return tokio::task::spawn_blocking(move || {
+                let ws_ref = ws_owned.as_deref();
                 let target = if relative.as_os_str().is_empty() {
                     PathBuf::from(".")
                 } else {
@@ -658,7 +675,10 @@ impl Tool for ListDirTool {
                         entries.sort();
                         Ok(ToolResult::new(entries.join("\n")))
                     }
-                    Err(e) => Ok(ToolResult::error(format!("Error reading directory: {}", e))),
+                    Err(e) => Ok(ToolResult::error(sanitize_err(
+                        &format!("Error reading directory: {}", e),
+                        ws_ref,
+                    ))),
                 }
             })
             .await?;
