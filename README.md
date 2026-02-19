@@ -294,7 +294,7 @@ Resolution order: env vars (`OXICRAB_*`) → credential helper (1Password, Bitwa
 | **WhatsApp** | Just enable — scan QR code on first run | `channels.whatsapp` |
 | **Twilio** | Account SID + Auth Token + phone number + webhook URL | `channels.twilio` |
 
-Each channel needs an `allowFrom` list of authorized sender IDs. Empty `allowFrom` defaults to **deny-all** — use `["*"]` to allow all senders, or use `oxicrab pairing approve` to onboard specific users.
+Each channel has a `dmPolicy` that controls access: `"allowlist"` (default — silently drop unknown senders), `"pairing"` (send a pairing code so unknown senders can request access), or `"open"` (allow everyone). The `allowFrom` list specifies pre-authorized sender IDs. Empty `allowFrom` defaults to **deny-all** — use `["*"]` to allow all senders, or use `oxicrab pairing approve` to onboard specific users.
 
 ## Running
 

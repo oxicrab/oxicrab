@@ -354,33 +354,63 @@ fn check_empty_allowlists() -> CheckResult {
         return CheckResult::Skip("config not available".to_string());
     };
 
+    let pairing_store = crate::pairing::PairingStore::new().ok();
+    let has_paired = |channel: &str| -> bool {
+        pairing_store
+            .as_ref()
+            .and_then(|store| store.list_channel_senders(channel))
+            .is_some_and(|s| !s.is_empty())
+    };
+
     let mut open_channels: Vec<&str> = Vec::new();
 
+    // Channels with dmPolicy "open" are intentionally open — skip them.
+    // Channels with dmPolicy "pairing" handle unknown senders interactively.
+    // Only "allowlist" channels with empty allowFrom and no paired senders are flagged.
+
     #[cfg(feature = "channel-telegram")]
-    if config.channels.telegram.enabled && config.channels.telegram.allow_from.is_empty() {
+    if config.channels.telegram.enabled
+        && config.channels.telegram.dm_policy == "allowlist"
+        && config.channels.telegram.allow_from.is_empty()
+        && !has_paired("telegram")
+    {
         open_channels.push("telegram");
     }
 
     #[cfg(feature = "channel-discord")]
-    if config.channels.discord.enabled && config.channels.discord.allow_from.is_empty() {
+    if config.channels.discord.enabled
+        && config.channels.discord.dm_policy == "allowlist"
+        && config.channels.discord.allow_from.is_empty()
+        && !has_paired("discord")
+    {
         open_channels.push("discord");
     }
 
     #[cfg(feature = "channel-slack")]
-    if config.channels.slack.enabled && config.channels.slack.allow_from.is_empty() {
+    if config.channels.slack.enabled
+        && config.channels.slack.dm_policy == "allowlist"
+        && config.channels.slack.allow_from.is_empty()
+        && !has_paired("slack")
+    {
         open_channels.push("slack");
     }
 
     #[cfg(feature = "channel-twilio")]
-    if config.channels.twilio.enabled && config.channels.twilio.allow_from.is_empty() {
+    if config.channels.twilio.enabled
+        && config.channels.twilio.dm_policy == "allowlist"
+        && config.channels.twilio.allow_from.is_empty()
+        && !has_paired("twilio")
+    {
         open_channels.push("twilio");
     }
 
     if open_channels.is_empty() {
-        CheckResult::Pass("all enabled channels have allowlists or are disabled".to_string())
+        CheckResult::Pass(
+            "all enabled channels have allowlists, pairing, dmPolicy, or are disabled".to_string(),
+        )
     } else {
         CheckResult::Fail(format!(
-            "{} (use pairing or add \"*\" to allowFrom)",
+            "{} (set dmPolicy, use pairing, or add \"*\" to allowFrom)",
             open_channels.join(", ")
         ))
     }

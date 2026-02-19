@@ -164,6 +164,7 @@
       "enabled": true,
       "token": "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
       "allowFrom": ["123456789"],
+      "dmPolicy": "allowlist",
       "proxy": null
     }
   }
@@ -182,6 +183,7 @@
       <span>Message deletion</span>
       <span>HTML formatting</span>
       <span>Sender allowlist</span>
+      <span>DM policy (pairing)</span>
     </div>
   </div>
 
@@ -222,7 +224,8 @@
     "discord": {
       "enabled": true,
       "token": "your-discord-bot-token",
-      "allowFrom": ["123456789012345678"]
+      "allowFrom": ["123456789012345678"],
+      "dmPolicy": "allowlist"
     }
   }
 }</code></pre>
@@ -238,6 +241,7 @@
       <span>Message deletion</span>
       <span>Guild + DM support</span>
       <span>Sender allowlist</span>
+      <span>DM policy (pairing)</span>
     </div>
   </div>
 
@@ -314,7 +318,8 @@
       "enabled": true,
       "botToken": "xoxb-1234567890-1234567890123-abcdefghijklmnopqrstuvwx",
       "appToken": "xapp-1-A1234567890-1234567890123-abcdefghijklmnopqrstuvwxyz1234567890",
-      "allowFrom": ["U01234567"]
+      "allowFrom": ["U01234567"],
+      "dmPolicy": "allowlist"
     }
   }
 }</code></pre>
@@ -332,6 +337,7 @@
       <span>Emoji reactions</span>
       <span>Markdown formatting</span>
       <span>Sender allowlist</span>
+      <span>DM policy (pairing)</span>
     </div>
   </div>
 
@@ -354,7 +360,8 @@
   "channels": {
     "whatsapp": {
       "enabled": true,
-      "allowFrom": ["15037348571"]
+      "allowFrom": ["15037348571"],
+      "dmPolicy": "allowlist"
     }
   }
 }</code></pre>
@@ -375,6 +382,7 @@
       <span>Group conversations</span>
       <span>Persistent sessions</span>
       <span>Sender allowlist</span>
+      <span>DM policy (pairing)</span>
     </div>
   </div>
 
@@ -438,7 +446,8 @@
       "webhookPort": 8080,
       "webhookPath": "/twilio/webhook",
       "webhookUrl": "https://your-server.example.com/twilio/webhook",
-      "allowFrom": []
+      "allowFrom": [],
+      "dmPolicy": "allowlist"
     }
   }
 }</code></pre>
@@ -453,6 +462,7 @@
       <span>HMAC-SHA1 signature validation</span>
       <span>Message chunking (1600 chars)</span>
       <span>Sender allowlist</span>
+      <span>DM policy (pairing)</span>
     </div>
   </div>
 
@@ -471,8 +481,103 @@ cargo build --release --no-default-features --features channel-telegram,channel-
 # No channels (agent CLI only)
 cargo build --release --no-default-features</code></pre>
 
+    <h3>DM access policy</h3>
+    <p>Every channel supports a <code>dmPolicy</code> field that controls what happens when an unrecognized sender messages the bot. Three modes are available:</p>
+
+    <table class="scope-table">
+      <thead><tr><th>Value</th><th>Behavior</th></tr></thead>
+      <tbody>
+        <tr><td>"allowlist"</td><td>Default. Check <code>allowFrom</code> + pairing store. Silently drop unrecognized senders.</td></tr>
+        <tr><td>"pairing"</td><td>Check <code>allowFrom</code> + pairing store. Send a pairing code to unrecognized senders so they can request access.</td></tr>
+        <tr><td>"open"</td><td>Allow all senders unconditionally. Skip all access checks.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="config-block">
+      <div class="config-label">Example: enable pairing on Telegram</div>
+      <pre><code>{
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "token": "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
+      "allowFrom": ["123456789"],
+      "dmPolicy": "pairing"
+    }
+  }
+}</code></pre>
+    </div>
+
+    <h3>Access control lifecycle</h3>
+    <p>Sender access is resolved from three sources, checked in order. The first match wins:</p>
+    <ol>
+      <li><strong>Config allowlist</strong> (<code>allowFrom</code>) &mdash; sender IDs hardcoded in <code>config.json</code>. Checked first, always available. Use <code>["*"]</code> as a wildcard to allow everyone. Phone numbers are normalized (leading <code>+</code> stripped) so <code>"+15551234567"</code> and <code>"15551234567"</code> both match.</li>
+      <li><strong>Pairing store</strong> (<code>~/.oxicrab/pairing/{channel}-allowlist.json</code>) &mdash; sender IDs added dynamically via <code>oxicrab pairing approve</code>. Read from disk on every message, so approvals take effect without restarting the gateway.</li>
+      <li><strong>DM policy fallback</strong> (<code>dmPolicy</code>) &mdash; what happens when a sender matches neither source above. This is where the three modes diverge.</li>
+    </ol>
+
+    <p>The full decision flow for every inbound message:</p>
+    <pre><code>Inbound message from sender
+        |
+        v
+  dmPolicy == "open"? ──yes──> ALLOW (skip all checks)
+        |
+        no
+        v
+  Sender in config allowFrom? ──yes──> ALLOW
+  (normalized match, or "*" wildcard)
+        |
+        no
+        v
+  Sender in pairing store? ──yes──> ALLOW
+  (~/.oxicrab/pairing/{channel}-allowlist.json)
+        |
+        no
+        v
+  dmPolicy == "pairing"? ──yes──┐
+        |                       v
+        no              Generate 8-char code (15-min TTL)
+        v               Reply to sender with pairing instructions
+      DENY              ── sender shares code with bot owner ──>
+  (silent drop)         Owner runs: oxicrab pairing approve {channel} {code}
+                                |
+                                v
+                        Sender added to pairing store
+                        Next message from sender ──> ALLOW</code></pre>
+
+    <h3>Walkthrough: message lifecycle with pairing</h3>
+    <p>This walkthrough applies to <strong>every channel</strong> (Telegram, Discord, Slack, WhatsApp, Twilio). The only difference is how the pairing reply is delivered.</p>
+    <ol>
+      <li><strong>Configure the channel.</strong> Set <code>"enabled": true</code>, add your own ID to <code>"allowFrom"</code>, and choose a <code>"dmPolicy"</code>. For this walkthrough we use <code>"pairing"</code>.</li>
+      <li><strong>Start the gateway.</strong> <code>oxicrab gateway</code> connects the channel. Your ID is in <code>allowFrom</code>, so your messages work immediately.</li>
+      <li><strong>An unknown sender messages the bot.</strong> They are not in <code>allowFrom</code> and not in the pairing store.</li>
+      <li><strong>The channel generates a pairing code.</strong> An 8-character code (e.g. <code>XK7M2NPA</code>) is created with a 15-minute TTL and sent back to the sender:
+        <ul class="plain" style="margin-top: 0.5rem;">
+          <li><strong>Telegram</strong> &mdash; bot sends a reply message</li>
+          <li><strong>Discord</strong> &mdash; ephemeral interaction response (slash commands/buttons) or channel reply (messages)</li>
+          <li><strong>Slack</strong> &mdash; bot posts a message in the conversation via <code>chat.postMessage</code></li>
+          <li><strong>Twilio</strong> &mdash; returns a TwiML <code>&lt;Message&gt;</code> so Twilio sends an SMS reply</li>
+          <li><strong>WhatsApp</strong> &mdash; code is logged server-side (reply not yet supported)</li>
+        </ul>
+      </li>
+      <li><strong>The sender shares the code with you</strong> (out-of-band &mdash; in person, via another chat, etc.).</li>
+      <li><strong>You approve the pairing.</strong> Run <code>oxicrab pairing approve {channel} {code}</code>. This validates the code and adds the sender's ID to <code>~/.oxicrab/pairing/{channel}-allowlist.json</code>.</li>
+      <li><strong>The sender is now permanently allowed.</strong> Their next message hits the pairing store check and passes. No gateway restart needed. You can revoke later with <code>oxicrab pairing revoke {channel} {sender_id}</code>.</li>
+    </ol>
+
+    <h3>What changes with each policy</h3>
+    <table class="scope-table">
+      <thead><tr><th>Scenario</th><th>"allowlist" (default)</th><th>"pairing"</th><th>"open"</th></tr></thead>
+      <tbody>
+        <tr><td>Sender in allowFrom</td><td>Allowed</td><td>Allowed</td><td>Allowed</td></tr>
+        <tr><td>Sender in pairing store</td><td>Allowed</td><td>Allowed</td><td>Allowed</td></tr>
+        <tr><td>Unknown sender</td><td>Silent drop</td><td>Pairing code sent</td><td>Allowed</td></tr>
+        <tr><td>Empty allowFrom, no pairings</td><td>All denied</td><td>All get pairing codes</td><td>All allowed</td></tr>
+      </tbody>
+    </table>
+    <div class="note"><strong>Tip:</strong> Start with <code>"pairing"</code> to let trusted contacts self-onboard, then switch to <code>"allowlist"</code> once your user base is established. Use <code>"open"</code> only for public-facing bots where anyone should be able to interact.</div>
+
     <h3>Allowlist filtering</h3>
-    <p>All channels support an <code>allowFrom</code> array. Empty <code>allowFrom</code> defaults to <strong>deny-all</strong> &mdash; use <code>["*"]</code> to allow all senders, or use <a href="cli.html#pairing">DM pairing</a> to onboard specific users. When populated, only listed IDs can interact with the bot.</p>
+    <p>All channels support an <code>allowFrom</code> array. Empty <code>allowFrom</code> defaults to <strong>deny-all</strong> (under the <code>"allowlist"</code> and <code>"pairing"</code> policies) &mdash; use <code>["*"]</code> to allow all senders, or use <a href="cli.html#pairing">DM pairing</a> to onboard specific users. When populated, only listed IDs can interact with the bot.</p>
 
     <h3>Media handling</h3>
     <p>Inbound media (images, voice messages) is downloaded and saved to <code>~/.oxicrab/media/</code> with channel-specific prefixes. Voice messages are automatically transcribed if the transcription service is configured.</p>

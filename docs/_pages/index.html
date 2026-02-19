@@ -512,7 +512,7 @@ max_width: 1120px
         <div class="feature-name">Security</div>
         <div class="feature-detail">
           <h3>Defense in depth</h3>
-          <p>Default-deny sender allowlists with DM pairing, outbound leak detection (scans for API key patterns and redacts before sending), shell command allowlists + blocklists, SSRF protection, path traversal prevention, secret redaction in logs, constant-time webhook signature validation.</p>
+          <p>Per-channel DM policy (allowlist/pairing/open) with default-deny sender allowlists, outbound leak detection (scans for API key patterns and redacts before sending), shell command allowlists + blocklists, SSRF protection, path traversal prevention, secret redaction in logs, constant-time webhook signature validation.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -757,22 +757,26 @@ cp config.example.json ~/.oxicrab/config.json</pre>
       <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
       <span class="hl-key">"token"</span>: <span class="hl-str">"your-telegram-bot-token"</span>,
       <span class="hl-key">"allowFrom"</span>: [],
+      <span class="hl-key">"dmPolicy"</span>: <span class="hl-str">"allowlist"</span>,
       <span class="hl-key">"proxy"</span>: <span class="hl-num">null</span>
     },
     <span class="hl-key">"discord"</span>: {
       <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
       <span class="hl-key">"token"</span>: <span class="hl-str">"your-discord-bot-token"</span>,
-      <span class="hl-key">"allowFrom"</span>: []
+      <span class="hl-key">"allowFrom"</span>: [],
+      <span class="hl-key">"dmPolicy"</span>: <span class="hl-str">"allowlist"</span>
     },
     <span class="hl-key">"slack"</span>: {
       <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
       <span class="hl-key">"botToken"</span>: <span class="hl-str">"xoxb-your-slack-bot-token"</span>,
       <span class="hl-key">"appToken"</span>: <span class="hl-str">"xapp-your-slack-app-token"</span>,
-      <span class="hl-key">"allowFrom"</span>: []
+      <span class="hl-key">"allowFrom"</span>: [],
+      <span class="hl-key">"dmPolicy"</span>: <span class="hl-str">"allowlist"</span>
     },
     <span class="hl-key">"whatsapp"</span>: {
       <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"allowFrom"</span>: []
+      <span class="hl-key">"allowFrom"</span>: [],
+      <span class="hl-key">"dmPolicy"</span>: <span class="hl-str">"allowlist"</span>
     },
     <span class="hl-key">"twilio"</span>: {
       <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
@@ -782,7 +786,8 @@ cp config.example.json ~/.oxicrab/config.json</pre>
       <span class="hl-key">"webhookPort"</span>: <span class="hl-num">8080</span>,
       <span class="hl-key">"webhookPath"</span>: <span class="hl-str">"/twilio/webhook"</span>,
       <span class="hl-key">"webhookUrl"</span>: <span class="hl-str">"https://your-domain.com/twilio/webhook"</span>,
-      <span class="hl-key">"allowFrom"</span>: []
+      <span class="hl-key">"allowFrom"</span>: [],
+      <span class="hl-key">"dmPolicy"</span>: <span class="hl-str">"allowlist"</span>
     }
   },
   <span class="hl-key">"providers"</span>: {

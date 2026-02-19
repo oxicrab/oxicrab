@@ -1,6 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
-use crate::channels::utils::{check_allowed_sender, exponential_backoff_delay};
+use crate::channels::utils::{
+    DmCheckResult, check_dm_access, exponential_backoff_delay, format_pairing_reply,
+};
 use crate::config::{DiscordCommand, DiscordConfig};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -24,6 +26,7 @@ const DISCORD_API_BASE: &str = "https://discord.com/api/v10";
 struct Handler {
     inbound_tx: mpsc::Sender<InboundMessage>,
     allow_list: Vec<String>,
+    dm_policy: String,
     http_client: reqwest::Client,
     commands: Vec<DiscordCommand>,
 }
@@ -36,16 +39,31 @@ impl Handler {
     ) {
         let sender_id = cmd.user.id.to_string();
 
-        if !check_allowed_sender(&sender_id, &self.allow_list) {
-            let response = CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new()
-                    .content("You are not authorized to use this bot.")
-                    .ephemeral(true),
-            );
-            if let Err(e) = cmd.create_response(&ctx.http, response).await {
-                warn!("Failed to send unauthorized response: {}", e);
+        match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
+            DmCheckResult::Allowed => {}
+            DmCheckResult::PairingRequired { code } => {
+                let reply = format_pairing_reply("discord", &sender_id, &code);
+                let response = CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content(reply)
+                        .ephemeral(true),
+                );
+                if let Err(e) = cmd.create_response(&ctx.http, response).await {
+                    warn!("Failed to send pairing response: {}", e);
+                }
+                return;
             }
-            return;
+            DmCheckResult::Denied => {
+                let response = CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content("You are not authorized to use this bot.")
+                        .ephemeral(true),
+                );
+                if let Err(e) = cmd.create_response(&ctx.http, response).await {
+                    warn!("Failed to send unauthorized response: {}", e);
+                }
+                return;
+            }
         }
 
         // Defer response — shows "thinking..."
@@ -102,16 +120,31 @@ impl Handler {
     ) {
         let sender_id = comp.user.id.to_string();
 
-        if !check_allowed_sender(&sender_id, &self.allow_list) {
-            let response = CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::new()
-                    .content("You are not authorized to use this bot.")
-                    .ephemeral(true),
-            );
-            if let Err(e) = comp.create_response(&ctx.http, response).await {
-                warn!("Failed to send unauthorized response: {}", e);
+        match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
+            DmCheckResult::Allowed => {}
+            DmCheckResult::PairingRequired { code } => {
+                let reply = format_pairing_reply("discord", &sender_id, &code);
+                let response = CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content(reply)
+                        .ephemeral(true),
+                );
+                if let Err(e) = comp.create_response(&ctx.http, response).await {
+                    warn!("Failed to send pairing response: {}", e);
+                }
+                return;
             }
-            return;
+            DmCheckResult::Denied => {
+                let response = CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content("You are not authorized to use this bot.")
+                        .ephemeral(true),
+                );
+                if let Err(e) = comp.create_response(&ctx.http, response).await {
+                    warn!("Failed to send unauthorized response: {}", e);
+                }
+                return;
+            }
         }
 
         // Defer update
@@ -160,15 +193,25 @@ impl EventHandler for Handler {
         info!("Discord cache is ready");
     }
 
-    async fn message(&self, _ctx: Context, msg: DiscordMessage) {
+    async fn message(&self, ctx: Context, msg: DiscordMessage) {
         if msg.author.bot {
             return;
         }
 
         let sender_id = msg.author.id.to_string();
 
-        if !check_allowed_sender(&sender_id, &self.allow_list) {
-            return;
+        match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
+            DmCheckResult::Allowed => {}
+            DmCheckResult::PairingRequired { code } => {
+                let reply = format_pairing_reply("discord", &sender_id, &code);
+                if let Err(e) = msg.reply(&ctx.http, &reply).await {
+                    warn!("Failed to send pairing reply: {}", e);
+                }
+                return;
+            }
+            DmCheckResult::Denied => {
+                return;
+            }
         }
 
         // Download image attachments
@@ -466,6 +509,7 @@ impl BaseChannel for DiscordChannel {
 
         let token = self.config.token.clone();
         let allow_from = self.config.allow_from.clone();
+        let dm_policy = self.config.dm_policy.clone();
         let commands = self.config.commands.clone();
         let inbound_tx = self.inbound_tx.clone();
         let running = self.running.clone();
@@ -481,6 +525,7 @@ impl BaseChannel for DiscordChannel {
                 let handler = Handler {
                     inbound_tx: inbound_tx.clone(),
                     allow_list: allow_from.clone(),
+                    dm_policy: dm_policy.clone(),
                     http_client: reqwest::Client::builder()
                         .connect_timeout(std::time::Duration::from_secs(10))
                         .timeout(std::time::Duration::from_secs(30))

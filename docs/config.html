@@ -140,6 +140,7 @@
             <li><a href="#cognitive-routines">Cognitive Routines</a></li>
             <li><a href="#exfiltration-guard">Exfiltration Guard</a></li>
             <li><a href="#prompt-guard">Prompt Guard</a></li>
+            <li><a href="#channels">Channels</a></li>
             <li><a href="#logging">Logging</a></li>
         </ul>
     </div>
@@ -639,6 +640,40 @@
             <li><strong>Jailbreak</strong> &mdash; common jailbreak prefixes ("DAN mode", "developer mode", "jailbreak")</li>
         </ul>
         <p>User messages are scanned with the configured action. Tool output is always warn-only (tool output may legitimately contain these phrases).</p>
+    </div>
+
+    <!-- CHANNELS -->
+    <div id="channels" class="cfg-section">
+        <h2>Channels</h2>
+        <p>Per-channel configuration under <code>channels.{name}</code>. See <a href="channels.html">Channel Setup</a> for step-by-step guides. All channels share these common fields:</p>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable this channel</td></tr>
+            <tr><td>allowFrom</td><td>string[]</td><td>[]</td><td>Authorized sender IDs. Empty = deny-all. Use <code>["*"]</code> for open access.</td></tr>
+            <tr><td>dmPolicy</td><td>string</td><td>"allowlist"</td><td>DM access policy: <code>"allowlist"</code>, <code>"pairing"</code>, or <code>"open"</code></td></tr>
+        </table>
+
+        <h3>dmPolicy</h3>
+        <p>Controls what happens when an unrecognized sender messages the bot on a channel.</p>
+        <table class="cfg-table">
+            <tr><th>Value</th><th>Behavior</th></tr>
+            <tr><td>"allowlist"</td><td>Check <code>allowFrom</code> + pairing store. Silently drop unrecognized senders. This is the default and preserves the original behavior.</td></tr>
+            <tr><td>"pairing"</td><td>Check <code>allowFrom</code> + pairing store. If unknown, generate an 8-character pairing code and send it to the sender. The bot owner can then approve with <code>oxicrab pairing approve {channel} {code}</code>.</td></tr>
+            <tr><td>"open"</td><td>Allow all senders unconditionally. No access checks are performed.</td></tr>
+        </table>
+        <p>See <a href="channels.html#common-patterns">Channel Setup &rarr; Common patterns</a> for a detailed walkthrough and access check flowchart.</p>
+
+        <h3>Channel-specific fields</h3>
+        <p>Each channel has additional required fields. See <a href="channels.html">Channel Setup</a> for the complete config blocks. Quick reference:</p>
+        <table class="cfg-table">
+            <tr><th>Channel</th><th>Required Fields</th></tr>
+            <tr><td>telegram</td><td><code>token</code>. Optional: <code>proxy</code></td></tr>
+            <tr><td>discord</td><td><code>token</code></td></tr>
+            <tr><td>slack</td><td><code>botToken</code>, <code>appToken</code></td></tr>
+            <tr><td>whatsapp</td><td>(none &mdash; scan QR on first run)</td></tr>
+            <tr><td>twilio</td><td><code>accountSid</code>, <code>authToken</code>, <code>phoneNumber</code>, <code>webhookPort</code>, <code>webhookPath</code>, <code>webhookUrl</code></td></tr>
+        </table>
     </div>
 
     <!-- LOGGING -->

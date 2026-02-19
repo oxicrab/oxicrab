@@ -57,23 +57,54 @@ macro_rules! redact_debug {
     };
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WhatsAppConfig {
     pub enabled: bool,
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
+    #[serde(default = "default_dm_policy", rename = "dmPolicy")]
+    pub dm_policy: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+impl Default for WhatsAppConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allow_from: Vec::new(),
+            dm_policy: default_dm_policy(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TelegramConfig {
     pub enabled: bool,
     #[serde(default)]
     pub token: String,
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
+    #[serde(default = "default_dm_policy", rename = "dmPolicy")]
+    pub dm_policy: String,
 }
 
-redact_debug!(TelegramConfig, enabled, redact(token), allow_from,);
+impl Default for TelegramConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            token: String::new(),
+            allow_from: Vec::new(),
+            dm_policy: default_dm_policy(),
+        }
+    }
+}
+
+redact_debug!(
+    TelegramConfig,
+    enabled,
+    redact(token),
+    allow_from,
+    dm_policy,
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscordCommand {
@@ -112,6 +143,8 @@ pub struct DiscordConfig {
     pub allow_from: Vec<String>,
     #[serde(default = "default_discord_commands")]
     pub commands: Vec<DiscordCommand>,
+    #[serde(default = "default_dm_policy", rename = "dmPolicy")]
+    pub dm_policy: String,
 }
 
 impl Default for DiscordConfig {
@@ -121,13 +154,21 @@ impl Default for DiscordConfig {
             token: String::new(),
             allow_from: Vec::new(),
             commands: default_discord_commands(),
+            dm_policy: default_dm_policy(),
         }
     }
 }
 
-redact_debug!(DiscordConfig, enabled, redact(token), allow_from, commands,);
+redact_debug!(
+    DiscordConfig,
+    enabled,
+    redact(token),
+    allow_from,
+    commands,
+    dm_policy,
+);
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SlackConfig {
     pub enabled: bool,
     #[serde(default, rename = "botToken")]
@@ -136,6 +177,20 @@ pub struct SlackConfig {
     pub app_token: String,
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
+    #[serde(default = "default_dm_policy", rename = "dmPolicy")]
+    pub dm_policy: String,
+}
+
+impl Default for SlackConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bot_token: String::new(),
+            app_token: String::new(),
+            allow_from: Vec::new(),
+            dm_policy: default_dm_policy(),
+        }
+    }
 }
 
 redact_debug!(
@@ -144,6 +199,7 @@ redact_debug!(
     redact(bot_token),
     redact(app_token),
     allow_from,
+    dm_policy,
 );
 
 fn default_webhook_port() -> u16 {
@@ -154,7 +210,11 @@ fn default_webhook_path() -> String {
     "/twilio/webhook".to_string()
 }
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+fn default_dm_policy() -> String {
+    "allowlist".to_string()
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TwilioConfig {
     pub enabled: bool,
     #[serde(default, rename = "accountSid")]
@@ -171,6 +231,24 @@ pub struct TwilioConfig {
     pub webhook_url: String,
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
+    #[serde(default = "default_dm_policy", rename = "dmPolicy")]
+    pub dm_policy: String,
+}
+
+impl Default for TwilioConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            account_sid: String::new(),
+            auth_token: String::new(),
+            phone_number: String::new(),
+            webhook_port: default_webhook_port(),
+            webhook_path: default_webhook_path(),
+            webhook_url: String::new(),
+            allow_from: Vec::new(),
+            dm_policy: default_dm_policy(),
+        }
+    }
 }
 
 redact_debug!(
@@ -183,6 +261,7 @@ redact_debug!(
     webhook_path,
     webhook_url,
     allow_from,
+    dm_policy,
 );
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1423,6 +1502,32 @@ impl Config {
             }
         }
 
+        // Validate dmPolicy for all channels
+        let dm_policies = [
+            (
+                "channels.telegram.dmPolicy",
+                &self.channels.telegram.dm_policy,
+            ),
+            (
+                "channels.discord.dmPolicy",
+                &self.channels.discord.dm_policy,
+            ),
+            ("channels.slack.dmPolicy", &self.channels.slack.dm_policy),
+            (
+                "channels.whatsapp.dmPolicy",
+                &self.channels.whatsapp.dm_policy,
+            ),
+            ("channels.twilio.dmPolicy", &self.channels.twilio.dm_policy),
+        ];
+        for (field, value) in dm_policies {
+            if !matches!(value.as_str(), "allowlist" | "pairing" | "open") {
+                return Err(OxicrabError::Config(format!(
+                    "{} must be \"allowlist\", \"pairing\", or \"open\", got \"{}\"",
+                    field, value
+                )));
+            }
+        }
+
         // Validate web search config
         if self.tools.web.search.max_results == 0 {
             return Err(OxicrabError::Config(
@@ -1585,6 +1690,52 @@ mod tests {
         // Call with no model parameter and no match - should fall back to first available
         let api_key = config.get_api_key(Some("unknown-model"));
         assert_eq!(api_key, Some("test-anthropic-key"));
+    }
+
+    #[test]
+    fn test_valid_dm_policy_values() {
+        for policy in &["allowlist", "pairing", "open"] {
+            let mut config = Config::default();
+            config.channels.telegram.dm_policy = policy.to_string();
+            assert!(
+                config.validate().is_ok(),
+                "policy '{}' should be valid",
+                policy
+            );
+        }
+    }
+
+    #[test]
+    fn test_invalid_dm_policy_rejected() {
+        let mut config = Config::default();
+        config.channels.telegram.dm_policy = "invalid".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("dmPolicy"));
+    }
+
+    #[test]
+    fn test_dm_policy_default_is_allowlist() {
+        let config = Config::default();
+        assert_eq!(config.channels.telegram.dm_policy, "allowlist");
+        assert_eq!(config.channels.discord.dm_policy, "allowlist");
+        assert_eq!(config.channels.slack.dm_policy, "allowlist");
+        assert_eq!(config.channels.whatsapp.dm_policy, "allowlist");
+        assert_eq!(config.channels.twilio.dm_policy, "allowlist");
+    }
+
+    #[test]
+    fn test_dm_policy_deserializes_from_json() {
+        let json = r#"{
+            "channels": {
+                "telegram": { "enabled": false, "dmPolicy": "pairing" },
+                "discord": { "enabled": false, "dmPolicy": "open" }
+            }
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.channels.telegram.dm_policy, "pairing");
+        assert_eq!(config.channels.discord.dm_policy, "open");
+        // Others default to "allowlist"
+        assert_eq!(config.channels.slack.dm_policy, "allowlist");
     }
 
     #[test]

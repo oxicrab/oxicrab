@@ -1,12 +1,13 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
-use crate::channels::utils::check_allowed_sender;
+use crate::channels::utils::{DmCheckResult, check_dm_access, format_pairing_reply};
 use crate::config::TwilioConfig;
 use anyhow::Result;
 use async_trait::async_trait;
 use axum::Router;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
 use axum::routing::post;
 use base64::Engine;
 use chrono::Utc;
@@ -50,6 +51,7 @@ struct WebhookState {
     webhook_url: String,
     phone_number: String,
     allow_from: Vec<String>,
+    dm_policy: String,
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
 }
 
@@ -82,14 +84,14 @@ async fn webhook_handler(
     State(state): State<WebhookState>,
     headers: HeaderMap,
     body: String,
-) -> StatusCode {
+) -> axum::response::Response {
     // Extract signature header
     let Some(signature) = headers
         .get("X-Twilio-Signature")
         .and_then(|v| v.to_str().ok())
     else {
         warn!("twilio webhook: missing X-Twilio-Signature header");
-        return StatusCode::FORBIDDEN;
+        return StatusCode::FORBIDDEN.into_response();
     };
     let signature = signature.to_string();
 
@@ -101,7 +103,7 @@ async fn webhook_handler(
     // Validate signature
     if !validate_twilio_signature(&state.auth_token, &signature, &state.webhook_url, &params) {
         warn!("twilio webhook: invalid signature");
-        return StatusCode::FORBIDDEN;
+        return StatusCode::FORBIDDEN.into_response();
     }
 
     // Detect format: SMS webhook has "From"/"To"/"MessageSid",
@@ -125,30 +127,51 @@ async fn webhook_handler(
         // Skip our own messages
         if author == "oxicrab" {
             debug!("twilio webhook: ignoring own message");
-            return StatusCode::OK;
+            return StatusCode::OK.into_response();
         }
         (author.to_string(), conv_sid.to_string(), body.to_string())
     } else {
         let event_type = params.get("EventType").map_or("", String::as_str);
         debug!("twilio webhook: ignoring event type: {}", event_type);
-        return StatusCode::OK;
+        return StatusCode::OK.into_response();
     };
 
     // Skip messages from our own number
     if sender == state.phone_number {
         debug!("twilio webhook: ignoring own message");
-        return StatusCode::OK;
+        return StatusCode::OK.into_response();
     }
 
-    // Check allowFrom
-    if !check_allowed_sender(&sender, &state.allow_from) {
-        debug!("twilio webhook: sender not allowed: {}", sender);
-        return StatusCode::OK;
+    // Check access based on dmPolicy
+    match check_dm_access(&sender, &state.allow_from, "twilio", &state.dm_policy) {
+        DmCheckResult::Allowed => {}
+        DmCheckResult::PairingRequired { code } => {
+            let reply = format_pairing_reply("twilio", &sender, &code);
+            // Return TwiML response so Twilio sends the pairing code as an SMS reply
+            let escaped = reply
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;");
+            let twiml = format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response><Message>{}</Message></Response>",
+                escaped
+            );
+            return (
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "text/xml")],
+                twiml,
+            )
+                .into_response();
+        }
+        DmCheckResult::Denied => {
+            debug!("twilio webhook: sender not allowed: {}", sender);
+            return StatusCode::OK.into_response();
+        }
     }
 
     if body_text.is_empty() {
         debug!("twilio webhook: empty message body");
-        return StatusCode::OK;
+        return StatusCode::OK.into_response();
     }
 
     let message = InboundMessage {
@@ -163,10 +186,10 @@ async fn webhook_handler(
 
     if let Err(e) = state.inbound_tx.send(message).await {
         error!("twilio webhook: failed to send inbound message: {}", e);
-        return StatusCode::INTERNAL_SERVER_ERROR;
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
-    StatusCode::OK
+    StatusCode::OK.into_response()
 }
 
 #[async_trait]
@@ -188,6 +211,7 @@ impl BaseChannel for TwilioChannel {
             webhook_url: self.config.webhook_url.clone(),
             phone_number: self.config.phone_number.clone(),
             allow_from: self.config.allow_from.clone(),
+            dm_policy: self.config.dm_policy.clone(),
             inbound_tx: self.inbound_tx.clone(),
         };
 

@@ -1,6 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::BaseChannel;
-use crate::channels::utils::{check_allowed_sender, exponential_backoff_delay};
+use crate::channels::utils::{
+    DmCheckResult, check_allowed_sender, check_dm_access, exponential_backoff_delay,
+};
 use crate::config::WhatsAppConfig;
 use crate::utils::get_oxicrab_home;
 use anyhow::Result;
@@ -76,6 +78,7 @@ impl BaseChannel for WhatsAppChannel {
         let inbound_tx = self.inbound_tx.clone();
         let running = self.running.clone();
         let config_allow = self.config.allow_from.clone();
+        let dm_policy = self.config.dm_policy.clone();
         let client_for_storage = self.client.clone();
 
         *self.running.lock().await = true;
@@ -110,6 +113,7 @@ impl BaseChannel for WhatsAppChannel {
                 let inbound_tx_clone = inbound_tx.clone();
                 let running_clone = running.clone();
                 let config_allow_clone = config_allow.clone();
+                let dm_policy_clone = dm_policy.clone();
                 let client_storage_clone = client_for_storage.clone();
 
                 let bot_builder = whatsapp_rust::bot::Bot::builder()
@@ -120,6 +124,7 @@ impl BaseChannel for WhatsAppChannel {
                         let inbound_tx = inbound_tx_clone.clone();
                         let running = running_clone.clone();
                         let config_allow = config_allow_clone.clone();
+                        let dm_policy = dm_policy_clone.clone();
                         let client_storage = client_storage_clone.clone();
                         async move {
                             // Store client for sending messages
@@ -169,13 +174,25 @@ impl BaseChannel for WhatsAppChannel {
                                         chat_id.clone()
                                     };
 
-                                    // Check allow_from filter using utility function
-                                    if !check_allowed_sender(&phone_number, &config_allow)
-                                        && !check_allowed_sender(&chat_id, &config_allow)
-                                    {
-                                        warn!("WhatsApp message from {} (phone: {}) blocked by allowFrom filter (allowed: {:?})",
-                                            chat_id, phone_number, config_allow);
-                                        return;
+                                    // Check access based on dmPolicy — try phone number first, then chat_id
+                                    let access = check_dm_access(&phone_number, &config_allow, "whatsapp", &dm_policy);
+                                    let access = if matches!(access, DmCheckResult::Allowed) {
+                                        access
+                                    } else {
+                                        check_dm_access(&chat_id, &config_allow, "whatsapp", &dm_policy)
+                                    };
+                                    match access {
+                                        DmCheckResult::Allowed => {}
+                                        DmCheckResult::PairingRequired { code } => {
+                                            warn!("WhatsApp pairing code for {} (phone: {}): {} — approve with: oxicrab pairing approve whatsapp {}",
+                                                chat_id, phone_number, code, code);
+                                            return;
+                                        }
+                                        DmCheckResult::Denied => {
+                                            warn!("WhatsApp message from {} (phone: {}) blocked by allowFrom filter (allowed: {:?})",
+                                                chat_id, phone_number, config_allow);
+                                            return;
+                                        }
                                     }
 
                                     // Extract message content and media
@@ -624,7 +641,7 @@ fn should_skip_own_message(recipient_jid: Option<&str>, allow_from: &[String]) -
         .split(':')
         .next()
         .unwrap_or(recip);
-    !check_allowed_sender(recip_phone, allow_from)
+    !check_allowed_sender(recip_phone, allow_from, "whatsapp")
 }
 
 #[cfg(test)]

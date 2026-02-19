@@ -1,6 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
-use crate::channels::utils::{check_allowed_sender, exponential_backoff_delay};
+use crate::channels::utils::{
+    DmCheckResult, check_dm_access, exponential_backoff_delay, format_pairing_reply,
+};
 use crate::config::SlackConfig;
 use crate::utils::regex::{RegexPatterns, compile_slack_mention};
 use anyhow::Result;
@@ -244,6 +246,7 @@ impl BaseChannel for SlackChannel {
         let app_token = self.config.app_token.clone();
         let bot_token = self.config.bot_token.clone();
         let config_allow = self.config.allow_from.clone();
+        let dm_policy = self.config.dm_policy.clone();
         let inbound_tx = self.inbound_tx.clone();
         let bot_user_id = self.bot_user_id.clone();
         let seen_messages = self.seen_messages.clone();
@@ -420,6 +423,7 @@ impl BaseChannel for SlackChannel {
                                                         &user_cache,
                                                         &inbound_tx,
                                                         &config_allow,
+                                                        &dm_policy,
                                                         &bot_token,
                                                         &ws_client,
                                                     )
@@ -689,6 +693,7 @@ async fn handle_slack_event(
     user_cache: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     inbound_tx: &Arc<mpsc::Sender<InboundMessage>>,
     allow_from: &[String],
+    dm_policy: &str,
     bot_token: &str,
     client: &reqwest::Client,
 ) -> Result<()> {
@@ -751,8 +756,25 @@ async fn handle_slack_event(
         }
     }
 
-    if !check_allowed_sender(user_id, allow_from) {
-        return Ok(());
+    match check_dm_access(user_id, allow_from, "slack", dm_policy) {
+        DmCheckResult::Allowed => {}
+        DmCheckResult::PairingRequired { code } => {
+            let reply = format_pairing_reply("slack", user_id, &code);
+            // Post pairing reply to channel
+            let _ = client
+                .post("https://slack.com/api/chat.postMessage")
+                .form(&[
+                    ("token", bot_token),
+                    ("channel", channel_id),
+                    ("text", &reply),
+                ])
+                .send()
+                .await;
+            return Ok(());
+        }
+        DmCheckResult::Denied => {
+            return Ok(());
+        }
     }
 
     let has_files = event

@@ -286,6 +286,13 @@ impl PairingStore {
         }
     }
 
+    /// List all paired senders for a specific channel.
+    pub fn list_channel_senders(&self, channel: &str) -> Option<Vec<String>> {
+        self.allowlists
+            .get(channel)
+            .map(|data| data.senders.clone())
+    }
+
     /// Check if the pairing store directory exists.
     pub fn store_exists() -> bool {
         crate::utils::get_oxicrab_home().is_ok_and(|h| h.join("pairing").exists())

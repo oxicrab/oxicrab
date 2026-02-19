@@ -1,6 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
-use crate::channels::utils::{check_allowed_sender, exponential_backoff_delay};
+use crate::channels::utils::{
+    DmCheckResult, check_dm_access, exponential_backoff_delay, format_pairing_reply,
+};
 use crate::config::TelegramConfig;
 use crate::utils::regex::RegexPatterns;
 use anyhow::Result;
@@ -48,6 +50,7 @@ impl BaseChannel for TelegramChannel {
         let bot = self.bot.clone();
         let inbound_tx = self.inbound_tx.clone();
         let allow_list = self.config.allow_from.clone();
+        let dm_policy = self.config.dm_policy.clone();
         let running = self.running.clone();
 
         // Spawn dispatcher in background task with retry loop
@@ -63,10 +66,12 @@ impl BaseChannel for TelegramChannel {
                 let bot_clone = bot.clone();
                 let inbound_tx_clone = inbound_tx.clone();
                 let allow_list_clone = allow_list.clone();
+                let dm_policy_clone = dm_policy.clone();
 
                 let handler = Update::filter_message().endpoint(move |bot: Bot, msg: TgMessage| {
                     let inbound_tx = inbound_tx_clone.clone();
                     let allow_list = allow_list_clone.clone();
+                    let dm_policy = dm_policy_clone.clone();
                     async move {
                         if let MessageKind::Common(_msg_common) = &msg.kind {
                             let sender_id = msg
@@ -75,9 +80,19 @@ impl BaseChannel for TelegramChannel {
                                 .map(|u| u.id.to_string())
                                 .unwrap_or_default();
 
-                            // Check allowlist using utility function
-                            if !check_allowed_sender(&sender_id, &allow_list) {
-                                return Ok(());
+                            // Check access based on dmPolicy
+                            match check_dm_access(&sender_id, &allow_list, "telegram", &dm_policy) {
+                                DmCheckResult::Allowed => {}
+                                DmCheckResult::PairingRequired { code } => {
+                                    let reply = format_pairing_reply("telegram", &sender_id, &code);
+                                    if let Err(e) = bot.send_message(msg.chat.id, reply).await {
+                                        warn!("Failed to send pairing reply: {}", e);
+                                    }
+                                    return Ok(());
+                                }
+                                DmCheckResult::Denied => {
+                                    return Ok(());
+                                }
                             }
 
                             // Handle photos
