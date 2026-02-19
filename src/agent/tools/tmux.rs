@@ -56,7 +56,10 @@ impl TmuxTool {
             .await?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stderr = crate::utils::path_sanitize::sanitize_error_message(
+            &String::from_utf8_lossy(&output.stderr),
+            None,
+        );
         Ok((output.status.code().unwrap_or(1), stdout, stderr))
     }
 

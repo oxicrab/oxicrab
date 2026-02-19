@@ -1,6 +1,5 @@
 use base64::Engine;
 use regex::Regex;
-use std::fmt::Write;
 use tracing::warn;
 
 struct LeakPattern {
@@ -128,10 +127,7 @@ impl LeakDetector {
                     });
                 }
             }
-            let mut hex_str = String::with_capacity(value.len() * 2);
-            for b in value.as_bytes() {
-                let _ = write!(hex_str, "{:02x}", b);
-            }
+            let hex_str = hex::encode(value.as_bytes());
             let hex_escaped = regex::escape(&hex_str);
             // Match both lowercase and uppercase hex
             if let Ok(regex) = Regex::new(&format!("(?i){}", hex_escaped)) {
@@ -266,26 +262,8 @@ impl LeakDetector {
 }
 
 /// Decode a hex string to bytes. Returns None if odd length or invalid hex.
-fn decode_hex(hex: &str) -> Option<Vec<u8>> {
-    if !hex.len().is_multiple_of(2) {
-        return None;
-    }
-    let mut bytes = Vec::with_capacity(hex.len() / 2);
-    for chunk in hex.as_bytes().chunks(2) {
-        let hi = hex_digit(chunk[0])?;
-        let lo = hex_digit(chunk[1])?;
-        bytes.push((hi << 4) | lo);
-    }
-    Some(bytes)
-}
-
-fn hex_digit(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        _ => None,
-    }
+fn decode_hex(input: &str) -> Option<Vec<u8>> {
+    hex::decode(input).ok()
 }
 
 impl Default for LeakDetector {
@@ -410,10 +388,7 @@ mod tests {
     fn test_detect_hex_encoded_openai_key() {
         let detector = LeakDetector::new();
         let secret = "sk-abcdefghijklmnopqrstuvwx";
-        let mut hex = String::with_capacity(secret.len() * 2);
-        for b in secret.as_bytes() {
-            let _ = write!(hex, "{:02x}", b);
-        }
+        let hex = hex::encode(secret.as_bytes());
         let text = format!("Hex payload: {}", hex);
         let matches = detector.scan(&text);
         assert!(!matches.is_empty(), "Should detect hex-encoded OpenAI key");
@@ -435,10 +410,7 @@ mod tests {
         assert!(!b64_matches.is_empty(), "Should detect base64 secret");
 
         // Hex
-        let mut hex = String::with_capacity(secret.len() * 2);
-        for b in secret.as_bytes() {
-            let _ = write!(hex, "{:02x}", b);
-        }
+        let hex = hex::encode(secret.as_bytes());
         let hex_matches = detector.scan_known_secrets(&hex);
         assert!(!hex_matches.is_empty(), "Should detect hex secret");
     }

@@ -3090,7 +3090,6 @@ dependencies = [
  "fastrand",
  "form_urlencoded",
  "fs2",
- "futures",
  "futures-util",
  "hex",
  "hmac",

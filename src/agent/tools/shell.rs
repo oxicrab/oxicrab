@@ -169,7 +169,7 @@ impl ExecTool {
             if !cwd.starts_with(workspace) {
                 return Some(format!(
                     "Error: Working directory '{}' is outside workspace",
-                    cwd.display()
+                    crate::utils::path_sanitize::sanitize_path(cwd, Some(workspace))
                 ));
             }
 
@@ -185,13 +185,10 @@ impl ExecTool {
     /// Extract absolute path tokens from a command and verify they resolve
     /// inside the workspace. Returns an error message if any path escapes.
     fn check_paths_in_workspace(command: &str, workspace: &Path) -> Option<String> {
-        for token in command.split_whitespace() {
-            // Strip shell quoting characters BEFORE checking for absolute path
-            let cleaned = token.trim_matches(|c| c == '\'' || c == '"');
-            if !cleaned.starts_with('/') {
-                continue;
-            }
-            if cleaned.is_empty() || cleaned == "/" {
+        // Use shlex for proper shell-aware tokenization (handles quoting/escaping)
+        let tokens = shlex::split(command).unwrap_or_default();
+        for cleaned in &tokens {
+            if !cleaned.starts_with('/') || cleaned == "/" {
                 continue;
             }
             let path = Path::new(cleaned);
@@ -205,7 +202,7 @@ impl ExecTool {
             if !resolved.starts_with(workspace) {
                 return Some(format!(
                     "Error: path '{}' is outside the workspace",
-                    cleaned
+                    crate::utils::path_sanitize::sanitize_path(Path::new(cleaned), Some(workspace))
                 ));
             }
         }
@@ -352,7 +349,12 @@ impl Tool for ExecTool {
                     Ok(ToolResult::error(format!("Command failed: {}", result)))
                 }
             }
-            Ok(Err(e)) => Ok(ToolResult::error(format!("Error executing command: {}", e))),
+            Ok(Err(e)) => Ok(ToolResult::error(
+                crate::utils::path_sanitize::sanitize_error_message(
+                    &format!("Error executing command: {}", e),
+                    self.working_dir.as_deref(),
+                ),
+            )),
             Err(_) => Ok(ToolResult::error(format!(
                 "Command timed out after {} seconds",
                 self.timeout

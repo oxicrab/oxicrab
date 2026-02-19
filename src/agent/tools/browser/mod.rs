@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use chromiumoxide::Page;
 use chromiumoxide::browser::{Browser, BrowserConfig as ChromeBrowserConfig};
 use chromiumoxide::page::ScreenshotParams;
-use futures::StreamExt;
+use futures_util::StreamExt;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;

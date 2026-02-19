@@ -150,6 +150,7 @@ async fn execute_tool_call(
     available_tools: &[String],
     ctx: &ExecutionContext,
     exfil_blocked: &[String],
+    workspace: Option<&std::path::Path>,
 ) -> (String, bool) {
     // Exfiltration guard: block tools that were hidden from the LLM
     if !exfil_blocked.is_empty() && exfil_blocked.iter().any(|b| b == tc_name) {
@@ -199,7 +200,11 @@ async fn execute_tool_call(
         Ok(result) => (result.content, result.is_error),
         Err(e) => {
             warn!("Tool '{}' failed: {}", tc_name, e);
-            (format!("Tool execution failed: {}", e), true)
+            let msg = crate::utils::path_sanitize::sanitize_error_message(
+                &format!("Tool execution failed: {}", e),
+                workspace,
+            );
+            (msg, true)
         }
     }
 }
@@ -648,7 +653,7 @@ impl AgentLoopConfig {
 pub struct AgentLoop {
     inbound_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<InboundMessage>>>,
     provider: Arc<dyn LLMProvider>,
-    _workspace: PathBuf, // Used in constructor for context/session/memory initialization
+    workspace: PathBuf,
     model: String,
     max_iterations: usize,
     context: Arc<Mutex<ContextBuilder>>,
@@ -820,6 +825,7 @@ impl AgentLoop {
                 },
                 cost_guard: cost_guard.clone(),
                 prompt_guard_config: prompt_guard_config.clone(),
+                sandbox_config: sandbox_config.clone(),
             },
             brave_api_key,
             allowed_commands,
@@ -881,7 +887,7 @@ impl AgentLoop {
         Ok(Self {
             inbound_rx,
             provider,
-            _workspace: workspace,
+            workspace: workspace.clone(),
             model,
             max_iterations,
             context,
@@ -1429,6 +1435,7 @@ impl AgentLoop {
                             &tool_names,
                             exec_ctx,
                             &exfil_blocked,
+                            Some(&self.workspace),
                         )
                         .await,
                     ]
@@ -1444,9 +1451,16 @@ impl AgentLoop {
                             let available = tool_names.clone();
                             let ctx = exec_ctx.clone();
                             let blocked = exfil_blocked.clone();
+                            let ws = self.workspace.clone();
                             tokio::task::spawn(async move {
                                 execute_tool_call(
-                                    &registry, &tc_name, &tc_args, &available, &ctx, &blocked,
+                                    &registry,
+                                    &tc_name,
+                                    &tc_args,
+                                    &available,
+                                    &ctx,
+                                    &blocked,
+                                    Some(&ws),
                                 )
                                 .await
                             })

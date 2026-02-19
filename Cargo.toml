@@ -86,7 +86,6 @@ whatsapp-rust = { git = "https://github.com/jlucaso1/whatsapp-rust", rev = "1a56
 whatsapp-rust-tokio-transport = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-tokio-transport", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
 whatsapp-rust-ureq-http-client = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-ureq-http-client", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
 chromiumoxide = { version = "0.8", default-features = false, features = ["tokio-runtime"] }
-futures = "0.3"
 which = "8.0"
 whisper-rs = { version = "0.15", features = ["tracing_backend"] }
 

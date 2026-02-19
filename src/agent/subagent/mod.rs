@@ -44,6 +44,8 @@ pub struct SubagentConfig {
     pub cost_guard: Option<Arc<CostGuard>>,
     /// Prompt guard config for injection scanning on subagent inputs/outputs.
     pub prompt_guard_config: PromptGuardConfig,
+    /// Sandbox config for shell tool (propagated from main agent).
+    pub sandbox_config: crate::config::SandboxConfig,
 }
 
 pub struct SubagentManager {
@@ -68,6 +70,7 @@ struct SubagentInner {
     cost_guard: Option<Arc<CostGuard>>,
     prompt_guard: Option<PromptGuard>,
     prompt_guard_config: PromptGuardConfig,
+    sandbox_config: crate::config::SandboxConfig,
 }
 
 impl SubagentManager {
@@ -95,6 +98,7 @@ impl SubagentManager {
             cost_guard: config.cost_guard,
             prompt_guard,
             prompt_guard_config: config.prompt_guard_config,
+            sandbox_config: config.sandbox_config,
         });
         Self {
             config: inner,
@@ -268,7 +272,7 @@ async fn run_subagent_inner(
     let mut tools = ToolRegistry::new();
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
     let allowed_roots = if config.restrict_to_workspace {
-        Some(vec![config.workspace.clone(), home.clone()])
+        Some(vec![config.workspace.clone(), home.join(".oxicrab")])
     } else {
         None
     };
@@ -291,7 +295,7 @@ async fn run_subagent_inner(
         Some(config.workspace.clone()),
         config.restrict_to_workspace,
         config.allowed_commands.clone(),
-        crate::config::SandboxConfig::default(),
+        config.sandbox_config.clone(),
     )?));
     // Only register outbound tools if not blocked by exfiltration guard
     if !config
@@ -394,10 +398,11 @@ async fn run_subagent_inner(
                         &tc.arguments,
                         &tools,
                         tool_opt.clone(),
+                        Some(&config.workspace),
                     )
                 })
                 .collect();
-            let results = futures::future::join_all(futs).await;
+            let results = futures_util::future::join_all(futs).await;
 
             // Add all tool results to messages in order
             for ((tc, _), (result_str, is_error)) in tool_lookups.iter().zip(results.into_iter()) {
@@ -446,6 +451,7 @@ async fn execute_subagent_tool(
     tool_args: &Value,
     registry: &ToolRegistry,
     tool_opt: Option<Arc<dyn crate::agent::tools::base::Tool>>,
+    workspace: Option<&std::path::Path>,
 ) -> (String, bool) {
     if let Some(tool) = tool_opt {
         // Validate params before execution
@@ -469,7 +475,11 @@ async fn execute_subagent_tool(
             Ok(result) => (result.content, result.is_error),
             Err(e) => {
                 warn!("Subagent [{}] tool '{}' failed: {}", task_id, tool_name, e);
-                (format!("Tool execution failed: {}", e), true)
+                let msg = crate::utils::path_sanitize::sanitize_error_message(
+                    &format!("Tool execution failed: {}", e),
+                    workspace,
+                );
+                (msg, true)
             }
         }
     } else {

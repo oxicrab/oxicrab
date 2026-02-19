@@ -47,6 +47,23 @@ pub struct PairingStore {
 }
 
 impl PairingStore {
+    /// Acquire an exclusive lock on the pairing directory for cross-process safety.
+    /// Lock released when the returned file is dropped.
+    fn lock_exclusive(&self) -> Result<std::fs::File> {
+        use fs2::FileExt;
+        let lock_path = self.base_dir.join(".lock");
+        let lock_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&lock_path)
+            .with_context(|| "failed to open pairing lock file")?;
+        lock_file
+            .lock_exclusive()
+            .with_context(|| "failed to acquire pairing lock")?;
+        Ok(lock_file)
+    }
+
     pub fn new() -> Result<Self> {
         let base_dir = crate::utils::get_oxicrab_home()?.join("pairing");
         std::fs::create_dir_all(&base_dir)
@@ -113,6 +130,7 @@ impl PairingStore {
     }
 
     fn save_pending(&self) -> Result<()> {
+        let _lock = self.lock_exclusive()?;
         let path = self.base_dir.join("pending.json");
         let content = serde_json::to_string_pretty(&self.pending)?;
         crate::utils::atomic_write(&path, &content)?;
@@ -120,6 +138,7 @@ impl PairingStore {
     }
 
     fn save_failed_attempts(&self) -> Result<()> {
+        let _lock = self.lock_exclusive()?;
         let path = self.base_dir.join("failed-attempts.json");
         let data = FailedAttemptsData {
             clients: self.failed_attempts.clone(),
@@ -130,6 +149,7 @@ impl PairingStore {
     }
 
     fn save_allowlist(&self, channel: &str) -> Result<()> {
+        let _lock = self.lock_exclusive()?;
         let path = self.base_dir.join(format!("{}-allowlist.json", channel));
         let data = self.allowlists.get(channel).cloned().unwrap_or_default();
         let content = serde_json::to_string_pretty(&data)?;
@@ -234,10 +254,11 @@ impl PairingStore {
         }
 
         let code_upper = code.to_uppercase();
-        let idx =
-            self.pending.requests.iter().position(|r| {
-                r.code == code_upper && now.saturating_sub(r.created_at) < CODE_TTL_SECS
-            });
+        let idx = self.pending.requests.iter().position(|r| {
+            use subtle::ConstantTimeEq;
+            let code_match = r.code.as_bytes().ct_eq(code_upper.as_bytes()).into();
+            code_match && now.saturating_sub(r.created_at) < CODE_TTL_SECS
+        });
 
         let Some(idx) = idx else {
             self.failed_attempts

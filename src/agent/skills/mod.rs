@@ -127,9 +127,7 @@ impl SkillsLoader {
 
     pub fn build_skills_summary(&self) -> String {
         fn escape_xml(s: &str) -> String {
-            s.replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;")
+            html_escape::encode_text(s).to_string()
         }
 
         let all_skills = self.list_skills(false);

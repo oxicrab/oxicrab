@@ -148,10 +148,7 @@ async fn webhook_handler(
         DmCheckResult::PairingRequired { code } => {
             let reply = format_pairing_reply("twilio", &sender, &code);
             // Return TwiML response so Twilio sends the pairing code as an SMS reply
-            let escaped = reply
-                .replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;");
+            let escaped = html_escape::encode_text(&reply);
             let twiml = format!(
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response><Message>{}</Message></Response>",
                 escaped

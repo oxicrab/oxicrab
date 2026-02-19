@@ -472,10 +472,7 @@ fn markdown_to_telegram_html(text: &str) -> String {
     let mut html = text.to_string();
 
     // Escape HTML
-    html = html
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;");
+    html = html_escape::encode_text(&html).to_string();
 
     // Convert markdown using shared regex patterns
     html = RegexPatterns::markdown_link()

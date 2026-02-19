@@ -5,6 +5,7 @@ use anyhow::Result;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use cron::Schedule;
+use fs2::FileExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -150,7 +151,10 @@ impl CronService {
         }
 
         if self.store_path.exists() {
+            let file = std::fs::File::open(&self.store_path)?;
+            file.lock_shared()?;
             let content = std::fs::read_to_string(&self.store_path)?;
+            // lock released when `file` drops
             let store: CronStore = serde_json::from_str(&content)?;
             *store_guard = Some(store.clone());
             return Ok(store);
@@ -167,8 +171,16 @@ impl CronService {
     async fn save_store(&self) -> Result<()> {
         let store_guard = self.store.lock().await;
         if let Some(store) = store_guard.as_ref() {
+            let lock_path = self.store_path.with_extension("json.lock");
+            let lock_file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&lock_path)?;
+            lock_file.lock_exclusive()?;
             let content = serde_json::to_string_pretty(store)?;
             atomic_write(&self.store_path, &content)?;
+            // lock released when lock_file drops
         }
         Ok(())
     }

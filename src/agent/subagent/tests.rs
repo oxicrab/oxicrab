@@ -91,6 +91,7 @@ fn make_manager(provider: Arc<dyn LLMProvider>, max_concurrent: usize) -> Subage
             exfil_blocked_tools: vec![],
             cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
+            sandbox_config: crate::config::SandboxConfig::default(),
         },
         bus,
     )
@@ -244,6 +245,7 @@ async fn test_silent_mode_no_bus_message() {
             exfil_blocked_tools: vec![],
             cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
+            sandbox_config: crate::config::SandboxConfig::default(),
         },
         bus.clone(),
     );
@@ -301,6 +303,7 @@ async fn test_non_silent_mode_publishes_bus_message() {
             exfil_blocked_tools: vec![],
             cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
+            sandbox_config: crate::config::SandboxConfig::default(),
         },
         bus.clone(),
     );

@@ -282,7 +282,10 @@ impl Tool for ImageGenTool {
         };
 
         match result {
-            Ok(path) => Ok(ToolResult::new(format!("Image saved to: {}", path))),
+            Ok(path) => Ok(ToolResult::new(format!(
+                "Image saved to: {}",
+                crate::utils::path_sanitize::sanitize_path(std::path::Path::new(&path), None,)
+            ))),
             Err(e) => Ok(ToolResult::error(format!("Image generation failed: {}", e))),
         }
     }
