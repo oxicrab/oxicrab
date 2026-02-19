@@ -135,7 +135,8 @@ impl BrowserTool {
     }
 
     async fn action_open(&self, url: &str) -> Result<ToolResult> {
-        if let Err(e) = crate::utils::url_security::validate_url(url) {
+        // Validate URL (DNS pinning not applicable to browser — Chrome manages its own DNS)
+        if let Err(e) = crate::utils::url_security::validate_and_resolve(url) {
             return Ok(ToolResult::error(format!(
                 "URL blocked by security policy: {e}"
             )));

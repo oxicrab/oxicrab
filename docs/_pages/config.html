@@ -40,6 +40,8 @@ max_width: 820px
             <li><a href="#cost-guard">Cost Guard</a></li>
             <li><a href="#circuit-breaker">Circuit Breaker</a></li>
             <li><a href="#cognitive-routines">Cognitive Routines</a></li>
+            <li><a href="#exfiltration-guard">Exfiltration Guard</a></li>
+            <li><a href="#prompt-guard">Prompt Guard</a></li>
             <li><a href="#logging">Logging</a></li>
         </ul>
     </div>
@@ -484,6 +486,61 @@ max_width: 820px
             <li><strong>Urgent</strong> (STOP) &mdash; demands an immediate detailed progress summary</li>
         </ul>
         <p>Each level fires only once per checkpoint cycle. Counters reset when a periodic checkpoint fires.</p>
+    </div>
+
+    <!-- EXFILTRATION GUARD -->
+    <div id="exfiltration-guard" class="cfg-section">
+        <h2>Exfiltration Guard</h2>
+        <p>Hides outbound-capable tools (http, web_fetch, browser) from the LLM when enabled, preventing prompt-injected data exfiltration. Tools are filtered from the tool definitions sent to the LLM and blocked at dispatch time.</p>
+
+        <p>Config path: <code>tools.exfiltrationGuard</code></p>
+        <pre><code>{
+  "tools": {
+    "exfiltrationGuard": {
+      "enabled": true,
+      "blockedTools": ["http", "web_fetch", "browser"]
+    }
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable exfiltration guard</td></tr>
+            <tr><td>blockedTools</td><td>string[]</td><td>["http", "web_fetch", "browser"]</td><td>Tool names to hide from LLM and block at dispatch</td></tr>
+        </table>
+    </div>
+
+    <!-- PROMPT GUARD -->
+    <div id="prompt-guard" class="cfg-section">
+        <h2>Prompt Guard</h2>
+        <p>Regex-based prompt injection detection. Scans user messages before LLM processing and tool output after execution. Four pattern categories: role switching, instruction override, secret extraction, and jailbreak patterns.</p>
+
+        <p>Config path: <code>agents.defaults.promptGuard</code></p>
+        <pre><code>{
+  "agents": {
+    "defaults": {
+      "promptGuard": {
+        "enabled": true,
+        "action": "block"
+      }
+    }
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable prompt injection detection</td></tr>
+            <tr><td>action</td><td>string</td><td>"warn"</td><td>"warn" (log and continue) or "block" (reject the message)</td></tr>
+        </table>
+
+        <h3>Detection Categories</h3>
+        <ul class="plain">
+            <li><strong>Role switching</strong> &mdash; attempts to change persona ("ignore previous instructions", "you are now...")</li>
+            <li><strong>Instruction override</strong> &mdash; attempts to replace system prompts ("new instructions:", "override system...")</li>
+            <li><strong>Secret extraction</strong> &mdash; attempts to extract system prompts ("show me your system prompt", "repeat your instructions")</li>
+            <li><strong>Jailbreak</strong> &mdash; common jailbreak prefixes ("DAN mode", "developer mode", "jailbreak")</li>
+        </ul>
+        <p>User messages are scanned with the configured action. Tool output is always warn-only (tool output may legitimately contain these phrases).</p>
     </div>
 
     <!-- LOGGING -->

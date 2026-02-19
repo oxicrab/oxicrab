@@ -42,6 +42,12 @@ impl MessageBus {
             leak_detector: LeakDetector::new(),
         }
     }
+
+    /// Register known secret values so the leak detector can find them
+    /// across encodings (raw, base64, hex).
+    pub fn add_known_secrets(&mut self, secrets: &[(&str, &str)]) {
+        self.leak_detector.add_known_secrets(secrets);
+    }
 }
 
 impl Default for MessageBus {
@@ -99,12 +105,15 @@ impl MessageBus {
     }
 
     pub async fn publish_outbound(&self, mut msg: OutboundMessage) -> Result<()> {
-        // Scan for leaked secrets before sending
+        // Scan for leaked secrets before sending (plaintext + encoded patterns)
         let matches = self.leak_detector.scan(&msg.content);
-        if !matches.is_empty() {
+        let known_matches = self.leak_detector.scan_known_secrets(&msg.content);
+        if !matches.is_empty() || !known_matches.is_empty() {
+            let pattern_names: Vec<&str> = matches.iter().map(|m| m.name).collect();
+            let known_names: Vec<&str> = known_matches.iter().map(|m| m.name.as_str()).collect();
             warn!(
-                "potential secret leak detected in outbound message: {:?}",
-                matches.iter().map(|m| m.name).collect::<Vec<_>>()
+                "potential secret leak detected in outbound message: patterns={:?}, known={:?}",
+                pattern_names, known_names
             );
             msg.content = self.leak_detector.redact(&msg.content);
         }

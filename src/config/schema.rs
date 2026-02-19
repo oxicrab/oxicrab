@@ -358,6 +358,50 @@ impl Default for CircuitBreakerConfig {
     }
 }
 
+fn default_exfil_blocked_tools() -> Vec<String> {
+    vec!["http".into(), "web_fetch".into(), "browser".into()]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExfiltrationGuardConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Tool names to hide from LLM when enabled (default: http, `web_fetch`, browser)
+    #[serde(default = "default_exfil_blocked_tools", rename = "blockedTools")]
+    pub blocked_tools: Vec<String>,
+}
+
+impl Default for ExfiltrationGuardConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            blocked_tools: default_exfil_blocked_tools(),
+        }
+    }
+}
+
+fn default_prompt_guard_action() -> String {
+    "warn".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptGuardConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Action on detection: "warn" (log + continue) or "block" (reject message)
+    #[serde(default = "default_prompt_guard_action")]
+    pub action: String,
+}
+
+impl Default for PromptGuardConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            action: default_prompt_guard_action(),
+        }
+    }
+}
+
 fn default_gentle_threshold() -> u32 {
     12
 }
@@ -435,6 +479,8 @@ pub struct AgentDefaults {
     pub cost_guard: CostGuardConfig,
     #[serde(default)]
     pub cognitive: CognitiveConfig,
+    #[serde(default, rename = "promptGuard")]
+    pub prompt_guard: PromptGuardConfig,
 }
 
 impl Default for AgentDefaults {
@@ -455,6 +501,7 @@ impl Default for AgentDefaults {
             memory: MemoryConfig::default(),
             cost_guard: CostGuardConfig::default(),
             cognitive: CognitiveConfig::default(),
+            prompt_guard: PromptGuardConfig::default(),
         }
     }
 }
@@ -1075,6 +1122,8 @@ pub struct ToolsConfig {
     pub image_gen: ImageGenConfig,
     #[serde(default)]
     pub mcp: McpConfig,
+    #[serde(default, rename = "exfiltrationGuard")]
+    pub exfiltration_guard: ExfiltrationGuardConfig,
 }
 
 fn default_image_gen_provider() -> String {

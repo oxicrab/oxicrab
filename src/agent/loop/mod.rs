@@ -138,7 +138,17 @@ async fn execute_tool_call(
     tc_args: &Value,
     available_tools: &[String],
     ctx: &ExecutionContext,
+    exfil_blocked: &[String],
 ) -> (String, bool) {
+    // Exfiltration guard: block tools that were hidden from the LLM
+    if !exfil_blocked.is_empty() && exfil_blocked.iter().any(|b| b == tc_name) {
+        warn!("exfiltration guard blocked tool: {}", tc_name);
+        return (
+            "Error: this tool is not available in the current security mode".to_string(),
+            true,
+        );
+    }
+
     // Check if tool exists before delegating to registry
     if registry.get(tc_name).is_none() {
         warn!("LLM called unknown tool: {}", tc_name);
@@ -471,6 +481,10 @@ pub struct AgentLoopConfig {
     pub cost_guard_config: crate::config::CostGuardConfig,
     /// Cognitive routines configuration for checkpoint pressure signals
     pub cognitive_config: crate::config::CognitiveConfig,
+    /// Exfiltration guard configuration for hiding outbound tools from LLM
+    pub exfiltration_guard: crate::config::ExfiltrationGuardConfig,
+    /// Prompt injection detection configuration
+    pub prompt_guard_config: crate::config::PromptGuardConfig,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -538,6 +552,8 @@ impl AgentLoopConfig {
             mcp_config: Some(config.tools.mcp.clone()),
             cost_guard_config: config.agents.defaults.cost_guard.clone(),
             cognitive_config: config.agents.defaults.cognitive.clone(),
+            exfiltration_guard: config.tools.exfiltration_guard.clone(),
+            prompt_guard_config: config.agents.defaults.prompt_guard.clone(),
         }
     }
 
@@ -594,6 +610,8 @@ impl AgentLoopConfig {
             mcp_config: None,
             cost_guard_config: crate::config::CostGuardConfig::default(),
             cognitive_config: crate::config::CognitiveConfig::default(),
+            exfiltration_guard: crate::config::ExfiltrationGuardConfig::default(),
+            prompt_guard_config: crate::config::PromptGuardConfig::default(),
         }
     }
 }
@@ -628,6 +646,11 @@ pub struct AgentLoop {
     cognitive_config: crate::config::CognitiveConfig,
     /// Cognitive breadcrumb for compaction recovery (updated during long loops)
     cognitive_breadcrumb: Arc<Mutex<Option<String>>>,
+    /// Exfiltration guard: hides outbound tools from the LLM
+    exfiltration_guard: crate::config::ExfiltrationGuardConfig,
+    /// Prompt injection detection guard
+    prompt_guard: Option<crate::safety::prompt_guard::PromptGuard>,
+    prompt_guard_config: crate::config::PromptGuardConfig,
 }
 
 impl AgentLoop {
@@ -668,6 +691,8 @@ impl AgentLoop {
             mcp_config,
             cost_guard_config,
             cognitive_config,
+            exfiltration_guard,
+            prompt_guard_config,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -838,6 +863,13 @@ impl AgentLoop {
             last_checkpoint: Arc::new(Mutex::new(None)),
             cognitive_config,
             cognitive_breadcrumb: Arc::new(Mutex::new(None)),
+            exfiltration_guard,
+            prompt_guard: if prompt_guard_config.enabled {
+                Some(crate::safety::prompt_guard::PromptGuard::new())
+            } else {
+                None
+            },
+            prompt_guard_config,
         })
     }
 
@@ -985,6 +1017,29 @@ impl AgentLoop {
         } else {
             strip_audio_tags(&msg.content)
         };
+
+        // Prompt injection preflight check
+        if let Some(ref guard) = self.prompt_guard {
+            let matches = guard.scan(&msg_content);
+            if !matches.is_empty() {
+                for m in &matches {
+                    warn!(
+                        "prompt injection detected ({:?}): {}",
+                        m.category, m.pattern_name
+                    );
+                }
+                if self.prompt_guard_config.action == "block" && guard.should_block(&msg_content) {
+                    return Ok(Some(OutboundMessage {
+                        channel: msg.channel,
+                        chat_id: msg.chat_id,
+                        content: "I can't process this message as it appears to contain prompt injection patterns.".to_string(),
+                        reply_to: None,
+                        media: vec![],
+                        metadata: msg.metadata,
+                    }));
+                }
+            }
+        }
 
         // Load and encode any attached images (skip audio files)
         let audio_extensions = ["ogg", "mp3", "mp4", "m4a", "wav", "webm", "flac", "oga"];
@@ -1140,6 +1195,21 @@ impl AgentLoop {
 
         let tools_defs = self.tools.get_tool_definitions();
 
+        // Exfiltration guard: hide outbound-capable tools from the LLM
+        let exfil_blocked: Vec<String> = if self.exfiltration_guard.enabled {
+            self.exfiltration_guard.blocked_tools.clone()
+        } else {
+            vec![]
+        };
+        let tools_defs = if exfil_blocked.is_empty() {
+            tools_defs
+        } else {
+            tools_defs
+                .into_iter()
+                .filter(|td| !exfil_blocked.contains(&td.name))
+                .collect()
+        };
+
         // Extract tool names for hallucination detection (immutable snapshot for the full loop)
         let tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
 
@@ -1279,6 +1349,7 @@ impl AgentLoop {
                             &tc.arguments,
                             &tool_names,
                             exec_ctx,
+                            &exfil_blocked,
                         )
                         .await,
                     ]
@@ -1293,9 +1364,12 @@ impl AgentLoop {
                             let tc_args = tc.arguments.clone();
                             let available = tool_names.clone();
                             let ctx = exec_ctx.clone();
+                            let blocked = exfil_blocked.clone();
                             tokio::task::spawn(async move {
-                                execute_tool_call(&registry, &tc_name, &tc_args, &available, &ctx)
-                                    .await
+                                execute_tool_call(
+                                    &registry, &tc_name, &tc_args, &available, &ctx, &blocked,
+                                )
+                                .await
                             })
                         })
                         .collect();
@@ -1332,6 +1406,26 @@ impl AgentLoop {
                         &result_str,
                         is_error,
                     );
+                }
+
+                // Scan tool results for prompt injection (warn only)
+                if let Some(ref guard) = self.prompt_guard {
+                    for tc in &response.tool_calls {
+                        // Find the corresponding tool result message (the last tool_result for this tc)
+                        if let Some(msg) = messages
+                            .iter()
+                            .rev()
+                            .find(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some(&tc.id))
+                        {
+                            let tool_matches = guard.scan(&msg.content);
+                            for m in &tool_matches {
+                                warn!(
+                                    "prompt injection in tool '{}' output ({:?}): {}",
+                                    tc.name, m.category, m.pattern_name
+                                );
+                            }
+                        }
+                    }
                 }
 
                 // Record tool calls for cognitive checkpoint tracking

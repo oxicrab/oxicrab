@@ -32,9 +32,41 @@ impl HttpTool {
         Self::default()
     }
 
+    /// Build a one-shot client with DNS pinned to the resolved addresses.
+    fn pinned_client(&self, resolved: &crate::utils::url_security::ResolvedUrl) -> Client {
+        let user_agent = format!("oxicrab/{}", env!("CARGO_PKG_VERSION"));
+        let mut builder = Client::builder()
+            .user_agent(user_agent)
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .timeout(Duration::from_secs(30));
+        for addr in &resolved.addrs {
+            builder = builder.resolve(&resolved.host, *addr);
+        }
+        builder.build().unwrap_or_else(|_| self.client.clone())
+    }
+
+    /// HTTP execution with DNS-pinned client (used by `execute()` for SSRF-safe requests).
+    async fn send_request_pinned(
+        &self,
+        params: &Value,
+        resolved: &crate::utils::url_security::ResolvedUrl,
+    ) -> Result<ToolResult> {
+        let client = self.pinned_client(resolved);
+        self.send_request_with_client(params, &client).await
+    }
+
     /// Core HTTP execution logic (without SSRF validation).
     /// Separated from `execute()` so tests can call it directly with wiremock URLs.
+    #[cfg(test)]
     async fn send_request(&self, params: &Value) -> Result<ToolResult> {
+        self.send_request_with_client(params, &self.client).await
+    }
+
+    async fn send_request_with_client(
+        &self,
+        params: &Value,
+        client: &Client,
+    ) -> Result<ToolResult> {
         let Some(url) = params["url"].as_str() else {
             return Ok(ToolResult::error("Missing 'url' parameter".to_string()));
         };
@@ -43,11 +75,11 @@ impl HttpTool {
         let timeout_secs = params["timeout_secs"].as_u64().unwrap_or(30).min(120);
 
         let mut request = match method.as_str() {
-            "GET" => self.client.get(url),
-            "POST" => self.client.post(url),
-            "PUT" => self.client.put(url),
-            "PATCH" => self.client.patch(url),
-            "DELETE" => self.client.delete(url),
+            "GET" => client.get(url),
+            "POST" => client.post(url),
+            "PUT" => client.put(url),
+            "PATCH" => client.patch(url),
+            "DELETE" => client.delete(url),
             _ => return Ok(ToolResult::error(format!("Unsupported method: {}", method))),
         };
 
@@ -211,12 +243,13 @@ impl Tool for HttpTool {
             return Ok(ToolResult::error("Missing 'url' parameter".to_string()));
         };
 
-        // Validate URL scheme and block SSRF to internal networks
-        if let Err(e) = crate::utils::url_security::validate_url(url) {
-            return Ok(ToolResult::error(e));
-        }
+        // Validate URL and resolve DNS for pinning (prevents TOCTOU rebinding)
+        let resolved = match crate::utils::url_security::validate_and_resolve(url) {
+            Ok(r) => r,
+            Err(e) => return Ok(ToolResult::error(e)),
+        };
 
-        self.send_request(&params).await
+        self.send_request_pinned(&params, &resolved).await
     }
 }
 

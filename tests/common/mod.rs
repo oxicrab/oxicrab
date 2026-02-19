@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use oxicrab::agent::{AgentLoop, AgentLoopConfig};
 use oxicrab::bus::MessageBus;
-use oxicrab::config::{CognitiveConfig, CompactionConfig};
+use oxicrab::config::{
+    CognitiveConfig, CompactionConfig, ExfiltrationGuardConfig, PromptGuardConfig,
+};
 use oxicrab::providers::base::{ChatRequest, LLMProvider, LLMResponse, Message, ToolCallRequest};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -91,6 +93,8 @@ pub struct TestAgentOverrides {
     pub restrict_to_workspace: Option<bool>,
     pub max_iterations: Option<usize>,
     pub cognitive_config: Option<CognitiveConfig>,
+    pub exfiltration_guard: Option<ExfiltrationGuardConfig>,
+    pub prompt_guard_config: Option<PromptGuardConfig>,
 }
 
 pub async fn create_test_agent_with(
@@ -125,6 +129,12 @@ pub async fn create_test_agent_with(
     }
     if let Some(v) = overrides.cognitive_config {
         config.cognitive_config = v;
+    }
+    if let Some(v) = overrides.exfiltration_guard {
+        config.exfiltration_guard = v;
+    }
+    if let Some(v) = overrides.prompt_guard_config {
+        config.prompt_guard_config = v;
     }
 
     AgentLoop::new(config)

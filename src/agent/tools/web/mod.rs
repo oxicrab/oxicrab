@@ -225,7 +225,12 @@ impl WebFetchTool {
 
     /// Core fetch logic (without SSRF validation).
     /// Separated from `execute()` so tests can call it directly with wiremock URLs.
+    #[cfg(test)]
     async fn fetch_url(&self, params: &Value) -> Result<ToolResult> {
+        self.fetch_url_with_client(params, &self.client).await
+    }
+
+    async fn fetch_url_with_client(&self, params: &Value, client: &Client) -> Result<ToolResult> {
         let url_str = params["url"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'url' parameter"))?;
@@ -235,8 +240,7 @@ impl WebFetchTool {
             .as_u64()
             .map_or(self.max_chars, |n| n as usize);
 
-        match self
-            .client
+        match client
             .get(url_str)
             .header("User-Agent", USER_AGENT)
             .send()
@@ -388,12 +392,24 @@ impl Tool for WebFetchTool {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'url' parameter"))?;
 
-        // Validate URL scheme and block SSRF to internal networks
-        if let Err(e) = crate::utils::url_security::validate_url(url_str) {
-            return Ok(ToolResult::error(e));
-        }
+        // Validate URL and resolve DNS for pinning (prevents TOCTOU rebinding)
+        let resolved = match crate::utils::url_security::validate_and_resolve(url_str) {
+            Ok(r) => r,
+            Err(e) => return Ok(ToolResult::error(e)),
+        };
 
-        self.fetch_url(&params).await
+        // Build a pinned client to prevent DNS rebinding
+        let pinned = {
+            let mut builder = Client::builder()
+                .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS as usize))
+                .timeout(Duration::from_secs(30));
+            for addr in &resolved.addrs {
+                builder = builder.resolve(&resolved.host, *addr);
+            }
+            builder.build().unwrap_or_else(|_| self.client.clone())
+        };
+
+        self.fetch_url_with_client(&params, &pinned).await
     }
 }
 
