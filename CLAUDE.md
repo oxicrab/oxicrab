@@ -89,7 +89,7 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 
 ### Provider Selection
 
-`ProviderFactory` in `src/providers/strategy.rs` picks provider by model name prefix. Tries Anthropic OAuth first, falls back to API key strategy. Within the API key strategy, OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Moonshot, Zhipu, DashScope, vLLM) are matched first by keyword in the model name, then native providers (Anthropic, OpenAI, Gemini). OpenAI-compat providers use `OpenAIProvider::with_config()` with a configurable base URL (defaulting per-provider) and provider name for error messages. Custom HTTP headers can be injected into all requests via `ProviderConfig.headers` — passed through to `OpenAIProvider::with_config_and_headers()`. When `ProviderConfig.prompt_guided_tools` is true (currently checked for Ollama/vLLM), `PromptGuidedToolsProvider::wrap()` is applied — this injects tool definitions into the system prompt and parses `<tool_call>` XML blocks from text responses, enabling tool use with local models that lack native function calling support.
+`ProviderFactory` in `src/providers/strategy.rs` picks provider by model name prefix. Tries Anthropic OAuth first, falls back to API key strategy. Within the API key strategy, OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Moonshot, Zhipu, DashScope, Ollama, vLLM) are matched first by keyword in the model name, then native providers (Anthropic, OpenAI, Gemini). OpenAI-compat providers use `OpenAIProvider::with_config()` with a configurable base URL (defaulting per-provider) and provider name for error messages. Custom HTTP headers can be injected into all requests via `ProviderConfig.headers` — passed through to `OpenAIProvider::with_config_and_headers()`. When `ProviderConfig.prompt_guided_tools` is true (currently checked for Ollama/vLLM), `PromptGuidedToolsProvider::wrap()` is applied — this injects tool definitions into the system prompt and parses `<tool_call>` XML blocks from text responses, enabling tool use with local models that lack native function calling support.
 
 ### Tool System
 
@@ -97,7 +97,7 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 - **`ToolBuildContext`** (`src/agent/tools/setup.rs`): Aggregates all config needed for tool construction. `register_all_tools()` calls per-module registration functions.
 - **MCP** (`src/agent/tools/mcp/`): `McpManager` connects to external MCP servers via child processes (`rmcp` crate). `McpProxyTool` wraps each discovered tool as `impl Tool`. Config under `tools.mcp.servers`.
 
-### Agent Loop (`src/agent/loop.rs`)
+### Agent Loop (`src/agent/loop/mod.rs`)
 
 `AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. First iteration forces `tool_choice="any"` to prevent text-only hallucinations. Tools nudge (up to 2 retries) catches subsequent iterations where the LLM returns text without having called any tools. Hallucination detection runs on final text responses. Responses flow through the loop's return value (no message tool); the caller sends them exactly once. At 70% of `max_iterations`, a system message prompts the LLM to begin wrapping up. Post-compaction recovery instructions include the last user message and most recent checkpoint. Periodic checkpoints (configurable via `CompactionConfig.checkpoint`) snapshot conversation state every N iterations for recovery after compaction.
 
@@ -121,7 +121,7 @@ Channels are conditionally compiled via `#[cfg(feature = "channel-*")]` in `src/
 
 ### Config
 
-JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in JSON, snake_case in Rust (serde `rename` attrs). Schema in `src/config/schema.rs` — 11 structs have custom `Debug` impls that redact secrets. Validated on startup via `config.validate()`. Notable config fields: `providers.*.headers` (custom HTTP headers for OpenAI-compatible providers), `agents.defaults.compaction.checkpoint` (`CheckpointConfig` with `enabled` and `intervalIterations`), `tools.exfiltrationGuard` (`ExfiltrationGuardConfig` with `enabled` and `blockedTools`), `agents.defaults.promptGuard` (`PromptGuardConfig` with `enabled` and `action`).
+JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in JSON, snake_case in Rust (serde `rename` attrs). Schema in `src/config/schema.rs` — 15 structs have custom `Debug` impls (via `redact_debug!` macro) that redact secrets. Validated on startup via `config.validate()`. Notable config fields: `providers.*.headers` (custom HTTP headers for OpenAI-compatible providers), `agents.defaults.compaction.checkpoint` (`CheckpointConfig` with `enabled` and `intervalIterations`), `tools.exfiltrationGuard` (`ExfiltrationGuardConfig` with `enabled` and `blockedTools`), `agents.defaults.promptGuard` (`PromptGuardConfig` with `enabled` and `action`).
 
 ### Error Handling
 
@@ -200,7 +200,7 @@ Unified credential management via `define_credentials!` macro. Adding a new cred
 - Constructor: `pub fn new(...)` builds the client with timeouts
 - Test constructor: `#[cfg(test)] fn with_base_url(...)` for mock server testing
 - Implement `Tool` trait: `name()`, `description()`, `version()`, `parameters()`, `execute(params, ctx)`
-- Action-based tools use `params["action"].as_str()` dispatch pattern (e.g. GitHub tool has 11 actions: list_issues, create_issue, list_prs, get_pr, get_issue, get_pr_files, create_pr_review, get_file_content, trigger_workflow, get_workflow_runs, search_repos)
+- Action-based tools use `params["action"].as_str()` dispatch pattern (e.g. GitHub tool has 11 actions: list_issues, create_issue, get_issue, list_prs, get_pr, get_pr_files, create_pr_review, get_file_content, trigger_workflow, get_workflow_runs, notifications)
 - Registration: Each module has a `register_*()` function in `src/agent/tools/setup.rs`
 
 ### Error Handling
@@ -225,11 +225,11 @@ Do **not** use `#[path = "foo_tests.rs"]` — this was previously used in 4 modu
   - **README** → update the tool/command name lists and one-line descriptions; keep it concise
   - **`_pages/index.html`** → update feature rows and tool grid short descriptions (no action lists)
   - **CLAUDE.md** → update architecture/patterns sections if internal behavior changed
-- **Adding fields to `AgentLoopConfig`**: must update `src/cli/commands.rs` (`setup_agent`), destructure in `AgentLoop::new()`, add to `ToolBuildContext` if tool-related, AND update `tests/common/mod.rs` `create_test_agent()` AND `tests/compaction_integration.rs` `create_compaction_agent()`.
+- **Adding fields to `AgentLoopConfig`**: must update `src/cli/commands.rs` (`setup_agent`), destructure in `AgentLoop::new()`, add to `ToolBuildContext` if tool-related, AND update `tests/common/mod.rs` `create_test_agent_with()` AND `tests/compaction_integration.rs` `create_compaction_agent()`.
 - **Adding a new tool**: Add a `register_*()` function in `src/agent/tools/setup.rs`, call it from `register_all_tools()`. Update `README.md` and the workspace files (`AGENTS.md`, `MEMORY.md`) if they exist.
 - **Adding fields to config structs with manual `Default` impl**: update both the struct definition and `Default::default()`.
 - **YAML parsing**: uses `serde_yaml_ng` (not the deprecated `serde_yaml`).
-- **`main.rs` and `lib.rs` both declare `mod errors`**: binary has its own module tree.
+- **`main.rs` is a thin entry point**: it calls `oxicrab::cli::commands::run()`. All module declarations are in `lib.rs`.
 - **UTF-8 string slicing**: always use `is_char_boundary()` or `chars()` before slicing.
 - **Tool execution**: wrapped in `tokio::task::spawn` for panic isolation via `ToolRegistry::execute_with_guards()`.
 - **MemoryDB**: holds a persistent `std::sync::Mutex<Connection>`, not per-operation connections.
