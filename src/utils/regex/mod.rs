@@ -188,7 +188,7 @@ pub fn compile_security_patterns() -> Result<Vec<Regex>> {
                 r"\b(curl|wget)\b.*\|\s*(sh|bash|zsh|python)\b",
                 // Curl/wget file upload exfiltration (-d @file, -F, --data, --post-file)
                 r"\b(curl|wget)\b.*(-d\s*@|--data(-binary|-raw|-urlencode)?\s*@|-F\s|--form\s|--post-file)",
-                r"\bpython[23]?\s+-c\b",
+                r"\bpython[23]?(?:\.[0-9]+)?\s+-c\b",
                 // Perl/Ruby inline code execution (-e/-E execute, perl -x extracts script)
                 r"\b(perl|ruby)\b\s+-[EeXx]",
                 r"\bchmod\b.*\bo?[0-7]*7[0-7]{0,2}\b",

@@ -1,10 +1,14 @@
 use crate::cron::types::{CronJob, CronSchedule};
 use regex::Regex;
+use std::collections::HashMap;
 use tracing::warn;
 
 /// Matches inbound messages against event-triggered cron jobs.
 pub struct EventMatcher {
     matchers: Vec<(String, Regex, Option<String>, CronJob)>,
+    /// Local tracking of when each job last fired, so cooldowns work across
+    /// multiple `check_message` calls without rebuilding the matcher.
+    last_fired: HashMap<String, i64>,
 }
 
 impl EventMatcher {
@@ -34,14 +38,24 @@ impl EventMatcher {
                 }
             }
         }
-        Self { matchers }
+        // Initialize last_fired from job state snapshots
+        let last_fired: HashMap<String, i64> = matchers
+            .iter()
+            .filter_map(|(id, _, _, job)| job.state.last_fired_at_ms.map(|ms| (id.clone(), ms)))
+            .collect();
+
+        Self {
+            matchers,
+            last_fired,
+        }
     }
 
     /// Check a message against all event matchers.
     /// Returns jobs that should fire, respecting channel filter and cooldown.
-    pub fn check_message(&self, content: &str, channel: &str, now_ms: i64) -> Vec<CronJob> {
+    /// Updates local fired timestamps so cooldowns work across calls.
+    pub fn check_message(&mut self, content: &str, channel: &str, now_ms: i64) -> Vec<CronJob> {
         let mut matched = Vec::new();
-        for (_, regex, channel_filter, job) in &self.matchers {
+        for (id, regex, channel_filter, job) in &self.matchers {
             // Channel filter: skip if job is restricted to a different channel
             if let Some(required_channel) = channel_filter
                 && required_channel != channel
@@ -54,9 +68,9 @@ impl EventMatcher {
                 continue;
             }
 
-            // Cooldown check
+            // Cooldown check: use local tracking (updated after each fire)
             if let Some(cooldown) = job.cooldown_secs
-                && let Some(last_fired) = job.state.last_fired_at_ms
+                && let Some(&last_fired) = self.last_fired.get(id)
             {
                 let elapsed_secs = (now_ms - last_fired) / 1000;
                 if elapsed_secs < cooldown as i64 {
@@ -64,6 +78,8 @@ impl EventMatcher {
                 }
             }
 
+            // Update local fired timestamp
+            self.last_fired.insert(id.clone(), now_ms);
             matched.push(job.clone());
         }
         matched
@@ -112,7 +128,7 @@ mod tests {
     #[test]
     fn test_basic_match() {
         let jobs = vec![make_event_job("e1", r"(?i)deploy", None)];
-        let em = EventMatcher::from_jobs(&jobs);
+        let mut em = EventMatcher::from_jobs(&jobs);
         let hits = em.check_message("please deploy to prod", "slack", 1000);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "e1");
@@ -121,7 +137,7 @@ mod tests {
     #[test]
     fn test_no_match() {
         let jobs = vec![make_event_job("e1", r"(?i)deploy", None)];
-        let em = EventMatcher::from_jobs(&jobs);
+        let mut em = EventMatcher::from_jobs(&jobs);
         let hits = em.check_message("hello world", "slack", 1000);
         assert!(hits.is_empty());
     }
@@ -129,7 +145,7 @@ mod tests {
     #[test]
     fn test_channel_filter() {
         let jobs = vec![make_event_job("e1", r"deploy", Some("slack"))];
-        let matcher = EventMatcher::from_jobs(&jobs);
+        let mut matcher = EventMatcher::from_jobs(&jobs);
 
         // Should match on slack
         assert_eq!(matcher.check_message("deploy now", "slack", 1000).len(), 1);
@@ -147,7 +163,7 @@ mod tests {
         job.cooldown_secs = Some(60);
         job.state.last_fired_at_ms = Some(950_000); // fired 50s ago at now_ms=1000000
 
-        let matcher = EventMatcher::from_jobs(&[job]);
+        let mut matcher = EventMatcher::from_jobs(&[job]);
         // Within cooldown (50s < 60s)
         assert!(
             matcher
@@ -158,6 +174,34 @@ mod tests {
         assert_eq!(
             matcher
                 .check_message("deploy now", "slack", 1_020_000)
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_cooldown_tracks_across_calls() {
+        let mut job = make_event_job("e1", r"deploy", None);
+        job.cooldown_secs = Some(60);
+
+        let mut matcher = EventMatcher::from_jobs(&[job]);
+        // First call fires (no previous last_fired)
+        assert_eq!(
+            matcher
+                .check_message("deploy now", "slack", 1_000_000)
+                .len(),
+            1
+        );
+        // Second call within cooldown should NOT fire
+        assert!(
+            matcher
+                .check_message("deploy now", "slack", 1_030_000)
+                .is_empty()
+        );
+        // Third call after cooldown should fire again
+        assert_eq!(
+            matcher
+                .check_message("deploy now", "slack", 1_061_000)
                 .len(),
             1
         );

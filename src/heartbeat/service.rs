@@ -49,7 +49,7 @@ impl HeartbeatService {
 
         *self.running.lock().await = true;
         let running = self.running.clone();
-        let interval = self.interval_s;
+        let interval = self.interval_s.max(1);
         let on_heartbeat = self.on_heartbeat.clone();
         let workspace = self.workspace.clone();
         let strategy_file = self.strategy_file.clone();

@@ -93,12 +93,16 @@ impl HttpTool {
             }
         }
 
-        // Apply body
+        // Apply body (after headers so user Content-Type is not overwritten)
         if !params["body"].is_null() {
             if params["body"].is_string() {
-                request = request
-                    .header("Content-Type", "text/plain")
-                    .body(params["body"].as_str().unwrap_or("").to_string());
+                let has_content_type = params["headers"]
+                    .as_object()
+                    .is_some_and(|h| h.keys().any(|k| k.eq_ignore_ascii_case("content-type")));
+                if !has_content_type {
+                    request = request.header("Content-Type", "text/plain");
+                }
+                request = request.body(params["body"].as_str().unwrap_or("").to_string());
             } else {
                 request = request.json(&params["body"]);
             }

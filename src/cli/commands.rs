@@ -397,7 +397,6 @@ This file stores important information that should persist across sessions.
 async fn gateway(model: Option<String>) -> Result<()> {
     info!("Loading configuration...");
     let config = load_config(None)?;
-    config.validate()?;
     let effective_model = model.as_deref().unwrap_or(&config.agents.defaults.model);
     info!("Configuration loaded. Using model: {}", effective_model);
     debug!("Workspace: {:?}", config.workspace_path());
@@ -1002,7 +1001,7 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
 
             let schedule = if let Some(every_sec) = every {
                 CronSchedule::Every {
-                    every_ms: Some((every_sec * 1000) as i64),
+                    every_ms: Some(every_sec.saturating_mul(1000).min(i64::MAX as u64) as i64),
                 }
             } else if let Some(expr) = cron_expr {
                 // Validate the expression parses
@@ -1094,7 +1093,7 @@ async fn cron_command(cmd: CronCommands) -> Result<()> {
 
             let schedule = if let Some(every_sec) = every {
                 Some(CronSchedule::Every {
-                    every_ms: Some((every_sec * 1000) as i64),
+                    every_ms: Some(every_sec.saturating_mul(1000).min(i64::MAX as u64) as i64),
                 })
             } else if let Some(expr) = cron_expr {
                 crate::cron::service::validate_cron_expr(&expr)?;

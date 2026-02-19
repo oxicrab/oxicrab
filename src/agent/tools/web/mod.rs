@@ -298,8 +298,13 @@ impl WebFetchTool {
                 .await?;
 
                 let (extracted_text, extractor) = if content_type.contains("application/json") {
-                    let json: Value = serde_json::from_str(&text)?;
-                    (serde_json::to_string_pretty(&json)?, "json")
+                    match serde_json::from_str::<Value>(&text) {
+                        Ok(json) => (
+                            serde_json::to_string_pretty(&json).unwrap_or_else(|_| text.clone()),
+                            "json",
+                        ),
+                        Err(_) => (text.clone(), "raw"),
+                    }
                 } else if content_type.contains("text/html")
                     || text
                         .chars()

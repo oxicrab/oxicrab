@@ -507,14 +507,14 @@ pub async fn doctor_command() -> Result<()> {
     println!("\n  Core");
     println!("  {}", "-".repeat(56));
 
-    let r = check_config_exists();
-    record("Config file", &r);
+    let r_config_exists = check_config_exists();
+    record("Config file", &r_config_exists);
 
-    let r = check_config_parses();
-    record("Config parses", &r);
+    let r_config_parses = check_config_parses();
+    record("Config parses", &r_config_parses);
 
-    let r = check_config_validates();
-    record("Config validates", &r);
+    let r_config_validates = check_config_validates();
+    record("Config validates", &r_config_validates);
 
     let r = check_workspace();
     record("Workspace", &r);
@@ -598,9 +598,8 @@ pub async fn doctor_command() -> Result<()> {
     }
 
     // Return error if any critical checks failed (config must exist, parse, and validate)
-    let critical_fail = check_config_exists().is_fail()
-        || check_config_parses().is_fail()
-        || check_config_validates().is_fail();
+    let critical_fail =
+        r_config_exists.is_fail() || r_config_parses.is_fail() || r_config_validates.is_fail();
     if critical_fail {
         anyhow::bail!("critical checks failed");
     }

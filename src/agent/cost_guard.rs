@@ -119,11 +119,13 @@ impl CostGuard {
                 warn!("cost guard hourly_actions mutex poisoned — rate limit bypassed");
                 return Ok(());
             };
-            let cutoff = Instant::now()
-                .checked_sub(std::time::Duration::from_hours(1))
-                .unwrap_or(Instant::now());
-            while actions.front().is_some_and(|t| *t < cutoff) {
-                actions.pop_front();
+            // Only prune old entries if we can compute the cutoff.
+            // If checked_sub fails (e.g. system just booted), keep all entries
+            // so the rate limiter is not bypassed.
+            if let Some(cutoff) = Instant::now().checked_sub(std::time::Duration::from_hours(1)) {
+                while actions.front().is_some_and(|t| *t < cutoff) {
+                    actions.pop_front();
+                }
             }
             if actions.len() as u64 >= max_actions {
                 return Err(format!(

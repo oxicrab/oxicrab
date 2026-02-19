@@ -174,6 +174,15 @@ impl BrowserTool {
                     .map_err(|e| format!("failed to get URL: {e}"))?
                     .unwrap_or_default();
 
+                // Post-redirect SSRF check: validate the final URL after redirects
+                if !current_url.is_empty()
+                    && current_url != url
+                    && let Err(e) =
+                        crate::utils::url_security::validate_and_resolve(&current_url).await
+                {
+                    return Err(format!("redirect to blocked URL: {current_url} ({e})"));
+                }
+
                 Ok(format!("Navigated to: {current_url}\nTitle: {title}"))
             })
             .await;

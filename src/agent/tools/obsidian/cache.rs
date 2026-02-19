@@ -139,9 +139,22 @@ impl ObsidianCache {
         }
     }
 
+    /// Validate that a user-supplied path stays within the cache directory.
+    fn safe_cache_path(&self, path: &str) -> Option<std::path::PathBuf> {
+        let joined = self.cache_dir.join(path);
+        // Lexically normalize to collapse `..` components
+        let normalized = lexical_normalize(&joined);
+        if normalized.starts_with(&self.cache_dir) {
+            Some(normalized)
+        } else {
+            warn!("path traversal blocked: {}", path);
+            None
+        }
+    }
+
     /// Read a file from the local cache.
     pub fn read_cached(&self, path: &str) -> Option<String> {
-        let file_path = self.cache_dir.join(path);
+        let file_path = self.safe_cache_path(path)?;
         std::fs::read_to_string(file_path).ok()
     }
 
@@ -410,7 +423,9 @@ impl ObsidianCache {
     // --- Private helpers ---
 
     fn write_to_cache(&self, path: &str, content: &str) -> Result<()> {
-        let file_path = self.cache_dir.join(path);
+        let file_path = self
+            .safe_cache_path(path)
+            .ok_or_else(|| anyhow::anyhow!("path traversal blocked: {}", path))?;
         if let Some(parent) = file_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -464,6 +479,24 @@ impl ObsidianCache {
         drop(queue);
         crate::utils::atomic_write(&self.queue_path, &json)
     }
+}
+
+/// Normalize a path lexically (without touching the filesystem).
+/// Resolves `.` and `..` components to prevent path traversal.
+fn lexical_normalize(path: &std::path::Path) -> PathBuf {
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                if matches!(components.last(), Some(std::path::Component::Normal(_))) {
+                    components.pop();
+                }
+            }
+            std::path::Component::CurDir => {}
+            other => components.push(other),
+        }
+    }
+    components.iter().collect()
 }
 
 /// Background sync service that periodically syncs the Obsidian cache.

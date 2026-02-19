@@ -209,8 +209,10 @@ pub trait LLMProvider: Send + Sync {
                                 crate::errors::OxicrabError::Provider { retryable, .. } => {
                                     *retryable
                                 }
-                                crate::errors::OxicrabError::Auth(_) => false,
-                                _ => true, // RateLimit, Config, Internal all default to transient
+                                crate::errors::OxicrabError::Auth(_)
+                                | crate::errors::OxicrabError::Config(_)
+                                | crate::errors::OxicrabError::RateLimit { .. } => false,
+                                crate::errors::OxicrabError::Internal(_) => true,
                             });
                     warn!("Chat request failed on attempt {}: {}", attempt, e);
                     if !is_transient {

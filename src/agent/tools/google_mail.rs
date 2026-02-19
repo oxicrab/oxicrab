@@ -250,13 +250,13 @@ impl Tool for GoogleMailTool {
                     subject = format!("Re: {}", subject);
                 }
 
+                let message_id = headers
+                    .get("Message-ID")
+                    .unwrap_or(&String::new())
+                    .replace(['\r', '\n'], "");
                 let email = format!(
                     "To: {}\r\nSubject: {}\r\nIn-Reply-To: {}\r\nReferences: {}\r\n\r\n{}",
-                    reply_to,
-                    subject,
-                    headers.get("Message-ID").unwrap_or(&String::new()),
-                    headers.get("Message-ID").unwrap_or(&String::new()),
-                    body
+                    reply_to, subject, message_id, message_id, body
                 );
                 let raw = URL_SAFE_NO_PAD.encode(email.as_bytes());
 

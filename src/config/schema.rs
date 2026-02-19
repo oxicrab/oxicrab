@@ -902,7 +902,7 @@ impl Default for GatewayConfig {
 }
 
 fn default_host() -> String {
-    "0.0.0.0".to_string()
+    "127.0.0.1".to_string()
 }
 
 fn default_port() -> u16 {
@@ -1658,6 +1658,29 @@ impl Config {
                 secrets.push((name, value));
             }
         }
+
+        // Include custom header values from all providers (may contain auth tokens)
+        let provider_configs = [
+            &self.providers.anthropic,
+            &self.providers.openai,
+            &self.providers.openrouter,
+            &self.providers.deepseek,
+            &self.providers.groq,
+            &self.providers.zhipu,
+            &self.providers.dashscope,
+            &self.providers.vllm,
+            &self.providers.gemini,
+            &self.providers.moonshot,
+            &self.providers.ollama,
+        ];
+        for cfg in provider_configs {
+            for value in cfg.headers.values() {
+                if !value.is_empty() {
+                    secrets.push(("provider_header", value.as_str()));
+                }
+            }
+        }
+
         secrets
     }
 

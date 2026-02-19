@@ -234,6 +234,19 @@ fn security_patterns_allow_safe_curl_usage() {
 }
 
 #[test]
+fn security_patterns_block_versioned_python() {
+    let patterns = compile_security_patterns().unwrap();
+    let dangerous = vec![
+        "python3.12 -c 'import os; os.system(\"id\")'",
+        "python3.11 -c 'print(1)'",
+    ];
+    for cmd in dangerous {
+        let blocked = patterns.iter().any(|p| p.is_match(cmd));
+        assert!(blocked, "Should block: {}", cmd);
+    }
+}
+
+#[test]
 fn security_patterns_block_perl_ruby_execution() {
     let patterns = compile_security_patterns().unwrap();
     let dangerous = vec![

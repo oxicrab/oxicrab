@@ -77,7 +77,7 @@ impl MessageBus {
         let key = format!("{}:{}", msg.channel, msg.sender_id);
 
         let timestamps = self.sender_timestamps.entry(key.clone()).or_default();
-        let cutoff = now.checked_sub(self.rate_window).unwrap();
+        let cutoff = now.checked_sub(self.rate_window).unwrap_or(now);
         timestamps.retain(|&t| t > cutoff);
 
         if timestamps.len() >= self.rate_limit {

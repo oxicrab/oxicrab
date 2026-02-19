@@ -19,6 +19,7 @@ pub fn ensure_dir(path: impl AsRef<Path>) -> Result<PathBuf> {
 
 pub fn safe_filename(name: &str) -> String {
     name.chars()
+        .filter(|c| *c != '\0')
         .map(|c| match c {
             '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
             _ => c,

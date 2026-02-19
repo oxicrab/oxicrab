@@ -64,7 +64,7 @@ impl CronTool {
         for name in channel_names {
             match name.as_str() {
                 "slack" if cfg.slack.enabled => {
-                    let to = cfg.slack.allow_from.first().cloned().unwrap_or_default();
+                    let to = first_concrete_target(&cfg.slack.allow_from);
                     if !to.is_empty() {
                         targets.push(CronTarget {
                             channel: "slack".to_string(),
@@ -73,7 +73,7 @@ impl CronTool {
                     }
                 }
                 "discord" if cfg.discord.enabled => {
-                    let to = cfg.discord.allow_from.first().cloned().unwrap_or_default();
+                    let to = first_concrete_target(&cfg.discord.allow_from);
                     if !to.is_empty() {
                         targets.push(CronTarget {
                             channel: "discord".to_string(),
@@ -82,7 +82,7 @@ impl CronTool {
                     }
                 }
                 "telegram" if cfg.telegram.enabled => {
-                    let to = cfg.telegram.allow_from.first().cloned().unwrap_or_default();
+                    let to = first_concrete_target(&cfg.telegram.allow_from);
                     if !to.is_empty() {
                         targets.push(CronTarget {
                             channel: "telegram".to_string(),
@@ -91,7 +91,7 @@ impl CronTool {
                     }
                 }
                 "whatsapp" if cfg.whatsapp.enabled => {
-                    let to = cfg.whatsapp.allow_from.first().cloned().unwrap_or_default();
+                    let to = first_concrete_target(&cfg.whatsapp.allow_from);
                     if !to.is_empty() {
                         let to = format_whatsapp_target(&to);
                         targets.push(CronTarget {
@@ -105,6 +105,15 @@ impl CronTool {
         }
         targets
     }
+}
+
+/// Return the first concrete (non-wildcard) target from an allowlist.
+fn first_concrete_target(allow_from: &[String]) -> String {
+    allow_from
+        .iter()
+        .find(|s| *s != "*")
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// Format a `WhatsApp` target: append @s.whatsapp.net if not already present.
@@ -127,7 +136,7 @@ pub fn resolve_all_channel_targets_from_config(cfg: Option<&ChannelsConfig>) -> 
     let mut targets = Vec::new();
 
     if cfg.slack.enabled {
-        let to = cfg.slack.allow_from.first().cloned().unwrap_or_default();
+        let to = first_concrete_target(&cfg.slack.allow_from);
         if !to.is_empty() {
             targets.push(CronTarget {
                 channel: "slack".to_string(),
@@ -136,7 +145,7 @@ pub fn resolve_all_channel_targets_from_config(cfg: Option<&ChannelsConfig>) -> 
         }
     }
     if cfg.discord.enabled {
-        let to = cfg.discord.allow_from.first().cloned().unwrap_or_default();
+        let to = first_concrete_target(&cfg.discord.allow_from);
         if !to.is_empty() {
             targets.push(CronTarget {
                 channel: "discord".to_string(),
@@ -145,7 +154,7 @@ pub fn resolve_all_channel_targets_from_config(cfg: Option<&ChannelsConfig>) -> 
         }
     }
     if cfg.telegram.enabled {
-        let to = cfg.telegram.allow_from.first().cloned().unwrap_or_default();
+        let to = first_concrete_target(&cfg.telegram.allow_from);
         if !to.is_empty() {
             targets.push(CronTarget {
                 channel: "telegram".to_string(),
@@ -154,7 +163,7 @@ pub fn resolve_all_channel_targets_from_config(cfg: Option<&ChannelsConfig>) -> 
         }
     }
     if cfg.whatsapp.enabled {
-        let to = cfg.whatsapp.allow_from.first().cloned().unwrap_or_default();
+        let to = first_concrete_target(&cfg.whatsapp.allow_from);
         if !to.is_empty() {
             let to = format_whatsapp_target(&to);
             targets.push(CronTarget {
@@ -374,7 +383,7 @@ impl Tool for CronTool {
                     id: uuid::Uuid::new_v4().to_string()[..8].to_string(),
                     name: {
                         let truncated: String = message.chars().take(30).collect();
-                        if truncated.len() < message.len() {
+                        if message.chars().count() > 30 {
                             format!("{}...", truncated)
                         } else {
                             message.clone()

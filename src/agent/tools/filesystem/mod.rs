@@ -119,10 +119,6 @@ impl Tool for ReadFileTool {
         ToolVersion::new(1, 0, 0)
     }
 
-    fn cacheable(&self) -> bool {
-        true
-    }
-
     fn parameters(&self) -> Value {
         serde_json::json!({
             "type": "object",
@@ -394,10 +390,6 @@ impl Tool for ListDirTool {
 
     fn description(&self) -> &'static str {
         "List the contents of a directory."
-    }
-
-    fn cacheable(&self) -> bool {
-        true
     }
 
     fn parameters(&self) -> Value {
