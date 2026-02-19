@@ -105,17 +105,23 @@ fn register_filesystem(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     };
 
     let backup_dir = dirs::home_dir().map(|h| h.join(".oxicrab/backups"));
+    let workspace = Some(ctx.workspace.clone());
 
-    registry.register(Arc::new(ReadFileTool::new(allowed_roots.clone())));
+    registry.register(Arc::new(ReadFileTool::new(
+        allowed_roots.clone(),
+        workspace.clone(),
+    )));
     registry.register(Arc::new(WriteFileTool::new(
         allowed_roots.clone(),
         backup_dir.clone(),
+        workspace.clone(),
     )));
     registry.register(Arc::new(EditFileTool::new(
         allowed_roots.clone(),
         backup_dir,
+        workspace.clone(),
     )));
-    registry.register(Arc::new(ListDirTool::new(allowed_roots)));
+    registry.register(Arc::new(ListDirTool::new(allowed_roots, workspace)));
 }
 
 fn register_shell(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Result<()> {
@@ -332,7 +338,7 @@ async fn register_mcp(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Op
     if mcp_cfg.servers.is_empty() {
         return None;
     }
-    match McpManager::new(mcp_cfg).await {
+    match McpManager::new(mcp_cfg, &ctx.workspace).await {
         Ok(manager) => {
             let tools = manager.discover_tools().await;
             let mut registered = 0usize;

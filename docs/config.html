@@ -668,7 +668,7 @@
     <!-- SANDBOX -->
     <div id="sandbox" class="cfg-section">
         <h2>Sandbox</h2>
-        <p>Kernel-enforced filesystem and network restrictions for shell commands via Linux Landlock LSM. Graceful no-op on non-Linux or unsupported kernels. Config path: <code>tools.exec.sandbox</code></p>
+        <p>Kernel-enforced filesystem and network restrictions via Linux Landlock LSM. Applied to both shell commands (<code>tools.exec.sandbox</code>) and MCP server child processes (<code>tools.mcp.servers.*.sandbox</code>). Graceful no-op on non-Linux or unsupported kernels.</p>
 
         <pre><code>{
   "tools": {

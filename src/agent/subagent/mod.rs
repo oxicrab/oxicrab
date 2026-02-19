@@ -275,12 +275,17 @@ async fn run_subagent_inner(
 
     let backup_dir = Some(home.join(".oxicrab/backups"));
 
-    tools.register(Arc::new(ReadFileTool::new(allowed_roots.clone())));
+    let workspace = Some(config.workspace.clone());
+    tools.register(Arc::new(ReadFileTool::new(
+        allowed_roots.clone(),
+        workspace.clone(),
+    )));
     tools.register(Arc::new(WriteFileTool::new(
         allowed_roots.clone(),
         backup_dir,
+        workspace.clone(),
     )));
-    tools.register(Arc::new(ListDirTool::new(allowed_roots)));
+    tools.register(Arc::new(ListDirTool::new(allowed_roots, workspace)));
     tools.register(Arc::new(ExecTool::new(
         config.exec_timeout,
         Some(config.workspace.clone()),

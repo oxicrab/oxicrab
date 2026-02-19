@@ -6,6 +6,7 @@ use rmcp::service::Peer;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::fmt::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{debug, warn};
 
@@ -16,6 +17,7 @@ pub struct McpProxyTool {
     /// Leaked string so we can return `&'static str` from `description()`.
     tool_description: &'static str,
     input_schema: Value,
+    workspace: Option<PathBuf>,
 }
 
 impl McpProxyTool {
@@ -25,6 +27,7 @@ impl McpProxyTool {
         tool_name: String,
         description: String,
         input_schema: Value,
+        workspace: Option<PathBuf>,
     ) -> Self {
         // Leak the description so we can return &'static str.
         // This is fine because tools are registered once and live for the process lifetime.
@@ -34,6 +37,7 @@ impl McpProxyTool {
             tool_name,
             tool_description,
             input_schema,
+            workspace,
         }
     }
 }
@@ -77,10 +81,12 @@ impl Tool for McpProxyTool {
             Ok(r) => r,
             Err(e) => {
                 warn!("MCP tool '{}' failed: {}", self.tool_name, e);
-                return Ok(ToolResult::error(format!(
-                    "MCP tool '{}' call failed: {}",
-                    self.tool_name, e
-                )));
+                let raw_msg = format!("MCP tool '{}' call failed: {}", self.tool_name, e);
+                let sanitized = crate::utils::path_sanitize::sanitize_error_message(
+                    &raw_msg,
+                    self.workspace.as_deref(),
+                );
+                return Ok(ToolResult::error(sanitized));
             }
         };
 
@@ -140,7 +146,11 @@ impl Tool for McpProxyTool {
         );
 
         if is_error {
-            Ok(ToolResult::error(output))
+            let sanitized = crate::utils::path_sanitize::sanitize_error_message(
+                &output,
+                self.workspace.as_deref(),
+            );
+            Ok(ToolResult::error(sanitized))
         } else {
             Ok(ToolResult::new(output))
         }

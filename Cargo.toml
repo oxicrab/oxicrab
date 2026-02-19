@@ -36,6 +36,7 @@ async-trait = "0.1"
 axum = { version = "0.8", optional = true }
 base64 = "0.22"
 brush-parser = "0.3"
+cap-std = "3"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 clap = { version = "4.5", features = ["derive"] }
@@ -43,6 +44,7 @@ cron = "0.15"
 dirs = "6.0"
 fastembed = { version = "5", default-features = false, features = ["hf-hub", "hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"] }
 fastrand = "2.0"
+fs2 = "0.4"
 form_urlencoded = "1.2"
 futures-util = "0.3"
 hex = "0.4"

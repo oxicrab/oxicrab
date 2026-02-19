@@ -1,5 +1,6 @@
 pub mod http;
 pub mod media;
+pub mod path_sanitize;
 pub mod regex;
 pub mod sandbox;
 pub mod shell_ast;

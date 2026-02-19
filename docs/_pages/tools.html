@@ -536,7 +536,12 @@ max_width: 820px
           "command": "npx",
           "args": ["-y", "@modelcontextprotocol/server-git"],
           "env": { "GIT_DIR": "/path/to/repo" },
-          "enabled": true
+          "enabled": true,
+          "sandbox": {
+            "enabled": true,
+            "additionalReadPaths": ["/path/to/repo"],
+            "blockNetwork": false
+          }
         }
       }
     }
@@ -552,6 +557,7 @@ max_width: 820px
         <tr><td>env</td><td>Environment variables passed to the child process</td></tr>
         <tr><td>enabled</td><td>Set to <code>false</code> to skip without removing the config</td></tr>
         <tr><td>trust</td><td>Trust level: <code>"local"</code> (default, full tool access), <code>"verified"</code> (requires approval per call), or <code>"community"</code> (read-only safe tools only)</td></tr>
+        <tr><td>sandbox</td><td>Landlock sandbox config for the server process. Same fields as <a href="/oxicrab/config.html#sandbox"><code>tools.exec.sandbox</code></a>: <code>enabled</code> (default true), <code>additionalReadPaths</code>, <code>additionalWritePaths</code>, <code>blockNetwork</code> (default true). Restricts the MCP server's filesystem and network access at the kernel level.</td></tr>
       </tbody>
     </table>
 

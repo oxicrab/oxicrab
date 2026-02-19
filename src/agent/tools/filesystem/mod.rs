@@ -38,6 +38,51 @@ fn check_path_allowed(file_path: &Path, allowed_roots: Option<&Vec<PathBuf>>) ->
     Ok(())
 }
 
+/// Open a capability-based directory handle for confined path operations.
+///
+/// Uses `cap_std::fs::Dir` (backed by `openat()`) to eliminate TOCTOU race
+/// conditions between path validation and file operations. Returns the Dir
+/// handle and the relative path from root to target.
+fn open_confined(target: &Path, allowed_roots: &[PathBuf]) -> Result<(cap_std::fs::Dir, PathBuf)> {
+    // Resolve the target path: canonicalize for existing paths, lexical normalize otherwise
+    let resolved = target
+        .canonicalize()
+        .unwrap_or_else(|_| crate::agent::tools::shell::lexical_normalize(target));
+
+    for root in allowed_roots {
+        let Ok(root_resolved) = root.canonicalize() else {
+            continue;
+        };
+        if resolved == root_resolved || resolved.starts_with(&root_resolved) {
+            let relative = resolved
+                .strip_prefix(&root_resolved)
+                .unwrap_or(&resolved)
+                .to_path_buf();
+            // Open the root as a capability-based Dir (uses openat under the hood)
+            let dir =
+                cap_std::fs::Dir::open_ambient_dir(&root_resolved, cap_std::ambient_authority())
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "failed to open confined root '{}': {}",
+                            root_resolved.display(),
+                            e
+                        )
+                    })?;
+            return Ok((dir, relative));
+        }
+    }
+
+    anyhow::bail!(
+        "Error: Path '{}' is outside the allowed directories",
+        target.display()
+    );
+}
+
+/// Sanitize a path in an error message if workspace is available.
+fn sanitize_err(msg: &str, workspace: Option<&Path>) -> String {
+    crate::utils::path_sanitize::sanitize_error_message(msg, workspace)
+}
+
 const MAX_BACKUPS: usize = 14;
 
 /// Create a timestamped backup of a file before overwriting it.
@@ -96,11 +141,15 @@ async fn backup_file(file_path: &Path, backup_dir: &Path) {
 
 pub struct ReadFileTool {
     allowed_roots: Option<Vec<PathBuf>>,
+    workspace: Option<PathBuf>,
 }
 
 impl ReadFileTool {
-    pub fn new(allowed_roots: Option<Vec<PathBuf>>) -> Self {
-        Self { allowed_roots }
+    pub fn new(allowed_roots: Option<Vec<PathBuf>>, workspace: Option<PathBuf>) -> Self {
+        Self {
+            allowed_roots,
+            workspace,
+        }
     }
 }
 
@@ -144,11 +193,56 @@ impl Tool for ReadFileTool {
             Ok::<PathBuf, anyhow::Error>(home.join(stripped))
         })?;
 
-        if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
-            return Ok(ToolResult::error(err.to_string()));
+        let ws = self.workspace.as_deref();
+
+        // When allowed_roots is set, use cap-std for TOCTOU-safe confined reads
+        if let Some(ref roots) = self.allowed_roots {
+            let (dir, relative) = match open_confined(&expanded, roots) {
+                Ok(v) => v,
+                Err(e) => return Ok(ToolResult::error(sanitize_err(&e.to_string(), ws))),
+            };
+
+            // All operations below use the confined Dir handle (openat)
+            let path_str_owned = path_str.to_string();
+            return tokio::task::spawn_blocking(move || {
+                // For root-relative access (e.g. open_confined returns "" for the root itself)
+                let target = if relative.as_os_str().is_empty() {
+                    PathBuf::from(".")
+                } else {
+                    relative
+                };
+                let Ok(meta) = dir.metadata(&target) else {
+                    return Ok(ToolResult::error(format!(
+                        "Error: file not found: {}",
+                        path_str_owned
+                    )));
+                };
+                if meta.is_dir() {
+                    return Ok(ToolResult::error(format!(
+                        "Error: Not a file (path is a directory): {}. Use list_dir to list directory contents, or read_file with a file path.",
+                        path_str_owned
+                    )));
+                }
+                if meta.len() > MAX_READ_BYTES {
+                    return Ok(ToolResult::error(format!(
+                        "Error: file too large ({} bytes, max {}). Use shell tool to read partial content.",
+                        meta.len(),
+                        MAX_READ_BYTES
+                    )));
+                }
+                match dir.read_to_string(&target) {
+                    Ok(content) => Ok(ToolResult::new(content)),
+                    Err(e) => Ok(ToolResult::error(format!("Error reading file: {}", e))),
+                }
+            })
+            .await?;
         }
 
-        // Check file metadata (exists, is_file, size) in one call
+        // Unrestricted mode: use direct tokio::fs operations
+        if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
+            return Ok(ToolResult::error(sanitize_err(&err.to_string(), ws)));
+        }
+
         match tokio::fs::metadata(&expanded).await {
             Ok(meta) if meta.is_dir() => {
                 return Ok(ToolResult::error(format!(
@@ -165,7 +259,7 @@ impl Tool for ReadFileTool {
             }
             Err(_) => {
                 return Ok(ToolResult::error(format!(
-                    "Error: File not found: {}",
+                    "Error: file not found: {}",
                     path_str
                 )));
             }
@@ -174,7 +268,10 @@ impl Tool for ReadFileTool {
 
         match tokio::fs::read_to_string(&expanded).await {
             Ok(content) => Ok(ToolResult::new(content)),
-            Err(e) => Ok(ToolResult::error(format!("Error reading file: {}", e))),
+            Err(e) => Ok(ToolResult::error(sanitize_err(
+                &format!("Error reading file: {}", e),
+                ws,
+            ))),
         }
     }
 }
@@ -182,13 +279,19 @@ impl Tool for ReadFileTool {
 pub struct WriteFileTool {
     allowed_roots: Option<Vec<PathBuf>>,
     backup_dir: Option<PathBuf>,
+    workspace: Option<PathBuf>,
 }
 
 impl WriteFileTool {
-    pub fn new(allowed_roots: Option<Vec<PathBuf>>, backup_dir: Option<PathBuf>) -> Self {
+    pub fn new(
+        allowed_roots: Option<Vec<PathBuf>>,
+        backup_dir: Option<PathBuf>,
+        workspace: Option<PathBuf>,
+    ) -> Self {
         Self {
             allowed_roots,
             backup_dir,
+            workspace,
         }
     }
 }
@@ -236,9 +339,41 @@ impl Tool for WriteFileTool {
             Ok::<PathBuf, anyhow::Error>(home.join(stripped))
         })?;
 
-        // Check path restrictions even after fallback canonicalization
+        let ws = self.workspace.as_deref();
+
+        // Confined write when allowed_roots is set
+        if let Some(ref roots) = self.allowed_roots {
+            let (dir, relative) = match open_confined(&expanded, roots) {
+                Ok(v) => v,
+                Err(e) => return Ok(ToolResult::error(sanitize_err(&e.to_string(), ws))),
+            };
+
+            if let Some(ref backup_dir) = self.backup_dir {
+                backup_file(&expanded, backup_dir).await;
+            }
+
+            let content_owned = content.to_string();
+            let path_str_owned = path_str.to_string();
+            return tokio::task::spawn_blocking(move || {
+                // Create parent dirs within the confined root
+                if let Some(parent) = relative.parent()
+                    && !parent.as_os_str().is_empty()
+                {
+                    dir.create_dir_all(parent).map_err(|e| {
+                        anyhow::anyhow!("failed to create parent directories: {}", e)
+                    })?;
+                }
+                match dir.write(&relative, &content_owned) {
+                    Ok(()) => Ok(ToolResult::new(format!("File written: {}", path_str_owned))),
+                    Err(e) => Ok(ToolResult::error(format!("Error writing file: {}", e))),
+                }
+            })
+            .await?;
+        }
+
+        // Unrestricted mode
         if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
-            return Ok(ToolResult::error(err.to_string()));
+            return Ok(ToolResult::error(sanitize_err(&err.to_string(), ws)));
         }
 
         if let Some(ref backup_dir) = self.backup_dir {
@@ -251,7 +386,10 @@ impl Tool for WriteFileTool {
 
         match tokio::fs::write(&expanded, content).await {
             Ok(()) => Ok(ToolResult::new(format!("File written: {}", path_str))),
-            Err(e) => Ok(ToolResult::error(format!("Error writing file: {}", e))),
+            Err(e) => Ok(ToolResult::error(sanitize_err(
+                &format!("Error writing file: {}", e),
+                ws,
+            ))),
         }
     }
 }
@@ -259,13 +397,19 @@ impl Tool for WriteFileTool {
 pub struct EditFileTool {
     allowed_roots: Option<Vec<PathBuf>>,
     backup_dir: Option<PathBuf>,
+    workspace: Option<PathBuf>,
 }
 
 impl EditFileTool {
-    pub fn new(allowed_roots: Option<Vec<PathBuf>>, backup_dir: Option<PathBuf>) -> Self {
+    pub fn new(
+        allowed_roots: Option<Vec<PathBuf>>,
+        backup_dir: Option<PathBuf>,
+        workspace: Option<PathBuf>,
+    ) -> Self {
         Self {
             allowed_roots,
             backup_dir,
+            workspace,
         }
     }
 }
@@ -320,13 +464,65 @@ impl Tool for EditFileTool {
             Ok::<PathBuf, anyhow::Error>(home.join(stripped))
         })?;
 
+        let ws = self.workspace.as_deref();
+
+        // Confined edit when allowed_roots is set
+        if let Some(ref roots) = self.allowed_roots {
+            let (dir, relative) = match open_confined(&expanded, roots) {
+                Ok(v) => v,
+                Err(e) => return Ok(ToolResult::error(sanitize_err(&e.to_string(), ws))),
+            };
+
+            if let Some(ref backup_dir) = self.backup_dir {
+                backup_file(&expanded, backup_dir).await;
+            }
+
+            let old_text_owned = old_text.to_string();
+            let new_text_owned = new_text.to_string();
+            let path_str_owned = path_str.to_string();
+            return tokio::task::spawn_blocking(move || {
+                let Ok(content) = dir.read_to_string(&relative) else {
+                    return Ok(ToolResult::error(format!(
+                        "Error: file not found: {}",
+                        path_str_owned
+                    )));
+                };
+
+                if !content.contains(&*old_text_owned) {
+                    return Ok(ToolResult::error(
+                        "Error: old_text not found in file. Make sure it matches exactly."
+                            .to_string(),
+                    ));
+                }
+
+                let count = content.matches(&*old_text_owned).count();
+                if count > 1 {
+                    return Ok(ToolResult::error(format!(
+                        "Warning: old_text appears {} times. Please provide more context to make it unique.",
+                        count
+                    )));
+                }
+
+                let new_content = content.replacen(&*old_text_owned, &new_text_owned, 1);
+                match dir.write(&relative, &new_content) {
+                    Ok(()) => Ok(ToolResult::new(format!(
+                        "Successfully edited {}",
+                        path_str_owned
+                    ))),
+                    Err(e) => Ok(ToolResult::error(format!("Error writing file: {}", e))),
+                }
+            })
+            .await?;
+        }
+
+        // Unrestricted mode
         if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
-            return Ok(ToolResult::error(err.to_string()));
+            return Ok(ToolResult::error(sanitize_err(&err.to_string(), ws)));
         }
 
         if tokio::fs::metadata(&expanded).await.is_err() {
             return Ok(ToolResult::error(format!(
-                "Error: File not found: {}",
+                "Error: file not found: {}",
                 path_str
             )));
         }
@@ -355,21 +551,31 @@ impl Tool for EditFileTool {
                 let new_content = content.replacen(old_text, new_text, 1);
                 match tokio::fs::write(&expanded, new_content).await {
                     Ok(()) => Ok(ToolResult::new(format!("Successfully edited {}", path_str))),
-                    Err(e) => Ok(ToolResult::error(format!("Error writing file: {}", e))),
+                    Err(e) => Ok(ToolResult::error(sanitize_err(
+                        &format!("Error writing file: {}", e),
+                        ws,
+                    ))),
                 }
             }
-            Err(e) => Ok(ToolResult::error(format!("Error reading file: {}", e))),
+            Err(e) => Ok(ToolResult::error(sanitize_err(
+                &format!("Error reading file: {}", e),
+                ws,
+            ))),
         }
     }
 }
 
 pub struct ListDirTool {
     allowed_roots: Option<Vec<PathBuf>>,
+    workspace: Option<PathBuf>,
 }
 
 impl ListDirTool {
-    pub fn new(allowed_roots: Option<Vec<PathBuf>>) -> Self {
-        Self { allowed_roots }
+    pub fn new(allowed_roots: Option<Vec<PathBuf>>, workspace: Option<PathBuf>) -> Self {
+        Self {
+            allowed_roots,
+            workspace,
+        }
     }
 }
 
@@ -409,14 +615,64 @@ impl Tool for ListDirTool {
             Ok::<PathBuf, anyhow::Error>(home.join(stripped))
         })?;
 
+        let ws = self.workspace.as_deref();
+
+        // Confined listing when allowed_roots is set
+        if let Some(ref roots) = self.allowed_roots {
+            let (dir, relative) = match open_confined(&expanded, roots) {
+                Ok(v) => v,
+                Err(e) => return Ok(ToolResult::error(sanitize_err(&e.to_string(), ws))),
+            };
+
+            let path_str_owned = path_str.to_string();
+            return tokio::task::spawn_blocking(move || {
+                let target = if relative.as_os_str().is_empty() {
+                    PathBuf::from(".")
+                } else {
+                    relative
+                };
+                let Ok(meta) = dir.metadata(&target) else {
+                    return Ok(ToolResult::error(format!(
+                        "Error: directory not found: {}",
+                        path_str_owned
+                    )));
+                };
+                if !meta.is_dir() {
+                    return Ok(ToolResult::error(format!(
+                        "Error: Not a directory: {}",
+                        path_str_owned
+                    )));
+                }
+                let Ok(subdir) = dir.open_dir(&target) else {
+                    return Ok(ToolResult::error("Error reading directory".to_string()));
+                };
+                let mut entries = Vec::new();
+                match subdir.entries() {
+                    Ok(iter) => {
+                        for entry in iter {
+                            let Ok(entry) = entry else { continue };
+                            let name = entry.file_name().to_string_lossy().to_string();
+                            let is_dir = entry.metadata().is_ok_and(|m| m.is_dir());
+                            entries.push(format!("{}{}", name, if is_dir { "/" } else { "" }));
+                        }
+                        entries.sort();
+                        Ok(ToolResult::new(entries.join("\n")))
+                    }
+                    Err(e) => Ok(ToolResult::error(format!("Error reading directory: {}", e))),
+                }
+            })
+            .await?;
+        }
+
+        // Unrestricted mode
         if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
-            return Ok(ToolResult::error(err.to_string()));
+            return Ok(ToolResult::error(sanitize_err(&err.to_string(), ws)));
         }
 
         match tokio::fs::metadata(&expanded).await {
             Err(_) => {
                 return Ok(ToolResult::error(format!(
-                    "Error: Directory not found: {}",
+                    "Error: directory not found: {}",
                     path_str
                 )));
             }
@@ -440,7 +696,10 @@ impl Tool for ListDirTool {
                 entries.sort();
                 Ok(ToolResult::new(entries.join("\n")))
             }
-            Err(e) => Ok(ToolResult::error(format!("Error reading directory: {}", e))),
+            Err(e) => Ok(ToolResult::error(sanitize_err(
+                &format!("Error reading directory: {}", e),
+                ws,
+            ))),
         }
     }
 }

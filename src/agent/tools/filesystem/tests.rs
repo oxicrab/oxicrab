@@ -48,6 +48,57 @@ fn test_check_path_allowed_nonexistent_traversal_blocked() {
     );
 }
 
+// --- open_confined ---
+
+#[test]
+fn test_open_confined_normal_read() {
+    let dir = std::env::temp_dir().join("oxicrab_test_confined_read");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("hello.txt"), "confined content").unwrap();
+
+    let roots = vec![dir.clone()];
+    let (cap_dir, relative) = open_confined(&dir.join("hello.txt"), &roots).unwrap();
+    let content = cap_dir.read_to_string(&relative).unwrap();
+    assert_eq!(content, "confined content");
+
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn test_open_confined_dir_traversal_blocked() {
+    let dir = std::env::temp_dir().join("oxicrab_test_confined_traversal");
+    fs::create_dir_all(&dir).unwrap();
+
+    let roots = vec![dir.clone()];
+    // ../../etc/passwd should be blocked by lexical normalization before open_confined
+    let result = open_confined(&dir.join("../../etc/passwd"), &roots);
+    assert!(result.is_err());
+
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn test_open_confined_symlink_escape_blocked() {
+    use std::os::unix::fs as unix_fs;
+
+    let dir = std::env::temp_dir().join("oxicrab_test_confined_symlink");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    // Create a symlink that points outside the confined root
+    let symlink_path = dir.join("escape");
+    let _ = fs::remove_file(&symlink_path);
+    unix_fs::symlink("/etc/passwd", &symlink_path).unwrap();
+
+    let roots = vec![dir.clone()];
+    // canonicalize resolves symlink to /etc/passwd which is outside roots
+    let result = open_confined(&symlink_path, &roots);
+    assert!(result.is_err(), "symlink escape should be blocked");
+
+    fs::remove_dir_all(&dir).unwrap();
+}
+
 // --- ReadFileTool ---
 
 #[tokio::test]
@@ -57,7 +108,7 @@ async fn test_read_file_success() {
     let file = dir.join("test.txt");
     fs::write(&file, "hello world").unwrap();
 
-    let tool = ReadFileTool::new(None);
+    let tool = ReadFileTool::new(None, None);
     let result = tool
         .execute(
             serde_json::json!({"path": file.to_str().unwrap()}),
@@ -73,7 +124,7 @@ async fn test_read_file_success() {
 
 #[tokio::test]
 async fn test_read_file_not_found() {
-    let tool = ReadFileTool::new(None);
+    let tool = ReadFileTool::new(None, None);
     let result = tool
         .execute(
             serde_json::json!({"path": "/tmp/oxicrab_nonexistent_file_12345.txt"}),
@@ -87,7 +138,7 @@ async fn test_read_file_not_found() {
 
 #[tokio::test]
 async fn test_read_file_missing_param() {
-    let tool = ReadFileTool::new(None);
+    let tool = ReadFileTool::new(None, None);
     let result = tool
         .execute(serde_json::json!({}), &ExecutionContext::default())
         .await;
@@ -96,7 +147,7 @@ async fn test_read_file_missing_param() {
 
 #[tokio::test]
 async fn test_read_file_not_a_file() {
-    let tool = ReadFileTool::new(None);
+    let tool = ReadFileTool::new(None, None);
     let result = tool
         .execute(
             serde_json::json!({"path": "/tmp"}),
@@ -118,7 +169,7 @@ async fn test_read_file_path_restriction() {
     // Allow only a different root
     let other = std::env::temp_dir().join("oxicrab_test_other_root");
     fs::create_dir_all(&other).unwrap();
-    let tool = ReadFileTool::new(Some(vec![other.clone()]));
+    let tool = ReadFileTool::new(Some(vec![other.clone()]), None);
     let result = tool
         .execute(
             serde_json::json!({"path": file.to_str().unwrap()}),
@@ -133,6 +184,27 @@ async fn test_read_file_path_restriction() {
     fs::remove_dir_all(&other).unwrap();
 }
 
+#[tokio::test]
+async fn test_read_file_confined_success() {
+    let dir = std::env::temp_dir().join("oxicrab_test_read_confined");
+    fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("confined.txt");
+    fs::write(&file, "confined data").unwrap();
+
+    let tool = ReadFileTool::new(Some(vec![dir.clone()]), None);
+    let result = tool
+        .execute(
+            serde_json::json!({"path": file.to_str().unwrap()}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert_eq!(result.content, "confined data");
+
+    fs::remove_dir_all(&dir).unwrap();
+}
+
 // --- WriteFileTool ---
 
 #[tokio::test]
@@ -141,7 +213,7 @@ async fn test_write_file_success() {
     fs::create_dir_all(&dir).unwrap();
     let file = dir.join("output.txt");
 
-    let tool = WriteFileTool::new(None, None);
+    let tool = WriteFileTool::new(None, None, None);
     let result = tool
         .execute(
             serde_json::json!({"path": file.to_str().unwrap(), "content": "test content"}),
@@ -161,7 +233,7 @@ async fn test_write_file_creates_parent_dirs() {
     let dir = std::env::temp_dir().join("oxicrab_test_write_nested/a/b/c");
     let file = dir.join("deep.txt");
 
-    let tool = WriteFileTool::new(None, None);
+    let tool = WriteFileTool::new(None, None, None);
     let result = tool
         .execute(
             serde_json::json!({"path": file.to_str().unwrap(), "content": "deep"}),
@@ -184,7 +256,7 @@ async fn test_edit_file_success() {
     let file = dir.join("edit.txt");
     fs::write(&file, "hello world").unwrap();
 
-    let tool = EditFileTool::new(None, None);
+    let tool = EditFileTool::new(None, None, None);
     let result = tool
         .execute(
             serde_json::json!({
@@ -209,7 +281,7 @@ async fn test_edit_file_old_text_not_found() {
     let file = dir.join("edit.txt");
     fs::write(&file, "hello world").unwrap();
 
-    let tool = EditFileTool::new(None, None);
+    let tool = EditFileTool::new(None, None, None);
     let result = tool
         .execute(
             serde_json::json!({
@@ -234,7 +306,7 @@ async fn test_edit_file_ambiguous_match() {
     let file = dir.join("edit.txt");
     fs::write(&file, "foo bar foo baz").unwrap();
 
-    let tool = EditFileTool::new(None, None);
+    let tool = EditFileTool::new(None, None, None);
     let result = tool
         .execute(
             serde_json::json!({
@@ -262,7 +334,7 @@ async fn test_list_dir_success() {
     fs::write(dir.join("b.txt"), "").unwrap();
     fs::create_dir_all(dir.join("subdir")).unwrap();
 
-    let tool = ListDirTool::new(None);
+    let tool = ListDirTool::new(None, None);
     let result = tool
         .execute(
             serde_json::json!({"path": dir.to_str().unwrap()}),
@@ -280,7 +352,7 @@ async fn test_list_dir_success() {
 
 #[tokio::test]
 async fn test_list_dir_not_found() {
-    let tool = ListDirTool::new(None);
+    let tool = ListDirTool::new(None, None);
     let result = tool
         .execute(
             serde_json::json!({"path": "/tmp/oxicrab_nonexistent_dir_12345"}),
@@ -298,7 +370,7 @@ async fn test_list_dir_not_a_directory() {
     fs::create_dir_all(dir.parent().unwrap()).unwrap();
     fs::write(&dir, "not a dir").unwrap();
 
-    let tool = ListDirTool::new(None);
+    let tool = ListDirTool::new(None, None);
     let result = tool
         .execute(
             serde_json::json!({"path": dir.to_str().unwrap()}),
@@ -393,7 +465,7 @@ async fn test_write_file_creates_backup() {
     let file = dir.join("target.md");
     fs::write(&file, "before").unwrap();
 
-    let tool = WriteFileTool::new(None, Some(backup_dir.clone()));
+    let tool = WriteFileTool::new(None, Some(backup_dir.clone()), None);
     let result = tool
         .execute(
             serde_json::json!({"path": file.to_str().unwrap(), "content": "after"}),
@@ -421,7 +493,7 @@ async fn test_edit_file_creates_backup() {
     let file = dir.join("target.md");
     fs::write(&file, "hello world").unwrap();
 
-    let tool = EditFileTool::new(None, Some(backup_dir.clone()));
+    let tool = EditFileTool::new(None, Some(backup_dir.clone()), None);
     let result = tool
         .execute(
             serde_json::json!({

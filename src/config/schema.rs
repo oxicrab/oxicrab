@@ -1347,6 +1347,10 @@ pub struct McpServerConfig {
     /// (requires approval), or "community" (read-only safe tools only).
     #[serde(default = "default_mcp_trust")]
     pub trust: String,
+    /// Landlock sandbox config for the MCP server child process.
+    /// Defaults to enabled with network blocked (same as shell tool).
+    #[serde(default)]
+    pub sandbox: SandboxConfig,
 }
 
 fn default_mcp_trust() -> String {

@@ -234,3 +234,45 @@ fn test_env_override_new_vars() {
     unsafe { std::env::remove_var("OXICRAB_TODOIST_TOKEN") };
     unsafe { std::env::remove_var("OXICRAB_TRANSCRIPTION_API_KEY") };
 }
+
+#[test]
+fn test_concurrent_save_no_corruption() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    let path_clone = path.clone();
+
+    // Write initial config
+    let config = Config::default();
+    save_config(&config, Some(&path)).unwrap();
+
+    // Spawn 10 threads that all save different configs concurrently
+    let handles: Vec<_> = (0..10)
+        .map(|i| {
+            let p = path_clone.clone();
+            std::thread::spawn(move || {
+                let mut cfg = Config::default();
+                cfg.agents.defaults.max_tokens = 1000 + i;
+                save_config(&cfg, Some(&p)).unwrap();
+            })
+        })
+        .collect();
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    // File should always be valid JSON after concurrent writes
+    let content = std::fs::read_to_string(&path).unwrap();
+    let _: serde_json::Value = serde_json::from_str(&content)
+        .expect("config file should be valid JSON after concurrent saves");
+}
+
+#[test]
+fn test_lock_file_created() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    let config = Config::default();
+    save_config(&config, Some(&path)).unwrap();
+
+    let lock_path = path.with_extension("json.lock");
+    assert!(lock_path.exists(), "lock file should exist after save");
+}

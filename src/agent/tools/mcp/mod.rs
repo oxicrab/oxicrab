@@ -1,10 +1,11 @@
 pub mod proxy;
 
 use crate::agent::tools::Tool;
-use crate::config::McpConfig;
+use crate::config::{McpConfig, SandboxConfig};
 use anyhow::Result;
 use rmcp::ServiceExt;
 use rmcp::transport::TokioChildProcess;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -20,11 +21,12 @@ struct RunningMcpServer {
 /// Manages connections to MCP servers and discovers their tools.
 pub struct McpManager {
     servers: Vec<RunningMcpServer>,
+    workspace: PathBuf,
 }
 
 impl McpManager {
     /// Connect to all enabled MCP servers defined in config.
-    pub async fn new(config: &McpConfig) -> Result<Self> {
+    pub async fn new(config: &McpConfig, workspace: &Path) -> Result<Self> {
         let mut servers = Vec::new();
 
         for (name, server_cfg) in &config.servers {
@@ -39,6 +41,8 @@ impl McpManager {
                 &server_cfg.args,
                 &server_cfg.env,
                 &server_cfg.trust,
+                &server_cfg.sandbox,
+                workspace,
             )
             .await
             {
@@ -55,7 +59,10 @@ impl McpManager {
             }
         }
 
-        Ok(Self { servers })
+        Ok(Self {
+            servers,
+            workspace: workspace.to_path_buf(),
+        })
     }
 
     async fn connect_server(
@@ -64,6 +71,8 @@ impl McpManager {
         args: &[String],
         env: &std::collections::HashMap<String, String>,
         trust: &str,
+        sandbox: &SandboxConfig,
+        workspace: &Path,
     ) -> Result<RunningMcpServer> {
         let mut cmd = crate::utils::subprocess::scrubbed_command(command);
         cmd.args(args);
@@ -86,6 +95,18 @@ impl McpManager {
             }
             cmd.env(k, v);
         }
+
+        // Apply Landlock sandbox (same rules as shell tool)
+        if sandbox.enabled {
+            let rules = crate::utils::sandbox::SandboxRules::for_shell(workspace, sandbox);
+            if let Err(e) = crate::utils::sandbox::apply_to_command(&mut cmd, &rules) {
+                warn!(
+                    "failed to apply sandbox to MCP server '{}': {}, continuing without",
+                    name, e
+                );
+            }
+        }
+
         // Pipe stdin/stdout for MCP communication, inherit stderr for logging
         cmd.stdin(std::process::Stdio::piped());
         cmd.stdout(std::process::Stdio::piped());
@@ -125,6 +146,7 @@ impl McpManager {
                             mcp_tool.name.to_string(),
                             description,
                             input_schema,
+                            Some(self.workspace.clone()),
                         );
                         tools.push((server.trust_level.clone(), Arc::new(proxy)));
                         info!(

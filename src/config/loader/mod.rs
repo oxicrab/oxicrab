@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::utils::{ensure_dir, get_oxicrab_home};
 use anyhow::{Context, Result};
+use fs2::FileExt;
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,8 +18,16 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
     let path = config_path.unwrap_or(default_path.as_path());
 
     if path.exists() {
+        // Acquire shared (read) lock — allows concurrent readers, blocks during writes
+        let file = fs::File::open(path)
+            .with_context(|| format!("Failed to open config at {}", path.display()))?;
+        file.lock_shared()
+            .with_context(|| "Failed to acquire shared lock on config file")?;
+
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
+        // Lock released when `file` drops at end of scope
+
         let mut data: Value = serde_json::from_str(&content)
             .with_context(|| format!("Failed to parse config JSON from {}", path.display()))?;
 
@@ -124,6 +133,20 @@ pub fn save_config(config: &Config, config_path: Option<&Path>) -> Result<()> {
 
     ensure_dir(path.parent().context("Config path has no parent")?)?;
 
+    // Acquire exclusive lock via separate lockfile.
+    // A separate file is needed because atomic_write() uses rename(), which
+    // invalidates flock on the original inode. The .lock file survives renames.
+    let lock_path = path.with_extension("json.lock");
+    let lock_file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&lock_path)
+        .with_context(|| format!("Failed to create lock file at {}", lock_path.display()))?;
+    lock_file
+        .lock_exclusive()
+        .with_context(|| "Failed to acquire exclusive lock on config lock file")?;
+
     // serde `rename` attributes already produce camelCase keys during
     // serialization, so no post-processing is needed. A prior convert_to_camel
     // pass was removed because it corrupted HashMap keys (MCP server names,
@@ -141,6 +164,7 @@ pub fn save_config(config: &Config, config_path: Option<&Path>) -> Result<()> {
         let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
     }
 
+    // Lock released when lock_file drops
     Ok(())
 }
 
