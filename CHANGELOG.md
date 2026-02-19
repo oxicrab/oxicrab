@@ -1,10 +1,26 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
-## [0.11.0] - 2026-02-19
+## [0.11.1] - 2026-02-19
+
+### Bug Fixes
+
+- 58 bug fixes from deep codebase review by @jamtur01 ([4cdf9e5](https://github.com/oxicrab/oxicrab/commit/4cdf9e59e3a1429308ef8af6f70b5b86ce6a38f7))
+
+### Features
+
+- shell AST analysis and Landlock filesystem sandbox by @jamtur01 ([5293bd1](https://github.com/oxicrab/oxicrab/commit/5293bd166d02c1eb8bca5d5b621c4656a24fb336))
 
 ### Miscellaneous
 
+- Task #35: fs2 shared locks on reads by @jamtur01 ([c718e00](https://github.com/oxicrab/oxicrab/commit/c718e0026399f58c43dc55615662cf9da77fd695))
+- Task #31: Memory store daily notes fs2 locking (HIGH) by @jamtur01 ([e306d79](https://github.com/oxicrab/oxicrab/commit/e306d792e4bebef04d0c1decb8b2f9e70ce6c5e3))
+- Task #26: Session manager fs2 locking (CRITICAL) by @jamtur01 ([5cd74f8](https://github.com/oxicrab/oxicrab/commit/5cd74f84868e9aca5a989b7cd02f46b4e6817565))
+- Task #20: Sanitize agent loop and subagent tool execution errors by @jamtur01 ([0c630e4](https://github.com/oxicrab/oxicrab/commit/0c630e47cddb4fb10cdb9725b7876f742b90177d))
+- Part 1: MCP Server Sandboxing by @jamtur01 ([0ee9d10](https://github.com/oxicrab/oxicrab/commit/0ee9d10fdba6748040e166fa980d7c177607bc9d))
+- More docs updates for new config by @jamtur01 ([e242872](https://github.com/oxicrab/oxicrab/commit/e24287238a53e641d76437f17fe25a29d613f679))
+- 1. Cache middleware fix — after_execute() now receives &dyn Tool and by @jamtur01 ([f0184cb](https://github.com/oxicrab/oxicrab/commit/f0184cb2660851ea34f586ae8a04746ee932b002))
+- #: 1 by @jamtur01 ([6e4d940](https://github.com/oxicrab/oxicrab/commit/6e4d9402e67fd59ef18f35471d27e2cd595e4c80))
 - Finding: Subagent middleware bypass by @jamtur01 ([a4d6fe9](https://github.com/oxicrab/oxicrab/commit/a4d6fe997ecfc553bf129fcbed5e27a440c374e6))
 - So many bug fixes by @jamtur01 ([91d6bfa](https://github.com/oxicrab/oxicrab/commit/91d6bfadcec44cd86501605c2ac3f564f726aaca))
 - Fixed some bugs by @jamtur01 ([2c46a5f](https://github.com/oxicrab/oxicrab/commit/2c46a5fdcdf5f6300efd546009e2453aa66c44cc))
