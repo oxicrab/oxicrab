@@ -11,9 +11,12 @@ const MAX_READ_BYTES: u64 = 10 * 1024 * 1024;
 
 fn check_path_allowed(file_path: &Path, allowed_roots: Option<&Vec<PathBuf>>) -> Result<()> {
     if let Some(roots) = allowed_roots {
+        // Use canonicalize if the path exists (resolves symlinks).
+        // For non-existent paths (e.g. write to new file), use lexical
+        // normalization to prevent `..` traversal attacks.
         let resolved = file_path
             .canonicalize()
-            .map_err(|_| anyhow::anyhow!("Error: Cannot resolve path '{}'", file_path.display()))?;
+            .unwrap_or_else(|_| crate::agent::tools::shell::lexical_normalize(file_path));
         for root in roots {
             if let Ok(root_resolved) = root.canonicalize()
                 && (resolved == root_resolved || resolved.starts_with(&root_resolved))

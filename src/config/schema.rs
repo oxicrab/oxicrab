@@ -1476,6 +1476,11 @@ impl Config {
         }
 
         // Validate memory config
+        if !(0.0..=1.0).contains(&self.agents.defaults.memory.hybrid_weight) {
+            return Err(OxicrabError::Config(
+                "agents.defaults.memory.hybridWeight must be between 0.0 and 1.0".into(),
+            ));
+        }
         if self.agents.defaults.memory.archive_after_days > 0
             && self.agents.defaults.memory.purge_after_days > 0
             && self.agents.defaults.memory.purge_after_days
@@ -1529,6 +1534,11 @@ impl Config {
         if self.tools.exec.timeout > 3600 {
             warn!("tools.exec.timeout is very long (> 3600s), this may cause timeouts");
         }
+        if self.tools.browser.timeout == 0 {
+            return Err(OxicrabError::Config(
+                "tools.browser.timeout must be > 0".into(),
+            ));
+        }
 
         // Validate obsidian config
         if self.tools.obsidian.enabled {
@@ -1569,6 +1579,13 @@ impl Config {
             if self.channels.twilio.webhook_port == 0 {
                 return Err(OxicrabError::Config(
                     "channels.twilio.webhookPort must be > 0 when twilio is enabled".into(),
+                ));
+            }
+            if self.channels.twilio.webhook_path.is_empty()
+                || !self.channels.twilio.webhook_path.starts_with('/')
+            {
+                return Err(OxicrabError::Config(
+                    "channels.twilio.webhookPath must start with '/' when twilio is enabled".into(),
                 ));
             }
         }

@@ -4,7 +4,6 @@ use crate::agent::tools::{
     shell::ExecTool,
     web::{WebFetchTool, WebSearchTool},
 };
-use crate::agent::truncation::truncate_tool_result;
 use crate::bus::{InboundMessage, MessageBus};
 use crate::providers::base::{LLMProvider, Message};
 use anyhow::Result;
@@ -14,10 +13,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-const MAX_TOOL_RESULT_CHARS: usize = 10000;
 const EMPTY_RESPONSE_RETRIES: usize = 2;
 const MAX_WEB_FETCH_CHARS: usize = 50000;
 const MAX_SUBAGENT_ITERATIONS: usize = 15;
@@ -313,38 +311,21 @@ async fn run_subagent_inner(
                 })
                 .collect();
 
-            let results = if tool_lookups.len() == 1 {
-                // Single tool fast-path
-                let (ref tc, ref tool_opt) = tool_lookups[0];
-                vec![
-                    execute_subagent_tool(task_id, &tc.name, &tc.arguments, tool_opt.clone()).await,
-                ]
-            } else {
-                // Parallel execution
-                let handles: Vec<_> = tool_lookups
-                    .iter()
-                    .map(|(tc, tool_opt)| {
-                        let task_id = task_id.to_string();
-                        let tc_name = tc.name.clone();
-                        let tc_args = tc.arguments.clone();
-                        let tool_opt = tool_opt.clone();
-                        tokio::task::spawn(async move {
-                            execute_subagent_tool(&task_id, &tc_name, &tc_args, tool_opt).await
-                        })
-                    })
-                    .collect();
-                futures_util::future::join_all(handles)
-                    .await
-                    .into_iter()
-                    .map(|join_result| match join_result {
-                        Ok(result) => result,
-                        Err(join_err) => {
-                            error!("Subagent tool task panicked: {:?}", join_err);
-                            ("Tool crashed unexpectedly".to_string(), true)
-                        }
-                    })
-                    .collect()
-            };
+            // Execute tools through the registry middleware pipeline (timeout,
+            // panic isolation, truncation, caching, logging).
+            let mut results = Vec::with_capacity(tool_lookups.len());
+            for (tc, tool_opt) in &tool_lookups {
+                results.push(
+                    execute_subagent_tool(
+                        task_id,
+                        &tc.name,
+                        &tc.arguments,
+                        &tools,
+                        tool_opt.clone(),
+                    )
+                    .await,
+                );
+            }
 
             // Add all tool results to messages in order
             for ((tc, _), (result_str, is_error)) in tool_lookups.iter().zip(results.into_iter()) {
@@ -375,11 +356,13 @@ async fn run_subagent_inner(
     Ok("Task completed but no final response was generated.".to_string())
 }
 
-/// Execute a single tool call for a subagent, with validation and panic isolation.
+/// Execute a single tool call for a subagent, routed through the `ToolRegistry`
+/// middleware pipeline (caching, timeout, panic isolation, truncation, logging).
 async fn execute_subagent_tool(
     task_id: &str,
     tool_name: &str,
     tool_args: &Value,
+    registry: &ToolRegistry,
     tool_opt: Option<Arc<dyn crate::agent::tools::base::Tool>>,
 ) -> (String, bool) {
     if let Some(tool) = tool_opt {
@@ -399,15 +382,9 @@ async fn execute_subagent_tool(
             task_id, tool_name, tool_args
         );
 
-        // TODO: Route through ToolRegistry::execute() to get middleware pipeline
-        // (caching, timeout, panic isolation, logging). Currently subagents call
-        // tools directly, bypassing middleware.
         let ctx = crate::agent::tools::base::ExecutionContext::default();
-        match tool.execute(tool_args.clone(), &ctx).await {
-            Ok(result) => (
-                truncate_tool_result(&result.content, MAX_TOOL_RESULT_CHARS),
-                result.is_error,
-            ),
+        match registry.execute(tool_name, tool_args.clone(), &ctx).await {
+            Ok(result) => (result.content, result.is_error),
             Err(e) => {
                 warn!("Subagent [{}] tool '{}' failed: {}", task_id, tool_name, e);
                 (format!("Tool execution failed: {}", e), true)

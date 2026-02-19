@@ -27,15 +27,24 @@ fn test_check_path_allowed_outside_root() {
 }
 
 #[test]
-fn test_check_path_allowed_nonexistent_path() {
+fn test_check_path_allowed_nonexistent_inside_root() {
+    // Non-existent paths inside an allowed root should be allowed (for write operations)
     let roots = Some(vec![std::env::temp_dir()]);
     let result = check_path_allowed(Path::new("/tmp/does_not_exist_12345"), roots.as_ref());
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_check_path_allowed_nonexistent_traversal_blocked() {
+    // Non-existent paths that use `..` to escape the root must be rejected
+    let roots = Some(vec![std::env::temp_dir()]);
+    let result = check_path_allowed(Path::new("/tmp/../etc/passwd"), roots.as_ref());
     assert!(result.is_err());
     assert!(
         result
             .unwrap_err()
             .to_string()
-            .contains("Cannot resolve path")
+            .contains("outside the allowed directories")
     );
 }
 

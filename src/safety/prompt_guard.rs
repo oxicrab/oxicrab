@@ -50,17 +50,17 @@ impl PromptGuard {
             (
                 InjectionCategory::RoleSwitch,
                 "ignore_previous",
-                r"(?i)\b(?:ignore|disregard|forget)\b.{0,20}\b(?:previous|above|prior|all)\b.{0,20}\b(?:instructions?|prompts?|rules?|guidelines?)\b",
+                r"(?i)\b(?:ignore|disregard|forget)\b.{0,50}\b(?:previous|above|prior|all)\b.{0,50}\b(?:instructions?|prompts?|rules?|guidelines?)\b",
             ),
             (
                 InjectionCategory::RoleSwitch,
                 "you_are_now",
-                r"(?i)\byou are now\b.{0,40}\b(?:acting as|pretending|roleplaying|playing|a new)\b",
+                r"(?i)\byou are now\b.{0,50}\b(?:acting as|pretending|roleplaying|playing|a new)\b",
             ),
             (
                 InjectionCategory::RoleSwitch,
                 "new_persona",
-                r"(?i)\b(?:from now on|henceforth)\b.{0,30}\b(?:you are|act as|behave as|respond as)\b",
+                r"(?i)\b(?:from now on|henceforth)\b.{0,50}\b(?:you are|act as|behave as|respond as)\b",
             ),
             // Instruction override
             (
@@ -71,18 +71,18 @@ impl PromptGuard {
             (
                 InjectionCategory::InstructionOverride,
                 "override_system",
-                r"(?i)\b(?:override|replace|overwrite)\b.{0,20}\b(?:system|original|initial)\b.{0,20}\b(?:prompt|instructions?|rules?)\b",
+                r"(?i)\b(?:override|replace|overwrite)\b.{0,50}\b(?:system|original|initial)\b.{0,50}\b(?:prompt|instructions?|rules?)\b",
             ),
             // Secret extraction
             (
                 InjectionCategory::SecretExtraction,
                 "reveal_prompt",
-                r"(?i)\b(?:repeat|show|display|output|print|reveal|tell me)\b.{0,30}\b(?:system prompt|instructions?|initial prompt|rules|guidelines)\b",
+                r"(?i)\b(?:repeat|show|display|output|print|reveal|tell me)\b.{0,50}\b(?:system prompt|instructions?|initial prompt|rules|guidelines)\b",
             ),
             (
                 InjectionCategory::SecretExtraction,
                 "what_are_your",
-                r"(?i)\bwhat (?:are|is|were) your\b.{0,20}\b(?:instructions?|rules?|system prompt|guidelines)\b",
+                r"(?i)\bwhat (?:are|is|were) your\b.{0,50}\b(?:instructions?|rules?|system prompt|guidelines)\b",
             ),
             // Jailbreak patterns
             (
@@ -120,8 +120,9 @@ impl PromptGuard {
         Self { patterns }
     }
 
-    /// Strip zero-width and invisible Unicode characters that attackers use
-    /// to evade regex-based detection (e.g. "ig\u{200B}nore" → "ignore").
+    /// Strip zero-width, invisible, and combining Unicode characters that attackers
+    /// use to evade regex-based detection (e.g. "ig\u{200B}nore" → "ignore").
+    /// Also strips RTL/LTR overrides, combining diacriticals, and variation selectors.
     fn normalize(text: &str) -> String {
         text.chars()
             .filter(|c| {
@@ -141,6 +142,10 @@ impl PromptGuard {
                     | '\u{2063}' // invisible separator
                     | '\u{2064}' // invisible plus
                     | '\u{FE00}'..='\u{FE0F}' // variation selectors
+                    | '\u{0300}'..='\u{036F}' // combining diacritical marks
+                    | '\u{202A}'..='\u{202E}' // bidi control (LRE, RLE, PDF, LRO, RLO)
+                    | '\u{2066}'..='\u{2069}' // bidi isolates (LRI, RLI, FSI, PDI)
+                    | '\u{E0100}'..='\u{E01EF}' // variation selectors supplement
                 )
             })
             .collect()

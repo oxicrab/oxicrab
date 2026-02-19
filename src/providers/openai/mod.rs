@@ -8,7 +8,7 @@ use reqwest::Client;
 use serde_json::{Value, json};
 use std::sync::Mutex;
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 const API_URL: &str = "https://api.openai.com/v1/chat/completions";
 const CONNECT_TIMEOUT_SECS: u64 = 30;
@@ -119,7 +119,18 @@ impl OpenAIProvider {
                 if let Some(function) = tc["function"].as_object() {
                     let arguments = function["arguments"]
                         .as_str()
-                        .and_then(|s| serde_json::from_str(s).ok())
+                        .and_then(|s| {
+                            serde_json::from_str(s)
+                                .map_err(|e| {
+                                    warn!(
+                                        "failed to parse tool call arguments for '{}': {}",
+                                        function["name"].as_str().unwrap_or("unknown"),
+                                        e
+                                    );
+                                    e
+                                })
+                                .ok()
+                        })
                         .unwrap_or_else(|| json!({}));
 
                     tool_calls.push(ToolCallRequest {

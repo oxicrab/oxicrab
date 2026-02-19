@@ -182,7 +182,7 @@ impl ExecTool {
 /// Resolves `.` and `..` components so that `/workspace/../etc/passwd`
 /// correctly normalizes to `/etc/passwd` rather than passing through
 /// as if it starts with `/workspace`.
-fn lexical_normalize(path: &Path) -> PathBuf {
+pub(crate) fn lexical_normalize(path: &Path) -> PathBuf {
     let mut components = Vec::new();
     for component in path.components() {
         match component {

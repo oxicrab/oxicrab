@@ -597,11 +597,10 @@ pub async fn doctor_command() -> Result<()> {
         println!("\n  All checks passed!");
     }
 
-    // Return error if any critical checks failed
-    let critical_fail = {
-        let config_exists = check_config_exists();
-        config_exists.is_fail()
-    };
+    // Return error if any critical checks failed (config must exist, parse, and validate)
+    let critical_fail = check_config_exists().is_fail()
+        || check_config_parses().is_fail()
+        || check_config_validates().is_fail();
     if critical_fail {
         anyhow::bail!("critical checks failed");
     }

@@ -1,5 +1,5 @@
 // Shared test helpers — not all items used by every test binary.
-#![allow(dead_code)]
+#![allow(unused)]
 
 use async_trait::async_trait;
 use oxicrab::agent::{AgentLoop, AgentLoopConfig};

@@ -816,7 +816,12 @@ impl Tool for GitHubTool {
                         self.get_workflow_runs(owner, repo, params["workflow_id"].as_str())
                             .await
                     }
-                    _ => unreachable!(),
+                    other => {
+                        return Ok(ToolResult::error(format!(
+                            "unknown repo action: '{}'",
+                            other
+                        )));
+                    }
                 };
 
                 match result {

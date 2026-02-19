@@ -1,7 +1,9 @@
 use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult};
+use crate::utils::regex::compile_security_patterns;
 use anyhow::Result;
 use async_trait::async_trait;
+use regex::Regex;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -9,12 +11,16 @@ use tracing::debug;
 
 const SOCKET_DIR: &str = "oxicrab-tmux-sockets";
 const SOCKET_NAME: &str = "oxicrab.sock";
+/// Maximum combined output size before truncation (1 MB).
+const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 
 fn get_socket_path() -> PathBuf {
     std::env::temp_dir().join(SOCKET_DIR).join(SOCKET_NAME)
 }
 
-pub struct TmuxTool;
+pub struct TmuxTool {
+    deny_patterns: Vec<Regex>,
+}
 
 impl Default for TmuxTool {
     fn default() -> Self {
@@ -24,7 +30,8 @@ impl Default for TmuxTool {
 
 impl TmuxTool {
     pub fn new() -> Self {
-        Self
+        let deny_patterns = compile_security_patterns().unwrap_or_default();
+        Self { deny_patterns }
     }
 
     async fn run_tmux(&self, args: &[&str]) -> Result<(i32, String, String)> {
@@ -150,16 +157,9 @@ impl Tool for TmuxTool {
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter for send"))?;
 
-                // Basic security check: block dangerous patterns in tmux send
-                let dangerous_patterns = [
-                    "rm -rf /",
-                    "mkfs.",
-                    "dd if=/dev/zero",
-                    "> /dev/sd",
-                    ":(){ :|:& };:",
-                ];
-                for pattern in &dangerous_patterns {
-                    if command.contains(pattern) {
+                // Security check: use the same regex blocklist as the exec/shell tool
+                for pattern in &self.deny_patterns {
+                    if pattern.is_match(command) {
                         return Ok(ToolResult::error(format!(
                             "Error: command blocked by security policy: {}",
                             command
@@ -208,10 +208,16 @@ impl Tool for TmuxTool {
                     )));
                 }
                 let output = stdout.trim();
+                let output = if output.len() > MAX_OUTPUT_BYTES {
+                    let truncated = &output[..output.floor_char_boundary(MAX_OUTPUT_BYTES)];
+                    format!("{}\n[output truncated at 1MB]", truncated)
+                } else {
+                    output.to_string()
+                };
                 Ok(ToolResult::new(if output.is_empty() {
                     "(no output)".to_string()
                 } else {
-                    output.to_string()
+                    output
                 }))
             }
             "list" => {

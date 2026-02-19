@@ -14,6 +14,8 @@ use tracing::{error, info, warn};
 const POLL_WHEN_EMPTY_SEC: u64 = 30;
 const MIN_SLEEP_MS: i64 = 1000;
 const MAX_SLEEP_MS: u64 = 30000;
+/// Disabled jobs are pruned after this many days to prevent unbounded store growth.
+const PRUNE_DISABLED_AFTER_DAYS: i64 = 30;
 
 /// Normalize a cron expression to 6+ fields (prepend "0 " for seconds if 5-field).
 /// Then validate it parses. Returns Ok(normalized) or Err with a message.
@@ -311,6 +313,21 @@ impl CronService {
                         }
                     }
                 }
+                // Prune disabled jobs that haven't been updated in PRUNE_DISABLED_AFTER_DAYS
+                let prune_cutoff_ms = now - PRUNE_DISABLED_AFTER_DAYS * 24 * 60 * 60 * 1000;
+                let before_len = store.jobs.len();
+                store
+                    .jobs
+                    .retain(|j| j.enabled || j.updated_at_ms > prune_cutoff_ms);
+                let pruned = before_len - store.jobs.len();
+                if pruned > 0 {
+                    info!(
+                        "Pruned {} disabled cron jobs older than {} days",
+                        pruned, PRUNE_DISABLED_AFTER_DAYS
+                    );
+                    store_dirty = true;
+                }
+
                 drop(store_guard);
 
                 first_tick = false;

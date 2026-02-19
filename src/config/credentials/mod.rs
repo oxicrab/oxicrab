@@ -147,8 +147,13 @@ fn fetch_from_helper(helper: &CredentialHelperConfig, key: &str) -> Result<Strin
             args.push(key.to_string());
             run_helper_process(&helper.command, &args, None)
         }
-        // "json" or any unrecognized format
-        _ => {
+        other => {
+            if other != "json" {
+                tracing::warn!(
+                    "unrecognized credential helper format '{}', treating as json",
+                    other
+                );
+            }
             let stdin_data = serde_json::json!({"action": "get", "key": key}).to_string();
             let output = run_helper_process(&helper.command, &helper.args, Some(&stdin_data))?;
             let parsed: serde_json::Value =

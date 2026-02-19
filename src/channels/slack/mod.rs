@@ -15,6 +15,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
+const MAX_USER_CACHE: usize = 1000;
+
 pub struct SlackChannel {
     config: SlackConfig,
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
@@ -612,11 +614,14 @@ async fn download_slack_file(
             ));
         }
 
-        let resp = no_redirect_client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", bot_token))
-            .send()
-            .await?;
+        // Always send auth on the first hop (initial URL from Slack API).
+        // On redirect hops, only send auth to Slack-owned domains to prevent
+        // token leakage to third-party CDNs.
+        let mut req = no_redirect_client.get(&url);
+        if hop == 0 || url.contains("slack.com") || url.contains("slack-edge.com") {
+            req = req.header("Authorization", format!("Bearer {}", bot_token));
+        }
+        let resp = req.send().await?;
 
         let status = resp.status();
         let content_type = resp
@@ -814,10 +819,19 @@ async fn handle_slack_event(
         {
             enriched = format!("{}|{}", user_id, name);
         }
-        user_cache
-            .lock()
-            .await
-            .insert(user_id.to_string(), enriched.clone());
+        {
+            let mut cache = user_cache.lock().await;
+            // Evict oldest entries when cache grows too large
+            if cache.len() >= MAX_USER_CACHE {
+                // Remove ~10% of entries to amortize eviction cost
+                let to_remove: Vec<String> =
+                    cache.keys().take(MAX_USER_CACHE / 10).cloned().collect();
+                for key in to_remove {
+                    cache.remove(&key);
+                }
+            }
+            cache.insert(user_id.to_string(), enriched.clone());
+        }
         enriched
     };
 

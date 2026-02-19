@@ -268,7 +268,12 @@ impl Tool for ImageGenTool {
                 let aspect_ratio = params["aspect_ratio"].as_str().unwrap_or("1:1");
                 self.generate_google(prompt, aspect_ratio).await
             }
-            _ => unreachable!(),
+            other => {
+                return Ok(ToolResult::error(format!(
+                    "unsupported image provider: '{}'",
+                    other
+                )));
+            }
         };
 
         match result {

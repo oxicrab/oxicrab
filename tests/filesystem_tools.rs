@@ -219,6 +219,12 @@ async fn test_write_file_outside_workspace_blocked() {
             || tool_msg.content.contains("Error")
             || tool_msg.content.contains("Cannot resolve")
     );
+
+    // Verify file was NOT actually written
+    assert!(
+        !std::path::Path::new("/tmp/oxicrab_test_escape.txt").exists(),
+        "file should not have been created outside workspace"
+    );
 }
 
 #[tokio::test]

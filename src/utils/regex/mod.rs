@@ -182,15 +182,15 @@ pub fn compile_security_patterns() -> Result<Vec<Regex>> {
                 r"\bdd\s+if=",
                 r">\s*/dev/sd",
                 r"\b(shutdown|reboot|poweroff)\b",
-                r":\(\)\s*\{.*\};\s*:",
+                r":\(\)\s*\{.{0,100}\};\s*:",
                 r"\beval\b",
                 r"\bbase64\b.*\|\s*(sh|bash|zsh)\b",
                 r"\b(curl|wget)\b.*\|\s*(sh|bash|zsh|python)\b",
                 // Curl/wget file upload exfiltration (-d @file, -F, --data, --post-file)
                 r"\b(curl|wget)\b.*(-d\s*@|--data(-binary|-raw|-urlencode)?\s*@|-F\s|--form\s|--post-file)",
                 r"\bpython[23]?\s+-c\b",
-                // Perl/Ruby inline code execution
-                r"\b(perl|ruby)\b\s+-[Ee]",
+                // Perl/Ruby inline code execution (-e/-E execute, perl -x extracts script)
+                r"\b(perl|ruby)\b\s+-[EeXx]",
                 r"\bchmod\b.*\bo?[0-7]*7[0-7]{0,2}\b",
                 r"\bchown\b",
                 r"\b(useradd|userdel|usermod|passwd|adduser|deluser)\b",
@@ -200,8 +200,8 @@ pub fn compile_security_patterns() -> Result<Vec<Regex>> {
                 r"\$\{[^}]+\}", // ${VAR} variable expansion
                 // Input redirection from absolute or home path
                 r"<\s*/|<\s*~",
-                // Bare $VAR expansion (uppercase env vars)
-                r"\$[A-Z_][A-Z0-9_]*",
+                // Bare $VAR expansion (env vars, any case)
+                r"\$[A-Za-z_][A-Za-z0-9_]*",
                 // Netcat listeners/pipes
                 r"\b(nc|ncat|netcat)\b.*-[elp]",
                 // Hex decode piped to shell

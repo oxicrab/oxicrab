@@ -173,12 +173,13 @@ impl Tool for ObsidianTool {
                 let Some(content) = params["content"].as_str() else {
                     return Ok(ToolResult::error("'content' is required for write"));
                 };
-                let content = if self.cache.read_cached(path).is_none() {
-                    let fm = generate_frontmatter(params.get("frontmatter"));
-                    format!("{}\n{}", fm, content)
-                } else {
-                    content.to_string()
-                };
+                let content =
+                    if self.cache.read_cached(path).is_none() && !content.starts_with("---") {
+                        let fm = generate_frontmatter(params.get("frontmatter"));
+                        format!("{}\n{}", fm, content)
+                    } else {
+                        content.to_string()
+                    };
                 match self.cache.write_file(path, &content).await {
                     Ok(msg) => Ok(ToolResult::new(msg)),
                     Err(e) => Ok(ToolResult::error(format!("Write failed: {}", e))),

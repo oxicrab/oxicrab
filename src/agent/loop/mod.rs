@@ -995,7 +995,6 @@ impl AgentLoop {
         }
 
         // Send typing indicator before processing
-        // Send typing indicator before processing
         if let Some(ref tx) = self.typing_tx {
             let _ = tx.send((msg.channel.clone(), msg.chat_id.clone())).await;
         }
@@ -1294,6 +1293,8 @@ impl AgentLoop {
         }
 
         let wrapup_threshold = (effective_max_iterations as f64 * 0.7).ceil() as usize;
+        // Ensure wrapup doesn't fire on the very first iteration
+        let wrapup_threshold = wrapup_threshold.max(2);
 
         for iteration in 1..=effective_max_iterations {
             // Inject wrap-up hint when approaching iteration limit

@@ -68,7 +68,7 @@ impl TodoistTool {
                 anyhow::anyhow!(
                     "Invalid JSON from Todoist: {} (body: {})",
                     e,
-                    &text[..text.len().min(200)]
+                    &text[..text.floor_char_boundary(200)]
                 )
             })?;
 

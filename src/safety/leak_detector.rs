@@ -43,8 +43,14 @@ impl LeakDetector {
         let patterns = vec![
             // Anthropic API keys
             ("anthropic_api_key", r"sk-ant-api[0-9a-zA-Z\-_]{20,200}"),
-            // OpenAI API keys
-            ("openai_api_key", r"sk-[a-zA-Z0-9]{20,200}"),
+            // OpenAI API keys: project (sk-proj-...), org (sk-org-...),
+            // service account (sk-svcacct-...), and legacy (sk-[20+ alphanum]).
+            // Legacy pattern excludes sk-ant- (Anthropic, caught separately)
+            // by requiring a non-'a' first char, or 'a' followed by non-'n'.
+            (
+                "openai_api_key",
+                r"sk-(?:proj|org|svcacct)-[a-zA-Z0-9\-_]{20,200}|sk-(?:[b-zB-Z0-9]|a[^n]|an[^t])[a-zA-Z0-9]{17,197}",
+            ),
             // Slack bot tokens
             ("slack_bot_token", r"xoxb-[0-9]+-[0-9]+-[a-zA-Z0-9]+"),
             // Slack app tokens

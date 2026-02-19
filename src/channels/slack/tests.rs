@@ -205,9 +205,12 @@ async fn test_download_slack_file_follows_multiple_redirects() {
 
 #[tokio::test]
 async fn test_download_slack_file_redirect_preserves_auth_on_each_hop() {
+    // Auth is always sent on the first hop (initial URL from Slack API).
+    // On redirect hops, auth is only sent to Slack-owned domains; since
+    // wiremock uses 127.0.0.1, the redirected hop should NOT receive auth.
     let server = MockServer::start().await;
 
-    // Both hops require the correct auth header
+    // First hop: requires auth (initial URL)
     Mock::given(method("GET"))
         .and(path("/hop0"))
         .and(header("Authorization", "Bearer xoxb-hop-test"))
@@ -218,9 +221,9 @@ async fn test_download_slack_file_redirect_preserves_auth_on_each_hop() {
         .mount(&server)
         .await;
 
+    // Second hop: no auth required (non-Slack redirect target)
     Mock::given(method("GET"))
         .and(path("/hop1"))
-        .and(header("Authorization", "Bearer xoxb-hop-test"))
         .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![0x89, 0x50, 0x4E, 0x47]))
         .expect(1)
         .mount(&server)
