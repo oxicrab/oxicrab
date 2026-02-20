@@ -158,6 +158,30 @@ impl MessageCompactor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn estimate_tokens_never_panics(s in "\\PC*") {
+            let _ = estimate_tokens(&s);
+        }
+
+        #[test]
+        fn estimate_tokens_proportional_to_length(s in ".{0,1000}") {
+            let tokens = estimate_tokens(&s);
+            let char_count = s.chars().count();
+            assert_eq!(tokens, char_count / CHARS_PER_TOKEN_ESTIMATE);
+        }
+
+        #[test]
+        fn estimate_tokens_empty_is_zero(s in "\\s{0,10}") {
+            let tokens = estimate_tokens(&s);
+            // Whitespace-only strings up to 3 chars should give 0 tokens
+            if s.chars().count() < CHARS_PER_TOKEN_ESTIMATE {
+                assert_eq!(tokens, 0);
+            }
+        }
+    }
 
     #[test]
     fn estimate_tokens_empty() {

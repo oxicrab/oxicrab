@@ -1,4 +1,25 @@
 use super::*;
+use proptest::prelude::*;
+
+proptest! {
+    #[test]
+    fn safe_filename_never_panics(s in "\\PC*") {
+        let _ = safe_filename(&s);
+    }
+
+    #[test]
+    fn safe_filename_no_path_separators(s in "\\PC{0,200}") {
+        let result = safe_filename(&s);
+        assert!(!result.contains('/'), "output should not contain /");
+        assert!(!result.contains('\\'), "output should not contain \\");
+    }
+
+    #[test]
+    fn safe_filename_no_nul_bytes(s in "\\PC{0,200}") {
+        let result = safe_filename(&s);
+        assert!(!result.contains('\0'), "output should not contain NUL");
+    }
+}
 
 #[test]
 fn safe_filename_replaces_dangerous_chars() {

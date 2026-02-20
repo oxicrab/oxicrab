@@ -342,6 +342,7 @@ impl Tool for GoogleMailTool {
     }
 }
 
+/// Extract the human-readable body from a Gmail message payload.
 fn extract_body(payload: &Value) -> String {
     extract_body_inner(payload, 0)
 }
@@ -389,4 +390,106 @@ fn extract_body_inner(payload: &Value, depth: u32) -> String {
     }
 
     "(no readable body)".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::Engine;
+    use serde_json::json;
+
+    fn encode(text: &str) -> String {
+        URL_SAFE_NO_PAD.encode(text.as_bytes())
+    }
+
+    #[test]
+    fn test_extract_body_plain_text() {
+        let payload = json!({
+            "mimeType": "text/plain",
+            "body": {"data": encode("Hello world")}
+        });
+        assert_eq!(extract_body(&payload), "Hello world");
+    }
+
+    #[test]
+    fn test_extract_body_multipart_prefers_plain() {
+        let payload = json!({
+            "mimeType": "multipart/alternative",
+            "parts": [
+                {"mimeType": "text/plain", "body": {"data": encode("plain version")}},
+                {"mimeType": "text/html", "body": {"data": encode("<b>html version</b>")}}
+            ]
+        });
+        assert_eq!(extract_body(&payload), "plain version");
+    }
+
+    #[test]
+    fn test_extract_body_multipart_falls_back_to_html() {
+        let payload = json!({
+            "mimeType": "multipart/alternative",
+            "parts": [
+                {"mimeType": "text/html", "body": {"data": encode("<p>Hello</p>")}}
+            ]
+        });
+        let result = extract_body(&payload);
+        // HTML tags should be stripped
+        assert!(result.contains("Hello"));
+        assert!(!result.contains("<p>"));
+    }
+
+    #[test]
+    fn test_extract_body_nested_multipart() {
+        let payload = json!({
+            "mimeType": "multipart/mixed",
+            "parts": [
+                {
+                    "mimeType": "multipart/alternative",
+                    "parts": [
+                        {"mimeType": "text/plain", "body": {"data": encode("nested plain")}}
+                    ]
+                }
+            ]
+        });
+        assert_eq!(extract_body(&payload), "nested plain");
+    }
+
+    #[test]
+    fn test_extract_body_no_readable_body() {
+        let payload = json!({
+            "mimeType": "multipart/mixed",
+            "parts": [
+                {"mimeType": "application/pdf", "body": {"data": encode("binary")}}
+            ]
+        });
+        assert_eq!(extract_body(&payload), "(no readable body)");
+    }
+
+    #[test]
+    fn test_extract_body_depth_limit() {
+        // Build deeply nested payload (depth > 10)
+        let mut payload = json!({"mimeType": "text/plain", "body": {"data": encode("deep")}});
+        for _ in 0..12 {
+            payload = json!({
+                "mimeType": "multipart/mixed",
+                "parts": [payload]
+            });
+        }
+        assert_eq!(extract_body(&payload), "(nested too deep)");
+    }
+
+    #[test]
+    fn test_extract_body_empty_payload() {
+        let payload = json!({});
+        assert_eq!(extract_body(&payload), "(no readable body)");
+    }
+
+    #[test]
+    fn test_extract_body_invalid_base64() {
+        let payload = json!({
+            "mimeType": "text/plain",
+            "body": {"data": "!!!invalid-base64!!!"}
+        });
+        // Should not crash, falls through to no readable body
+        assert_eq!(extract_body(&payload), "(no readable body)");
+    }
 }

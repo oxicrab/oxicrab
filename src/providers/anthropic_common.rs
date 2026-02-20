@@ -366,4 +366,177 @@ mod tests {
         assert_eq!(content[1]["type"], "text");
         assert_eq!(content[1]["text"], "follow up");
     }
+
+    // --- parse_response tests ---
+
+    #[test]
+    fn test_parse_response_text_only() {
+        let json = json!({
+            "content": [{"type": "text", "text": "Hello world"}],
+            "usage": {"input_tokens": 10, "output_tokens": 5}
+        });
+        let resp = parse_response(&json);
+        assert_eq!(resp.content.as_deref(), Some("Hello world"));
+        assert!(resp.tool_calls.is_empty());
+        assert_eq!(resp.input_tokens, Some(10));
+        assert_eq!(resp.output_tokens, Some(5));
+        assert!(resp.reasoning_content.is_none());
+    }
+
+    #[test]
+    fn test_parse_response_tool_use() {
+        let json = json!({
+            "content": [
+                {"type": "tool_use", "id": "tc_1", "name": "read_file", "input": {"path": "/tmp/test.txt"}}
+            ]
+        });
+        let resp = parse_response(&json);
+        assert!(resp.content.is_none());
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].id, "tc_1");
+        assert_eq!(resp.tool_calls[0].name, "read_file");
+        assert_eq!(resp.tool_calls[0].arguments["path"], "/tmp/test.txt");
+    }
+
+    #[test]
+    fn test_parse_response_text_and_tool_use() {
+        let json = json!({
+            "content": [
+                {"type": "text", "text": "Let me read that file."},
+                {"type": "tool_use", "id": "tc_2", "name": "exec", "input": {"cmd": "ls"}}
+            ]
+        });
+        let resp = parse_response(&json);
+        assert_eq!(resp.content.as_deref(), Some("Let me read that file."));
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].name, "exec");
+    }
+
+    #[test]
+    fn test_parse_response_thinking_block() {
+        let json = json!({
+            "content": [
+                {"type": "thinking", "text": "Let me think about this..."},
+                {"type": "text", "text": "The answer is 42."}
+            ]
+        });
+        let resp = parse_response(&json);
+        assert_eq!(resp.content.as_deref(), Some("The answer is 42."));
+        assert_eq!(
+            resp.reasoning_content.as_deref(),
+            Some("Let me think about this...")
+        );
+    }
+
+    #[test]
+    fn test_parse_response_no_usage() {
+        let json = json!({"content": [{"type": "text", "text": "hi"}]});
+        let resp = parse_response(&json);
+        assert!(resp.input_tokens.is_none());
+        assert!(resp.output_tokens.is_none());
+    }
+
+    #[test]
+    fn test_parse_response_empty_content() {
+        let json = json!({"content": []});
+        let resp = parse_response(&json);
+        assert!(resp.content.is_none());
+        assert!(resp.tool_calls.is_empty());
+        assert!(resp.reasoning_content.is_none());
+    }
+
+    #[test]
+    fn test_parse_response_missing_tool_use_fields() {
+        let json = json!({
+            "content": [{"type": "tool_use"}]
+        });
+        let resp = parse_response(&json);
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].id, "");
+        assert_eq!(resp.tool_calls[0].name, "");
+        assert_eq!(resp.tool_calls[0].arguments, json!({}));
+    }
+
+    #[test]
+    fn test_parse_response_multiple_tool_calls() {
+        let json = json!({
+            "content": [
+                {"type": "tool_use", "id": "t1", "name": "a", "input": {}},
+                {"type": "tool_use", "id": "t2", "name": "b", "input": {"x": 1}}
+            ]
+        });
+        let resp = parse_response(&json);
+        assert_eq!(resp.tool_calls.len(), 2);
+        assert_eq!(resp.tool_calls[0].id, "t1");
+        assert_eq!(resp.tool_calls[1].id, "t2");
+    }
+
+    // --- convert_tools tests ---
+
+    #[test]
+    fn test_convert_tools_basic() {
+        let tools = vec![ToolDefinition {
+            name: "my_tool".to_string(),
+            description: "Does stuff".to_string(),
+            parameters: json!({"type": "object", "properties": {}}),
+        }];
+        let result = convert_tools(tools);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "my_tool");
+        assert_eq!(result[0].description, "Does stuff");
+        assert_eq!(
+            result[0].input_schema,
+            json!({"type": "object", "properties": {}})
+        );
+    }
+
+    #[test]
+    fn test_convert_tools_empty() {
+        let result = convert_tools(vec![]);
+        assert!(result.is_empty());
+    }
+
+    // --- convert_messages edge cases ---
+
+    #[test]
+    fn test_convert_system_messages_joined() {
+        let messages = vec![
+            Message::system("rule 1"),
+            Message::system("rule 2"),
+            Message::user("hello"),
+        ];
+        let (system, msgs) = convert_messages(messages);
+        assert_eq!(system.as_deref(), Some("rule 1\n\nrule 2"));
+        assert_eq!(msgs.len(), 1);
+    }
+
+    #[test]
+    fn test_convert_tool_result_with_error() {
+        let messages = vec![Message::tool_result(
+            "tc1".to_string(),
+            "something failed".to_string(),
+            true,
+        )];
+        let (_, result) = convert_messages(messages);
+        assert_eq!(result.len(), 1);
+        let content = result[0].content.as_array().unwrap();
+        assert_eq!(content[0]["is_error"], true);
+    }
+
+    #[test]
+    fn test_convert_assistant_empty_content_omitted() {
+        let messages = vec![Message::assistant(
+            "",
+            Some(vec![ToolCallRequest {
+                id: "tc1".to_string(),
+                name: "tool".to_string(),
+                arguments: json!({}),
+            }]),
+        )];
+        let (_, result) = convert_messages(messages);
+        let content = result[0].content.as_array().unwrap();
+        // Empty text should be omitted, only tool_use block present
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"], "tool_use");
+    }
 }

@@ -4,15 +4,15 @@ use tempfile::TempDir;
 
 #[test]
 fn test_skills_loading_from_disk() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let skills_dir = tmp.path().join("skills");
     let skill_dir = skills_dir.join("my-skill");
-    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::create_dir_all(&skill_dir).expect("create test dir");
     std::fs::write(
         skill_dir.join("SKILL.md"),
         "---\nname: my-skill\ndescription: A test skill\n---\n\nSkill instructions here.",
     )
-    .unwrap();
+    .expect("write test file");
 
     let loader = SkillsLoader::new(tmp.path(), None);
     let skills = loader.list_skills(false);
@@ -24,15 +24,15 @@ fn test_skills_loading_from_disk() {
 
 #[test]
 fn test_skills_frontmatter_parsing() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let skills_dir = tmp.path().join("skills");
     let skill_dir = skills_dir.join("parser-test");
-    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::create_dir_all(&skill_dir).expect("create test dir");
     std::fs::write(
         skill_dir.join("SKILL.md"),
         "---\nname: parser-test\ndescription: Test parsing\nalways: true\n---\n\nBody content.",
     )
-    .unwrap();
+    .expect("write test file");
 
     let loader = SkillsLoader::new(tmp.path(), None);
     let content = loader.load_skill("parser-test");
@@ -44,27 +44,27 @@ fn test_skills_frontmatter_parsing() {
 
 #[test]
 fn test_skills_workspace_overrides_builtin() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     // Create builtin skill
     let builtin_dir = tmp.path().join("builtin");
     let builtin_skill_dir = builtin_dir.join("shared-skill");
-    std::fs::create_dir_all(&builtin_skill_dir).unwrap();
+    std::fs::create_dir_all(&builtin_skill_dir).expect("create test dir");
     std::fs::write(
         builtin_skill_dir.join("SKILL.md"),
         "---\nname: shared-skill\ndescription: Builtin version\n---\n\nBuiltin body.",
     )
-    .unwrap();
+    .expect("write test file");
 
     // Create workspace skill with same name (should override)
     let ws_skills = tmp.path().join("workspace").join("skills");
     let ws_skill_dir = ws_skills.join("shared-skill");
-    std::fs::create_dir_all(&ws_skill_dir).unwrap();
+    std::fs::create_dir_all(&ws_skill_dir).expect("create test dir");
     std::fs::write(
         ws_skill_dir.join("SKILL.md"),
         "---\nname: shared-skill\ndescription: Workspace version\n---\n\nWorkspace body.",
     )
-    .unwrap();
+    .expect("write test file");
 
     let workspace = tmp.path().join("workspace");
     let loader = SkillsLoader::new(&workspace, Some(builtin_dir));
@@ -85,26 +85,26 @@ fn test_skills_workspace_overrides_builtin() {
 
 #[test]
 fn test_skills_always_include() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let skills_dir = tmp.path().join("skills");
 
     // Create an always-include skill
     let always_dir = skills_dir.join("always-on");
-    std::fs::create_dir_all(&always_dir).unwrap();
+    std::fs::create_dir_all(&always_dir).expect("create test dir");
     std::fs::write(
         always_dir.join("SKILL.md"),
         "---\nname: always-on\ndescription: Always included\nalways: true\n---\n\nAlways body.",
     )
-    .unwrap();
+    .expect("write test file");
 
     // Create a normal skill
     let normal_dir = skills_dir.join("normal");
-    std::fs::create_dir_all(&normal_dir).unwrap();
+    std::fs::create_dir_all(&normal_dir).expect("create test dir");
     std::fs::write(
         normal_dir.join("SKILL.md"),
         "---\nname: normal\ndescription: Normal skill\n---\n\nNormal body.",
     )
-    .unwrap();
+    .expect("write test file");
 
     let loader = SkillsLoader::new(tmp.path(), None);
     let always = loader.get_always_skills();
@@ -121,17 +121,17 @@ fn test_skills_always_include() {
 
 #[test]
 fn test_skills_dependency_check_filters() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let skills_dir = tmp.path().join("skills");
 
     // Create a skill that requires a nonexistent binary
     let dep_dir = skills_dir.join("needs-binary");
-    std::fs::create_dir_all(&dep_dir).unwrap();
+    std::fs::create_dir_all(&dep_dir).expect("create test dir");
     std::fs::write(
         dep_dir.join("SKILL.md"),
         "---\nname: needs-binary\ndescription: Needs missing binary\nrequires:\n  bins:\n    - nonexistent_binary_xyz_123\n---\n\nBody.",
     )
-    .unwrap();
+    .expect("write test file");
 
     let loader = SkillsLoader::new(tmp.path(), None);
 
@@ -150,15 +150,17 @@ fn test_skills_dependency_check_filters() {
 
 #[tokio::test]
 async fn test_context_includes_agents_md() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     std::fs::write(
         tmp.path().join("AGENTS.md"),
         "# Custom Agent\n\nYou are a specialized assistant.",
     )
-    .unwrap();
+    .expect("write test file");
 
-    let mut builder = ContextBuilder::new(tmp.path()).unwrap();
-    let prompt = builder.build_system_prompt(None, None).unwrap();
+    let mut builder = ContextBuilder::new(tmp.path()).expect("create context builder");
+    let prompt = builder
+        .build_system_prompt(None, None)
+        .expect("build system prompt");
 
     assert!(
         prompt.contains("specialized assistant"),
@@ -169,16 +171,18 @@ async fn test_context_includes_agents_md() {
 
 #[tokio::test]
 async fn test_context_includes_bootstrap_files() {
-    let tmp = TempDir::new().unwrap();
-    std::fs::write(tmp.path().join("USER.md"), "User name: Alice").unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
+    std::fs::write(tmp.path().join("USER.md"), "User name: Alice").expect("write test file");
     std::fs::write(
         tmp.path().join("TOOLS.md"),
         "Custom tool instructions here.",
     )
-    .unwrap();
+    .expect("write test file");
 
-    let mut builder = ContextBuilder::new(tmp.path()).unwrap();
-    let prompt = builder.build_system_prompt(None, None).unwrap();
+    let mut builder = ContextBuilder::new(tmp.path()).expect("create context builder");
+    let prompt = builder
+        .build_system_prompt(None, None)
+        .expect("build system prompt");
 
     assert!(
         prompt.contains("User name: Alice"),
@@ -192,21 +196,25 @@ async fn test_context_includes_bootstrap_files() {
 
 #[tokio::test]
 async fn test_context_bootstrap_file_refresh() {
-    let tmp = TempDir::new().unwrap();
-    std::fs::write(tmp.path().join("USER.md"), "Version 1").unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
+    std::fs::write(tmp.path().join("USER.md"), "Version 1").expect("write test file");
 
-    let mut builder = ContextBuilder::new(tmp.path()).unwrap();
+    let mut builder = ContextBuilder::new(tmp.path()).expect("create context builder");
 
     // First call caches
-    let prompt1 = builder.build_system_prompt(None, None).unwrap();
+    let prompt1 = builder
+        .build_system_prompt(None, None)
+        .expect("build system prompt");
     assert!(prompt1.contains("Version 1"));
 
     // Modify file — mtime resolution is 1s on many filesystems
     std::thread::sleep(std::time::Duration::from_secs(1));
-    std::fs::write(tmp.path().join("USER.md"), "Version 2").unwrap();
+    std::fs::write(tmp.path().join("USER.md"), "Version 2").expect("write test file");
 
     // Second call should detect the change
-    let prompt2 = builder.build_system_prompt(None, None).unwrap();
+    let prompt2 = builder
+        .build_system_prompt(None, None)
+        .expect("build system prompt");
     assert!(
         prompt2.contains("Version 2"),
         "Should pick up updated USER.md"

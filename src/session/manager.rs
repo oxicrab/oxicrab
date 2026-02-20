@@ -400,6 +400,34 @@ impl SessionStore for SessionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn add_message_never_exceeds_max(count in 0..500usize) {
+            let mut session = Session::new("prop:test".to_string());
+            let extra = HashMap::new();
+            for i in 0..count {
+                session.add_message("user", format!("msg {}", i), extra.clone());
+            }
+            prop_assert!(session.messages.len() <= MAX_SESSION_MESSAGES);
+        }
+
+        #[test]
+        fn get_history_respects_limit(
+            msg_count in 0..300usize,
+            limit in 0..400usize,
+        ) {
+            let mut session = Session::new("prop:history".to_string());
+            let extra = HashMap::new();
+            for i in 0..msg_count {
+                session.add_message("user", format!("msg {}", i), extra.clone());
+            }
+            let history = session.get_history(limit);
+            prop_assert!(history.len() <= limit);
+            prop_assert!(history.len() <= session.messages.len());
+        }
+    }
 
     #[test]
     fn test_session_get_history_with_limit() {

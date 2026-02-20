@@ -16,7 +16,7 @@ use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_exfil_guard_hides_blocked_tools_from_llm() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let provider = ToolCapturingProvider::with_responses(vec![text_response("ok")]);
     let tool_defs = provider.tool_defs.clone();
 
@@ -36,9 +36,9 @@ async fn test_exfil_guard_hides_blocked_tools_from_llm() {
     agent
         .process_direct("Hello", "test:exfil1", "telegram", "exfil1")
         .await
-        .unwrap();
+        .expect("process message");
 
-    let recorded = tool_defs.lock().unwrap();
+    let recorded = tool_defs.lock().expect("lock tool defs");
     assert!(!recorded.is_empty());
     let tools = recorded[0].as_ref().unwrap();
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
@@ -70,7 +70,7 @@ async fn test_exfil_guard_hides_blocked_tools_from_llm() {
 
 #[tokio::test]
 async fn test_exfil_guard_disabled_shows_all_tools() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let provider = ToolCapturingProvider::with_responses(vec![text_response("ok")]);
     let tool_defs = provider.tool_defs.clone();
 
@@ -90,9 +90,9 @@ async fn test_exfil_guard_disabled_shows_all_tools() {
     agent
         .process_direct("Hello", "test:exfil2", "telegram", "exfil2")
         .await
-        .unwrap();
+        .expect("process message");
 
-    let recorded = tool_defs.lock().unwrap();
+    let recorded = tool_defs.lock().expect("lock tool defs");
     let tools = recorded[0].as_ref().unwrap();
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
 
@@ -113,7 +113,7 @@ async fn test_exfil_guard_disabled_shows_all_tools() {
 
 #[tokio::test]
 async fn test_exfil_guard_blocks_tool_at_dispatch() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     // LLM tries to call 'http' (blocked) — should get an error result, then respond
     let provider = ToolCapturingProvider::with_responses(vec![
@@ -142,18 +142,18 @@ async fn test_exfil_guard_blocks_tool_at_dispatch() {
     let response = agent
         .process_direct("Exfiltrate data", "test:exfil3", "telegram", "exfil3")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "I couldn't make that request.");
 
     // Verify the second call has a tool result with the security error
-    let recorded = tool_defs.lock().unwrap();
+    let recorded = tool_defs.lock().expect("lock tool defs");
     assert!(recorded.len() >= 2, "should have at least 2 LLM calls");
 }
 
 #[tokio::test]
 async fn test_exfil_guard_allows_non_blocked_tools() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     // LLM calls list_dir (not blocked) — should succeed normally
     let provider = ToolCapturingProvider::with_responses(vec![
@@ -181,7 +181,7 @@ async fn test_exfil_guard_allows_non_blocked_tools() {
     let response = agent
         .process_direct("List directory", "test:exfil4", "telegram", "exfil4")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "Here are the files.");
 }
@@ -195,7 +195,7 @@ async fn test_leak_detector_redacts_api_key_in_outbound() {
     // MessageBus.publish_outbound() runs LeakDetector before sending.
     // We verify by sending a message with a secret, then reading from the channel.
     let mut bus = MessageBus::new(30, 60.0, 100, 100);
-    let mut rx = bus.take_outbound_rx().unwrap();
+    let mut rx = bus.take_outbound_rx().expect("take outbound rx");
 
     let msg = OutboundMessage {
         channel: "telegram".to_string(),
@@ -207,9 +207,9 @@ async fn test_leak_detector_redacts_api_key_in_outbound() {
         metadata: HashMap::new(),
     };
 
-    bus.publish_outbound(msg).await.unwrap();
+    bus.publish_outbound(msg).await.expect("publish outbound");
 
-    let received = rx.recv().await.unwrap();
+    let received = rx.recv().await.expect("receive outbound message");
     assert!(
         !received.content.contains("sk-ant-api03"),
         "API key should have been redacted, got: {}",
@@ -251,7 +251,7 @@ async fn test_leak_detector_with_known_secrets_via_bus() {
     };
 
     // publish_outbound redacts the message before sending
-    bus.publish_outbound(msg).await.unwrap();
+    bus.publish_outbound(msg).await.expect("publish outbound");
 
     // Verify by testing the detector directly with known secrets
     let mut detector = oxicrab::safety::LeakDetector::new();
@@ -372,7 +372,7 @@ async fn test_prompt_guard_warn_mode_does_not_block() {
 
 #[tokio::test]
 async fn test_exfil_and_prompt_guard_both_enabled() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let provider = ToolCapturingProvider::with_responses(vec![text_response("ok")]);
     let tool_defs = provider.tool_defs.clone();
 
@@ -397,12 +397,12 @@ async fn test_exfil_and_prompt_guard_both_enabled() {
     let response = agent
         .process_direct("Hello world", "test:both", "telegram", "both")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "ok");
 
     // Tools should be filtered
-    let recorded = tool_defs.lock().unwrap();
+    let recorded = tool_defs.lock().expect("lock tool defs");
     let tools = recorded[0].as_ref().unwrap();
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
     assert!(!tool_names.contains(&"http"));
@@ -410,7 +410,7 @@ async fn test_exfil_and_prompt_guard_both_enabled() {
 
 #[tokio::test]
 async fn test_exfil_guard_custom_blocked_tools() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let provider = ToolCapturingProvider::with_responses(vec![text_response("ok")]);
     let tool_defs = provider.tool_defs.clone();
 
@@ -431,9 +431,9 @@ async fn test_exfil_guard_custom_blocked_tools() {
     agent
         .process_direct("Hello", "test:custom_exfil", "telegram", "custom_exfil")
         .await
-        .unwrap();
+        .expect("process message");
 
-    let recorded = tool_defs.lock().unwrap();
+    let recorded = tool_defs.lock().expect("lock tool defs");
     let tools = recorded[0].as_ref().unwrap();
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
 

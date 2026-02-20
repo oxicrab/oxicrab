@@ -1,5 +1,13 @@
 use super::*;
 use crate::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule};
+use proptest::prelude::*;
+
+proptest! {
+    #[test]
+    fn validate_cron_expr_never_panics(s in "\\PC{0,100}") {
+        let _ = validate_cron_expr(&s);
+    }
+}
 
 #[test]
 fn test_five_field_cron_needs_normalization() {

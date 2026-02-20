@@ -16,7 +16,7 @@ fn test_estimate_tokens_basic() {
 
 #[tokio::test]
 async fn test_compaction_disabled_preserves_full_history() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     // Send many messages to build up history; compaction is disabled
     let mut responses = Vec::new();
@@ -53,11 +53,11 @@ async fn test_compaction_disabled_preserves_full_history() {
                 "no_compact",
             )
             .await
-            .unwrap();
+            .expect("process message");
     }
 
     // All 5 messages should be present (no compaction)
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     // The last call should have all previous history
     let last_msgs = &recorded.last().unwrap().messages;
     // Should have system + 4 pairs of history + current = at least 10 messages
@@ -146,7 +146,7 @@ async fn test_extract_facts_returns_bullets() {
 
 #[tokio::test]
 async fn test_compaction_triggers_at_threshold() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     // Use a very low threshold so compaction triggers
     // We need enough responses: 5 conversation turns + possible compaction calls
@@ -189,8 +189,9 @@ async fn test_compaction_triggers_at_threshold() {
         let _ = agent
             .process_direct(
                 &format!(
-                    "Long message {} with lots of content to exceed threshold",
-                    i
+                    "Long message {} with lots of content to exceed the compaction threshold: {}",
+                    i,
+                    "padding ".repeat(25)
                 ),
                 session,
                 "telegram",
@@ -201,7 +202,7 @@ async fn test_compaction_triggers_at_threshold() {
 
     // Verify that compaction occurred by checking that the LLM was called
     // with a compaction prompt (contains "Summarize" in the messages)
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     // Compaction may or may not trigger depending on exact token counting,
     // but we verify no panics and the system handles it gracefully
     assert!(
@@ -217,9 +218,9 @@ async fn test_compaction_triggers_at_threshold() {
                 && m.content.to_lowercase().contains("summarize")
         })
     });
-    // This assertion is soft — compaction may not trigger if token counting
-    // doesn't exceed the threshold, but we log it for observability
-    if has_compaction_call {
-        eprintln!("Compaction call with 'Summarize' prompt verified");
-    }
+    assert!(
+        has_compaction_call,
+        "compaction should trigger a 'Summarize' LLM call at threshold_tokens=100; got {} LLM calls",
+        recorded.len()
+    );
 }

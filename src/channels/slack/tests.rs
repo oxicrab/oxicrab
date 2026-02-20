@@ -362,3 +362,50 @@ fn test_format_for_slack_plain_text() {
         "no formatting here"
     );
 }
+
+#[test]
+fn test_format_for_slack_combined_formatting() {
+    let result =
+        SlackChannel::format_for_slack("**bold** and ~~strike~~ and [link](https://x.com)");
+    assert_eq!(result, "*bold* and ~strike~ and <https://x.com|link>");
+}
+
+#[test]
+fn test_format_for_slack_multiple_bold() {
+    assert_eq!(
+        SlackChannel::format_for_slack("**a** then **b**"),
+        "*a* then *b*"
+    );
+}
+
+#[test]
+fn test_format_for_slack_multiple_links() {
+    let input = "[one](https://one.com) and [two](https://two.com)";
+    let expected = "<https://one.com|one> and <https://two.com|two>";
+    assert_eq!(SlackChannel::format_for_slack(input), expected);
+}
+
+#[test]
+fn test_format_for_slack_preserves_code_backticks() {
+    // Slack also uses backticks for code — should pass through unchanged
+    let input = "run `cargo test`";
+    assert_eq!(SlackChannel::format_for_slack(input), "run `cargo test`");
+}
+
+#[test]
+fn test_format_for_slack_already_slack_bold() {
+    // Single asterisks should NOT be converted (they're already Slack bold)
+    let input = "*already slack bold*";
+    // Since regex matches **..** only, single * passes through
+    assert_eq!(
+        SlackChannel::format_for_slack(input),
+        "*already slack bold*"
+    );
+}
+
+#[test]
+fn test_format_for_slack_newlines_preserved() {
+    let input = "line 1\nline 2\n**bold line**";
+    let expected = "line 1\nline 2\n*bold line*";
+    assert_eq!(SlackChannel::format_for_slack(input), expected);
+}

@@ -3,7 +3,7 @@ use oxicrab::config::{
 };
 
 fn default_config() -> Config {
-    serde_json::from_str("{}").unwrap()
+    serde_json::from_str("{}").expect("parse default config")
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn test_huge_max_iterations_rejected() {
 
 #[test]
 fn test_mcp_config_defaults_empty() {
-    let config: McpConfig = serde_json::from_str("{}").unwrap();
+    let config: McpConfig = serde_json::from_str("{}").expect("parse json");
     assert!(config.servers.is_empty());
 }
 
@@ -137,7 +137,7 @@ fn test_mcp_config_parses_servers() {
         }
     });
 
-    let config: McpConfig = serde_json::from_value(json).unwrap();
+    let config: McpConfig = serde_json::from_value(json).expect("parse mcp config");
     assert_eq!(config.servers.len(), 2);
 
     let fs = &config.servers["filesystem"];
@@ -165,7 +165,7 @@ fn test_mcp_config_enabled_defaults_true() {
         }
     });
 
-    let config: McpConfig = serde_json::from_value(json).unwrap();
+    let config: McpConfig = serde_json::from_value(json).expect("parse mcp config");
     assert!(config.servers["test"].enabled);
     assert!(config.servers["test"].args.is_empty());
     assert!(config.servers["test"].env.is_empty());
@@ -186,7 +186,7 @@ fn test_mcp_config_in_full_config() {
         }
     });
 
-    let config: Config = serde_json::from_value(json).unwrap();
+    let config: Config = serde_json::from_value(json).expect("parse config");
     assert_eq!(config.tools.mcp.servers.len(), 1);
     assert_eq!(
         config.tools.mcp.servers["test_server"].command,
@@ -229,7 +229,7 @@ fn test_prompt_guard_invalid_action_rejected_by_serde() {
 
 #[test]
 fn test_prompt_guard_default_config_valid() {
-    let config: PromptGuardConfig = serde_json::from_str("{}").unwrap();
+    let config: PromptGuardConfig = serde_json::from_str("{}").expect("parse json");
     assert!(!config.enabled);
     assert_eq!(config.action, PromptGuardAction::Warn);
 }
@@ -246,7 +246,7 @@ fn test_prompt_guard_parses_from_json() {
             }
         }
     });
-    let config: Config = serde_json::from_value(json).unwrap();
+    let config: Config = serde_json::from_value(json).expect("parse config");
     assert!(config.agents.defaults.prompt_guard.enabled);
     assert_eq!(
         config.agents.defaults.prompt_guard.action,
@@ -258,7 +258,7 @@ fn test_prompt_guard_parses_from_json() {
 
 #[test]
 fn test_exfiltration_guard_default_config() {
-    let config: ExfiltrationGuardConfig = serde_json::from_str("{}").unwrap();
+    let config: ExfiltrationGuardConfig = serde_json::from_str("{}").expect("parse json");
     assert!(!config.enabled);
     assert_eq!(config.blocked_tools, vec!["http", "web_fetch", "browser"]);
 }
@@ -269,7 +269,7 @@ fn test_exfiltration_guard_custom_blocked_tools() {
         "enabled": true,
         "blockedTools": ["http", "exec", "custom_tool"]
     });
-    let config: ExfiltrationGuardConfig = serde_json::from_value(json).unwrap();
+    let config: ExfiltrationGuardConfig = serde_json::from_value(json).expect("parse json");
     assert!(config.enabled);
     assert_eq!(config.blocked_tools, vec!["http", "exec", "custom_tool"]);
 }
@@ -284,7 +284,7 @@ fn test_exfiltration_guard_parses_from_full_config() {
             }
         }
     });
-    let config: Config = serde_json::from_value(json).unwrap();
+    let config: Config = serde_json::from_value(json).expect("parse config");
     assert!(config.tools.exfiltration_guard.enabled);
     assert_eq!(
         config.tools.exfiltration_guard.blocked_tools,

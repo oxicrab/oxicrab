@@ -219,3 +219,87 @@ async fn test_with_config_custom_provider() {
     let result = provider.chat(simple_chat_request("Hi")).await.unwrap();
     assert_eq!(result.content.unwrap(), "DeepSeek response");
 }
+
+// --- parse_response unit tests (no network) ---
+
+#[test]
+fn test_parse_response_text_only() {
+    let json = json!({
+        "choices": [{"message": {"content": "hello"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 1}
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    assert_eq!(resp.content.as_deref(), Some("hello"));
+    assert!(resp.tool_calls.is_empty());
+    assert_eq!(resp.input_tokens, Some(5));
+    assert_eq!(resp.output_tokens, Some(1));
+}
+
+#[test]
+fn test_parse_response_tool_calls() {
+    let json = json!({
+        "choices": [{"message": {
+            "content": null,
+            "tool_calls": [{
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "get_weather", "arguments": "{\"city\":\"London\"}"}
+            }]
+        }}],
+        "usage": {}
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    assert!(resp.content.is_none());
+    assert_eq!(resp.tool_calls.len(), 1);
+    assert_eq!(resp.tool_calls[0].name, "get_weather");
+    assert_eq!(resp.tool_calls[0].arguments["city"], "London");
+}
+
+#[test]
+fn test_parse_response_no_choices() {
+    let json = json!({"choices": []});
+    let result = OpenAIProvider::parse_response(&json);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_parse_response_malformed_tool_arguments() {
+    let json = json!({
+        "choices": [{"message": {
+            "tool_calls": [{
+                "id": "call_2",
+                "function": {"name": "broken", "arguments": "not-json"}
+            }]
+        }}],
+        "usage": {}
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    // Should fall back to empty object
+    assert_eq!(resp.tool_calls[0].arguments, json!({}));
+}
+
+#[test]
+fn test_parse_response_multiple_tool_calls() {
+    let json = json!({
+        "choices": [{"message": {
+            "tool_calls": [
+                {"id": "c1", "function": {"name": "a", "arguments": "{}"}},
+                {"id": "c2", "function": {"name": "b", "arguments": "{}"}}
+            ]
+        }}]
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    assert_eq!(resp.tool_calls.len(), 2);
+    assert_eq!(resp.tool_calls[0].id, "c1");
+    assert_eq!(resp.tool_calls[1].id, "c2");
+}
+
+#[test]
+fn test_parse_response_no_usage() {
+    let json = json!({
+        "choices": [{"message": {"content": "hi"}}]
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    assert!(resp.input_tokens.is_none());
+    assert!(resp.output_tokens.is_none());
+}

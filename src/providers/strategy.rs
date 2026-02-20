@@ -459,4 +459,83 @@ mod tests {
             "deepseek should return None without an API key"
         );
     }
+
+    // --- AnthropicOAuthStrategy tests ---
+
+    #[test]
+    fn test_oauth_can_handle_anthropic_prefix() {
+        let strategy =
+            AnthropicOAuthStrategy::new(crate::config::schema::AnthropicOAuthConfig::default());
+        assert!(strategy.can_handle("anthropic/claude-opus-4-6"));
+    }
+
+    #[test]
+    fn test_oauth_can_handle_claude_model() {
+        let strategy =
+            AnthropicOAuthStrategy::new(crate::config::schema::AnthropicOAuthConfig::default());
+        assert!(strategy.can_handle("claude-sonnet-4-5-20250929"));
+    }
+
+    #[test]
+    fn test_oauth_cannot_handle_openai() {
+        let strategy =
+            AnthropicOAuthStrategy::new(crate::config::schema::AnthropicOAuthConfig::default());
+        assert!(!strategy.can_handle("gpt-4o"));
+    }
+
+    #[test]
+    fn test_oauth_cannot_handle_gemini() {
+        let strategy =
+            AnthropicOAuthStrategy::new(crate::config::schema::AnthropicOAuthConfig::default());
+        assert!(!strategy.can_handle("gemini-pro"));
+    }
+
+    #[test]
+    fn test_api_key_can_handle_anything() {
+        let strategy = ApiKeyProviderStrategy::new(ProvidersConfig::default());
+        assert!(strategy.can_handle("anything-at-all"));
+        assert!(strategy.can_handle(""));
+    }
+
+    #[test]
+    fn test_openai_compat_strips_keyword_prefix() {
+        let mut config = ProvidersConfig::default();
+        config.groq.api_key = "gsk-test".to_string();
+        let strategy = ApiKeyProviderStrategy::new(config);
+        let provider = strategy.try_openai_compat("groq/llama-3.3-70b-versatile");
+        assert!(provider.is_some());
+        assert_eq!(provider.unwrap().default_model(), "llama-3.3-70b-versatile");
+    }
+
+    #[test]
+    fn test_openai_compat_no_prefix_preserved() {
+        let mut config = ProvidersConfig::default();
+        config.deepseek.api_key = "sk-test".to_string();
+        let strategy = ApiKeyProviderStrategy::new(config);
+        let provider = strategy.try_openai_compat("deepseek-coder-v2");
+        assert!(provider.is_some());
+        assert_eq!(provider.unwrap().default_model(), "deepseek-coder-v2");
+    }
+
+    #[test]
+    fn test_get_provider_config_all_known() {
+        let strategy = ApiKeyProviderStrategy::new(ProvidersConfig::default());
+        for keyword in [
+            "openrouter",
+            "deepseek",
+            "groq",
+            "moonshot",
+            "zhipu",
+            "dashscope",
+            "vllm",
+            "ollama",
+        ] {
+            assert!(
+                strategy.get_provider_config(keyword).is_some(),
+                "missing config for {}",
+                keyword
+            );
+        }
+        assert!(strategy.get_provider_config("nonexistent").is_none());
+    }
 }

@@ -34,7 +34,7 @@ fn make_test_job(id: &str, name: &str) -> CronJob {
 }
 
 fn create_test_cron_service() -> (CronService, TempDir) {
-    let tmp = TempDir::new().expect("Failed to create temp dir");
+    let tmp = TempDir::new().expect("create temp dir");
     let store_path = tmp.path().join("cron_store.json");
     let svc = CronService::new(store_path);
     (svc, tmp)
@@ -43,12 +43,12 @@ fn create_test_cron_service() -> (CronService, TempDir) {
 #[tokio::test]
 async fn test_cron_add_and_list() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     let job = make_test_job("job1", "Test Job 1");
-    svc.add_job(job).await.unwrap();
+    svc.add_job(job).await.expect("add cron job");
 
-    let jobs = svc.list_jobs(false).await.unwrap();
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0].id, "job1");
     assert_eq!(jobs[0].name, "Test Job 1");
@@ -57,29 +57,39 @@ async fn test_cron_add_and_list() {
 #[tokio::test]
 async fn test_cron_add_multiple_and_list() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
-    svc.add_job(make_test_job("j1", "Job 1")).await.unwrap();
-    svc.add_job(make_test_job("j2", "Job 2")).await.unwrap();
-    svc.add_job(make_test_job("j3", "Job 3")).await.unwrap();
+    svc.add_job(make_test_job("j1", "Job 1"))
+        .await
+        .expect("add cron job");
+    svc.add_job(make_test_job("j2", "Job 2"))
+        .await
+        .expect("add cron job");
+    svc.add_job(make_test_job("j3", "Job 3"))
+        .await
+        .expect("add cron job");
 
-    let jobs = svc.list_jobs(false).await.unwrap();
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     assert_eq!(jobs.len(), 3);
 }
 
 #[tokio::test]
 async fn test_cron_remove_job() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
-    svc.add_job(make_test_job("job1", "Job 1")).await.unwrap();
-    svc.add_job(make_test_job("job2", "Job 2")).await.unwrap();
+    svc.add_job(make_test_job("job1", "Job 1"))
+        .await
+        .expect("add cron job");
+    svc.add_job(make_test_job("job2", "Job 2"))
+        .await
+        .expect("add cron job");
 
-    let removed = svc.remove_job("job1").await.unwrap();
+    let removed = svc.remove_job("job1").await.expect("remove cron job");
     assert!(removed.is_some());
     assert_eq!(removed.unwrap().id, "job1");
 
-    let jobs = svc.list_jobs(true).await.unwrap();
+    let jobs = svc.list_jobs(true).await.expect("list cron jobs");
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0].id, "job2");
 }
@@ -87,29 +97,32 @@ async fn test_cron_remove_job() {
 #[tokio::test]
 async fn test_cron_remove_nonexistent() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
-    let removed = svc.remove_job("nonexistent").await.unwrap();
+    let removed = svc
+        .remove_job("nonexistent")
+        .await
+        .expect("remove cron job");
     assert!(removed.is_none());
 }
 
 #[tokio::test]
 async fn test_cron_persistence() {
-    let tmp = TempDir::new().expect("Failed to create temp dir");
+    let tmp = TempDir::new().expect("create temp dir");
     let store_path = tmp.path().join("cron_store.json");
 
     // Create service, add job, drop service
     {
         let svc = CronService::new(store_path.clone());
-        svc.load_store(true).await.unwrap();
+        svc.load_store(true).await.expect("load cron store");
         svc.add_job(make_test_job("persist1", "Persistent Job"))
             .await
-            .unwrap();
+            .expect("add cron job");
     }
 
     // Create new service from same path
     let svc2 = CronService::new(store_path);
-    let jobs = svc2.load_store(true).await.unwrap();
+    let jobs = svc2.load_store(true).await.expect("load cron store");
 
     assert_eq!(jobs.jobs.len(), 1);
     assert_eq!(jobs.jobs[0].id, "persist1");
@@ -119,43 +132,49 @@ async fn test_cron_persistence() {
 #[tokio::test]
 async fn test_cron_enable_disable() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     svc.add_job(make_test_job("toggle1", "Toggle Job"))
         .await
-        .unwrap();
+        .expect("add cron job");
 
     // Disable the job
-    let updated = svc.enable_job("toggle1", false).await.unwrap();
+    let updated = svc
+        .enable_job("toggle1", false)
+        .await
+        .expect("disable cron job");
     assert!(updated.is_some());
     assert!(!updated.unwrap().enabled);
 
     // list_jobs(false) = enabled only -> should be empty
-    let enabled_jobs = svc.list_jobs(false).await.unwrap();
+    let enabled_jobs = svc.list_jobs(false).await.expect("list cron jobs");
     assert_eq!(enabled_jobs.len(), 0);
 
     // list_jobs(true) = include disabled -> should have 1
-    let all_jobs = svc.list_jobs(true).await.unwrap();
+    let all_jobs = svc.list_jobs(true).await.expect("list cron jobs");
     assert_eq!(all_jobs.len(), 1);
     assert!(!all_jobs[0].enabled);
 
     // Re-enable
-    let updated = svc.enable_job("toggle1", true).await.unwrap();
+    let updated = svc
+        .enable_job("toggle1", true)
+        .await
+        .expect("enable cron job");
     assert!(updated.is_some());
     assert!(updated.unwrap().enabled);
 
-    let enabled_jobs = svc.list_jobs(false).await.unwrap();
+    let enabled_jobs = svc.list_jobs(false).await.expect("list cron jobs");
     assert_eq!(enabled_jobs.len(), 1);
 }
 
 #[tokio::test]
 async fn test_cron_manual_trigger() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     svc.add_job(make_test_job("trigger1", "Trigger Job"))
         .await
-        .unwrap();
+        .expect("add cron job");
 
     // Track whether callback was invoked
     let invoked = Arc::new(Mutex::new(false));
@@ -171,7 +190,7 @@ async fn test_cron_manual_trigger() {
     })
     .await;
 
-    let ran = svc.run_job("trigger1", true).await.unwrap();
+    let ran = svc.run_job("trigger1", true).await.expect("run cron job");
     assert!(ran.is_some());
     assert_eq!(ran.unwrap(), Some("Job executed".to_string()));
     assert!(*invoked.lock().await);
@@ -180,12 +199,14 @@ async fn test_cron_manual_trigger() {
 #[tokio::test]
 async fn test_cron_run_disabled_job_without_force() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     svc.add_job(make_test_job("disabled1", "Disabled Job"))
         .await
-        .unwrap();
-    svc.enable_job("disabled1", false).await.unwrap();
+        .expect("add cron job");
+    svc.enable_job("disabled1", false)
+        .await
+        .expect("disable cron job");
 
     let invoked = Arc::new(Mutex::new(false));
     let invoked_clone = invoked.clone();
@@ -199,12 +220,12 @@ async fn test_cron_run_disabled_job_without_force() {
     .await;
 
     // Without force, disabled job should not run
-    let ran = svc.run_job("disabled1", false).await.unwrap();
+    let ran = svc.run_job("disabled1", false).await.expect("run cron job");
     assert!(ran.is_none());
     assert!(!*invoked.lock().await);
 
     // With force, it should run even though disabled
-    let ran = svc.run_job("disabled1", true).await.unwrap();
+    let ran = svc.run_job("disabled1", true).await.expect("run cron job");
     assert!(ran.is_some());
     assert!(*invoked.lock().await);
 }
@@ -212,11 +233,11 @@ async fn test_cron_run_disabled_job_without_force() {
 #[tokio::test]
 async fn test_cron_update_job() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     svc.add_job(make_test_job("upd1", "Original Name"))
         .await
-        .unwrap();
+        .expect("add cron job");
 
     let params = oxicrab::cron::types::UpdateJobParams {
         name: Some("Updated Name".to_string()),
@@ -224,7 +245,10 @@ async fn test_cron_update_job() {
         ..Default::default()
     };
 
-    let updated = svc.update_job("upd1", params).await.unwrap();
+    let updated = svc
+        .update_job("upd1", params)
+        .await
+        .expect("update cron job");
     assert!(updated.is_some());
     let job = updated.unwrap();
     assert_eq!(job.name, "Updated Name");
@@ -234,7 +258,7 @@ async fn test_cron_update_job() {
 #[tokio::test]
 async fn test_cron_multi_target_job() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     let job = CronJob {
         id: "multi1".to_string(),
@@ -272,10 +296,10 @@ async fn test_cron_multi_target_job() {
         max_concurrent: None,
     };
 
-    svc.add_job(job).await.unwrap();
+    svc.add_job(job).await.expect("add cron job");
 
     // Verify persistence
-    let jobs = svc.list_jobs(false).await.unwrap();
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0].payload.targets.len(), 3);
     assert_eq!(jobs[0].payload.targets[0].channel, "slack");
@@ -286,11 +310,11 @@ async fn test_cron_multi_target_job() {
 #[tokio::test]
 async fn test_cron_update_targets() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     svc.add_job(make_test_job("upd_targets", "Target Update Test"))
         .await
-        .unwrap();
+        .expect("add cron job");
 
     let new_targets = vec![
         CronTarget {
@@ -308,7 +332,10 @@ async fn test_cron_update_targets() {
         ..Default::default()
     };
 
-    let updated = svc.update_job("upd_targets", params).await.unwrap();
+    let updated = svc
+        .update_job("upd_targets", params)
+        .await
+        .expect("update cron job");
     assert!(updated.is_some());
     let job = updated.unwrap();
     assert_eq!(job.payload.targets.len(), 2);
@@ -319,18 +346,18 @@ async fn test_cron_update_targets() {
 #[tokio::test]
 async fn test_cron_add_duplicate_name_deduplicates() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     svc.add_job(make_test_job("job1", "Morning Briefing"))
         .await
-        .unwrap();
+        .expect("add cron job");
 
     // Same name, different case — should auto-deduplicate with suffix
     svc.add_job(make_test_job("job2", "morning briefing"))
         .await
-        .unwrap();
+        .expect("add cron job");
 
-    let jobs = svc.list_jobs(true).await.unwrap();
+    let jobs = svc.list_jobs(true).await.expect("list cron jobs");
     assert_eq!(jobs.len(), 2);
     assert_eq!(jobs[0].name, "Morning Briefing");
     assert_eq!(jobs[1].name, "morning briefing (2)");
@@ -341,7 +368,7 @@ async fn test_cron_add_duplicate_name_deduplicates() {
 #[tokio::test]
 async fn test_add_job_computes_next_run_at_ms() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     // Create a cron job with next_run_at_ms: None
     let mut job = make_test_job("eager1", "Eager Next Run");
@@ -351,9 +378,9 @@ async fn test_add_job_computes_next_run_at_ms() {
     };
     job.state.next_run_at_ms = None;
 
-    svc.add_job(job).await.unwrap();
+    svc.add_job(job).await.expect("add cron job");
 
-    let jobs = svc.list_jobs(false).await.unwrap();
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     assert_eq!(jobs.len(), 1);
     assert!(
         jobs[0].state.next_run_at_ms.is_some(),
@@ -364,14 +391,14 @@ async fn test_add_job_computes_next_run_at_ms() {
 #[tokio::test]
 async fn test_add_job_computes_next_run_for_every() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     let mut job = make_test_job("every1", "Every Job");
     job.state.next_run_at_ms = None;
 
-    svc.add_job(job).await.unwrap();
+    svc.add_job(job).await.expect("add cron job");
 
-    let jobs = svc.list_jobs(false).await.unwrap();
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     assert!(
         jobs[0].state.next_run_at_ms.is_some(),
         "Every schedule should have next_run_at_ms set"
@@ -381,22 +408,22 @@ async fn test_add_job_computes_next_run_for_every() {
 #[tokio::test]
 async fn test_run_job_sets_next_run_at_ms() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     let mut job = make_test_job("runnext1", "Run Next Test");
     job.schedule = CronSchedule::Cron {
         expr: Some("30 8 * * *".to_string()),
         tz: Some("UTC".to_string()),
     };
-    svc.add_job(job).await.unwrap();
+    svc.add_job(job).await.expect("add cron job");
 
     svc.set_on_job(|_| Box::pin(async { Ok(Some("done".to_string())) }))
         .await;
 
-    svc.run_job("runnext1", true).await.unwrap();
+    svc.run_job("runnext1", true).await.expect("run cron job");
 
     // Force reload to get the updated state
-    let jobs = svc.list_jobs(false).await.unwrap();
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     let job = jobs.iter().find(|j| j.id == "runnext1").unwrap();
     assert!(
         job.state.next_run_at_ms.is_some(),
@@ -408,24 +435,32 @@ async fn test_run_job_sets_next_run_at_ms() {
 #[tokio::test]
 async fn test_enable_job_computes_next_run() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     let mut job = make_test_job("enable1", "Enable Test");
     job.schedule = CronSchedule::Cron {
         expr: Some("0 12 * * *".to_string()),
         tz: Some("UTC".to_string()),
     };
-    svc.add_job(job).await.unwrap();
+    svc.add_job(job).await.expect("add cron job");
 
     // Disable — should clear next_run_at_ms
-    let disabled = svc.enable_job("enable1", false).await.unwrap().unwrap();
+    let disabled = svc
+        .enable_job("enable1", false)
+        .await
+        .expect("disable cron job")
+        .unwrap();
     assert!(
         disabled.state.next_run_at_ms.is_none(),
         "disabled job should have no next_run_at_ms"
     );
 
     // Re-enable — should compute next_run_at_ms
-    let enabled = svc.enable_job("enable1", true).await.unwrap().unwrap();
+    let enabled = svc
+        .enable_job("enable1", true)
+        .await
+        .expect("enable cron job")
+        .unwrap();
     assert!(
         enabled.state.next_run_at_ms.is_some(),
         "re-enabled job should have next_run_at_ms computed"
@@ -435,15 +470,15 @@ async fn test_enable_job_computes_next_run() {
 #[tokio::test]
 async fn test_update_job_with_schedule_recomputes_next_run() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     let mut job = make_test_job("updsched1", "Update Schedule");
     job.schedule = CronSchedule::Every {
         every_ms: Some(60_000),
     };
-    svc.add_job(job).await.unwrap();
+    svc.add_job(job).await.expect("add cron job");
 
-    let before = svc.list_jobs(false).await.unwrap();
+    let before = svc.list_jobs(false).await.expect("list cron jobs");
     let next_before = before[0].state.next_run_at_ms;
 
     // Update schedule to a different interval
@@ -453,7 +488,11 @@ async fn test_update_job_with_schedule_recomputes_next_run() {
         }),
         ..Default::default()
     };
-    let updated = svc.update_job("updsched1", params).await.unwrap().unwrap();
+    let updated = svc
+        .update_job("updsched1", params)
+        .await
+        .expect("update cron job")
+        .unwrap();
     assert!(updated.state.next_run_at_ms.is_some());
     // New next_run should be different (longer interval)
     assert_ne!(
@@ -485,24 +524,29 @@ async fn test_validate_cron_expr_accepts_standard_patterns() {
 
 #[tokio::test]
 async fn test_list_jobs_reflects_disk_state() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let store_path = tmp.path().join("cron_store.json");
 
     let svc = CronService::new(store_path.clone());
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
     svc.add_job(make_test_job("disk1", "Disk Test"))
         .await
-        .unwrap();
+        .expect("add cron job");
 
     // Modify the file on disk directly (simulating what the scheduler does)
-    let content = std::fs::read_to_string(&store_path).unwrap();
-    let mut store: oxicrab::cron::types::CronStore = serde_json::from_str(&content).unwrap();
+    let content = std::fs::read_to_string(&store_path).expect("read store file");
+    let mut store: oxicrab::cron::types::CronStore =
+        serde_json::from_str(&content).expect("parse store json");
     store.jobs[0].state.last_status = Some("ok".to_string());
     store.jobs[0].state.next_run_at_ms = Some(9999999999999);
-    std::fs::write(&store_path, serde_json::to_string_pretty(&store).unwrap()).unwrap();
+    std::fs::write(
+        &store_path,
+        serde_json::to_string_pretty(&store).expect("serialize store json"),
+    )
+    .expect("write store file");
 
     // list_jobs should see the disk changes, not cached state
-    let jobs = svc.list_jobs(false).await.unwrap();
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     assert_eq!(
         jobs[0].state.last_status.as_deref(),
         Some("ok"),
@@ -518,11 +562,11 @@ async fn test_list_jobs_reflects_disk_state() {
 #[tokio::test]
 async fn test_run_job_callback_error_records_status() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     svc.add_job(make_test_job("fail1", "Failing Job"))
         .await
-        .unwrap();
+        .expect("add cron job");
 
     svc.set_on_job(|_| Box::pin(async { Err(anyhow::anyhow!("something went wrong")) }))
         .await;
@@ -540,7 +584,7 @@ async fn test_run_job_callback_error_records_status() {
 async fn test_cron_job_with_none_fields() {
     // Ensure jobs with None in schedule fields don't panic
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     let job = CronJob {
         id: "none1".to_string(),
@@ -566,8 +610,8 @@ async fn test_cron_job_with_none_fields() {
         max_concurrent: None,
     };
 
-    svc.add_job(job).await.unwrap();
-    let jobs = svc.list_jobs(false).await.unwrap();
+    svc.add_job(job).await.expect("add cron job");
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     // next_run_at_ms should be None since expr is None
     assert!(
         jobs[0].state.next_run_at_ms.is_none(),
@@ -578,7 +622,7 @@ async fn test_cron_job_with_none_fields() {
 #[tokio::test]
 async fn test_cron_job_every_zero_interval() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     let job = CronJob {
         id: "zero1".to_string(),
@@ -601,8 +645,8 @@ async fn test_cron_job_every_zero_interval() {
         max_concurrent: None,
     };
 
-    svc.add_job(job).await.unwrap();
-    let jobs = svc.list_jobs(false).await.unwrap();
+    svc.add_job(job).await.expect("add cron job");
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     // Zero interval should not produce a next run
     assert!(
         jobs[0].state.next_run_at_ms.is_none(),
@@ -613,7 +657,7 @@ async fn test_cron_job_every_zero_interval() {
 #[tokio::test]
 async fn test_cron_job_at_expired() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     let job = CronJob {
         id: "expired1".to_string(),
@@ -638,8 +682,8 @@ async fn test_cron_job_at_expired() {
         max_concurrent: None,
     };
 
-    svc.add_job(job).await.unwrap();
-    let jobs = svc.list_jobs(false).await.unwrap();
+    svc.add_job(job).await.expect("add cron job");
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     // Past `at` time should not produce a next run
     assert!(
         jobs[0].state.next_run_at_ms.is_none(),
@@ -681,12 +725,12 @@ fn make_event_job(id: &str, pattern: &str, channel: Option<&str>) -> CronJob {
 #[tokio::test]
 async fn test_event_job_persistence() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     let job = make_event_job("evt1", r"(?i)deploy", None);
-    svc.add_job(job).await.unwrap();
+    svc.add_job(job).await.expect("add cron job");
 
-    let jobs = svc.list_jobs(false).await.unwrap();
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0].id, "evt1");
 
@@ -699,21 +743,21 @@ async fn test_event_job_persistence() {
 
 #[tokio::test]
 async fn test_event_job_roundtrip_serialization() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let store_path = tmp.path().join("cron_store.json");
 
     // Write event job, drop service
     {
         let svc = CronService::new(store_path.clone());
-        svc.load_store(true).await.unwrap();
+        svc.load_store(true).await.expect("load cron store");
         let mut job = make_event_job("evt_ser", r"(?i)help\s+me", Some("slack"));
         job.cooldown_secs = Some(120);
-        svc.add_job(job).await.unwrap();
+        svc.add_job(job).await.expect("add cron job");
     }
 
     // Read back from disk
     let svc2 = CronService::new(store_path);
-    let store = svc2.load_store(true).await.unwrap();
+    let store = svc2.load_store(true).await.expect("load cron store");
     assert_eq!(store.jobs.len(), 1);
 
     let job = &store.jobs[0];
@@ -731,21 +775,21 @@ async fn test_event_job_roundtrip_serialization() {
 #[tokio::test]
 async fn test_event_matcher_from_stored_jobs() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     // Add a mix of event and regular jobs
     svc.add_job(make_event_job("evt1", r"(?i)deploy", None))
         .await
-        .unwrap();
+        .expect("add cron job");
     svc.add_job(make_test_job("reg1", "Regular Job"))
         .await
-        .unwrap();
+        .expect("add cron job");
     svc.add_job(make_event_job("evt2", r"(?i)rollback", Some("slack")))
         .await
-        .unwrap();
+        .expect("add cron job");
 
     // Build event matcher from stored jobs
-    let jobs = svc.list_jobs(false).await.unwrap();
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     let mut matcher = EventMatcher::from_jobs(&jobs);
 
     // Should only have 2 event matchers (regular job ignored)
@@ -773,11 +817,11 @@ async fn test_event_matcher_from_stored_jobs() {
 #[tokio::test]
 async fn test_event_trigger_fires_cron_service() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     svc.add_job(make_event_job("evt_fire", r"(?i)deploy", None))
         .await
-        .unwrap();
+        .expect("add cron job");
 
     // Set up a callback to track execution
     let fired_ids = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -792,7 +836,7 @@ async fn test_event_trigger_fires_cron_service() {
     .await;
 
     // Build matcher from stored jobs
-    let jobs = svc.list_jobs(false).await.unwrap();
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     let mut matcher = EventMatcher::from_jobs(&jobs);
 
     // Simulate an incoming message that matches
@@ -801,7 +845,7 @@ async fn test_event_trigger_fires_cron_service() {
 
     // Fire the matched jobs through cron service (like the agent loop does)
     for job in &triggered {
-        svc.run_job(&job.id, true).await.unwrap();
+        svc.run_job(&job.id, true).await.expect("run cron job");
     }
 
     let fired = fired_ids.lock().await;
@@ -812,14 +856,14 @@ async fn test_event_trigger_fires_cron_service() {
 #[tokio::test]
 async fn test_event_job_with_cooldown_integration() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     let mut job = make_event_job("evt_cool", r"(?i)alert", None);
     job.cooldown_secs = Some(60);
-    svc.add_job(job).await.unwrap();
+    svc.add_job(job).await.expect("add cron job");
 
     // Build matcher — initially no cooldown barrier
-    let jobs = svc.list_jobs(false).await.unwrap();
+    let jobs = svc.list_jobs(false).await.expect("list cron jobs");
     let mut matcher = EventMatcher::from_jobs(&jobs);
 
     // First message should trigger (no last_fired_at_ms)
@@ -839,14 +883,16 @@ async fn test_event_job_with_cooldown_integration() {
 #[tokio::test]
 async fn test_event_job_disabled_not_matched() {
     let (svc, _tmp) = create_test_cron_service();
-    svc.load_store(true).await.unwrap();
+    svc.load_store(true).await.expect("load cron store");
 
     svc.add_job(make_event_job("evt_dis", r"(?i)deploy", None))
         .await
-        .unwrap();
-    svc.enable_job("evt_dis", false).await.unwrap();
+        .expect("add cron job");
+    svc.enable_job("evt_dis", false)
+        .await
+        .expect("disable cron job");
 
-    let jobs = svc.list_jobs(true).await.unwrap(); // include disabled
+    let jobs = svc.list_jobs(true).await.expect("list cron jobs"); // include disabled
     let matcher = EventMatcher::from_jobs(&jobs);
 
     // Disabled job should not be in the matcher

@@ -43,15 +43,18 @@ impl MockLLMProvider {
 #[async_trait]
 impl LLMProvider for MockLLMProvider {
     async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
-        self.calls.lock().unwrap().push(RecordedCall {
-            messages: req.messages,
-            model: req.model.map(|s| s.to_string()),
-            tools: req.tools,
-            temperature: req.temperature,
-            max_tokens: req.max_tokens,
-        });
+        self.calls
+            .lock()
+            .expect("lock recorded calls")
+            .push(RecordedCall {
+                messages: req.messages,
+                model: req.model.map(|s| s.to_string()),
+                tools: req.tools,
+                temperature: req.temperature,
+                max_tokens: req.max_tokens,
+            });
 
-        let response = self.responses.lock().unwrap().pop_front();
+        let response = self.responses.lock().expect("lock responses").pop_front();
         Ok(response.unwrap_or_else(|| LLMResponse {
             content: Some(self.default_response.clone()),
             tool_calls: vec![],
@@ -126,8 +129,11 @@ impl ToolCapturingProvider {
 #[async_trait]
 impl LLMProvider for ToolCapturingProvider {
     async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
-        self.tool_defs.lock().unwrap().push(req.tools);
-        let response = self.responses.lock().unwrap().pop_front();
+        self.tool_defs
+            .lock()
+            .expect("lock tool defs")
+            .push(req.tools);
+        let response = self.responses.lock().expect("lock responses").pop_front();
         Ok(response.unwrap_or_else(|| LLMResponse {
             content: Some(self.default_response.clone()),
             tool_calls: vec![],
@@ -225,13 +231,16 @@ impl FailingMockProvider {
 #[async_trait]
 impl LLMProvider for FailingMockProvider {
     async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
-        self.calls.lock().unwrap().push(RecordedCall {
-            messages: req.messages,
-            model: req.model.map(|s| s.to_string()),
-            tools: req.tools,
-            temperature: req.temperature,
-            max_tokens: req.max_tokens,
-        });
+        self.calls
+            .lock()
+            .expect("lock recorded calls")
+            .push(RecordedCall {
+                messages: req.messages,
+                model: req.model.map(|s| s.to_string()),
+                tools: req.tools,
+                temperature: req.temperature,
+                max_tokens: req.max_tokens,
+            });
         Err(anyhow::anyhow!("{}", self.error_message))
     }
 

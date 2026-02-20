@@ -9,8 +9,8 @@ use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_tool_context_set_before_execution() {
-    let tmp = TempDir::new().unwrap();
-    std::fs::write(tmp.path().join("ctx.txt"), "context data").unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
+    std::fs::write(tmp.path().join("ctx.txt"), "context data").expect("write test file");
 
     // Use read_file — it doesn't use context, but the agent loop should call set_context
     // on all tools before execution. We verify the overall flow works.
@@ -28,12 +28,12 @@ async fn test_tool_context_set_before_execution() {
     let response = agent
         .process_direct("Read ctx.txt", "test:ctx1", "telegram", "ctx_chat")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "Read complete.");
 
     // Verify the tool result is successful (proves context/flow worked)
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(!tool_msg.is_error);
@@ -42,8 +42,8 @@ async fn test_tool_context_set_before_execution() {
 
 #[tokio::test]
 async fn test_cacheable_tool_cached_in_agent_loop() {
-    let tmp = TempDir::new().unwrap();
-    std::fs::write(tmp.path().join("cached.txt"), "cached content").unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
+    std::fs::write(tmp.path().join("cached.txt"), "cached content").expect("write test file");
     let cached_path = tmp.path().join("cached.txt");
 
     // read_file is cacheable. Call it twice with same params in same iteration.
@@ -68,12 +68,12 @@ async fn test_cacheable_tool_cached_in_agent_loop() {
     let response = agent
         .process_direct("Read file twice", "test:cache1", "telegram", "cache1")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "Both reads complete.");
 
     // Both tool results should contain the cached content
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msgs: Vec<_> = second_msgs.iter().filter(|m| m.role == "tool").collect();
     assert_eq!(tool_msgs.len(), 2);
@@ -85,11 +85,11 @@ async fn test_cacheable_tool_cached_in_agent_loop() {
 
 #[tokio::test]
 async fn test_tool_result_truncation_10k() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     // Create a file with content larger than MAX_TOOL_RESULT_CHARS (10000)
     let large = "a".repeat(15000);
     let target = tmp.path().join("large_file.txt");
-    std::fs::write(&target, &large).unwrap();
+    std::fs::write(&target, &large).expect("write test file");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -105,9 +105,9 @@ async fn test_tool_result_truncation_10k() {
     agent
         .process_direct("Read it", "test:trunc1", "telegram", "trunc1")
         .await
-        .unwrap();
+        .expect("process message");
 
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     // Should be truncated — original was 15000 chars
@@ -123,7 +123,7 @@ async fn test_context_summary_passed_to_tools() {
     // This test verifies the overall flow: when compaction has produced a summary,
     // it should be accessible to tools via set_context_summary.
     // We test this indirectly by running a conversation that could trigger compaction.
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     let provider = MockLLMProvider::with_responses(vec![
         text_response("First."),
@@ -143,15 +143,15 @@ async fn test_context_summary_passed_to_tools() {
     agent
         .process_direct("Turn 1", session, "telegram", "ctx_sum")
         .await
-        .unwrap();
+        .expect("process message turn 1");
     agent
         .process_direct("Turn 2", session, "telegram", "ctx_sum")
         .await
-        .unwrap();
+        .expect("process message turn 2");
     let response = agent
         .process_direct("List dir", session, "telegram", "ctx_sum")
         .await
-        .unwrap();
+        .expect("process message turn 3");
 
     assert_eq!(response, "Listed.");
 }

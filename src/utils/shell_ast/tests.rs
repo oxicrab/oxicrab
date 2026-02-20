@@ -1,4 +1,12 @@
 use super::*;
+use proptest::prelude::*;
+
+proptest! {
+    #[test]
+    fn analyze_command_never_panics(s in "\\PC{0,200}") {
+        let _ = analyze_command(&s);
+    }
+}
 
 #[test]
 fn test_interpreter_inline_exec() {

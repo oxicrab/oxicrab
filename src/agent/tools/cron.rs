@@ -661,4 +661,54 @@ mod tests {
         let targets = resolve_all_channel_targets_from_config(None);
         assert!(targets.is_empty());
     }
+
+    #[test]
+    fn test_first_concrete_target_skips_wildcard() {
+        let list = vec!["*".to_string(), "user123".to_string()];
+        assert_eq!(first_concrete_target(&list), "user123");
+    }
+
+    #[test]
+    fn test_first_concrete_target_empty_list() {
+        let list: Vec<String> = vec![];
+        assert_eq!(first_concrete_target(&list), "");
+    }
+
+    #[test]
+    fn test_first_concrete_target_only_wildcard() {
+        let list = vec!["*".to_string()];
+        assert_eq!(first_concrete_target(&list), "");
+    }
+
+    #[test]
+    fn test_first_concrete_target_no_wildcard() {
+        let list = vec!["alice".to_string(), "bob".to_string()];
+        assert_eq!(first_concrete_target(&list), "alice");
+    }
+
+    #[test]
+    fn test_format_whatsapp_target_with_plus() {
+        assert_eq!(
+            format_whatsapp_target("+441234567890"),
+            "441234567890@s.whatsapp.net"
+        );
+    }
+
+    #[test]
+    fn test_resolve_empty_allow_from_excluded() {
+        let mut cfg = make_test_channels_config();
+        cfg.slack.allow_from = vec![];
+        let targets = resolve_all_channel_targets_from_config(Some(&cfg));
+        // Slack should be excluded (empty allow_from → first_concrete_target returns "")
+        assert!(!targets.iter().any(|t| t.channel == "slack"));
+    }
+
+    #[test]
+    fn test_resolve_wildcard_only_excluded() {
+        let mut cfg = make_test_channels_config();
+        cfg.telegram.allow_from = vec!["*".to_string()];
+        let targets = resolve_all_channel_targets_from_config(Some(&cfg));
+        // Telegram wildcard has no concrete target → excluded
+        assert!(!targets.iter().any(|t| t.channel == "telegram"));
+    }
 }

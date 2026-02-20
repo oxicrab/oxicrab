@@ -16,7 +16,7 @@ fn default_agent(
 
 #[tokio::test]
 async fn test_simple_message_response() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let provider = MockLLMProvider::with_responses(vec![text_response("Hello from the agent!")]);
 
     let agent = default_agent(provider, &tmp).await;
@@ -24,14 +24,14 @@ async fn test_simple_message_response() {
     let response = agent
         .process_direct("Hi there", "test:chat1", "telegram", "chat1")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "Hello from the agent!");
 }
 
 #[tokio::test]
 async fn test_empty_message_handled() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let provider =
         MockLLMProvider::with_responses(vec![text_response("I received an empty message.")]);
 
@@ -40,14 +40,14 @@ async fn test_empty_message_handled() {
     let response = agent
         .process_direct("", "test:empty", "telegram", "empty")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "I received an empty message.");
 }
 
 #[tokio::test]
 async fn test_session_persists_across_messages() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let provider = MockLLMProvider::with_responses(vec![
         text_response("First response"),
         text_response("Second response"),
@@ -60,16 +60,16 @@ async fn test_session_persists_across_messages() {
     agent
         .process_direct("Hello", "test:persist", "telegram", "persist")
         .await
-        .unwrap();
+        .expect("process message");
 
     // Second message on same session
     agent
         .process_direct("Follow up", "test:persist", "telegram", "persist")
         .await
-        .unwrap();
+        .expect("process message");
 
     // The second call should have history from the first exchange
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     assert_eq!(recorded.len(), 2);
 
     // Second call's messages should include history (system + history + current)
@@ -84,7 +84,7 @@ async fn test_session_persists_across_messages() {
 
 #[tokio::test]
 async fn test_different_sessions_isolated() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let provider = MockLLMProvider::with_responses(vec![
         text_response("Response A"),
         text_response("Response B"),
@@ -97,18 +97,18 @@ async fn test_different_sessions_isolated() {
     let resp_a = agent
         .process_direct("Hello A", "telegram:chatA", "telegram", "chatA")
         .await
-        .unwrap();
+        .expect("process message");
     assert_eq!(resp_a, "Response A");
 
     // Message on session B - should not have session A's history
     let resp_b = agent
         .process_direct("Hello B", "discord:chatB", "discord", "chatB")
         .await
-        .unwrap();
+        .expect("process message");
     assert_eq!(resp_b, "Response B");
 
     // Both calls should have been made
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     assert_eq!(recorded.len(), 2);
 
     // Second call should NOT include "Hello A" in its messages
@@ -122,7 +122,7 @@ async fn test_different_sessions_isolated() {
 
 #[tokio::test]
 async fn test_tool_call_and_result() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -139,12 +139,12 @@ async fn test_tool_call_and_result() {
     let response = agent
         .process_direct("List the directory", "test:tools", "telegram", "tools")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "I listed the directory for you.");
 
     // Should have made 2 calls to the provider
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     assert_eq!(recorded.len(), 2);
 
     // Second call should include the tool result
@@ -155,7 +155,7 @@ async fn test_tool_call_and_result() {
 
 #[tokio::test]
 async fn test_unknown_tool_handled() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call("tc_bad", "nonexistent_tool", json!({}))]),
@@ -168,12 +168,12 @@ async fn test_unknown_tool_handled() {
     let response = agent
         .process_direct("Use magic tool", "test:unknown", "telegram", "unknown")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "Sorry, that tool wasn't available.");
 
     // The second call should have a tool result with an error
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.content.contains("does not exist"));
@@ -182,7 +182,7 @@ async fn test_unknown_tool_handled() {
 
 #[tokio::test]
 async fn test_provider_called_with_tools() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let provider = ToolCapturingProvider::new();
     let tool_defs = provider.tool_defs.clone();
 
@@ -191,9 +191,9 @@ async fn test_provider_called_with_tools() {
     agent
         .process_direct("Hello", "test:tools_check", "telegram", "tools_check")
         .await
-        .unwrap();
+        .expect("process message");
 
-    let recorded = tool_defs.lock().unwrap();
+    let recorded = tool_defs.lock().expect("lock tool defs");
     assert_eq!(recorded.len(), 1);
 
     // Should have tool definitions passed to the provider
@@ -218,10 +218,10 @@ async fn test_provider_called_with_tools() {
 
 #[tokio::test]
 async fn test_multiple_tool_calls_in_sequence() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     // Create a test file for read_file to find
-    std::fs::write(tmp.path().join("test.txt"), "test content").unwrap();
+    std::fs::write(tmp.path().join("test.txt"), "test content").expect("write test file");
 
     let provider = MockLLMProvider::with_responses(vec![
         // First iteration: two tool calls
@@ -246,14 +246,14 @@ async fn test_multiple_tool_calls_in_sequence() {
     let response = agent
         .process_direct("Read files", "test:multi", "telegram", "multi")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "Done reading files.");
 }
 
 #[tokio::test]
 async fn test_hallucination_detection_triggers_retry() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     let provider = MockLLMProvider::with_responses(vec![
         text_response("I've updated the configuration file for you."),
@@ -273,7 +273,7 @@ async fn test_hallucination_detection_triggers_retry() {
             "hallucination",
         )
         .await
-        .unwrap();
+        .expect("process message");
 
     // Should get the corrected (second) response, not the hallucinated one
     assert_eq!(
@@ -282,7 +282,7 @@ async fn test_hallucination_detection_triggers_retry() {
     );
 
     // Should have made 2 calls — original + retry after correction
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     assert_eq!(recorded.len(), 2);
 
     // Second call should contain the correction message
@@ -298,7 +298,7 @@ async fn test_hallucination_detection_triggers_retry() {
 
 #[tokio::test]
 async fn test_no_hallucination_when_tools_used() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -320,19 +320,19 @@ async fn test_no_hallucination_when_tools_used() {
             "legit_action",
         )
         .await
-        .unwrap();
+        .expect("process message");
 
     // Should return the response as-is since tools were actually used
     assert_eq!(response, "I've listed the directory for you.");
 
     // Should have made exactly 2 calls (tool call + final response), no correction retry
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     assert_eq!(recorded.len(), 2);
 }
 
 #[tokio::test]
 async fn test_no_hallucination_for_informational_response() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     let provider = MockLLMProvider::with_responses(vec![text_response(
         "To update the config, you need to edit the settings.json file.",
@@ -344,7 +344,7 @@ async fn test_no_hallucination_for_informational_response() {
     let response = agent
         .process_direct("How do I update config?", "test:info", "telegram", "info")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(
         response,
@@ -352,6 +352,6 @@ async fn test_no_hallucination_for_informational_response() {
     );
 
     // Only 1 call — no retry needed
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     assert_eq!(recorded.len(), 1);
 }

@@ -10,7 +10,7 @@ use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_provider_error_propagated() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let provider = FailingMockProvider::new("LLM is down");
 
     let agent = create_test_agent_with(provider, &tmp, TestAgentOverrides::default()).await;
@@ -25,7 +25,7 @@ async fn test_provider_error_propagated() {
 
 #[tokio::test]
 async fn test_tool_error_forwarded_to_llm() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let missing = tmp.path().join("nonexistent.txt");
 
     let provider = MockLLMProvider::with_responses(vec![
@@ -42,12 +42,12 @@ async fn test_tool_error_forwarded_to_llm() {
     let response = agent
         .process_direct("Read it", "test:err2", "telegram", "err2")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "The file doesn't exist.");
 
     // Second LLM call should contain the error tool result
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.is_error);
@@ -55,7 +55,7 @@ async fn test_tool_error_forwarded_to_llm() {
 
 #[tokio::test]
 async fn test_max_iterations_respected() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     // Provider always returns a tool call — should stop at max_iterations
     let mut responses = Vec::new();
@@ -85,13 +85,13 @@ async fn test_max_iterations_respected() {
     let response = agent
         .process_direct("Loop forever", "test:err3", "telegram", "err3")
         .await
-        .unwrap();
+        .expect("process message");
 
     // Should have stopped and returned something (not panicked)
     assert!(!response.is_empty());
 
     // Should not have made more than max_iterations + 1 calls
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     assert!(
         recorded.len() <= 4,
         "Should respect max_iterations=3, got {} calls",
@@ -101,7 +101,7 @@ async fn test_max_iterations_respected() {
 
 #[tokio::test]
 async fn test_empty_llm_response_handled() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     // Provider returns empty content and no tool calls
     let provider = MockLLMProvider::with_responses(vec![
@@ -133,7 +133,7 @@ async fn test_empty_llm_response_handled() {
     let response = agent
         .process_direct("Hello?", "test:err4", "telegram", "err4")
         .await
-        .unwrap();
+        .expect("process message");
 
     // Should get a response without panicking
     assert!(!response.is_empty());
@@ -141,7 +141,7 @@ async fn test_empty_llm_response_handled() {
 
 #[tokio::test]
 async fn test_invalid_tool_arguments() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     // Provide a number where a string is expected for "path"
     let provider = MockLLMProvider::with_responses(vec![
@@ -154,12 +154,12 @@ async fn test_invalid_tool_arguments() {
     let response = agent
         .process_direct("Read file 12345", "test:err5", "telegram", "err5")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "Bad args handled.");
 
     // Tool result should be an error about type mismatch
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.is_error);
@@ -168,7 +168,7 @@ async fn test_invalid_tool_arguments() {
 
 #[tokio::test]
 async fn test_missing_required_argument() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     // Call read_file without the required "path" parameter
     let provider = MockLLMProvider::with_responses(vec![
@@ -181,12 +181,12 @@ async fn test_missing_required_argument() {
     let response = agent
         .process_direct("Read a file", "test:err6", "telegram", "err6")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "Missing param handled.");
 
     // Tool result should be an error about missing parameter
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.is_error);
@@ -195,12 +195,12 @@ async fn test_missing_required_argument() {
 
 #[tokio::test]
 async fn test_tool_result_truncation() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     // Create a file with > 10k characters
     let large_content = "x".repeat(15000);
     let target = tmp.path().join("large.txt");
-    std::fs::write(&target, &large_content).unwrap();
+    std::fs::write(&target, &large_content).expect("write test file");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -216,10 +216,10 @@ async fn test_tool_result_truncation() {
     agent
         .process_direct("Read large", "test:err7", "telegram", "err7")
         .await
-        .unwrap();
+        .expect("process message");
 
     // The tool result sent to the LLM should be truncated
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     // Result should be truncated below the original 15000 chars

@@ -560,4 +560,48 @@ mod tests {
         assert!(output.contains("<i>italic</i>"));
         assert!(output.contains("<code>code</code>"));
     }
+
+    #[test]
+    fn test_markdown_to_html_multiple_bold() {
+        assert_eq!(
+            markdown_to_telegram_html("**a** and **b**"),
+            "<b>a</b> and <b>b</b>"
+        );
+    }
+
+    #[test]
+    fn test_markdown_to_html_multiple_links() {
+        let input = "[one](https://one.com) and [two](https://two.com)";
+        let expected = r#"<a href="https://one.com">one</a> and <a href="https://two.com">two</a>"#;
+        assert_eq!(markdown_to_telegram_html(input), expected);
+    }
+
+    #[test]
+    fn test_markdown_to_html_link_with_ampersand_in_url() {
+        let input = "[search](https://example.com?a=1&b=2)";
+        let output = markdown_to_telegram_html(input);
+        // URL should be escaped since HTML escaping runs first
+        assert!(output.contains("href=\"https://example.com?a=1&amp;b=2\""));
+    }
+
+    #[test]
+    fn test_markdown_to_html_newlines_preserved() {
+        let input = "line 1\nline 2";
+        assert_eq!(markdown_to_telegram_html(input), "line 1\nline 2");
+    }
+
+    #[test]
+    fn test_markdown_to_html_angle_brackets() {
+        assert_eq!(markdown_to_telegram_html("a > b < c"), "a &gt; b &lt; c");
+    }
+
+    #[test]
+    fn test_markdown_to_html_code_preserves_special_chars() {
+        // Inside inline code, special chars should be HTML-escaped too
+        // (escaping happens before markdown conversion)
+        let input = "`a < b`";
+        let output = markdown_to_telegram_html(input);
+        assert!(output.contains("<code>"));
+        assert!(output.contains("&lt;"));
+    }
 }

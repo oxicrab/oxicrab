@@ -772,4 +772,38 @@ mod tests {
             &allow,
         ));
     }
+
+    // --- is_image_mime tests ---
+
+    #[test]
+    fn test_is_image_mime_jpeg() {
+        assert!(is_image_mime(Some("image/jpeg")));
+    }
+
+    #[test]
+    fn test_is_image_mime_png() {
+        assert!(is_image_mime(Some("image/png")));
+    }
+
+    #[test]
+    fn test_is_image_mime_webp() {
+        assert!(is_image_mime(Some("image/webp")));
+    }
+
+    #[test]
+    fn test_is_image_mime_not_image() {
+        assert!(!is_image_mime(Some("application/pdf")));
+        assert!(!is_image_mime(Some("audio/ogg")));
+        assert!(!is_image_mime(Some("text/plain")));
+    }
+
+    #[test]
+    fn test_is_image_mime_none() {
+        assert!(!is_image_mime(None));
+    }
+
+    #[test]
+    fn test_is_image_mime_empty() {
+        assert!(!is_image_mime(Some("")));
+    }
 }

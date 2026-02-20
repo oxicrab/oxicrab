@@ -9,10 +9,10 @@ use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_write_file_through_agent_loop() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     // Create a placeholder so canonicalize resolves, then write_file overwrites it
     let target = tmp.path().join("output.txt");
-    std::fs::write(&target, "").unwrap();
+    std::fs::write(&target, "").expect("write placeholder file");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -28,12 +28,12 @@ async fn test_write_file_through_agent_loop() {
     let response = agent
         .process_direct("Write a file", "test:fs1", "telegram", "fs1")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "File written.");
 
     // Verify the tool succeeded
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(
@@ -47,9 +47,9 @@ async fn test_write_file_through_agent_loop() {
 
 #[tokio::test]
 async fn test_read_file_through_agent_loop() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let target = tmp.path().join("data.txt");
-    std::fs::write(&target, "file contents here").unwrap();
+    std::fs::write(&target, "file contents here").expect("write test file");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -65,12 +65,12 @@ async fn test_read_file_through_agent_loop() {
     let response = agent
         .process_direct("Read data.txt", "test:fs2", "telegram", "fs2")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "Got it.");
 
     // Verify the tool result contains the file contents
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.content.contains("file contents here"));
@@ -79,9 +79,9 @@ async fn test_read_file_through_agent_loop() {
 
 #[tokio::test]
 async fn test_edit_file_through_agent_loop() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let target = tmp.path().join("edit_me.txt");
-    std::fs::write(&target, "old text in the file").unwrap();
+    std::fs::write(&target, "old text in the file").expect("write test file");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -100,7 +100,7 @@ async fn test_edit_file_through_agent_loop() {
     let response = agent
         .process_direct("Edit the file", "test:fs3", "telegram", "fs3")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "Edited.");
     assert_eq!(
@@ -111,10 +111,10 @@ async fn test_edit_file_through_agent_loop() {
 
 #[tokio::test]
 async fn test_list_dir_with_files() {
-    let tmp = TempDir::new().unwrap();
-    std::fs::write(tmp.path().join("alpha.txt"), "a").unwrap();
-    std::fs::write(tmp.path().join("beta.txt"), "b").unwrap();
-    std::fs::create_dir(tmp.path().join("subdir")).unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
+    std::fs::write(tmp.path().join("alpha.txt"), "a").expect("write test file");
+    std::fs::write(tmp.path().join("beta.txt"), "b").expect("write test file");
+    std::fs::create_dir(tmp.path().join("subdir")).expect("create test dir");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -130,9 +130,9 @@ async fn test_list_dir_with_files() {
     agent
         .process_direct("List dir", "test:fs4", "telegram", "fs4")
         .await
-        .unwrap();
+        .expect("process message");
 
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.content.contains("alpha.txt"));
@@ -142,10 +142,10 @@ async fn test_list_dir_with_files() {
 
 #[tokio::test]
 async fn test_write_then_read_multi_tool_sequence() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let target = tmp.path().join("roundtrip.txt");
     // Create placeholder so canonicalize works on first write
-    std::fs::write(&target, "").unwrap();
+    std::fs::write(&target, "").expect("write placeholder file");
 
     let provider = MockLLMProvider::with_responses(vec![
         // First: write
@@ -168,12 +168,12 @@ async fn test_write_then_read_multi_tool_sequence() {
     let response = agent
         .process_direct("Write then read", "test:fs5", "telegram", "fs5")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "Done.");
 
     // The third call should have the read_file result with the written content
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     assert_eq!(recorded.len(), 3);
     let third_msgs = &recorded[2].messages;
     let tool_msg = third_msgs.iter().rfind(|m| m.role == "tool").unwrap();
@@ -182,7 +182,7 @@ async fn test_write_then_read_multi_tool_sequence() {
 
 #[tokio::test]
 async fn test_write_file_outside_workspace_blocked() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -207,10 +207,10 @@ async fn test_write_file_outside_workspace_blocked() {
     agent
         .process_direct("Write outside", "test:fs6", "telegram", "fs6")
         .await
-        .unwrap();
+        .expect("process message");
 
     // Tool result should be an error
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.is_error);
@@ -229,7 +229,7 @@ async fn test_write_file_outside_workspace_blocked() {
 
 #[tokio::test]
 async fn test_read_file_nonexistent_returns_error() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
     let missing = tmp.path().join("does_not_exist.txt");
 
     let provider = MockLLMProvider::with_responses(vec![
@@ -246,9 +246,9 @@ async fn test_read_file_nonexistent_returns_error() {
     agent
         .process_direct("Read missing", "test:fs7", "telegram", "fs7")
         .await
-        .unwrap();
+        .expect("process message");
 
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.is_error);
@@ -257,9 +257,9 @@ async fn test_read_file_nonexistent_returns_error() {
 
 #[tokio::test]
 async fn test_parallel_file_reads() {
-    let tmp = TempDir::new().unwrap();
-    std::fs::write(tmp.path().join("a.txt"), "content A").unwrap();
-    std::fs::write(tmp.path().join("b.txt"), "content B").unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
+    std::fs::write(tmp.path().join("a.txt"), "content A").expect("write test file");
+    std::fs::write(tmp.path().join("b.txt"), "content B").expect("write test file");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![
@@ -282,12 +282,12 @@ async fn test_parallel_file_reads() {
     let response = agent
         .process_direct("Read both files", "test:fs8", "telegram", "fs8")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "Read both.");
 
     // Both tool results should be present
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msgs: Vec<_> = second_msgs.iter().filter(|m| m.role == "tool").collect();
     assert_eq!(tool_msgs.len(), 2);

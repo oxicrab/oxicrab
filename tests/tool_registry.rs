@@ -52,7 +52,7 @@ impl Tool for CacheableTool {
         })
     }
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
-        *self.call_count.lock().unwrap() += 1;
+        *self.call_count.lock().expect("lock call count") += 1;
         let text = params["text"].as_str().unwrap_or("no text");
         Ok(ToolResult::new(format!("Cached: {}", text)))
     }
@@ -111,7 +111,7 @@ async fn test_register_and_execute() {
     let result = registry
         .execute("echo", json!({"text": "hello world"}), &default_ctx())
         .await
-        .unwrap();
+        .expect("execute echo tool");
 
     assert_eq!(result.content, "Echo: hello world");
     assert!(!result.is_error);
@@ -154,18 +154,18 @@ async fn test_cache_hit_same_params() {
     let result1 = registry
         .execute("cacheable_echo", params.clone(), &default_ctx())
         .await
-        .unwrap();
+        .expect("execute cacheable tool first call");
     assert_eq!(result1.content, "Cached: cached value");
-    assert_eq!(*call_count.lock().unwrap(), 1);
+    assert_eq!(*call_count.lock().expect("lock call count"), 1);
 
     // Second call with same params - should hit cache
     let result2 = registry
         .execute("cacheable_echo", params, &default_ctx())
         .await
-        .unwrap();
+        .expect("execute cacheable tool second call");
     assert_eq!(result2.content, "Cached: cached value");
     // Call count should still be 1 (cached)
-    assert_eq!(*call_count.lock().unwrap(), 1);
+    assert_eq!(*call_count.lock().expect("lock call count"), 1);
 }
 
 #[tokio::test]
@@ -182,15 +182,15 @@ async fn test_cache_miss_different_params() {
     registry
         .execute("cacheable_echo", json!({"text": "a"}), &default_ctx())
         .await
-        .unwrap();
-    assert_eq!(*call_count.lock().unwrap(), 1);
+        .expect("execute cacheable tool first call");
+    assert_eq!(*call_count.lock().expect("lock call count"), 1);
 
     // Second call with different params - should miss cache
     registry
         .execute("cacheable_echo", json!({"text": "b"}), &default_ctx())
         .await
-        .unwrap();
-    assert_eq!(*call_count.lock().unwrap(), 2);
+        .expect("execute cacheable tool second call");
+    assert_eq!(*call_count.lock().expect("lock call count"), 2);
 }
 
 #[tokio::test]
@@ -204,11 +204,11 @@ async fn test_non_cacheable_always_executes() {
     let r1 = registry
         .execute("echo", params.clone(), &default_ctx())
         .await
-        .unwrap();
+        .expect("execute echo first call");
     let r2 = registry
         .execute("echo", params, &default_ctx())
         .await
-        .unwrap();
+        .expect("execute echo second call");
     assert_eq!(r1.content, r2.content);
     // Both executed (no cache)
 }
@@ -222,7 +222,7 @@ async fn test_panic_caught_gracefully() {
     let result = registry
         .execute("panic_tool", json!({}), &default_ctx())
         .await
-        .unwrap();
+        .expect("execute panic tool");
     assert!(result.is_error);
     assert!(result.content.contains("crashed unexpectedly"));
 }
@@ -252,7 +252,7 @@ async fn test_error_result_not_cached() {
             _params: Value,
             _ctx: &ExecutionContext,
         ) -> anyhow::Result<ToolResult> {
-            *self.call_count.lock().unwrap() += 1;
+            *self.call_count.lock().expect("lock call count") += 1;
             Ok(ToolResult::error("Transient failure".to_string()))
         }
         fn cacheable(&self) -> bool {
@@ -270,17 +270,17 @@ async fn test_error_result_not_cached() {
     let r1 = registry
         .execute("cacheable_error", json!({}), &default_ctx())
         .await
-        .unwrap();
+        .expect("execute cacheable error tool first call");
     assert!(r1.is_error);
-    assert_eq!(*call_count.lock().unwrap(), 1);
+    assert_eq!(*call_count.lock().expect("lock call count"), 1);
 
     // Second call - should NOT be cached (errors aren't cached)
     let r2 = registry
         .execute("cacheable_error", json!({}), &default_ctx())
         .await
-        .unwrap();
+        .expect("execute cacheable error tool second call");
     assert!(r2.is_error);
-    assert_eq!(*call_count.lock().unwrap(), 2);
+    assert_eq!(*call_count.lock().expect("lock call count"), 2);
 }
 
 #[tokio::test]
@@ -291,7 +291,7 @@ async fn test_error_tool_returns_error_result() {
     let result = registry
         .execute("error_tool", json!({}), &default_ctx())
         .await
-        .unwrap();
+        .expect("execute error tool");
     assert!(result.is_error);
     assert_eq!(result.content, "Something went wrong");
 }

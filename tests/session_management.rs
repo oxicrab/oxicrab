@@ -1,5 +1,6 @@
 use oxicrab::session::{Session, SessionManager};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Create a SessionManager that uses an isolated temp directory.
@@ -15,7 +16,10 @@ async fn test_session_save_and_load() {
     let (mgr, tmp) = create_test_session_manager();
 
     // Create and populate session
-    let mut session = mgr.get_or_create("test:chat1").await.unwrap();
+    let mut session = mgr
+        .get_or_create("test:chat1")
+        .await
+        .expect("get or create session");
     assert_eq!(session.key, "test:chat1");
     assert!(session.messages.is_empty());
 
@@ -25,12 +29,15 @@ async fn test_session_save_and_load() {
         "Hi there!".to_string(),
         HashMap::new(),
     );
-    mgr.save(&session).await.unwrap();
+    mgr.save(&session).await.expect("save session");
 
     // Create a new manager pointing at the same directory to force load from disk
     let mgr2 =
         SessionManager::new(tmp.path().to_path_buf()).expect("Failed to create second manager");
-    let loaded = mgr2.get_or_create("test:chat1").await.unwrap();
+    let loaded = mgr2
+        .get_or_create("test:chat1")
+        .await
+        .expect("load session from disk");
 
     assert_eq!(loaded.messages.len(), 2);
     assert_eq!(loaded.messages[0].role, "user");
@@ -63,21 +70,27 @@ async fn test_session_cleanup_removes_old_files() {
     let (mgr, _tmp) = create_test_session_manager();
 
     // Create and save a session
-    let mut session = mgr.get_or_create("test:old").await.unwrap();
+    let mut session = mgr
+        .get_or_create("test:old")
+        .await
+        .expect("get or create session");
     session.add_message("user".to_string(), "old msg".to_string(), HashMap::new());
-    mgr.save(&session).await.unwrap();
+    mgr.save(&session).await.expect("save session");
 
     // With TTL of 0 days, all sessions should be cleaned up
-    let deleted = mgr.cleanup_old_sessions(0).unwrap();
+    let deleted = mgr.cleanup_old_sessions(0).expect("cleanup old sessions");
     assert_eq!(deleted, 1);
 
     // Create another fresh session
-    let mut session2 = mgr.get_or_create("test:fresh").await.unwrap();
+    let mut session2 = mgr
+        .get_or_create("test:fresh")
+        .await
+        .expect("get or create session");
     session2.add_message("user".to_string(), "fresh msg".to_string(), HashMap::new());
-    mgr.save(&session2).await.unwrap();
+    mgr.save(&session2).await.expect("save session");
 
     // With TTL of 365 days, nothing should be cleaned up
-    let deleted = mgr.cleanup_old_sessions(365).unwrap();
+    let deleted = mgr.cleanup_old_sessions(365).expect("cleanup old sessions");
     assert_eq!(deleted, 0);
 }
 
@@ -129,19 +142,31 @@ async fn test_session_full_history() {
 async fn test_sessions_are_isolated() {
     let (mgr, tmp) = create_test_session_manager();
 
-    let mut session_a = mgr.get_or_create("chan_a:chat_1").await.unwrap();
+    let mut session_a = mgr
+        .get_or_create("chan_a:chat_1")
+        .await
+        .expect("get or create session a");
     session_a.add_message("user".to_string(), "From A".to_string(), HashMap::new());
-    mgr.save(&session_a).await.unwrap();
+    mgr.save(&session_a).await.expect("save session a");
 
-    let mut session_b = mgr.get_or_create("chan_b:chat_2").await.unwrap();
+    let mut session_b = mgr
+        .get_or_create("chan_b:chat_2")
+        .await
+        .expect("get or create session b");
     session_b.add_message("user".to_string(), "From B".to_string(), HashMap::new());
-    mgr.save(&session_b).await.unwrap();
+    mgr.save(&session_b).await.expect("save session b");
 
     // Reload and verify isolation
     let mgr2 =
         SessionManager::new(tmp.path().to_path_buf()).expect("Failed to create second manager");
-    let loaded_a = mgr2.get_or_create("chan_a:chat_1").await.unwrap();
-    let loaded_b = mgr2.get_or_create("chan_b:chat_2").await.unwrap();
+    let loaded_a = mgr2
+        .get_or_create("chan_a:chat_1")
+        .await
+        .expect("load session a from disk");
+    let loaded_b = mgr2
+        .get_or_create("chan_b:chat_2")
+        .await
+        .expect("load session b from disk");
 
     assert_eq!(loaded_a.messages.len(), 1);
     assert_eq!(loaded_a.messages[0].content, "From A");
@@ -153,7 +178,10 @@ async fn test_sessions_are_isolated() {
 async fn test_session_metadata_persists() {
     let (mgr, tmp) = create_test_session_manager();
 
-    let mut session = mgr.get_or_create("test:meta").await.unwrap();
+    let mut session = mgr
+        .get_or_create("test:meta")
+        .await
+        .expect("get or create session");
     session
         .metadata
         .insert("key1".to_string(), serde_json::json!("value1"));
@@ -161,12 +189,15 @@ async fn test_session_metadata_persists() {
         .metadata
         .insert("key2".to_string(), serde_json::json!(42));
     session.add_message("user".to_string(), "Hello".to_string(), HashMap::new());
-    mgr.save(&session).await.unwrap();
+    mgr.save(&session).await.expect("save session");
 
     // Load from disk via new manager
     let mgr2 =
         SessionManager::new(tmp.path().to_path_buf()).expect("Failed to create second manager");
-    let loaded = mgr2.get_or_create("test:meta").await.unwrap();
+    let loaded = mgr2
+        .get_or_create("test:meta")
+        .await
+        .expect("load session from disk");
 
     assert_eq!(
         loaded.metadata.get("key1"),
@@ -180,4 +211,104 @@ async fn test_new_session_has_timestamps() {
     let session = Session::new("test:timestamps".to_string());
     assert!(session.created_at <= chrono::Utc::now());
     assert!(session.updated_at <= chrono::Utc::now());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_concurrent_get_or_create_same_key() {
+    let (mgr, _tmp) = create_test_session_manager();
+    let mgr = Arc::new(mgr);
+
+    let handles: Vec<_> = (0..10)
+        .map(|_| {
+            let mgr = Arc::clone(&mgr);
+            tokio::spawn(async move { mgr.get_or_create("shared:key").await })
+        })
+        .collect();
+
+    let results = futures_util::future::join_all(handles).await;
+    for result in results {
+        let session = result
+            .expect("task should not panic")
+            .expect("get or create should succeed");
+        assert_eq!(session.key, "shared:key");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_concurrent_save_different_keys() {
+    let (mgr, tmp) = create_test_session_manager();
+    let mgr = Arc::new(mgr);
+
+    let handles: Vec<_> = (0..10)
+        .map(|i| {
+            let mgr = Arc::clone(&mgr);
+            tokio::spawn(async move {
+                let key = format!("concurrent:{}", i);
+                let mut session = mgr
+                    .get_or_create(&key)
+                    .await
+                    .expect("get or create session");
+                session.add_message("user", format!("msg from {}", i), HashMap::new());
+                mgr.save(&session).await.expect("save session");
+                key
+            })
+        })
+        .collect();
+
+    let keys = futures_util::future::join_all(handles).await;
+
+    // Reload via a fresh manager and verify all 10 sessions persisted
+    let mgr2 =
+        SessionManager::new(tmp.path().to_path_buf()).expect("create second session manager");
+    for result in keys {
+        let key = result.expect("task should not panic");
+        let loaded = mgr2
+            .get_or_create(&key)
+            .await
+            .expect("load session from disk");
+        assert_eq!(
+            loaded.messages.len(),
+            1,
+            "session {} should have 1 message",
+            key
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_concurrent_save_same_key_no_corruption() {
+    let (mgr, tmp) = create_test_session_manager();
+    let mgr = Arc::new(mgr);
+
+    let handles: Vec<_> = (0..5)
+        .map(|i| {
+            let mgr = Arc::clone(&mgr);
+            tokio::spawn(async move {
+                let mut session = mgr
+                    .get_or_create("race:key")
+                    .await
+                    .expect("get or create session");
+                session.add_message("user", format!("writer {}", i), HashMap::new());
+                mgr.save(&session).await.expect("save session");
+            })
+        })
+        .collect();
+
+    futures_util::future::join_all(handles)
+        .await
+        .into_iter()
+        .for_each(|r| r.expect("task should not panic"));
+
+    // Reload from disk — file should be valid JSON (not corrupted)
+    let mgr2 =
+        SessionManager::new(tmp.path().to_path_buf()).expect("create second session manager");
+    let loaded = mgr2
+        .get_or_create("race:key")
+        .await
+        .expect("load session from disk after concurrent writes");
+    // At least one writer's message should be present (last writer wins)
+    assert!(
+        !loaded.messages.is_empty(),
+        "session should have at least one message after concurrent writes"
+    );
 }

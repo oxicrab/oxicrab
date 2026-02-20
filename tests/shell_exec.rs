@@ -16,7 +16,7 @@ fn shell_overrides(allowed: Vec<&str>) -> TestAgentOverrides {
 
 #[tokio::test]
 async fn test_exec_simple_echo() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -33,11 +33,11 @@ async fn test_exec_simple_echo() {
     let response = agent
         .process_direct("Run echo", "test:sh1", "telegram", "sh1")
         .await
-        .unwrap();
+        .expect("process message");
 
     assert_eq!(response, "Done.");
 
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(!tool_msg.is_error);
@@ -46,7 +46,7 @@ async fn test_exec_simple_echo() {
 
 #[tokio::test]
 async fn test_exec_blocked_command() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -64,9 +64,9 @@ async fn test_exec_blocked_command() {
     agent
         .process_direct("Download something", "test:sh2", "telegram", "sh2")
         .await
-        .unwrap();
+        .expect("process message");
 
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.is_error);
@@ -75,7 +75,7 @@ async fn test_exec_blocked_command() {
 
 #[tokio::test]
 async fn test_exec_pipe_with_allowlist() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -92,9 +92,9 @@ async fn test_exec_pipe_with_allowlist() {
     agent
         .process_direct("Pipe command", "test:sh3", "telegram", "sh3")
         .await
-        .unwrap();
+        .expect("process message");
 
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(!tool_msg.is_error);
@@ -103,7 +103,7 @@ async fn test_exec_pipe_with_allowlist() {
 
 #[tokio::test]
 async fn test_exec_pipe_with_blocked_command() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -121,9 +121,9 @@ async fn test_exec_pipe_with_blocked_command() {
     agent
         .process_direct("Pipe with perl", "test:sh4", "telegram", "sh4")
         .await
-        .unwrap();
+        .expect("process message");
 
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.is_error);
@@ -132,7 +132,7 @@ async fn test_exec_pipe_with_blocked_command() {
 
 #[tokio::test]
 async fn test_exec_blocklist_overrides_allowlist() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     // rm -rf / should be blocked by security patterns even if rm is "allowed"
     let provider = MockLLMProvider::with_responses(vec![
@@ -158,9 +158,9 @@ async fn test_exec_blocklist_overrides_allowlist() {
     agent
         .process_direct("Delete everything", "test:sh5", "telegram", "sh5")
         .await
-        .unwrap();
+        .expect("process message");
 
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.is_error);
@@ -169,7 +169,7 @@ async fn test_exec_blocklist_overrides_allowlist() {
 
 #[tokio::test]
 async fn test_exec_timeout() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -195,9 +195,9 @@ async fn test_exec_timeout() {
     agent
         .process_direct("Sleep forever", "test:sh6", "telegram", "sh6")
         .await
-        .unwrap();
+        .expect("process message");
 
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.is_error);
@@ -206,7 +206,7 @@ async fn test_exec_timeout() {
 
 #[tokio::test]
 async fn test_exec_empty_allowlist_permits_all() {
-    let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().expect("create temp dir");
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -232,9 +232,9 @@ async fn test_exec_empty_allowlist_permits_all() {
     agent
         .process_direct("Echo", "test:sh7", "telegram", "sh7")
         .await
-        .unwrap();
+        .expect("process message");
 
-    let recorded = calls.lock().unwrap();
+    let recorded = calls.lock().expect("lock recorded calls");
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(!tool_msg.is_error);
