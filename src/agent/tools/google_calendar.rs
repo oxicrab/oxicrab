@@ -336,7 +336,7 @@ impl Tool for GoogleCalendarTool {
                 }
                 Ok(ToolResult::new(lines.join("\n")))
             }
-            _ => Ok(ToolResult::error(format!("Unknown action: {}", action))),
+            _ => Ok(ToolResult::error(format!("unknown action: {}", action))),
         }
     }
 }

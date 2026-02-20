@@ -228,7 +228,7 @@ impl Tool for RedditTool {
             Some(s) => s.trim_start_matches("r/"),
             None => {
                 return Ok(ToolResult::error(
-                    "Missing 'subreddit' parameter".to_string(),
+                    "missing 'subreddit' parameter".to_string(),
                 ));
             }
         };
@@ -247,12 +247,12 @@ impl Tool for RedditTool {
             "search" => {
                 let Some(query) = params["query"].as_str() else {
                     return Ok(ToolResult::error(
-                        "Missing 'query' parameter for search action".to_string(),
+                        "missing 'query' parameter for search action".to_string(),
                     ));
                 };
                 self.search(subreddit, query, limit).await
             }
-            _ => return Ok(ToolResult::error(format!("Unknown action: {}", action))),
+            _ => return Ok(ToolResult::error(format!("unknown action: {}", action))),
         };
 
         match result {

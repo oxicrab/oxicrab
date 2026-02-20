@@ -30,7 +30,7 @@ async fn test_missing_action() {
         .await
         .unwrap();
     assert!(result.is_error);
-    assert!(result.content.contains("Unknown action"));
+    assert!(result.content.contains("unknown action"));
 }
 
 #[tokio::test]
@@ -45,7 +45,7 @@ async fn test_unknown_action() {
         .await
         .unwrap();
     assert!(result.is_error);
-    assert!(result.content.contains("Unknown action"));
+    assert!(result.content.contains("unknown action"));
 }
 
 #[tokio::test]

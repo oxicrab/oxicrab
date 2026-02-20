@@ -55,6 +55,73 @@ impl CronTool {
         resolve_all_channel_targets_from_config(self.channels_config.as_ref())
     }
 
+    /// Parse schedule parameters into a `CronSchedule`.
+    ///
+    /// Validates `every_seconds`, `cron_expr`, `at_time`, or `event_pattern` from
+    /// the tool params and returns the appropriate schedule variant. Returns
+    /// `Err(ToolResult)` for user-facing validation errors.
+    fn parse_schedule(params: &Value) -> std::result::Result<CronSchedule, ToolResult> {
+        if let Some(every_secs) = params["every_seconds"].as_u64() {
+            if every_secs == 0 || every_secs > 31_536_000 {
+                return Err(ToolResult::error(
+                    "every_seconds must be between 1 and 31536000 (1 year)".to_string(),
+                ));
+            }
+            Ok(CronSchedule::Every {
+                every_ms: Some((every_secs * 1000) as i64),
+            })
+        } else if let Some(cron_expr) = params["cron_expr"].as_str() {
+            if let Err(e) = crate::cron::service::validate_cron_expr(cron_expr) {
+                return Err(ToolResult::error(format!("invalid cron expression: {}", e)));
+            }
+            let tz = params["tz"]
+                .as_str()
+                .map(std::string::ToString::to_string)
+                .or_else(crate::cron::service::detect_system_timezone);
+            Ok(CronSchedule::Cron {
+                expr: Some(cron_expr.to_string()),
+                tz,
+            })
+        } else if let Some(at_time_str) = params["at_time"].as_str() {
+            let dt = chrono::DateTime::parse_from_rfc3339(at_time_str)
+                .or_else(|_| chrono::DateTime::parse_from_str(at_time_str, "%Y-%m-%dT%H:%M:%S%z"))
+                .map_err(|_| {
+                    ToolResult::error(
+                        "Invalid at_time format. Use ISO 8601 (e.g. '2025-01-15T09:00:00-05:00')"
+                            .to_string(),
+                    )
+                })?;
+            let at_ms = dt.timestamp_millis();
+            let now_ms_check = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as i64);
+            if at_ms <= now_ms_check {
+                return Err(ToolResult::error(
+                    "at_time must be in the future".to_string(),
+                ));
+            }
+            Ok(CronSchedule::At { at_ms: Some(at_ms) })
+        } else if let Some(event_pattern) = params["event_pattern"].as_str() {
+            if let Err(e) = regex::Regex::new(event_pattern) {
+                return Err(ToolResult::error(format!(
+                    "invalid event_pattern regex: {}",
+                    e
+                )));
+            }
+            Ok(CronSchedule::Event {
+                pattern: Some(event_pattern.to_string()),
+                channel: params["event_channel"]
+                    .as_str()
+                    .map(std::string::ToString::to_string),
+            })
+        } else {
+            Err(ToolResult::error(
+                "either every_seconds, cron_expr, at_time, or event_pattern is required"
+                    .to_string(),
+            ))
+        }
+    }
+
     fn resolve_specific_channel_targets(&self, channel_names: &[String]) -> Vec<CronTarget> {
         let Some(ref cfg) = self.channels_config else {
             return vec![];
@@ -264,7 +331,7 @@ impl Tool for CronTool {
                 let job_type = params["type"].as_str().unwrap_or("agent");
                 if job_type != "agent" && job_type != "echo" {
                     return Ok(ToolResult::error(format!(
-                        "Error: invalid type '{}'. Must be 'agent' or 'echo'.",
+                        "invalid type '{}'. Must be 'agent' or 'echo'",
                         job_type
                     )));
                 }
@@ -279,7 +346,7 @@ impl Tool for CronTool {
 
                 if channel.is_empty() || chat_id.is_empty() {
                     return Ok(ToolResult::error(
-                        "Error: no session context (channel/chat_id)".to_string(),
+                        "no session context (channel/chat_id)".to_string(),
                     ));
                 }
 
@@ -288,67 +355,13 @@ impl Tool for CronTool {
 
                 if targets.is_empty() {
                     return Ok(ToolResult::error(
-                        "Error: no valid targets resolved. Check that the specified channels are enabled and have allowFrom configured.".to_string(),
+                        "no valid targets resolved. Check that the specified channels are enabled and have allowFrom configured".to_string(),
                     ));
                 }
 
-                let schedule = if let Some(every_secs) = params["every_seconds"].as_u64() {
-                    if every_secs == 0 || every_secs > 31_536_000 {
-                        return Ok(ToolResult::error(
-                            "Error: every_seconds must be between 1 and 31536000 (1 year)"
-                                .to_string(),
-                        ));
-                    }
-                    CronSchedule::Every {
-                        every_ms: Some((every_secs * 1000) as i64),
-                    }
-                } else if let Some(cron_expr) = params["cron_expr"].as_str() {
-                    // Validate the expression parses before storing
-                    if let Err(e) = crate::cron::service::validate_cron_expr(cron_expr) {
-                        return Ok(ToolResult::error(format!("Error: {}", e)));
-                    }
-                    // Use explicit tz param, or detect system timezone
-                    let tz = params["tz"]
-                        .as_str()
-                        .map(std::string::ToString::to_string)
-                        .or_else(crate::cron::service::detect_system_timezone);
-                    CronSchedule::Cron {
-                        expr: Some(cron_expr.to_string()),
-                        tz,
-                    }
-                } else if let Some(at_time_str) = params["at_time"].as_str() {
-                    let dt = chrono::DateTime::parse_from_rfc3339(at_time_str)
-                        .or_else(|_| chrono::DateTime::parse_from_str(at_time_str, "%Y-%m-%dT%H:%M:%S%z"))
-                        .map_err(|_| anyhow::anyhow!("Invalid at_time format. Use ISO 8601 (e.g. '2025-01-15T09:00:00-05:00')"))?;
-                    let at_ms = dt.timestamp_millis();
-                    let now_ms_check = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map_or(0, |d| d.as_millis() as i64);
-                    if at_ms <= now_ms_check {
-                        return Ok(ToolResult::error(
-                            "Error: at_time must be in the future".to_string(),
-                        ));
-                    }
-                    CronSchedule::At { at_ms: Some(at_ms) }
-                } else if let Some(event_pattern) = params["event_pattern"].as_str() {
-                    // Validate the regex compiles
-                    if let Err(e) = regex::Regex::new(event_pattern) {
-                        return Ok(ToolResult::error(format!(
-                            "Error: invalid event_pattern regex: {}",
-                            e
-                        )));
-                    }
-                    CronSchedule::Event {
-                        pattern: Some(event_pattern.to_string()),
-                        channel: params["event_channel"]
-                            .as_str()
-                            .map(std::string::ToString::to_string),
-                    }
-                } else {
-                    return Ok(ToolResult::error(
-                        "Error: either every_seconds, cron_expr, at_time, or event_pattern is required"
-                            .to_string(),
-                    ));
+                let schedule = match Self::parse_schedule(&params) {
+                    Ok(s) => s,
+                    Err(tool_err) => return Ok(tool_err),
                 };
 
                 let delete_after_run = matches!(&schedule, CronSchedule::At { .. });
@@ -366,7 +379,7 @@ impl Tool for CronTool {
                         .map_or(0, |d| d.as_millis() as i64);
                     if ms <= now_check {
                         return Ok(ToolResult::error(
-                            "Error: expires_at must be in the future".to_string(),
+                            "expires_at must be in the future".to_string(),
                         ));
                     }
                     Some(ms)
@@ -534,7 +547,7 @@ impl Tool for CronTool {
 
                 match self.cron_service.remove_job(job_id).await? {
                     Some(_) => Ok(ToolResult::new(format!("Removed job {}", job_id))),
-                    None => Ok(ToolResult::error(format!("Job {} not found", job_id))),
+                    None => Ok(ToolResult::error(format!("job {} not found", job_id))),
                 }
             }
             "run" => {
@@ -557,7 +570,7 @@ impl Tool for CronTool {
                     ))),
                 }
             }
-            _ => Ok(ToolResult::error(format!("Unknown action: {}", action))),
+            _ => Ok(ToolResult::error(format!("unknown action: {}", action))),
         }
     }
 }

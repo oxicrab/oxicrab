@@ -515,6 +515,13 @@ pub struct PromptGuardConfig {
     pub action: PromptGuardAction,
 }
 
+impl PromptGuardConfig {
+    /// Whether detected prompt injections should block the message.
+    pub fn should_block(&self) -> bool {
+        self.action == PromptGuardAction::Block
+    }
+}
+
 impl Default for PromptGuardConfig {
     fn default() -> Self {
         Self {
@@ -1454,112 +1461,130 @@ impl Config {
 
     /// Validate configuration values
     pub fn validate(&self) -> Result<(), crate::errors::OxicrabError> {
-        use crate::errors::OxicrabError;
+        self.validate_agent_defaults()?;
+        self.validate_compaction()?;
+        self.validate_memory()?;
+        self.validate_cognitive()?;
+        self.validate_gateway()?;
+        self.validate_tools()?;
+        self.validate_channels()?;
+        Ok(())
+    }
 
-        // Validate agent defaults
-        if self.agents.defaults.max_tokens == 0 {
+    fn validate_agent_defaults(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+        let d = &self.agents.defaults;
+
+        if d.max_tokens == 0 {
             return Err(OxicrabError::Config(
                 "agents.defaults.maxTokens must be > 0".into(),
             ));
         }
-        if self.agents.defaults.max_tokens > 1_000_000 {
+        if d.max_tokens > 1_000_000 {
             return Err(OxicrabError::Config(
                 "agents.defaults.maxTokens is unreasonably large (> 1,000,000)".into(),
             ));
         }
-        if self.agents.defaults.temperature < 0.0 || self.agents.defaults.temperature > 2.0 {
+        if d.temperature < 0.0 || d.temperature > 2.0 {
             return Err(OxicrabError::Config(
                 "agents.defaults.temperature must be between 0.0 and 2.0".into(),
             ));
         }
-        if self.agents.defaults.max_tool_iterations == 0 {
+        if d.max_tool_iterations == 0 {
             return Err(OxicrabError::Config(
                 "agents.defaults.maxToolIterations must be > 0".into(),
             ));
         }
-        if self.agents.defaults.max_tool_iterations > 1000 {
+        if d.max_tool_iterations > 1000 {
             return Err(OxicrabError::Config(
                 "agents.defaults.maxToolIterations is unreasonably large (> 1000)".into(),
             ));
         }
+        if d.daemon.enabled {
+            if d.daemon.interval == 0 {
+                return Err(OxicrabError::Config(
+                    "agents.defaults.daemon.interval must be > 0 when enabled".into(),
+                ));
+            }
+            if d.daemon.interval < 60 {
+                warn!("Daemon interval is very short (< 60s), this may cause high resource usage");
+            }
+        }
+        Ok(())
+    }
 
-        // Validate compaction config
-        if self.agents.defaults.compaction.enabled {
-            if self.agents.defaults.compaction.threshold_tokens == 0 {
+    fn validate_compaction(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+        let c = &self.agents.defaults.compaction;
+
+        if c.enabled {
+            if c.threshold_tokens == 0 {
                 return Err(OxicrabError::Config(
                     "agents.defaults.compaction.thresholdTokens must be > 0 when enabled".into(),
                 ));
             }
-            if self.agents.defaults.compaction.keep_recent == 0 {
+            if c.keep_recent == 0 {
                 return Err(OxicrabError::Config(
                     "agents.defaults.compaction.keepRecent must be > 0 when enabled".into(),
                 ));
             }
         }
-
-        // Validate daemon config
-        if self.agents.defaults.daemon.enabled {
-            if self.agents.defaults.daemon.interval == 0 {
-                return Err(OxicrabError::Config(
-                    "agents.defaults.daemon.interval must be > 0 when enabled".into(),
-                ));
-            }
-            if self.agents.defaults.daemon.interval < 60 {
-                warn!("Daemon interval is very short (< 60s), this may cause high resource usage");
-            }
-        }
-
-        // Validate memory config
-        if !(0.0..=1.0).contains(&self.agents.defaults.memory.hybrid_weight) {
-            return Err(OxicrabError::Config(
-                "agents.defaults.memory.hybridWeight must be between 0.0 and 1.0".into(),
-            ));
-        }
-        if self.agents.defaults.memory.archive_after_days > 0
-            && self.agents.defaults.memory.purge_after_days > 0
-            && self.agents.defaults.memory.purge_after_days
-                <= self.agents.defaults.memory.archive_after_days
-        {
-            return Err(OxicrabError::Config(
-                "agents.defaults.memory.purgeAfterDays must be > archiveAfterDays".into(),
-            ));
-        }
-
-        // Validate cognitive config thresholds ordering
-        if self.agents.defaults.cognitive.enabled {
-            let c = &self.agents.defaults.cognitive;
-            if c.gentle_threshold >= c.firm_threshold || c.firm_threshold >= c.urgent_threshold {
-                return Err(OxicrabError::Config(
-                    "agents.defaults.cognitive thresholds must be ordered: gentle < firm < urgent"
-                        .into(),
-                ));
-            }
-        }
-
-        // Validate checkpoint interval
-        if self.agents.defaults.compaction.checkpoint.enabled
-            && self
-                .agents
-                .defaults
-                .compaction
-                .checkpoint
-                .interval_iterations
-                == 0
-        {
+        if c.checkpoint.enabled && c.checkpoint.interval_iterations == 0 {
             return Err(OxicrabError::Config(
                 "agents.defaults.compaction.checkpoint.intervalIterations must be > 0 when enabled"
                     .into(),
             ));
         }
+        Ok(())
+    }
 
-        // Prompt guard action validated by serde (PromptGuardAction enum)
+    fn validate_memory(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+        let m = &self.agents.defaults.memory;
 
-        // Validate gateway config
+        if !(0.0..=1.0).contains(&m.hybrid_weight) {
+            return Err(OxicrabError::Config(
+                "agents.defaults.memory.hybridWeight must be between 0.0 and 1.0".into(),
+            ));
+        }
+        if m.archive_after_days > 0
+            && m.purge_after_days > 0
+            && m.purge_after_days <= m.archive_after_days
+        {
+            return Err(OxicrabError::Config(
+                "agents.defaults.memory.purgeAfterDays must be > archiveAfterDays".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_cognitive(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+        let c = &self.agents.defaults.cognitive;
+
+        if c.enabled
+            && (c.gentle_threshold >= c.firm_threshold || c.firm_threshold >= c.urgent_threshold)
+        {
+            return Err(OxicrabError::Config(
+                "agents.defaults.cognitive thresholds must be ordered: gentle < firm < urgent"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_gateway(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+
         if self.gateway.port == 0 {
             return Err(OxicrabError::Config("gateway.port must be > 0".into()));
         }
+        Ok(())
+    }
 
-        // Validate tools config
+    fn validate_tools(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+
         if self.tools.exec.timeout == 0 {
             return Err(OxicrabError::Config(
                 "tools.exec.timeout must be > 0".into(),
@@ -1573,8 +1598,6 @@ impl Config {
                 "tools.browser.timeout must be > 0".into(),
             ));
         }
-
-        // Validate obsidian config
         if self.tools.obsidian.enabled {
             if self.tools.obsidian.api_url.is_empty() {
                 return Err(OxicrabError::Config(
@@ -1592,41 +1615,6 @@ impl Config {
                 ));
             }
         }
-
-        // Validate Twilio config
-        if self.channels.twilio.enabled {
-            if self.channels.twilio.account_sid.is_empty() {
-                return Err(OxicrabError::Config(
-                    "channels.twilio.accountSid is required when twilio is enabled".into(),
-                ));
-            }
-            if self.channels.twilio.auth_token.is_empty() {
-                return Err(OxicrabError::Config(
-                    "channels.twilio.authToken is required when twilio is enabled".into(),
-                ));
-            }
-            if self.channels.twilio.webhook_url.is_empty() {
-                return Err(OxicrabError::Config(
-                    "channels.twilio.webhookUrl is required when twilio is enabled".into(),
-                ));
-            }
-            if self.channels.twilio.webhook_port == 0 {
-                return Err(OxicrabError::Config(
-                    "channels.twilio.webhookPort must be > 0 when twilio is enabled".into(),
-                ));
-            }
-            if self.channels.twilio.webhook_path.is_empty()
-                || !self.channels.twilio.webhook_path.starts_with('/')
-            {
-                return Err(OxicrabError::Config(
-                    "channels.twilio.webhookPath must start with '/' when twilio is enabled".into(),
-                ));
-            }
-        }
-
-        // dmPolicy validation is handled by serde's enum deserialization
-
-        // Validate web search config
         if self.tools.web.search.max_results == 0 {
             return Err(OxicrabError::Config(
                 "tools.web.search.maxResults must be > 0".into(),
@@ -1635,7 +1623,40 @@ impl Config {
         if self.tools.web.search.max_results > 100 {
             warn!("tools.web.search.maxResults is very large (> 100), this may be slow");
         }
+        Ok(())
+    }
 
+    fn validate_channels(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+        let tw = &self.channels.twilio;
+
+        if tw.enabled {
+            if tw.account_sid.is_empty() {
+                return Err(OxicrabError::Config(
+                    "channels.twilio.accountSid is required when twilio is enabled".into(),
+                ));
+            }
+            if tw.auth_token.is_empty() {
+                return Err(OxicrabError::Config(
+                    "channels.twilio.authToken is required when twilio is enabled".into(),
+                ));
+            }
+            if tw.webhook_url.is_empty() {
+                return Err(OxicrabError::Config(
+                    "channels.twilio.webhookUrl is required when twilio is enabled".into(),
+                ));
+            }
+            if tw.webhook_port == 0 {
+                return Err(OxicrabError::Config(
+                    "channels.twilio.webhookPort must be > 0 when twilio is enabled".into(),
+                ));
+            }
+            if tw.webhook_path.is_empty() || !tw.webhook_path.starts_with('/') {
+                return Err(OxicrabError::Config(
+                    "channels.twilio.webhookPath must start with '/' when twilio is enabled".into(),
+                ));
+            }
+        }
         Ok(())
     }
 

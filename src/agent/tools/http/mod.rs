@@ -8,6 +8,8 @@ use serde_json::Value;
 use std::time::Duration;
 
 const MAX_RESPONSE_CHARS: usize = 50000;
+const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 30;
+const MAX_HTTP_TIMEOUT_SECS: u64 = 120;
 
 #[derive(Default)]
 pub struct HttpTool {
@@ -67,11 +69,14 @@ impl HttpTool {
         client: &Client,
     ) -> Result<ToolResult> {
         let Some(url) = params["url"].as_str() else {
-            return Ok(ToolResult::error("Missing 'url' parameter".to_string()));
+            return Ok(ToolResult::error("missing 'url' parameter".to_string()));
         };
 
         let method = params["method"].as_str().unwrap_or("GET").to_uppercase();
-        let timeout_secs = params["timeout_secs"].as_u64().unwrap_or(30).min(120);
+        let timeout_secs = params["timeout_secs"]
+            .as_u64()
+            .unwrap_or(DEFAULT_HTTP_TIMEOUT_SECS)
+            .min(MAX_HTTP_TIMEOUT_SECS);
 
         let mut request = match method.as_str() {
             "GET" => client.get(url),
@@ -79,7 +84,7 @@ impl HttpTool {
             "PUT" => client.put(url),
             "PATCH" => client.patch(url),
             "DELETE" => client.delete(url),
-            _ => return Ok(ToolResult::error(format!("Unsupported method: {}", method))),
+            _ => return Ok(ToolResult::error(format!("unsupported method: {}", method))),
         };
 
         request = request.timeout(Duration::from_secs(timeout_secs));
@@ -243,7 +248,7 @@ impl Tool for HttpTool {
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let Some(url) = params["url"].as_str() else {
-            return Ok(ToolResult::error("Missing 'url' parameter".to_string()));
+            return Ok(ToolResult::error("missing 'url' parameter".to_string()));
         };
 
         // Validate URL and resolve DNS for pinning (prevents TOCTOU rebinding)

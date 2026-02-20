@@ -139,7 +139,11 @@ impl ToolRegistry {
         Ok(result)
     }
 
-    /// Execute a tool in a spawned task with timeout and panic isolation.
+    /// Execute a tool in a spawned `tokio::task` with timeout and panic isolation.
+    ///
+    /// The tool runs in a separate task so that panics are caught (via `JoinError::is_panic`)
+    /// and timeouts are enforced (via `tokio::time::timeout`). Both cases return a
+    /// `ToolResult::error` instead of propagating the failure, keeping the agent loop alive.
     async fn execute_with_guards(
         &self,
         name: &str,

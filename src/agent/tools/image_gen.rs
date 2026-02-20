@@ -80,7 +80,7 @@ impl ImageGenTool {
                     }
                 }
                 _ => Err(format!(
-                    "Unknown provider '{}'. Use 'openai' or 'google'",
+                    "unknown provider '{}'. Use 'openai' or 'google'",
                     provider
                 )),
             }
@@ -98,7 +98,7 @@ impl ImageGenTool {
                 Ok("google")
             } else {
                 Err(
-                    "No image generation provider configured (need OpenAI or Gemini API key)"
+                    "no image generation provider configured (need OpenAI or Gemini API key)"
                         .to_string(),
                 )
             }
@@ -254,7 +254,7 @@ impl Tool for ImageGenTool {
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let Some(prompt) = params["prompt"].as_str() else {
             return Ok(ToolResult::error(
-                "Missing required 'prompt' parameter".to_string(),
+                "missing required 'prompt' parameter".to_string(),
             ));
         };
 
@@ -286,7 +286,7 @@ impl Tool for ImageGenTool {
                 "Image saved to: {}",
                 crate::utils::path_sanitize::sanitize_path(std::path::Path::new(&path), None,)
             ))),
-            Err(e) => Ok(ToolResult::error(format!("Image generation failed: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("image generation failed: {}", e))),
         }
     }
 }
@@ -326,7 +326,7 @@ mod tests {
             .await
             .unwrap();
         assert!(result.is_error);
-        assert!(result.content.contains("No image generation provider"));
+        assert!(result.content.contains("no image generation provider"));
     }
 
     #[tokio::test]
@@ -340,7 +340,7 @@ mod tests {
             .await
             .unwrap();
         assert!(result.is_error);
-        assert!(result.content.contains("Unknown provider"));
+        assert!(result.content.contains("unknown provider"));
     }
 
     #[tokio::test]

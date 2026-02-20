@@ -125,7 +125,7 @@ impl Tool for TmuxTool {
             .is_err()
         {
             return Ok(ToolResult::error(
-                "Error: tmux is not installed or not found on PATH".to_string(),
+                "tmux is not installed or not found on PATH".to_string(),
             ));
         }
 
@@ -140,7 +140,7 @@ impl Tool for TmuxTool {
                 })?;
                 if !SAFE_SESSION_NAME.is_match(session_name) {
                     return Ok(ToolResult::error(
-                        "Error: session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
+                        "session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
                     ));
                 }
 
@@ -149,7 +149,7 @@ impl Tool for TmuxTool {
                     .await?;
                 if code != 0 {
                     return Ok(ToolResult::error(format!(
-                        "Error: Failed to create session '{}': {}",
+                        "failed to create session '{}': {}",
                         session_name, stderr
                     )));
                 }
@@ -169,7 +169,7 @@ impl Tool for TmuxTool {
                     .ok_or_else(|| anyhow::anyhow!("Missing 'session_name' parameter for send"))?;
                 if !SAFE_SESSION_NAME.is_match(session_name) {
                     return Ok(ToolResult::error(
-                        "Error: session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
+                        "session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
                     ));
                 }
                 let command = params["command"]
@@ -180,7 +180,7 @@ impl Tool for TmuxTool {
                 for pattern in &self.deny_patterns {
                     if pattern.is_match(command) {
                         return Ok(ToolResult::error(format!(
-                            "Error: command blocked by security policy: {}",
+                            "command blocked by security policy: {}",
                             command
                         )));
                     }
@@ -193,7 +193,7 @@ impl Tool for TmuxTool {
                     .await?;
                 if code != 0 {
                     return Ok(ToolResult::error(format!(
-                        "Error: Failed to send command to '{}': {}",
+                        "failed to send command to '{}': {}",
                         session_name, stderr
                     )));
                 }
@@ -208,7 +208,7 @@ impl Tool for TmuxTool {
                     .ok_or_else(|| anyhow::anyhow!("Missing 'session_name' parameter for read"))?;
                 if !SAFE_SESSION_NAME.is_match(session_name) {
                     return Ok(ToolResult::error(
-                        "Error: session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
+                        "session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
                     ));
                 }
                 let lines = params["lines"].as_u64().unwrap_or(50) as i32;
@@ -227,7 +227,7 @@ impl Tool for TmuxTool {
                     .await?;
                 if code != 0 {
                     return Ok(ToolResult::error(format!(
-                        "Error: Failed to read session '{}': {}",
+                        "failed to read session '{}': {}",
                         session_name, stderr
                     )));
                 }
@@ -251,7 +251,7 @@ impl Tool for TmuxTool {
                         return Ok(ToolResult::new("No active sessions".to_string()));
                     }
                     return Ok(ToolResult::error(format!(
-                        "Error: Failed to list sessions: {}",
+                        "failed to list sessions: {}",
                         stderr
                     )));
                 }
@@ -268,7 +268,7 @@ impl Tool for TmuxTool {
                     .ok_or_else(|| anyhow::anyhow!("Missing 'session_name' parameter for kill"))?;
                 if !SAFE_SESSION_NAME.is_match(session_name) {
                     return Ok(ToolResult::error(
-                        "Error: session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
+                        "session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
                     ));
                 }
 
@@ -276,7 +276,7 @@ impl Tool for TmuxTool {
                     self.run_tmux(&["kill-session", "-t", session_name]).await?;
                 if code != 0 {
                     return Ok(ToolResult::error(format!(
-                        "Error: Failed to kill session '{}': {}",
+                        "failed to kill session '{}': {}",
                         session_name, stderr
                     )));
                 }
@@ -286,10 +286,7 @@ impl Tool for TmuxTool {
                     session_name
                 )))
             }
-            _ => Ok(ToolResult::error(format!(
-                "Error: Unknown action '{}'",
-                action
-            ))),
+            _ => Ok(ToolResult::error(format!("unknown action '{}'", action))),
         }
     }
 }
@@ -361,7 +358,7 @@ mod tests {
             .await
             .unwrap();
         assert!(result.is_error);
-        assert!(result.content.contains("Unknown action"));
+        assert!(result.content.contains("unknown action"));
     }
 
     #[tokio::test]

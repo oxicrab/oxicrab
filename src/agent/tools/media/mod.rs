@@ -458,14 +458,14 @@ impl Tool for MediaTool {
     #[allow(clippy::too_many_lines)]
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let Some(action) = params["action"].as_str() else {
-            return Ok(ToolResult::error("Missing 'action' parameter".to_string()));
+            return Ok(ToolResult::error("missing 'action' parameter".to_string()));
         };
 
         let result = match action {
             "search_movie" => {
                 let Some(query) = params["query"].as_str() else {
                     return Ok(ToolResult::error(
-                        "Missing 'query' parameter for search_movie".to_string(),
+                        "missing 'query' parameter for search_movie".to_string(),
                     ));
                 };
                 self.search_movie(query).await
@@ -473,7 +473,7 @@ impl Tool for MediaTool {
             "add_movie" => {
                 let Some(tmdb_id) = params["tmdb_id"].as_i64() else {
                     return Ok(ToolResult::error(
-                        "Missing 'tmdb_id' parameter for add_movie".to_string(),
+                        "missing 'tmdb_id' parameter for add_movie".to_string(),
                     ));
                 };
                 let qp = params["quality_profile_id"].as_i64();
@@ -483,7 +483,7 @@ impl Tool for MediaTool {
             "get_movie" => {
                 let Some(id) = params["id"].as_i64() else {
                     return Ok(ToolResult::error(
-                        "Missing 'id' parameter for get_movie".to_string(),
+                        "missing 'id' parameter for get_movie".to_string(),
                     ));
                 };
                 self.get_movie(id).await
@@ -495,7 +495,7 @@ impl Tool for MediaTool {
             "search_series" => {
                 let Some(query) = params["query"].as_str() else {
                     return Ok(ToolResult::error(
-                        "Missing 'query' parameter for search_series".to_string(),
+                        "missing 'query' parameter for search_series".to_string(),
                     ));
                 };
                 self.search_series(query).await
@@ -503,7 +503,7 @@ impl Tool for MediaTool {
             "add_series" => {
                 let Some(tvdb_id) = params["tvdb_id"].as_i64() else {
                     return Ok(ToolResult::error(
-                        "Missing 'tvdb_id' parameter for add_series".to_string(),
+                        "missing 'tvdb_id' parameter for add_series".to_string(),
                     ));
                 };
                 let qp = params["quality_profile_id"].as_i64();
@@ -513,7 +513,7 @@ impl Tool for MediaTool {
             "get_series" => {
                 let Some(id) = params["id"].as_i64() else {
                     return Ok(ToolResult::error(
-                        "Missing 'id' parameter for get_series".to_string(),
+                        "missing 'id' parameter for get_series".to_string(),
                     ));
                 };
                 self.get_series(id).await
@@ -525,7 +525,7 @@ impl Tool for MediaTool {
             "profiles" => {
                 let Some(service) = params["service"].as_str() else {
                     return Ok(ToolResult::error(
-                        "Missing 'service' parameter for profiles".to_string(),
+                        "missing 'service' parameter for profiles".to_string(),
                     ));
                 };
                 self.profiles(service).await
@@ -533,17 +533,17 @@ impl Tool for MediaTool {
             "root_folders" => {
                 let Some(service) = params["service"].as_str() else {
                     return Ok(ToolResult::error(
-                        "Missing 'service' parameter for root_folders".to_string(),
+                        "missing 'service' parameter for root_folders".to_string(),
                     ));
                 };
                 self.root_folders(service).await
             }
-            _ => return Ok(ToolResult::error(format!("Unknown action: {}", action))),
+            _ => return Ok(ToolResult::error(format!("unknown action: {}", action))),
         };
 
         match result {
             Ok(content) => Ok(ToolResult::new(content)),
-            Err(e) => Ok(ToolResult::error(format!("Media error: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("media error: {}", e))),
         }
     }
 }

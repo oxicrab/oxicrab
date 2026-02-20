@@ -80,7 +80,7 @@ mod tests {
     async fn test_spawn_and_cancel_all() {
         let tracker = TaskTracker::new();
         let handle = tokio::spawn(async {
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            tokio::time::sleep(tokio::time::Duration::from_mins(1)).await;
         });
         tracker.spawn("long_task".to_string(), handle).await;
 
@@ -95,12 +95,12 @@ mod tests {
     async fn test_spawn_replaces_existing() {
         let tracker = TaskTracker::new();
         let h1 = tokio::spawn(async {
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            tokio::time::sleep(tokio::time::Duration::from_mins(1)).await;
         });
         tracker.spawn("task".to_string(), h1).await;
 
         let h2 = tokio::spawn(async {
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            tokio::time::sleep(tokio::time::Duration::from_mins(1)).await;
         });
         // Re-spawning same name should abort old and replace
         tracker.spawn("task".to_string(), h2).await;
@@ -140,7 +140,7 @@ mod tests {
         let tracker = TaskTracker::new();
         for i in 0..5 {
             let handle = tokio::spawn(async {
-                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                tokio::time::sleep(tokio::time::Duration::from_mins(1)).await;
             });
             tracker.spawn(format!("task_{}", i), handle).await;
         }

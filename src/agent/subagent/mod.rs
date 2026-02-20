@@ -316,7 +316,7 @@ async fn run_subagent_inner(
 
     // Scan task input for prompt injection if configured to block
     if let Some(ref guard) = config.prompt_guard
-        && config.prompt_guard_config.action == crate::config::PromptGuardAction::Block
+        && config.prompt_guard_config.should_block()
     {
         let matches = guard.scan(task);
         if !matches.is_empty() {

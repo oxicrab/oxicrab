@@ -10,7 +10,7 @@ use crate::agent::tools::setup::ToolBuildContext;
 use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
 use crate::cron::event_matcher::EventMatcher;
 use crate::cron::service::CronService;
-use crate::providers::base::{ImageData, LLMProvider, Message};
+use crate::providers::base::{ImageData, LLMProvider, Message, ToolCallRequest};
 use crate::session::{Session, SessionManager, SessionStore};
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
@@ -25,6 +25,17 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 const EMPTY_RESPONSE_RETRIES: usize = 2;
+const WRAPUP_THRESHOLD_RATIO: f64 = 0.7;
+const MIN_WRAPUP_ITERATION: usize = 2;
+const MAX_TOOLS_NUDGES: u32 = 2;
+const TOOL_MENTION_HALLUCINATION_THRESHOLD: usize = 3;
+const TYPING_INDICATOR_INTERVAL_SECS: u64 = 4;
+const RETRY_BACKOFF_BASE: u64 = 2;
+const MAX_RETRY_DELAY_SECS: f64 = 10.0;
+const DEFAULT_HISTORY_SIZE: usize = 50;
+const RECOVERY_CONTEXT_MAX_CHARS: usize = 200;
+const SAVED_TO_PREFIX: &str = "saved to: ";
+const AUDIO_TAG_PREFIX: &str = "[audio: ";
 
 /// Per-invocation overrides for the agent loop. Allows callers (e.g. the daemon
 /// heartbeat) to use a different model or iteration cap without constructing a
@@ -55,8 +66,8 @@ fn extract_media_paths(result: &str) -> Vec<String> {
 
     // Text pattern: "saved to: /path" (browser screenshots, http binary)
     for line in result.lines() {
-        if let Some(idx) = line.find("saved to: ") {
-            let path = line[idx + 10..].trim();
+        if let Some(idx) = line.find(SAVED_TO_PREFIX) {
+            let path = line[idx + SAVED_TO_PREFIX.len()..].trim();
             if !path.is_empty() && std::path::Path::new(path).exists() {
                 paths.push(path.to_string());
             }
@@ -245,7 +256,7 @@ pub fn mentions_multiple_tools(text: &str, tool_names: &[String]) -> bool {
         .iter()
         .filter(|name| text_lower.contains(name.as_str()))
         .count();
-    count >= 3
+    count >= TOOL_MENTION_HALLUCINATION_THRESHOLD
 }
 
 const MAX_IMAGE_SIZE: usize = 20 * 1024 * 1024; // 20MB (Anthropic limit)
@@ -373,9 +384,9 @@ async fn transcribe_audio_tags(
 
     let mut result = String::with_capacity(content.len());
     let mut remaining = content;
-    while let Some(start) = remaining.find("[audio: ") {
+    while let Some(start) = remaining.find(AUDIO_TAG_PREFIX) {
         result.push_str(&remaining[..start]);
-        let after_tag = &remaining[start + 8..]; // skip "[audio: "
+        let after_tag = &remaining[start + AUDIO_TAG_PREFIX.len()..];
         if let Some(end) = after_tag.find(']') {
             let path_str = &after_tag[..end];
             let path = std::path::Path::new(path_str);
@@ -442,7 +453,8 @@ fn start_typing(
         let tx = tx.clone();
         let ctx = ctx.clone();
         Some(tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(4));
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(TYPING_INDICATOR_INTERVAL_SECS));
             loop {
                 interval.tick().await;
                 if tx.send(ctx.clone()).await.is_err() {
@@ -648,6 +660,15 @@ impl AgentLoopConfig {
             },
         }
     }
+}
+
+/// Result of [`AgentLoop::handle_text_response`] — either continue the loop
+/// (a nudge/correction was injected) or return the final text to the caller.
+enum TextAction {
+    /// A nudge or correction was injected; the loop should `continue`.
+    Continue,
+    /// The response is final; the caller should return it.
+    Return,
 }
 
 pub struct AgentLoop {
@@ -1082,7 +1103,7 @@ impl AgentLoop {
                         m.category, m.pattern_name
                     );
                 }
-                if self.prompt_guard_config.action == crate::config::PromptGuardAction::Block {
+                if self.prompt_guard_config.should_block() {
                     return Ok(Some(OutboundMessage {
                         channel: msg.channel,
                         chat_id: msg.chat_id,
@@ -1250,8 +1271,14 @@ impl AgentLoop {
         .await
     }
 
-    /// Like [`run_agent_loop`](Self::run_agent_loop) but accepts per-invocation
-    /// overrides for model and `max_iterations`.
+    /// Core agent loop implementation with per-invocation overrides.
+    ///
+    /// Iterates up to `max_iterations` rounds of: LLM call → parallel tool execution → append results.
+    /// First iteration forces `tool_choice="any"` to prevent text-only hallucinations. At 70% of
+    /// max iterations, a wrap-up nudge is injected. If the LLM returns text without calling tools
+    /// (after iteration 1), up to 2 nudges ask it to use tools before accepting the response.
+    ///
+    /// Returns `(response_text, last_message_id, collected_media, tool_names_used)`.
     async fn run_agent_loop_with_overrides(
         &self,
         mut messages: Vec<Message>,
@@ -1323,9 +1350,10 @@ impl AgentLoop {
             );
         }
 
-        let wrapup_threshold = (effective_max_iterations as f64 * 0.7).ceil() as usize;
+        let wrapup_threshold =
+            (effective_max_iterations as f64 * WRAPUP_THRESHOLD_RATIO).ceil() as usize;
         // Ensure wrapup doesn't fire on the very first iteration
-        let wrapup_threshold = wrapup_threshold.max(2);
+        let wrapup_threshold = wrapup_threshold.max(MIN_WRAPUP_ITERATION);
 
         for iteration in 1..=effective_max_iterations {
             // Inject wrap-up hint when approaching iteration limit
@@ -1402,16 +1430,7 @@ impl AgentLoop {
 
             if response.has_tool_calls() {
                 any_tools_called = true;
-                let called_tool_names: Vec<&str> = response
-                    .tool_calls
-                    .iter()
-                    .map(|tc| tc.name.as_str())
-                    .collect();
-                tools_used.extend(
-                    called_tool_names
-                        .iter()
-                        .map(std::string::ToString::to_string),
-                );
+                tools_used.extend(response.tool_calls.iter().map(|tc| tc.name.clone()));
                 ContextBuilder::add_assistant_message(
                     &mut messages,
                     response.content.as_deref(),
@@ -1422,242 +1441,52 @@ impl AgentLoop {
                 // Start periodic typing indicator before tool execution
                 let typing_handle = start_typing(self.typing_tx.as_ref(), typing_context.as_ref());
 
-                // Execute tools via the registry's middleware pipeline
-                // (handles caching, timeout, panic isolation, truncation, logging)
-                let results = if response.tool_calls.len() == 1 {
-                    // Single tool fast-path
-                    let tc = &response.tool_calls[0];
-                    vec![
-                        execute_tool_call(
-                            &self.tools,
-                            &tc.name,
-                            &tc.arguments,
-                            &tool_names,
-                            exec_ctx,
-                            &exfil_blocked,
-                            Some(&self.workspace),
-                        )
-                        .await,
-                    ]
-                } else {
-                    // Parallel execution: spawn all, await all
-                    let handles: Vec<_> = response
-                        .tool_calls
-                        .iter()
-                        .map(|tc| {
-                            let registry = self.tools.clone();
-                            let tc_name = tc.name.clone();
-                            let tc_args = tc.arguments.clone();
-                            let available = tool_names.clone();
-                            let ctx = exec_ctx.clone();
-                            let blocked = exfil_blocked.clone();
-                            let ws = self.workspace.clone();
-                            tokio::task::spawn(async move {
-                                execute_tool_call(
-                                    &registry,
-                                    &tc_name,
-                                    &tc_args,
-                                    &available,
-                                    &ctx,
-                                    &blocked,
-                                    Some(&ws),
-                                )
-                                .await
-                            })
-                        })
-                        .collect();
-                    futures_util::future::join_all(handles)
-                        .await
-                        .into_iter()
-                        .map(|join_result| match join_result {
-                            Ok(result) => result,
-                            Err(join_err) => {
-                                error!("Tool task panicked: {:?}", join_err);
-                                ("Tool crashed unexpectedly".to_string(), true)
-                            }
-                        })
-                        .collect()
-                };
+                let results = self
+                    .execute_tools(&response.tool_calls, &tool_names, exec_ctx, &exfil_blocked)
+                    .await;
 
                 // Stop typing indicator after tool execution
                 if let Some(h) = typing_handle {
                     h.abort();
                 }
 
-                // Phase 4: Add all results to messages in order and collect media
-                for (tc, (result_str, is_error)) in
-                    response.tool_calls.iter().zip(results.into_iter())
-                {
-                    // Collect media file paths produced by tools
-                    if !is_error {
-                        collected_media.extend(extract_media_paths(&result_str));
-                    }
-                    ContextBuilder::add_tool_result(
-                        &mut messages,
-                        &tc.id,
-                        &tc.name,
-                        &result_str,
-                        is_error,
-                    );
-                }
-
-                // Scan tool results for prompt injection (warn only)
-                if let Some(ref guard) = self.prompt_guard {
-                    for tc in &response.tool_calls {
-                        // Find the corresponding tool result message (the last tool_result for this tc)
-                        if let Some(msg) = messages
-                            .iter()
-                            .rev()
-                            .find(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some(&tc.id))
-                        {
-                            let tool_matches = guard.scan(&msg.content);
-                            for m in &tool_matches {
-                                warn!(
-                                    "prompt injection in tool '{}' output ({:?}): {}",
-                                    tc.name, m.category, m.pattern_name
-                                );
-                            }
-                        }
-                    }
-                }
-
-                // Record tool calls for cognitive checkpoint tracking
-                checkpoint_tracker.record_tool_calls(&called_tool_names);
-
-                // Inject cognitive pressure message if a new threshold was crossed
-                if let Some(pressure_msg) = checkpoint_tracker.pressure_message() {
-                    messages.push(Message::system(pressure_msg));
-                }
-
-                // Update cognitive breadcrumb for compaction recovery
-                if self.cognitive_config.enabled {
-                    *self.cognitive_breadcrumb.lock().await = Some(checkpoint_tracker.breadcrumb());
-                }
-
-                // Periodic checkpoint: summarize progress via compactor
-                if self.compaction_config.checkpoint.enabled
-                    && iteration > 1
-                    && self.compaction_config.checkpoint.interval_iterations > 0
-                    && (iteration as u32)
-                        .is_multiple_of(self.compaction_config.checkpoint.interval_iterations)
-                    && let Some(ref compactor) = self.compactor
-                {
-                    let compactor = compactor.clone();
-                    let msgs_snapshot = messages.clone();
-                    let last_cp = self.last_checkpoint.clone();
-                    // Run checkpoint in background; awaited in get_compacted_history
-                    let handle = tokio::spawn(async move {
-                        let history: Vec<std::collections::HashMap<String, Value>> = msgs_snapshot
-                            .iter()
-                            .map(|m| {
-                                let mut map = std::collections::HashMap::new();
-                                map.insert("role".to_string(), Value::String(m.role.clone()));
-                                map.insert("content".to_string(), Value::String(m.content.clone()));
-                                map
-                            })
-                            .collect();
-                        match compactor.compact(&history, "").await {
-                            Ok(summary) => {
-                                debug!(
-                                    "checkpoint at iteration {}: {} chars",
-                                    iteration,
-                                    summary.len()
-                                );
-                                *last_cp.lock().await = Some(summary);
-                            }
-                            Err(e) => {
-                                warn!("checkpoint generation failed: {}", e);
-                            }
-                        }
-                    });
-                    *self.checkpoint_handle.lock().await = Some(handle);
-                    // Reset cognitive tracker when periodic checkpoint fires
-                    checkpoint_tracker.reset();
-                }
+                self.handle_tool_results(
+                    &mut messages,
+                    &response.tool_calls,
+                    results,
+                    &mut collected_media,
+                    &mut checkpoint_tracker,
+                    iteration,
+                )
+                .await;
             } else if let Some(content) = response.content {
-                // Nudge the LLM to use tools if it responded with text before calling any.
-                // Skip iteration 1 since tool_choice="any" already forces tool use there.
-                if iteration > 1
-                    && !any_tools_called
-                    && !correction_sent
-                    && tools_nudge_count < 2
-                    && !tool_names.is_empty()
-                {
-                    tools_nudge_count += 1;
-                    ContextBuilder::add_assistant_message(
-                        &mut messages,
-                        Some(&content),
-                        None,
-                        response.reasoning_content.as_deref(),
-                    );
-                    messages.push(Message::user(
-                        "Please proceed and use the available tools to complete this task."
-                            .to_string(),
-                    ));
-                    continue;
+                match Self::handle_text_response(
+                    &content,
+                    &mut messages,
+                    response.reasoning_content.as_deref(),
+                    any_tools_called,
+                    &mut correction_sent,
+                    &mut tools_nudge_count,
+                    &tool_names,
+                    iteration,
+                ) {
+                    TextAction::Continue => {}
+                    TextAction::Return => {
+                        return Ok((
+                            Some(content),
+                            last_input_tokens,
+                            tools_used,
+                            collected_media,
+                        ));
+                    }
                 }
-
-                // Detect false "no tools" claims and retry with correction
-                if !tool_names.is_empty() && is_false_no_tools_claim(&content) {
-                    warn!(
-                        "False no-tools claim detected: LLM claims tools unavailable but {} tools are registered",
-                        tool_names.len()
-                    );
-                    ContextBuilder::add_assistant_message(
-                        &mut messages,
-                        Some(&content),
-                        None,
-                        response.reasoning_content.as_deref(),
-                    );
-                    let tool_list = tool_names.join(", ");
-                    messages.push(Message::user(format!(
-                        "You DO have tools available. Your available tools are: {}. \
-                         Please use the appropriate tool to fulfill the request.",
-                        tool_list
-                    )));
-                    correction_sent = true; // Prevent infinite correction loop
-                    continue;
-                }
-
-                // Detect hallucinated actions: LLM claims it did something but never called tools
-                if !any_tools_called
-                    && !correction_sent
-                    && (contains_action_claims(&content)
-                        || mentions_multiple_tools(&content, &tool_names))
-                {
-                    warn!(
-                        "Action hallucination detected: LLM claims actions but no tools were called"
-                    );
-                    // Add the hallucinated response then inject a correction
-                    ContextBuilder::add_assistant_message(
-                        &mut messages,
-                        Some(&content),
-                        None,
-                        response.reasoning_content.as_deref(),
-                    );
-                    messages.push(Message::user(
-                        "You claimed to have performed actions, but you did not use any tools. \
-                         Do not claim to have done something you haven't. Either use the \
-                         appropriate tools to actually perform the action, or explain what \
-                         you would need to do."
-                            .to_string(),
-                    ));
-                    // Allow one more iteration to self-correct
-                    correction_sent = true; // Prevent infinite correction loop
-                    continue;
-                }
-                return Ok((
-                    Some(content),
-                    last_input_tokens,
-                    tools_used,
-                    collected_media,
-                ));
             } else {
                 // Empty response
                 if empty_retries_left > 0 {
                     empty_retries_left -= 1;
                     let retry_num = EMPTY_RESPONSE_RETRIES - empty_retries_left;
-                    let delay = (2_u64.pow(retry_num as u32) as f64 + fastrand::f64()).min(10.0);
+                    let delay = (RETRY_BACKOFF_BASE.pow(retry_num as u32) as f64 + fastrand::f64())
+                        .min(MAX_RETRY_DELAY_SECS);
                     warn!(
                         "LLM returned empty on iteration {}, retries left: {}, backing off {:.1}s",
                         iteration, empty_retries_left, delay
@@ -1672,44 +1501,281 @@ impl AgentLoop {
 
         // If tools were called but the loop ended without final content,
         // make one more LLM call with no tools to force a text summary.
-        if any_tools_called {
-            // Cost guard pre-flight check for summary call
-            if let Some(ref cg) = self.cost_guard
-                && let Err(msg) = cg.check_allowed()
-            {
-                warn!("cost guard blocked post-loop summary: {}", msg);
-                return Ok((Some(msg), last_input_tokens, tools_used, collected_media));
-            }
-
-            messages.push(Message::user(
-                "Provide a brief summary of what you accomplished for the user.".to_string(),
+        if any_tools_called
+            && let Some(content) = self
+                .generate_post_loop_summary(&mut messages, effective_model)
+                .await?
+        {
+            return Ok((
+                Some(content),
+                last_input_tokens,
+                tools_used,
+                collected_media,
             ));
-            if let Ok(response) = self
-                .provider
-                .chat_with_retry(
-                    crate::providers::base::ChatRequest {
-                        messages: messages.clone(),
-                        tools: None,
-                        model: Some(effective_model),
-                        max_tokens: self.max_tokens,
-                        temperature: self.temperature,
-                        tool_choice: None,
-                    },
-                    Some(crate::providers::base::RetryConfig::default()),
-                )
-                .await
-                && let Some(content) = response.content
-            {
-                return Ok((
-                    Some(content),
-                    last_input_tokens,
-                    tools_used,
-                    collected_media,
-                ));
-            }
         }
 
         Ok((None, last_input_tokens, tools_used, collected_media))
+    }
+
+    /// Execute tool calls — single-tool fast-path or parallel `spawn`+`join_all`.
+    async fn execute_tools(
+        &self,
+        tool_calls: &[ToolCallRequest],
+        tool_names: &[String],
+        exec_ctx: &ExecutionContext,
+        exfil_blocked: &[String],
+    ) -> Vec<(String, bool)> {
+        if tool_calls.len() == 1 {
+            let tc = &tool_calls[0];
+            vec![
+                execute_tool_call(
+                    &self.tools,
+                    &tc.name,
+                    &tc.arguments,
+                    tool_names,
+                    exec_ctx,
+                    exfil_blocked,
+                    Some(&self.workspace),
+                )
+                .await,
+            ]
+        } else {
+            let handles: Vec<_> = tool_calls
+                .iter()
+                .map(|tc| {
+                    let registry = self.tools.clone();
+                    let tc_name = tc.name.clone();
+                    let tc_args = tc.arguments.clone();
+                    let available = tool_names.to_vec();
+                    let ctx = exec_ctx.clone();
+                    let blocked = exfil_blocked.to_vec();
+                    let ws = self.workspace.clone();
+                    tokio::task::spawn(async move {
+                        execute_tool_call(
+                            &registry,
+                            &tc_name,
+                            &tc_args,
+                            &available,
+                            &ctx,
+                            &blocked,
+                            Some(&ws),
+                        )
+                        .await
+                    })
+                })
+                .collect();
+            futures_util::future::join_all(handles)
+                .await
+                .into_iter()
+                .map(|join_result| match join_result {
+                    Ok(result) => result,
+                    Err(join_err) => {
+                        error!("Tool task panicked: {:?}", join_err);
+                        ("Tool crashed unexpectedly".to_string(), true)
+                    }
+                })
+                .collect()
+        }
+    }
+
+    /// Collect media from tool results, scan for prompt injection, update
+    /// cognitive tracking, and fire periodic checkpoints.
+    async fn handle_tool_results(
+        &self,
+        messages: &mut Vec<Message>,
+        tool_calls: &[ToolCallRequest],
+        results: Vec<(String, bool)>,
+        collected_media: &mut Vec<String>,
+        checkpoint_tracker: &mut CheckpointTracker,
+        iteration: usize,
+    ) {
+        // Add all results to messages in order and collect media
+        for (tc, (result_str, is_error)) in tool_calls.iter().zip(results.into_iter()) {
+            if !is_error {
+                collected_media.extend(extract_media_paths(&result_str));
+            }
+            ContextBuilder::add_tool_result(messages, &tc.id, &tc.name, &result_str, is_error);
+        }
+
+        // Scan tool results for prompt injection (warn only)
+        if let Some(ref guard) = self.prompt_guard {
+            for tc in tool_calls {
+                if let Some(msg) = messages
+                    .iter()
+                    .rev()
+                    .find(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some(&tc.id))
+                {
+                    let tool_matches = guard.scan(&msg.content);
+                    for m in &tool_matches {
+                        warn!(
+                            "prompt injection in tool '{}' output ({:?}): {}",
+                            tc.name, m.category, m.pattern_name
+                        );
+                    }
+                }
+            }
+        }
+
+        // Record tool calls for cognitive checkpoint tracking
+        let called_tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+        checkpoint_tracker.record_tool_calls(&called_tool_names);
+
+        // Inject cognitive pressure message if a new threshold was crossed
+        if let Some(pressure_msg) = checkpoint_tracker.pressure_message() {
+            messages.push(Message::system(pressure_msg));
+        }
+
+        // Update cognitive breadcrumb for compaction recovery
+        if self.cognitive_config.enabled {
+            *self.cognitive_breadcrumb.lock().await = Some(checkpoint_tracker.breadcrumb());
+        }
+
+        // Periodic checkpoint: summarize progress via compactor
+        if self.compaction_config.checkpoint.enabled
+            && iteration > 1
+            && self.compaction_config.checkpoint.interval_iterations > 0
+            && (iteration as u32)
+                .is_multiple_of(self.compaction_config.checkpoint.interval_iterations)
+            && let Some(ref compactor) = self.compactor
+        {
+            let compactor = compactor.clone();
+            let msgs_snapshot = messages.clone();
+            let last_cp = self.last_checkpoint.clone();
+            let handle = tokio::spawn(async move {
+                let history: Vec<std::collections::HashMap<String, Value>> = msgs_snapshot
+                    .iter()
+                    .map(|m| {
+                        let mut map = std::collections::HashMap::new();
+                        map.insert("role".to_string(), Value::String(m.role.clone()));
+                        map.insert("content".to_string(), Value::String(m.content.clone()));
+                        map
+                    })
+                    .collect();
+                match compactor.compact(&history, "").await {
+                    Ok(summary) => {
+                        debug!(
+                            "checkpoint at iteration {}: {} chars",
+                            iteration,
+                            summary.len()
+                        );
+                        *last_cp.lock().await = Some(summary);
+                    }
+                    Err(e) => {
+                        warn!("checkpoint generation failed: {}", e);
+                    }
+                }
+            });
+            *self.checkpoint_handle.lock().await = Some(handle);
+            checkpoint_tracker.reset();
+        }
+    }
+
+    /// Handle a text-only LLM response: tools nudge, false no-tools correction,
+    /// or hallucination detection. Returns [`TextAction::Continue`] if a
+    /// correction was injected, or [`TextAction::Return`] if the response is final.
+    #[allow(clippy::too_many_arguments)]
+    fn handle_text_response(
+        content: &str,
+        messages: &mut Vec<Message>,
+        reasoning_content: Option<&str>,
+        any_tools_called: bool,
+        correction_sent: &mut bool,
+        tools_nudge_count: &mut u32,
+        tool_names: &[String],
+        iteration: usize,
+    ) -> TextAction {
+        // Nudge the LLM to use tools if it responded with text before calling any.
+        // Skip iteration 1 since tool_choice="any" already forces tool use there.
+        if iteration > 1
+            && !any_tools_called
+            && !*correction_sent
+            && *tools_nudge_count < MAX_TOOLS_NUDGES
+            && !tool_names.is_empty()
+        {
+            *tools_nudge_count += 1;
+            ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
+            messages.push(Message::user(
+                "Please proceed and use the available tools to complete this task.".to_string(),
+            ));
+            return TextAction::Continue;
+        }
+
+        // Detect false "no tools" claims and retry with correction
+        if !tool_names.is_empty() && is_false_no_tools_claim(content) {
+            warn!(
+                "False no-tools claim detected: LLM claims tools unavailable but {} tools are registered",
+                tool_names.len()
+            );
+            ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
+            let tool_list = tool_names.join(", ");
+            messages.push(Message::user(format!(
+                "You DO have tools available. Your available tools are: {}. \
+                 Please use the appropriate tool to fulfill the request.",
+                tool_list
+            )));
+            *correction_sent = true;
+            return TextAction::Continue;
+        }
+
+        // Detect hallucinated actions: LLM claims it did something but never called tools
+        if !any_tools_called
+            && !*correction_sent
+            && (contains_action_claims(content) || mentions_multiple_tools(content, tool_names))
+        {
+            warn!("Action hallucination detected: LLM claims actions but no tools were called");
+            ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
+            messages.push(Message::user(
+                "You claimed to have performed actions, but you did not use any tools. \
+                 Do not claim to have done something you haven't. Either use the \
+                 appropriate tools to actually perform the action, or explain what \
+                 you would need to do."
+                    .to_string(),
+            ));
+            *correction_sent = true;
+            return TextAction::Continue;
+        }
+
+        TextAction::Return
+    }
+
+    /// Post-loop LLM call with no tools to force a text summary when the loop
+    /// ended after tool calls without producing a final text response.
+    async fn generate_post_loop_summary(
+        &self,
+        messages: &mut Vec<Message>,
+        effective_model: &str,
+    ) -> Result<Option<String>> {
+        // Cost guard pre-flight check for summary call
+        if let Some(ref cg) = self.cost_guard
+            && let Err(msg) = cg.check_allowed()
+        {
+            warn!("cost guard blocked post-loop summary: {}", msg);
+            return Ok(Some(msg));
+        }
+
+        messages.push(Message::user(
+            "Provide a brief summary of what you accomplished for the user.".to_string(),
+        ));
+        if let Ok(response) = self
+            .provider
+            .chat_with_retry(
+                crate::providers::base::ChatRequest {
+                    messages: messages.clone(),
+                    tools: None,
+                    model: Some(effective_model),
+                    max_tokens: self.max_tokens,
+                    temperature: self.temperature,
+                    tool_choice: None,
+                },
+                Some(crate::providers::base::RetryConfig::default()),
+            )
+            .await
+            && let Some(content) = response.content
+        {
+            return Ok(Some(content));
+        }
+
+        Ok(None)
     }
 
     fn build_execution_context(
@@ -1729,7 +1795,7 @@ impl AgentLoop {
         session: &Session,
     ) -> Result<Vec<HashMap<String, Value>>> {
         if self.compactor.is_none() || !self.compaction_config.enabled {
-            return Ok(session.get_history(50));
+            return Ok(session.get_history(DEFAULT_HISTORY_SIZE));
         }
 
         let full_history = session.get_full_history();
@@ -1748,7 +1814,7 @@ impl AgentLoop {
             .unwrap_or_else(|| estimate_messages_tokens(&full_history) as u64);
 
         if token_est < threshold {
-            return Ok(session.get_history(50));
+            return Ok(session.get_history(DEFAULT_HISTORY_SIZE));
         }
 
         if full_history.len() <= keep_recent {
@@ -1797,7 +1863,10 @@ impl AgentLoop {
                     }
                     if !last_user_msg.is_empty() {
                         // Truncate last user message to avoid bloating the summary
-                        let truncated_msg: String = last_user_msg.chars().take(200).collect();
+                        let truncated_msg: String = last_user_msg
+                            .chars()
+                            .take(RECOVERY_CONTEXT_MAX_CHARS)
+                            .collect();
                         let _ = write!(
                             recovery_summary,
                             "\n\n[Recovery] The conversation was compacted. \

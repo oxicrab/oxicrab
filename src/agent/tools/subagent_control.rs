@@ -106,13 +106,13 @@ impl Tool for SubagentControlTool {
                     )))
                 } else {
                     Ok(ToolResult::error(format!(
-                        "Error: subagent {} not found or already finished.",
+                        "subagent {} not found or already finished",
                         task_id
                     )))
                 }
             }
             _ => Ok(ToolResult::error(
-                "Error: unsupported action. Use 'list' or 'cancel'.".to_string(),
+                "unsupported action. Use 'list' or 'cancel'".to_string(),
             )),
         }
     }

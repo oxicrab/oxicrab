@@ -48,7 +48,7 @@ impl Tool for MemorySearchTool {
             Some(q) if !q.trim().is_empty() => q,
             _ => {
                 return Ok(ToolResult::error(
-                    "Missing or empty 'query' parameter".to_string(),
+                    "missing or empty 'query' parameter".to_string(),
                 ));
             }
         };
@@ -81,7 +81,7 @@ impl Tool for MemorySearchTool {
                     Ok(ToolResult::new(context))
                 }
             }
-            Err(e) => Ok(ToolResult::error(format!("Memory search error: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("memory search error: {}", e))),
         }
     }
 }

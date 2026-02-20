@@ -139,7 +139,7 @@ impl ExecTool {
         let violations = crate::utils::shell_ast::analyze_command(command);
         if let Some(v) = violations.first() {
             return Some(format!(
-                "Error: Command blocked by structural analysis ({:?}): {}",
+                "command blocked by structural analysis ({:?}): {}",
                 v.kind, v.description
             ));
         }
@@ -150,7 +150,7 @@ impl ExecTool {
             for name in &cmd_names {
                 if !self.allowed_commands.iter().any(|a| a == name) {
                     return Some(format!(
-                        "Error: Command '{}' is not in the allowed commands list. \
+                        "command '{}' is not in the allowed commands list. \
                          Allowed: {}",
                         name,
                         self.allowed_commands.join(", ")
@@ -162,10 +162,7 @@ impl ExecTool {
         // Blocklist check (secondary safety layer)
         for pattern in &self.deny_patterns {
             if pattern.is_match(command) {
-                return Some(format!(
-                    "Error: Command blocked by security policy: {}",
-                    command
-                ));
+                return Some(format!("command blocked by security policy: {}", command));
             }
         }
 
@@ -174,7 +171,7 @@ impl ExecTool {
         {
             if !cwd.starts_with(workspace) {
                 return Some(format!(
-                    "Error: Working directory '{}' is outside workspace",
+                    "working directory '{}' is outside workspace",
                     crate::utils::path_sanitize::sanitize_path(cwd, Some(workspace))
                 ));
             }
@@ -207,7 +204,7 @@ impl ExecTool {
                 .unwrap_or_else(|_| lexical_normalize(path));
             if !resolved.starts_with(workspace) {
                 return Some(format!(
-                    "Error: path '{}' is outside the workspace",
+                    "path '{}' is outside the workspace",
                     crate::utils::path_sanitize::sanitize_path(Path::new(cleaned), Some(workspace))
                 ));
             }
@@ -352,17 +349,17 @@ impl Tool for ExecTool {
                         result
                     }))
                 } else {
-                    Ok(ToolResult::error(format!("Command failed: {}", result)))
+                    Ok(ToolResult::error(format!("command failed: {}", result)))
                 }
             }
             Ok(Err(e)) => Ok(ToolResult::error(
                 crate::utils::path_sanitize::sanitize_error_message(
-                    &format!("Error executing command: {}", e),
+                    &format!("error executing command: {}", e),
                     self.working_dir.as_deref(),
                 ),
             )),
             Err(_) => Ok(ToolResult::error(format!(
-                "Command timed out after {} seconds",
+                "command timed out after {} seconds",
                 self.timeout
             ))),
         }

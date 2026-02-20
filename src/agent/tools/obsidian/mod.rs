@@ -182,7 +182,7 @@ impl Tool for ObsidianTool {
                     };
                 match self.cache.write_file(path, &content).await {
                     Ok(msg) => Ok(ToolResult::new(msg)),
-                    Err(e) => Ok(ToolResult::error(format!("Write failed: {}", e))),
+                    Err(e) => Ok(ToolResult::error(format!("write failed: {}", e))),
                 }
             }
             "append" => {
@@ -195,7 +195,7 @@ impl Tool for ObsidianTool {
                 };
                 match self.cache.append_file(path, content).await {
                     Ok(msg) => Ok(ToolResult::new(msg)),
-                    Err(e) => Ok(ToolResult::error(format!("Append failed: {}", e))),
+                    Err(e) => Ok(ToolResult::error(format!("append failed: {}", e))),
                 }
             }
             "search" => {
@@ -240,7 +240,7 @@ impl Tool for ObsidianTool {
                 }
             }
             _ => Ok(ToolResult::error(format!(
-                "Unknown action '{}'. Use: read, write, append, search, or list.",
+                "unknown action '{}'. Use: read, write, append, search, or list",
                 action
             ))),
         }

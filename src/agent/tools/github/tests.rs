@@ -27,7 +27,7 @@ async fn test_unknown_action() {
         .await
         .unwrap();
     assert!(result.is_error);
-    assert!(result.content.contains("Unknown action"));
+    assert!(result.content.contains("unknown action"));
 }
 
 #[tokio::test]
@@ -160,7 +160,7 @@ async fn test_create_pr_review_invalid_event() {
         .await
         .unwrap();
     assert!(result.is_error);
-    assert!(result.content.contains("Invalid event"));
+    assert!(result.content.contains("invalid event"));
 }
 
 #[tokio::test]

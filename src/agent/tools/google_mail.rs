@@ -313,7 +313,7 @@ impl Tool for GoogleMailTool {
 
                 if label_ids.is_empty() && remove_label_ids.is_empty() {
                     return Ok(ToolResult::error(
-                        "Error: provide 'label_ids' and/or 'remove_label_ids'".to_string(),
+                        "provide 'label_ids' and/or 'remove_label_ids'".to_string(),
                     ));
                 }
 
@@ -337,7 +337,7 @@ impl Tool for GoogleMailTool {
                     message_id
                 )))
             }
-            _ => Ok(ToolResult::error(format!("Unknown action: {}", action))),
+            _ => Ok(ToolResult::error(format!("unknown action: {}", action))),
         }
     }
 }

@@ -6,7 +6,6 @@ use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[allow(unused_imports)]
 use tracing::warn;
 
 pub fn get_config_path() -> Result<PathBuf> {

@@ -503,13 +503,13 @@ impl Tool for TodoistTool {
             }
             "get_task" => {
                 let Some(task_id) = params["task_id"].as_str() else {
-                    return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()));
+                    return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
                 self.get_task(task_id).await
             }
             "create_task" => {
                 let Some(content) = params["content"].as_str() else {
-                    return Ok(ToolResult::error("Missing 'content' parameter".to_string()));
+                    return Ok(ToolResult::error("missing 'content' parameter".to_string()));
                 };
                 let labels: Option<Vec<&str>> = params["labels"]
                     .as_array()
@@ -526,7 +526,7 @@ impl Tool for TodoistTool {
             }
             "update_task" => {
                 let Some(task_id) = params["task_id"].as_str() else {
-                    return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()));
+                    return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
                 let labels: Option<Vec<&str>> = params["labels"]
                     .as_array()
@@ -543,35 +543,35 @@ impl Tool for TodoistTool {
             }
             "complete_task" => {
                 let Some(task_id) = params["task_id"].as_str() else {
-                    return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()));
+                    return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
                 self.complete_task(task_id).await
             }
             "delete_task" => {
                 let Some(task_id) = params["task_id"].as_str() else {
-                    return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()));
+                    return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
                 self.delete_task(task_id).await
             }
             "add_comment" => {
                 let Some(task_id) = params["task_id"].as_str() else {
-                    return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()));
+                    return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
                 let Some(content) = params["comment_content"].as_str() else {
                     return Ok(ToolResult::error(
-                        "Missing 'comment_content' parameter".to_string(),
+                        "missing 'comment_content' parameter".to_string(),
                     ));
                 };
                 self.add_comment(task_id, content).await
             }
             "list_comments" => {
                 let Some(task_id) = params["task_id"].as_str() else {
-                    return Ok(ToolResult::error("Missing 'task_id' parameter".to_string()));
+                    return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
                 self.list_comments(task_id).await
             }
             "list_projects" => self.list_projects().await,
-            _ => return Ok(ToolResult::error(format!("Unknown action: {}", action))),
+            _ => return Ok(ToolResult::error(format!("unknown action: {}", action))),
         };
 
         match result {

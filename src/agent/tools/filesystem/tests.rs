@@ -157,7 +157,7 @@ async fn test_read_file_not_a_file() {
         .await
         .unwrap();
     assert!(result.is_error);
-    assert!(result.content.contains("Not a file (path is a directory)"));
+    assert!(result.content.contains("not a file (path is a directory)"));
 }
 
 #[tokio::test]
@@ -380,7 +380,7 @@ async fn test_list_dir_not_a_directory() {
         .await
         .unwrap();
     assert!(result.is_error);
-    assert!(result.content.contains("Not a directory"));
+    assert!(result.content.contains("not a directory"));
 
     fs::remove_file(&dir).unwrap();
 }

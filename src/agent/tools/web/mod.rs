@@ -204,7 +204,7 @@ impl Tool for WebSearchTool {
                 }
                 Ok(ToolResult::new(lines.join("\n")))
             }
-            Err(e) => Ok(ToolResult::error(format!("Error: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("search failed: {}", e))),
         }
     }
 }

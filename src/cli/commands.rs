@@ -1243,6 +1243,7 @@ async fn auth_command(cmd: AuthCommands) -> Result<()> {
     Ok(())
 }
 
+// Variables/async used conditionally inside #[cfg(feature)] blocks
 #[allow(clippy::too_many_lines, unused_variables, clippy::unused_async)]
 async fn channels_command(cmd: ChannelCommands) -> Result<()> {
     match cmd {

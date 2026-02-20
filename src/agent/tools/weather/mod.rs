@@ -183,7 +183,7 @@ impl Tool for WeatherTool {
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let Some(location) = params["location"].as_str() else {
             return Ok(ToolResult::error(
-                "Missing 'location' parameter".to_string(),
+                "missing 'location' parameter".to_string(),
             ));
         };
 
@@ -193,12 +193,12 @@ impl Tool for WeatherTool {
         let result = match action {
             "current" => self.current(location, units).await,
             "forecast" => self.forecast(location, units).await,
-            _ => return Ok(ToolResult::error(format!("Unknown action: {}", action))),
+            _ => return Ok(ToolResult::error(format!("unknown action: {}", action))),
         };
 
         match result {
             Ok(content) => Ok(ToolResult::new(content)),
-            Err(e) => Ok(ToolResult::error(format!("Weather error: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("weather error: {}", e))),
         }
     }
 }

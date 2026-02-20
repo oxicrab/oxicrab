@@ -159,6 +159,7 @@ async fn check_provider_connectivity() -> CheckResult {
     }
 }
 
+// Config used conditionally inside #[cfg(feature)] blocks
 #[allow(unused_variables)]
 fn check_channels() -> Vec<(&'static str, CheckResult)> {
     let mut results = Vec::new();
@@ -348,6 +349,7 @@ fn check_config_dir_permissions() -> CheckResult {
     CheckResult::Skip("permission check not available on this platform".to_string())
 }
 
+// Variables used conditionally inside #[cfg(feature)] blocks
 #[allow(unused_variables, unused_mut)]
 fn check_empty_allowlists() -> CheckResult {
     let Ok(config) = crate::config::load_config(None) else {

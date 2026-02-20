@@ -75,6 +75,11 @@ impl MessageCompactor {
         Self { provider, model }
     }
 
+    /// Summarize a slice of conversation messages into a concise summary.
+    ///
+    /// Uses [`estimate_tokens`] (chars/4) to gauge message size. The LLM is asked to preserve
+    /// key decisions, facts, preferences, and pending tasks. `previous_summary` is included
+    /// in the prompt so summaries build incrementally rather than losing earlier context.
     pub async fn compact(
         &self,
         messages: &[HashMap<String, Value>],

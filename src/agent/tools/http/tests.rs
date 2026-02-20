@@ -66,7 +66,7 @@ async fn test_unsupported_method() {
         .await
         .unwrap();
     assert!(result.is_error);
-    assert!(result.content.contains("Unsupported method"));
+    assert!(result.content.contains("unsupported method"));
 }
 
 // --- Wiremock tests (exercise actual HTTP execution) ---

@@ -718,10 +718,10 @@ impl Tool for GitHubTool {
             | "get_pr_files" | "create_pr_review" | "get_file_content" | "trigger_workflow"
             | "get_workflow_runs" => {
                 let Some(owner) = params["owner"].as_str() else {
-                    return Ok(ToolResult::error("Missing 'owner' parameter".to_string()));
+                    return Ok(ToolResult::error("missing 'owner' parameter".to_string()));
                 };
                 let Some(repo) = params["repo"].as_str() else {
-                    return Ok(ToolResult::error("Missing 'repo' parameter".to_string()));
+                    return Ok(ToolResult::error("missing 'repo' parameter".to_string()));
                 };
 
                 // Extract pagination params with defaults and cap
@@ -741,7 +741,7 @@ impl Tool for GitHubTool {
                     }
                     "create_issue" => {
                         let Some(title) = params["title"].as_str() else {
-                            return Ok(ToolResult::error("Missing 'title' parameter".to_string()));
+                            return Ok(ToolResult::error("missing 'title' parameter".to_string()));
                         };
                         let labels: Option<Vec<&str>> = params["labels"]
                             .as_array()
@@ -757,32 +757,32 @@ impl Tool for GitHubTool {
                     }
                     "get_pr" => {
                         let Some(number) = params["number"].as_u64() else {
-                            return Ok(ToolResult::error("Missing 'number' parameter".to_string()));
+                            return Ok(ToolResult::error("missing 'number' parameter".to_string()));
                         };
                         self.get_pr(owner, repo, number).await
                     }
                     "get_issue" => {
                         let Some(number) = params["number"].as_u64() else {
-                            return Ok(ToolResult::error("Missing 'number' parameter".to_string()));
+                            return Ok(ToolResult::error("missing 'number' parameter".to_string()));
                         };
                         self.get_issue(owner, repo, number).await
                     }
                     "get_pr_files" => {
                         let Some(number) = params["number"].as_u64() else {
-                            return Ok(ToolResult::error("Missing 'number' parameter".to_string()));
+                            return Ok(ToolResult::error("missing 'number' parameter".to_string()));
                         };
                         self.get_pr_files(owner, repo, number).await
                     }
                     "create_pr_review" => {
                         let Some(number) = params["number"].as_u64() else {
-                            return Ok(ToolResult::error("Missing 'number' parameter".to_string()));
+                            return Ok(ToolResult::error("missing 'number' parameter".to_string()));
                         };
                         let Some(event) = params["event"].as_str() else {
-                            return Ok(ToolResult::error("Missing 'event' parameter".to_string()));
+                            return Ok(ToolResult::error("missing 'event' parameter".to_string()));
                         };
                         if !matches!(event, "APPROVE" | "REQUEST_CHANGES" | "COMMENT") {
                             return Ok(ToolResult::error(format!(
-                                "Invalid event '{}'. Must be APPROVE, REQUEST_CHANGES, or COMMENT",
+                                "invalid event '{}'. Must be APPROVE, REQUEST_CHANGES, or COMMENT",
                                 event
                             )));
                         }
@@ -792,7 +792,7 @@ impl Tool for GitHubTool {
                     }
                     "get_file_content" => {
                         let Some(file_path) = params["path"].as_str() else {
-                            return Ok(ToolResult::error("Missing 'path' parameter".to_string()));
+                            return Ok(ToolResult::error("missing 'path' parameter".to_string()));
                         };
                         self.get_file_content(owner, repo, file_path, params["ref"].as_str())
                             .await
@@ -800,7 +800,7 @@ impl Tool for GitHubTool {
                     "trigger_workflow" => {
                         let Some(workflow_id) = params["workflow_id"].as_str() else {
                             return Ok(ToolResult::error(
-                                "Missing 'workflow_id' parameter".to_string(),
+                                "missing 'workflow_id' parameter".to_string(),
                             ));
                         };
                         let git_ref = params["ref"].as_str().unwrap_or("main");
@@ -833,7 +833,7 @@ impl Tool for GitHubTool {
                 Ok(content) => Ok(ToolResult::new(content)),
                 Err(e) => Ok(ToolResult::error(format!("GitHub error: {}", e))),
             },
-            _ => Ok(ToolResult::error(format!("Unknown action: {}", action))),
+            _ => Ok(ToolResult::error(format!("unknown action: {}", action))),
         }
     }
 }

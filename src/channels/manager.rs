@@ -22,7 +22,9 @@ pub struct ChannelManager {
 }
 
 impl ChannelManager {
-    #[allow(clippy::needless_pass_by_value)] // Arc is designed to be passed by value
+    #[allow(clippy::needless_pass_by_value)]
+    // Arc is designed to be passed by value
+    // Variables used conditionally inside #[cfg(feature)] blocks
     #[allow(unused_variables, unused_mut)]
     pub fn new(config: &Config, inbound_tx: Arc<mpsc::Sender<InboundMessage>>) -> Self {
         let mut channels: Vec<Box<dyn BaseChannel>> = Vec::new();
