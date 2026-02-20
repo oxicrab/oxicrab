@@ -245,15 +245,36 @@ fn run_helper_process(cmd: &str, args: &[String], stdin_data: Option<&str>) -> R
 }
 
 /// Wait for a child process with a timeout. Kills the child if it exceeds the deadline.
+///
+/// Stdout and stderr are drained concurrently in background threads to prevent
+/// deadlocks when the child produces more output than the OS pipe buffer (~64 KB).
 fn wait_with_timeout(
     mut child: std::process::Child,
     timeout: std::time::Duration,
     cmd: &str,
 ) -> Result<std::process::Output> {
+    // Drain pipes in background threads so the child never blocks on write.
+    let stdout_handle = child.stdout.take().map(|pipe| {
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut buf = Vec::new();
+            let _ = pipe.take(1_048_576).read_to_end(&mut buf);
+            buf
+        })
+    });
+    let stderr_handle = child.stderr.take().map(|pipe| {
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut buf = Vec::new();
+            let _ = pipe.take(1_048_576).read_to_end(&mut buf);
+            buf
+        })
+    });
+
     let deadline = std::time::Instant::now() + timeout;
-    loop {
+    let status = loop {
         match child.try_wait()? {
-            Some(_status) => return child.wait_with_output().context("reading child output"),
+            Some(status) => break status,
             None if std::time::Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -264,7 +285,20 @@ fn wait_with_timeout(
             }
             None => std::thread::sleep(std::time::Duration::from_millis(50)),
         }
-    }
+    };
+
+    let stdout = stdout_handle
+        .and_then(|h| h.join().ok())
+        .unwrap_or_default();
+    let stderr = stderr_handle
+        .and_then(|h| h.join().ok())
+        .unwrap_or_default();
+
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 // ---------------------------------------------------------------------------
