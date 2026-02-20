@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -13,20 +13,16 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   NIGHTLY_VERSION: nightly-2026-02-06
+  CMAKE_MACOS: ""
 
 jobs:
-  build:
-    name: Build (${{ matrix.name }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux
-            runner: ubuntu-latest
-          - name: macos
-            runner: macos-15
-
+  # ── Lint ────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v6
 
@@ -36,18 +32,86 @@ jobs:
           toolchain: ${{ env.NIGHTLY_VERSION }}
           components: rustfmt, clippy
 
-      - name: Cache cargo registry
+      - name: Install tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: clippy-sarif,sarif-fmt,cargo-deny
+
+      - name: Cache cargo
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ env.NIGHTLY_VERSION }}-
+          key: cargo-lint-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-lint-${{ env.NIGHTLY_VERSION }}-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Clippy (SARIF)
+        run: >
+          cargo clippy --all-targets --all-features --message-format=json
+          | clippy-sarif
+          | tee clippy-results.sarif
+          | sarif-fmt
+        continue-on-error: true
+
+      - name: Upload SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: clippy-results.sarif
+          wait-for-processing: true
+        continue-on-error: true
+
+      - name: Clippy (fail on warnings)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: cargo-deny advisories
+        run: cargo deny check advisories
+
+  # ── Unit Tests ──────────────────────────────────────────────────────
+  test-unit:
+    name: Unit Tests (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: ubuntu-latest
+          - name: macos
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.NIGHTLY_VERSION }}
+
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-test-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-test-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -59,39 +123,350 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install cmake
 
-      - name: Check formatting
-        if: matrix.name == 'linux'
-        run: cargo fmt -- --check
-
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-        env:
-          # Disable native CPU detection in whisper.cpp/ggml to avoid ARM i8mm build failures on macOS CI
-          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
-
-      - name: Build
-        run: cargo build --verbose
-        env:
-          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
-
-      - name: Build without optional channels
-        run: cargo build --no-default-features --verbose
-        env:
-          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
-
       - name: Run unit tests
-        run: cargo test --lib --verbose
+        run: cargo nextest run --lib --profile default
         env:
           CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-unit-${{ matrix.name }}
+          path: target/nextest/default/junit-unit.xml
+          if-no-files-found: warn
+
+  # ── Integration Tests ───────────────────────────────────────────────
+  test-integration:
+    name: Integration Tests (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: ubuntu-latest
+          - name: macos
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.NIGHTLY_VERSION }}
+
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-test-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-test-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake
 
       - name: Run integration tests
-        run: cargo test --test session_management --test cron_jobs --test tool_registry --test message_flow --test config_validation --test context_and_skills --test error_handling --test filesystem_tools --test memory_integration --test multi_turn_session --test shell_exec --test tool_context_caching --test compaction_integration --verbose -- --test-threads=1
+        run: >
+          cargo nextest run --profile integration
+          --test session_management
+          --test cron_jobs
+          --test tool_registry
+          --test message_flow
+          --test config_validation
+          --test context_and_skills
+          --test error_handling
+          --test filesystem_tools
+          --test memory_integration
+          --test multi_turn_session
+          --test shell_exec
+          --test tool_context_caching
+          --test compaction_integration
+          --test safety_integration
         env:
           OXICRAB_HOME: ${{ runner.temp }}/oxicrab-test
           CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
 
-      - name: Security audit
-        if: matrix.name == 'linux'
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-integration-${{ matrix.name }}
+          path: target/nextest/integration/junit-integration.xml
+          if-no-files-found: warn
+
+  # ── Test Results ────────────────────────────────────────────────────
+  test-results:
+    name: Test Results
+    runs-on: ubuntu-latest
+    needs: [test-unit, test-integration]
+    if: always()
+    permissions:
+      checks: write
+      pull-requests: write
+    steps:
+      - name: Download all test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: junit-*
+          merge-multiple: true
+
+      - name: Publish test results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: "**/*.xml"
+          check_name: Test Results
+          comment_mode: off
+
+  # ── Coverage ────────────────────────────────────────────────────────
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.NIGHTLY_VERSION }}
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Cache cargo (coverage)
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-coverage-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-coverage-${{ env.NIGHTLY_VERSION }}-
+
+      - name: Install system dependencies
         run: |
-          cargo install cargo-audit --quiet 2>/dev/null || true
-          cargo audit || true
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Generate coverage
+        run: >
+          cargo llvm-cov
+          --all-features
+          --workspace
+          --lcov
+          --output-path lcov.info
+          --
+          --test-threads=1
+        env:
+          OXICRAB_HOME: ${{ runner.temp }}/oxicrab-test
+
+      - name: Upload to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          file: lcov.info
+        continue-on-error: true
+
+  # ── Build Check ─────────────────────────────────────────────────────
+  build-check:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: ubuntu-latest
+          - name: macos
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.NIGHTLY_VERSION }}
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-build-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-build-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake
+
+      - name: Build with timings
+        run: cargo build --timings
+        env:
+          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
+
+      - name: Build without optional channels
+        run: cargo build --no-default-features
+        env:
+          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
+
+      - name: Upload build timings
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-timings-${{ matrix.name }}
+          path: target/cargo-timings/cargo-timing.html
+
+  # ── Binary Size ─────────────────────────────────────────────────────
+  binary-size:
+    name: Binary Size
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.NIGHTLY_VERSION }}
+
+      - name: Cache cargo (release)
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-release-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-release-${{ env.NIGHTLY_VERSION }}-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Measure binary size
+        id: size
+        run: |
+          SIZE=$(stat -c%s target/release/oxicrab)
+          SIZE_MB=$(echo "scale=2; $SIZE / 1048576" | bc)
+          echo "bytes=$SIZE" >> "$GITHUB_OUTPUT"
+          echo "mb=$SIZE_MB" >> "$GITHUB_OUTPUT"
+
+      - name: Restore baseline size
+        if: github.event_name == 'pull_request'
+        id: baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: baseline-binary-size.txt
+          key: binary-size-baseline-main
+
+      - name: Compare with baseline
+        if: github.event_name == 'pull_request' && steps.baseline.outputs.cache-hit == 'true'
+        run: |
+          BASELINE=$(cat baseline-binary-size.txt)
+          CURRENT=${{ steps.size.outputs.bytes }}
+          DELTA=$((CURRENT - BASELINE))
+          DELTA_KB=$(echo "scale=1; $DELTA / 1024" | bc)
+          if [ $DELTA -gt 0 ]; then
+            SIGN="+"
+          else
+            SIGN=""
+          fi
+          echo "### Binary Size" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Current | ${{ steps.size.outputs.mb }} MB |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Baseline | $(echo "scale=2; $BASELINE / 1048576" | bc) MB |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Delta | ${SIGN}${DELTA_KB} KB |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report size (no baseline)
+        if: github.event_name != 'pull_request' || steps.baseline.outputs.cache-hit != 'true'
+        run: |
+          echo "### Binary Size" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Size | ${{ steps.size.outputs.mb }} MB |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save baseline (main only)
+        if: github.ref == 'refs/heads/main'
+        run: echo "${{ steps.size.outputs.bytes }}" > baseline-binary-size.txt
+
+      - name: Cache baseline
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: baseline-binary-size.txt
+          key: binary-size-baseline-main
+
+  # ── CI Gate ─────────────────────────────────────────────────────────
+  ci-gate:
+    name: CI
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [lint, test-unit, test-integration, build-check, coverage, binary-size]
+    steps:
+      - name: Check results
+        run: |
+          echo "lint: ${{ needs.lint.result }}"
+          echo "test-unit: ${{ needs.test-unit.result }}"
+          echo "test-integration: ${{ needs.test-integration.result }}"
+          echo "build-check: ${{ needs.build-check.result }}"
+          echo "coverage: ${{ needs.coverage.result }}"
+          echo "binary-size: ${{ needs.binary-size.result }}"
+
+          # Fail if any required job failed or was cancelled
+          if [[ "${{ needs.lint.result }}" == "failure" || "${{ needs.lint.result }}" == "cancelled" ]]; then
+            echo "::error::lint failed"
+            exit 1
+          fi
+          if [[ "${{ needs.test-unit.result }}" == "failure" || "${{ needs.test-unit.result }}" == "cancelled" ]]; then
+            echo "::error::test-unit failed"
+            exit 1
+          fi
+          if [[ "${{ needs.test-integration.result }}" == "failure" || "${{ needs.test-integration.result }}" == "cancelled" ]]; then
+            echo "::error::test-integration failed"
+            exit 1
+          fi
+          if [[ "${{ needs.build-check.result }}" == "failure" || "${{ needs.build-check.result }}" == "cancelled" ]]; then
+            echo "::error::build-check failed"
+            exit 1
+          fi
+          # coverage and binary-size are informational — warn but don't block
+          if [[ "${{ needs.coverage.result }}" == "failure" ]]; then
+            echo "::warning::coverage failed (non-blocking)"
+          fi
+          if [[ "${{ needs.binary-size.result }}" == "failure" ]]; then
+            echo "::warning::binary-size failed (non-blocking)"
+          fi

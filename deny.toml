@@ -1,0 +1,10 @@
+[advisories]
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "warn"
+notice = "warn"
+ignore = []
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "allow"

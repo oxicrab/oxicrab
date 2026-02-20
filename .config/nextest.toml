@@ -1,0 +1,10 @@
+[profile.default.junit]
+path = "junit-unit.xml"
+report-name = "unit-tests"
+
+[profile.integration]
+test-threads = 1
+
+[profile.integration.junit]
+path = "junit-integration.xml"
+report-name = "integration-tests"
