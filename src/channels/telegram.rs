@@ -490,3 +490,74 @@ fn markdown_to_telegram_html(text: &str) -> String {
 
     html
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_markdown_to_html_plain_text() {
+        assert_eq!(markdown_to_telegram_html("hello world"), "hello world");
+    }
+
+    #[test]
+    fn test_markdown_to_html_empty() {
+        assert_eq!(markdown_to_telegram_html(""), "");
+    }
+
+    #[test]
+    fn test_markdown_to_html_bold() {
+        assert_eq!(
+            markdown_to_telegram_html("hello **world**"),
+            "hello <b>world</b>"
+        );
+    }
+
+    #[test]
+    fn test_markdown_to_html_italic() {
+        // Italic regex uses underscores, not asterisks
+        assert_eq!(
+            markdown_to_telegram_html("hello _world_"),
+            "hello <i>world</i>"
+        );
+    }
+
+    #[test]
+    fn test_markdown_to_html_code() {
+        assert_eq!(
+            markdown_to_telegram_html("run `cargo test`"),
+            "run <code>cargo test</code>"
+        );
+    }
+
+    #[test]
+    fn test_markdown_to_html_link() {
+        assert_eq!(
+            markdown_to_telegram_html("[click](https://example.com)"),
+            r#"<a href="https://example.com">click</a>"#
+        );
+    }
+
+    #[test]
+    fn test_markdown_to_html_escapes_html() {
+        let result = markdown_to_telegram_html("<script>alert('xss')</script>");
+        assert!(result.contains("&lt;script&gt;"));
+        assert!(result.contains("&lt;/script&gt;"));
+        // Single quotes are escaped (encoding may vary)
+        assert!(!result.contains("<script>"));
+    }
+
+    #[test]
+    fn test_markdown_to_html_ampersand() {
+        assert_eq!(markdown_to_telegram_html("A & B"), "A &amp; B");
+    }
+
+    #[test]
+    fn test_markdown_to_html_mixed() {
+        let input = "**bold** and _italic_ with `code`";
+        let output = markdown_to_telegram_html(input);
+        assert!(output.contains("<b>bold</b>"));
+        assert!(output.contains("<i>italic</i>"));
+        assert!(output.contains("<code>code</code>"));
+    }
+}

@@ -380,4 +380,42 @@ mod tests {
         let d = exponential_backoff_delay(20, 2, 60);
         assert!((60..=75).contains(&d), "expected 60..=75, got {d}");
     }
+
+    #[test]
+    fn test_backoff_large_attempt_no_overflow() {
+        // 2^40 overflows u64 multiplication — should cap at max without panic
+        let d = exponential_backoff_delay(40, 5, 300);
+        assert!((300..=375).contains(&d), "expected 300..=375, got {d}");
+    }
+
+    #[test]
+    fn test_backoff_zero_base() {
+        let d = exponential_backoff_delay(5, 0, 60);
+        assert_eq!(d, 0);
+    }
+
+    #[test]
+    fn test_backoff_max_less_than_base() {
+        // max < base: should still cap
+        let d = exponential_backoff_delay(0, 10, 5);
+        assert!((5..=7).contains(&d), "expected 5..=7, got {d}");
+    }
+
+    #[test]
+    fn test_normalize_empty_string() {
+        assert_eq!(normalize_sender_id(""), "");
+    }
+
+    #[test]
+    fn test_normalize_no_plus() {
+        assert_eq!(normalize_sender_id("user@example.com"), "user@example.com");
+    }
+
+    #[test]
+    fn test_format_pairing_reply_contains_approve_command() {
+        let reply = format_pairing_reply("discord", "U123", "XYZW9876");
+        assert!(reply.contains("oxicrab pairing approve discord XYZW9876"));
+        assert!(reply.contains("U123"));
+        assert!(reply.contains("XYZW9876"));
+    }
 }

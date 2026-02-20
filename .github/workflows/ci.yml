@@ -65,7 +65,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload SARIF to Code Scanning
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: clippy-results.sarif
           wait-for-processing: true
@@ -121,7 +121,7 @@ jobs:
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install cmake
+        run: command -v cmake || brew install cmake
 
       - name: Run unit tests
         run: cargo nextest run --lib --profile default
@@ -180,7 +180,7 @@ jobs:
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install cmake
+        run: command -v cmake || brew install cmake
 
       - name: Run integration tests
         run: >
@@ -325,7 +325,7 @@ jobs:
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install cmake
+        run: command -v cmake || brew install cmake
 
       - name: Build with timings
         run: cargo build --timings
@@ -388,7 +388,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: baseline-binary-size.txt
-          key: binary-size-baseline-main
+          key: binary-size-baseline-
+          restore-keys: binary-size-baseline-
 
       - name: Compare with baseline
         if: github.event_name == 'pull_request' && steps.baseline.outputs.cache-hit == 'true'
@@ -428,7 +429,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: baseline-binary-size.txt
-          key: binary-size-baseline-main
+          key: binary-size-baseline-${{ github.sha }}
 
   # ── CI Gate ─────────────────────────────────────────────────────────
   ci-gate:
