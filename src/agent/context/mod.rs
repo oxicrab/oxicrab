@@ -167,7 +167,7 @@ impl ContextBuilder {
 
     fn get_default_identity(now: &str, tz: &str, runtime: &str, workspace_path: &str) -> String {
         format!(
-            "# oxicrab\n\nYou are oxicrab, a helpful AI assistant.\n\n## Capabilities\n\n- Read, write, and edit files\n- Execute shell commands\n- Search the web and fetch web pages\n- Communicate with users across chat channels\n- Spawn subagents for complex background tasks\n\n## Tool Usage Rules\n\n- NEVER claim to have called a tool or report tool results unless you actually invoked the tool in this conversation.\n- NEVER fabricate or simulate tool output. If you need data, call the tool.\n- If asked to test or run tools, you MUST call each tool individually and report the real results.\n- If a tool is unavailable or fails, say so explicitly — do not invent results.\n\n## Current Context\n\n**Date**: {}\n**Timezone**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md",
+            "# oxicrab\n\nYou are oxicrab, a helpful AI assistant.\n\n## Capabilities\n\n- Read, write, and edit files\n- Execute shell commands\n- Search the web and fetch web pages\n- Communicate with users across chat channels\n- Spawn subagents for complex background tasks\n\n## Tool Usage Rules\n\n- NEVER claim to have called a tool or report tool results unless you actually invoked the tool in this conversation.\n- NEVER fabricate or simulate tool output. If you need data, call the tool.\n- If asked to test or run tools, you MUST call each tool individually and report the real results.\n- If a tool is unavailable or fails, say so explicitly — do not invent results.\n- If you need to use tools, call them directly — never send a preliminary message like \"Let me check\" without actually calling a tool in the same response.\n\n## Current Context\n\n**Date**: {}\n**Timezone**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md",
             now, tz, runtime, workspace_path, workspace_path, workspace_path, workspace_path,
         )
     }
@@ -216,6 +216,26 @@ impl ContextBuilder {
         cache
     }
 
+    /// Return a channel-specific formatting hint for the system prompt.
+    fn channel_formatting_hint(channel: &str) -> Option<&'static str> {
+        match channel {
+            "discord" => Some(
+                "Formatting: Markdown supported but NOT tables. Wrap URLs in <> to suppress embeds. Max 2000 chars per message.",
+            ),
+            "telegram" => Some(
+                "Formatting: Bold, italic, code, and bullet lists work. Tables NOT supported. Max 4096 chars per message.",
+            ),
+            "slack" => Some(
+                "Formatting: Use Slack mrkdwn — *bold*, _italic_, `code`. Standard markdown ** does NOT work. Prefer threaded replies.",
+            ),
+            "whatsapp" => Some(
+                "Formatting: Keep messages concise. Headers/tables ignored. Bold (*text*) and italic (_text_) work.",
+            ),
+            "twilio" => Some("Formatting: Plain text only (SMS). Keep responses very concise."),
+            _ => None,
+        }
+    }
+
     pub fn build_messages(
         &mut self,
         history: &[HashMap<String, serde_json::Value>],
@@ -235,6 +255,10 @@ impl ContextBuilder {
             if let Some(sid) = sender_id {
                 use std::fmt::Write as _;
                 let _ = write!(session_info, "\nSender: {}", sid);
+            }
+            if let Some(hint) = Self::channel_formatting_hint(ch) {
+                use std::fmt::Write as _;
+                let _ = write!(session_info, "\n{}", hint);
             }
             system_prompt.push_str(&session_info);
         }

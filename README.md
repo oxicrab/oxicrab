@@ -11,7 +11,9 @@
 ## Features
 
 - **Multi-channel support**: Telegram, Discord (slash commands, embeds, button components), Slack, WhatsApp, Twilio (SMS/MMS) — each behind a Cargo feature flag for slim builds
-- **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), plus OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, vLLM), with OAuth support and local model fallback
+- **LLM providers**: Anthropic (Claude), OpenAI (GPT), Google (Gemini), plus OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, vLLM), with OAuth support, Claude CLI credential auto-detection, and local model fallback
+- **Prompt caching**: Automatic Anthropic prompt caching (`cache_control`) for system messages and tool definitions — up to 90% input token cost reduction
+- **Channel-aware formatting**: Per-channel formatting hints (Discord, Telegram, Slack, WhatsApp, Twilio) injected into the system prompt to prevent broken rendering
 - **23 built-in tools**: Filesystem, shell, web, HTTP, browser automation, image generation, Google Workspace, GitHub, scheduling, memory, media management, and more — plus MCP (Model Context Protocol) for external tool servers
 - **Subagents**: Background task execution with concurrency limiting, context injection, and lifecycle management
 - **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode (LLM-free delivery), multi-channel targeting, auto-expiry (`expires_at`) and run limits (`max_runs`)

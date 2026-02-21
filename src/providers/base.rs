@@ -21,6 +21,10 @@ pub struct LLMResponse {
     /// Output token count reported by the provider (if available).
     /// Used for cost tracking.
     pub output_tokens: Option<u64>,
+    /// Anthropic prompt caching: tokens written to cache (billed at 125% of input rate).
+    pub cache_creation_input_tokens: Option<u64>,
+    /// Anthropic prompt caching: tokens read from cache (billed at 10% of input rate).
+    pub cache_read_input_tokens: Option<u64>,
 }
 
 impl LLMResponse {
@@ -274,6 +278,8 @@ mod tests {
             reasoning_content: None,
             input_tokens: None,
             output_tokens: None,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
         };
         assert!(!empty.has_tool_calls());
 
@@ -287,6 +293,8 @@ mod tests {
             reasoning_content: None,
             input_tokens: None,
             output_tokens: None,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
         };
         assert!(with_tools.has_tool_calls());
     }
@@ -302,6 +310,8 @@ mod tests {
                 reasoning_content: None,
                 input_tokens: None,
                 output_tokens: None,
+                cache_creation_input_tokens: None,
+                cache_read_input_tokens: None,
             })
         }
         fn default_model(&self) -> &'static str {

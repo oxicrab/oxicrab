@@ -176,6 +176,8 @@
             <li><strong>gemini-pro</strong> (Google)</li>
         </ul>
 
+        <p><strong>Prompt caching:</strong> Anthropic providers automatically use <code>cache_control</code> on system messages and tool definitions, enabling up to 90% input token cost reduction for repeated content (5-minute TTL).</p>
+
         <h3 id="openai-compatible">OpenAI-Compatible Models</h3>
         <p>Any model whose name contains a supported provider keyword is automatically routed to that provider's OpenAI-compatible API. Set the API key in config &mdash; no other setup needed:</p>
         <pre><code>{
@@ -512,6 +514,14 @@
         </ul>
 
         <p>Embedded pricing data covers 50+ models. Config overrides take precedence for any model name prefix match.</p>
+
+        <h3>Prompt Cache-Aware Pricing</h3>
+        <p>For Anthropic providers, prompt caching tokens are priced differently:</p>
+        <ul class="plain">
+            <li><strong>Cache read tokens</strong> &mdash; billed at <strong>10%</strong> of the input token rate (90% discount)</li>
+            <li><strong>Cache creation tokens</strong> &mdash; billed at <strong>125%</strong> of the input token rate (25% surcharge)</li>
+        </ul>
+        <p>This is applied automatically when the Anthropic API reports <code>cache_read_input_tokens</code> and <code>cache_creation_input_tokens</code> in the response usage.</p>
     </div>
 
     <!-- CIRCUIT BREAKER -->

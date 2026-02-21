@@ -69,11 +69,11 @@ impl LLMProvider for AnthropicProvider {
         });
 
         if let Some(system) = system {
-            payload["system"] = json!(system);
+            payload["system"] = anthropic_common::system_to_content_blocks(&system);
         }
 
         if let Some(tools) = req.tools {
-            payload["tools"] = json!(anthropic_common::convert_tools(tools));
+            payload["tools"] = serde_json::Value::Array(anthropic_common::convert_tools(tools));
             let choice = req.tool_choice.as_deref().unwrap_or("auto");
             payload["tool_choice"] = json!({"type": choice});
         }

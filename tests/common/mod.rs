@@ -61,6 +61,8 @@ impl LLMProvider for MockLLMProvider {
             reasoning_content: None,
             input_tokens: None,
             output_tokens: None,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
         }))
     }
 
@@ -78,6 +80,8 @@ pub fn text_response(content: &str) -> LLMResponse {
         reasoning_content: None,
         input_tokens: None,
         output_tokens: None,
+        cache_creation_input_tokens: None,
+        cache_read_input_tokens: None,
     }
 }
 
@@ -88,6 +92,8 @@ pub fn tool_response(calls: Vec<ToolCallRequest>) -> LLMResponse {
         reasoning_content: None,
         input_tokens: None,
         output_tokens: None,
+        cache_creation_input_tokens: None,
+        cache_read_input_tokens: None,
     }
 }
 
@@ -140,6 +146,8 @@ impl LLMProvider for ToolCapturingProvider {
             reasoning_content: None,
             input_tokens: None,
             output_tokens: None,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
         }))
     }
 

@@ -165,6 +165,8 @@ mod tests {
             reasoning_content: None,
             input_tokens: None,
             output_tokens: None,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
         }
     }
 
@@ -179,6 +181,8 @@ mod tests {
             reasoning_content: None,
             input_tokens: None,
             output_tokens: None,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
         }
     }
 
@@ -238,6 +242,8 @@ mod tests {
             reasoning_content: None,
             input_tokens: None,
             output_tokens: None,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
         };
 
         let primary = MockProvider::ok("local-model", bad_response);
@@ -270,6 +276,8 @@ mod tests {
             reasoning_content: None,
             input_tokens: None,
             output_tokens: None,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
         };
 
         let primary = MockProvider::ok("local-model", bad_response);

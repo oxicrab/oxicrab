@@ -268,6 +268,52 @@ async fn test_build_messages_without_images() {
 }
 
 #[test]
+fn test_channel_formatting_hint_discord() {
+    let hint = ContextBuilder::channel_formatting_hint("discord");
+    assert!(hint.is_some());
+    assert!(hint.unwrap().contains("NOT tables"));
+}
+
+#[test]
+fn test_channel_formatting_hint_unknown() {
+    assert!(ContextBuilder::channel_formatting_hint("cli").is_none());
+    assert!(ContextBuilder::channel_formatting_hint("unknown").is_none());
+}
+
+#[tokio::test]
+async fn test_build_messages_includes_channel_hint() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut ctx = create_test_context(tmp.path());
+
+    let messages = ctx
+        .build_messages(
+            &[],
+            "hello",
+            Some("discord"),
+            Some("123"),
+            Some("user42"),
+            vec![],
+        )
+        .unwrap();
+
+    let system_msg = &messages[0];
+    assert!(
+        system_msg.content.contains("NOT tables"),
+        "system prompt should include discord formatting hint"
+    );
+}
+
+#[test]
+fn test_default_identity_has_tool_directness_rule() {
+    let identity =
+        ContextBuilder::get_default_identity("2026-02-21", "UTC", "Rust 0.1.3", "/workspace");
+    assert!(
+        identity.contains("call them directly"),
+        "default identity should include tool directness rule"
+    );
+}
+
+#[test]
 fn test_bootstrap_files_constant() {
     assert!(BOOTSTRAP_FILES.contains(&"USER.md"));
     assert!(BOOTSTRAP_FILES.contains(&"TOOLS.md"));

@@ -367,7 +367,13 @@ async fn run_subagent_inner(
 
         // Record cost for budget tracking
         if let Some(ref cg) = config.cost_guard {
-            cg.record_llm_call(&config.model, response.input_tokens, response.output_tokens);
+            cg.record_llm_call(
+                &config.model,
+                response.input_tokens,
+                response.output_tokens,
+                response.cache_creation_input_tokens,
+                response.cache_read_input_tokens,
+            );
         }
 
         if response.has_tool_calls() {

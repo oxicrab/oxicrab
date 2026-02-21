@@ -158,6 +158,8 @@ impl OpenAIProvider {
             reasoning_content: None,
             input_tokens,
             output_tokens,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
         })
     }
 }

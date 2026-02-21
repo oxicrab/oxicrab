@@ -480,6 +480,9 @@
   <div class="channel-section" style="border-top: 2px solid var(--border); padding-top: 2rem;">
     <h2>Common patterns</h2>
 
+    <h3>Channel formatting hints</h3>
+    <p>The system prompt automatically includes per-channel formatting guidance, so the LLM avoids broken rendering (e.g. markdown tables on Discord/Telegram, standard markdown in Slack). No configuration needed &mdash; the hints are injected based on the active channel.</p>
+
     <h3>Selective compilation</h3>
     <p>Each channel is a Cargo feature flag. Build only what you deploy:</p>
     <pre><code># All channels (default)

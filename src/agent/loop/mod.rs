@@ -27,7 +27,6 @@ use tracing::{debug, error, info, warn};
 const EMPTY_RESPONSE_RETRIES: usize = 2;
 const WRAPUP_THRESHOLD_RATIO: f64 = 0.7;
 const MIN_WRAPUP_ITERATION: usize = 2;
-const MAX_TOOLS_NUDGES: u32 = 2;
 const TOOL_MENTION_HALLUCINATION_THRESHOLD: usize = 3;
 const TYPING_INDICATOR_INTERVAL_SECS: u64 = 4;
 const RETRY_BACKOFF_BASE: u64 = 2;
@@ -1275,8 +1274,7 @@ impl AgentLoop {
     ///
     /// Iterates up to `max_iterations` rounds of: LLM call → parallel tool execution → append results.
     /// First iteration forces `tool_choice="any"` to prevent text-only hallucinations. At 70% of
-    /// max iterations, a wrap-up nudge is injected. If the LLM returns text without calling tools
-    /// (after iteration 1), up to 2 nudges ask it to use tools before accepting the response.
+    /// max iterations, a wrap-up nudge is injected.
     ///
     /// Returns `(response_text, last_message_id, collected_media, tool_names_used)`.
     async fn run_agent_loop_with_overrides(
@@ -1291,7 +1289,6 @@ impl AgentLoop {
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut any_tools_called = false;
         let mut correction_sent = false;
-        let mut tools_nudge_count: u32 = 0;
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
@@ -1425,6 +1422,8 @@ impl AgentLoop {
                     effective_model,
                     response.input_tokens,
                     response.output_tokens,
+                    response.cache_creation_input_tokens,
+                    response.cache_read_input_tokens,
                 );
             }
 
@@ -1466,9 +1465,7 @@ impl AgentLoop {
                     response.reasoning_content.as_deref(),
                     any_tools_called,
                     &mut correction_sent,
-                    &mut tools_nudge_count,
                     &tool_names,
-                    iteration,
                 ) {
                     TextAction::Continue => {}
                     TextAction::Return => {
@@ -1670,36 +1667,17 @@ impl AgentLoop {
         }
     }
 
-    /// Handle a text-only LLM response: tools nudge, false no-tools correction,
-    /// or hallucination detection. Returns [`TextAction::Continue`] if a
+    /// Handle a text-only LLM response: false no-tools correction or
+    /// hallucination detection. Returns [`TextAction::Continue`] if a
     /// correction was injected, or [`TextAction::Return`] if the response is final.
-    #[allow(clippy::too_many_arguments)]
     fn handle_text_response(
         content: &str,
         messages: &mut Vec<Message>,
         reasoning_content: Option<&str>,
         any_tools_called: bool,
         correction_sent: &mut bool,
-        tools_nudge_count: &mut u32,
         tool_names: &[String],
-        iteration: usize,
     ) -> TextAction {
-        // Nudge the LLM to use tools if it responded with text before calling any.
-        // Skip iteration 1 since tool_choice="any" already forces tool use there.
-        if iteration > 1
-            && !any_tools_called
-            && !*correction_sent
-            && *tools_nudge_count < MAX_TOOLS_NUDGES
-            && !tool_names.is_empty()
-        {
-            *tools_nudge_count += 1;
-            ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
-            messages.push(Message::user(
-                "Please proceed and use the available tools to complete this task.".to_string(),
-            ));
-            return TextAction::Continue;
-        }
-
         // Detect false "no tools" claims and retry with correction
         if !tool_names.is_empty() && is_false_no_tools_claim(content) {
             warn!(
