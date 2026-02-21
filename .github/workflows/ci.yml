@@ -385,7 +385,7 @@ jobs:
       - name: Restore baseline size
         if: github.event_name == 'pull_request'
         id: baseline
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: baseline-binary-size.txt
           key: binary-size-baseline-
@@ -426,7 +426,7 @@ jobs:
 
       - name: Cache baseline
         if: github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: baseline-binary-size.txt
           key: binary-size-baseline-${{ github.sha }}
