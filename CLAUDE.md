@@ -52,6 +52,9 @@ CI treats clippy warnings as errors. No custom rustfmt/clippy config — uses de
 
 - Do **not** add `Co-Authored-By` trailers to commits.
 - Use conventional commit style (`fix:`, `feat:`, `chore:`, `refactor:`, etc.).
+- A `commit-msg` hook in `.githooks/` enforces this. Set up with: `git config core.hooksPath .githooks`
+- Allowed types: `feat fix docs style refactor perf test build ci chore revert`
+- Format: `type(scope): lowercase description` — e.g. `fix(cron): prevent duplicate job names`
 
 ## Releasing
 

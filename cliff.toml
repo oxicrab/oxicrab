@@ -5,7 +5,7 @@
 header = """
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project will be documented in this file.\n
 """
 body = """
 {%- macro remote_url() -%}
@@ -20,32 +20,163 @@ body = """
 
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | striptags | trim | upper_first }}
-{% for commit in commits %}
-- {{ commit.message | split(pat="\n") | first | trim }}\
-  {% if commit.remote.username %} by @{{ commit.remote.username }}{%- endif -%}
-  {% if commit.id %} ([{{ commit.id | truncate(length=7, end="") }}]({{ self::remote_url() }}/commit/{{ commit.id }})){%- endif -%}
+{% for commit in commits
+%}- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+{{ commit.message | split(pat="\n") | first | trim }} \
+([{{ commit.id | truncate(length=7, end="") }}]({{ self::remote_url() }}/commit/{{ commit.id }}))
 {% endfor %}
 {% endfor %}
 """
 footer = ""
 trim = true
+postprocessors = [
+  # Clean up conventional commit prefixes that leak through
+  { pattern = "^- (feat|fix|refactor|perf|test|docs|doc|ci|chore|build|style)(\\(.+\\))?!?:\\s*", replace = "- " },
+  # Capitalize first letter after list marker
+  { pattern = "^- ([a-z])", replace = "- ${1}" },
+]
 
 [git]
 conventional_commits = true
 filter_unconventional = false
 split_commits = false
+protect_breaking_commits = true
 commit_parsers = [
-  { message = "^feat", group = "Features" },
-  { message = "^fix", group = "Bug Fixes" },
+  # ── Skip noise ────────────────────────────────────────────────
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^Merge", skip = true },
+  { message = "(?i)^fmt$", skip = true },
+  { message = "(?i)^Fixed? fmt", skip = true },
+  { message = "(?i)^Fixed? CI$", skip = true },
+  { message = "(?i)^(Test new CI|Fixed GA action)", skip = true },
+  { message = "(?i)^Commit lock file", skip = true },
+  { message = "(?i)^clippy (fix|warning)", skip = true },
+  { message = "(?i)^Fixing clippy", skip = true },
+  { message = "(?i)^Fixed? clippy", skip = true },
+  { message = "(?i)^Fixed? build$", skip = true },
+  { message = "(?i)^Now add the file", skip = true },
+  { message = "(?i)^Changes:?\\n", skip = true },
+  { message = "(?i)^Changes Made\\n", skip = true },
+  { message = "(?i)^Implementation Summary\\n", skip = true },
+  { message = "(?i)^Changes:?$", skip = true },
+  { message = "(?i)^Changes Made$", skip = true },
+  { message = "(?i)^Implementation Summary$", skip = true },
+  { message = "^#:\\s*\\d+", skip = true },
+  { message = "(?i)^WA spam", skip = true },
+  { message = "(?i)^Tidied some params", skip = true },
+
+  # ── Conventional commits (highest priority) ──────────────────
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
   { message = "^perf", group = "Performance" },
-  { message = "^refactor", group = "Refactoring" },
-  { message = "^doc", group = "Documentation" },
+  { message = "^refactor", group = "Changed" },
+  { message = "^docs?", group = "Documentation" },
   { message = "^test", group = "Testing" },
   { message = "^ci", group = "CI/CD" },
-  { message = "^chore\\(release\\)", skip = true },
-  { message = "^chore", group = "Miscellaneous" },
-  { message = "^Merge", skip = true },
-  { body = ".*", group = "Miscellaneous" },
+  { message = "^build", group = "Build" },
+  { message = "^style", group = "Changed" },
+  { message = "^chore", group = "Maintenance" },
+
+  # ── Non-conventional: features ───────────────────────────────
+  { message = "(?i)^Feature \\d+", group = "Added" },
+  { message = "(?i)^Part \\d+:", group = "Added" },
+  { message = "(?i)^Task #\\d+:", group = "Added" },
+  { message = "(?i)^Add(ed|s|ing)?\\b", group = "Added" },
+  { message = "(?i)^Implement(ed|s|ing)?\\b", group = "Added" },
+  { message = "(?i)^Introduc(e|ed|ing)\\b", group = "Added" },
+  { message = "(?i)^New\\b", group = "Added" },
+  { message = "(?i)\\bsupport$", group = "Added" },
+  { message = "(?i)^(Parr?all?el|Parallel)\\b", group = "Added" },
+  { message = "(?i)^Multi-channel", group = "Added" },
+  { message = "(?i)^Channel architecture", group = "Added" },
+  { message = "(?i)^(Image gen|Obsidian|Browser eval)", group = "Added" },
+  { message = "(?i)^Base implementation", group = "Added" },
+
+  # ── Non-conventional: fixes ──────────────────────────────────
+  { message = "(?i)^Fix(ed|es|ing)?\\b", group = "Fixed" },
+  { message = "(?i)^Prevent\\b", group = "Fixed" },
+  { message = "(?i)^Resolve[ds]?\\b", group = "Fixed" },
+  { message = "(?i)bug fix", group = "Fixed" },
+  { message = "(?i)^(Some|More|Many|Various)\\s+(fixes|bug)", group = "Fixed" },
+  { message = "(?i)^(Consistency|Cron|WA spam|TZ) fix", group = "Fixed" },
+  { message = "(?i)^(Whatsapp and cron|Clippy and bug) fix", group = "Fixed" },
+
+  # ── Non-conventional: changes ────────────────────────────────
+  { message = "(?i)^Replac(e|ed|ing)\\b", group = "Changed" },
+  { message = "(?i)^Updat(e|ed|ing)\\b", group = "Changed" },
+  { message = "(?i)^Upgrad(e|ed|ing)\\b", group = "Changed" },
+  { message = "(?i)^Chang(e|ed|ing)\\b", group = "Changed" },
+  { message = "(?i)^Mov(e|ed|ing)\\b", group = "Changed" },
+  { message = "(?i)^Migrat(e|ed|ing)\\b", group = "Changed" },
+  { message = "(?i)^Renam(e|ed|ing)\\b", group = "Changed" },
+  { message = "(?i)^Refactor(ed|ing)?\\b", group = "Changed" },
+  { message = "(?i)^Improv(e|ed|ing)\\b", group = "Changed" },
+  { message = "(?i)^Revert(ed|ing)?\\b", group = "Changed" },
+  { message = "(?i)^Rewrite|Rewrote\\b", group = "Changed" },
+  { message = "(?i)^Split\\b", group = "Changed" },
+  { message = "(?i)^Extracted?\\b", group = "Changed" },
+  { message = "(?i)^Reversed?\\b", group = "Changed" },
+  { message = "(?i)^Use\\b", group = "Changed" },
+  { message = "(?i)^Handle\\b", group = "Changed" },
+  { message = "(?i)^Paginate\\b", group = "Changed" },
+  { message = "(?i)^Auto-create\\b", group = "Changed" },
+  { message = "(?i)^Construct\\b", group = "Changed" },
+  { message = "(?i)\\bUpgrade Summary", group = "Changed" },
+  { message = "(?i)^Inspired by", group = "Changed" },
+  { message = "(?i)^Problem:", group = "Changed" },
+  { message = "(?i)^(Better|Reduce|Action directive)", group = "Changed" },
+  { message = "(?i)^(Tool choice|Restart skip|Debug heartbeat)", group = "Changed" },
+  { message = "(?i)^Rust refactoring", group = "Changed" },
+  { message = "(?i)^Some obsidian", group = "Changed" },
+  { message = "(?i)^Slack emoji", group = "Changed" },
+
+  # ── Non-conventional: features (more patterns) ──────────────
+  { message = "(?i)^More image fix", group = "Fixed" },
+  { message = "(?i)^Many cron fix", group = "Fixed" },
+  { message = "(?i)^Parr?all?el tool", group = "Added" },
+  { message = "(?i)^Tools in memory", group = "Added" },
+  { message = "(?i)^(Two-layer|1\\. Discord|1\\. Browser eval)", group = "Added" },
+  { message = "(?i)^More integration tests", group = "Testing" },
+  { message = "(?i)tests? re-?organi", group = "Testing" },
+
+  # ── Non-conventional: CI/CD ─────────────────────────────────
+  { message = "(?i)^\\d+\\.\\s*Dependabot", group = "CI/CD" },
+  { message = "(?i)^Package validation", group = "CI/CD" },
+
+  # ── Non-conventional: additions (path-prefixed) ─────────────
+  { message = "^src/.*added", group = "Added" },
+
+  # ── Non-conventional: removals ───────────────────────────────
+  { message = "(?i)^Remov(e|ed|ing)\\b", group = "Removed" },
+  { message = "(?i)^Delet(e|ed|ing)\\b", group = "Removed" },
+  { message = "(?i)^Drop(ped|ping)?\\b", group = "Removed" },
+
+  # ── Non-conventional: docs ───────────────────────────────────
+  { message = "(?i)\\bdocs?\\b", group = "Documentation" },
+  { message = "(?i)^README\\b", group = "Documentation" },
+  { message = "(?i)^Updates? to .+\\.(md|html|txt)", group = "Documentation" },
+  { message = "(?i)^(Summary of|Pre-work:)", group = "Documentation" },
+
+  # ── Non-conventional: testing ────────────────────────────────
+  { message = "(?i)^(More )?tests?\\b", group = "Testing" },
+  { message = "(?i)^(Initial|Integration|Moo+re) tests?", group = "Testing" },
+
+  # ── Non-conventional: deps ───────────────────────────────────
+  { message = "(?i)^bump\\b", group = "Dependencies" },
+  { message = "(?i)(crate|package|dep).*(upgrad|updat)", group = "Dependencies" },
+  { message = "(?i)(upgrad|updat).*(crate|package|dep)", group = "Dependencies" },
+  { message = "(?i)^Crate upgrades", group = "Dependencies" },
+
+  # ── Non-conventional: security ───────────────────────────────
+  { message = "(?i)security", group = "Security" },
+  { message = "(?i)\\bvulns?\\b", group = "Security" },
+  { message = "(?i)\\bsandbox", group = "Security" },
+  { message = "(?i)\\bleak.detect", group = "Security" },
+  { message = "(?i)\\banti-hallucination", group = "Security" },
+  { message = "(?i)\\bFinding:", group = "Security" },
+
+  # ── Catch-all (last resort) ─────────────────────────────────
+  { body = ".*", group = "Other" },
 ]
 tag_pattern = "v[0-9].*"
 sort_commits = "newest"

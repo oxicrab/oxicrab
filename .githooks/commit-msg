@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Validates conventional commit format.
+# Configured via: git config core.hooksPath .githooks
+set -euo pipefail
+
+MSG_FILE="$1"
+MSG="$(head -1 "$MSG_FILE")"
+
+# Allow merge commits and fixup/squash prefixes
+case "$MSG" in
+  Merge\ *|fixup\!\ *|squash\!\ *) exit 0 ;;
+esac
+
+# Conventional commit pattern:
+#   type(optional-scope): description
+#   type!: description  (breaking change)
+#
+# Allowed types: feat fix docs style refactor perf test build ci chore revert
+if ! echo "$MSG" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_/-]+\))?!?: .+'; then
+  cat <<EOF
+
+ERROR: commit message does not follow conventional commits format.
+
+  Expected:  type(scope): description
+  Got:       $MSG
+
+  Types: feat fix docs style refactor perf test build ci chore revert
+
+  Examples:
+    feat: add prompt caching support
+    fix(cron): prevent duplicate job names
+    refactor!: remove message tool
+    chore(deps): bump clap from 4.5 to 4.6
+
+  Bypass with: git commit --no-verify
+
+EOF
+  exit 1
+fi
+
+# Validate description starts lowercase (style preference)
+DESC="${MSG#*: }"
+if echo "$DESC" | grep -qE '^[A-Z]'; then
+  cat <<EOF
+
+WARNING: commit description should start lowercase.
+  Got: $DESC
+  (not blocking — just a style suggestion)
+
+EOF
+fi
+
+# Validate subject line length
+if (( ${#MSG} > 72 )); then
+  cat <<EOF
+
+WARNING: subject line is ${#MSG} chars (recommended max: 72).
+  Move details to the commit body instead.
+
+EOF
+fi
