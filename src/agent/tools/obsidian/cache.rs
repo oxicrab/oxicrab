@@ -536,23 +536,7 @@ impl ObsidianCache {
     }
 }
 
-/// Normalize a path lexically (without touching the filesystem).
-/// Resolves `.` and `..` components to prevent path traversal.
-fn lexical_normalize(path: &std::path::Path) -> PathBuf {
-    let mut components = Vec::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                if matches!(components.last(), Some(std::path::Component::Normal(_))) {
-                    components.pop();
-                }
-            }
-            std::path::Component::CurDir => {}
-            other => components.push(other),
-        }
-    }
-    components.iter().collect()
-}
+use crate::agent::tools::shell::lexical_normalize;
 
 /// Background sync service that periodically syncs the Obsidian cache.
 pub struct ObsidianSyncService {

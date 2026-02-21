@@ -10,7 +10,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
@@ -103,16 +103,14 @@ impl Session {
 }
 
 pub struct SessionManager {
-    _workspace: PathBuf,
     sessions_dir: PathBuf,
     cache: Mutex<LruCache<String, Session>>,
 }
 
 impl SessionManager {
-    pub fn new(workspace: PathBuf) -> Result<Self> {
+    pub fn new(workspace: &Path) -> Result<Self> {
         let sessions_dir = ensure_dir(workspace.join("sessions"))?;
         Ok(Self {
-            _workspace: workspace,
             sessions_dir,
             cache: Mutex::new(LruCache::new(
                 NonZeroUsize::new(MAX_CACHED_SESSIONS).expect("MAX_CACHED_SESSIONS must be > 0"),

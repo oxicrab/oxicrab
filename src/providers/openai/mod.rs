@@ -2,6 +2,7 @@ use crate::providers::base::{
     ChatRequest, LLMProvider, LLMResponse, ProviderMetrics, ToolCallRequest,
 };
 use crate::providers::errors::ProviderErrorHandler;
+use crate::providers::provider_http_client;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
@@ -11,8 +12,6 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 const API_URL: &str = "https://api.openai.com/v1/chat/completions";
-const CONNECT_TIMEOUT_SECS: u64 = 30;
-const REQUEST_TIMEOUT_SECS: u64 = 120;
 
 pub struct OpenAIProvider {
     api_key: String,
@@ -31,11 +30,7 @@ impl OpenAIProvider {
             default_model: default_model.unwrap_or_else(|| "gpt-4o".to_string()),
             base_url: API_URL.to_string(),
             provider_name: "OpenAI".to_string(),
-            client: Client::builder()
-                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
-                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: provider_http_client(),
             metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
             custom_headers: std::collections::HashMap::new(),
         }
@@ -52,11 +47,7 @@ impl OpenAIProvider {
             default_model,
             base_url,
             provider_name,
-            client: Client::builder()
-                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
-                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: provider_http_client(),
             metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
             custom_headers: std::collections::HashMap::new(),
         }
@@ -75,11 +66,7 @@ impl OpenAIProvider {
             default_model,
             base_url,
             provider_name,
-            client: Client::builder()
-                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
-                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: provider_http_client(),
             metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
             custom_headers,
         }
@@ -92,11 +79,7 @@ impl OpenAIProvider {
             default_model: default_model.unwrap_or_else(|| "gpt-4o".to_string()),
             base_url,
             provider_name: "OpenAI".to_string(),
-            client: Client::builder()
-                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
-                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: provider_http_client(),
             metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
             custom_headers: std::collections::HashMap::new(),
         }

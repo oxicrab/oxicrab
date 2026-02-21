@@ -6,8 +6,7 @@ use tempfile::TempDir;
 /// Create a SessionManager that uses an isolated temp directory.
 fn create_test_session_manager() -> (SessionManager, TempDir) {
     let tmp = TempDir::new().expect("Failed to create temp dir");
-    let mgr =
-        SessionManager::new(tmp.path().to_path_buf()).expect("Failed to create SessionManager");
+    let mgr = SessionManager::new(tmp.path()).expect("Failed to create SessionManager");
     (mgr, tmp)
 }
 
@@ -32,8 +31,7 @@ async fn test_session_save_and_load() {
     mgr.save(&session).await.expect("save session");
 
     // Create a new manager pointing at the same directory to force load from disk
-    let mgr2 =
-        SessionManager::new(tmp.path().to_path_buf()).expect("Failed to create second manager");
+    let mgr2 = SessionManager::new(tmp.path()).expect("Failed to create second manager");
     let loaded = mgr2
         .get_or_create("test:chat1")
         .await
@@ -157,8 +155,7 @@ async fn test_sessions_are_isolated() {
     mgr.save(&session_b).await.expect("save session b");
 
     // Reload and verify isolation
-    let mgr2 =
-        SessionManager::new(tmp.path().to_path_buf()).expect("Failed to create second manager");
+    let mgr2 = SessionManager::new(tmp.path()).expect("Failed to create second manager");
     let loaded_a = mgr2
         .get_or_create("chan_a:chat_1")
         .await
@@ -192,8 +189,7 @@ async fn test_session_metadata_persists() {
     mgr.save(&session).await.expect("save session");
 
     // Load from disk via new manager
-    let mgr2 =
-        SessionManager::new(tmp.path().to_path_buf()).expect("Failed to create second manager");
+    let mgr2 = SessionManager::new(tmp.path()).expect("Failed to create second manager");
     let loaded = mgr2
         .get_or_create("test:meta")
         .await
@@ -258,8 +254,7 @@ async fn test_concurrent_save_different_keys() {
     let keys = futures_util::future::join_all(handles).await;
 
     // Reload via a fresh manager and verify all 10 sessions persisted
-    let mgr2 =
-        SessionManager::new(tmp.path().to_path_buf()).expect("create second session manager");
+    let mgr2 = SessionManager::new(tmp.path()).expect("create second session manager");
     for result in keys {
         let key = result.expect("task should not panic");
         let loaded = mgr2
@@ -300,8 +295,7 @@ async fn test_concurrent_save_same_key_no_corruption() {
         .for_each(|r| r.expect("task should not panic"));
 
     // Reload from disk — file should be valid JSON (not corrupted)
-    let mgr2 =
-        SessionManager::new(tmp.path().to_path_buf()).expect("create second session manager");
+    let mgr2 = SessionManager::new(tmp.path()).expect("create second session manager");
     let loaded = mgr2
         .get_or_create("race:key")
         .await

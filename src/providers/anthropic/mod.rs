@@ -1,6 +1,7 @@
 use crate::providers::anthropic_common;
 use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse, ProviderMetrics};
 use crate::providers::errors::ProviderErrorHandler;
+use crate::providers::{PROVIDER_REQUEST_TIMEOUT_SECS, provider_http_client};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
@@ -9,8 +10,6 @@ use std::time::Duration;
 use tracing::{debug, info};
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
-const CONNECT_TIMEOUT_SECS: u64 = 30;
-const REQUEST_TIMEOUT_SECS: u64 = 120;
 
 pub struct AnthropicProvider {
     api_key: String,
@@ -27,11 +26,7 @@ impl AnthropicProvider {
             default_model: default_model
                 .unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
             base_url: API_URL.to_string(),
-            client: Client::builder()
-                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
-                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: provider_http_client(),
             metrics: std::sync::Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),
         }
     }
@@ -44,7 +39,9 @@ impl AnthropicProvider {
                 .unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
             base_url,
             client: Client::builder()
-                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+                .connect_timeout(Duration::from_secs(
+                    crate::providers::PROVIDER_CONNECT_TIMEOUT_SECS,
+                ))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             metrics: std::sync::Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),
@@ -84,7 +81,7 @@ impl LLMProvider for AnthropicProvider {
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .json(&payload)
-            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+            .timeout(Duration::from_secs(PROVIDER_REQUEST_TIMEOUT_SECS))
             .send()
             .await
             .context("Failed to send request to Anthropic API")?;

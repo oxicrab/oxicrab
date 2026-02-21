@@ -764,12 +764,12 @@ impl AgentLoop {
         }));
         let model = model.unwrap_or_else(|| provider.default_model().to_string());
         let context = Arc::new(Mutex::new(ContextBuilder::new(&workspace)?));
-        let session_mgr = SessionManager::new(workspace.clone())?;
+        let session_mgr = SessionManager::new(&workspace)?;
 
         // Clean up expired sessions in background
         if session_ttl_days > 0 {
             let ttl = session_ttl_days;
-            let mgr_for_cleanup = SessionManager::new(workspace.clone())?;
+            let mgr_for_cleanup = SessionManager::new(&workspace)?;
             tokio::spawn(async move {
                 if let Err(e) = mgr_for_cleanup.cleanup_old_sessions(ttl) {
                     warn!("Session cleanup failed: {}", e);

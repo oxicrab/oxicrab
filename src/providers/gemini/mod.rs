@@ -2,6 +2,7 @@ use crate::providers::base::{
     ChatRequest, LLMProvider, LLMResponse, ProviderMetrics, ToolCallRequest,
 };
 use crate::providers::errors::ProviderErrorHandler;
+use crate::providers::provider_http_client;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
@@ -9,9 +10,6 @@ use serde_json::{Value, json};
 use std::sync::Mutex;
 use std::time::Duration;
 use tracing::{debug, info};
-
-const CONNECT_TIMEOUT_SECS: u64 = 30;
-const REQUEST_TIMEOUT_SECS: u64 = 120;
 
 const BASE_URL: &str = "https://generativelanguage.googleapis.com/v1";
 
@@ -29,11 +27,7 @@ impl GeminiProvider {
             api_key,
             default_model: default_model.unwrap_or_else(|| "gemini-pro".to_string()),
             base_url: BASE_URL.to_string(),
-            client: Client::builder()
-                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
-                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: provider_http_client(),
             metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
         }
     }
@@ -44,11 +38,7 @@ impl GeminiProvider {
             api_key,
             default_model: default_model.unwrap_or_else(|| "gemini-pro".to_string()),
             base_url,
-            client: Client::builder()
-                .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
-                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-                .build()
-                .unwrap_or_else(|_| Client::new()),
+            client: provider_http_client(),
             metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
         }
     }
