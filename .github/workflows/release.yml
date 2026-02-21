@@ -130,12 +130,28 @@ jobs:
           cargo deb --no-build --target ${{ matrix.target }}
           cp target/${{ matrix.target }}/debian/*.deb .
 
+      - name: Validate DEB package
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y lintian
+          lintian --no-tag-display-limit *.deb || true
+          # Fail on errors (E:), allow warnings (W:) and info (I:)
+          ! lintian *.deb 2>&1 | grep -q '^E:'
+
       - name: Build RPM package
         if: runner.os == 'Linux'
         run: |
           cargo install cargo-generate-rpm --force
           cargo generate-rpm --target ${{ matrix.target }}
           cp target/${{ matrix.target }}/generate-rpm/*.rpm .
+
+      - name: Validate RPM package
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y rpmlint
+          rpmlint *.rpm || true
+          # Log contents for review
+          rpm -qpl *.rpm || true
 
       - name: Build DMG
         if: runner.os == 'macOS'
@@ -148,6 +164,10 @@ jobs:
           hdiutil create -volname "Oxicrab ${VERSION}" \
             -srcfolder dmg-staging -ov -format UDZO \
             "oxicrab-${VERSION}-arm64.dmg"
+
+      - name: Validate DMG
+        if: runner.os == 'macOS'
+        run: hdiutil verify "oxicrab-${VERSION}-arm64.dmg"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
