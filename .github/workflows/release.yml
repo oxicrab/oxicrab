@@ -149,7 +149,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get install -y rpmlint
-          rpmlint *.rpm || true
+          rpmlint -c deploy/rpm/rpmlint.toml *.rpm
           # Log contents for review
           rpm -qpl *.rpm || true
 

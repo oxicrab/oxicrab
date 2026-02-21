@@ -1,0 +1,8 @@
+# Filters for CI-built RPMs (unsigned, no distro metadata)
+Filters = [
+    "no-signature",
+    "no-packager-tag",
+    "no-group-tag",
+    "no-changelogname-tag",
+    "no-buildhost-tag",
+]
