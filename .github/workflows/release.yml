@@ -103,8 +103,15 @@ jobs:
           STAGING="oxicrab-${VERSION}-${{ matrix.name }}"
           mkdir -p "$STAGING"
           cp "target/${{ matrix.target }}/release/oxicrab" "$STAGING/"
+          cp config.example.json "$STAGING/"
           cp README.md "$STAGING/"
           cp LICENSE "$STAGING/"
+          # Include platform-specific service files
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            cp deploy/oxicrab-system.service "$STAGING/oxicrab.service"
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            cp deploy/com.oxicrab.gateway.plist "$STAGING/"
+          fi
           tar czf "$ARCHIVE" "$STAGING"
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
@@ -135,6 +142,8 @@ jobs:
         run: |
           mkdir -p dmg-staging
           cp "target/${{ matrix.target }}/release/oxicrab" dmg-staging/
+          cp deploy/com.oxicrab.gateway.plist dmg-staging/
+          cp config.example.json dmg-staging/
           cp README.md LICENSE dmg-staging/
           hdiutil create -volname "Oxicrab ${VERSION}" \
             -srcfolder dmg-staging -ov -format UDZO \

@@ -662,41 +662,55 @@ cargo build --release --no-default-features \
   <div class="container">
     <div class="section-label">Getting Started</div>
     <div class="section-title">Up and running in minutes</div>
-    <div class="section-desc"></div>
-
-    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 2rem;">Pre-built DEB, RPM, and DMG packages are available on the <a href="https://github.com/oxicrab/oxicrab/releases/latest" style="color: var(--accent); text-decoration: none;">Releases</a> page. See <a href="deploy.html#packages" style="color: var(--accent); text-decoration: none;">Deployment &rarr; Native Packages</a> for install instructions. To build from source instead:</p>
+    <div class="section-desc">Pre-built binaries are published for every release. Pick your platform and go.</div>
 
     <div class="steps">
       <div class="step">
         <div class="step-num">01</div>
-        <h3>Prerequisites</h3>
-        <p>Rust nightly toolchain and cmake. Optional: ffmpeg for voice.</p>
-        <pre>rustup toolchain install nightly-2026-02-06
-rustup override set nightly-2026-02-06
-sudo apt install cmake</pre>
+        <h3>Install</h3>
+        <p>Download the latest release for your platform.</p>
+        <pre><span class="hl-comment"># Debian / Ubuntu</span>
+curl -LO https://github.com/oxicrab/oxicrab/releases/latest/download/oxicrab_VERSION_amd64.deb
+sudo dpkg -i oxicrab_*_amd64.deb
+
+<span class="hl-comment"># Fedora / RHEL</span>
+curl -LO https://github.com/oxicrab/oxicrab/releases/latest/download/oxicrab-VERSION.x86_64.rpm
+sudo rpm -i oxicrab-*.x86_64.rpm
+
+<span class="hl-comment"># macOS (Apple Silicon)</span>
+brew install oxicrab/tap/oxicrab</pre>
+        <p style="font-size: 0.8rem; color: var(--text-light); margin-top: 0.5rem;">ARM64 Linux and standalone tarballs also available on the <a href="https://github.com/oxicrab/oxicrab/releases/latest" style="color: var(--accent); text-decoration: none;">Releases</a> page.</p>
       </div>
       <div class="step">
         <div class="step-num">02</div>
-        <h3>Build</h3>
-        <p>Clone and build. Select only the channels you need.</p>
-        <pre>git clone https://github.com/oxicrab/oxicrab
-cd oxicrab
-cargo build --release</pre>
-      </div>
-      <div class="step">
-        <div class="step-num">03</div>
         <h3>Configure</h3>
         <p>Create config with your API keys and channel tokens.</p>
-        <pre>mkdir -p ~/.oxicrab
+        <pre>oxicrab onboard
+<span class="hl-comment"># or manually:</span>
+mkdir -p ~/.oxicrab
 cp config.example.json ~/.oxicrab/config.json</pre>
       </div>
       <div class="step">
-        <div class="step-num">04</div>
+        <div class="step-num">03</div>
         <h3>Run</h3>
         <p>Start the multi-channel gateway or use CLI mode.</p>
-        <pre>./target/release/oxicrab gateway
-./target/release/oxicrab agent -m "Hello!"
-./target/release/oxicrab onboard</pre>
+        <pre>oxicrab gateway
+oxicrab agent -m "Hello!"
+oxicrab doctor</pre>
+      </div>
+      <div class="step">
+        <div class="step-num">04</div>
+        <h3>Deploy as a service</h3>
+        <p>Run oxicrab as a persistent daemon.</p>
+        <pre><span class="hl-comment"># Linux (systemd user service)</span>
+cp deploy/oxicrab.service ~/.config/systemd/user/
+systemctl --user enable --now oxicrab
+
+<span class="hl-comment"># macOS (launchd)</span>
+cp deploy/com.oxicrab.gateway.plist \
+   ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
+        <p style="font-size: 0.8rem; color: var(--text-light); margin-top: 0.5rem;">See <a href="deploy.html" style="color: var(--accent); text-decoration: none;">Deployment</a> for Docker, Docker Compose, building from source, and detailed service configuration.</p>
       </div>
     </div>
   </div>

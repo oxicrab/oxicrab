@@ -29,6 +29,7 @@ max_width: 820px
     <div class="toc-title">Options</div>
     <ul>
       <li><a href="#packages">Native Packages (DEB / RPM / DMG)</a></li>
+      <li><a href="#source">Building from Source</a></li>
       <li><a href="#docker">Docker</a></li>
       <li><a href="#docker-compose">Docker Compose</a></li>
       <li><a href="#systemd">systemd (Linux)</a></li>
@@ -39,44 +40,106 @@ max_width: 820px
   <!-- NATIVE PACKAGES -->
   <div id="packages" class="deploy-section">
     <h2>Native Packages (DEB / RPM / DMG)</h2>
-    <p>Pre-built packages are published with every <a href="https://github.com/oxicrab/oxicrab/releases/latest">GitHub Release</a>. The binary installs to <code>/usr/bin/oxicrab</code>.</p>
+    <p>Pre-built packages are published with every <a href="https://github.com/oxicrab/oxicrab/releases/latest">GitHub Release</a>. Linux packages include a systemd service file, example config, and post-install scripts that create a dedicated <code>oxicrab</code> system user.</p>
 
     <h3>Debian / Ubuntu (.deb)</h3>
     <p>Available for x86_64 (<code>amd64</code>) and ARM64 (<code>arm64</code>).</p>
     <pre><code># Download the .deb for your architecture
 curl -LO https://github.com/oxicrab/oxicrab/releases/latest/download/oxicrab_VERSION_amd64.deb
 
-# Install
+# Install (creates oxicrab user, installs systemd service, copies example config)
 sudo dpkg -i oxicrab_*_amd64.deb
 
-# Verify
-oxicrab --version</code></pre>
+# Edit config with your API keys
+sudo nano /etc/oxicrab/config.json
+
+# Start the service
+sudo systemctl start oxicrab</code></pre>
 
     <h3>Fedora / RHEL (.rpm)</h3>
     <p>Available for x86_64 and aarch64.</p>
     <pre><code># Download the .rpm for your architecture
 curl -LO https://github.com/oxicrab/oxicrab/releases/latest/download/oxicrab-VERSION.x86_64.rpm
 
-# Install
+# Install (creates oxicrab user, installs systemd service, copies example config)
 sudo rpm -i oxicrab-*.x86_64.rpm
 
-# Verify
-oxicrab --version</code></pre>
+# Edit config with your API keys
+sudo nano /etc/oxicrab/config.json
+
+# Start the service
+sudo systemctl start oxicrab</code></pre>
 
     <h3>macOS (.dmg)</h3>
-    <p>Available for Apple Silicon (ARM64).</p>
+    <p>Available for Apple Silicon (ARM64). Includes the launchd plist and example config.</p>
     <pre><code># Download the DMG
 curl -LO https://github.com/oxicrab/oxicrab/releases/latest/download/oxicrab-VERSION-arm64.dmg
 
-# Mount, copy binary, unmount
+# Mount and install
 hdiutil attach oxicrab-*-arm64.dmg
 sudo cp "/Volumes/Oxicrab "*/oxicrab /usr/local/bin/
+
+# Install launchd plist
+cp "/Volumes/Oxicrab "*/com.oxicrab.gateway.plist ~/Library/LaunchAgents/
+
+# Copy example config
+mkdir -p ~/.oxicrab
+cp "/Volumes/Oxicrab "*/config.example.json ~/.oxicrab/config.json
+
 hdiutil detach "/Volumes/Oxicrab "*
 
-# Verify
-oxicrab --version</code></pre>
+# Edit config with your API keys, then load the service
+nano ~/.oxicrab/config.json
+launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</code></pre>
 
-    <div class="note"><strong>Note:</strong> On macOS, the binary installs to <code>/usr/local/bin</code> (not <code>/usr/bin</code>). Make sure this directory is in your <code>PATH</code>.</div>
+    <h3>What the packages include</h3>
+    <p>All native packages ship more than just the binary:</p>
+    <ul class="plain">
+      <li><strong>Binary</strong> &mdash; <code>/usr/bin/oxicrab</code> (Linux) or <code>/usr/local/bin/oxicrab</code> (macOS)</li>
+      <li><strong>Service file</strong> &mdash; systemd unit (DEB/RPM) or launchd plist (DMG)</li>
+      <li><strong>Example config</strong> &mdash; <code>config.example.json</code> with all fields and placeholder values</li>
+      <li><strong>Post-install scripts</strong> (DEB/RPM) &mdash; create <code>oxicrab</code> system user, set up <code>/etc/oxicrab</code> and <code>/var/lib/oxicrab</code>, enable the systemd service</li>
+      <li><strong>Pre-remove scripts</strong> (DEB/RPM) &mdash; stop and disable the service on uninstall</li>
+    </ul>
+
+    <div class="note"><strong>Note:</strong> The DEB/RPM post-install enables the service but does <strong>not</strong> start it. Edit <code>/etc/oxicrab/config.json</code> with your API keys first, then run <code>systemctl start oxicrab</code>.</div>
+  </div>
+
+  <!-- BUILD FROM SOURCE -->
+  <div id="source" class="deploy-section">
+    <h2>Building from Source</h2>
+    <p>If you prefer to compile oxicrab yourself, or need to customise feature flags.</p>
+
+    <h3>Prerequisites</h3>
+    <ul class="plain">
+      <li><strong>Rust nightly</strong> &mdash; pinned to <code>nightly-2026-02-06</code> in CI. Install via <a href="https://rustup.rs">rustup</a>.</li>
+      <li><strong>cmake</strong> &mdash; required by native dependencies.</li>
+      <li><strong>ffmpeg</strong> (optional) &mdash; only needed for local voice transcription.</li>
+    </ul>
+
+    <h3>Build</h3>
+    <pre><code># Clone
+git clone https://github.com/oxicrab/oxicrab.git
+cd oxicrab
+
+# All channels (default)
+cargo build --release
+
+# Specific channels only (smaller binary)
+cargo build --release --no-default-features \
+  --features channel-telegram,channel-slack
+
+# Agent CLI only (no channels)
+cargo build --release --no-default-features</code></pre>
+
+    <h3>Install</h3>
+    <pre><code># Linux
+sudo cp target/release/oxicrab /usr/local/bin/
+
+# macOS
+cp target/release/oxicrab /usr/local/bin/</code></pre>
+
+    <p>Then run <code>oxicrab onboard</code> to create your config, or see the systemd / launchd sections below to deploy as a service.</p>
   </div>
 
   <!-- DOCKER -->
@@ -156,7 +219,10 @@ docker compose up -d --build</code></pre>
   <!-- SYSTEMD -->
   <div id="systemd" class="deploy-section">
     <h2>systemd (Linux)</h2>
-    <p>A ready-to-use service file ships with the repo at <code>deploy/oxicrab.service</code>. It's designed as a user service &mdash; no root required.</p>
+
+    <div class="note"><strong>Installed via DEB/RPM?</strong> The package already installed a system-wide service (<code>/lib/systemd/system/oxicrab.service</code>), created the <code>oxicrab</code> user, and set up <code>/etc/oxicrab</code>. Just edit your config and run <code>systemctl start oxicrab</code>. The manual steps below are for source builds only.</div>
+
+    <p>A user-level service file ships with the repo at <code>deploy/oxicrab.service</code> &mdash; no root required.</p>
 
     <h3>1. Build and install the binary</h3>
     <pre><code>cargo build --release
@@ -263,6 +329,9 @@ sudo systemctl start oxicrab</code></pre>
   <!-- LAUNCHD -->
   <div id="launchd" class="deploy-section">
     <h2>launchd (macOS)</h2>
+
+    <div class="note"><strong>Installed via DMG?</strong> The DMG includes <code>com.oxicrab.gateway.plist</code> and <code>config.example.json</code>. Copy them into place as shown in the <a href="#packages">Native Packages</a> section above.</div>
+
     <p>A ready-to-use plist ships with the repo at <code>deploy/com.oxicrab.gateway.plist</code>. It runs as a launch agent (per-user, starts on login).</p>
 
     <h3>1. Build and install the binary</h3>

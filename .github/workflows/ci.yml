@@ -130,7 +130,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: junit-unit-${{ matrix.name }}
           path: target/nextest/default/junit-unit.xml
@@ -205,7 +205,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: junit-integration-${{ matrix.name }}
           path: target/nextest/integration/junit-integration.xml
@@ -222,7 +222,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Download all test artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: junit-*
           merge-multiple: true
@@ -338,7 +338,7 @@ jobs:
           CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
 
       - name: Upload build timings
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: build-timings-${{ matrix.name }}
           path: target/cargo-timings/cargo-timing.html
@@ -385,7 +385,7 @@ jobs:
       - name: Restore baseline size
         if: github.event_name == 'pull_request'
         id: baseline
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: baseline-binary-size.txt
           key: binary-size-baseline-
@@ -426,7 +426,7 @@ jobs:
 
       - name: Cache baseline
         if: github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: baseline-binary-size.txt
           key: binary-size-baseline-${{ github.sha }}
