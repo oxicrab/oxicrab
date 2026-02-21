@@ -119,7 +119,7 @@ impl SlackChannel {
             reqwest::multipart::Part::bytes(file_bytes)
                 .file_name(filename.to_string())
                 .mime_str("application/octet-stream")
-                .unwrap_or_else(|_| reqwest::multipart::Part::bytes(vec![])),
+                .expect("hardcoded MIME type is valid"),
         );
         let step2_resp = self.client.post(upload_url).multipart(form).send().await?;
 
@@ -584,6 +584,21 @@ impl BaseChannel for SlackChannel {
     }
 }
 
+/// Check if a URL belongs to a Slack-owned domain.
+///
+/// Uses proper URL parsing to prevent SSRF via domains like `attacker-slack.com`.
+fn is_slack_domain(url_str: &str) -> bool {
+    url::Url::parse(url_str)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_lowercase))
+        .is_some_and(|host| {
+            host == "slack.com"
+                || host.ends_with(".slack.com")
+                || host == "slack-edge.com"
+                || host.ends_with(".slack-edge.com")
+        })
+}
+
 /// Download a file from Slack, following redirects manually to preserve auth.
 ///
 /// Slack's file download redirects through multiple hops:
@@ -621,7 +636,7 @@ async fn download_slack_file(
         // On redirect hops, only send auth to Slack-owned domains to prevent
         // token leakage to third-party CDNs.
         let mut req = no_redirect_client.get(&url);
-        if hop == 0 || url.contains("slack.com") || url.contains("slack-edge.com") {
+        if hop == 0 || is_slack_domain(&url) {
             req = req.header("Authorization", format!("Bearer {}", bot_token));
         }
         let resp = req.send().await?;

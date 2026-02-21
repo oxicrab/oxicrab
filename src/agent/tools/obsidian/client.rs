@@ -13,9 +13,15 @@ pub struct ObsidianApiClient {
 impl ObsidianApiClient {
     pub fn new(base_url: &str, api_key: &str, timeout_secs: u64) -> Self {
         // Obsidian Local REST API uses a self-signed HTTPS certificate on localhost
-        let is_localhost = base_url.contains("://127.0.0.1")
-            || base_url.contains("://localhost")
-            || base_url.contains("://[::1]");
+        let is_localhost = url::Url::parse(base_url)
+            .ok()
+            .and_then(|u| match u.host() {
+                Some(url::Host::Ipv4(ip)) => Some(ip.is_loopback()),
+                Some(url::Host::Ipv6(ip)) => Some(ip.is_loopback()),
+                Some(url::Host::Domain(d)) => Some(d == "localhost"),
+                None => None,
+            })
+            .unwrap_or(false);
         if !is_localhost {
             warn!(
                 "obsidian API URL is not localhost — TLS certificate validation will be enforced"

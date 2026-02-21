@@ -370,6 +370,8 @@ impl SessionManager {
             atomic_write(&path_clone, &content).with_context(|| {
                 format!("Failed to write session file: {}", path_clone.display())
             })?;
+            // Clean up the lock file — it's only needed during the write
+            let _ = std::fs::remove_file(&lock_path);
             Ok(())
         })
         .await??;

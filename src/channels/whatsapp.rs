@@ -186,8 +186,8 @@ impl BaseChannel for WhatsAppChannel {
                                     match access {
                                         DmCheckResult::Allowed => {}
                                         DmCheckResult::PairingRequired { code } => {
-                                            warn!("WhatsApp pairing code for {} (phone: {}): {} — approve with: oxicrab pairing approve whatsapp {}",
-                                                chat_id, phone_number, code, code);
+                                            warn!("WhatsApp pairing request from {} (phone: {}) — approve with: oxicrab pairing approve whatsapp <code>",
+                                                chat_id, phone_number);
                                             // Send pairing reply back to the user
                                             let reply = format_pairing_reply("whatsapp", &phone_number, &code);
                                             let jid_str = if chat_id.contains('@') {
@@ -477,6 +477,9 @@ impl BaseChannel for WhatsAppChannel {
                 queue.push(msg.clone());
             } else {
                 warn!("WhatsApp message queue full (100), dropping message");
+                return Err(anyhow::anyhow!(
+                    "WhatsApp message queue full, message dropped"
+                ));
             }
             Ok(None)
         }
@@ -538,6 +541,9 @@ impl BaseChannel for WhatsAppChannel {
                 debug!("WhatsApp: queued message (queue size: {})", queue.len());
             } else {
                 warn!("WhatsApp message queue full (100), dropping message");
+                return Err(anyhow::anyhow!(
+                    "WhatsApp message queue full, message dropped"
+                ));
             }
             Ok(())
         }

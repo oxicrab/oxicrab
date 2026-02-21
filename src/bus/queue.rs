@@ -7,6 +7,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
 const DEFAULT_RATE_LIMIT: usize = 30;
+const DEFAULT_OUTBOUND_RATE_LIMIT: usize = 60;
 const DEFAULT_RATE_WINDOW_S: f64 = 60.0;
 const DEFAULT_INBOUND_CAPACITY: usize = 1000;
 const DEFAULT_OUTBOUND_CAPACITY: usize = 1000;
@@ -19,6 +20,7 @@ pub struct MessageBus {
     rate_limit: usize,
     rate_window: Duration,
     sender_timestamps: HashMap<String, Vec<Instant>>,
+    outbound_timestamps: HashMap<String, Vec<Instant>>,
     leak_detector: LeakDetector,
 }
 
@@ -39,6 +41,7 @@ impl MessageBus {
             rate_limit,
             rate_window: Duration::from_secs_f64(rate_window_secs),
             sender_timestamps: HashMap::new(),
+            outbound_timestamps: HashMap::new(),
             leak_detector: LeakDetector::new(),
         }
     }
@@ -113,7 +116,31 @@ impl MessageBus {
         Ok(())
     }
 
-    pub async fn publish_outbound(&self, mut msg: OutboundMessage) -> Result<()> {
+    pub async fn publish_outbound(&mut self, mut msg: OutboundMessage) -> Result<()> {
+        // Outbound rate limiting per destination
+        let now = Instant::now();
+        let key = format!("{}:{}", msg.channel, msg.chat_id);
+        let timestamps = self.outbound_timestamps.entry(key.clone()).or_default();
+        let cutoff = now.checked_sub(self.rate_window).unwrap_or(now);
+        timestamps.retain(|&t| t > cutoff);
+        if timestamps.len() >= DEFAULT_OUTBOUND_RATE_LIMIT {
+            warn!(
+                "outbound rate limit hit for {} ({}/{:.0}s) – dropping message",
+                key,
+                DEFAULT_OUTBOUND_RATE_LIMIT,
+                self.rate_window.as_secs_f64()
+            );
+            return Err(anyhow::anyhow!("Outbound rate limit exceeded for {}", key));
+        }
+        timestamps.push(now);
+
+        // Prune inactive destinations periodically
+        if self.outbound_timestamps.len() > 1000 {
+            let rate_window = self.rate_window;
+            self.outbound_timestamps
+                .retain(|_, ts| ts.iter().any(|&t| now.duration_since(t) < rate_window));
+        }
+
         // Scan for leaked secrets before sending (plaintext + encoded patterns)
         let matches = self.leak_detector.scan(&msg.content);
         let known_matches = self.leak_detector.scan_known_secrets(&msg.content);

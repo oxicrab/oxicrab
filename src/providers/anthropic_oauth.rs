@@ -106,10 +106,13 @@ impl AnthropicOAuthProvider {
                     if let Some(cached_at) = data.get("expires_at").and_then(Value::as_i64) {
                         // Use try_lock since we're in a sync context during construction.
                         // These locks are uncontested at this point (single-threaded init).
-                        let current_expires = match self.expires_at.try_lock() {
-                            Ok(guard) => *guard,
-                            Err(_) => return,
+                        let Ok(guard) = self.expires_at.try_lock() else {
+                            warn!(
+                                "could not acquire OAuth token lock during init, skipping cache load"
+                            );
+                            return;
                         };
+                        let current_expires = *guard;
                         if cached_at > current_expires
                             && let (Some(access), Some(refresh)) = (
                                 data.get("access_token").and_then(Value::as_str),
@@ -118,12 +121,18 @@ impl AnthropicOAuthProvider {
                         {
                             if let Ok(mut guard) = self.access_token.try_lock() {
                                 *guard = access.to_string();
+                            } else {
+                                warn!("could not acquire access_token lock during init");
                             }
                             if let Ok(mut guard) = self.refresh_token.try_lock() {
                                 *guard = refresh.to_string();
+                            } else {
+                                warn!("could not acquire refresh_token lock during init");
                             }
                             if let Ok(mut guard) = self.expires_at.try_lock() {
                                 *guard = cached_at;
+                            } else {
+                                warn!("could not acquire expires_at lock during init");
                             }
                             info!("Loaded refreshed OAuth tokens from cache");
                         }
@@ -258,7 +267,13 @@ impl AnthropicOAuthProvider {
             "expires_at": *self.expires_at.lock().await,
         });
 
-        let json_str = serde_json::to_string_pretty(&data).unwrap_or_default();
+        let json_str = match serde_json::to_string_pretty(&data) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("failed to serialize OAuth credentials: {}", e);
+                return;
+            }
+        };
         let path = path.to_path_buf();
 
         // Perform all blocking I/O off the async runtime

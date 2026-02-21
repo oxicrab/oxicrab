@@ -61,7 +61,7 @@ pub fn parse_model_ref(raw: &str) -> ModelRef<'_> {
     if let Some(idx) = raw.find('/') {
         let candidate = &raw[..idx];
         let candidate_lower = candidate.to_lowercase();
-        if KNOWN_PREFIXES.contains(&candidate_lower.as_str()) {
+        if KNOWN_PREFIXES.contains(&candidate_lower.as_str()) && idx + 1 < raw.len() {
             return ModelRef {
                 provider: Some(candidate),
                 model: &raw[idx + 1..],
@@ -356,6 +356,14 @@ mod tests {
         let r = parse_model_ref("anthropic/claude-opus-4-6");
         assert_eq!(r.provider, Some("anthropic"));
         assert_eq!(r.model, "claude-opus-4-6");
+    }
+
+    #[test]
+    fn test_parse_model_ref_trailing_slash() {
+        // "anthropic/" should NOT produce an empty model name
+        let r = parse_model_ref("anthropic/");
+        assert!(r.provider.is_none());
+        assert_eq!(r.model, "anthropic/");
     }
 
     #[test]

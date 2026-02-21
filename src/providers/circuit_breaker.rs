@@ -58,6 +58,8 @@ impl CircuitBreakerProvider {
         let lower = error.to_lowercase();
         let transient_patterns = [
             "rate limit",
+            "rate_limit",
+            "overloaded",
             "429",
             "500",
             "502",
@@ -488,6 +490,10 @@ mod tests {
         assert!(CircuitBreakerProvider::is_transient("504 gateway timeout"));
         assert!(CircuitBreakerProvider::is_transient("connection refused"));
         assert!(CircuitBreakerProvider::is_transient("request timeout"));
+        assert!(CircuitBreakerProvider::is_transient("rate_limit exceeded"));
+        assert!(CircuitBreakerProvider::is_transient(
+            "overloaded_error: server is overloaded"
+        ));
 
         // Non-transient errors
         assert!(!CircuitBreakerProvider::is_transient(

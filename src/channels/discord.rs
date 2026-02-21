@@ -337,6 +337,7 @@ pub struct DiscordChannel {
     http_client: reqwest::Client,
     serenity_http: Arc<serenity::http::Http>,
     _client_handle: Option<tokio::task::JoinHandle<()>>,
+    dm_channel_cache: Arc<tokio::sync::Mutex<HashMap<u64, serenity::model::id::ChannelId>>>,
 }
 
 impl DiscordChannel {
@@ -353,6 +354,7 @@ impl DiscordChannel {
                 .unwrap_or_else(|_| reqwest::Client::new()),
             serenity_http,
             _client_handle: None,
+            dm_channel_cache: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 }
@@ -633,9 +635,15 @@ impl BaseChannel for DiscordChannel {
             .any(|a| a.trim_start_matches('+') == msg.chat_id);
 
         let target_channel_id = if is_user_id {
-            let user_id = serenity::model::id::UserId::new(id_val);
-            let dm_channel = user_id.create_dm_channel(&http).await?;
-            dm_channel.id
+            let mut cache = self.dm_channel_cache.lock().await;
+            if let Some(&cached_id) = cache.get(&id_val) {
+                cached_id
+            } else {
+                let user_id = serenity::model::id::UserId::new(id_val);
+                let dm_channel = user_id.create_dm_channel(&http).await?;
+                cache.insert(id_val, dm_channel.id);
+                dm_channel.id
+            }
         } else {
             serenity::model::id::ChannelId::new(id_val)
         };
@@ -788,20 +796,10 @@ impl DiscordChannel {
 
             // Attach embeds/components to the last chunk
             if is_last {
-                if !embeds.is_empty() {
-                    let embed_json: Vec<serde_json::Value> = embeds
-                        .iter()
-                        .map(|_| {
-                            // Build embed JSON from metadata directly
-                            serde_json::json!({})
-                        })
-                        .collect();
-                    // Use the raw metadata embeds directly for webhook
-                    if let Some(raw_embeds) = msg.metadata.get("discord_embeds") {
-                        payload["embeds"] = raw_embeds.clone();
-                    } else if !embed_json.is_empty() {
-                        payload["embeds"] = serde_json::json!(embed_json);
-                    }
+                if !embeds.is_empty()
+                    && let Some(raw_embeds) = msg.metadata.get("discord_embeds")
+                {
+                    payload["embeds"] = raw_embeds.clone();
                 }
                 if !components.is_empty()
                     && let Some(raw_components) = msg.metadata.get("discord_components")

@@ -463,7 +463,7 @@ async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> 
             println!("\nShutting down...");
             heartbeat.stop().await;
             cron.stop().await;
-            agent.stop();
+            agent.stop().await;
             // Channels will stop themselves when the task ends
         }
         _ = agent_task => {}
@@ -605,7 +605,7 @@ async fn setup_cron_callbacks(
             if job.payload.kind == "echo" {
                 // Echo mode: deliver message directly without invoking the LLM
                 for target in &job.payload.targets {
-                    let bus_guard = bus.lock().await;
+                    let mut bus_guard = bus.lock().await;
                     if let Err(e) = bus_guard
                         .publish_outbound(crate::bus::OutboundMessage {
                             channel: target.channel.clone(),
@@ -644,7 +644,7 @@ async fn setup_cron_callbacks(
 
             if job.payload.agent_echo {
                 for target in &job.payload.targets {
-                    let bus_guard = bus.lock().await;
+                    let mut bus_guard = bus.lock().await;
                     if let Err(e) = bus_guard
                         .publish_outbound(crate::bus::OutboundMessage {
                             channel: target.channel.clone(),

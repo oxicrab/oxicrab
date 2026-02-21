@@ -1009,22 +1009,13 @@ impl AgentLoop {
         Ok(())
     }
 
-    pub fn stop(&self) {
-        // Signal stop - use blocking call since this is called from sync context
-        // If called from async context, consider making this async
-        let running = self.running.clone();
-        let task_tracker = self.task_tracker.clone();
-        let memory = self.memory.clone();
-        tokio::spawn(async move {
-            {
-                let mut guard = running.lock().await;
-                *guard = false;
-            }
-            // Cancel all tracked background tasks
-            task_tracker.cancel_all().await;
-            // Stop the background memory indexer
-            memory.stop_indexer().await;
-        });
+    pub async fn stop(&self) {
+        {
+            let mut guard = self.running.lock().await;
+            *guard = false;
+        }
+        self.task_tracker.cancel_all().await;
+        self.memory.stop_indexer().await;
     }
 
     async fn process_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
@@ -1587,6 +1578,13 @@ impl AgentLoop {
         iteration: usize,
     ) {
         // Add all results to messages in order and collect media
+        debug_assert_eq!(
+            tool_calls.len(),
+            results.len(),
+            "tool_calls and results length mismatch: {} vs {}",
+            tool_calls.len(),
+            results.len()
+        );
         for (tc, (result_str, is_error)) in tool_calls.iter().zip(results.into_iter()) {
             if !is_error {
                 collected_media.extend(extract_media_paths(&result_str));
