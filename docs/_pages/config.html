@@ -51,11 +51,28 @@ max_width: 820px
 
     <!-- MODELS -->
     <div id="models" class="cfg-section">
-        <h2>Models</h2>
-        <p>Set the default model in <code>agents.defaults.model</code> and provide the corresponding API key under <code>providers</code>. The provider is auto-detected from the model name.</p>
+        <h2>Model Routing</h2>
+        <p>oxicrab uses a 3-tier resolution strategy to determine which LLM provider handles a model:</p>
+        <ol>
+            <li><strong>Explicit provider</strong> &mdash; <code>"provider": "anthropic"</code> in config or <code>--provider anthropic</code> on CLI</li>
+            <li><strong>Prefix notation</strong> &mdash; <code>"model": "groq/llama-3.1-70b"</code> (provider before <code>/</code>, stripped before API call)</li>
+            <li><strong>Auto-detection</strong> &mdash; Known model name prefixes: <code>claude-*</code> &rarr; Anthropic, <code>gpt-*</code>/<code>o1</code>/<code>o3</code> &rarr; OpenAI, <code>gemini-*</code> &rarr; Gemini, <code>deepseek-*</code> &rarr; DeepSeek</li>
+        </ol>
+
+        <h3 id="routing-examples">Routing Resolution Table</h3>
+        <table class="cfg-table">
+            <tr><th>Model value</th><th>Provider field</th><th>Resolved provider</th><th>API model sent</th></tr>
+            <tr><td><code>claude-sonnet-4-5-20250929</code></td><td>(empty)</td><td>anthropic (auto)</td><td><code>claude-sonnet-4-5-20250929</code></td></tr>
+            <tr><td><code>anthropic/claude-opus-4-6</code></td><td>(empty)</td><td>anthropic (prefix)</td><td><code>claude-opus-4-6</code></td></tr>
+            <tr><td><code>groq/llama-3.1-70b</code></td><td>(empty)</td><td>groq (prefix)</td><td><code>llama-3.1-70b</code></td></tr>
+            <tr><td><code>ollama/qwen3-coder:30b</code></td><td>(empty)</td><td>ollama (prefix)</td><td><code>qwen3-coder:30b</code></td></tr>
+            <tr><td><code>my-fine-tune-v2</code></td><td><code>anthropic</code></td><td>anthropic (explicit)</td><td><code>my-fine-tune-v2</code></td></tr>
+            <tr><td><code>meta-llama/Llama-3.3-70B</code></td><td><code>ollama</code></td><td>ollama (explicit)</td><td><code>meta-llama/Llama-3.3-70B</code></td></tr>
+            <tr><td><code>deepseek-chat</code></td><td>(empty)</td><td>deepseek (auto)</td><td><code>deepseek-chat</code></td></tr>
+        </table>
 
         <h3 id="api-key-models">API Key Models</h3>
-        <p>For models that use API keys (most models):</p>
+        <p>Set the model and provide the corresponding API key. The provider is auto-detected from the model name:</p>
         <pre><code>{
   "agents": {
     "defaults": {
@@ -80,8 +97,20 @@ max_width: 820px
 
         <p><strong>Prompt caching:</strong> Anthropic providers automatically use <code>cache_control</code> on system messages and tool definitions, enabling up to 90% input token cost reduction for repeated content (5-minute TTL).</p>
 
-        <h3 id="openai-compatible">OpenAI-Compatible Models</h3>
-        <p>Any model whose name contains a supported provider keyword is automatically routed to that provider's OpenAI-compatible API. Set the API key in config &mdash; no other setup needed:</p>
+        <h3 id="explicit-provider">Explicit Provider Override</h3>
+        <p>For custom or fine-tuned models whose names don't match a known pattern, set the <code>provider</code> field explicitly:</p>
+        <pre><code>{
+  "agents": {
+    "defaults": {
+      "model": "my-custom-fine-tune",
+      "provider": "anthropic"
+    }
+  }
+}</code></pre>
+        <p>This is also useful for models with slashes that aren't provider prefixes (e.g. <code>meta-llama/Llama-3.3-70B</code> with <code>"provider": "ollama"</code>). The <code>--provider</code> CLI flag provides the same override per-invocation.</p>
+
+        <h3 id="supported-providers">Supported Providers</h3>
+        <p>The following providers are supported. Use prefix notation (e.g. <code>groq/llama-3.1-70b</code>) or the explicit <code>provider</code> field to route to them:</p>
         <pre><code>{
   "agents": {
     "defaults": {
@@ -96,15 +125,18 @@ max_width: 820px
 }</code></pre>
 
         <table class="cfg-table">
-            <tr><th>Provider</th><th>Keyword</th><th>Default Base URL</th></tr>
-            <tr><td>OpenRouter</td><td>openrouter</td><td>https://openrouter.ai/api/v1/chat/completions</td></tr>
-            <tr><td>DeepSeek</td><td>deepseek</td><td>https://api.deepseek.com/v1/chat/completions</td></tr>
-            <tr><td>Groq</td><td>groq</td><td>https://api.groq.com/openai/v1/chat/completions</td></tr>
-            <tr><td>Moonshot</td><td>moonshot</td><td>https://api.moonshot.cn/v1/chat/completions</td></tr>
-            <tr><td>Zhipu</td><td>zhipu</td><td>https://open.bigmodel.cn/api/paas/v4/chat/completions</td></tr>
-            <tr><td>DashScope</td><td>dashscope</td><td>https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions</td></tr>
-            <tr><td>vLLM</td><td>vllm</td><td>http://localhost:8000/v1/chat/completions</td></tr>
-            <tr><td>Ollama</td><td>ollama</td><td>http://localhost:11434/v1/chat/completions</td></tr>
+            <tr><th>Provider</th><th>Default Base URL</th><th>API Key Required</th></tr>
+            <tr><td>Anthropic</td><td>https://api.anthropic.com/v1/messages</td><td>Yes (or OAuth)</td></tr>
+            <tr><td>OpenAI</td><td>https://api.openai.com/v1/chat/completions</td><td>Yes</td></tr>
+            <tr><td>Gemini</td><td>https://generativelanguage.googleapis.com/v1beta</td><td>Yes</td></tr>
+            <tr><td>OpenRouter</td><td>https://openrouter.ai/api/v1/chat/completions</td><td>Yes</td></tr>
+            <tr><td>DeepSeek</td><td>https://api.deepseek.com/v1/chat/completions</td><td>Yes</td></tr>
+            <tr><td>Groq</td><td>https://api.groq.com/openai/v1/chat/completions</td><td>Yes</td></tr>
+            <tr><td>Moonshot</td><td>https://api.moonshot.cn/v1/chat/completions</td><td>Yes</td></tr>
+            <tr><td>Zhipu</td><td>https://open.bigmodel.cn/api/paas/v4/chat/completions</td><td>Yes</td></tr>
+            <tr><td>DashScope</td><td>https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions</td><td>Yes</td></tr>
+            <tr><td>vLLM</td><td>http://localhost:8000/v1/chat/completions</td><td>No</td></tr>
+            <tr><td>Ollama</td><td>http://localhost:11434/v1/chat/completions</td><td>No</td></tr>
         </table>
 
         <p>Local providers (Ollama and vLLM) do not require an API key. Use the <code>provider/model</code> prefix format to route to them &mdash; the prefix is stripped before sending to the API (e.g. <code>ollama/qwen3-coder:30b</code> sends <code>qwen3-coder:30b</code> to the Ollama API).</p>
@@ -172,7 +204,7 @@ max_width: 820px
         <p>When <code>localModel</code> is set, each LLM call tries the cloud model first. If it returns an error (network failure, rate limit) or malformed tool calls (empty name, non-object arguments), the request is automatically retried against the local model.</p>
 
         <h3 id="oauth-models">OAuth Models</h3>
-        <p>Some Anthropic models require OAuth authentication (models prefixed with <code>anthropic/</code>):</p>
+        <p>Anthropic OAuth is attempted when the provider resolves to <code>anthropic</code> &mdash; via <code>anthropic/</code> prefix, <code>"provider": "anthropic"</code>, or auto-detection of <code>claude-*</code> models:</p>
         <ul class="plain">
             <li><strong>anthropic/claude-opus-4-5</strong></li>
             <li><strong>anthropic/claude-opus-4-6</strong></li>

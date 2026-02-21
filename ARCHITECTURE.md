@@ -22,7 +22,13 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 
 ## Provider Selection
 
-`ProviderFactory` in `src/providers/strategy.rs` picks provider by model name prefix. Tries Claude CLI OAuth auto-detection first (reads `~/.claude/.credentials.json`), then Anthropic OAuth, then falls back to API key strategy. Within the API key strategy, OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Moonshot, Zhipu, DashScope, Ollama, vLLM) are matched first by keyword in the model name, then native providers (Anthropic, OpenAI, Gemini). OpenAI-compat providers use `OpenAIProvider::with_config()` with a configurable base URL (defaulting per-provider) and provider name for error messages. Custom HTTP headers can be injected into all requests via `ProviderConfig.headers` — passed through to `OpenAIProvider::with_config_and_headers()`. When `ProviderConfig.prompt_guided_tools` is true (currently checked for Ollama/vLLM), `PromptGuidedToolsProvider::wrap()` is applied — this injects tool definitions into the system prompt and parses `<tool_call>` XML blocks from text responses, enabling tool use with local models that lack native function calling support.
+`ProviderFactory` in `src/providers/strategy.rs` uses 3-tier resolution to pick a provider:
+
+1. **Explicit provider** — `agents.defaults.provider` config field or `--provider` CLI flag.
+2. **Prefix notation** — `provider/model` syntax (e.g. `groq/llama-3.1-70b`). Only recognized prefixes (anthropic, openai, gemini, openrouter, deepseek, groq, moonshot, zhipu, dashscope, vllm, ollama) are split; unknown prefixes like `meta-llama/` are left intact.
+3. **Model-name inference** — `starts_with` patterns: `claude-*` → Anthropic, `gpt-*`/`o1`/`o3`/`o4` → OpenAI, `gemini*` → Gemini, `deepseek*` → DeepSeek.
+
+For the `anthropic` provider, OAuth is tried first (Claude CLI → OpenClaw → credentials file), falling back to API key. For `openai`/`gemini`, the API key is used directly. All other providers use `OpenAIProvider::with_config()` with a configurable base URL (defaulting per-provider). Custom HTTP headers can be injected via `ProviderConfig.headers` — passed through to `OpenAIProvider::with_config_and_headers()`. When `ProviderConfig.prompt_guided_tools` is true (currently checked for Ollama/vLLM), `PromptGuidedToolsProvider::wrap()` is applied — this injects tool definitions into the system prompt and parses `<tool_call>` XML blocks from text responses, enabling tool use with local models that lack native function calling support.
 
 ## Prompt Caching (Anthropic)
 

@@ -29,6 +29,9 @@ enum Commands {
     Gateway {
         #[arg(long)]
         model: Option<String>,
+        /// Override the LLM provider (e.g. anthropic, openai, groq, ollama)
+        #[arg(long)]
+        provider: Option<String>,
     },
     /// Interact with the agent directly
     Agent {
@@ -36,6 +39,9 @@ enum Commands {
         message: Option<String>,
         #[arg(short, long, default_value = "cli:default")]
         session: String,
+        /// Override the LLM provider (e.g. anthropic, openai, groq, ollama)
+        #[arg(long)]
+        provider: Option<String>,
     },
     /// Manage cron jobs
     Cron {
@@ -213,11 +219,15 @@ pub async fn run() -> Result<()> {
         Commands::Onboard => {
             onboard()?;
         }
-        Commands::Gateway { model } => {
-            gateway(model).await?;
+        Commands::Gateway { model, provider } => {
+            gateway(model, provider).await?;
         }
-        Commands::Agent { message, session } => {
-            agent(message, session).await?;
+        Commands::Agent {
+            message,
+            session,
+            provider,
+        } => {
+            agent(message, session, provider).await?;
         }
         Commands::Cron { cmd } => {
             cron_command(cmd).await?;
@@ -394,15 +404,18 @@ This file stores important information that should persist across sessions.
     Ok(())
 }
 
-async fn gateway(model: Option<String>) -> Result<()> {
+async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> {
     info!("Loading configuration...");
-    let config = load_config(None)?;
+    let mut config = load_config(None)?;
+    if let Some(ref p) = provider {
+        config.agents.defaults.provider = Some(p.clone());
+    }
     let effective_model = model.as_deref().unwrap_or(&config.agents.defaults.model);
     info!("Configuration loaded. Using model: {}", effective_model);
     debug!("Workspace: {:?}", config.workspace_path());
 
     // Setup components
-    let provider = setup_provider(&config, model.as_deref()).await?;
+    let provider = setup_provider(&config, model.as_deref())?;
 
     // Warmup provider connection (non-blocking, non-fatal)
     if let Err(e) = provider.warmup().await {
@@ -460,13 +473,13 @@ async fn gateway(model: Option<String>) -> Result<()> {
     Ok(())
 }
 
-async fn setup_provider(
+fn setup_provider(
     config: &Config,
     model: Option<&str>,
 ) -> Result<Arc<dyn crate::providers::base::LLMProvider>> {
     let effective_model = model.unwrap_or(&config.agents.defaults.model);
     info!("Creating LLM provider for model: {}", effective_model);
-    let provider = config.create_provider(model).await?;
+    let provider = config.create_provider(model)?;
     info!(
         "Provider created successfully. Default model: {}",
         provider.default_model()
@@ -871,11 +884,14 @@ fn start_channels_loop(
     })
 }
 
-async fn agent(message: Option<String>, session: String) -> Result<()> {
-    let config = load_config(None)?;
+async fn agent(message: Option<String>, session: String, provider: Option<String>) -> Result<()> {
+    let mut config = load_config(None)?;
+    if let Some(ref p) = provider {
+        config.agents.defaults.provider = Some(p.clone());
+    }
     config.validate()?;
 
-    let provider = config.create_provider(None).await?;
+    let provider = config.create_provider(None)?;
 
     let mut bus = MessageBus::default();
     let secrets = config.collect_secrets();

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::path::PathBuf;
 use tracing::warn;
 
@@ -576,6 +577,10 @@ pub struct AgentDefaults {
     pub workspace: String,
     #[serde(default = "default_model")]
     pub model: String,
+    /// Explicit LLM provider override. When set, bypasses model-name inference.
+    /// Examples: "anthropic", "openai", "groq", "ollama"
+    #[serde(default)]
+    pub provider: Option<String>,
     #[serde(default = "default_max_tokens", rename = "maxTokens")]
     pub max_tokens: u32,
     #[serde(default = "default_temperature")]
@@ -617,6 +622,7 @@ impl Default for AgentDefaults {
         Self {
             workspace: default_workspace(),
             model: default_model(),
+            provider: None,
             max_tokens: default_max_tokens(),
             temperature: default_temperature(),
             max_tool_iterations: default_max_tool_iterations(),
@@ -703,6 +709,27 @@ fn default_workspace() -> String {
 
 fn default_model() -> String {
     "claude-sonnet-4-5-20250929".to_string()
+}
+
+/// Normalize provider aliases to canonical names.
+///
+/// Maps common aliases (e.g. "claude" → "anthropic", "gpt" → "openai")
+/// to the canonical provider name used for routing. Unknown values pass through.
+pub fn normalize_provider(provider: &str) -> Cow<'_, str> {
+    match provider.to_lowercase().as_str() {
+        "claude" | "anthropic" => Cow::Borrowed("anthropic"),
+        "gpt" | "openai" => Cow::Borrowed("openai"),
+        "google" | "gemini" => Cow::Borrowed("gemini"),
+        "openrouter" => Cow::Borrowed("openrouter"),
+        "deepseek" => Cow::Borrowed("deepseek"),
+        "groq" => Cow::Borrowed("groq"),
+        "moonshot" => Cow::Borrowed("moonshot"),
+        "zhipu" => Cow::Borrowed("zhipu"),
+        "dashscope" => Cow::Borrowed("dashscope"),
+        "vllm" => Cow::Borrowed("vllm"),
+        "ollama" => Cow::Borrowed("ollama"),
+        _ => Cow::Owned(provider.to_lowercase()),
+    }
 }
 
 fn default_max_tokens() -> u32 {
@@ -829,64 +856,65 @@ pub struct ProvidersConfig {
 }
 
 impl ProvidersConfig {
-    /// Get the API key for a given model name by matching provider keywords,
-    /// falling back to the first available key.
+    /// Get the API key for a given model by resolving the provider name.
+    ///
+    /// Uses the same 3-tier resolution as `ProviderFactory`: explicit prefix,
+    /// model-name inference, then fallback to first available key.
     pub fn get_api_key(&self, model: &str) -> Option<&str> {
-        let model_lower = model.to_lowercase();
+        use crate::providers::strategy::{infer_provider_from_model, parse_model_ref};
 
-        // Match provider by model name
-        if model_lower.contains("openrouter") && !self.openrouter.api_key.is_empty() {
-            return Some(&self.openrouter.api_key);
-        }
-        if model_lower.contains("deepseek") && !self.deepseek.api_key.is_empty() {
-            return Some(&self.deepseek.api_key);
-        }
-        if (model_lower.contains("anthropic") || model_lower.contains("claude"))
-            && !self.anthropic.api_key.is_empty()
-        {
-            return Some(&self.anthropic.api_key);
-        }
-        if (model_lower.contains("openai") || model_lower.contains("gpt"))
-            && !self.openai.api_key.is_empty()
-        {
-            return Some(&self.openai.api_key);
-        }
-        if model_lower.contains("gemini") && !self.gemini.api_key.is_empty() {
-            return Some(&self.gemini.api_key);
-        }
-        if model_lower.contains("groq") && !self.groq.api_key.is_empty() {
-            return Some(&self.groq.api_key);
-        }
-        if model_lower.contains("moonshot") && !self.moonshot.api_key.is_empty() {
-            return Some(&self.moonshot.api_key);
-        }
-        if model_lower.contains("zhipu") && !self.zhipu.api_key.is_empty() {
-            return Some(&self.zhipu.api_key);
-        }
-        if model_lower.contains("dashscope") && !self.dashscope.api_key.is_empty() {
-            return Some(&self.dashscope.api_key);
-        }
-        if model_lower.contains("vllm") && !self.vllm.api_key.is_empty() {
-            return Some(&self.vllm.api_key);
-        }
-        if model_lower.contains("ollama") && !self.ollama.api_key.is_empty() {
-            return Some(&self.ollama.api_key);
+        let model_ref = parse_model_ref(model);
+        let provider_name = model_ref
+            .provider
+            .or_else(|| infer_provider_from_model(model_ref.model));
+
+        if let Some(name) = provider_name {
+            let normalized = normalize_provider(name);
+            if let Some(key) = self.get_api_key_for_provider(&normalized) {
+                return Some(key);
+            }
         }
 
         // Fallback: first available key
-        if !self.openrouter.api_key.is_empty() {
-            return Some(&self.openrouter.api_key);
-        }
-        if !self.anthropic.api_key.is_empty() {
-            return Some(&self.anthropic.api_key);
-        }
-        if !self.openai.api_key.is_empty() {
-            return Some(&self.openai.api_key);
-        }
-        if !self.gemini.api_key.is_empty() {
-            return Some(&self.gemini.api_key);
-        }
+        self.first_available_key()
+    }
 
+    /// Get the API key for a specific provider by canonical name.
+    pub fn get_api_key_for_provider(&self, provider: &str) -> Option<&str> {
+        let normalized = normalize_provider(provider);
+        let config = match normalized.as_ref() {
+            "anthropic" => &self.anthropic,
+            "openai" => &self.openai,
+            "gemini" => &self.gemini,
+            "openrouter" => &self.openrouter,
+            "deepseek" => &self.deepseek,
+            "groq" => &self.groq,
+            "moonshot" => &self.moonshot,
+            "zhipu" => &self.zhipu,
+            "dashscope" => &self.dashscope,
+            "vllm" => &self.vllm,
+            "ollama" => &self.ollama,
+            _ => return None,
+        };
+        if config.api_key.is_empty() {
+            None
+        } else {
+            Some(&config.api_key)
+        }
+    }
+
+    /// Return the first available API key across all providers.
+    fn first_available_key(&self) -> Option<&str> {
+        for config in [
+            &self.openrouter,
+            &self.anthropic,
+            &self.openai,
+            &self.gemini,
+        ] {
+            if !config.api_key.is_empty() {
+                return Some(&config.api_key);
+            }
+        }
         None
     }
 }
@@ -1741,8 +1769,9 @@ impl Config {
 
     /// Create an LLM provider instance based on configuration.
     ///
-    /// Uses a strategy pattern to select the appropriate provider based on model name.
-    pub async fn create_provider(
+    /// Uses a 3-tier resolution strategy: explicit provider field → prefix
+    /// notation → model-name inference.
+    pub fn create_provider(
         &self,
         model: Option<&str>,
     ) -> anyhow::Result<std::sync::Arc<dyn crate::providers::base::LLMProvider>> {
@@ -1754,8 +1783,8 @@ impl Config {
         if let Some(ref local_model) = self.agents.defaults.local_model
             && !local_model.is_empty()
         {
-            let cloud = factory.create_provider(model).await?;
-            let mut local = factory.create_provider(local_model).await?;
+            let cloud = factory.create_provider(model)?;
+            let mut local = factory.create_provider(local_model)?;
             if self.should_use_prompt_guided_tools(local_model) {
                 local = crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(local);
             }
@@ -1769,7 +1798,7 @@ impl Config {
             ));
         }
 
-        let provider = factory.create_provider(model).await?;
+        let provider = factory.create_provider(model)?;
         if self.should_use_prompt_guided_tools(model) {
             return Ok(crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(provider));
         }
@@ -1778,17 +1807,40 @@ impl Config {
     }
 
     /// Check if a model should use prompt-guided tool calling based on its
-    /// provider config.
+    /// resolved provider config.
     fn should_use_prompt_guided_tools(&self, model: &str) -> bool {
-        let model_lower = model.to_lowercase();
-        for (keyword, config) in [
-            ("ollama", &self.providers.ollama),
-            ("vllm", &self.providers.vllm),
-        ] {
-            if model_lower.contains(keyword) {
-                return config.prompt_guided_tools;
-            }
+        use crate::providers::strategy::{infer_provider_from_model, parse_model_ref};
+
+        // Check explicit provider field first
+        if let Some(ref provider) = self.agents.defaults.provider {
+            let normalized = normalize_provider(provider);
+            return match normalized.as_ref() {
+                "ollama" => self.providers.ollama.prompt_guided_tools,
+                "vllm" => self.providers.vllm.prompt_guided_tools,
+                _ => false,
+            };
         }
+
+        // Check prefix notation
+        let model_ref = parse_model_ref(model);
+        if let Some(prefix_provider) = model_ref.provider {
+            let normalized = normalize_provider(prefix_provider);
+            return match normalized.as_ref() {
+                "ollama" => self.providers.ollama.prompt_guided_tools,
+                "vllm" => self.providers.vllm.prompt_guided_tools,
+                _ => false,
+            };
+        }
+
+        // Check model-name inference
+        if let Some(inferred) = infer_provider_from_model(model_ref.model) {
+            return match inferred {
+                "ollama" => self.providers.ollama.prompt_guided_tools,
+                "vllm" => self.providers.vllm.prompt_guided_tools,
+                _ => false,
+            };
+        }
+
         false
     }
 }

@@ -47,23 +47,26 @@ max_width: 820px
 
     <!-- GATEWAY -->
     <h2 id="gateway">gateway</h2>
-    <div class="cmd-sig">oxicrab gateway [--model &lt;MODEL&gt;]</div>
+    <div class="cmd-sig">oxicrab gateway [--model &lt;MODEL&gt;] [--provider &lt;PROVIDER&gt;]</div>
     <p>Start the multi-channel gateway daemon. Loads configuration, initializes the LLM provider (with optional circuit breaker), starts all enabled channels, the agent loop, cron service, and heartbeat service. Runs until interrupted with Ctrl+C.</p>
     <table class="flag-table">
         <tr><th>Flag</th><th>Description</th></tr>
         <tr><td>--model</td><td>Override the default LLM model for this session</td></tr>
+        <tr><td>--provider</td><td>Override the LLM provider (e.g. <code>anthropic</code>, <code>openai</code>, <code>groq</code>, <code>ollama</code>)</td></tr>
     </table>
     <pre>oxicrab gateway
-oxicrab gateway --model gpt-4o</pre>
+oxicrab gateway --model gpt-4o
+oxicrab gateway --model my-fine-tune --provider anthropic</pre>
 
     <!-- AGENT -->
     <h2 id="agent">agent</h2>
-    <div class="cmd-sig">oxicrab agent [-m &lt;MESSAGE&gt;] [-s &lt;SESSION&gt;]</div>
+    <div class="cmd-sig">oxicrab agent [-m &lt;MESSAGE&gt;] [-s &lt;SESSION&gt;] [--provider &lt;PROVIDER&gt;]</div>
     <p>Interact with the agent directly from the terminal. Without <code>-m</code>, starts an interactive REPL. With <code>-m</code>, sends a single message and prints the response.</p>
     <table class="flag-table">
         <tr><th>Flag</th><th>Description</th></tr>
         <tr><td>-m, --message</td><td>Send a single message (non-interactive)</td></tr>
         <tr><td>-s, --session</td><td>Session key (default: <code>cli:default</code>)</td></tr>
+        <tr><td>--provider</td><td>Override the LLM provider (e.g. <code>anthropic</code>, <code>openai</code>, <code>groq</code>, <code>ollama</code>)</td></tr>
     </table>
     <pre><span class="hl-comment"># Interactive REPL</span>
 oxicrab agent
