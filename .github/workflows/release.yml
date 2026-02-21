@@ -134,7 +134,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get install -y lintian
-          lintian --no-tag-display-limit *.deb || true
+          lintian --tag-display-limit 0 *.deb || true
           # Fail on errors (E:), allow warnings (W:) and info (I:)
           ! lintian *.deb 2>&1 | grep -q '^E:'
 

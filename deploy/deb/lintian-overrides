@@ -1,0 +1,2 @@
+# Rust binary statically links libyaml via the unsafe-libyaml crate
+oxicrab: embedded-library libyaml

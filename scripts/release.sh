@@ -72,8 +72,19 @@ echo "updated Cargo.lock"
 git-cliff --tag "$TAG" --output CHANGELOG.md
 echo "generated CHANGELOG.md"
 
+# ── Update Debian changelog ─────────────────────────────────────────
+DEB_CHANGELOG="deploy/deb/changelog"
+cat > "$DEB_CHANGELOG" <<DEBEOF
+oxicrab ($NEW) unstable; urgency=low
+
+  * See CHANGELOG.md for detailed release notes
+
+ -- James Turnbull <james@ltl.so>  $(date -R)
+DEBEOF
+echo "updated $DEB_CHANGELOG"
+
 # ── Commit and tag ───────────────────────────────────────────────────
-git add Cargo.toml Cargo.lock CHANGELOG.md
+git add Cargo.toml Cargo.lock CHANGELOG.md "$DEB_CHANGELOG"
 git commit -m "chore(release): $NEW"
 git tag -a "$TAG" -m "Release $NEW"
 echo ""
