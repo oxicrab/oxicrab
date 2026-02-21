@@ -1,10 +1,11 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
-## [0.11.1] - 2026-02-19
+## [0.11.2] - 2026-02-21
 
 ### Bug Fixes
 
+- prevent pipe deadlock in credential helper subprocess by @jamtur01 ([843e378](https://github.com/oxicrab/oxicrab/commit/843e3784e41b237f03d288522fbf463f87e072bc))
 - 58 bug fixes from deep codebase review by @jamtur01 ([4cdf9e5](https://github.com/oxicrab/oxicrab/commit/4cdf9e59e3a1429308ef8af6f70b5b86ce6a38f7))
 
 ### Features
@@ -13,6 +14,20 @@ All notable changes to this project will be documented in this file.
 
 ### Miscellaneous
 
+- Changed provider model by @jamtur01 ([b92217f](https://github.com/oxicrab/oxicrab/commit/b92217f00fd64a917f04d55ec30b08d3c90db882))
+- Package validation by @jamtur01 ([aca7a4e](https://github.com/oxicrab/oxicrab/commit/aca7a4e6fcb4e326d4720a9ddad49665a01ca9e8))
+- Fixed some CI perms risks by @jamtur01 ([2fdbd8e](https://github.com/oxicrab/oxicrab/commit/2fdbd8eb3868a6ca38f963aa1df343e78984267c))
+- Updated packaging and dependencies by @jamtur01 ([4719ad7](https://github.com/oxicrab/oxicrab/commit/4719ad7e7bca28af25c85a95cc9239aca015be80))
+- Updates to Architecture.md by @jamtur01 ([04ed7a1](https://github.com/oxicrab/oxicrab/commit/04ed7a18ca7856db6dd84b913bcf54cb952c2464))
+- Extracted tests by @jamtur01 ([66d41c6](https://github.com/oxicrab/oxicrab/commit/66d41c619cf115624be5985c6c6a97ba41b22143))
+- Pre-work: Extracted tests from anthropic_common.rs and cost_guard.rs into by @jamtur01 ([7bc90e7](https://github.com/oxicrab/oxicrab/commit/7bc90e7fbb3d9789a668dc3c53c50cc36bc0bfb1))
+- Refactoring by @jamtur01 ([5f882d2](https://github.com/oxicrab/oxicrab/commit/5f882d253f9b4b855f615e577bf50ec97d119a74))
+- Added tests and refactored. by @jamtur01 ([8c68ae5](https://github.com/oxicrab/oxicrab/commit/8c68ae550b5500e21de62418564d5dffd90bc2a1))
+- Fixed GA action version by @jamtur01 ([26f6c91](https://github.com/oxicrab/oxicrab/commit/26f6c913dc4087236c41ef2190c4cdd9de8bc989))
+- Mooore tests by @jamtur01 ([2d3b2e5](https://github.com/oxicrab/oxicrab/commit/2d3b2e551fedf65d62b2ed8b1466df98b256c3d6))
+- Test new CI Mk II by @jamtur01 ([7840c08](https://github.com/oxicrab/oxicrab/commit/7840c088f09bdabea1474ef63b274e31765aadca))
+- Test new CI by @jamtur01 ([4bedad1](https://github.com/oxicrab/oxicrab/commit/4bedad118875bfd4ec21fc3acf83e98199fc8769))
+- Added sandbox support on macos and macos CI deploy by @jamtur01 ([4c97dff](https://github.com/oxicrab/oxicrab/commit/4c97dffa97d6df9577bf1dbfc36023687564c43b))
 - Task #35: fs2 shared locks on reads by @jamtur01 ([c718e00](https://github.com/oxicrab/oxicrab/commit/c718e0026399f58c43dc55615662cf9da77fd695))
 - Task #31: Memory store daily notes fs2 locking (HIGH) by @jamtur01 ([e306d79](https://github.com/oxicrab/oxicrab/commit/e306d792e4bebef04d0c1decb8b2f9e70ce6c5e3))
 - Task #26: Session manager fs2 locking (CRITICAL) by @jamtur01 ([5cd74f8](https://github.com/oxicrab/oxicrab/commit/5cd74f84868e9aca5a989b7cd02f46b4e6817565))
