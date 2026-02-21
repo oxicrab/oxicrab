@@ -5,32 +5,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, warn};
 
-const COMPACTION_PROMPT: &str = r"Summarize this conversation history concisely while preserving:
-1. Key decisions made and their reasoning
-2. Important facts, names, dates, and numbers mentioned
-3. User preferences and requests
-4. Pending tasks or commitments
-5. Technical context that may be needed later
+const COMPACTION_PROMPT: &str = "Summarize this conversation history concisely while preserving:\n1. Key decisions made and their reasoning\n2. Important facts, names, dates, and numbers mentioned\n3. User preferences and requests\n4. Pending tasks or commitments\n5. Technical context that may be needed later\n\nPrevious summary (if any):\n{previous_summary}\n\nMessages to summarize:\n{messages}\n\nWrite a concise summary (max 500 words) that captures the essential context. Do not include preamble - just the summary.";
 
-Previous summary (if any):
-{previous_summary}
-
-Messages to summarize:
-{messages}
-
-Write a concise summary (max 500 words) that captures the essential context. Do not include preamble - just the summary.";
-
-const EXTRACTION_PROMPT: &str = r"Review this conversation exchange and extract any facts worth remembering long-term. Focus on:
-- User preferences, habits, or personal details shared
-- Decisions made or commitments given
-- Project names, technical choices, or configuration details
-- Anything the user would expect you to remember next time
-
-User: {user_message}
-
-Assistant: {assistant_message}
-
-If there are notable facts, respond with a short bullet list (one line per fact). If nothing is worth remembering, respond with exactly: NOTHING";
+const EXTRACTION_PROMPT: &str = "Review this conversation exchange and extract any facts worth remembering long-term. Focus on:\n- User preferences, habits, or personal details shared\n- Decisions made or commitments given\n- Project names, technical choices, or configuration details\n- Anything the user would expect you to remember next time\n\nUser: {user_message}\n\nAssistant: {assistant_message}\n\nIf there are notable facts, respond with a short bullet list (one line per fact). If nothing is worth remembering, respond with exactly: NOTHING";
 
 const COMPACTION_MAX_TOKENS: u32 = 2000;
 const EXTRACTION_MAX_TOKENS: u32 = 500;
@@ -161,92 +138,4 @@ impl MessageCompactor {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use proptest::prelude::*;
-
-    proptest! {
-        #[test]
-        fn estimate_tokens_never_panics(s in "\\PC*") {
-            let _ = estimate_tokens(&s);
-        }
-
-        #[test]
-        fn estimate_tokens_proportional_to_length(s in ".{0,1000}") {
-            let tokens = estimate_tokens(&s);
-            let char_count = s.chars().count();
-            assert_eq!(tokens, char_count / CHARS_PER_TOKEN_ESTIMATE);
-        }
-
-        #[test]
-        fn estimate_tokens_empty_is_zero(s in "\\s{0,10}") {
-            let tokens = estimate_tokens(&s);
-            // Whitespace-only strings up to 3 chars should give 0 tokens
-            if s.chars().count() < CHARS_PER_TOKEN_ESTIMATE {
-                assert_eq!(tokens, 0);
-            }
-        }
-    }
-
-    #[test]
-    fn estimate_tokens_empty() {
-        assert_eq!(estimate_tokens(""), 0);
-    }
-
-    #[test]
-    fn estimate_tokens_ascii() {
-        // 20 chars / 4 = 5
-        assert_eq!(estimate_tokens("12345678901234567890"), 5);
-    }
-
-    #[test]
-    fn estimate_tokens_unicode() {
-        // Each emoji is 1 char (but 4 bytes). 4 emoji = 4 chars / 4 = 1 token
-        assert_eq!(estimate_tokens("\u{1F600}\u{1F601}\u{1F602}\u{1F603}"), 1);
-    }
-
-    #[test]
-    fn estimate_messages_tokens_empty() {
-        assert_eq!(estimate_messages_tokens(&[]), 0);
-    }
-
-    #[test]
-    fn estimate_messages_tokens_string_content() {
-        let msgs = vec![{
-            let mut m = HashMap::new();
-            m.insert(
-                "content".to_string(),
-                Value::String("a".repeat(40)), // 40 chars = 10 tokens
-            );
-            m
-        }];
-        assert_eq!(estimate_messages_tokens(&msgs), 10);
-    }
-
-    #[test]
-    fn estimate_messages_tokens_array_content() {
-        let msgs = vec![{
-            let mut m = HashMap::new();
-            m.insert(
-                "content".to_string(),
-                serde_json::json!([
-                    {"type": "text", "text": "a]a]a]a]"}, // 8 chars = 2 tokens
-                    {"type": "image", "url": "http://example.com"},
-                    {"type": "text", "text": "bbbb"}, // 4 chars = 1 token
-                ]),
-            );
-            m
-        }];
-        assert_eq!(estimate_messages_tokens(&msgs), 3);
-    }
-
-    #[test]
-    fn estimate_messages_tokens_missing_content() {
-        let msgs = vec![{
-            let mut m = HashMap::new();
-            m.insert("role".to_string(), Value::String("user".to_string()));
-            m
-        }];
-        assert_eq!(estimate_messages_tokens(&msgs), 0);
-    }
-}
+mod tests;
