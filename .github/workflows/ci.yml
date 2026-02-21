@@ -130,7 +130,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: junit-unit-${{ matrix.name }}
           path: target/nextest/default/junit-unit.xml
@@ -205,7 +205,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: junit-integration-${{ matrix.name }}
           path: target/nextest/integration/junit-integration.xml
@@ -338,7 +338,7 @@ jobs:
           CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
 
       - name: Upload build timings
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: build-timings-${{ matrix.name }}
           path: target/cargo-timings/cargo-timing.html
