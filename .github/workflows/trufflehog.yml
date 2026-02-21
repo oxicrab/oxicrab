@@ -1,5 +1,7 @@
 name: TruffleHog
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   scan:
     runs-on: ubuntu-latest

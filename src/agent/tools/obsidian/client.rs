@@ -12,11 +12,19 @@ pub struct ObsidianApiClient {
 
 impl ObsidianApiClient {
     pub fn new(base_url: &str, api_key: &str, timeout_secs: u64) -> Self {
-        // Obsidian Local REST API uses a self-signed HTTPS certificate
+        // Obsidian Local REST API uses a self-signed HTTPS certificate on localhost
+        let is_localhost = base_url.contains("://127.0.0.1")
+            || base_url.contains("://localhost")
+            || base_url.contains("://[::1]");
+        if !is_localhost {
+            warn!(
+                "obsidian API URL is not localhost — TLS certificate validation will be enforced"
+            );
+        }
         let client = Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
             .pool_max_idle_per_host(4)
-            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_certs(is_localhost)
             .build()
             .unwrap_or_default();
 
@@ -30,12 +38,9 @@ impl ObsidianApiClient {
     #[cfg(test)]
     pub fn with_base_url(base_url: String, api_key: &str) -> Self {
         Self {
+            client: Client::builder().build().unwrap_or_default(),
             base_url,
             api_key: api_key.to_string(),
-            client: Client::builder()
-                .danger_accept_invalid_certs(true)
-                .build()
-                .unwrap_or_default(),
         }
     }
 
