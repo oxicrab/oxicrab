@@ -434,12 +434,108 @@ jobs:
           path: baseline-binary-size.txt
           key: binary-size-baseline-${{ github.sha }}
 
+  # ── Package ───────────────────────────────────────────────────────
+  package:
+    name: Package (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - name: macos
+            runner: macos-15
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.NIGHTLY_VERSION }}
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-package-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-package-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: command -v cmake || brew install cmake
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+        env:
+          SOURCE_DATE_EPOCH: "1"
+          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
+
+      - name: Build DEB package
+        if: runner.os == 'Linux'
+        run: |
+          cargo install cargo-deb --force
+          cargo deb --no-build --target ${{ matrix.target }}
+          cp target/${{ matrix.target }}/debian/*.deb .
+
+      - name: Validate DEB package
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y lintian
+          lintian --tag-display-limit 0 *.deb || true
+          # Fail on errors (E:), allow warnings (W:) and info (I:)
+          ! lintian *.deb 2>&1 | grep -q '^E:'
+
+      - name: Build RPM package
+        if: runner.os == 'Linux'
+        run: |
+          cargo install cargo-generate-rpm --force
+          cargo generate-rpm --target ${{ matrix.target }}
+          cp target/${{ matrix.target }}/generate-rpm/*.rpm .
+
+      - name: Validate RPM package
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y rpmlint
+          rpmlint *.rpm || true
+          # Log contents for review
+          rpm -qpl *.rpm || true
+
+      - name: Build DMG
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dmg-staging
+          cp "target/${{ matrix.target }}/release/oxicrab" dmg-staging/
+          cp deploy/com.oxicrab.gateway.plist dmg-staging/
+          cp config.example.json dmg-staging/
+          cp README.md LICENSE dmg-staging/
+          hdiutil create -volname "Oxicrab CI" \
+            -srcfolder dmg-staging -ov -format UDZO \
+            "oxicrab-ci-arm64.dmg"
+
+      - name: Validate DMG
+        if: runner.os == 'macOS'
+        run: hdiutil verify "oxicrab-ci-arm64.dmg"
+
   # ── CI Gate ─────────────────────────────────────────────────────────
   ci-gate:
     name: CI
     runs-on: ubuntu-latest
     if: always()
-    needs: [lint, test-unit, test-integration, build-check, coverage, binary-size]
+    needs: [lint, test-unit, test-integration, build-check, coverage, binary-size, package]
     steps:
       - name: Check results
         run: |
@@ -449,6 +545,7 @@ jobs:
           echo "build-check: ${{ needs.build-check.result }}"
           echo "coverage: ${{ needs.coverage.result }}"
           echo "binary-size: ${{ needs.binary-size.result }}"
+          echo "package: ${{ needs.package.result }}"
 
           # Fail if any required job failed or was cancelled
           if [[ "${{ needs.lint.result }}" == "failure" || "${{ needs.lint.result }}" == "cancelled" ]]; then
@@ -467,10 +564,13 @@ jobs:
             echo "::error::build-check failed"
             exit 1
           fi
-          # coverage and binary-size are informational — warn but don't block
+          # coverage, binary-size, and package are informational — warn but don't block
           if [[ "${{ needs.coverage.result }}" == "failure" ]]; then
             echo "::warning::coverage failed (non-blocking)"
           fi
           if [[ "${{ needs.binary-size.result }}" == "failure" ]]; then
             echo "::warning::binary-size failed (non-blocking)"
+          fi
+          if [[ "${{ needs.package.result }}" == "failure" ]]; then
+            echo "::warning::package failed (non-blocking)"
           fi
