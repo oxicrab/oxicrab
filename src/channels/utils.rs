@@ -57,13 +57,14 @@ fn is_sender_paired(channel: &str, sender: &str) -> bool {
     let pairing_dir = home.join("pairing");
     let path = pairing_dir.join(format!("{}-allowlist.json", channel));
 
-    // Acquire shared lock for consistent reads (writers hold exclusive lock)
+    // Acquire shared lock for consistent reads (writers hold exclusive lock).
+    // The lock is held via _lock until the end of this function scope.
     let _lock = (|| -> Option<std::fs::File> {
         let lock_path = pairing_dir.join(".lock");
         let lock_file = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(false)
             .write(true)
-            .truncate(true)
             .open(&lock_path)
             .ok()?;
         fs2::FileExt::lock_shared(&lock_file).ok()?;
@@ -91,7 +92,9 @@ fn is_sender_paired(channel: &str, sender: &str) -> bool {
     feature = "channel-twilio",
 ))]
 pub fn normalize_sender_id(sender: &str) -> String {
-    sender.trim_start_matches('+').to_string()
+    let trimmed = sender.trim_start_matches('+');
+    // Strip control characters and null bytes to prevent injection
+    trimmed.chars().filter(|c| !c.is_control()).collect()
 }
 
 /// Result of a DM access check.

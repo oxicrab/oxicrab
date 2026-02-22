@@ -161,10 +161,9 @@ impl MemoryIndexer {
                 // Collect source keys that were indexed (for embedding generation)
                 let mut indexed_sources: Vec<String> = Vec::new();
 
-                // Index directory
+                // Index directory (continue on failure — MEMORY.md and today still need indexing)
                 if let Err(e) = db.index_directory(&memory_dir) {
-                    warn!("Failed to index memory directory: {}", e);
-                    return;
+                    warn!("failed to index memory directory: {}", e);
                 }
 
                 // Index MEMORY.md
@@ -349,8 +348,16 @@ impl MemoryIndexer {
         let embedding_service = self.embedding_service.clone();
         let flag = self.indexing_in_progress.clone();
         tokio::spawn(async move {
+            // Use a struct guard to ensure the flag is always cleared,
+            // even if index_memory_files panics (prevents permanent deadlock)
+            struct FlagGuard(Arc<std::sync::atomic::AtomicBool>);
+            impl Drop for FlagGuard {
+                fn drop(&mut self) {
+                    self.0.store(false, std::sync::atomic::Ordering::Release);
+                }
+            }
+            let _guard = FlagGuard(flag);
             Self::index_memory_files(&db, &memory_dir, embedding_service.as_ref()).await;
-            flag.store(false, std::sync::atomic::Ordering::Release);
         });
     }
 }

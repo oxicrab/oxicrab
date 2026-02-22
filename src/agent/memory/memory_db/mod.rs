@@ -516,7 +516,13 @@ impl MemoryDB {
                         .unwrap_or((0.0, String::new(), String::new()));
 
                     let combined = keyword_weight * fts_score + (1.0 - keyword_weight) * vec_score;
-                    let key = if fts_key.is_empty() { vec_key } else { fts_key };
+                    let key = if !fts_key.is_empty() {
+                        fts_key
+                    } else if !vec_key.is_empty() {
+                        vec_key
+                    } else {
+                        "<unknown>".to_string()
+                    };
                     let content = if fts_content.is_empty() {
                         vec_content
                     } else {
