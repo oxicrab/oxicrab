@@ -45,6 +45,7 @@ max_width: 820px
       <li><a href="#tools-md">TOOLS.md</a></li>
       <li><a href="#memory-md">MEMORY.md</a></li>
       <li><a href="#daily-notes">Daily Notes</a></li>
+      <li><a href="#knowledge">Knowledge Directory</a></li>
       <li><a href="#skills">Skills</a></li>
       <li><a href="#sessions">Sessions</a></li>
       <li><a href="#other-files">Other Files</a></li>
@@ -70,6 +71,10 @@ max_width: 820px
 <span class="file">      2026-02-16.md</span>        <span class="desc"># today's daily notes</span>
 <span class="file">      memory.sqlite3</span>       <span class="desc"># full-text search index</span>
 <span class="dir">      archive/</span>             <span class="desc"># archived daily notes</span>
+<span class="dir">    knowledge/</span>             <span class="desc"># RAG document ingestion (optional)</span>
+<span class="file">      faq.md</span>             <span class="desc"># indexed knowledge document</span>
+<span class="file">      reference.txt</span>      <span class="desc"># plain text knowledge</span>
+<span class="file">      guide.html</span>         <span class="desc"># HTML (tags stripped on indexing)</span>
 <span class="dir">    skills/</span>
 <span class="dir">      my-skill/</span>
 <span class="file">        SKILL.md</span>           <span class="desc"># custom skill definition</span>
@@ -254,6 +259,41 @@ additional configuration.
     }
   }
 }</code></pre>
+  </div>
+
+  <!-- KNOWLEDGE DIRECTORY -->
+  <div id="knowledge" class="ws-section">
+    <h2>Knowledge Directory <span class="badge badge-manual">manual</span></h2>
+
+    <div class="file-card">
+      <div class="file-card-name">workspace/knowledge/</div>
+      <div class="file-card-desc">Optional directory for RAG document ingestion. Files placed here are automatically chunked, indexed into SQLite FTS5 (with optional vector embeddings), and appear in memory search results.</div>
+    </div>
+
+    <h3>Supported Formats</h3>
+    <table class="cfg-table">
+      <tr><th>Extension</th><th>Processing</th></tr>
+      <tr><td>.md</td><td>Markdown &mdash; indexed as-is, split on double newlines</td></tr>
+      <tr><td>.txt</td><td>Plain text &mdash; indexed as-is, split on double newlines</td></tr>
+      <tr><td>.html</td><td>HTML &mdash; tags stripped, text content extracted, then chunked</td></tr>
+    </table>
+
+    <h3>How It Works</h3>
+    <ul>
+      <li>Source keys are prefixed with <code>knowledge:</code> (e.g., <code>knowledge:faq.md</code>) to distinguish from memory notes</li>
+      <li>Chunks are 12&ndash;1200 bytes, split on paragraph boundaries (double newlines)</li>
+      <li>Knowledge entries appear in hybrid search alongside memory notes</li>
+      <li>Knowledge is <strong>permanent</strong> &mdash; not subject to archive or purge (unlike daily notes)</li>
+      <li>Knowledge is included in group chat search results (shared reference, not personal)</li>
+      <li>If embeddings are enabled, knowledge chunks get vector embeddings for semantic search</li>
+    </ul>
+
+    <h3>Usage</h3>
+    <p>Create the <code>knowledge/</code> directory in your workspace and add files. The background indexer picks them up automatically (default interval: 300 seconds). Changes to existing files are detected via modification time.</p>
+
+    <pre><code>mkdir -p ~/.oxicrab/workspace/knowledge
+cp my-docs/faq.md ~/.oxicrab/workspace/knowledge/
+cp my-docs/reference.html ~/.oxicrab/workspace/knowledge/</code></pre>
   </div>
 
   <!-- SKILLS -->

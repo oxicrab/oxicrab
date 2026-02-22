@@ -17,11 +17,14 @@
 - **MCP support**: Connect external tool servers via the Model Context Protocol
 - **Subagents**: Background task execution with concurrency limiting and context injection
 - **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode, multi-channel targeting
-- **Memory system**: SQLite FTS5 with background indexing, optional hybrid vector+keyword search (local ONNX embeddings), configurable fusion strategy (weighted score or reciprocal rank fusion), and automatic memory hygiene
-- **Group chat isolation**: Personal memory (MEMORY.md, daily notes) automatically excluded from group chat contexts
+- **Memory system**: SQLite FTS5 with background indexing, optional hybrid vector+keyword search (local ONNX embeddings), configurable fusion strategy (weighted score or reciprocal rank fusion), knowledge directory for RAG document ingestion, and automatic memory hygiene
+- **Group chat isolation**: Personal memory (MEMORY.md, daily notes) automatically excluded from group chat contexts; knowledge shared across all contexts
 - **Session management**: Persistent sessions with automatic compaction and context summarization
 - **Voice transcription**: Local whisper.cpp with cloud API fallback
 - **CostGuard**: Daily budget cap and hourly rate limiting with embedded pricing for 50+ models
+- **HTTP gateway**: REST API (`POST /api/chat`, `GET /api/health`) and named webhook receivers with HMAC-SHA256 validation, template formatting, and multi-channel delivery
+- **JSON mode**: Per-request structured output (JSON object and JSON schema) across all providers
+- **PDF/document support**: Native PDF document support in Anthropic, OpenAI, and Gemini providers
 - **Security**: Default-deny allowlists, DM pairing, leak detection, DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement
 
 ## Installation
@@ -155,6 +158,7 @@ Access control: `allowFrom` (pre-authorized senders), `dmPolicy` (`"allowlist"`,
 │   │   ├── MEMORY.md        # Long-term memory
 │   │   ├── memory.sqlite3   # FTS5 search index + embeddings
 │   │   └── YYYY-MM-DD.md    # Daily notes (auto-extracted facts)
+│   ├── knowledge/           # RAG document ingestion (.md, .txt, .html)
 │   ├── sessions/            # Conversation sessions
 │   └── skills/              # Custom skills (SKILL.md per skill)
 ├── models/                  # Whisper model files

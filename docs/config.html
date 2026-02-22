@@ -706,7 +706,15 @@
         <pre><code>{
   "gateway": {
     "host": "0.0.0.0",
-    "port": 18790
+    "port": 18790,
+    "webhooks": {
+      "github": {
+        "secret": "your-hmac-secret",
+        "template": "GitHub {{action}} on {{repository.full_name}}: {{body}}",
+        "targets": [{"channel": "slack", "chatId": "C12345"}],
+        "agentTurn": true
+      }
+    }
   }
 }</code></pre>
 
@@ -714,7 +722,27 @@
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
             <tr><td>host</td><td>string</td><td>127.0.0.1</td><td>Bind address for the gateway HTTP server</td></tr>
             <tr><td>port</td><td>u16</td><td>18790</td><td>Port for the gateway HTTP server</td></tr>
+            <tr><td>webhooks</td><td>object</td><td>{}</td><td>Named webhook receivers (see below)</td></tr>
         </table>
+
+        <h3>HTTP API Endpoints</h3>
+        <table class="cfg-table">
+            <tr><th>Endpoint</th><th>Method</th><th>Description</th></tr>
+            <tr><td>/api/chat</td><td>POST</td><td>Send a message and receive the agent's response. Body: <code>{"message": "...", "session_id": "..."}</code></td></tr>
+            <tr><td>/api/health</td><td>GET</td><td>Health check. Returns <code>{"status": "ok", "version": "..."}</code></td></tr>
+            <tr><td>/api/webhook/{name}</td><td>POST</td><td>Receive a webhook from an external service (see webhook config below)</td></tr>
+        </table>
+
+        <h3>Webhook Configuration</h3>
+        <p>Each entry in <code>webhooks</code> creates a receiver at <code>POST /api/webhook/{name}</code>. Payloads are validated with HMAC-SHA256 signature verification (constant-time comparison).</p>
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>secret</td><td>string</td><td>&mdash;</td><td>HMAC-SHA256 secret for signature validation</td></tr>
+            <tr><td>template</td><td>string</td><td>{{body}}</td><td>Message template. Use <code>{{key}}</code> for JSON payload fields, <code>{{body}}</code> for raw body</td></tr>
+            <tr><td>targets</td><td>array</td><td>[]</td><td>Delivery targets: <code>[{"channel": "slack", "chatId": "C12345"}]</code></td></tr>
+            <tr><td>agentTurn</td><td>bool</td><td>false</td><td>If true, routes through the agent loop before delivering to targets</td></tr>
+        </table>
+        <p>Signature headers checked: <code>X-Signature-256</code>, <code>X-Hub-Signature-256</code>, <code>X-Webhook-Signature</code>. Supports <code>sha256=</code> prefix (GitHub-style). Max payload: 1 MB.</p>
 
         <p>Set <code>host</code> to <code>"0.0.0.0"</code> to listen on all interfaces (required for Docker/container deployments). The Twilio channel uses this same gateway for its webhook listener.</p>
     </div>

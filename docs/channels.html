@@ -387,6 +387,8 @@
     <div class="features-list">
       <span>Text messages</span>
       <span>Image attachments</span>
+      <span>Document attachments (PDF, etc.)</span>
+      <span>Video attachments</span>
       <span>Voice/audio messages</span>
       <span>QR code auth</span>
       <span>Group conversations</span>
@@ -394,6 +396,9 @@
       <span>Sender allowlist</span>
       <span>DM policy (pairing)</span>
     </div>
+
+    <h3>Media handling</h3>
+    <p>Images, documents (PDFs, ZIP, etc.), video, and audio are automatically downloaded to <code>~/.oxicrab/media/</code> with the <code>whatsapp_</code> prefix. MIME types are used to infer file extensions. Image documents sent as document attachments are treated as images for vision processing. Audio messages are routed through voice transcription if configured.</p>
   </div>
 
   <!-- TWILIO -->

@@ -446,10 +446,10 @@ max_width: 1120px
         </div>
       </div>
       <div class="feature-row">
-        <div class="feature-name">Long-Term Memory</div>
+        <div class="feature-name">Long-Term Memory + RAG</div>
         <div class="feature-detail">
-          <h3>SQLite FTS5 with optional vector search</h3>
-          <p>Background indexing, automatic fact extraction from conversations, daily notes, and optional hybrid vector+keyword search via local ONNX embeddings.</p>
+          <h3>SQLite FTS5 with optional vector search and knowledge ingestion</h3>
+          <p>Background indexing, automatic fact extraction from conversations, daily notes, and optional hybrid vector+keyword search via local ONNX embeddings. Drop .md, .txt, or .html files into <code>knowledge/</code> for automatic RAG indexing.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -527,6 +527,20 @@ max_width: 1120px
         <div class="feature-detail">
           <h3>Model Context Protocol support</h3>
           <p>Connect external tool servers via child processes. Tools are auto-discovered at startup and registered as native tools with full middleware pipeline.</p>
+        </div>
+      </div>
+      <div class="feature-row">
+        <div class="feature-name">HTTP Gateway</div>
+        <div class="feature-detail">
+          <h3>REST API and webhook receivers</h3>
+          <p>Programmatic access via <code>POST /api/chat</code>. Named webhook endpoints with HMAC-SHA256 signature validation, template-based message formatting, and multi-channel delivery.</p>
+        </div>
+      </div>
+      <div class="feature-row">
+        <div class="feature-name">JSON Mode</div>
+        <div class="feature-detail">
+          <h3>Structured output from any provider</h3>
+          <p>Per-request JSON mode and JSON schema support. Native implementation for OpenAI and Gemini. System prompt hint for Anthropic. Configurable via <code>ResponseFormat</code>.</p>
         </div>
       </div>
       <div class="feature-row">
