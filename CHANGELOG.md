@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.3] - 2026-02-22
+
+### Added
+- **memory:** add search tracking, cost persistence, hybrid search, and CLI stats ([3d36c6d](https://github.com/oxicrab/oxicrab/commit/3d36c6dab49d897907844a48a0ca3d93e7337817))
+
+
+### Changed
+- extract inline tests to separate files ([860f5ef](https://github.com/oxicrab/oxicrab/commit/860f5ef766e793ad15f456acec1cde4c8c54d56e))
+
+
+### Fixed
+- **test:** fixed test assertion and the actual error message ([eda4e9f](https://github.com/oxicrab/oxicrab/commit/eda4e9fc221c81779aad552d50a195a6753a619a))
+- **cron:** use consistent "success" status for completed jobs ([4f4b1e4](https://github.com/oxicrab/oxicrab/commit/4f4b1e41edaffb1bf7ca0e59b721c2f561e9dd01))
+- harden transcription, reddit, and tmux tools ([58b28d0](https://github.com/oxicrab/oxicrab/commit/58b28d01c4109b8fdb66ee566fa5ddee86ffe560))
+- harden media and todoist tools ([d8e9f3c](https://github.com/oxicrab/oxicrab/commit/d8e9f3ca9c4c0f0227aee5c124fe666fe3a4c215))
+- harden Gmail, Calendar, and Obsidian tools ([60543bb](https://github.com/oxicrab/oxicrab/commit/60543bb35d5b2eed54535daebbf452111c30518e))
+- harden truncation, image generation, and error types ([d8a0c3d](https://github.com/oxicrab/oxicrab/commit/d8a0c3d17f544574ecd3a4e2558e977a59597522))
+- harden memory indexer and channel infrastructure ([3ade073](https://github.com/oxicrab/oxicrab/commit/3ade0735217b760347cc56dccada78334c5d1c49))
+- **docs:** escape brackets and angle brackets in doc comments ([5495ae6](https://github.com/oxicrab/oxicrab/commit/5495ae63d534a6f1292c558f415068c38ae123ef))
+- harden GitHub and browser tools ([d75c023](https://github.com/oxicrab/oxicrab/commit/d75c0236f949a98c8fb531d4d0f6315357a8f505))
+- harden skills loader and web tools ([ffce550](https://github.com/oxicrab/oxicrab/commit/ffce55061e426f27ebe2de84ad23c318aea0ec80))
+- harden MCP, heartbeat, and cognitive subsystems ([f68cf67](https://github.com/oxicrab/oxicrab/commit/f68cf67f8e5c53782d09a7ac4418fcef47d45af0))
+- harden context builder and tool infrastructure ([1e6a8c9](https://github.com/oxicrab/oxicrab/commit/1e6a8c9483bf6e599e23d2295db4abbfb86c2a2e))
+- harden auth and pairing subsystems ([d1dd61d](https://github.com/oxicrab/oxicrab/commit/d1dd61d5685fc762dcbebbaf885077b15506f7aa))
+- harden shell tool and subagent subsystems ([b4df0d4](https://github.com/oxicrab/oxicrab/commit/b4df0d473bb276f06e58cf93e5ccefebb5744061))
+- harden bus and channels subsystems ([a911449](https://github.com/oxicrab/oxicrab/commit/a911449adcc6a9414a970bd622c49292c85cf596))
+- harden memory and utils subsystems ([432be16](https://github.com/oxicrab/oxicrab/commit/432be1653404543d97bd5b529ceb1ed3e15413c4))
+- harden safety and compaction subsystems ([c4aa91b](https://github.com/oxicrab/oxicrab/commit/c4aa91b1bf75b85606009b7578e3196664195719))
+- **oauth:** retry with refreshed token on 401 ([58944b5](https://github.com/oxicrab/oxicrab/commit/58944b592661d6ba13635a9f4cdd3ae89ce1cd2f))
+- harden session and config, restructure large files ([1a898dd](https://github.com/oxicrab/oxicrab/commit/1a898ddf913985cf90fb10546e94bc5f51fed96b))
+- harden providers and cron subsystems ([bd7e4ac](https://github.com/oxicrab/oxicrab/commit/bd7e4ac44c48d92ee94700318821f67b1c0d7804))
+- harden agent loop, cost guard, and memory lock safety ([3a98a89](https://github.com/oxicrab/oxicrab/commit/3a98a8927b116af9837c6beeb571cedb9d8eeeac))
+- **cost-guard:** always instantiate CostGuard for cost tracking ([3a16155](https://github.com/oxicrab/oxicrab/commit/3a16155f258f066b9373f600af9bc179aab63466))
+
+
+### Maintenance
+- **fmt:** ran cargo fmt ([6165303](https://github.com/oxicrab/oxicrab/commit/61653032165748c5b3a52b6834930749698091ff))
+
 ## [0.11.2] - 2026-02-21
 
 ### Added
@@ -17,10 +55,12 @@ All notable changes to this project will be documented in this file.
 
 
 ### CI/CD
+- add package build and validation jobs ([7fa8b2f](https://github.com/oxicrab/oxicrab/commit/7fa8b2ff95231985c18c3b77f55295c028009986))
 - Package validation ([aca7a4e](https://github.com/oxicrab/oxicrab/commit/aca7a4e6fcb4e326d4720a9ddad49665a01ca9e8))
 
 
 ### Changed
+- remove dead code and deduplicate provider HTTP clients ([77aa8f5](https://github.com/oxicrab/oxicrab/commit/77aa8f54e48ad908533af3982836aa307f386cbe))
 - Changed provider model ([b92217f](https://github.com/oxicrab/oxicrab/commit/b92217f00fd64a917f04d55ec30b08d3c90db882))
 - Updated packaging and dependencies ([4719ad7](https://github.com/oxicrab/oxicrab/commit/4719ad7e7bca28af25c85a95cc9239aca015be80))
 - Extracted tests ([66d41c6](https://github.com/oxicrab/oxicrab/commit/66d41c619cf115624be5985c6c6a97ba41b22143))
@@ -35,6 +75,11 @@ All notable changes to this project will be documented in this file.
 
 
 ### Fixed
+- **ci:** restructured CI jobs again and fixed rpm build ([2e7fe6d](https://github.com/oxicrab/oxicrab/commit/2e7fe6d11b7431e7170a0fa7c21a5ff8fb9a6a3b))
+- **ci:** restructured CI jobs to reduce compilation cycles ([61bda3a](https://github.com/oxicrab/oxicrab/commit/61bda3a52bcf85c0255cfbbcab2b202a168c533b))
+- **deb:** resolve lintian errors failing CI package validation ([52e1c0c](https://github.com/oxicrab/oxicrab/commit/52e1c0c52d234c8543fe8dc053b1091a338d7520))
+- address 15 quality issues from codebase review ([ff2367b](https://github.com/oxicrab/oxicrab/commit/ff2367b3ac12a10c84ce931dfa801dc6d80a86e0))
+- **release:** Fixed up changelog to use a better format ([b3e3a54](https://github.com/oxicrab/oxicrab/commit/b3e3a5472e226f0063c3f367bf3078391ad96e13))
 - Fixed some CI perms risks ([2fdbd8e](https://github.com/oxicrab/oxicrab/commit/2fdbd8eb3868a6ca38f963aa1df343e78984267c))
 - prevent pipe deadlock in credential helper subprocess ([843e378](https://github.com/oxicrab/oxicrab/commit/843e3784e41b237f03d288522fbf463f87e072bc))
 - 58 bug fixes from deep codebase review ([4cdf9e5](https://github.com/oxicrab/oxicrab/commit/4cdf9e59e3a1429308ef8af6f70b5b86ce6a38f7))
