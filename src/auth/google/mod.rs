@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use oauth2::{
-    AuthUrl, ClientId, ClientSecret, CsrfToken, RedirectUrl, Scope, TokenUrl, basic::BasicClient,
+    AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, TokenUrl,
+    basic::BasicClient,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -17,7 +18,7 @@ const DEFAULT_SCOPES: &[&str] = &[
 
 const DEFAULT_TOKEN_PATH: &str = ".oxicrab/google_tokens.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GoogleCredentials {
     pub token: String,
     pub refresh_token: Option<String>,
@@ -26,6 +27,23 @@ pub struct GoogleCredentials {
     pub client_secret: String,
     pub scopes: Vec<String>,
     pub expiry: Option<u64>, // Unix timestamp
+}
+
+impl std::fmt::Debug for GoogleCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GoogleCredentials")
+            .field("token", &"[REDACTED]")
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("token_uri", &self.token_uri)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[REDACTED]")
+            .field("scopes", &self.scopes)
+            .field("expiry", &self.expiry)
+            .finish()
+    }
 }
 
 impl GoogleCredentials {
@@ -59,8 +77,15 @@ impl GoogleCredentials {
         let response = client.post(&self.token_uri).form(&params).send().await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
-            return Err(anyhow::anyhow!("Token refresh failed: {}", error_text));
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            // Extract only the error code — don't log the full body which
+            // may echo back client_secret in some API error responses
+            let error_code = serde_json::from_str::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
+                .unwrap_or_else(|| format!("HTTP {status}"));
+            return Err(anyhow::anyhow!("token refresh failed: {}", error_code));
         }
 
         let token_data: serde_json::Value = response.json().await?;
@@ -87,7 +112,12 @@ impl GoogleCredentials {
             .and_then(serde_json::Value::as_u64)
             && let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH)
         {
-            self.expiry = Some(duration.as_secs() + expires_in);
+            let capped = expires_in.min(MAX_TOKEN_LIFETIME_SECS);
+            self.expiry = Some(
+                duration
+                    .as_secs()
+                    .saturating_add(capped.saturating_sub(TOKEN_EXPIRY_BUFFER_SECS)),
+            );
         }
 
         Ok(())
@@ -175,8 +205,12 @@ pub async fn run_oauth_flow(
         )?)
         .set_redirect_uri(RedirectUrl::new(format!("http://localhost:{}", port))?);
 
+    // Generate PKCE challenge for defense against code interception attacks
+    let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+
     let (auth_url, csrf_token) = client
         .authorize_url(CsrfToken::new_random)
+        .set_pkce_challenge(pkce_challenge)
         .add_scopes(scopes.iter().map(|s| Scope::new(s.to_string())))
         .url();
 
@@ -190,6 +224,7 @@ pub async fn run_oauth_flow(
             &token_path,
             auth_url.clone(),
             &redirect_uri,
+            pkce_verifier.secret(),
         )
         .await;
     }
@@ -206,6 +241,7 @@ pub async fn run_oauth_flow(
                 &token_path,
                 auth_url,
                 &redirect_uri,
+                pkce_verifier.secret(),
             )
             .await;
         }
@@ -219,6 +255,7 @@ pub async fn run_oauth_flow(
     params.insert("client_secret", client_secret.to_string());
     params.insert("redirect_uri", format!("http://localhost:{}", port));
     params.insert("grant_type", "authorization_code".to_string());
+    params.insert("code_verifier", pkce_verifier.secret().clone());
 
     let response = http_client
         .post("https://oauth2.googleapis.com/token")
@@ -227,8 +264,13 @@ pub async fn run_oauth_flow(
         .await?;
 
     if !response.status().is_success() {
-        let error_text = response.text().await?;
-        return Err(anyhow::anyhow!("Token exchange failed: {}", error_text));
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let error_code = serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
+            .unwrap_or_else(|| format!("HTTP {status}"));
+        return Err(anyhow::anyhow!("token exchange failed: {}", error_code));
     }
 
     let token_data: serde_json::Value = response.json().await?;
@@ -238,34 +280,10 @@ pub async fn run_oauth_flow(
             .get("error_description")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown error");
-        return Err(anyhow::anyhow!("Token exchange failed: {}", error_desc));
+        return Err(anyhow::anyhow!("token exchange failed: {}", error_desc));
     }
 
-    let expiry = token_data
-        .get("expires_in")
-        .and_then(serde_json::Value::as_u64)
-        .and_then(|secs| {
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .ok()
-                .map(|now| now.as_secs() + secs)
-        });
-
-    let creds = GoogleCredentials {
-        token: token_data["access_token"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing access_token"))?
-            .to_string(),
-        refresh_token: token_data
-            .get("refresh_token")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        token_uri: "https://oauth2.googleapis.com/token".to_string(),
-        client_id: client_id.to_string(),
-        client_secret: client_secret.to_string(),
-        scopes: scopes.iter().map(ToString::to_string).collect(),
-        expiry,
-    };
+    let creds = build_credentials_from_token(&token_data, client_id, client_secret, &scopes)?;
 
     save_credentials(&creds, &token_path)?;
     info!("Google credentials saved to {}", token_path.display());
@@ -322,6 +340,7 @@ async fn run_manual_flow(
     token_path: &Path,
     auth_url: url::Url,
     redirect_uri: &str,
+    pkce_verifier: &str,
 ) -> Result<GoogleCredentials> {
     use std::io::{self, Write};
 
@@ -361,6 +380,7 @@ async fn run_manual_flow(
     params.insert("client_secret", client_secret.to_string());
     params.insert("redirect_uri", redirect_uri.to_string());
     params.insert("grant_type", "authorization_code".to_string());
+    params.insert("code_verifier", pkce_verifier.to_string());
 
     let response = client
         .post("https://oauth2.googleapis.com/token")
@@ -369,8 +389,13 @@ async fn run_manual_flow(
         .await?;
 
     if !response.status().is_success() {
-        let error_text = response.text().await?;
-        return Err(anyhow::anyhow!("Token exchange failed: {}", error_text));
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let error_code = serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
+            .unwrap_or_else(|| format!("HTTP {status}"));
+        return Err(anyhow::anyhow!("token exchange failed: {}", error_code));
     }
 
     let token_data: serde_json::Value = response.json().await?;
@@ -380,23 +405,47 @@ async fn run_manual_flow(
             .get("error_description")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown error");
-        return Err(anyhow::anyhow!("Token exchange failed: {}", error_desc));
+        return Err(anyhow::anyhow!("token exchange failed: {}", error_desc));
     }
 
+    let creds = build_credentials_from_token(&token_data, client_id, client_secret, scopes)?;
+
+    save_credentials(&creds, token_path)?;
+    info!("Google credentials saved to {}", token_path.display());
+
+    Ok(creds)
+}
+
+/// Buffer subtracted from token expiry to handle clock skew (60 seconds).
+const TOKEN_EXPIRY_BUFFER_SECS: u64 = 60;
+/// Maximum valid token lifetime (1 year) — rejects absurd `expires_in` values.
+const MAX_TOKEN_LIFETIME_SECS: u64 = 86400 * 365;
+
+/// Build a `GoogleCredentials` from a token exchange response, with validated expiry.
+fn build_credentials_from_token(
+    token_data: &serde_json::Value,
+    client_id: &str,
+    client_secret: &str,
+    scopes: &[&str],
+) -> Result<GoogleCredentials> {
     let expiry = token_data
         .get("expires_in")
         .and_then(serde_json::Value::as_u64)
         .and_then(|secs| {
+            let capped = secs.min(MAX_TOKEN_LIFETIME_SECS);
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .ok()
-                .map(|now| now.as_secs() + secs)
+                .map(|now| {
+                    now.as_secs()
+                        .saturating_add(capped.saturating_sub(TOKEN_EXPIRY_BUFFER_SECS))
+                })
         });
 
-    let creds = GoogleCredentials {
+    Ok(GoogleCredentials {
         token: token_data["access_token"]
             .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing access_token"))?
+            .ok_or_else(|| anyhow::anyhow!("missing access_token"))?
             .to_string(),
         refresh_token: token_data
             .get("refresh_token")
@@ -407,12 +456,7 @@ async fn run_manual_flow(
         client_secret: client_secret.to_string(),
         scopes: scopes.iter().map(ToString::to_string).collect(),
         expiry,
-    };
-
-    save_credentials(&creds, token_path)?;
-    info!("Google credentials saved to {}", token_path.display());
-
-    Ok(creds)
+    })
 }
 
 fn extract_param_from_request(request: &str, param_name: &str) -> Option<String> {
@@ -485,17 +529,19 @@ fn load_credentials(path: &Path, scopes: &[&str]) -> Result<Option<GoogleCredent
     }
 
     // Acquire shared lock for consistent reads (save_credentials holds exclusive)
-    let _lock = (|| -> Option<std::fs::File> {
-        let lock_path = path.with_extension("json.lock");
-        let lock_file = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&lock_path)
-            .ok()?;
-        fs2::FileExt::lock_shared(&lock_file).ok()?;
-        Some(lock_file)
-    })();
+    let lock_path = path.with_extension("json.lock");
+    let _lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock_path)
+        .ok()
+        .and_then(|f| {
+            fs2::FileExt::lock_shared(&f)
+                .map_err(|e| warn!("failed to acquire shared lock on credentials: {}", e))
+                .ok()
+                .map(|()| f)
+        });
 
     let content = std::fs::read_to_string(path).context(format!(
         "Failed to read credentials from {}",
@@ -527,8 +573,8 @@ fn save_credentials(creds: &GoogleCredentials, path: &Path) -> Result<()> {
     let lock_path = path.with_extension("json.lock");
     let lock_file = std::fs::OpenOptions::new()
         .create(true)
+        .truncate(false)
         .write(true)
-        .truncate(true)
         .open(&lock_path)?;
     lock_file.lock_exclusive()?;
 

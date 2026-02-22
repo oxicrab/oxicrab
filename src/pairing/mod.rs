@@ -54,8 +54,8 @@ impl PairingStore {
         let lock_path = self.base_dir.join(".lock");
         let lock_file = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(false)
             .write(true)
-            .truncate(true)
             .open(&lock_path)
             .with_context(|| "failed to open pairing lock file")?;
         lock_file
@@ -76,6 +76,12 @@ impl PairingStore {
             failed_attempts: HashMap::new(),
         };
         store.load_all()?;
+        // Persist pruned failed attempts to clean up stale entries on disk
+        if !store.failed_attempts.is_empty()
+            && let Err(e) = store.save_failed_attempts()
+        {
+            warn!("failed to persist pruned failed attempts: {}", e);
+        }
         Ok(store)
     }
 
@@ -96,10 +102,12 @@ impl PairingStore {
     /// Lock released when the returned file is dropped.
     fn lock_shared(&self) -> Result<std::fs::File> {
         let lock_path = self.base_dir.join(".lock");
+        // Use write(true) because fs2 shared locks need a writable fd on some
+        // platforms, but truncate(false) to avoid destroying file content.
         let lock_file = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(false)
             .write(true)
-            .truncate(true)
             .open(&lock_path)
             .with_context(|| "failed to open pairing lock file")?;
         fs2::FileExt::lock_shared(&lock_file)
@@ -114,7 +122,13 @@ impl PairingStore {
         let pending_path = self.base_dir.join("pending.json");
         if pending_path.exists() {
             let content = std::fs::read_to_string(&pending_path)?;
-            self.pending = serde_json::from_str(&content).unwrap_or_default();
+            match serde_json::from_str(&content) {
+                Ok(data) => self.pending = data,
+                Err(e) => {
+                    warn!("failed to parse pending.json (using empty): {}", e);
+                    self.pending = PendingData::default();
+                }
+            }
         }
 
         // Load persisted failed attempts for brute-force lockout
@@ -138,8 +152,17 @@ impl PairingStore {
             let name = entry.file_name().to_string_lossy().to_string();
             if let Some(channel) = name.strip_suffix("-allowlist.json") {
                 let content = std::fs::read_to_string(entry.path())?;
-                let data: AllowlistData = serde_json::from_str(&content).unwrap_or_default();
-                self.allowlists.insert(channel.to_string(), data);
+                match serde_json::from_str::<AllowlistData>(&content) {
+                    Ok(data) => {
+                        self.allowlists.insert(channel.to_string(), data);
+                    }
+                    Err(e) => {
+                        warn!(
+                            "failed to parse {}-allowlist.json (using empty): {}",
+                            channel, e
+                        );
+                    }
+                }
             }
         }
 
@@ -271,6 +294,12 @@ impl PairingStore {
         }
 
         let code_upper = code.to_uppercase();
+        // Check for expired codes separately to provide clear feedback
+        let has_expired_match = self.pending.requests.iter().any(|r| {
+            use subtle::ConstantTimeEq;
+            let code_match: bool = r.code.as_bytes().ct_eq(code_upper.as_bytes()).into();
+            code_match && now.saturating_sub(r.created_at) >= CODE_TTL_SECS
+        });
         let idx = self.pending.requests.iter().position(|r| {
             use subtle::ConstantTimeEq;
             let code_match = r.code.as_bytes().ct_eq(code_upper.as_bytes()).into();
@@ -278,6 +307,9 @@ impl PairingStore {
         });
 
         let Some(idx) = idx else {
+            if has_expired_match {
+                warn!("pairing code matched but expired (TTL: {}s)", CODE_TTL_SECS);
+            }
             self.failed_attempts
                 .entry(client_id.to_string())
                 .or_default()

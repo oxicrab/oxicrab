@@ -49,6 +49,15 @@ pub fn atomic_write(path: &Path, content: &str) -> Result<()> {
 
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
         .with_context(|| format!("Failed to create temp file in {}", parent.display()))?;
+    // Restrict temp file permissions BEFORE writing content, so secrets are
+    // never readable by other users even briefly (closes TOCTOU window).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = tmp
+            .as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o600));
+    }
     tmp.write_all(content.as_bytes())
         .with_context(|| "Failed to write to temp file")?;
     tmp.as_file().sync_all()?;
