@@ -1371,6 +1371,9 @@ impl AgentLoop {
                 && let Err(msg) = cg.check_allowed()
             {
                 warn!("cost guard blocked LLM call: {}", msg);
+                if let Some(h) = typing_handle {
+                    h.abort();
+                }
                 return Ok((Some(msg), last_input_tokens, tools_used, collected_media));
             }
 
@@ -1627,6 +1630,12 @@ impl AgentLoop {
                 .is_multiple_of(self.compaction_config.checkpoint.interval_iterations)
             && let Some(ref compactor) = self.compactor
         {
+            // Abort any in-flight checkpoint before spawning a new one to prevent
+            // stale data from a slow old task overwriting the newer summary
+            if let Some(old) = self.checkpoint_handle.lock().await.take() {
+                old.abort();
+            }
+
             let compactor = compactor.clone();
             let msgs_snapshot = messages.clone();
             let last_cp = self.last_checkpoint.clone();
@@ -1655,6 +1664,10 @@ impl AgentLoop {
                 }
             });
             *self.checkpoint_handle.lock().await = Some(handle);
+            // Reset tracker only after spawning — the checkpoint task captures
+            // the current message snapshot, so the tracker should start fresh
+            // for the next interval regardless of whether compaction succeeds
+            // (a failed checkpoint will be retried at the next interval anyway)
             checkpoint_tracker.reset();
         }
     }

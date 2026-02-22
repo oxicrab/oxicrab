@@ -97,7 +97,7 @@ impl CostGuard {
         {
             // Still need to check for date rollover — take the lock
             let Ok(daily) = self.daily_cost.lock() else {
-                return Ok(());
+                return Err("Cost guard mutex poisoned — blocking LLM call".to_string());
             };
             let today = chrono::Utc::now().date_naive();
             if daily.date == today {
@@ -114,8 +114,8 @@ impl CostGuard {
         // Check daily budget
         if let Some(budget) = self.config.daily_budget_cents {
             let Ok(mut daily) = self.daily_cost.lock() else {
-                warn!("cost guard daily_cost mutex poisoned — budget enforcement bypassed");
-                return Ok(());
+                warn!("cost guard daily_cost mutex poisoned — blocking LLM call");
+                return Err("Cost guard mutex poisoned — blocking LLM call".to_string());
             };
             let today = chrono::Utc::now().date_naive();
             if daily.date != today {
@@ -135,8 +135,8 @@ impl CostGuard {
         // Check hourly rate limit
         if let Some(max_actions) = self.config.max_actions_per_hour {
             let Ok(mut actions) = self.hourly_actions.lock() else {
-                warn!("cost guard hourly_actions mutex poisoned — rate limit bypassed");
-                return Ok(());
+                warn!("cost guard hourly_actions mutex poisoned — blocking LLM call");
+                return Err("Cost guard mutex poisoned — blocking LLM call".to_string());
             };
             // Only prune old entries if we can compute the cutoff.
             // If checked_sub fails (e.g. system just booted), keep all entries

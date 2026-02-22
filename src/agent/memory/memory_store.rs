@@ -255,8 +255,8 @@ impl MemoryStore {
         let lock_path = today_file.with_extension("md.lock");
         let lock_file = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(false)
             .write(true)
-            .truncate(true)
             .open(&lock_path)
             .with_context(|| "failed to open memory notes lock file")?;
         lock_file
@@ -288,8 +288,8 @@ impl MemoryStore {
         let lock_path = today_file.with_extension("md.lock");
         let lock_file = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(false)
             .write(true)
-            .truncate(true)
             .open(&lock_path)
             .ok()?;
         fs2::FileExt::lock_shared(&lock_file).ok()?;

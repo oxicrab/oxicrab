@@ -199,7 +199,7 @@ fn test_cost_tracked_without_budget_limits() {
     // Even with no daily budget or rate limit, costs should be accumulated
     let guard = CostGuard::new(default_config());
 
-    assert_eq!(guard.daily_cost.lock().unwrap().total_cents, 0.0);
+    assert!(guard.daily_cost.lock().unwrap().total_cents.abs() < f64::EPSILON);
 
     // Record a call with known pricing (claude-sonnet-4: $3/1M input, $15/1M output)
     guard.record_llm_call(
