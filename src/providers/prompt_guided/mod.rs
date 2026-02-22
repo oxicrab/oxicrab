@@ -295,6 +295,7 @@ impl PromptGuidedToolsProvider {
             max_tokens: req.max_tokens,
             temperature: req.temperature,
             tool_choice: None,
+            response_format: req.response_format.clone(),
         }
     }
 }

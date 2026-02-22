@@ -398,6 +398,7 @@ async fn run_subagent_inner(
                 max_tokens: config.max_tokens,
                 temperature: config.tool_temperature,
                 tool_choice: None,
+                response_format: None,
             })
             .await?;
 

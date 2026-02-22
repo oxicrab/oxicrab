@@ -508,6 +508,22 @@ impl LLMProvider for AnthropicOAuthProvider {
 
         let token = self.ensure_valid_token().await?;
 
+        let json_mode_hint = match &req.response_format {
+            Some(crate::providers::base::ResponseFormat::JsonObject) => {
+                Some("\n\nIMPORTANT: You must respond with valid JSON only. No other text.")
+            }
+            Some(crate::providers::base::ResponseFormat::JsonSchema { schema, .. }) => {
+                debug!(
+                    "anthropic-oauth: JsonSchema requested, using system prompt hint (schema: {})",
+                    schema
+                );
+                Some(
+                    "\n\nIMPORTANT: You must respond with valid JSON only matching the requested schema. No other text.",
+                )
+            }
+            None => None,
+        };
+
         let (system, anthropic_messages) = anthropic_common::convert_messages(req.messages);
 
         let mut payload = json!({
@@ -518,7 +534,15 @@ impl LLMProvider for AnthropicOAuthProvider {
         });
 
         if let Some(system) = system {
-            payload["system"] = anthropic_common::system_to_content_blocks(&system);
+            let system_with_hint = if let Some(hint) = json_mode_hint {
+                format!("{system}{hint}")
+            } else {
+                system
+            };
+            payload["system"] = anthropic_common::system_to_content_blocks(&system_with_hint);
+        } else if let Some(hint) = json_mode_hint {
+            payload["system"] =
+                anthropic_common::system_to_content_blocks(hint.trim_start_matches("\n\n"));
         }
 
         if let Some(tools) = req.tools {

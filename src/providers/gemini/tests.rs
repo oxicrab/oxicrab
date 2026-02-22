@@ -13,6 +13,7 @@ fn simple_chat_request(content: &str) -> ChatRequest<'_> {
         max_tokens: 1024,
         temperature: 0.7,
         tool_choice: None,
+        response_format: None,
     }
 }
 
@@ -214,6 +215,7 @@ async fn test_system_message_as_system_instruction() {
         max_tokens: 1024,
         temperature: 0.7,
         tool_choice: None,
+        response_format: None,
     };
     let result = provider.chat(req).await.unwrap();
 
@@ -323,4 +325,31 @@ fn test_parse_response_function_call_no_name_fallback_id() {
     assert_eq!(resp.tool_calls.len(), 1);
     // Without a name, ID is still a unique generated value
     assert!(resp.tool_calls[0].id.starts_with("gemini_"));
+}
+
+#[tokio::test]
+async fn test_chat_with_json_object_format() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "candidates": [{
+                "content": {"parts": [{"text": "{\"key\": \"value\"}"}], "role": "model"}
+            }],
+            "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 3}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let req = ChatRequest {
+        messages: vec![Message::user("return json")],
+        tools: None,
+        model: None,
+        max_tokens: 1024,
+        temperature: 0.7,
+        tool_choice: None,
+        response_format: Some(crate::providers::base::ResponseFormat::JsonObject),
+    };
+    let result = provider.chat(req).await.unwrap();
+    assert_eq!(result.content.unwrap(), "{\"key\": \"value\"}");
 }

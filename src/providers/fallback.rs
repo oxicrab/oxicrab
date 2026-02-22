@@ -56,6 +56,7 @@ impl LLMProvider for FallbackProvider {
             max_tokens: req.max_tokens,
             temperature: req.temperature,
             tool_choice: req.tool_choice.clone(),
+            response_format: req.response_format.clone(),
         };
 
         match self.primary.chat(primary_req).await {
@@ -91,6 +92,7 @@ impl LLMProvider for FallbackProvider {
             max_tokens: req.max_tokens,
             temperature: req.temperature,
             tool_choice: req.tool_choice,
+            response_format: req.response_format,
         };
 
         let response = self.fallback.chat(fallback_req).await?;
@@ -205,6 +207,7 @@ mod tests {
             max_tokens: 1024,
             temperature: 0.7,
             tool_choice: None,
+            response_format: None,
         }
     }
 

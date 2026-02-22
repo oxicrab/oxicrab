@@ -164,6 +164,18 @@ impl LLMProvider for GeminiProvider {
             },
         });
 
+        if let Some(ref format) = req.response_format {
+            match format {
+                crate::providers::base::ResponseFormat::JsonObject => {
+                    payload["generationConfig"]["responseMimeType"] = json!("application/json");
+                }
+                crate::providers::base::ResponseFormat::JsonSchema { schema, .. } => {
+                    payload["generationConfig"]["responseMimeType"] = json!("application/json");
+                    payload["generationConfig"]["responseSchema"] = schema.clone();
+                }
+            }
+        }
+
         // Use Gemini's native systemInstruction field for system messages
         if !system_parts.is_empty() {
             payload["systemInstruction"] = json!({

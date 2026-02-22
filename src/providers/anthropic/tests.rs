@@ -11,6 +11,7 @@ fn simple_chat_request(content: &str) -> ChatRequest<'_> {
         max_tokens: 1024,
         temperature: 0.7,
         tool_choice: None,
+        response_format: None,
     }
 }
 
@@ -155,6 +156,7 @@ async fn test_chat_with_system_message() {
         max_tokens: 1024,
         temperature: 0.7,
         tool_choice: None,
+        response_format: None,
     };
     let result = provider.chat(req).await.unwrap();
 

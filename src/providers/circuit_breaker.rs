@@ -302,6 +302,7 @@ mod tests {
             max_tokens: 1024,
             temperature: 0.7,
             tool_choice: None,
+            response_format: None,
         }
     }
 

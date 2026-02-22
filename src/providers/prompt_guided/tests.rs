@@ -171,6 +171,7 @@ fn rewrite_request_moves_tools_to_system_prompt() {
         max_tokens: 1024,
         temperature: 0.7,
         tool_choice: None,
+        response_format: None,
     };
 
     let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
@@ -193,6 +194,7 @@ fn rewrite_request_tool_result_to_user_message() {
         max_tokens: 1024,
         temperature: 0.7,
         tool_choice: None,
+        response_format: None,
     };
 
     let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
@@ -221,6 +223,7 @@ fn rewrite_request_assistant_tool_calls_to_inline_text() {
         max_tokens: 1024,
         temperature: 0.7,
         tool_choice: None,
+        response_format: None,
     };
 
     let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
@@ -240,6 +243,7 @@ fn rewrite_request_tool_choice_any_adds_force_instruction() {
         max_tokens: 1024,
         temperature: 0.7,
         tool_choice: Some("any".into()),
+        response_format: None,
     };
 
     let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
@@ -282,6 +286,7 @@ async fn integration_text_tool_call_parsed() {
         max_tokens: 1024,
         temperature: 0.7,
         tool_choice: None,
+        response_format: None,
     };
 
     let response = provider.chat(req).await.unwrap();
@@ -304,6 +309,7 @@ async fn passthrough_when_no_tools() {
         max_tokens: 1024,
         temperature: 0.7,
         tool_choice: None,
+        response_format: None,
     };
 
     let response = provider.chat(req).await.unwrap();

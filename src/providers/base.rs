@@ -152,6 +152,19 @@ impl Default for RetryConfig {
     }
 }
 
+/// Response format constraint for LLM output.
+#[derive(Debug, Clone)]
+pub enum ResponseFormat {
+    /// Request JSON output. Provider-specific:
+    /// - OpenAI/compatible: `{"type": "json_object"}`
+    /// - Gemini: `responseMimeType: "application/json"`
+    /// - Anthropic: system prompt hint (no native API support)
+    JsonObject,
+    /// Request output matching a JSON schema (structured outputs).
+    /// Falls back to `JsonObject` where unsupported.
+    JsonSchema { name: String, schema: Value },
+}
+
 /// Parameters for a chat request to an LLM provider.
 #[derive(Debug, Clone)]
 pub struct ChatRequest<'a> {
@@ -162,6 +175,8 @@ pub struct ChatRequest<'a> {
     pub temperature: f32,
     /// Tool choice mode: "auto" (default), "any" (force tool use), or "none".
     pub tool_choice: Option<String>,
+    /// Optional response format constraint (JSON mode, structured output).
+    pub response_format: Option<ResponseFormat>,
 }
 
 #[async_trait]
@@ -214,6 +229,7 @@ pub trait LLMProvider: Send + Sync {
                 max_tokens: req.max_tokens,
                 temperature: req.temperature,
                 tool_choice: req.tool_choice.clone(),
+                response_format: req.response_format.clone(),
             };
             let result = self.chat(chat_req).await;
             match result {
@@ -377,5 +393,26 @@ mod tests {
     fn message_assistant_default_has_no_reasoning() {
         let msg = Message::assistant("answer", None);
         assert!(msg.reasoning_content.is_none());
+    }
+
+    #[test]
+    fn response_format_json_object() {
+        let fmt = ResponseFormat::JsonObject;
+        assert!(matches!(fmt, ResponseFormat::JsonObject));
+    }
+
+    #[test]
+    fn response_format_json_schema() {
+        let fmt = ResponseFormat::JsonSchema {
+            name: "person".into(),
+            schema: serde_json::json!({"type": "object"}),
+        };
+        match fmt {
+            ResponseFormat::JsonSchema { name, schema } => {
+                assert_eq!(name, "person");
+                assert_eq!(schema["type"], "object");
+            }
+            ResponseFormat::JsonObject => panic!("expected JsonSchema"),
+        }
     }
 }

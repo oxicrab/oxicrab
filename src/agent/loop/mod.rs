@@ -1007,6 +1007,7 @@ impl AgentLoop {
                         max_tokens: self.max_tokens,
                         temperature: current_temp,
                         tool_choice,
+                        response_format: None,
                     },
                     Some(crate::providers::base::RetryConfig::default()),
                 )
@@ -1369,6 +1370,7 @@ impl AgentLoop {
                     max_tokens: self.max_tokens,
                     temperature: self.temperature,
                     tool_choice: None,
+                    response_format: None,
                 },
                 Some(crate::providers::base::RetryConfig::default()),
             )

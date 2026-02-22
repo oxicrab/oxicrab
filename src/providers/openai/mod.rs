@@ -224,6 +224,24 @@ impl LLMProvider for OpenAIProvider {
             "temperature": req.temperature,
         });
 
+        if let Some(ref format) = req.response_format {
+            match format {
+                crate::providers::base::ResponseFormat::JsonObject => {
+                    payload["response_format"] = json!({"type": "json_object"});
+                }
+                crate::providers::base::ResponseFormat::JsonSchema { name, schema } => {
+                    payload["response_format"] = json!({
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": name,
+                            "schema": schema,
+                            "strict": true
+                        }
+                    });
+                }
+            }
+        }
+
         if let Some(tools) = req.tools {
             payload["tools"] = json!(
                 tools

@@ -13,6 +13,7 @@ fn simple_chat_request(content: &str) -> ChatRequest<'_> {
         max_tokens: 1024,
         temperature: 0.7,
         tool_choice: None,
+        response_format: None,
     }
 }
 
@@ -302,4 +303,79 @@ fn test_parse_response_no_usage() {
     let resp = OpenAIProvider::parse_response(&json).unwrap();
     assert!(resp.input_tokens.is_none());
     assert!(resp.output_tokens.is_none());
+}
+
+#[tokio::test]
+async fn test_chat_with_json_object_format() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"answer\": 42}"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let req = ChatRequest {
+        messages: vec![Message::user("return json")],
+        tools: None,
+        model: None,
+        max_tokens: 1024,
+        temperature: 0.7,
+        tool_choice: None,
+        response_format: Some(crate::providers::base::ResponseFormat::JsonObject),
+    };
+    let result = provider.chat(req).await.unwrap();
+    assert_eq!(result.content.unwrap(), "{\"answer\": 42}");
+}
+
+#[tokio::test]
+async fn test_chat_with_json_schema_format() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"name\": \"Alice\", \"age\": 30}"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "age": {"type": "integer"}
+        },
+        "required": ["name", "age"]
+    });
+    let req = ChatRequest {
+        messages: vec![Message::user("return a person")],
+        tools: None,
+        model: None,
+        max_tokens: 1024,
+        temperature: 0.7,
+        tool_choice: None,
+        response_format: Some(crate::providers::base::ResponseFormat::JsonSchema {
+            name: "person".into(),
+            schema,
+        }),
+    };
+    let result = provider.chat(req).await.unwrap();
+    assert!(result.content.unwrap().contains("Alice"));
 }

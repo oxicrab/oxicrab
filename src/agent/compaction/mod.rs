@@ -124,6 +124,7 @@ impl MessageCompactor {
                 max_tokens: COMPACTION_MAX_TOKENS,
                 temperature: COMPACTION_TEMPERATURE,
                 tool_choice: None,
+                response_format: None,
             })
             .await?;
 
@@ -161,6 +162,7 @@ impl MessageCompactor {
                 max_tokens: EXTRACTION_MAX_TOKENS,
                 temperature: EXTRACTION_TEMPERATURE,
                 tool_choice: None,
+                response_format: None,
             })
             .await?;
 
