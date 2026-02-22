@@ -357,3 +357,24 @@ fn test_entries_missing_embeddings() {
     let missing_after = db.get_entries_missing_embeddings().unwrap();
     assert_eq!(missing_after.len(), missing.len() - 1);
 }
+
+#[test]
+fn test_fusion_strategy_default_is_weighted_score() {
+    assert_eq!(
+        crate::config::FusionStrategy::default(),
+        crate::config::FusionStrategy::WeightedScore
+    );
+}
+
+#[test]
+fn test_fusion_strategy_serde_roundtrip() {
+    let rrf = crate::config::FusionStrategy::Rrf;
+    let json = serde_json::to_string(&rrf).unwrap();
+    assert_eq!(json, "\"rrf\"");
+    let ws = crate::config::FusionStrategy::WeightedScore;
+    let json = serde_json::to_string(&ws).unwrap();
+    assert_eq!(json, "\"weighted_score\"");
+
+    let parsed: crate::config::FusionStrategy = serde_json::from_str("\"rrf\"").unwrap();
+    assert_eq!(parsed, crate::config::FusionStrategy::Rrf);
+}

@@ -25,6 +25,8 @@ pub struct MemoryStore {
     indexer: Option<Arc<MemoryIndexer>>,
     embedding_service: Option<Arc<EmbeddingService>>,
     hybrid_weight: f32,
+    fusion_strategy: crate::config::FusionStrategy,
+    rrf_k: u32,
 }
 
 impl MemoryStore {
@@ -91,6 +93,8 @@ impl MemoryStore {
             indexer: Some(indexer),
             embedding_service,
             hybrid_weight: memory_config.hybrid_weight,
+            fusion_strategy: memory_config.fusion_strategy,
+            rrf_k: memory_config.rrf_k,
         })
     }
 
@@ -139,6 +143,8 @@ impl MemoryStore {
             indexer: Some(indexer),
             embedding_service: None,
             hybrid_weight: 0.5,
+            fusion_strategy: crate::config::FusionStrategy::default(),
+            rrf_k: 60,
         })
     }
 
@@ -170,6 +176,8 @@ impl MemoryStore {
             limit,
             exclude_sources,
             self.hybrid_weight,
+            self.fusion_strategy,
+            self.rrf_k,
         )?;
         debug!(
             "memory hybrid search: query_len={}, results={}",
@@ -355,6 +363,23 @@ mod tests {
         assert!(!is_daily_note_key("2026-02-22.txt"));
         assert!(!is_daily_note_key("2026-02-22"));
         assert!(!is_daily_note_key(""));
+    }
+
+    #[test]
+    fn test_with_config_wires_fusion_strategy() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let memory_dir = tmp.path().join("memory");
+        std::fs::create_dir_all(&memory_dir).unwrap();
+
+        let mut config = crate::config::MemoryConfig::default();
+        config.fusion_strategy = crate::config::FusionStrategy::Rrf;
+        config.rrf_k = 42;
+        config.hybrid_weight = 0.3;
+
+        let store = MemoryStore::with_config(tmp.path(), 0, &config).unwrap();
+        assert_eq!(store.fusion_strategy, crate::config::FusionStrategy::Rrf);
+        assert_eq!(store.rrf_k, 42);
+        assert!((store.hybrid_weight - 0.3).abs() < f32::EPSILON);
     }
 
     #[tokio::test]

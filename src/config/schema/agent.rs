@@ -225,6 +225,21 @@ fn default_hybrid_weight() -> f32 {
     0.5
 }
 
+/// Fusion strategy for combining keyword and vector search results.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FusionStrategy {
+    /// Weighted linear combination of normalized scores (default).
+    #[default]
+    WeightedScore,
+    /// Reciprocal Rank Fusion — merges by rank position, ignoring raw scores.
+    Rrf,
+}
+
+fn default_rrf_k() -> u32 {
+    60
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConfig {
     #[serde(
@@ -238,9 +253,15 @@ pub struct MemoryConfig {
     pub embeddings_enabled: bool,
     #[serde(default = "default_embeddings_model", rename = "embeddingsModel")]
     pub embeddings_model: String,
-    /// 0.0 = keyword only, 1.0 = vector only, 0.5 = equal blend
+    /// 0.0 = keyword only, 1.0 = vector only, 0.5 = equal blend (used with `WeightedScore`)
     #[serde(default = "default_hybrid_weight", rename = "hybridWeight")]
     pub hybrid_weight: f32,
+    /// Strategy for combining keyword and vector search results.
+    #[serde(default, rename = "searchFusionStrategy")]
+    pub fusion_strategy: FusionStrategy,
+    /// Constant k for RRF (higher = less emphasis on top ranks). Default 60.
+    #[serde(default = "default_rrf_k", rename = "rrfK")]
+    pub rrf_k: u32,
 }
 
 impl Default for MemoryConfig {
@@ -251,6 +272,8 @@ impl Default for MemoryConfig {
             embeddings_enabled: false,
             embeddings_model: default_embeddings_model(),
             hybrid_weight: default_hybrid_weight(),
+            fusion_strategy: FusionStrategy::default(),
+            rrf_k: default_rrf_k(),
         }
     }
 }

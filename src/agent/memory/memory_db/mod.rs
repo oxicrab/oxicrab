@@ -1,3 +1,4 @@
+use crate::config::FusionStrategy;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rusqlite::{Connection, params};
@@ -379,6 +380,10 @@ impl MemoryDB {
 
     /// Hybrid search combining FTS5 BM25 and vector cosine similarity.
     /// `keyword_weight` controls blending: 1.0 = keyword only, 0.0 = vector only.
+    /// `fusion_strategy` selects the score combination method:
+    /// - `WeightedScore`: linear blend of normalized scores
+    /// - `Rrf`: reciprocal rank fusion (ignores raw scores, merges by rank)
+    #[allow(clippy::too_many_arguments)]
     pub fn hybrid_search(
         &self,
         query_text: &str,
@@ -386,6 +391,8 @@ impl MemoryDB {
         limit: usize,
         exclude_sources: Option<&std::collections::HashSet<String>>,
         keyword_weight: f32,
+        fusion_strategy: FusionStrategy,
+        rrf_k: u32,
     ) -> Result<Vec<MemoryHit>> {
         use crate::agent::memory::embeddings::{cosine_similarity, deserialize_embedding};
 
@@ -497,13 +504,13 @@ impl MemoryDB {
             }
         }
 
-        // 3. Merge scores
+        // 3. Merge scores using the configured fusion strategy
         let mut all_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
         all_ids.extend(fts_scores.keys());
         all_ids.extend(vec_scores.keys());
 
-        let mut scored: Vec<(f32, String, String)> =
-            all_ids
+        let mut scored: Vec<(f32, String, String)> = match fusion_strategy {
+            FusionStrategy::WeightedScore => all_ids
                 .into_iter()
                 .map(|id| {
                     let (fts_score, fts_key, fts_content) = fts_scores
@@ -530,7 +537,72 @@ impl MemoryDB {
                     };
                     (combined, key, content)
                 })
-                .collect();
+                .collect(),
+
+            FusionStrategy::Rrf => {
+                // Reciprocal Rank Fusion: score = 1/(k+rank_fts) + 1/(k+rank_vec)
+                // Rank by descending score; items absent from a list get rank = list_size + 1
+                let k = rrf_k.max(1) as f32;
+
+                // Build FTS rank map (1-indexed, sorted by score descending)
+                let mut fts_ranked: Vec<(i64, f32)> =
+                    fts_scores.iter().map(|(id, (s, _, _))| (*id, *s)).collect();
+                fts_ranked
+                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                let fts_rank_map: std::collections::HashMap<i64, usize> = fts_ranked
+                    .iter()
+                    .enumerate()
+                    .map(|(rank, (id, _))| (*id, rank + 1))
+                    .collect();
+                let fts_absent_rank = fts_ranked.len() + 1;
+
+                // Build vector rank map
+                let mut vec_ranked: Vec<(i64, f32)> =
+                    vec_scores.iter().map(|(id, (s, _, _))| (*id, *s)).collect();
+                vec_ranked
+                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                let vec_rank_map: std::collections::HashMap<i64, usize> = vec_ranked
+                    .iter()
+                    .enumerate()
+                    .map(|(rank, (id, _))| (*id, rank + 1))
+                    .collect();
+                let vec_absent_rank = vec_ranked.len() + 1;
+
+                all_ids
+                    .into_iter()
+                    .map(|id| {
+                        let fts_rank = fts_rank_map.get(&id).copied().unwrap_or(fts_absent_rank);
+                        let vec_rank = vec_rank_map.get(&id).copied().unwrap_or(vec_absent_rank);
+                        let rrf_score = 1.0 / (k + fts_rank as f32) + 1.0 / (k + vec_rank as f32);
+
+                        let (_, fts_key, fts_content) = fts_scores.get(&id).cloned().unwrap_or((
+                            0.0,
+                            String::new(),
+                            String::new(),
+                        ));
+                        let (_, vec_key, vec_content) = vec_scores.get(&id).cloned().unwrap_or((
+                            0.0,
+                            String::new(),
+                            String::new(),
+                        ));
+
+                        let key = if !fts_key.is_empty() {
+                            fts_key
+                        } else if !vec_key.is_empty() {
+                            vec_key
+                        } else {
+                            "<unknown>".to_string()
+                        };
+                        let content = if fts_content.is_empty() {
+                            vec_content
+                        } else {
+                            fts_content
+                        };
+                        (rrf_score, key, content)
+                    })
+                    .collect()
+            }
+        };
 
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
