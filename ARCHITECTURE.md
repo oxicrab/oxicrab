@@ -48,6 +48,29 @@ This enables the Anthropic prompt cache (5-minute TTL), reducing input token cos
 
 `AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. First iteration forces `tool_choice="any"` to prevent text-only hallucinations. A system prompt constraint ("call tools directly, never send preliminary text without a tool call") replaces the old tools nudge mechanism. Hallucination detection runs on final text responses. Responses flow through the loop's return value (no message tool); the caller sends them exactly once. At 70% of `max_iterations`, a system message prompts the LLM to begin wrapping up. Post-compaction recovery instructions include the last user message and most recent checkpoint. Periodic checkpoints (configurable via `CompactionConfig.checkpoint`) snapshot conversation state every N iterations for recovery after compaction.
 
+### Reasoning Content (Thinking Models)
+
+`reasoning_content` (thinking/chain-of-thought output from extended thinking models like Claude 3.5 Sonnet, DeepSeek-R1) is preserved across the full message lifecycle: LLM response → `Message.reasoning_content` field → `ContextBuilder::add_assistant_message()` → Anthropic `convert_messages()` emits `{"type": "thinking"}` content blocks → session history restores from `reasoning_content` key. The OpenAI provider parses DeepSeek-R1's `reasoning_content` response field.
+
+### Group Chat Memory Isolation
+
+When `is_group` metadata is true on an inbound message, `build_system_prompt_inner()` passes `is_group=true` to `MemoryStore::get_memory_context_scoped()`, which excludes personal memory (MEMORY.md content, daily notes content) from the system prompt and excludes MEMORY.md and daily note hits from search results. Each channel sets `is_group` in metadata: Telegram (`chat.is_group()/is_supergroup()`), Discord (`guild_id.is_some()`), Slack (channel ID not starting with 'D').
+
+## Memory System (`src/agent/memory/`)
+
+`MemoryStore` wraps `MemoryDB` (SQLite FTS5) + `EmbeddingService` (fastembed ONNX) + `MemoryIndexer` (background task). Indexed files: `memory/*.md` (long-term notes, daily notes). Queries trigger background indexing via `MemoryIndexer::trigger_index()`.
+
+### Hybrid Search
+
+`MemoryDB::hybrid_search()` combines FTS5 BM25 keyword matching with vector cosine similarity. Two fusion strategies (configurable via `agents.defaults.memory.searchFusionStrategy`):
+
+- **`WeightedScore`** (default): Normalizes BM25 scores to [0,1] (inverted, since BM25 is more-negative-is-better) and cosine similarity to [0,1]. Blends: `combined = keyword_weight * fts + (1 - keyword_weight) * vec`. `hybridWeight` controls the blend (0.0 = keyword only, 1.0 = vector only).
+- **`Rrf`** (reciprocal rank fusion): Ignores raw scores, ranks results from each source independently, then computes `score = 1/(k + fts_rank) + 1/(k + vec_rank)`. More robust to score distribution differences between BM25 and cosine. `rrfK` (default 60) controls emphasis on top ranks.
+
+### Embedding Cache
+
+`EmbeddingService` caches `embed_query()` results in an LRU cache (default 10,000 entries, configurable via `agents.defaults.memory.embeddingCacheSize`). Avoids redundant ONNX inference for repeated search queries. `embed_texts()` (batch indexing) is not cached since indexed content changes infrequently and results are stored in SQLite.
+
 ## Channel Formatting Hints
 
 Per-channel formatting hints are injected into the system prompt during `build_messages()`:
