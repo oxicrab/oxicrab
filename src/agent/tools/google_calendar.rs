@@ -216,10 +216,29 @@ impl Tool for GoogleCalendarTool {
                 }
 
                 if all_day {
-                    body["start"] =
-                        serde_json::json!({"date": &start_raw[..10.min(start_raw.len())]});
-                    let end = params["end"].as_str().unwrap_or(start_raw);
-                    body["end"] = serde_json::json!({"date": &end[..10.min(end.len())]});
+                    // Validate date format (YYYY-MM-DD) for all-day events
+                    let start_date = if start_raw.len() >= 10 {
+                        &start_raw[..10]
+                    } else {
+                        return Ok(ToolResult::error(format!(
+                            "invalid date format for all-day event: '{}' (expected YYYY-MM-DD)",
+                            start_raw
+                        )));
+                    };
+                    if chrono::NaiveDate::parse_from_str(start_date, "%Y-%m-%d").is_err() {
+                        return Ok(ToolResult::error(format!(
+                            "invalid date: '{}' (expected YYYY-MM-DD)",
+                            start_date
+                        )));
+                    }
+                    body["start"] = serde_json::json!({"date": start_date});
+                    let end_raw = params["end"].as_str().unwrap_or(start_raw);
+                    let end_date = if end_raw.len() >= 10 {
+                        &end_raw[..10]
+                    } else {
+                        start_date
+                    };
+                    body["end"] = serde_json::json!({"date": end_date});
                 } else {
                     let (start_obj, end_obj) =
                         build_event_times(start_raw, params["end"].as_str(), tz);

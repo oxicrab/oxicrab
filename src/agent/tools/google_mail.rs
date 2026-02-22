@@ -113,7 +113,9 @@ impl Tool for GoogleMailTool {
                     query
                 )];
                 for msg_stub in messages {
-                    let msg_id = msg_stub["id"].as_str().unwrap_or("");
+                    let Some(msg_id) = msg_stub["id"].as_str().filter(|s| !s.is_empty()) else {
+                        continue;
+                    };
                     let endpoint = format!(
                         "users/me/messages/{}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date",
                         urlencoding::encode(msg_id)
@@ -196,9 +198,12 @@ impl Tool for GoogleMailTool {
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'body' parameter"))?;
 
-                // Sanitize header fields to prevent header injection via \r\n
+                // Sanitize all fields to prevent header injection via \r\n.
+                // Body is sanitized too because it follows the blank line separator —
+                // a \r\n in the body before the separator could inject headers.
                 let to = to.replace(['\r', '\n'], "");
-                let subject = subject.replace(['\r', '\n'], "");
+                let subject = subject.replace(['\r', '\n'], " ");
+                let body = body.replace('\r', "");
 
                 let email = format!("To: {}\r\nSubject: {}\r\n\r\n{}", to, subject, body);
                 let raw = URL_SAFE_NO_PAD.encode(email.as_bytes());

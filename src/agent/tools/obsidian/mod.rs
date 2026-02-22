@@ -214,9 +214,11 @@ impl Tool for ObsidianTool {
                         .iter()
                         .map(|(path, line)| format!("{}:  {}", path, line.trim()))
                         .collect();
+                    let truncated = results.len() >= 50;
                     Ok(ToolResult::new(format!(
-                        "Found {} matches:\n{}",
+                        "Found {} matches{}:\n{}",
                         results.len(),
+                        if truncated { " (showing first 50)" } else { "" },
                         lines.join("\n")
                     )))
                 }
