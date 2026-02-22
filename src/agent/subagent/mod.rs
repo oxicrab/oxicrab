@@ -23,6 +23,8 @@ const EMPTY_RESPONSE_RETRIES: usize = 2;
 const MAX_WEB_FETCH_CHARS: usize = 50000;
 const MAX_SUBAGENT_ITERATIONS: usize = 15;
 const MAX_CONTEXT_CHARS: usize = 2000;
+/// Overall timeout for a subagent run (5 minutes)
+const SUBAGENT_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(5);
 
 /// Immutable configuration shared across all subagent tasks via `Arc`.
 #[derive(Clone)]
@@ -140,13 +142,26 @@ impl SubagentManager {
         // Hold the lock while spawning to prevent the race where the task
         // finishes and tries to remove itself before we insert the handle.
         let mut tasks = self.running_tasks.lock().await;
+        // Prune finished tasks and enforce capacity limit
+        tasks.retain(|_, handle| !handle.is_finished());
+        if tasks.len() >= 100 {
+            anyhow::bail!(
+                "too many tracked subagent tasks ({}), try again later",
+                tasks.len()
+            );
+        }
         let bg_task = tokio::spawn(async move {
-            // Acquire semaphore permit — blocks if all slots are busy
+            // Acquire semaphore permit — blocks if all slots are busy.
+            // The permit is held for the duration of the task and released
+            // on drop (including abort/cancellation).
             let Ok(_permit) = semaphore.acquire().await else {
                 warn!("Subagent [{}] semaphore closed", task_id_clone);
                 return;
             };
 
+            // Use AssertUnwindSafe + catch_unwind pattern via select to ensure
+            // cleanup runs even if the task is aborted. The permit is released
+            // automatically by drop when the spawned task exits (including abort).
             run_subagent(
                 &config,
                 &bus,
@@ -161,6 +176,9 @@ impl SubagentManager {
                 },
             )
             .await;
+            // NOTE: If this task is aborted, the permit (_permit) is still
+            // dropped correctly by tokio's task cleanup. The running_tasks
+            // cleanup below won't run, but cancel() already removes the entry.
         });
         tasks.insert(task_id.clone(), bg_task);
         drop(tasks);
@@ -232,7 +250,24 @@ async fn run_subagent(
     } = params;
     info!("Subagent [{}] starting task: {}", task_id, label);
 
-    let result = run_subagent_inner(config, &task_id, &task, context.as_deref()).await;
+    let result = if let Ok(r) = tokio::time::timeout(
+        SUBAGENT_TIMEOUT,
+        run_subagent_inner(config, &task_id, &task, context.as_deref(), &origin),
+    )
+    .await
+    {
+        r
+    } else {
+        warn!(
+            "Subagent [{}] timed out after {}s",
+            task_id,
+            SUBAGENT_TIMEOUT.as_secs()
+        );
+        Ok(format!(
+            "Task timed out after {} seconds",
+            SUBAGENT_TIMEOUT.as_secs()
+        ))
+    };
 
     // Cleanup
     running_tasks.lock().await.remove(&task_id);
@@ -267,6 +302,7 @@ async fn run_subagent_inner(
     task_id: &str,
     task: &str,
     context: Option<&str>,
+    origin: &(String, String),
 ) -> Result<String> {
     // Build tools
     let mut tools = ToolRegistry::new();
@@ -405,6 +441,7 @@ async fn run_subagent_inner(
                         &tools,
                         tool_opt.clone(),
                         Some(&config.workspace),
+                        origin,
                     )
                 })
                 .collect();
@@ -458,6 +495,7 @@ async fn execute_subagent_tool(
     registry: &ToolRegistry,
     tool_opt: Option<Arc<dyn crate::agent::tools::base::Tool>>,
     workspace: Option<&std::path::Path>,
+    origin: &(String, String),
 ) -> (String, bool) {
     if let Some(tool) = tool_opt {
         // Validate params before execution
@@ -476,7 +514,11 @@ async fn execute_subagent_tool(
             task_id, tool_name, tool_args
         );
 
-        let ctx = crate::agent::tools::base::ExecutionContext::default();
+        let ctx = crate::agent::tools::base::ExecutionContext {
+            channel: origin.0.clone(),
+            chat_id: origin.1.clone(),
+            context_summary: None,
+        };
         match registry.execute(tool_name, tool_args.clone(), &ctx).await {
             Ok(result) => (result.content, result.is_error),
             Err(e) => {

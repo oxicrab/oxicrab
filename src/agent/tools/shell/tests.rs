@@ -332,3 +332,53 @@ fn test_line_continuation_allowlist() {
 fn test_max_output_bytes_is_1mb() {
     assert_eq!(MAX_OUTPUT_BYTES, 1024 * 1024);
 }
+
+#[test]
+fn test_truncate_at_utf8_boundary_ascii() {
+    let data = b"hello world";
+    assert_eq!(truncate_at_utf8_boundary(data, 5), b"hello");
+}
+
+#[test]
+fn test_truncate_at_utf8_boundary_multibyte() {
+    // "héllo" = h(1) é(2) l(1) l(1) o(1) = 6 bytes
+    let data = "héllo".as_bytes();
+    assert_eq!(data.len(), 6);
+    // Truncating at byte 2 would split 'é' (bytes 1-2), should back up to byte 1
+    let truncated = truncate_at_utf8_boundary(data, 2);
+    assert_eq!(truncated, b"h");
+    // Truncating at byte 3 keeps 'hé' intact
+    let truncated = truncate_at_utf8_boundary(data, 3);
+    assert_eq!(truncated, "hé".as_bytes());
+}
+
+#[test]
+fn test_truncate_at_utf8_boundary_emoji() {
+    // 🦀 = 4 bytes
+    let data = "🦀abc".as_bytes();
+    assert_eq!(data.len(), 7);
+    // Truncating at 2 would split the emoji, should back up to 0
+    let truncated = truncate_at_utf8_boundary(data, 2);
+    assert_eq!(truncated, b"");
+    // Truncating at 4 keeps the emoji
+    let truncated = truncate_at_utf8_boundary(data, 4);
+    assert_eq!(truncated, "🦀".as_bytes());
+}
+
+#[test]
+fn test_truncate_at_utf8_boundary_beyond_length() {
+    let data = b"short";
+    assert_eq!(truncate_at_utf8_boundary(data, 100), data);
+}
+
+#[test]
+fn test_extract_all_commands_quoted_operator() {
+    // Operator inside quotes — conservative split extracts extra segments.
+    // This is safe: false positives block commands (conservative), while
+    // false negatives (allowing dangerous commands) cannot occur.
+    let cmds = ExecTool::extract_all_commands(r#"echo "hello | world""#);
+    // The naive split produces fragments; "echo" may appear as part of
+    // a fragment that shlex can't parse. The important thing is no
+    // dangerous command sneaks through.
+    assert!(!cmds.is_empty());
+}

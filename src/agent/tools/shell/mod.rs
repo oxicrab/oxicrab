@@ -84,6 +84,13 @@ impl ExecTool {
 
     /// Extract all command names from a shell pipeline/chain.
     /// Splits on |, &&, ||, ;, and newlines to find each command.
+    ///
+    /// NOTE: This is a conservative, string-based split that does NOT respect
+    /// shell quoting. Operators inside quotes (e.g. `cat "a | b"`) will cause
+    /// false splits, extracting extra command names. This is safe because:
+    /// - False positives block commands unnecessarily (conservative)
+    /// - False negatives (allowing dangerous commands) cannot occur
+    /// - The AST-based analysis in `guard_command()` provides primary protection
     fn extract_all_commands(command: &str) -> Vec<String> {
         // Split on shell operators: |, &&, ||, ;, \n
         // We need to handle these carefully to extract command names
@@ -144,7 +151,9 @@ impl ExecTool {
             ));
         }
 
-        // Allowlist check: verify all commands in the pipeline are allowed
+        // Allowlist check: verify all commands in the pipeline are allowed.
+        // Empty allowlist = unrestricted mode (all commands permitted).
+        // Non-empty allowlist = only listed commands are allowed.
         if !self.allowed_commands.is_empty() {
             let cmd_names = Self::extract_all_commands(command);
             for name in &cmd_names {
@@ -312,15 +321,18 @@ impl Tool for ExecTool {
                 let combined_len = output.stdout.len() + output.stderr.len();
                 let truncated = combined_len > MAX_OUTPUT_BYTES;
 
-                // Truncate raw bytes before UTF-8 conversion to bound memory
-                let stdout_bytes = if output.stdout.len() > MAX_OUTPUT_BYTES {
-                    &output.stdout[..MAX_OUTPUT_BYTES]
+                // Truncate raw bytes before UTF-8 conversion to bound memory.
+                // Reserve at least 25% for stderr so error messages aren't lost.
+                let stderr_reserve = MAX_OUTPUT_BYTES / 4;
+                let stdout_max = MAX_OUTPUT_BYTES - stderr_reserve.min(output.stderr.len());
+                let stdout_bytes = if output.stdout.len() > stdout_max {
+                    truncate_at_utf8_boundary(&output.stdout, stdout_max)
                 } else {
                     &output.stdout
                 };
                 let remaining = MAX_OUTPUT_BYTES.saturating_sub(stdout_bytes.len());
                 let stderr_bytes = if output.stderr.len() > remaining {
-                    &output.stderr[..remaining]
+                    truncate_at_utf8_boundary(&output.stderr, remaining)
                 } else {
                     &output.stderr
                 };
@@ -364,6 +376,20 @@ impl Tool for ExecTool {
             ))),
         }
     }
+}
+
+/// Truncate a byte slice at a UTF-8 character boundary, never splitting
+/// a multi-byte character.
+fn truncate_at_utf8_boundary(data: &[u8], max: usize) -> &[u8] {
+    if max >= data.len() {
+        return data;
+    }
+    // Walk backwards from max to find a valid UTF-8 start byte
+    let mut end = max;
+    while end > 0 && (data[end] & 0xC0) == 0x80 {
+        end -= 1;
+    }
+    &data[..end]
 }
 
 #[cfg(test)]
