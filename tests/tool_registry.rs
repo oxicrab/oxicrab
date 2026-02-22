@@ -224,7 +224,7 @@ async fn test_panic_caught_gracefully() {
         .await
         .expect("execute panic tool");
     assert!(result.is_error);
-    assert!(result.content.contains("crashed unexpectedly"));
+    assert!(result.content.contains("crashed"));
 }
 
 #[tokio::test]

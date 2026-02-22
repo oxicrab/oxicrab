@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Checks that code is formatted before committing.
+# Configured via: git config core.hooksPath .githooks
+set -euo pipefail
+
+if ! cargo fmt -- --check 2>/dev/null; then
+  cat <<EOF
+
+ERROR: code is not formatted. Run:
+
+  cargo fmt
+
+Then stage the changes and try again.
+Bypass with: git commit --no-verify
+
+EOF
+  exit 1
+fi
