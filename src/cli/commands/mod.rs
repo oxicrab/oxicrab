@@ -473,17 +473,30 @@ async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> 
     .await?;
     setup_cron_callbacks(cron.clone(), agent.clone(), bus_for_channels.clone()).await?;
     let heartbeat = setup_heartbeat(&config, &agent);
+
+    // Start HTTP API server (needs inbound_tx clone before channels takes ownership)
+    let (_http_task, http_state) = crate::gateway::start(
+        &config.gateway.host,
+        config.gateway.port,
+        Arc::new(inbound_tx.clone()),
+    )
+    .await?;
+
     let channels = setup_channels(&config, inbound_tx);
 
     println!("Starting oxicrab gateway...");
     println!("Enabled channels: {:?}", channels.enabled_channels());
+    println!(
+        "HTTP API listening on {}:{}",
+        config.gateway.host, config.gateway.port
+    );
 
     // Start services
     start_services(cron.clone(), heartbeat.clone()).await?;
 
     // Run agent and channels
     let agent_task = start_agent_loop(agent.clone());
-    let channels_task = start_channels_loop(channels, outbound_rx, typing_rx);
+    let channels_task = start_channels_loop(channels, outbound_rx, typing_rx, Some(http_state));
 
     info!("All services started, gateway is running");
 
@@ -791,6 +804,7 @@ fn start_channels_loop(
     mut channels: ChannelManager,
     mut outbound_rx: tokio::sync::mpsc::Receiver<crate::bus::OutboundMessage>,
     mut typing_rx: tokio::sync::mpsc::Receiver<(String, String)>,
+    http_api_state: Option<crate::gateway::HttpApiState>,
 ) -> tokio::task::JoinHandle<()> {
     info!("Starting all channels...");
     tokio::spawn(async move {
@@ -817,6 +831,12 @@ fn start_channels_loop(
 
         loop {
             if let Some(msg) = outbound_rx.recv().await {
+                // Route HTTP API responses back to waiting HTTP handlers
+                if let Some(ref state) = http_api_state
+                    && crate::gateway::route_response(state, msg.clone())
+                {
+                    continue;
+                }
                 debug!(
                     "Consumed outbound message: channel={}, chat_id={}, content_len={}",
                     msg.channel,

@@ -28,12 +28,12 @@ channel-telegram = ["dep:teloxide"]
 channel-discord = ["dep:serenity"]
 channel-slack = ["dep:tokio-tungstenite"]
 channel-whatsapp = ["dep:whatsapp-rust", "dep:whatsapp-rust-tokio-transport", "dep:whatsapp-rust-ureq-http-client", "dep:qr2term", "dep:qrcode"]
-channel-twilio = ["dep:axum", "dep:hmac", "dep:sha1"]
+channel-twilio = ["dep:hmac", "dep:sha1"]
 
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-axum = { version = "0.8", optional = true }
+axum = "0.8"
 base64 = "0.22"
 brush-parser = "0.3"
 cap-std = "4"

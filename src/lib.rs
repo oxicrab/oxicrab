@@ -23,6 +23,7 @@ pub mod cli;
 pub mod config;
 pub mod cron;
 pub(crate) mod errors;
+pub mod gateway;
 pub(crate) mod heartbeat;
 pub mod pairing;
 pub mod providers;
