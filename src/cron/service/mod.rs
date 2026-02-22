@@ -387,11 +387,11 @@ impl CronService {
                                         job_id,
                                         result.len()
                                     );
-                                    ("ok".to_string(), None)
+                                    ("success".to_string(), None)
                                 }
                                 Ok(None) => {
                                     info!("Cron job '{}' completed (no output)", job_id);
-                                    ("ok".to_string(), None)
+                                    ("success".to_string(), None)
                                 }
                                 Err(e) => {
                                     error!("Cron job '{}' failed: {}", job_id, e);
@@ -598,7 +598,7 @@ impl CronService {
                 drop(on_job_guard);
 
                 let (status, error_msg, callback_result) = match callback(job_clone).await {
-                    Ok(result) => ("ok".to_string(), None, Ok(result)),
+                    Ok(result) => ("success".to_string(), None, Ok(result)),
                     Err(e) => {
                         let err_str = e.to_string();
                         ("error".to_string(), Some(err_str), Err(e))
