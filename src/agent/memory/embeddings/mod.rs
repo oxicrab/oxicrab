@@ -1,17 +1,27 @@
 /// Local embedding generation via fastembed (ONNX-based, no API key needed).
+use std::num::NonZeroUsize;
 use std::sync::Mutex;
 
 use anyhow::Result;
 use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
-use tracing::info;
+use lru::LruCache;
+use tracing::{debug, info};
+
+const DEFAULT_CACHE_SIZE: usize = 10_000;
 
 pub struct EmbeddingService {
     model: Mutex<TextEmbedding>,
+    cache: Mutex<LruCache<String, Vec<f32>>>,
 }
 
 impl EmbeddingService {
     /// Load embedding model. This downloads the model on first use (~30MB).
     pub fn new(model_name: &str) -> Result<Self> {
+        Self::with_cache_size(model_name, DEFAULT_CACHE_SIZE)
+    }
+
+    /// Load embedding model with a custom query embedding cache size.
+    pub fn with_cache_size(model_name: &str, cache_size: usize) -> Result<Self> {
         let model_type = match model_name {
             "BAAI/bge-small-en-v1.5" => EmbeddingModel::BGESmallENV15,
             "BAAI/bge-base-en-v1.5" => EmbeddingModel::BGEBaseENV15,
@@ -26,13 +36,20 @@ impl EmbeddingService {
         let model = TextEmbedding::try_new(
             TextInitOptions::new(model_type).with_show_download_progress(true),
         )?;
-        info!("embedding model loaded: {}", model_name);
+        info!(
+            "embedding model loaded: {} (cache_size={})",
+            model_name, cache_size
+        );
+
+        let cap = NonZeroUsize::new(cache_size.max(1)).unwrap();
         Ok(Self {
             model: Mutex::new(model),
+            cache: Mutex::new(LruCache::new(cap)),
         })
     }
 
     /// Embed multiple texts (batch). Returns one vector per text.
+    /// These are not cached (used for indexing, where each text is unique).
     pub fn embed_texts(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         let docs: Vec<String> = texts.iter().map(std::string::ToString::to_string).collect();
         let mut model = self.model.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -40,14 +57,41 @@ impl EmbeddingService {
         Ok(embeddings)
     }
 
-    /// Embed a single query string.
+    /// Embed a single query string. Results are cached in an LRU cache
+    /// to avoid redundant ONNX inference for repeated queries.
     pub fn embed_query(&self, query: &str) -> Result<Vec<f32>> {
-        let mut model = self.model.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        let embeddings = model.embed(vec![query.to_string()], None)?;
-        embeddings
-            .into_iter()
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("empty embedding result"))
+        // Check cache first
+        {
+            let mut cache = self.cache.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if let Some(cached) = cache.get(query) {
+                debug!("embedding cache hit for query (len={})", query.len());
+                return Ok(cached.clone());
+            }
+        }
+
+        // Cache miss — compute embedding
+        let embedding = {
+            let mut model = self.model.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let embeddings = model.embed(vec![query.to_string()], None)?;
+            embeddings
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("empty embedding result"))?
+        };
+
+        // Store in cache
+        {
+            let mut cache = self.cache.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            cache.put(query.to_string(), embedding.clone());
+        }
+
+        Ok(embedding)
+    }
+
+    /// Number of entries currently in the query embedding cache.
+    #[cfg(test)]
+    pub fn cache_len(&self) -> usize {
+        self.cache.lock().map_or(0, |c| c.len())
     }
 }
 

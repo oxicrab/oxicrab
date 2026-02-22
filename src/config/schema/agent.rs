@@ -240,6 +240,10 @@ fn default_rrf_k() -> u32 {
     60
 }
 
+fn default_embedding_cache_size() -> usize {
+    10_000
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConfig {
     #[serde(
@@ -262,6 +266,12 @@ pub struct MemoryConfig {
     /// Constant k for RRF (higher = less emphasis on top ranks). Default 60.
     #[serde(default = "default_rrf_k", rename = "rrfK")]
     pub rrf_k: u32,
+    /// LRU cache size for query embeddings. Default 10,000.
+    #[serde(
+        default = "default_embedding_cache_size",
+        rename = "embeddingCacheSize"
+    )]
+    pub embedding_cache_size: usize,
 }
 
 impl Default for MemoryConfig {
@@ -274,6 +284,7 @@ impl Default for MemoryConfig {
             hybrid_weight: default_hybrid_weight(),
             fusion_strategy: FusionStrategy::default(),
             rrf_k: default_rrf_k(),
+            embedding_cache_size: default_embedding_cache_size(),
         }
     }
 }

@@ -58,3 +58,21 @@ fn test_deserialize_truncated_blob() {
     let truncated = &good[..7];
     assert!(deserialize_embedding(truncated).is_err());
 }
+
+#[test]
+fn test_default_cache_size_is_10k() {
+    assert_eq!(DEFAULT_CACHE_SIZE, 10_000);
+}
+
+#[test]
+fn test_embedding_cache_size_config_default() {
+    let config = crate::config::MemoryConfig::default();
+    assert_eq!(config.embedding_cache_size, 10_000);
+}
+
+#[test]
+fn test_embedding_cache_size_config_serde() {
+    let json = r#"{"embeddingCacheSize": 5000}"#;
+    let config: crate::config::MemoryConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.embedding_cache_size, 5000);
+}

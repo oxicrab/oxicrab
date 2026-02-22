@@ -65,9 +65,12 @@ impl MemoryStore {
             )
         })?);
 
-        // Create embedding service if enabled
+        // Create embedding service if enabled (with configurable cache size)
         let embedding_service = if memory_config.embeddings_enabled {
-            match EmbeddingService::new(&memory_config.embeddings_model) {
+            match EmbeddingService::with_cache_size(
+                &memory_config.embeddings_model,
+                memory_config.embedding_cache_size,
+            ) {
                 Ok(svc) => Some(Arc::new(svc)),
                 Err(e) => {
                     warn!("failed to initialize embedding service: {}", e);
