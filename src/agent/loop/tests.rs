@@ -773,6 +773,47 @@ fn test_load_and_encode_images_base64_roundtrip() {
     assert_eq!(decoded, original_data);
 }
 
+#[test]
+fn test_load_and_encode_images_pdf_support() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("test.pdf");
+    let mut pdf_data = b"%PDF-1.4 ".to_vec();
+    pdf_data.extend_from_slice(b"fake pdf content for testing");
+    std::fs::write(&path, &pdf_data).unwrap();
+
+    let images = load_and_encode_images(&[path.to_string_lossy().to_string()]);
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].media_type, "application/pdf");
+}
+
+#[test]
+fn test_strip_document_tags() {
+    let content = "User sent a PDF\n[document: /home/user/.oxicrab/media/telegram_123.pdf]";
+    let stripped = strip_document_tags(content);
+    assert_eq!(stripped, "User sent a PDF");
+    assert!(!stripped.contains("[document:"));
+}
+
+#[test]
+fn test_strip_document_tags_preserves_other_content() {
+    let content = "text [image: /path/img.jpg] and [document: /path/doc.pdf] more text";
+    let stripped = strip_document_tags(content);
+    assert!(stripped.contains("[image: /path/img.jpg]"));
+    assert!(!stripped.contains("[document:"));
+    assert!(stripped.contains("more text"));
+}
+
+#[test]
+fn test_load_and_encode_images_rejects_fake_pdf() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("fake.pdf");
+    // Not a real PDF (wrong magic bytes)
+    std::fs::write(&path, b"this is not a pdf").unwrap();
+
+    let images = load_and_encode_images(&[path.to_string_lossy().to_string()]);
+    assert!(images.is_empty(), "should reject non-PDF content");
+}
+
 // --- Media cleanup tests ---
 
 #[test]

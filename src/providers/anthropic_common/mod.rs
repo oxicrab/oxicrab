@@ -39,8 +39,13 @@ pub fn convert_messages(messages: Vec<Message>) -> (Option<String>, Vec<Anthropi
                         }));
                     }
                     for img in &msg.images {
+                        let block_type = if img.media_type.starts_with("image/") {
+                            "image"
+                        } else {
+                            "document"
+                        };
                         parts.push(json!({
-                            "type": "image",
+                            "type": block_type,
                             "source": {
                                 "type": "base64",
                                 "media_type": img.media_type,

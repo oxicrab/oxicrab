@@ -102,6 +102,49 @@ fn test_convert_mixed_messages_images_only_on_user() {
 }
 
 #[test]
+fn test_convert_user_message_with_pdf_document() {
+    let msg = Message::user_with_images(
+        "analyze this PDF",
+        vec![ImageData {
+            media_type: "application/pdf".to_string(),
+            data: "cGRmZGF0YQ==".to_string(),
+        }],
+    );
+    let (_, result) = convert_messages(vec![msg]);
+
+    let content = result[0].content.as_array().unwrap();
+    assert_eq!(content.len(), 2);
+    assert_eq!(content[0]["type"], "text");
+    // PDF should use "document" type, not "image"
+    assert_eq!(content[1]["type"], "document");
+    assert_eq!(content[1]["source"]["type"], "base64");
+    assert_eq!(content[1]["source"]["media_type"], "application/pdf");
+}
+
+#[test]
+fn test_convert_user_message_mixed_image_and_document() {
+    let msg = Message::user_with_images(
+        "compare these",
+        vec![
+            ImageData {
+                media_type: "image/png".to_string(),
+                data: "imgdata".to_string(),
+            },
+            ImageData {
+                media_type: "application/pdf".to_string(),
+                data: "pdfdata".to_string(),
+            },
+        ],
+    );
+    let (_, result) = convert_messages(vec![msg]);
+
+    let content = result[0].content.as_array().unwrap();
+    assert_eq!(content.len(), 3); // text + image + document
+    assert_eq!(content[1]["type"], "image");
+    assert_eq!(content[2]["type"], "document");
+}
+
+#[test]
 fn test_consecutive_tool_results_merged() {
     // Two tool results (both become role: "user") should be merged into one user message
     let messages = vec![

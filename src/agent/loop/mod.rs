@@ -5,7 +5,7 @@ use helpers::MAX_IMAGES;
 pub(crate) use helpers::validate_tool_params;
 use helpers::{
     cleanup_old_media, execute_tool_call, extract_media_paths, load_and_encode_images,
-    start_typing, strip_audio_tags, strip_image_tags, transcribe_audio_tags,
+    start_typing, strip_audio_tags, strip_document_tags, strip_image_tags, transcribe_audio_tags,
 };
 pub use helpers::{contains_action_claims, is_false_no_tools_claim, mentions_multiple_tools};
 
@@ -742,13 +742,13 @@ impl AgentLoop {
             imgs
         };
 
-        // Strip [image: ...] tags from content when images were successfully encoded,
-        // since the LLM receives them as content blocks and doesn't need the file paths
-        // (which can cause it to try read_file on binary image data).
+        // Strip [image: ...] and [document: ...] tags from content when media was
+        // successfully encoded, since the LLM receives them as content blocks and
+        // doesn't need the file paths (which can cause it to try read_file on binary data).
         let content = if images.is_empty() {
             msg_content
         } else {
-            strip_image_tags(&msg_content)
+            strip_document_tags(&strip_image_tags(&msg_content))
         };
 
         debug!("Acquiring context lock");

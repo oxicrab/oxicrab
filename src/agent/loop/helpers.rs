@@ -226,7 +226,7 @@ pub fn mentions_multiple_tools(text: &str, tool_names: &[String]) -> bool {
     count >= TOOL_MENTION_HALLUCINATION_THRESHOLD
 }
 
-/// Load image files from disk and base64-encode them for LLM consumption.
+/// Load media files (images and documents) from disk and base64-encode them for LLM consumption.
 /// Skips files that are missing, too large, or have unsupported formats.
 pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
     use base64::Engine;
@@ -235,7 +235,7 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
     for path in media_paths.iter().take(MAX_IMAGES) {
         let file_path = std::path::Path::new(path);
         if !file_path.exists() {
-            warn!("Image file not found: {}", path);
+            warn!("Media file not found: {}", path);
             continue;
         }
         let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -244,8 +244,9 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
             "png" => "image/png",
             "gif" => "image/gif",
             "webp" => "image/webp",
+            "pdf" => "application/pdf",
             _ => {
-                warn!("Unsupported image format: {}", ext);
+                warn!("Unsupported media format: {}", ext);
                 continue;
             }
         };
@@ -253,7 +254,7 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
             Ok(data) => {
                 if data.len() > MAX_IMAGE_SIZE {
                     warn!(
-                        "Image too large ({} bytes, max {}): {}",
+                        "Media file too large ({} bytes, max {}): {}",
                         data.len(),
                         MAX_IMAGE_SIZE,
                         path
@@ -268,11 +269,12 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
                     "webp" => {
                         data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WEBP"
                     }
+                    "pdf" => data.starts_with(b"%PDF"),
                     _ => false,
                 };
                 if !valid {
                     warn!(
-                        "Image file {} has invalid magic bytes for format '{}' (first bytes: {:02x?}). File may be corrupted or not an image.",
+                        "Media file {} has invalid magic bytes for format '{}' (first bytes: {:02x?}). File may be corrupted.",
                         path,
                         ext,
                         &data[..8.min(data.len())]
@@ -281,7 +283,7 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
                 }
                 let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
                 info!(
-                    "Encoded image for LLM: {} ({}, {} raw bytes, {} base64 chars)",
+                    "Encoded media for LLM: {} ({}, {} raw bytes, {} base64 chars)",
                     path,
                     media_type,
                     data.len(),
@@ -293,7 +295,7 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
                 });
             }
             Err(e) => {
-                warn!("Failed to read image file {}: {}", path, e);
+                warn!("Failed to read media file {}: {}", path, e);
             }
         }
     }
@@ -327,6 +329,12 @@ fn replace_bracketed_tags(content: &str, prefix: &str, replacement: Option<&str>
 /// redundant (and misleading) once images are base64-encoded into content blocks.
 pub(super) fn strip_image_tags(content: &str) -> String {
     replace_bracketed_tags(content, "[image: ", None)
+}
+
+/// Strip `[document: /path/to/file]` tags from message content.
+/// Same as `strip_image_tags` but for document attachments (PDFs, etc.).
+pub(super) fn strip_document_tags(content: &str) -> String {
+    replace_bracketed_tags(content, "[document: ", None)
 }
 
 /// Replace `[audio: /path/to/file]` tags with a notice when transcription is not configured.

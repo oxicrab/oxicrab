@@ -173,12 +173,23 @@ impl LLMProvider for OpenAIProvider {
                         }));
                     }
                     for img in &msg.images {
-                        parts.push(json!({
-                            "type": "image_url",
-                            "image_url": {
-                                "url": format!("data:{};base64,{}", img.media_type, img.data)
-                            }
-                        }));
+                        if img.media_type.starts_with("image/") {
+                            parts.push(json!({
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": format!("data:{};base64,{}", img.media_type, img.data)
+                                }
+                            }));
+                        } else {
+                            // Documents (PDFs, etc.) use the file content block
+                            parts.push(json!({
+                                "type": "file",
+                                "file": {
+                                    "filename": "document",
+                                    "file_data": format!("data:{};base64,{}", img.media_type, img.data)
+                                }
+                            }));
+                        }
                     }
                     json!(parts)
                 } else {
