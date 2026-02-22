@@ -11,7 +11,7 @@
 //!
 //! SSH config (~/.ssh/config on macOS):
 //!   Host oxicrab-tunnel
-//!     `HostName` <linux-server>
+//!     `HostName` `<linux-server>`
 //!     User james
 //!     `RemoteForward` 27124 127.0.0.1:27124
 //!     `ServerAliveInterval` 30

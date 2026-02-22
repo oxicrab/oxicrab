@@ -220,7 +220,7 @@ enum CredentialCommands {
         /// Value to store (reads from stdin if omitted)
         value: Option<String>,
     },
-    /// Check if a credential exists (shows [set] or [empty])
+    /// Check if a credential exists (shows \[set\] or \[empty\])
     Get {
         /// Credential slot name
         name: String,
