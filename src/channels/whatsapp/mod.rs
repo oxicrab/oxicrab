@@ -228,61 +228,45 @@ impl BaseChannel for WhatsAppChannel {
                                     let mut content: String;
                                     let mut media_paths: Vec<String> = vec![];
 
-                                    // Try to extract downloadable image from message fields
-                                    let image_download: Option<(&dyn whatsapp_rust::download::Downloadable, Option<&str>)> =
-                                        if let Some(ref img) = base_msg.image_message {
-                                            Some((&**img, img.mimetype.as_deref()))
-                                        } else if let Some(ref doc) = base_msg.document_message {
-                                            if is_image_mime(doc.mimetype.as_deref()) {
-                                                Some((&**doc, doc.mimetype.as_deref()))
-                                            } else {
-                                                None
-                                            }
+                                    // Classify media type from the message
+                                    let media = if let Some(ref img) = base_msg.image_message {
+                                        Some(MediaKind::Image(&**img, img.mimetype.as_deref()))
+                                    } else if let Some(ref audio) = base_msg.audio_message {
+                                        Some(MediaKind::Audio(&**audio, audio.mimetype.as_deref()))
+                                    } else if let Some(ref video) = base_msg.video_message {
+                                        Some(MediaKind::Video(&**video, video.mimetype.as_deref()))
+                                    } else if let Some(ref doc) = base_msg.document_message {
+                                        let mime = doc.mimetype.as_deref();
+                                        if is_image_mime(mime) {
+                                            Some(MediaKind::Image(&**doc, mime))
                                         } else {
-                                            None
-                                        };
-
-                                    // Try audio message
-                                    let audio_download: Option<(&dyn whatsapp_rust::download::Downloadable, Option<&str>)> =
-                                        if let Some(ref audio) = base_msg.audio_message {
-                                            Some((&**audio, audio.mimetype.as_deref()))
-                                        } else {
-                                            None
-                                        };
-
-                                    if let Some((downloadable, mimetype)) = image_download {
-                                        content = msg.get_caption().unwrap_or("").to_string();
-                                        match download_whatsapp_media(&client, downloadable, mimetype, &info.id, "image").await {
-                                            Ok(path) => {
-                                                media_paths.push(path.clone());
-                                                if content.is_empty() {
-                                                    content = format!("[image: {}]", path);
-                                                } else {
-                                                    content = format!("{}\n[image: {}]", content, path);
-                                                }
-                                            }
-                                            Err(e) => {
-                                                warn!("Failed to download WhatsApp media: {}", e);
-                                                if content.is_empty() {
-                                                    content = "[Media Message - download failed]".to_string();
-                                                }
-                                            }
+                                            Some(MediaKind::Document(&**doc, mime))
                                         }
-                                    } else if let Some((downloadable, mimetype)) = audio_download {
+                                    } else {
+                                        None
+                                    };
+
+                                    if let Some(media_kind) = media {
+                                        let (downloadable, mimetype, media_type, tag) = match media_kind {
+                                            MediaKind::Image(d, m) => (d, m, "image", "image"),
+                                            MediaKind::Audio(d, m) => (d, m, "audio", "audio"),
+                                            MediaKind::Document(d, m) => (d, m, "document", "document"),
+                                            MediaKind::Video(d, m) => (d, m, "video", "video"),
+                                        };
                                         content = msg.get_caption().unwrap_or("").to_string();
-                                        match download_whatsapp_media(&client, downloadable, mimetype, &info.id, "audio").await {
+                                        match download_whatsapp_media(&client, downloadable, mimetype, &info.id, media_type).await {
                                             Ok(path) => {
                                                 media_paths.push(path.clone());
                                                 if content.is_empty() {
-                                                    content = format!("[audio: {}]", path);
+                                                    content = format!("[{}: {}]", tag, path);
                                                 } else {
-                                                    content = format!("{}\n[audio: {}]", content, path);
+                                                    content = format!("{}\n[{}: {}]", content, tag, path);
                                                 }
                                             }
                                             Err(e) => {
-                                                warn!("Failed to download WhatsApp audio: {}", e);
+                                                warn!("failed to download WhatsApp {} media: {}", media_type, e);
                                                 if content.is_empty() {
-                                                    content = "[Voice Message - download failed]".to_string();
+                                                    content = format!("[{} - download failed]", tag);
                                                 }
                                             }
                                         }
@@ -635,11 +619,19 @@ async fn download_whatsapp_media(
         Some("audio/mpeg") => "mp3",
         Some("audio/mp4") => "m4a",
         Some("audio/wav") => "wav",
-        Some("audio/webm") => "webm",
+        Some("audio/webm" | "video/webm") => "webm",
         Some("audio/flac") => "flac",
+        Some("video/mp4") => "mp4",
+        Some("video/3gpp") => "3gp",
+        Some("application/pdf") => "pdf",
+        Some("application/zip") => "zip",
+        Some("text/plain") => "txt",
         Some(m) if m.starts_with("image/") => m.strip_prefix("image/").unwrap_or("bin"),
         Some(m) if m.starts_with("audio/") => m.strip_prefix("audio/").unwrap_or("ogg"),
+        Some(m) if m.starts_with("video/") => m.strip_prefix("video/").unwrap_or("mp4"),
         _ if media_type == "audio" => "ogg",
+        _ if media_type == "video" => "mp4",
+        _ if media_type == "document" => "bin",
         _ => "jpg",
     };
     let file_path = media_dir.join(format!(
@@ -654,6 +646,26 @@ async fn download_whatsapp_media(
     let path_str = file_path.to_string_lossy().to_string();
     info!("WhatsApp media saved: {} ({} bytes)", path_str, data.len());
     Ok(path_str)
+}
+
+/// Classification of a `WhatsApp` media attachment for download.
+enum MediaKind<'a> {
+    Image(
+        &'a dyn whatsapp_rust::download::Downloadable,
+        Option<&'a str>,
+    ),
+    Audio(
+        &'a dyn whatsapp_rust::download::Downloadable,
+        Option<&'a str>,
+    ),
+    Document(
+        &'a dyn whatsapp_rust::download::Downloadable,
+        Option<&'a str>,
+    ),
+    Video(
+        &'a dyn whatsapp_rust::download::Downloadable,
+        Option<&'a str>,
+    ),
 }
 
 /// Check if a MIME type is an image type.
