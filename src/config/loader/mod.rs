@@ -138,8 +138,8 @@ pub fn save_config(config: &Config, config_path: Option<&Path>) -> Result<()> {
     let lock_path = path.with_extension("json.lock");
     let lock_file = fs::OpenOptions::new()
         .create(true)
+        .truncate(false)
         .write(true)
-        .truncate(true)
         .open(&lock_path)
         .with_context(|| format!("Failed to create lock file at {}", lock_path.display()))?;
     lock_file

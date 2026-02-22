@@ -4,11 +4,12 @@ pub mod schema;
 
 pub use loader::{get_config_path, load_config, save_config};
 pub use schema::{
-    BrowserConfig, ChannelsConfig, CheckpointConfig, CircuitBreakerConfig, CognitiveConfig,
-    CompactionConfig, Config, CostGuardConfig, CredentialHelperConfig, DiscordCommand,
-    DiscordCommandOption, DiscordConfig, DmPolicy, ExfiltrationGuardConfig, GitHubConfig,
-    GoogleConfig, ImageGenConfig, McpConfig, MediaConfig, MemoryConfig, ModelCost, ObsidianConfig,
-    PromptGuardAction, PromptGuardConfig, SandboxConfig, SlackConfig, TelegramConfig,
-    TodoistConfig, TranscriptionConfig, TwilioConfig, VoiceConfig, WeatherConfig, WebSearchConfig,
-    WhatsAppConfig,
+    AgentDefaults, AgentsConfig, AnthropicOAuthConfig, BrowserConfig, ChannelsConfig,
+    CheckpointConfig, CircuitBreakerConfig, CognitiveConfig, CompactionConfig, Config,
+    CostGuardConfig, CredentialHelperConfig, DiscordCommand, DiscordCommandOption, DiscordConfig,
+    DmPolicy, ExecToolConfig, ExfiltrationGuardConfig, GatewayConfig, GitHubConfig, GoogleConfig,
+    ImageGenConfig, McpConfig, MediaConfig, MemoryConfig, ModelCost, ObsidianConfig,
+    PromptGuardAction, PromptGuardConfig, ProviderConfig, ProvidersConfig, SandboxConfig,
+    SlackConfig, TelegramConfig, TodoistConfig, ToolsConfig, TranscriptionConfig, TwilioConfig,
+    VoiceConfig, WeatherConfig, WebSearchConfig, WhatsAppConfig, normalize_provider,
 };

@@ -149,7 +149,7 @@ fn fetch_from_helper(helper: &CredentialHelperConfig, key: &str) -> Result<Strin
         }
         other => {
             if other != "json" {
-                tracing::warn!(
+                warn!(
                     "unrecognized credential helper format '{}', treating as json",
                     other
                 );

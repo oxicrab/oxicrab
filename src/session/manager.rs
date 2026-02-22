@@ -80,25 +80,25 @@ impl Session {
 
         self.messages[start..]
             .iter()
-            .map(|m| {
-                let mut map = HashMap::new();
-                map.insert("role".to_string(), Value::String(m.role.clone()));
-                map.insert("content".to_string(), Value::String(m.content.clone()));
-                map
-            })
+            .map(Self::message_to_map)
             .collect()
     }
 
     pub fn get_full_history(&self) -> Vec<HashMap<String, Value>> {
-        self.messages
-            .iter()
-            .map(|m| {
-                let mut map = HashMap::new();
-                map.insert("role".to_string(), Value::String(m.role.clone()));
-                map.insert("content".to_string(), Value::String(m.content.clone()));
-                map
-            })
-            .collect()
+        self.messages.iter().map(Self::message_to_map).collect()
+    }
+
+    fn message_to_map(m: &MessageData) -> HashMap<String, Value> {
+        let mut map = HashMap::new();
+        map.insert("role".to_string(), Value::String(m.role.clone()));
+        map.insert("content".to_string(), Value::String(m.content.clone()));
+        if !m.timestamp.is_empty() {
+            map.insert("timestamp".to_string(), Value::String(m.timestamp.clone()));
+        }
+        for (k, v) in &m.extra {
+            map.insert(k.clone(), v.clone());
+        }
+        map
     }
 }
 
@@ -218,6 +218,9 @@ impl SessionManager {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
+                if role.is_empty() {
+                    warn!("session message missing 'role' field, defaulting to empty");
+                }
                 let content = data
                     .get("content")
                     .and_then(|v| v.as_str())
@@ -228,6 +231,12 @@ impl SessionManager {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
+                if !timestamp.is_empty() && DateTime::parse_from_rfc3339(&timestamp).is_err() {
+                    warn!(
+                        "session message has invalid RFC3339 timestamp: {}",
+                        timestamp
+                    );
+                }
 
                 let mut extra = HashMap::new();
                 if let Some(obj) = data.as_object() {
@@ -292,15 +301,23 @@ impl SessionManager {
                 // try evicting by reconstructing the original key pattern. Since the
                 // exact original key isn't stored in the filename, we iterate the cache
                 // to find entries whose path matches this file.
-                if let Ok(mut cache) = self.cache.try_lock() {
-                    // Collect keys to evict (can't mutate during iteration)
-                    let keys_to_evict: Vec<String> = cache
-                        .iter()
-                        .filter(|(k, _)| self.get_session_path(k) == path)
-                        .map(|(k, _)| k.clone())
-                        .collect();
-                    for k in keys_to_evict {
-                        cache.pop(&k);
+                match self.cache.try_lock() {
+                    Ok(mut cache) => {
+                        // Collect keys to evict (can't mutate during iteration)
+                        let keys_to_evict: Vec<String> = cache
+                            .iter()
+                            .filter(|(k, _)| self.get_session_path(k) == path)
+                            .map(|(k, _)| k.clone())
+                            .collect();
+                        for k in keys_to_evict {
+                            cache.pop(&k);
+                        }
+                    }
+                    Err(_) => {
+                        warn!(
+                            "could not acquire cache lock during cleanup, skipping eviction for {}",
+                            path.display()
+                        );
                     }
                 }
                 if let Err(e) = fs::remove_file(&path) {
@@ -358,8 +375,8 @@ impl SessionManager {
             let lock_path = path_clone.with_extension("jsonl.lock");
             let lock_file = fs::OpenOptions::new()
                 .create(true)
+                .truncate(false)
                 .write(true)
-                .truncate(true)
                 .open(&lock_path)
                 .with_context(|| "Failed to open session lock file")?;
             lock_file
@@ -473,7 +490,29 @@ mod tests {
         for (i, entry) in history.iter().enumerate() {
             assert_eq!(entry["content"], Value::String(format!("Message {}", i)));
             assert_eq!(entry["role"], Value::String("user".to_string()));
+            // Timestamp and extra fields are now included
+            assert!(entry.contains_key("timestamp"));
         }
+    }
+
+    #[test]
+    fn test_session_get_history_includes_extra_fields() {
+        let mut session = Session::new("test_key".to_string());
+        let mut extra = HashMap::new();
+        extra.insert(
+            "tool_call_id".to_string(),
+            Value::String("tc_123".to_string()),
+        );
+        session.add_message("tool", "result", extra);
+
+        let history = session.get_history(10);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0]["role"], Value::String("tool".to_string()));
+        assert_eq!(
+            history[0]["tool_call_id"],
+            Value::String("tc_123".to_string())
+        );
+        assert!(history[0].contains_key("timestamp"));
     }
 
     #[test]

@@ -1,5 +1,9 @@
 use super::*;
 
+/// Guard to serialize tests that mutate environment variables.
+/// Without this, parallel tests can leak env vars into each other.
+static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn test_credential_names_count() {
     assert_eq!(CREDENTIAL_NAMES.len(), 28);
@@ -43,6 +47,7 @@ fn test_get_credential_value_unknown() {
 
 #[test]
 fn test_apply_env_overrides() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let mut config = Config::default();
     assert!(config.providers.anthropic.api_key.is_empty());
 
@@ -55,6 +60,7 @@ fn test_apply_env_overrides() {
 
 #[test]
 fn test_apply_env_overrides_empty_ignored() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let mut config = Config::default();
     config.providers.openai.api_key = "original-key".to_string();
 
@@ -67,6 +73,7 @@ fn test_apply_env_overrides_empty_ignored() {
 
 #[test]
 fn test_apply_env_overrides_channels() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let mut config = Config::default();
 
     unsafe { std::env::set_var("OXICRAB_TELEGRAM_TOKEN", "tg-token") };
@@ -85,6 +92,7 @@ fn test_apply_env_overrides_channels() {
 
 #[test]
 fn test_apply_env_overrides_new_vars() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let mut config = Config::default();
 
     unsafe { std::env::set_var("OXICRAB_MOONSHOT_API_KEY", "moonshot-key") };
@@ -111,6 +119,7 @@ fn test_credential_helper_empty_command_noop() {
 
 #[test]
 fn test_detect_source_env() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let config = Config::default();
     unsafe { std::env::set_var("OXICRAB_ANTHROPIC_API_KEY", "from-env") };
     assert_eq!(detect_source("anthropic-api-key", &config), "env");
@@ -119,6 +128,7 @@ fn test_detect_source_env() {
 
 #[test]
 fn test_detect_source_config() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let mut config = Config::default();
     config.providers.openai.api_key = "from-config".to_string();
     // Make sure env is not set
@@ -128,6 +138,7 @@ fn test_detect_source_config() {
 
 #[test]
 fn test_detect_source_empty() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let config = Config::default();
     unsafe { std::env::remove_var("OXICRAB_GEMINI_API_KEY") };
     assert_eq!(detect_source("gemini-api-key", &config), "[empty]");
@@ -266,6 +277,7 @@ fn test_get_credential_value_all_providers() {
 
 #[test]
 fn test_apply_env_overrides_overwrites_existing() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let mut config = Config::default();
     config.providers.anthropic.api_key = "from-config".to_string();
 
@@ -279,6 +291,7 @@ fn test_apply_env_overrides_overwrites_existing() {
 
 #[test]
 fn test_apply_env_overrides_all_new_provider_vars() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let mut config = Config::default();
 
     unsafe { std::env::set_var("OXICRAB_ZHIPU_API_KEY", "zhipu-key") };
@@ -300,6 +313,7 @@ fn test_apply_env_overrides_all_new_provider_vars() {
 
 #[test]
 fn test_apply_env_overrides_oauth_tokens() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let mut config = Config::default();
 
     unsafe { std::env::set_var("OXICRAB_ANTHROPIC_OAUTH_ACCESS", "access-tok") };
@@ -318,6 +332,7 @@ fn test_apply_env_overrides_oauth_tokens() {
 
 #[test]
 fn test_apply_env_overrides_tool_vars() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let mut config = Config::default();
 
     unsafe { std::env::set_var("OXICRAB_TODOIST_TOKEN", "todoist-tok") };
@@ -374,6 +389,7 @@ fn test_credential_helper_line_format_builds_args() {
 
 #[test]
 fn test_detect_source_config_helper() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let mut config = Config::default();
     config.providers.openai.api_key = "from-somewhere".to_string();
     config.credential_helper.command = "my-helper".to_string();
@@ -384,6 +400,7 @@ fn test_detect_source_config_helper() {
 
 #[test]
 fn test_detect_source_env_takes_priority() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let mut config = Config::default();
     config.providers.gemini.api_key = "from-config".to_string();
     unsafe { std::env::set_var("OXICRAB_GEMINI_API_KEY", "from-env") };
