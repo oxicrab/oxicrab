@@ -13,9 +13,7 @@ const MAX_LIMIT: u64 = 25;
 fn is_valid_subreddit(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 21
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 pub struct RedditTool {

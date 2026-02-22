@@ -50,7 +50,10 @@ impl TranscriptionService {
                 let mut ctx_params = WhisperContextParameters::default();
                 ctx_params.use_gpu(false);
                 let Some(path_str) = model_path.to_str() else {
-                    warn!("whisper model path is not valid UTF-8: {}", model_path.display());
+                    warn!(
+                        "whisper model path is not valid UTF-8: {}",
+                        model_path.display()
+                    );
                     return None;
                 };
                 match WhisperContext::new_with_params(path_str, ctx_params) {

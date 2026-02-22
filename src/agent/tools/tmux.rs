@@ -211,10 +211,7 @@ impl Tool for TmuxTool {
                         "session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
                     ));
                 }
-                let lines = params["lines"]
-                    .as_u64()
-                    .unwrap_or(50)
-                    .min(10000) as i32;
+                let lines = params["lines"].as_u64().unwrap_or(50).min(10000) as i32;
 
                 self.ensure_session(session_name).await?;
 
