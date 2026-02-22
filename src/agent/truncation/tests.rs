@@ -82,3 +82,23 @@ fn truncate_json_truncates_when_large() {
     let result = truncate_tool_result(&big_json, 200);
     assert!(result.contains("[JSON truncated"));
 }
+
+#[test]
+fn truncate_small_max_chars_does_not_exceed_limit() {
+    let long = "a".repeat(500);
+    for max in [0, 1, 5, 10, 50, 100, 119] {
+        let result = truncate_tool_result(&long, max);
+        assert!(
+            result.len() <= max,
+            "max_chars={max}: result len {} > {max}",
+            result.len()
+        );
+    }
+}
+
+#[test]
+fn truncate_small_max_chars_json_does_not_exceed_limit() {
+    let json = serde_json::json!({"data": "x".repeat(500)}).to_string();
+    let result = truncate_tool_result(&json, 50);
+    assert!(result.len() <= 50, "result len {} > 50", result.len());
+}

@@ -134,17 +134,32 @@ impl ImageGenTool {
             .await?;
 
         let status = resp.status();
-        let json: Value = resp.json().await?;
-
         if !status.is_success() {
-            let msg = json["error"]["message"].as_str().unwrap_or("unknown error");
+            let body = resp.text().await.unwrap_or_default();
+            let msg = serde_json::from_str::<Value>(&body)
+                .ok()
+                .and_then(|v| v["error"]["message"].as_str().map(String::from))
+                .unwrap_or_else(|| format!("HTTP {status}"));
             anyhow::bail!("OpenAI image generation failed: {}", msg);
         }
 
-        let b64 = json["data"][0]["b64_json"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("missing b64_json in OpenAI response"))?;
+        let json: Value = resp.json().await?;
 
+        let data = json
+            .get("data")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("OpenAI response missing 'data' array"))?;
+        let b64 = data
+            .first()
+            .and_then(|d| d["b64_json"].as_str())
+            .ok_or_else(|| {
+                anyhow::anyhow!("OpenAI response 'data' array is empty or missing b64_json")
+            })?;
+
+        // Check base64 length before decoding to prevent OOM
+        if b64.len() > 30 * 1024 * 1024 {
+            anyhow::bail!("image data too large ({} bytes encoded)", b64.len());
+        }
         let bytes = base64::engine::general_purpose::STANDARD.decode(b64)?;
         let path = crate::utils::media::save_media_file(&bytes, "imagegen", "png")?;
         Ok(path)
@@ -178,26 +193,39 @@ impl ImageGenTool {
             .await?;
 
         let status = resp.status();
-        let json: Value = resp.json().await?;
-
         if !status.is_success() {
-            let msg = json["error"]["message"].as_str().unwrap_or("unknown error");
+            let body = resp.text().await.unwrap_or_default();
+            let msg = serde_json::from_str::<Value>(&body)
+                .ok()
+                .and_then(|v| v["error"]["message"].as_str().map(String::from))
+                .unwrap_or_else(|| format!("HTTP {status}"));
             anyhow::bail!("Google Imagen failed: {}", msg);
         }
 
-        let b64 = json["predictions"][0]["bytesBase64Encoded"]
+        let json: Value = resp.json().await?;
+
+        let predictions = json
+            .get("predictions")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("Google response missing 'predictions' array"))?;
+        let prediction = predictions
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("Google response 'predictions' array is empty"))?;
+        let b64 = prediction["bytesBase64Encoded"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing bytesBase64Encoded in Google response"))?;
 
-        let mime = json["predictions"][0]["mimeType"]
-            .as_str()
-            .unwrap_or("image/png");
+        let mime = prediction["mimeType"].as_str().unwrap_or("image/png");
         let ext = if mime.contains("jpeg") || mime.contains("jpg") {
             "jpg"
         } else {
             "png"
         };
 
+        // Check base64 length before decoding to prevent OOM
+        if b64.len() > 30 * 1024 * 1024 {
+            anyhow::bail!("image data too large ({} bytes encoded)", b64.len());
+        }
         let bytes = base64::engine::general_purpose::STANDARD.decode(b64)?;
         let path = crate::utils::media::save_media_file(&bytes, "imagegen", ext)?;
         Ok(path)

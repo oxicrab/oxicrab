@@ -403,7 +403,7 @@ mod tests {
             }
         }
 
-        let mw = TruncationMiddleware::new(50);
+        let mw = TruncationMiddleware::new(200);
         let dummy = DummyTool;
         let mut result = ToolResult::new("a".repeat(500));
         mw.after_execute(

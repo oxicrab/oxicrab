@@ -11,6 +11,13 @@ pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
         return clean;
     }
 
+    // For very small limits, just return a short indicator rather than
+    // a truncation message that would exceed max_chars itself
+    if max_chars < 120 {
+        let safe = floor_char_boundary(&clean, max_chars);
+        return clean[..safe].to_string();
+    }
+
     let stripped = clean.trim_start();
     if (stripped.starts_with('{') || stripped.starts_with('['))
         && let Ok(parsed) = serde_json::from_str::<Value>(&clean)
@@ -19,7 +26,7 @@ pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
         if pretty.len() <= max_chars {
             return pretty;
         }
-        let budget = max_chars.saturating_sub(120);
+        let budget = max_chars - 120;
         let safe_budget = floor_char_boundary(&pretty, budget);
         return format!(
             "{}\n\n... [JSON truncated - showed {} of {} chars. Do NOT re-run this tool to see more.]",
@@ -29,7 +36,7 @@ pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
         );
     }
 
-    let budget = max_chars.saturating_sub(100);
+    let budget = max_chars - 100;
     let safe_budget = floor_char_boundary(&clean, budget);
     format!(
         "{}\n\n... [truncated - showed {} of {} chars. Do NOT re-run this tool to see more.]",
