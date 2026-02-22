@@ -121,6 +121,9 @@ impl MediaTool {
         quality_profile_id: Option<i64>,
         root_folder: Option<&str>,
     ) -> Result<String> {
+        if tmdb_id <= 0 {
+            anyhow::bail!("tmdb_id must be a positive number");
+        }
         // Look up movie details first
         let lookup = self
             .radarr_get(&format!("/api/v3/movie/lookup/tmdb?tmdbId={}", tmdb_id))
@@ -244,6 +247,9 @@ impl MediaTool {
         quality_profile_id: Option<i64>,
         root_folder: Option<&str>,
     ) -> Result<String> {
+        if tvdb_id <= 0 {
+            anyhow::bail!("tvdb_id must be a positive number");
+        }
         // Look up series details first
         let tvdb_str = tvdb_id.to_string();
         let encoded = urlencoding::encode(&tvdb_str);

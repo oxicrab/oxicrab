@@ -62,7 +62,13 @@ impl TodoistTool {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             if !status.is_success() {
-                anyhow::bail!("Todoist API {}: {}", status, text);
+                // Truncate error body to avoid leaking sensitive API internals
+                let safe_body = if text.len() > 200 {
+                    format!("{}...", &text[..text.floor_char_boundary(200)])
+                } else {
+                    text.clone()
+                };
+                anyhow::bail!("Todoist API {}: {}", status, safe_body);
             }
             let body: Value = serde_json::from_str(&text).map_err(|e| {
                 anyhow::anyhow!(
@@ -88,6 +94,12 @@ impl TodoistTool {
             }
         }
 
+        if cursor.is_some() {
+            tracing::warn!(
+                "todoist pagination limit reached ({} pages), additional results may exist",
+                MAX_PAGES
+            );
+        }
         Ok(all_items)
     }
 
@@ -204,7 +216,11 @@ impl TodoistTool {
     async fn complete_task(&self, task_id: &str) -> Result<String> {
         let resp = self
             .client
-            .post(format!("{}/tasks/{}/close", self.base_url, task_id))
+            .post(format!(
+                "{}/tasks/{}/close",
+                self.base_url,
+                urlencoding::encode(task_id)
+            ))
             .header("Authorization", self.auth_header())
             .timeout(Duration::from_secs(15))
             .send()
@@ -249,7 +265,11 @@ impl TodoistTool {
     async fn get_task(&self, task_id: &str) -> Result<String> {
         let resp = self
             .client
-            .get(format!("{}/tasks/{}", self.base_url, task_id))
+            .get(format!(
+                "{}/tasks/{}",
+                self.base_url,
+                urlencoding::encode(task_id)
+            ))
             .header("Authorization", self.auth_header())
             .timeout(Duration::from_secs(15))
             .send()
@@ -330,7 +350,11 @@ impl TodoistTool {
 
         let resp = self
             .client
-            .post(format!("{}/tasks/{}", self.base_url, task_id))
+            .post(format!(
+                "{}/tasks/{}",
+                self.base_url,
+                urlencoding::encode(task_id)
+            ))
             .json(&payload)
             .header("Authorization", self.auth_header())
             .timeout(Duration::from_secs(15))
@@ -349,7 +373,11 @@ impl TodoistTool {
     async fn delete_task(&self, task_id: &str) -> Result<String> {
         let resp = self
             .client
-            .delete(format!("{}/tasks/{}", self.base_url, task_id))
+            .delete(format!(
+                "{}/tasks/{}",
+                self.base_url,
+                urlencoding::encode(task_id)
+            ))
             .header("Authorization", self.auth_header())
             .timeout(Duration::from_secs(15))
             .send()
@@ -511,6 +539,14 @@ impl Tool for TodoistTool {
                 let Some(content) = params["content"].as_str() else {
                     return Ok(ToolResult::error("missing 'content' parameter".to_string()));
                 };
+                let priority = params["priority"].as_u64();
+                if let Some(p) = priority
+                    && !(1..=4).contains(&p)
+                {
+                    return Ok(ToolResult::error(
+                        "priority must be 1 (normal) to 4 (urgent)".to_string(),
+                    ));
+                }
                 let labels: Option<Vec<&str>> = params["labels"]
                     .as_array()
                     .map(|a| a.iter().filter_map(|v| v.as_str()).collect());
@@ -519,7 +555,7 @@ impl Tool for TodoistTool {
                     params["description"].as_str(),
                     params["project_id"].as_str(),
                     params["due_string"].as_str(),
-                    params["priority"].as_u64(),
+                    priority,
                     labels,
                 )
                 .await
