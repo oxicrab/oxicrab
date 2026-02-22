@@ -796,18 +796,12 @@ impl AgentLoop {
         // Start background memory indexer
         memory.start_indexer().await?;
 
-        // Create cost guard early so it can be shared with subagents
-        let cost_guard = if cost_guard_config.daily_budget_cents.is_some()
-            || cost_guard_config.max_actions_per_hour.is_some()
-        {
-            info!(
-                "cost guard enabled (daily_budget={:?} cents, max_actions_per_hour={:?})",
-                cost_guard_config.daily_budget_cents, cost_guard_config.max_actions_per_hour
-            );
-            Some(Arc::new(CostGuard::new(cost_guard_config)))
-        } else {
-            None
-        };
+        // Create cost guard — always enabled for cost logging, optionally enforces limits
+        info!(
+            "cost guard active (daily_budget={:?} cents, max_actions_per_hour={:?})",
+            cost_guard_config.daily_budget_cents, cost_guard_config.max_actions_per_hour
+        );
+        let cost_guard = Some(Arc::new(CostGuard::new(cost_guard_config)));
 
         let tool_ctx = ToolBuildContext {
             workspace: workspace.clone(),

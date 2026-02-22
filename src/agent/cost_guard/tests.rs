@@ -194,6 +194,31 @@ fn test_budget_exceeded_blocks() {
     assert!(result.is_err());
 }
 
+#[test]
+fn test_cost_tracked_without_budget_limits() {
+    // Even with no daily budget or rate limit, costs should be accumulated
+    let guard = CostGuard::new(default_config());
+
+    assert_eq!(guard.daily_cost.lock().unwrap().total_cents, 0.0);
+
+    // Record a call with known pricing (claude-sonnet-4: $3/1M input, $15/1M output)
+    guard.record_llm_call(
+        "claude-sonnet-4-5-20250929",
+        Some(1_000_000),
+        Some(100_000),
+        None,
+        None,
+    );
+
+    // $3.00 input + $1.50 output = $4.50 = 450 cents
+    let tracked = guard.daily_cost.lock().unwrap().total_cents;
+    assert!(
+        (tracked - 450.0).abs() < 0.1,
+        "expected ~450 cents tracked, got {:.4}",
+        tracked
+    );
+}
+
 // --- cache-aware pricing tests ---
 
 #[test]
