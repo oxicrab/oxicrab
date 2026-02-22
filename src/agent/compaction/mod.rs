@@ -42,6 +42,37 @@ pub fn estimate_messages_tokens(messages: &[HashMap<String, Value>]) -> usize {
     total
 }
 
+/// Extract text from a message content value, handling both plain strings
+/// and Anthropic-style content block arrays (text + image blocks).
+fn extract_message_text(content: Option<&Value>) -> String {
+    let Some(content) = content else {
+        return String::new();
+    };
+    if let Some(text) = content.as_str() {
+        return text.to_string();
+    }
+    if let Some(arr) = content.as_array() {
+        let mut parts = Vec::new();
+        for part in arr {
+            if let Some(obj) = part.as_object() {
+                match obj.get("type").and_then(Value::as_str) {
+                    Some("text") => {
+                        if let Some(text) = obj.get("text").and_then(Value::as_str) {
+                            parts.push(text.to_string());
+                        }
+                    }
+                    Some("image" | "image_url") => {
+                        parts.push("[image]".to_string());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        return parts.join(" ");
+    }
+    String::new()
+}
+
 pub struct MessageCompactor {
     provider: Arc<dyn LLMProvider>,
     model: Option<String>,
@@ -67,14 +98,19 @@ impl MessageCompactor {
             .iter()
             .map(|m| {
                 let role = m.get("role").and_then(|v| v.as_str()).unwrap_or("");
-                let content = m.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let content = extract_message_text(m.get("content"));
                 format!("{}: {}", role, content)
             })
             .collect();
 
         let messages_text = formatted.join("\n");
+        let effective_summary = if previous_summary.is_empty() {
+            "(none)"
+        } else {
+            previous_summary
+        };
         let prompt = COMPACTION_PROMPT
-            .replace("{previous_summary}", previous_summary)
+            .replace("{previous_summary}", effective_summary)
             .replace("{messages}", &messages_text);
 
         let llm_messages = vec![Message::user(prompt)];
@@ -93,7 +129,11 @@ impl MessageCompactor {
 
         let summary = response.content.unwrap_or_default();
         if summary.trim().is_empty() {
-            warn!("compaction returned empty summary, keeping previous context");
+            if !previous_summary.is_empty() {
+                warn!("compaction returned empty summary, reusing previous summary");
+                return Ok(previous_summary.to_string());
+            }
+            warn!("compaction returned empty summary with no previous summary available");
             return Err(anyhow::anyhow!("compaction produced empty summary"));
         }
         debug!("compaction complete: summary_len={}", summary.len());

@@ -86,10 +86,31 @@ fn test_redact_multiple_secrets() {
 #[test]
 fn test_short_sk_prefix_no_match() {
     let detector = LeakDetector::new();
-    // "sk-" followed by fewer than 20 chars should not match
+    // "sk-" followed by fewer than 16 chars should not match
     let text = "This is sk-short";
     let matches = detector.scan(text);
     assert!(matches.is_empty());
+}
+
+#[test]
+fn test_redact_with_multibyte_chars() {
+    let detector = LeakDetector::new();
+    // Ensure redaction doesn't panic on multi-byte UTF-8 characters
+    let text = "Key: sk-ant-api03-abcdefghijklmnopqrst12345 emoji: \u{1F600} end";
+    let redacted = detector.redact(text);
+    assert!(!redacted.contains("sk-ant-api03"));
+    assert!(redacted.contains("[REDACTED]"));
+    assert!(redacted.contains("\u{1F600}"));
+}
+
+#[test]
+fn test_redact_adjacent_secrets() {
+    let detector = LeakDetector::new();
+    // Two secrets right next to each other
+    let text = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijgsk_abcdefghijklmnopqrstuvwx";
+    let redacted = detector.redact(text);
+    assert!(!redacted.contains("ghp_"));
+    assert!(!redacted.contains("gsk_"));
 }
 
 // --- Three-encoding tests ---

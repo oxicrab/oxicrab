@@ -1,5 +1,6 @@
 use super::*;
 use proptest::prelude::*;
+use serde_json::json;
 
 proptest! {
     #[test]
@@ -84,4 +85,34 @@ fn estimate_messages_tokens_missing_content() {
         m
     }];
     assert_eq!(estimate_messages_tokens(&msgs), 0);
+}
+
+#[test]
+fn extract_message_text_plain_string() {
+    let content = Value::String("hello world".to_string());
+    assert_eq!(extract_message_text(Some(&content)), "hello world");
+}
+
+#[test]
+fn extract_message_text_array_with_images() {
+    let content = json!([
+        {"type": "text", "text": "See this"},
+        {"type": "image", "url": "http://example.com/img.png"},
+        {"type": "text", "text": "screenshot"}
+    ]);
+    assert_eq!(
+        extract_message_text(Some(&content)),
+        "See this [image] screenshot"
+    );
+}
+
+#[test]
+fn extract_message_text_none() {
+    assert_eq!(extract_message_text(None), "");
+}
+
+#[test]
+fn extract_message_text_non_string_non_array() {
+    let content = json!(42);
+    assert_eq!(extract_message_text(Some(&content)), "");
 }

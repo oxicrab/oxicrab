@@ -41,14 +41,14 @@ impl LeakDetector {
     pub fn new() -> Self {
         let patterns = vec![
             // Anthropic API keys
-            ("anthropic_api_key", r"sk-ant-api[0-9a-zA-Z\-_]{20,200}"),
+            ("anthropic_api_key", r"sk-ant-api[0-9a-zA-Z\-_]{16,200}"),
             // OpenAI API keys: project (sk-proj-...), org (sk-org-...),
-            // service account (sk-svcacct-...), and legacy (sk-[20+ alphanum]).
+            // service account (sk-svcacct-...), and legacy (sk-[16+ alphanum]).
             // Legacy pattern excludes sk-ant- (Anthropic, caught separately)
             // by requiring a non-'a' first char, or 'a' followed by non-'n'.
             (
                 "openai_api_key",
-                r"sk-(?:proj|org|svcacct)-[a-zA-Z0-9\-_]{20,200}|sk-(?:[b-zB-Z0-9]|a[^n]|an[^t])[a-zA-Z0-9]{17,197}",
+                r"sk-(?:proj|org|svcacct)-[a-zA-Z0-9\-_]{16,200}|sk-(?:[b-zB-Z0-9]|a[^n]|an[^t])[a-zA-Z0-9]{13,197}",
             ),
             // Slack bot tokens
             ("slack_bot_token", r"xoxb-[0-9]+-[0-9]+-[a-zA-Z0-9]+"),
@@ -252,7 +252,11 @@ impl LeakDetector {
             }
             // Replace from end to start to preserve indices
             for (start, end) in merged.into_iter().rev() {
-                if start <= result.len() && end <= result.len() {
+                if start <= result.len()
+                    && end <= result.len()
+                    && result.is_char_boundary(start)
+                    && result.is_char_boundary(end)
+                {
                     result.replace_range(start..end, "[REDACTED]");
                 }
             }

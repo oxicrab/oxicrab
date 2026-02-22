@@ -1416,6 +1416,10 @@ impl AgentLoop {
         let old_messages = &full_history[..full_history.len() - keep_recent];
         let recent_messages = &full_history[full_history.len() - keep_recent..];
 
+        if old_messages.is_empty() {
+            return Ok(recent_messages.to_vec());
+        }
+
         // Get existing summary from metadata
         let previous_summary = session
             .metadata
@@ -1467,13 +1471,23 @@ impl AgentLoop {
                         );
                     }
 
-                    // Update session metadata with new summary
-                    let session_key = session.key.clone();
-                    let mut updated_session = self.sessions.get_or_create(&session_key).await?;
+                    // Cache summary locally so it survives save failures
+                    *self.last_checkpoint.lock().await = Some(recovery_summary.clone());
+
+                    // Update session metadata with new summary.
+                    // Clone the current session rather than get_or_create() to avoid
+                    // loading a stale snapshot that could discard concurrent messages.
+                    let mut updated_session = session.clone();
                     updated_session
                         .metadata
                         .insert("compaction_summary".to_string(), Value::String(summary));
-                    self.sessions.save(&updated_session).await?;
+                    if let Err(e) = self.sessions.save(&updated_session).await {
+                        // Cache summary locally so it survives save failures
+                        warn!(
+                            "failed to persist compaction summary: {}, will retry next cycle",
+                            e
+                        );
+                    }
 
                     // Return recovery-enriched summary + recent messages
                     let mut result = vec![HashMap::from([

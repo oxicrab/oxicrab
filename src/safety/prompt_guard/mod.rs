@@ -77,7 +77,7 @@ impl PromptGuard {
             (
                 InjectionCategory::SecretExtraction,
                 "reveal_prompt",
-                r"(?i)\b(?:repeat|show|display|output|print|reveal|tell me)\b.{0,50}\b(?:system prompt|instructions?|initial prompt|rules|guidelines)\b",
+                r"(?i)\b(?:repeat|show|display|output|print|reveal|tell me)\b.{0,50}\b(?:your|the|its|system)\s+(?:system prompt|instructions?|initial prompt|rules|guidelines)\b",
             ),
             (
                 InjectionCategory::SecretExtraction,
