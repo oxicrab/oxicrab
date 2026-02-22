@@ -414,9 +414,10 @@ async fn run_subagent_inner(
 
         if response.has_tool_calls() {
             // Add assistant message
-            messages.push(Message::assistant(
+            messages.push(Message::assistant_with_thinking(
                 response.content.clone().unwrap_or_default(),
                 Some(response.tool_calls.clone()),
+                response.reasoning_content.clone(),
             ));
 
             // Execute tools in parallel (same pattern as main agent loop)

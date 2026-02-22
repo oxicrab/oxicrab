@@ -49,6 +49,8 @@ pub struct Message {
     pub is_error: bool,
     /// Base64-encoded images attached to this message
     pub images: Vec<ImageData>,
+    /// Thinking/reasoning content from extended-thinking models (Claude, DeepSeek-R1, etc.)
+    pub reasoning_content: Option<String>,
 }
 
 impl Message {
@@ -82,6 +84,20 @@ impl Message {
             role: "assistant".into(),
             content: content.into(),
             tool_calls,
+            ..Default::default()
+        }
+    }
+
+    pub fn assistant_with_thinking(
+        content: impl Into<String>,
+        tool_calls: Option<Vec<ToolCallRequest>>,
+        reasoning_content: Option<String>,
+    ) -> Self {
+        Self {
+            role: "assistant".into(),
+            content: content.into(),
+            tool_calls,
+            reasoning_content,
             ..Default::default()
         }
     }
@@ -339,5 +355,27 @@ mod tests {
     async fn default_warmup_returns_ok() {
         let provider = NoopProvider;
         assert!(provider.warmup().await.is_ok());
+    }
+
+    #[test]
+    fn message_assistant_with_thinking() {
+        let msg =
+            Message::assistant_with_thinking("answer", None, Some("reasoning...".to_string()));
+        assert_eq!(msg.role, "assistant");
+        assert_eq!(msg.content, "answer");
+        assert_eq!(msg.reasoning_content.as_deref(), Some("reasoning..."));
+        assert!(msg.tool_calls.is_none());
+    }
+
+    #[test]
+    fn message_assistant_with_thinking_none() {
+        let msg = Message::assistant_with_thinking("answer", None, None);
+        assert!(msg.reasoning_content.is_none());
+    }
+
+    #[test]
+    fn message_assistant_default_has_no_reasoning() {
+        let msg = Message::assistant("answer", None);
+        assert!(msg.reasoning_content.is_none());
     }
 }

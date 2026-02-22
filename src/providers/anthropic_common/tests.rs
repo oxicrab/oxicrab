@@ -410,3 +410,72 @@ fn test_parse_response_no_cache_tokens() {
     assert!(resp.cache_creation_input_tokens.is_none());
     assert!(resp.cache_read_input_tokens.is_none());
 }
+
+#[test]
+fn test_parse_response_thinking_block_with_thinking_key() {
+    // Anthropic API returns thinking in the "thinking" key
+    let json = json!({
+        "content": [
+            {"type": "thinking", "thinking": "Step 1: analyze the problem..."},
+            {"type": "text", "text": "Here is the answer."}
+        ]
+    });
+    let resp = parse_response(&json);
+    assert_eq!(resp.content.as_deref(), Some("Here is the answer."));
+    assert_eq!(
+        resp.reasoning_content.as_deref(),
+        Some("Step 1: analyze the problem...")
+    );
+}
+
+#[test]
+fn test_convert_assistant_message_with_thinking() {
+    let messages = vec![Message::assistant_with_thinking(
+        "The answer is 42.",
+        None,
+        Some("Let me reason about this...".to_string()),
+    )];
+    let (_, result) = convert_messages(messages);
+    assert_eq!(result.len(), 1);
+    let content = result[0].content.as_array().unwrap();
+    // Should have thinking block followed by text block
+    assert_eq!(content.len(), 2);
+    assert_eq!(content[0]["type"], "thinking");
+    assert_eq!(content[0]["thinking"], "Let me reason about this...");
+    assert_eq!(content[1]["type"], "text");
+    assert_eq!(content[1]["text"], "The answer is 42.");
+}
+
+#[test]
+fn test_convert_assistant_no_thinking_no_extra_block() {
+    let messages = vec![Message::assistant("Just text", None)];
+    let (_, result) = convert_messages(messages);
+    let content = result[0].content.as_array().unwrap();
+    // Should have only text block, no thinking
+    assert_eq!(content.len(), 1);
+    assert_eq!(content[0]["type"], "text");
+}
+
+#[test]
+fn test_thinking_roundtrip_parse_then_convert() {
+    // Parse a response with thinking, then convert it back
+    let api_response = json!({
+        "content": [
+            {"type": "thinking", "thinking": "Working through the math..."},
+            {"type": "text", "text": "The result is 7."}
+        ]
+    });
+    let resp = parse_response(&api_response);
+
+    // Build a Message from the response (as the agent loop does)
+    let msg = Message::assistant_with_thinking(resp.content.unwrap(), None, resp.reasoning_content);
+
+    // Convert back to Anthropic format
+    let (_, converted) = convert_messages(vec![msg]);
+    let content = converted[0].content.as_array().unwrap();
+    assert_eq!(content.len(), 2);
+    assert_eq!(content[0]["type"], "thinking");
+    assert_eq!(content[0]["thinking"], "Working through the math...");
+    assert_eq!(content[1]["type"], "text");
+    assert_eq!(content[1]["text"], "The result is 7.");
+}

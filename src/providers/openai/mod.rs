@@ -135,10 +135,15 @@ impl OpenAIProvider {
             .and_then(|u| u.get("completion_tokens"))
             .and_then(serde_json::Value::as_u64);
 
+        // DeepSeek-R1 and similar models return reasoning in this field
+        let reasoning_content = message["reasoning_content"]
+            .as_str()
+            .map(std::string::ToString::to_string);
+
         Ok(LLMResponse {
             content,
             tool_calls,
-            reasoning_content: None,
+            reasoning_content,
             input_tokens,
             output_tokens,
             cache_creation_input_tokens: None,

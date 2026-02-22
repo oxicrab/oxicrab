@@ -301,9 +301,14 @@ impl ContextBuilder {
                     warn!("skipping history message with invalid role: {}", role);
                     continue;
                 }
+                let reasoning = msg
+                    .get("reasoning_content")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
                 messages.push(crate::providers::base::Message {
                     role: role.to_string(),
                     content: content.to_string(),
+                    reasoning_content: reasoning,
                     ..Default::default()
                 });
             }
@@ -342,9 +347,13 @@ impl ContextBuilder {
         messages: &mut Vec<crate::providers::base::Message>,
         content: Option<&str>,
         tool_calls: Option<Vec<crate::providers::base::ToolCallRequest>>,
-        _reasoning_content: Option<&str>,
+        reasoning_content: Option<&str>,
     ) {
-        let msg = crate::providers::base::Message::assistant(content.unwrap_or(""), tool_calls);
+        let msg = crate::providers::base::Message::assistant_with_thinking(
+            content.unwrap_or(""),
+            tool_calls,
+            reasoning_content.map(String::from),
+        );
         messages.push(msg);
     }
 }

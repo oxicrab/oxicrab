@@ -58,6 +58,16 @@ pub fn convert_messages(messages: Vec<Message>) -> (Option<String>, Vec<Anthropi
             "assistant" => {
                 let mut content: Vec<Value> = Vec::new();
 
+                // Replay thinking block before text/tool_use blocks
+                if let Some(ref thinking) = msg.reasoning_content
+                    && !thinking.is_empty()
+                {
+                    content.push(json!({
+                        "type": "thinking",
+                        "thinking": thinking
+                    }));
+                }
+
                 // Only include text block if content is non-empty
                 // (Anthropic API rejects empty text content blocks)
                 if !msg.content.is_empty() {
@@ -196,8 +206,11 @@ pub fn parse_response(json: &Value) -> LLMResponse {
                     });
                 }
                 Some("thinking") => {
-                    reasoning_content =
-                        block["text"].as_str().map(std::string::ToString::to_string);
+                    // Anthropic API uses "thinking" key; some versions use "text"
+                    reasoning_content = block["thinking"]
+                        .as_str()
+                        .or_else(|| block["text"].as_str())
+                        .map(std::string::ToString::to_string);
                 }
                 _ => {}
             }

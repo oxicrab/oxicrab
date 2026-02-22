@@ -215,6 +215,7 @@ impl PromptGuidedToolsProvider {
                         tool_call_id: None,
                         is_error: msg.is_error,
                         images: msg.images.clone(),
+                        ..Default::default()
                     });
                     injected_tools = true;
                 }
@@ -241,6 +242,7 @@ impl PromptGuidedToolsProvider {
                         tool_call_id: None,
                         is_error: false,
                         images: msg.images.clone(),
+                        ..Default::default()
                     });
                 }
                 "tool" => {
@@ -254,6 +256,7 @@ impl PromptGuidedToolsProvider {
                         tool_call_id: None,
                         is_error: false,
                         images: vec![],
+                        ..Default::default()
                     });
                 }
                 _ => {
@@ -280,6 +283,7 @@ impl PromptGuidedToolsProvider {
                     tool_call_id: None,
                     is_error: false,
                     images: vec![],
+                    ..Default::default()
                 },
             );
         }
