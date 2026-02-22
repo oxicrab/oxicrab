@@ -28,7 +28,7 @@ channel-telegram = ["dep:teloxide"]
 channel-discord = ["dep:serenity"]
 channel-slack = ["dep:tokio-tungstenite"]
 channel-whatsapp = ["dep:whatsapp-rust", "dep:whatsapp-rust-tokio-transport", "dep:whatsapp-rust-ureq-http-client", "dep:qr2term", "dep:qrcode"]
-channel-twilio = ["dep:hmac", "dep:sha1"]
+channel-twilio = ["dep:sha1"]
 
 [dependencies]
 anyhow = "1.0"
@@ -48,7 +48,7 @@ fs2 = "0.4"
 form_urlencoded = "1.2"
 futures-util = "0.3"
 hex = "0.4"
-hmac = { version = "0.12", optional = true }
+hmac = "0.12"
 html-escape = "0.2"
 indexmap = "2"
 keyring = { version = "3", optional = true }

@@ -479,6 +479,8 @@ async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> 
         &config.gateway.host,
         config.gateway.port,
         Arc::new(inbound_tx.clone()),
+        Some(outbound_tx.clone()),
+        config.gateway.webhooks.clone(),
     )
     .await?;
 

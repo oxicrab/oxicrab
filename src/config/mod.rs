@@ -11,5 +11,6 @@ pub use schema::{
     GoogleConfig, ImageGenConfig, McpConfig, MediaConfig, MemoryConfig, ModelCost, ObsidianConfig,
     PromptGuardAction, PromptGuardConfig, ProviderConfig, ProvidersConfig, SandboxConfig,
     SlackConfig, TelegramConfig, TodoistConfig, ToolsConfig, TranscriptionConfig, TwilioConfig,
-    VoiceConfig, WeatherConfig, WebSearchConfig, WhatsAppConfig, normalize_provider,
+    VoiceConfig, WeatherConfig, WebSearchConfig, WebhookConfig, WebhookTarget, WhatsAppConfig,
+    normalize_provider,
 };

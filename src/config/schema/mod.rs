@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::warn;
 
@@ -90,6 +91,8 @@ pub struct GatewayConfig {
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    #[serde(default)]
+    pub webhooks: HashMap<String, WebhookConfig>,
 }
 
 impl Default for GatewayConfig {
@@ -97,8 +100,41 @@ impl Default for GatewayConfig {
         Self {
             host: default_host(),
             port: default_port(),
+            webhooks: HashMap::new(),
         }
     }
+}
+
+/// Configuration for a named webhook receiver endpoint.
+///
+/// Each webhook is available at `POST /api/webhook/{name}`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookConfig {
+    /// HMAC-SHA256 secret for signature validation.
+    pub secret: String,
+    /// Template for the message sent to the agent. Use `{{key}}` for JSON payload fields,
+    /// `{{body}}` for the raw body.
+    #[serde(default = "default_webhook_template")]
+    pub template: String,
+    /// Target channels to deliver the agent response to.
+    #[serde(default)]
+    pub targets: Vec<WebhookTarget>,
+    /// If true, the webhook payload is routed through the agent loop.
+    /// If false (default), the templated message is delivered directly to targets.
+    #[serde(default, rename = "agentTurn")]
+    pub agent_turn: bool,
+}
+
+fn default_webhook_template() -> String {
+    "{{body}}".to_string()
+}
+
+/// Target channel for webhook delivery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookTarget {
+    pub channel: String,
+    #[serde(rename = "chatId")]
+    pub chat_id: String,
 }
 
 // ---------------------------------------------------------------------------

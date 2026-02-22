@@ -1,24 +1,36 @@
 /// HTTP API server for the gateway.
 ///
-/// Provides a REST endpoint for programmatic access to the agent.
+/// Provides REST endpoints for programmatic access to the agent and
+/// generic webhook receivers for external service integrations.
 /// Integrates with the existing `MessageBus` for inbound/outbound routing.
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
-use axum::extract::State;
-use axum::http::StatusCode;
+use axum::body::Bytes;
+use axum::extract::{Path, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
+use subtle::ConstantTimeEq;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::bus::InboundMessage;
 use crate::bus::OutboundMessage;
+use crate::config::schema::{WebhookConfig, WebhookTarget};
+
+type HmacSha256 = Hmac<Sha256>;
+
+/// Max webhook payload size: 1 MB.
+const WEBHOOK_MAX_BODY: usize = 1_048_576;
 
 /// Timeout for waiting on agent response (2 minutes, matching provider timeout).
 const RESPONSE_TIMEOUT_SECS: u64 = 120;
@@ -28,6 +40,8 @@ const RESPONSE_TIMEOUT_SECS: u64 = 120;
 pub struct HttpApiState {
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<OutboundMessage>>>>,
+    webhooks: Arc<HashMap<String, WebhookConfig>>,
+    outbound_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>,
 }
 
 /// Request body for POST /api/chat.
@@ -60,6 +74,7 @@ fn build_router(state: HttpApiState) -> Router {
     Router::new()
         .route("/api/chat", post(chat_handler))
         .route("/api/health", get(health_handler))
+        .route("/api/webhook/{name}", post(webhook_handler))
         .with_state(state)
 }
 
@@ -164,16 +179,230 @@ async fn health_handler() -> impl IntoResponse {
     }))
 }
 
+/// Validate HMAC-SHA256 signature against a payload.
+fn validate_webhook_signature(secret: &str, signature: &str, body: &[u8]) -> bool {
+    let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
+        return false;
+    };
+    mac.update(body);
+    let result = mac.finalize();
+    let expected = hex::encode(result.into_bytes());
+
+    // Support both raw hex and "sha256=..." prefix (GitHub-style)
+    let sig = signature.strip_prefix("sha256=").unwrap_or(signature);
+    expected.as_bytes().ct_eq(sig.as_bytes()).into()
+}
+
+/// Apply a template string, substituting `{{key}}` with JSON payload values.
+/// `{{body}}` is replaced with the raw body string.
+fn apply_template(template: &str, body_str: &str, json: Option<&serde_json::Value>) -> String {
+    let mut result = template.replace("{{body}}", body_str);
+    if let Some(serde_json::Value::Object(map)) = json {
+        for (key, value) in map {
+            let placeholder = format!("{{{{{}}}}}", key);
+            let replacement = match value {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            result = result.replace(&placeholder, &replacement);
+        }
+    }
+    result
+}
+
+/// POST /api/webhook/{name} — receive a webhook from an external service.
+async fn webhook_handler(
+    State(state): State<HttpApiState>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    // Look up webhook config
+    let Some(config) = state.webhooks.get(&name) else {
+        debug!("webhook: unknown webhook name={}", name);
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    // Enforce max body size
+    if body.len() > WEBHOOK_MAX_BODY {
+        warn!("webhook {}: payload too large ({} bytes)", name, body.len());
+        return StatusCode::PAYLOAD_TOO_LARGE.into_response();
+    }
+
+    // Extract signature from headers (check common header names)
+    let signature = headers
+        .get("X-Signature-256")
+        .or_else(|| headers.get("X-Hub-Signature-256"))
+        .or_else(|| headers.get("X-Webhook-Signature"))
+        .and_then(|v| v.to_str().ok());
+
+    let Some(signature) = signature else {
+        warn!("webhook {}: missing signature header", name);
+        return StatusCode::FORBIDDEN.into_response();
+    };
+
+    // Validate HMAC-SHA256 signature
+    if !validate_webhook_signature(&config.secret, signature, &body) {
+        warn!("webhook {}: invalid signature", name);
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    debug!(
+        "webhook {}: signature valid, payload_len={}",
+        name,
+        body.len()
+    );
+
+    // Parse body as string and optionally as JSON
+    let body_str = String::from_utf8_lossy(&body);
+    let json_value: Option<serde_json::Value> = serde_json::from_slice(&body).ok();
+
+    // Apply template
+    let message = apply_template(&config.template, &body_str, json_value.as_ref());
+
+    if config.agent_turn {
+        // Route through agent loop — publish as inbound message and wait for response
+        let request_id = format!("webhook-{}-{}", name, Uuid::new_v4());
+
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut pending = state
+                .pending
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            pending.insert(request_id.clone(), tx);
+        }
+
+        let inbound = InboundMessage {
+            channel: "http".to_string(),
+            sender_id: format!("webhook:{}", name),
+            chat_id: request_id.clone(),
+            content: message,
+            timestamp: chrono::Utc::now(),
+            media: vec![],
+            metadata: {
+                let mut meta = HashMap::new();
+                meta.insert(
+                    "webhook_name".to_string(),
+                    serde_json::Value::String(name.clone()),
+                );
+                meta
+            },
+        };
+
+        if let Err(e) = state.inbound_tx.send(inbound).await {
+            let mut pending = state
+                .pending
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            pending.remove(&request_id);
+            error!("webhook {}: failed to publish inbound message: {}", name, e);
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+
+        // Wait for agent response, then forward to targets
+        match tokio::time::timeout(Duration::from_secs(RESPONSE_TIMEOUT_SECS), rx).await {
+            Ok(Ok(response)) => {
+                deliver_to_targets(&state, &config.targets, &response.content, &name).await;
+                Json(serde_json::json!({
+                    "status": "ok",
+                    "delivered": true
+                }))
+                .into_response()
+            }
+            Ok(Err(_)) => {
+                warn!("webhook {}: response channel closed", name);
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            }
+            Err(_) => {
+                let mut pending = state
+                    .pending
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                pending.remove(&request_id);
+                warn!("webhook {}: agent response timed out", name);
+                StatusCode::GATEWAY_TIMEOUT.into_response()
+            }
+        }
+    } else {
+        // Direct delivery — send templated message to targets without agent
+        deliver_to_targets(&state, &config.targets, &message, &name).await;
+        Json(serde_json::json!({
+            "status": "ok",
+            "delivered": true
+        }))
+        .into_response()
+    }
+}
+
+/// Deliver a message to configured webhook targets via the outbound channel.
+async fn deliver_to_targets(
+    state: &HttpApiState,
+    targets: &[WebhookTarget],
+    content: &str,
+    webhook_name: &str,
+) {
+    let Some(ref outbound_tx) = state.outbound_tx else {
+        warn!(
+            "webhook {}: no outbound sender configured, cannot deliver to targets",
+            webhook_name
+        );
+        return;
+    };
+
+    for target in targets {
+        let msg = OutboundMessage {
+            channel: target.channel.clone(),
+            chat_id: target.chat_id.clone(),
+            content: content.to_string(),
+            reply_to: None,
+            media: vec![],
+            metadata: {
+                let mut meta = HashMap::new();
+                meta.insert(
+                    "webhook_source".to_string(),
+                    serde_json::Value::String(webhook_name.to_string()),
+                );
+                meta
+            },
+        };
+        if let Err(e) = outbound_tx.send(msg).await {
+            error!(
+                "webhook {}: failed to deliver to {}:{}: {}",
+                webhook_name, target.channel, target.chat_id, e
+            );
+        } else {
+            debug!(
+                "webhook {}: delivered to {}:{}",
+                webhook_name, target.channel, target.chat_id
+            );
+        }
+    }
+}
+
 /// Start the HTTP API server. Returns a join handle and the shared state
 /// (needed by the outbound router to deliver responses).
-pub async fn start(
+pub async fn start<S: BuildHasher>(
     host: &str,
     port: u16,
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
+    outbound_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>,
+    webhooks: HashMap<String, WebhookConfig, S>,
 ) -> Result<(tokio::task::JoinHandle<()>, HttpApiState)> {
+    let webhook_map: HashMap<String, WebhookConfig> = webhooks.into_iter().collect();
+    if !webhook_map.is_empty() {
+        info!(
+            "registered {} webhook endpoint(s): {}",
+            webhook_map.len(),
+            webhook_map.keys().cloned().collect::<Vec<_>>().join(", ")
+        );
+    }
+
     let state = HttpApiState {
         inbound_tx,
         pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(webhook_map),
+        outbound_tx,
     };
 
     let app = build_router(state.clone());
@@ -216,22 +445,24 @@ pub fn route_response(state: &HttpApiState, msg: OutboundMessage) -> bool {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_health_response_contains_version() {
-        // Just verify the module compiles and types are correct
-        let state = HttpApiState {
+    fn make_state() -> HttpApiState {
+        HttpApiState {
             inbound_tx: Arc::new(mpsc::channel(1).0),
             pending: Arc::new(Mutex::new(HashMap::new())),
-        };
+            webhooks: Arc::new(HashMap::new()),
+            outbound_tx: None,
+        }
+    }
+
+    #[test]
+    fn test_health_response_contains_version() {
+        let state = make_state();
         let _router = build_router(state);
     }
 
     #[test]
     fn test_route_response_non_http_returns_false() {
-        let state = HttpApiState {
-            inbound_tx: Arc::new(mpsc::channel(1).0),
-            pending: Arc::new(Mutex::new(HashMap::new())),
-        };
+        let state = make_state();
         let msg = OutboundMessage {
             channel: "telegram".to_string(),
             chat_id: "123".to_string(),
@@ -245,10 +476,7 @@ mod tests {
 
     #[test]
     fn test_route_response_http_with_pending() {
-        let state = HttpApiState {
-            inbound_tx: Arc::new(mpsc::channel(1).0),
-            pending: Arc::new(Mutex::new(HashMap::new())),
-        };
+        let state = make_state();
         let (tx, mut rx) = oneshot::channel();
         state
             .pending
@@ -271,10 +499,7 @@ mod tests {
 
     #[test]
     fn test_route_response_http_no_pending() {
-        let state = HttpApiState {
-            inbound_tx: Arc::new(mpsc::channel(1).0),
-            pending: Arc::new(Mutex::new(HashMap::new())),
-        };
+        let state = make_state();
         let msg = OutboundMessage {
             channel: "http".to_string(),
             chat_id: "nonexistent".to_string(),
@@ -285,5 +510,60 @@ mod tests {
         };
         // Should not panic, just return true (consumed) and warn
         assert!(route_response(&state, msg));
+    }
+
+    #[test]
+    fn test_validate_webhook_signature_valid() {
+        let secret = "test-secret";
+        let body = b"hello world";
+        // Compute expected signature
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body);
+        let sig = hex::encode(mac.finalize().into_bytes());
+        assert!(validate_webhook_signature(secret, &sig, body));
+    }
+
+    #[test]
+    fn test_validate_webhook_signature_with_prefix() {
+        let secret = "test-secret";
+        let body = b"hello world";
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body);
+        let sig = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
+        assert!(validate_webhook_signature(secret, &sig, body));
+    }
+
+    #[test]
+    fn test_validate_webhook_signature_invalid() {
+        assert!(!validate_webhook_signature(
+            "secret",
+            "bad-signature",
+            b"body"
+        ));
+    }
+
+    #[test]
+    fn test_apply_template_body_only() {
+        let result = apply_template("Event: {{body}}", "something happened", None);
+        assert_eq!(result, "Event: something happened");
+    }
+
+    #[test]
+    fn test_apply_template_json_keys() {
+        let json: serde_json::Value =
+            serde_json::json!({"repo": "oxicrab", "action": "push", "count": 3});
+        let result = apply_template(
+            "{{action}} to {{repo}} ({{count}} commits)",
+            "",
+            Some(&json),
+        );
+        assert_eq!(result, "push to oxicrab (3 commits)");
+    }
+
+    #[test]
+    fn test_apply_template_missing_key_preserved() {
+        let json: serde_json::Value = serde_json::json!({"name": "test"});
+        let result = apply_template("{{name}} {{missing}}", "", Some(&json));
+        assert_eq!(result, "test {{missing}}");
     }
 }
