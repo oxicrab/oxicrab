@@ -194,8 +194,15 @@ fn walk_simple_command(
         });
     }
 
-    // Check for interpreter inline execution
-    if INTERPRETERS.iter().any(|i| basename.starts_with(i)) {
+    // Check for interpreter inline execution.
+    // Match exact name or name with numeric version suffix (e.g. python3.11).
+    if INTERPRETERS.iter().any(|i| {
+        basename == *i
+            || (basename.starts_with(i)
+                && basename[i.len()..]
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || c == '.'))
+    }) {
         check_interpreter_inline_exec(basename, cmd, violations);
     }
 
@@ -282,6 +289,11 @@ fn check_prefix_suffix_item(
 }
 
 fn check_word_for_substitution(word: &ast::Word, violations: &mut Vec<AstViolation>) {
+    // NOTE: This is a conservative string-based check. The shell parser's AST
+    // Word.value contains the raw text including quotes, so patterns like
+    // `echo "$(cmd)"` will match even though the substitution is inside quotes
+    // (which is still dangerous — the shell executes it). False positives are
+    // preferred over false negatives for security.
     let value = &word.value;
     // Check for $(...) command substitution
     if value.contains("$(") {

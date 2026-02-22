@@ -31,7 +31,7 @@ fn test_cosine_similarity_mismatched_length() {
 fn test_serialize_deserialize_roundtrip() {
     let original = vec![1.0_f32, -0.5, 0.0, 3.1, f32::MIN, f32::MAX];
     let bytes = serialize_embedding(&original);
-    let restored = deserialize_embedding(&bytes);
+    let restored = deserialize_embedding(&bytes).unwrap();
     assert_eq!(original, restored);
 }
 
@@ -40,6 +40,21 @@ fn test_serialize_empty() {
     let v: Vec<f32> = vec![];
     let bytes = serialize_embedding(&v);
     assert!(bytes.is_empty());
-    let restored = deserialize_embedding(&bytes);
+    let restored = deserialize_embedding(&bytes).unwrap();
     assert!(restored.is_empty());
+}
+
+#[test]
+fn test_deserialize_corrupt_blob() {
+    // 5 bytes — not a multiple of 4
+    let bad = vec![0u8, 1, 2, 3, 4];
+    assert!(deserialize_embedding(&bad).is_err());
+}
+
+#[test]
+fn test_deserialize_truncated_blob() {
+    let good = serialize_embedding(&[1.0, 2.0]);
+    // Truncate to 7 bytes
+    let truncated = &good[..7];
+    assert!(deserialize_embedding(truncated).is_err());
 }

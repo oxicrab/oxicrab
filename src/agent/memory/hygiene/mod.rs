@@ -176,6 +176,12 @@ pub fn run_hygiene(db: &MemoryDB, memory_dir: &Path, archive_days: u32, purge_da
     if let Err(e) = cleanup_orphaned_entries(db, memory_dir) {
         warn!("memory orphan cleanup failed: {}", e);
     }
+    // Purge old search access logs to prevent unbounded DB growth
+    match db.purge_old_search_logs(purge_days) {
+        Ok(n) if n > 0 => info!("purged {} old search log entries", n),
+        Err(e) => warn!("search log purge failed: {}", e),
+        _ => {}
+    }
 }
 
 #[cfg(test)]

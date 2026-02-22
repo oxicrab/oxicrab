@@ -33,10 +33,12 @@ pub fn sanitize_path(path: &Path, workspace: Option<&Path>) -> String {
         }
     }
 
-    // Under home — check if it's under workspace
+    // Under home — check if it's under workspace.
+    // We already verified path_str starts with home_str above, so using
+    // home_str.len() as the offset is safe (workspace must also be under home).
     if let Some(ws) = workspace {
         let ws_str = ws.to_string_lossy();
-        if path_str.starts_with(ws_str.as_ref()) {
+        if path_str.starts_with(ws_str.as_ref()) && path_str.is_char_boundary(home_str.len()) {
             // Collapse home to ~
             let rest = &path_str[home_str.len()..];
             return format!("~{rest}");
@@ -46,7 +48,7 @@ pub fn sanitize_path(path: &Path, workspace: Option<&Path>) -> String {
     // Under home + inside ~/.oxicrab → collapse to ~
     let oxicrab_dir = home.join(".oxicrab");
     let oxicrab_str = oxicrab_dir.to_string_lossy();
-    if path_str.starts_with(oxicrab_str.as_ref()) {
+    if path_str.starts_with(oxicrab_str.as_ref()) && path_str.is_char_boundary(home_str.len()) {
         let rest = &path_str[home_str.len()..];
         return format!("~{rest}");
     }

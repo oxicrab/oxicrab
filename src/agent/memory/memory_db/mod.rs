@@ -44,32 +44,24 @@ pub struct MemoryDB {
 impl Clone for MemoryDB {
     fn clone(&self) -> Self {
         // Re-open a connection for clones (rare, needed for spawn_blocking patterns).
-        // Falls back to in-memory DB on failure to avoid panicking the process.
-        let (new_conn, has_fts) = match Connection::open(&self.db_path) {
-            Ok(conn) => {
-                let _ = conn.execute_batch(
-                    "PRAGMA journal_mode=WAL;
-                     PRAGMA synchronous=NORMAL;
-                     PRAGMA busy_timeout=3000;
-                     PRAGMA foreign_keys=ON;",
-                );
-                (conn, self.has_fts)
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "failed to re-open DB at {} for clone: {} — using in-memory fallback",
-                    self.db_path,
-                    e
-                );
-                let conn =
-                    Connection::open_in_memory().expect("in-memory SQLite should always succeed");
-                (conn, false)
-            }
-        };
+        // Panics on failure because callers depend on the clone being connected
+        // to the same database file — an in-memory fallback would silently lose data.
+        let conn = Connection::open(&self.db_path).unwrap_or_else(|e| {
+            panic!(
+                "failed to re-open memory DB at {} for clone: {}",
+                self.db_path, e
+            )
+        });
+        let _ = conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
+             PRAGMA busy_timeout=3000;
+             PRAGMA foreign_keys=ON;",
+        );
         Self {
-            conn: std::sync::Mutex::new(new_conn),
+            conn: std::sync::Mutex::new(conn),
             db_path: self.db_path.clone(),
-            has_fts,
+            has_fts: self.has_fts,
         }
     }
 }
@@ -84,6 +76,13 @@ impl MemoryDB {
                     parent.display()
                 )
             })?;
+        }
+
+        const {
+            assert!(
+                MIN_CHUNK_SIZE < MAX_CHUNK_SIZE,
+                "MIN_CHUNK_SIZE must be less than MAX_CHUNK_SIZE"
+            );
         }
 
         let conn = Connection::open(db_path)
@@ -390,6 +389,10 @@ impl MemoryDB {
     ) -> Result<Vec<MemoryHit>> {
         use crate::agent::memory::embeddings::{cosine_similarity, deserialize_embedding};
 
+        if query_embedding.is_empty() {
+            anyhow::bail!("query embedding is empty");
+        }
+
         let default_set = std::collections::HashSet::new();
         let exclude = exclude_sources.unwrap_or(&default_set);
 
@@ -459,7 +462,13 @@ impl MemoryDB {
         if keyword_weight < 1.0 {
             let all_embeddings = self.get_all_embeddings(exclude_sources)?;
             for (entry_id, content, emb_bytes) in &all_embeddings {
-                let emb = deserialize_embedding(emb_bytes);
+                let emb = match deserialize_embedding(emb_bytes) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        tracing::warn!("skipping corrupted embedding for entry {entry_id}: {e}");
+                        continue;
+                    }
+                };
                 let sim = cosine_similarity(query_embedding, &emb);
                 // Cosine similarity is already in [-1, 1]; clamp to [0, 1]
                 let score = sim.max(0.0);
@@ -781,6 +790,29 @@ impl MemoryDB {
             })?
             .collect();
         rows.map_err(|e| anyhow::anyhow!("failed to get top sources: {}", e))
+    }
+
+    /// Purge search access logs older than `days`. Returns number of rows deleted.
+    /// Also cleans up orphaned `memory_search_hits` referencing deleted logs.
+    pub fn purge_old_search_logs(&self, days: u32) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
+        let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
+        // Delete orphaned hits first (FK has no CASCADE)
+        conn.execute(
+            "DELETE FROM memory_search_hits WHERE access_log_id IN (
+                 SELECT id FROM memory_access_log WHERE created_at < ?
+             )",
+            [&cutoff_str],
+        )?;
+        let deleted = conn.execute(
+            "DELETE FROM memory_access_log WHERE created_at < ?",
+            [&cutoff_str],
+        )?;
+        Ok(deleted)
     }
 
     pub fn search(

@@ -70,14 +70,23 @@ pub fn serialize_embedding(v: &[f32]) -> Vec<u8> {
 }
 
 /// Deserialize an embedding from little-endian bytes.
-pub fn deserialize_embedding(bytes: &[u8]) -> Vec<f32> {
-    bytes
+///
+/// Returns an error if the byte slice length is not a multiple of 4
+/// (indicating corruption or truncation).
+pub fn deserialize_embedding(bytes: &[u8]) -> Result<Vec<f32>> {
+    if !bytes.len().is_multiple_of(4) {
+        anyhow::bail!(
+            "invalid embedding blob: {} bytes (not a multiple of 4)",
+            bytes.len()
+        );
+    }
+    Ok(bytes
         .chunks_exact(4)
         .map(|chunk| {
-            let arr: [u8; 4] = chunk.try_into().expect("chunk is exactly 4 bytes");
+            let arr: [u8; 4] = chunk.try_into().unwrap();
             f32::from_le_bytes(arr)
         })
-        .collect()
+        .collect())
 }
 
 #[cfg(test)]
