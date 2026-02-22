@@ -111,6 +111,7 @@ panic = "unwind"      # Unwind on panic (required for tool panic isolation via t
 
 [dev-dependencies]
 proptest = "1.4"
+tower = { version = "0.5", features = ["util"] }
 wiremock = "0.6.5"
 
 [package.metadata.deb]

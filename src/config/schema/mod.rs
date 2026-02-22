@@ -87,6 +87,8 @@ fn default_port() -> u16 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     #[serde(default = "default_host")]
     pub host: String,
     #[serde(default = "default_port")]
@@ -98,6 +100,7 @@ pub struct GatewayConfig {
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             host: default_host(),
             port: default_port(),
             webhooks: HashMap::new(),
@@ -110,6 +113,9 @@ impl Default for GatewayConfig {
 /// Each webhook is available at `POST /api/webhook/{name}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookConfig {
+    /// Whether this webhook is active. Disabled webhooks return 404.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     /// HMAC-SHA256 secret for signature validation.
     pub secret: String,
     /// Template for the message sent to the agent. Use `{{key}}` for JSON payload fields,

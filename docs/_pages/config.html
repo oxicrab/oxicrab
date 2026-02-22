@@ -607,10 +607,12 @@ max_width: 820px
 
         <pre><code>{
   "gateway": {
-    "host": "0.0.0.0",
+    "enabled": true,
+    "host": "127.0.0.1",
     "port": 18790,
     "webhooks": {
       "github": {
+        "enabled": true,
         "secret": "your-hmac-secret",
         "template": "GitHub {{action}} on {{repository.full_name}}: {{body}}",
         "targets": [{"channel": "slack", "chatId": "C12345"}],
@@ -622,6 +624,7 @@ max_width: 820px
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>true</td><td>Enable or disable the HTTP gateway server</td></tr>
             <tr><td>host</td><td>string</td><td>127.0.0.1</td><td>Bind address for the gateway HTTP server</td></tr>
             <tr><td>port</td><td>u16</td><td>18790</td><td>Port for the gateway HTTP server</td></tr>
             <tr><td>webhooks</td><td>object</td><td>{}</td><td>Named webhook receivers (see below)</td></tr>
@@ -639,6 +642,7 @@ max_width: 820px
         <p>Each entry in <code>webhooks</code> creates a receiver at <code>POST /api/webhook/{name}</code>. Payloads are validated with HMAC-SHA256 signature verification (constant-time comparison).</p>
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>true</td><td>Enable or disable this webhook endpoint. Disabled webhooks return 404</td></tr>
             <tr><td>secret</td><td>string</td><td>&mdash;</td><td>HMAC-SHA256 secret for signature validation</td></tr>
             <tr><td>template</td><td>string</td><td>{{body}}</td><td>Message template. Use <code>{{key}}</code> for JSON payload fields, <code>{{body}}</code> for raw body</td></tr>
             <tr><td>targets</td><td>array</td><td>[]</td><td>Delivery targets: <code>[{"channel": "slack", "chatId": "C12345"}]</code></td></tr>

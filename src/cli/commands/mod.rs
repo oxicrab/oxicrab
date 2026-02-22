@@ -475,30 +475,40 @@ async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> 
     let heartbeat = setup_heartbeat(&config, &agent);
 
     // Start HTTP API server (needs inbound_tx clone before channels takes ownership)
-    let (_http_task, http_state) = crate::gateway::start(
-        &config.gateway.host,
-        config.gateway.port,
-        Arc::new(inbound_tx.clone()),
-        Some(outbound_tx.clone()),
-        config.gateway.webhooks.clone(),
-    )
-    .await?;
+    let http_state = if config.gateway.enabled {
+        let (_http_task, state) = crate::gateway::start(
+            &config.gateway.host,
+            config.gateway.port,
+            Arc::new(inbound_tx.clone()),
+            Some(outbound_tx.clone()),
+            config.gateway.webhooks.clone(),
+        )
+        .await?;
+        Some(state)
+    } else {
+        info!("HTTP API server disabled");
+        None
+    };
 
     let channels = setup_channels(&config, inbound_tx);
 
     println!("Starting oxicrab gateway...");
     println!("Enabled channels: {:?}", channels.enabled_channels());
-    println!(
-        "HTTP API listening on {}:{}",
-        config.gateway.host, config.gateway.port
-    );
+    if config.gateway.enabled {
+        println!(
+            "HTTP API listening on {}:{}",
+            config.gateway.host, config.gateway.port
+        );
+    } else {
+        println!("HTTP API server: disabled");
+    }
 
     // Start services
     start_services(cron.clone(), heartbeat.clone()).await?;
 
     // Run agent and channels
     let agent_task = start_agent_loop(agent.clone());
-    let channels_task = start_channels_loop(channels, outbound_rx, typing_rx, Some(http_state));
+    let channels_task = start_channels_loop(channels, outbound_rx, typing_rx, http_state);
 
     info!("All services started, gateway is running");
 
