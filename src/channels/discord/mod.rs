@@ -274,6 +274,10 @@ impl EventHandler for Handler {
             }
         }
 
+        let mut metadata = HashMap::new();
+        // guild_id is present for server channels (groups), absent for DMs
+        let is_group = msg.guild_id.is_some();
+        metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
         let inbound_msg = InboundMessage {
             channel: "discord".to_string(),
             sender_id,
@@ -281,7 +285,7 @@ impl EventHandler for Handler {
             content,
             timestamp: Utc::now(),
             media: media_paths,
-            metadata: HashMap::new(),
+            metadata,
         };
 
         if let Err(e) = self.inbound_tx.send(inbound_msg).await {

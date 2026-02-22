@@ -752,6 +752,11 @@ impl AgentLoop {
         };
 
         debug!("Acquiring context lock");
+        let is_group = msg
+            .metadata
+            .get("is_group")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         let messages = {
             let mut ctx = self.context.lock().await;
             ctx.build_messages(
@@ -761,6 +766,7 @@ impl AgentLoop {
                 Some(&msg.chat_id),
                 Some(&msg.sender_id),
                 images,
+                is_group,
             )?
         };
         debug!("Built {} messages, starting agent loop", messages.len());
@@ -1557,6 +1563,7 @@ impl AgentLoop {
                 Some(origin_chat_id.as_str()),
                 None,
                 vec![],
+                false, // background tasks are not group-scoped
             )?
         };
 
@@ -1639,6 +1646,7 @@ impl AgentLoop {
                 Some(chat_id),
                 None,
                 vec![],
+                false, // process_direct is not group-scoped
             )?
         };
 

@@ -68,6 +68,10 @@ impl ContextBuilder {
         _skill_names: Option<&[String]>,
         query: Option<&str>,
     ) -> Result<String> {
+        self.build_system_prompt_inner(query, false)
+    }
+
+    fn build_system_prompt_inner(&mut self, query: Option<&str>, is_group: bool) -> Result<String> {
         let mut parts = Vec::new();
 
         // Core identity
@@ -79,8 +83,12 @@ impl ContextBuilder {
             parts.push(bootstrap);
         }
 
-        // Memory context
-        let memory = self.memory.get_memory_context(query)?;
+        // Memory context (skip personal memory in group chats)
+        let memory = if is_group {
+            self.memory.get_memory_context_scoped(query, true)?
+        } else {
+            self.memory.get_memory_context(query)?
+        };
         if !memory.is_empty() {
             parts.push(format!("# Memory\n\n{}", memory));
         }
@@ -260,6 +268,7 @@ impl ContextBuilder {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn build_messages(
         &mut self,
         history: &[HashMap<String, serde_json::Value>],
@@ -268,11 +277,12 @@ impl ContextBuilder {
         chat_id: Option<&str>,
         sender_id: Option<&str>,
         images: Vec<crate::providers::base::ImageData>,
+        is_group: bool,
     ) -> Result<Vec<crate::providers::base::Message>> {
         let mut messages = Vec::new();
 
         // System prompt
-        let mut system_prompt = self.build_system_prompt(None, Some(current_message))?;
+        let mut system_prompt = self.build_system_prompt_inner(Some(current_message), is_group)?;
         if let (Some(ch), Some(cid)) = (channel, chat_id) {
             let mut session_info =
                 format!("\n\n## Current Session\nChannel: {}\nChat ID: {}", ch, cid);

@@ -198,6 +198,7 @@ async fn test_build_messages_includes_sender_id() {
             Some("123"),
             Some("user42"),
             vec![],
+            false,
         )
         .unwrap();
 
@@ -214,7 +215,15 @@ async fn test_build_messages_no_sender_id() {
     let mut ctx = create_test_context(tmp.path());
 
     let messages = ctx
-        .build_messages(&[], "hello", Some("telegram"), Some("123"), None, vec![])
+        .build_messages(
+            &[],
+            "hello",
+            Some("telegram"),
+            Some("123"),
+            None,
+            vec![],
+            false,
+        )
         .unwrap();
 
     let system_msg = &messages[0];
@@ -241,6 +250,7 @@ async fn test_build_messages_with_images() {
             Some("123"),
             Some("user42"),
             images,
+            false,
         )
         .unwrap();
 
@@ -259,7 +269,15 @@ async fn test_build_messages_without_images() {
     let mut ctx = create_test_context(tmp.path());
 
     let messages = ctx
-        .build_messages(&[], "hello", Some("telegram"), Some("123"), None, vec![])
+        .build_messages(
+            &[],
+            "hello",
+            Some("telegram"),
+            Some("123"),
+            None,
+            vec![],
+            false,
+        )
         .unwrap();
 
     let user_msg = messages.last().unwrap();
@@ -293,6 +311,7 @@ async fn test_build_messages_includes_channel_hint() {
             Some("123"),
             Some("user42"),
             vec![],
+            false,
         )
         .unwrap();
 
@@ -325,5 +344,52 @@ fn test_bootstrap_files_constant() {
     assert!(
         !BOOTSTRAP_FILES.contains(&"IDENTITY.md"),
         "IDENTITY.md was renamed to AGENTS.md"
+    );
+}
+
+#[tokio::test]
+async fn test_build_messages_group_excludes_personal_memory() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut ctx = create_test_context(tmp.path());
+
+    // Write personal memory
+    let memory_dir = tmp.path().join("memory");
+    std::fs::create_dir_all(&memory_dir).unwrap();
+    std::fs::write(memory_dir.join("MEMORY.md"), "# Personal\nMy secret notes.").unwrap();
+
+    // DM mode: should include personal memory
+    let dm_msgs = ctx
+        .build_messages(
+            &[],
+            "hello",
+            Some("telegram"),
+            Some("123"),
+            None,
+            vec![],
+            false,
+        )
+        .unwrap();
+    let dm_system = &dm_msgs[0].content;
+    assert!(
+        dm_system.contains("My secret notes"),
+        "DM should include personal memory"
+    );
+
+    // Group mode: should NOT include personal memory
+    let group_msgs = ctx
+        .build_messages(
+            &[],
+            "hello",
+            Some("telegram"),
+            Some("-123"),
+            None,
+            vec![],
+            true,
+        )
+        .unwrap();
+    let group_system = &group_msgs[0].content;
+    assert!(
+        !group_system.contains("My secret notes"),
+        "group chat should NOT include personal memory"
     );
 }

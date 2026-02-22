@@ -141,6 +141,9 @@ impl BaseChannel for TelegramChannel {
                                     }
 
                                     if !content.trim().is_empty() || !media_paths.is_empty() {
+                                        let mut metadata = HashMap::new();
+                                        let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
+                                        metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
                                         let inbound_msg = InboundMessage {
                                             channel: "telegram".to_string(),
                                             sender_id,
@@ -148,7 +151,7 @@ impl BaseChannel for TelegramChannel {
                                             content,
                                             timestamp: Utc::now(),
                                             media: media_paths,
-                                            metadata: HashMap::new(),
+                                            metadata,
                                         };
                                         if let Err(e) = inbound_tx.send(inbound_msg).await {
                                             error!(
@@ -204,6 +207,9 @@ impl BaseChannel for TelegramChannel {
                                 }
 
                                 if !content.trim().is_empty() || !media_paths.is_empty() {
+                                    let mut metadata = HashMap::new();
+                                    let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
+                                    metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
                                     let inbound_msg = InboundMessage {
                                         channel: "telegram".to_string(),
                                         sender_id,
@@ -211,7 +217,7 @@ impl BaseChannel for TelegramChannel {
                                         content,
                                         timestamp: Utc::now(),
                                         media: media_paths,
-                                        metadata: HashMap::new(),
+                                        metadata,
                                     };
                                     if let Err(e) = inbound_tx.send(inbound_msg).await {
                                         error!(
@@ -286,6 +292,9 @@ impl BaseChannel for TelegramChannel {
                                 }
 
                                 if !content.trim().is_empty() || !media_paths.is_empty() {
+                                    let mut metadata = HashMap::new();
+                                    let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
+                                    metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
                                     let inbound_msg = InboundMessage {
                                         channel: "telegram".to_string(),
                                         sender_id,
@@ -293,7 +302,7 @@ impl BaseChannel for TelegramChannel {
                                         content,
                                         timestamp: Utc::now(),
                                         media: media_paths,
-                                        metadata: HashMap::new(),
+                                        metadata,
                                     };
                                     if let Err(e) = inbound_tx.send(inbound_msg).await {
                                         error!(
@@ -307,6 +316,9 @@ impl BaseChannel for TelegramChannel {
 
                             // Handle text-only messages
                             if let Some(text) = msg.text() {
+                                let mut metadata = HashMap::new();
+                                let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
+                                metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
                                 let inbound_msg = InboundMessage {
                                     channel: "telegram".to_string(),
                                     sender_id,
@@ -314,7 +326,7 @@ impl BaseChannel for TelegramChannel {
                                     content: text.to_string(),
                                     timestamp: Utc::now(),
                                     media: vec![],
-                                    metadata: HashMap::new(),
+                                    metadata,
                                 };
 
                                 if let Err(e) = inbound_tx.send(inbound_msg).await {

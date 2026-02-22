@@ -8,6 +8,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, warn};
 
+/// Check if a source key is a daily note file (e.g. "2026-02-22.md").
+fn is_daily_note_key(key: &str) -> bool {
+    key.len() == 13
+        && Path::new(key)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        && key.as_bytes()[4] == b'-'
+        && key.as_bytes()[7] == b'-'
+        && key[..4].bytes().all(|b| b.is_ascii_digit())
+}
+
 pub struct MemoryStore {
     memory_dir: PathBuf,
     db: Arc<MemoryDB>,
@@ -185,6 +196,12 @@ impl MemoryStore {
     }
 
     pub fn get_memory_context(&self, query: Option<&str>) -> Result<String> {
+        self.get_memory_context_scoped(query, false)
+    }
+
+    /// Get memory context with optional group scoping.
+    /// When `is_group` is true, personal memory (MEMORY.md, daily notes) is excluded.
+    pub fn get_memory_context_scoped(&self, query: Option<&str>, is_group: bool) -> Result<String> {
         // Trigger background indexing if indexer is available
         // This ensures fresh indexing without blocking the query
         if let Some(ref indexer) = self.indexer {
@@ -213,7 +230,11 @@ impl MemoryStore {
         // Search for relevant chunks if query provided
         let mut chunks = Vec::new();
         if let Some(query) = query {
-            let exclude: HashSet<String> = [today_key.clone()].iter().cloned().collect();
+            let mut exclude: HashSet<String> = [today_key.clone()].into_iter().collect();
+            // In group chats, also exclude personal memory files from search results
+            if is_group {
+                exclude.insert("MEMORY.md".to_string());
+            }
             let hits = if self.has_embeddings() {
                 match self.hybrid_search(query, 8, Some(&exclude)) {
                     Ok(h) => h,
@@ -226,22 +247,31 @@ impl MemoryStore {
                 self.db.search(query, 8, Some(&exclude))?
             };
             for hit in hits {
+                // In group mode, skip hits from daily notes (YYYY-MM-DD.md pattern)
+                if is_group && is_daily_note_key(&hit.source_key) {
+                    continue;
+                }
                 chunks.push(format!("**{}**: {}", hit.source_key, hit.content));
             }
         }
 
-        debug!("memory context: {} chunks from query", chunks.len());
+        debug!(
+            "memory context: {} chunks from query (is_group={})",
+            chunks.len(),
+            is_group
+        );
 
-        // Always include MEMORY.md content (fallback when no query or no FTS results)
-        if (chunks.is_empty() || query.is_none())
+        // Include MEMORY.md content only in DM/private chats
+        if !is_group
+            && (chunks.is_empty() || query.is_none())
             && let Ok(long_term) = self.read_long_term()
             && !long_term.trim().is_empty()
         {
             chunks.insert(0, format!("## Long-term Memory\n{}", long_term));
         }
 
-        // Include today's note (shared lock prevents torn reads during append_today)
-        if today_file.exists() {
+        // Include today's note only in DM/private chats
+        if !is_group && today_file.exists() {
             let _lock = Self::lock_daily_shared(&today_file);
             if let Ok(content) = std::fs::read_to_string(&today_file)
                 && !content.trim().is_empty()
@@ -309,5 +339,45 @@ impl MemoryStore {
             .ok()?;
         fs2::FileExt::lock_shared(&lock_file).ok()?;
         Some(lock_file)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_daily_note_key() {
+        assert!(is_daily_note_key("2026-02-22.md"));
+        assert!(is_daily_note_key("2025-12-31.md"));
+        assert!(!is_daily_note_key("MEMORY.md"));
+        assert!(!is_daily_note_key("notes.md"));
+        assert!(!is_daily_note_key("2026-02-22.txt"));
+        assert!(!is_daily_note_key("2026-02-22"));
+        assert!(!is_daily_note_key(""));
+    }
+
+    #[tokio::test]
+    async fn test_group_memory_context_excludes_personal() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let memory_dir = tmp.path().join("memory");
+        std::fs::create_dir_all(&memory_dir).unwrap();
+        std::fs::write(memory_dir.join("MEMORY.md"), "personal secret data").unwrap();
+
+        let store = MemoryStore::with_indexer_interval(tmp.path(), 0).unwrap();
+
+        // Normal mode includes MEMORY.md
+        let normal = store.get_memory_context(None).unwrap();
+        assert!(
+            normal.contains("personal secret data"),
+            "DM context should include MEMORY.md"
+        );
+
+        // Group mode excludes MEMORY.md
+        let group = store.get_memory_context_scoped(None, true).unwrap();
+        assert!(
+            !group.contains("personal secret data"),
+            "group context should NOT include MEMORY.md"
+        );
     }
 }
