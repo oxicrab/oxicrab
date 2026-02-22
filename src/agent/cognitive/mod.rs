@@ -18,25 +18,25 @@ pub struct CheckpointTracker {
 impl CheckpointTracker {
     pub fn new(mut config: CognitiveConfig) -> Self {
         // Ensure thresholds are properly ordered: gentle <= firm <= urgent
-        if config.gentle_threshold > config.firm_threshold {
+        let mut sorted = [
+            config.gentle_threshold,
+            config.firm_threshold,
+            config.urgent_threshold,
+        ];
+        sorted.sort_unstable();
+        if sorted[0] != config.gentle_threshold
+            || sorted[1] != config.firm_threshold
+            || sorted[2] != config.urgent_threshold
+        {
             tracing::warn!(
-                "cognitive gentle_threshold ({}) > firm_threshold ({}), swapping",
-                config.gentle_threshold,
-                config.firm_threshold
+                "cognitive thresholds reordered: gentle={}, firm={}, urgent={}",
+                sorted[0],
+                sorted[1],
+                sorted[2]
             );
-            std::mem::swap(&mut config.gentle_threshold, &mut config.firm_threshold);
-        }
-        if config.firm_threshold > config.urgent_threshold {
-            tracing::warn!(
-                "cognitive firm_threshold ({}) > urgent_threshold ({}), swapping",
-                config.firm_threshold,
-                config.urgent_threshold
-            );
-            std::mem::swap(&mut config.firm_threshold, &mut config.urgent_threshold);
-        }
-        // Re-check gentle after firm/urgent swap
-        if config.gentle_threshold > config.firm_threshold {
-            std::mem::swap(&mut config.gentle_threshold, &mut config.firm_threshold);
+            config.gentle_threshold = sorted[0];
+            config.firm_threshold = sorted[1];
+            config.urgent_threshold = sorted[2];
         }
 
         Self {
@@ -52,7 +52,7 @@ impl CheckpointTracker {
     /// Record one or more tool calls, incrementing the counter and maintaining
     /// a rolling window of recent tool names.
     pub fn record_tool_calls(&mut self, names: &[&str]) {
-        self.total_tool_calls += names.len() as u32;
+        self.total_tool_calls = self.total_tool_calls.saturating_add(names.len() as u32);
         for name in names {
             self.recent_tools.push_back((*name).to_string());
         }
@@ -113,9 +113,19 @@ impl CheckpointTracker {
     /// recovery context.
     pub fn breadcrumb(&self) -> String {
         let recent: Vec<&str> = self.recent_tools.iter().map(String::as_str).collect();
+        let pressure = if self.emitted_urgent {
+            "urgent"
+        } else if self.emitted_firm {
+            "firm"
+        } else if self.emitted_gentle {
+            "gentle"
+        } else {
+            "none"
+        };
         format!(
-            "[Cognitive state] {} tool calls since last checkpoint. Recent tools: [{}]",
+            "[Cognitive state] {} tool calls, pressure: {}. Recent tools: [{}]",
             self.total_tool_calls,
+            pressure,
             recent.join(", ")
         )
     }

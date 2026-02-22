@@ -113,9 +113,9 @@ impl McpManager {
         cmd.stderr(std::process::Stdio::inherit());
 
         let transport = TokioChildProcess::new(cmd)?;
-        let client = ()
-            .serve(transport)
+        let client = tokio::time::timeout(std::time::Duration::from_secs(30), ().serve(transport))
             .await
+            .map_err(|_| anyhow::anyhow!("MCP handshake timed out for server '{}' (30s)", name))?
             .map_err(|e| anyhow::anyhow!("MCP handshake failed for server '{}': {}", name, e))?;
 
         Ok(RunningMcpServer {
@@ -131,7 +131,19 @@ impl McpManager {
         let mut tools: Vec<(String, Arc<dyn Tool>)> = Vec::new();
 
         for server in &self.servers {
-            match server.client.peer().list_all_tools().await {
+            let Ok(mcp_tools_result) = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                server.client.peer().list_all_tools(),
+            )
+            .await
+            else {
+                warn!(
+                    "Tool discovery timed out for MCP server '{}' (10s)",
+                    server.server_name
+                );
+                continue;
+            };
+            match mcp_tools_result {
                 Ok(mcp_tools) => {
                     for mcp_tool in mcp_tools {
                         let description = mcp_tool.description.as_deref().unwrap_or("").to_string();

@@ -34,7 +34,7 @@ impl HeartbeatService {
         Self {
             workspace,
             on_heartbeat,
-            interval_s,
+            interval_s: interval_s.max(1),
             enabled,
             strategy_file,
             running: Arc::new(tokio::sync::Mutex::new(false)),
@@ -47,7 +47,13 @@ impl HeartbeatService {
             return Ok(());
         }
 
-        *self.running.lock().await = true;
+        let mut running_guard = self.running.lock().await;
+        if *running_guard {
+            return Ok(()); // Already running
+        }
+        *running_guard = true;
+        drop(running_guard);
+
         let running = self.running.clone();
         let interval = self.interval_s.max(1);
         let on_heartbeat = self.on_heartbeat.clone();
@@ -62,6 +68,11 @@ impl HeartbeatService {
                 }
 
                 tokio::time::sleep(tokio::time::Duration::from_secs(interval)).await;
+
+                // Re-check after sleep — stop() may have been called during the wait
+                if !*running.lock().await {
+                    break;
+                }
 
                 if let Some(ref callback) = on_heartbeat {
                     let prompt = format!(
