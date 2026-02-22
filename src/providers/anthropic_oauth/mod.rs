@@ -263,6 +263,23 @@ impl AnthropicOAuthProvider {
         Ok(())
     }
 
+    async fn send_chat_request(&self, token: &str, payload: &Value) -> Result<reqwest::Response> {
+        let mut request = self
+            .client
+            .post(API_URL)
+            .header("Authorization", format!("Bearer {}", token));
+
+        for (key, value) in claude_code_headers() {
+            request = request.header(key, value);
+        }
+
+        request
+            .json(payload)
+            .send()
+            .await
+            .context("failed to send request to Anthropic OAuth API")
+    }
+
     async fn save_credentials(&self, path: &Path) {
         let data = json!({
             "access_token": *self.access_token.lock().await,
@@ -511,24 +528,42 @@ impl LLMProvider for AnthropicOAuthProvider {
             payload["tool_choice"] = json!({"type": choice});
         }
 
-        let mut request = self
-            .client
-            .post(API_URL)
-            .header("Authorization", format!("Bearer {}", token));
+        // Try the request, and on 401 refresh the token and retry once.
+        // This handles clock skew and stale expires_at timestamps that
+        // cause ensure_valid_token() to skip the proactive refresh.
+        let resp = self.send_chat_request(&token, &payload).await?;
 
-        for (key, value) in claude_code_headers() {
-            request = request.header(key, value);
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            let refresh_token = self.refresh_token.lock().await.clone();
+            if !refresh_token.is_empty() {
+                info!("got 401, attempting OAuth token refresh and retry");
+                match self.refresh_token_internal(&refresh_token).await {
+                    Ok(()) => {
+                        let new_token = self.access_token.lock().await.clone();
+                        let retry_resp = self.send_chat_request(&new_token, &payload).await?;
+                        let retry_resp =
+                            ProviderErrorHandler::check_http_status(retry_resp, "AnthropicOAuth")
+                                .await?;
+                        let json: Value = retry_resp
+                            .json()
+                            .await
+                            .context("failed to parse response")?;
+                        return Ok(anthropic_common::parse_response(&json));
+                    }
+                    Err(e) => {
+                        warn!("token refresh failed after 401: {}", e);
+                    }
+                }
+            }
+            // No refresh token or refresh failed — surface as auth error
+            anyhow::bail!(
+                "OAuth token expired and refresh failed. \
+                 Re-authenticate with: oxicrab auth login"
+            );
         }
 
-        let resp = request
-            .json(&payload)
-            .send()
-            .await
-            .context("Failed to send request to Anthropic OAuth API")?;
-
         let resp = ProviderErrorHandler::check_http_status(resp, "AnthropicOAuth").await?;
-
-        let json: Value = resp.json().await.context("Failed to parse response")?;
+        let json: Value = resp.json().await.context("failed to parse response")?;
         Ok(anthropic_common::parse_response(&json))
     }
 
