@@ -361,7 +361,7 @@ async fn test_parallel_tool_one_panics() {
     assert_eq!(results[2].0, "result2");
     assert!(!results[2].1);
     // Panicked tool gets error
-    assert!(results[1].0.contains("crashed unexpectedly"));
+    assert!(results[1].0.contains("crashed"));
     assert!(results[1].1);
 }
 

@@ -69,8 +69,12 @@ impl ToolRegistry {
 
     pub fn register(&mut self, tool: Arc<dyn Tool>) {
         let name = tool.name().to_string();
+        if name.is_empty() {
+            warn!("tool registry: rejecting tool with empty name");
+            return;
+        }
         if self.tools.contains_key(&name) {
-            tracing::warn!("tool registry: overwriting duplicate tool '{}'", name);
+            warn!("tool registry: overwriting duplicate tool '{}'", name);
         }
         self.tools.insert(name, tool);
     }
@@ -171,10 +175,18 @@ impl ToolRegistry {
             }
             Err(join_err) => {
                 if join_err.is_panic() {
-                    error!("Tool '{}' panicked: {:?}", tool_name, join_err);
+                    // Extract panic message for the LLM so it can avoid repeating the call.
+                    // into_panic() consumes the JoinError so we must extract in one step.
+                    let panic_payload = join_err.into_panic();
+                    let panic_msg = panic_payload
+                        .downcast_ref::<String>()
+                        .map(String::as_str)
+                        .or_else(|| panic_payload.downcast_ref::<&str>().copied())
+                        .unwrap_or("unknown cause");
+                    error!("Tool '{}' panicked: {}", tool_name, panic_msg);
                     Ok(ToolResult::error(format!(
-                        "Tool '{}' crashed unexpectedly",
-                        tool_name
+                        "Tool '{}' crashed: {}",
+                        tool_name, panic_msg
                     )))
                 } else {
                     Err(anyhow::anyhow!("Tool '{}' was cancelled", tool_name))
@@ -221,7 +233,7 @@ impl ToolMiddleware for CacheMiddleware {
         if !tool.cacheable() {
             return None;
         }
-        let cache_key = format!("{}:{}", name, canonical_json(params));
+        let cache_key = format!("{}#{}:{}", name.len(), name, canonical_json(params));
         let mut cache = self.cache.lock().await;
         if let Some(cached) = cache.get(&cache_key) {
             if cached.cached_at.elapsed().as_secs() < self.ttl_secs {
@@ -248,7 +260,7 @@ impl ToolMiddleware for CacheMiddleware {
         if !tool.cacheable() || result.is_error {
             return;
         }
-        let cache_key = format!("{}:{}", name, canonical_json(params));
+        let cache_key = format!("{}#{}:{}", name.len(), name, canonical_json(params));
         let mut cache = self.cache.lock().await;
         cache.put(
             cache_key,

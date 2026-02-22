@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use tracing::warn;
 
 const BOOTSTRAP_FILES: &[&str] = &["USER.md", "TOOLS.md", "AGENTS.md"];
+/// Maximum size for a single context file (500 KB)
+const MAX_CONTEXT_FILE_SIZE: u64 = 500 * 1024;
 
 pub struct ContextBuilder {
     workspace: PathBuf,
@@ -129,7 +131,15 @@ impl ContextBuilder {
         // Try to load identity from AGENTS.md
         let identity_file = self.workspace.join("AGENTS.md");
         if identity_file.exists() {
-            if let Ok(content) = std::fs::read_to_string(&identity_file) {
+            if let Ok(meta) = std::fs::metadata(&identity_file)
+                && meta.len() > MAX_CONTEXT_FILE_SIZE
+            {
+                warn!(
+                    "AGENTS.md is too large ({} bytes, max {}), using defaults",
+                    meta.len(),
+                    MAX_CONTEXT_FILE_SIZE
+                );
+            } else if let Ok(content) = std::fs::read_to_string(&identity_file) {
                 return Self::build_identity_with_context(
                     &content,
                     &date_str,
@@ -176,8 +186,10 @@ impl ContextBuilder {
         let mut current_mtimes = HashMap::new();
 
         for filename in BOOTSTRAP_FILES {
+            // AGENTS.md is loaded separately via get_identity() since it provides
+            // the core identity/persona, not just supplemental context
             if *filename == "AGENTS.md" {
-                continue; // Handled separately
+                continue;
             }
             let file_path = self.workspace.join(filename);
             if file_path.exists()
@@ -200,13 +212,25 @@ impl ContextBuilder {
         let mut parts = Vec::new();
         for filename in BOOTSTRAP_FILES {
             if *filename == "AGENTS.md" {
-                continue;
+                continue; // Loaded via get_identity()
             }
             let file_path = self.workspace.join(filename);
-            if file_path.exists()
-                && let Ok(content) = std::fs::read_to_string(&file_path)
-            {
-                parts.push(format!("## {}\n\n{}", filename, content));
+            if file_path.exists() {
+                // Check file size before reading to prevent OOM from huge files
+                if let Ok(meta) = std::fs::metadata(&file_path)
+                    && meta.len() > MAX_CONTEXT_FILE_SIZE
+                {
+                    warn!(
+                        "{} is too large ({} bytes, max {}), skipping",
+                        filename,
+                        meta.len(),
+                        MAX_CONTEXT_FILE_SIZE
+                    );
+                    continue;
+                }
+                if let Ok(content) = std::fs::read_to_string(&file_path) {
+                    parts.push(format!("## {}\n\n{}", filename, content));
+                }
             }
         }
 
@@ -271,6 +295,12 @@ impl ContextBuilder {
                 msg.get("content").and_then(|v| v.as_str()),
             ) && !content.is_empty()
             {
+                // Only allow valid conversation roles in history — reject injected
+                // "system" messages which could override the system prompt
+                if !matches!(role, "user" | "assistant" | "tool") {
+                    warn!("skipping history message with invalid role: {}", role);
+                    continue;
+                }
                 messages.push(crate::providers::base::Message {
                     role: role.to_string(),
                     content: content.to_string(),
