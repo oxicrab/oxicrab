@@ -327,6 +327,102 @@ impl MemoryDB {
         Ok(())
     }
 
+    /// Index all supported files in a knowledge directory.
+    ///
+    /// Accepts `.md`, `.txt`, and `.html` files. Source keys are prefixed
+    /// with `knowledge:` to distinguish from memory notes. HTML files have
+    /// tags stripped before chunking.
+    pub fn index_knowledge_directory(&self, knowledge_dir: &Path) -> Result<()> {
+        if !knowledge_dir.is_dir() {
+            return Ok(());
+        }
+
+        for entry in std::fs::read_dir(knowledge_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            if !matches!(ext.as_str(), "md" | "txt" | "html") {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            let source_key = format!("knowledge:{}", name);
+            if ext == "html" {
+                self.index_html_file(&source_key, &path)?;
+            } else {
+                self.index_file(&source_key, &path)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Index an HTML file by stripping tags before chunking.
+    fn index_html_file(&self, source_key: &str, path: &Path) -> Result<()> {
+        let mtime_ns = Self::get_mtime_ns(path);
+        let now = chrono::Utc::now().to_rfc3339();
+
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+
+        let existing: Option<i64> = conn
+            .query_row(
+                "SELECT mtime_ns FROM memory_sources WHERE source_key = ?",
+                [source_key],
+                |row| row.get(0),
+            )
+            .ok();
+
+        if let Some(existing_mtime) = existing
+            && existing_mtime == mtime_ns
+        {
+            return Ok(());
+        }
+
+        conn.execute(
+            "DELETE FROM memory_entries WHERE source_key = ?",
+            [source_key],
+        )?;
+
+        let html = if path.exists() && path.is_file() {
+            std::fs::read_to_string(path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        // Strip HTML tags, keeping text content
+        let text = strip_html_tags(&html);
+
+        for chunk in split_into_chunks(&text) {
+            let hash = hash_text(&chunk);
+            conn.execute(
+                "INSERT OR IGNORE INTO memory_entries
+                    (source_key, content, content_hash, created_at)
+                VALUES (?, ?, ?, ?)",
+                params![source_key, chunk, hash, now],
+            )?;
+        }
+
+        conn.execute(
+            "INSERT INTO memory_sources (source_key, mtime_ns, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(source_key)
+            DO UPDATE SET mtime_ns = excluded.mtime_ns,
+                          updated_at = excluded.updated_at",
+            params![source_key, mtime_ns, now],
+        )?;
+
+        debug!("Indexed knowledge file {}", source_key);
+        Ok(())
+    }
+
     /// Store an embedding for a memory entry.
     pub fn store_embedding(&self, entry_id: i64, embedding: &[u8]) -> Result<()> {
         let conn = self
@@ -1019,6 +1115,24 @@ fn split_into_chunks(text: &str) -> Vec<String> {
     }
 
     chunks
+}
+
+/// Strip HTML tags and return plain text content.
+fn strip_html_tags(html: &str) -> String {
+    let document = scraper::Html::parse_document(html);
+    let mut text = String::with_capacity(html.len() / 2);
+    for node in document.tree.values() {
+        if let scraper::node::Node::Text(t) = node {
+            let s = t.text.trim();
+            if !s.is_empty() {
+                if !text.is_empty() {
+                    text.push(' ');
+                }
+                text.push_str(s);
+            }
+        }
+    }
+    text
 }
 
 fn fts_query(text: &str) -> String {

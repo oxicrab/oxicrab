@@ -378,3 +378,89 @@ fn test_fusion_strategy_serde_roundtrip() {
     let parsed: crate::config::FusionStrategy = serde_json::from_str("\"rrf\"").unwrap();
     assert_eq!(parsed, crate::config::FusionStrategy::Rrf);
 }
+
+#[test]
+fn test_strip_html_tags() {
+    let html = "<html><body><h1>Title</h1><p>Some <b>bold</b> text.</p></body></html>";
+    let text = super::strip_html_tags(html);
+    assert!(text.contains("Title"));
+    assert!(text.contains("Some"));
+    assert!(text.contains("bold"));
+    assert!(text.contains("text."));
+    assert!(!text.contains("<h1>"));
+    assert!(!text.contains("<p>"));
+}
+
+#[test]
+fn test_strip_html_tags_empty() {
+    assert!(super::strip_html_tags("").is_empty());
+}
+
+#[test]
+fn test_index_knowledge_directory() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let knowledge_dir = tmp.path().join("knowledge");
+    std::fs::create_dir_all(&knowledge_dir).unwrap();
+
+    // Create test files
+    std::fs::write(
+        knowledge_dir.join("faq.md"),
+        "## FAQ\n\nQ: What is oxicrab?\n\nA: A multi-channel AI assistant.",
+    )
+    .unwrap();
+    std::fs::write(
+        knowledge_dir.join("notes.txt"),
+        "Important notes about the project.\n\nSecond paragraph with details.",
+    )
+    .unwrap();
+    std::fs::write(
+        knowledge_dir.join("page.html"),
+        "<html><body><h1>Reference</h1><p>HTML reference content here.</p></body></html>",
+    )
+    .unwrap();
+    // Non-supported file should be ignored
+    std::fs::write(knowledge_dir.join("data.json"), "{}").unwrap();
+
+    let db_path = tmp.path().join("memory.sqlite3");
+    let db = super::MemoryDB::new(db_path).unwrap();
+
+    db.index_knowledge_directory(&knowledge_dir).unwrap();
+
+    // Search should find content from all three files
+    let results = db.search("oxicrab", 10, None).unwrap();
+    assert!(!results.is_empty());
+    assert!(results.iter().any(|h| h.source_key == "knowledge:faq.md"));
+
+    let results = db.search("notes project", 10, None).unwrap();
+    assert!(
+        results
+            .iter()
+            .any(|h| h.source_key == "knowledge:notes.txt")
+    );
+
+    let results = db.search("reference content", 10, None).unwrap();
+    assert!(
+        results
+            .iter()
+            .any(|h| h.source_key == "knowledge:page.html")
+    );
+
+    // JSON file should not be indexed
+    let all_results = db.search("json", 10, None).unwrap();
+    assert!(
+        all_results
+            .iter()
+            .all(|h| h.source_key != "knowledge:data.json")
+    );
+}
+
+#[test]
+fn test_index_knowledge_directory_nonexistent() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let db_path = tmp.path().join("memory.sqlite3");
+    let db = super::MemoryDB::new(db_path).unwrap();
+
+    // Should not error on nonexistent directory
+    let result = db.index_knowledge_directory(&tmp.path().join("nonexistent"));
+    assert!(result.is_ok());
+}

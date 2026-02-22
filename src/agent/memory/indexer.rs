@@ -13,6 +13,7 @@ use tracing::{debug, info, warn};
 pub struct MemoryIndexer {
     db: Arc<MemoryDB>,
     memory_dir: PathBuf,
+    knowledge_dir: Option<PathBuf>,
     interval: Duration,
     running: Arc<tokio::sync::Mutex<bool>>,
     last_index_time: Arc<Mutex<Option<std::time::Instant>>>,
@@ -27,6 +28,7 @@ impl MemoryIndexer {
         Self {
             db,
             memory_dir,
+            knowledge_dir: None,
             interval: Duration::from_secs(interval_secs),
             running: Arc::new(tokio::sync::Mutex::new(false)),
             last_index_time: Arc::new(Mutex::new(None)),
@@ -47,6 +49,7 @@ impl MemoryIndexer {
         Self {
             db,
             memory_dir,
+            knowledge_dir: None,
             interval: Duration::from_secs(interval_secs),
             running: Arc::new(tokio::sync::Mutex::new(false)),
             last_index_time: Arc::new(Mutex::new(None)),
@@ -60,6 +63,7 @@ impl MemoryIndexer {
     pub fn with_full_config(
         db: Arc<MemoryDB>,
         memory_dir: PathBuf,
+        knowledge_dir: Option<PathBuf>,
         interval_secs: u64,
         archive_after_days: u32,
         purge_after_days: u32,
@@ -68,6 +72,7 @@ impl MemoryIndexer {
         Self {
             db,
             memory_dir,
+            knowledge_dir,
             interval: Duration::from_secs(interval_secs),
             running: Arc::new(tokio::sync::Mutex::new(false)),
             last_index_time: Arc::new(Mutex::new(None)),
@@ -89,6 +94,7 @@ impl MemoryIndexer {
 
         let db = self.db.clone();
         let memory_dir = self.memory_dir.clone();
+        let knowledge_dir = self.knowledge_dir.clone();
         let running_clone = self.running.clone();
         let last_index_time = self.last_index_time.clone();
         let interval = self.interval;
@@ -97,7 +103,13 @@ impl MemoryIndexer {
         let embedding_service = self.embedding_service.clone();
 
         // Do initial indexing immediately
-        Self::index_memory_files(&db, &memory_dir, embedding_service.as_ref()).await;
+        Self::index_memory_files(
+            &db,
+            &memory_dir,
+            knowledge_dir.as_deref(),
+            embedding_service.as_ref(),
+        )
+        .await;
 
         tokio::spawn(async move {
             let mut last_index = std::time::Instant::now();
@@ -124,7 +136,13 @@ impl MemoryIndexer {
                 }
 
                 // Perform indexing
-                Self::index_memory_files(&db, &memory_dir, embedding_service.as_ref()).await;
+                Self::index_memory_files(
+                    &db,
+                    &memory_dir,
+                    knowledge_dir.as_deref(),
+                    embedding_service.as_ref(),
+                )
+                .await;
 
                 // Run hygiene after indexing
                 Self::run_hygiene(&db, &memory_dir, archive_days, purge_days).await;
@@ -150,12 +168,14 @@ impl MemoryIndexer {
     async fn index_memory_files(
         db: &MemoryDB,
         memory_dir: &Path,
+        knowledge_dir: Option<&Path>,
         embedding_service: Option<&Arc<EmbeddingService>>,
     ) {
         debug!("Starting memory indexing...");
         match tokio::task::spawn_blocking({
             let db = db.clone();
             let memory_dir = memory_dir.to_path_buf();
+            let knowledge_dir = knowledge_dir.map(Path::to_path_buf);
             let embedding_service = embedding_service.cloned();
             move || {
                 // Collect source keys that were indexed (for embedding generation)
@@ -186,6 +206,14 @@ impl MemoryIndexer {
                     } else {
                         indexed_sources.push(today_key);
                     }
+                }
+
+                // Index knowledge directory (if configured)
+                if let Some(ref kdir) = knowledge_dir
+                    && kdir.is_dir()
+                    && let Err(e) = db.index_knowledge_directory(kdir)
+                {
+                    warn!("failed to index knowledge directory: {}", e);
                 }
 
                 // Generate embeddings for indexed sources
@@ -345,6 +373,7 @@ impl MemoryIndexer {
         }
         let db = self.db.clone();
         let memory_dir = self.memory_dir.clone();
+        let knowledge_dir = self.knowledge_dir.clone();
         let embedding_service = self.embedding_service.clone();
         let flag = self.indexing_in_progress.clone();
         tokio::spawn(async move {
@@ -357,7 +386,13 @@ impl MemoryIndexer {
                 }
             }
             let _guard = FlagGuard(flag);
-            Self::index_memory_files(&db, &memory_dir, embedding_service.as_ref()).await;
+            Self::index_memory_files(
+                &db,
+                &memory_dir,
+                knowledge_dir.as_deref(),
+                embedding_service.as_ref(),
+            )
+            .await;
         });
     }
 }

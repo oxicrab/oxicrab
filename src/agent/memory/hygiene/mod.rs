@@ -149,6 +149,10 @@ pub fn cleanup_orphaned_entries(db: &MemoryDB, memory_dir: &Path) -> Result<u32>
     let mut count = 0;
 
     for key in source_keys {
+        // Knowledge entries are managed separately — skip them
+        if key.starts_with("knowledge:") {
+            continue;
+        }
         // Check both memory dir and archive dir
         let primary = memory_dir.join(&key);
         let archived = memory_dir.join("archive").join(&key);

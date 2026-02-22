@@ -21,6 +21,7 @@ fn is_daily_note_key(key: &str) -> bool {
 
 pub struct MemoryStore {
     memory_dir: PathBuf,
+    knowledge_dir: PathBuf,
     db: Arc<MemoryDB>,
     indexer: Option<Arc<MemoryIndexer>>,
     embedding_service: Option<Arc<EmbeddingService>>,
@@ -41,6 +42,7 @@ impl MemoryStore {
     ) -> Result<Self> {
         let workspace = workspace.as_ref();
         let memory_dir = workspace.join("memory");
+        let knowledge_dir = workspace.join("knowledge");
 
         std::fs::create_dir_all(workspace).with_context(|| {
             format!(
@@ -55,6 +57,13 @@ impl MemoryStore {
                 memory_dir.display()
             )
         })?;
+
+        // Knowledge directory is optional — create only if it exists or on first use
+        let knowledge_path = if knowledge_dir.is_dir() {
+            Some(knowledge_dir.clone())
+        } else {
+            None
+        };
 
         let db_path = memory_dir.join("memory.sqlite3");
         let db_path_clone = db_path.clone();
@@ -84,6 +93,7 @@ impl MemoryStore {
         let indexer = Arc::new(MemoryIndexer::with_full_config(
             db.clone(),
             memory_dir.clone(),
+            knowledge_path.clone(),
             indexer_interval_secs,
             memory_config.archive_after_days,
             memory_config.purge_after_days,
@@ -92,6 +102,7 @@ impl MemoryStore {
 
         Ok(Self {
             memory_dir,
+            knowledge_dir,
             db,
             indexer: Some(indexer),
             embedding_service,
@@ -107,6 +118,7 @@ impl MemoryStore {
     ) -> Result<Self> {
         let workspace = workspace.as_ref();
         let memory_dir = workspace.join("memory");
+        let knowledge_dir = workspace.join("knowledge");
 
         // Ensure workspace exists first
         std::fs::create_dir_all(workspace).with_context(|| {
@@ -142,6 +154,7 @@ impl MemoryStore {
 
         Ok(Self {
             memory_dir,
+            knowledge_dir,
             db,
             indexer: Some(indexer),
             embedding_service: None,
@@ -154,6 +167,11 @@ impl MemoryStore {
     /// Accessor for the inner database (used by `CostGuard` for persistence).
     pub fn db(&self) -> Arc<MemoryDB> {
         self.db.clone()
+    }
+
+    /// Path to the knowledge directory for document ingestion.
+    pub fn knowledge_dir(&self) -> &Path {
+        &self.knowledge_dir
     }
 
     /// Whether embeddings are available for hybrid search.
