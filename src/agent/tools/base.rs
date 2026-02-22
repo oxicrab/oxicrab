@@ -66,6 +66,8 @@ pub struct ExecutionContext {
     pub channel: String,
     pub chat_id: String,
     pub context_summary: Option<String>,
+    /// Metadata from the originating inbound message (e.g., Slack `ts` for threading).
+    pub metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[async_trait]

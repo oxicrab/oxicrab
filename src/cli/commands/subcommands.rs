@@ -182,6 +182,7 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                     message,
                     agent_echo,
                     targets,
+                    origin_metadata: std::collections::HashMap::new(),
                 },
                 state: CronJobState {
                     next_run_at_ms: None, // Will be computed by service

@@ -419,6 +419,7 @@ impl Tool for CronTool {
                         message,
                         agent_echo: job_type == "agent",
                         targets,
+                        origin_metadata: ctx.metadata.clone(),
                     },
                     state: CronJobState {
                         next_run_at_ms: None,

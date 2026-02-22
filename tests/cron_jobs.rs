@@ -1,6 +1,7 @@
 use oxicrab::cron::event_matcher::EventMatcher;
 use oxicrab::cron::service::{CronService, validate_cron_expr};
 use oxicrab::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule, CronTarget};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
@@ -21,6 +22,7 @@ fn make_test_job(id: &str, name: &str) -> CronJob {
                 channel: "telegram".to_string(),
                 to: "user1".to_string(),
             }],
+            origin_metadata: HashMap::new(),
         },
         state: CronJobState::default(),
         created_at_ms: 1000000,
@@ -285,6 +287,7 @@ async fn test_cron_multi_target_job() {
                     to: "987654321".to_string(),
                 },
             ],
+            origin_metadata: HashMap::new(),
         },
         state: CronJobState::default(),
         created_at_ms: 1000000,
@@ -599,6 +602,7 @@ async fn test_cron_job_with_none_fields() {
             message: "test".to_string(),
             agent_echo: false,
             targets: vec![],
+            origin_metadata: HashMap::new(),
         },
         state: CronJobState::default(),
         created_at_ms: 1000000,
@@ -634,6 +638,7 @@ async fn test_cron_job_every_zero_interval() {
             message: "test".to_string(),
             agent_echo: false,
             targets: vec![],
+            origin_metadata: HashMap::new(),
         },
         state: CronJobState::default(),
         created_at_ms: 1000000,
@@ -671,6 +676,7 @@ async fn test_cron_job_at_expired() {
             message: "test".to_string(),
             agent_echo: false,
             targets: vec![],
+            origin_metadata: HashMap::new(),
         },
         state: CronJobState::default(),
         created_at_ms: 1000000,
@@ -710,6 +716,7 @@ fn make_event_job(id: &str, pattern: &str, channel: Option<&str>) -> CronJob {
                 channel: "telegram".to_string(),
                 to: "user1".to_string(),
             }],
+            origin_metadata: HashMap::new(),
         },
         state: CronJobState::default(),
         created_at_ms: 1000000,

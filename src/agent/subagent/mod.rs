@@ -518,6 +518,7 @@ async fn execute_subagent_tool(
             channel: origin.0.clone(),
             chat_id: origin.1.clone(),
             context_summary: None,
+            metadata: std::collections::HashMap::new(),
         };
         match registry.execute(tool_name, tool_args.clone(), &ctx).await {
             Ok(result) => (result.content, result.is_error),

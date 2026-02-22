@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind")]
@@ -44,6 +45,15 @@ pub struct CronPayload {
     pub agent_echo: bool,
     #[serde(default)]
     pub targets: Vec<CronTarget>,
+    /// Metadata from the originating inbound message (e.g., Slack `ts` for
+    /// threading). Propagated to outbound messages when the job fires so
+    /// responses land in the correct thread/context.
+    #[serde(
+        default,
+        rename = "originMetadata",
+        skip_serializing_if = "HashMap::is_empty"
+    )]
+    pub origin_metadata: HashMap<String, serde_json::Value>,
 }
 
 fn default_kind() -> String {

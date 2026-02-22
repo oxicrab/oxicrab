@@ -643,7 +643,7 @@ async fn setup_cron_callbacks(
                             content: job.payload.message.clone(),
                             reply_to: None,
                             media: vec![],
-                            metadata: std::collections::HashMap::new(),
+                            metadata: job.payload.origin_metadata.clone(),
                         })
                         .await
                     {
@@ -682,7 +682,7 @@ async fn setup_cron_callbacks(
                             content: response.clone(),
                             reply_to: None,
                             media: vec![],
-                            metadata: std::collections::HashMap::new(),
+                            metadata: job.payload.origin_metadata.clone(),
                         })
                         .await
                     {

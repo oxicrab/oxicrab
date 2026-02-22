@@ -23,6 +23,7 @@ fn test_cron_job_full_roundtrip() {
                     to: "U08G6HBC89X".to_string(),
                 },
             ],
+            origin_metadata: std::collections::HashMap::new(),
         },
         state: CronJobState {
             next_run_at_ms: Some(9_999_999_999),
@@ -101,6 +102,7 @@ fn test_expires_at_and_max_runs_omitted_from_json_when_none() {
             message: "hi".to_string(),
             agent_echo: false,
             targets: vec![],
+            origin_metadata: std::collections::HashMap::new(),
         },
         state: CronJobState::default(),
         created_at_ms: 1000,

@@ -673,7 +673,12 @@ impl AgentLoop {
             .get("compaction_summary")
             .and_then(|v| v.as_str())
             .map(std::string::ToString::to_string);
-        let exec_ctx = Self::build_execution_context(&msg.channel, &msg.chat_id, context_summary);
+        let exec_ctx = Self::build_execution_context_with_metadata(
+            &msg.channel,
+            &msg.chat_id,
+            context_summary,
+            msg.metadata.clone(),
+        );
 
         debug!("Getting compacted history");
         let history = self.get_compacted_history(&session).await?;
@@ -1379,6 +1384,21 @@ impl AgentLoop {
             channel: channel.to_string(),
             chat_id: chat_id.to_string(),
             context_summary,
+            metadata: HashMap::new(),
+        }
+    }
+
+    fn build_execution_context_with_metadata(
+        channel: &str,
+        chat_id: &str,
+        context_summary: Option<String>,
+        metadata: HashMap<String, Value>,
+    ) -> ExecutionContext {
+        ExecutionContext {
+            channel: channel.to_string(),
+            chat_id: chat_id.to_string(),
+            context_summary,
+            metadata,
         }
     }
 
