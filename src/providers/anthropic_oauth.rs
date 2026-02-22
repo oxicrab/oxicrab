@@ -106,13 +106,16 @@ impl AnthropicOAuthProvider {
                     if let Some(cached_at) = data.get("expires_at").and_then(Value::as_i64) {
                         // Use try_lock since we're in a sync context during construction.
                         // These locks are uncontested at this point (single-threaded init).
-                        let Ok(guard) = self.expires_at.try_lock() else {
-                            warn!(
-                                "could not acquire OAuth token lock during init, skipping cache load"
-                            );
-                            return;
+                        let current_expires = {
+                            let Ok(guard) = self.expires_at.try_lock() else {
+                                warn!(
+                                    "could not acquire OAuth token lock during init, skipping cache load"
+                                );
+                                return;
+                            };
+                            *guard
+                            // guard dropped here before acquiring other locks
                         };
-                        let current_expires = *guard;
                         if cached_at > current_expires
                             && let (Some(access), Some(refresh)) = (
                                 data.get("access_token").and_then(Value::as_str),
@@ -281,16 +284,16 @@ impl AnthropicOAuthProvider {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            // Cross-process lock to prevent concurrent token refresh races
+            // Cross-process lock to prevent concurrent token refresh races.
+            // Hold the lock through the write to prevent TOCTOU races.
             let lock_path = path.with_extension("json.lock");
-            if let Ok(lock_file) = std::fs::OpenOptions::new()
+            let _lock_file = std::fs::OpenOptions::new()
                 .create(true)
                 .write(true)
                 .truncate(true)
                 .open(&lock_path)
-            {
-                let _ = fs2::FileExt::lock_exclusive(&lock_file);
-            }
+                .ok()
+                .and_then(|f| fs2::FileExt::lock_exclusive(&f).ok().map(|()| f));
             crate::utils::atomic_write(&path, &json_str)?;
             // Restrict permissions to owner-only (0o600) to protect tokens
             #[cfg(unix)]
@@ -533,10 +536,7 @@ impl LLMProvider for AnthropicOAuthProvider {
         &self.default_model
     }
 
-    #[allow(clippy::too_many_lines)]
-    #[allow(clippy::too_many_lines)]
     async fn warmup(&self) -> Result<()> {
-        use tracing::info;
         let start = std::time::Instant::now();
         let token = self.ensure_valid_token().await?;
         let payload = serde_json::json!({
@@ -555,11 +555,17 @@ impl LLMProvider for AnthropicOAuthProvider {
             .send()
             .await;
         match result {
+            Ok(resp) if !resp.status().is_success() => {
+                warn!(
+                    "anthropic oauth warmup got HTTP {} (non-fatal)",
+                    resp.status()
+                );
+            }
             Ok(_) => info!(
                 "anthropic oauth provider warmed up in {}ms",
                 start.elapsed().as_millis()
             ),
-            Err(e) => tracing::warn!("anthropic oauth warmup request failed (non-fatal): {}", e),
+            Err(e) => warn!("anthropic oauth warmup request failed (non-fatal): {}", e),
         }
         Ok(())
     }

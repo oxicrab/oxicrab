@@ -102,6 +102,17 @@ impl LLMProvider for FallbackProvider {
         &self.primary_model
     }
 
+    fn metrics(&self) -> crate::providers::base::ProviderMetrics {
+        // Aggregate metrics from both providers
+        let p = self.primary.metrics();
+        let f = self.fallback.metrics();
+        crate::providers::base::ProviderMetrics {
+            request_count: p.request_count + f.request_count,
+            token_count: p.token_count + f.token_count,
+            error_count: p.error_count + f.error_count,
+        }
+    }
+
     async fn warmup(&self) -> anyhow::Result<()> {
         // Warm up both providers in parallel
         let (primary_result, fallback_result) =

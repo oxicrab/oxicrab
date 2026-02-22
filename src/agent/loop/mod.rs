@@ -693,6 +693,8 @@ pub struct AgentLoop {
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     transcriber: Option<Arc<crate::utils::transcription::TranscriptionService>>,
     event_matcher: Option<std::sync::Mutex<EventMatcher>>,
+    /// Last time the event matcher was rebuilt from disk
+    event_matcher_last_rebuild: Arc<std::sync::Mutex<std::time::Instant>>,
     cron_service: Option<Arc<CronService>>,
     cost_guard: Option<Arc<CostGuard>>,
     /// Most recent checkpoint summary (updated periodically during long loops)
@@ -921,6 +923,7 @@ impl AgentLoop {
             typing_tx,
             transcriber,
             event_matcher,
+            event_matcher_last_rebuild: Arc::new(std::sync::Mutex::new(std::time::Instant::now())),
             cron_service,
             cost_guard,
             last_checkpoint: Arc::new(Mutex::new(None)),
@@ -1032,24 +1035,44 @@ impl AgentLoop {
 
         info!("Processing message from {}:{}", msg.channel, msg.sender_id);
 
-        // Check for event-triggered cron jobs in the background
-        if let (Some(matcher_mutex), Some(cron_svc)) = (&self.event_matcher, &self.cron_service) {
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis() as i64);
-            let triggered = matcher_mutex
+        // Check for event-triggered cron jobs in the background.
+        // Periodically rebuild the matcher from the cron store (every 60s)
+        // so new/modified event jobs are picked up at runtime.
+        if let Some(cron_svc) = &self.cron_service {
+            let needs_rebuild = self
+                .event_matcher_last_rebuild
                 .lock()
-                .map(|mut matcher| matcher.check_message(&msg.content, &msg.channel, now_ms))
-                .unwrap_or_default();
-            for job in triggered {
-                let cron_svc = cron_svc.clone();
-                let job_id = job.id.clone();
-                info!("Event-triggered cron job '{}' ({})", job.name, job.id);
-                tokio::spawn(async move {
-                    if let Err(e) = cron_svc.run_job(&job_id, true).await {
-                        warn!("Event-triggered job '{}' failed: {}", job_id, e);
-                    }
-                });
+                .is_ok_and(|t| t.elapsed().as_secs() >= 60);
+            if needs_rebuild && let Ok(store) = cron_svc.load_store(true).await {
+                let new_matcher = EventMatcher::from_jobs(&store.jobs);
+                if let Some(ref matcher_mutex) = self.event_matcher
+                    && let Ok(mut guard) = matcher_mutex.lock()
+                {
+                    *guard = new_matcher;
+                }
+                if let Ok(mut t) = self.event_matcher_last_rebuild.lock() {
+                    *t = std::time::Instant::now();
+                }
+            }
+
+            if let Some(matcher_mutex) = &self.event_matcher {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as i64);
+                let triggered = matcher_mutex
+                    .lock()
+                    .map(|mut matcher| matcher.check_message(&msg.content, &msg.channel, now_ms))
+                    .unwrap_or_default();
+                for job in triggered {
+                    let cron_svc = cron_svc.clone();
+                    let job_id = job.id.clone();
+                    info!("Event-triggered cron job '{}' ({})", job.name, job.id);
+                    tokio::spawn(async move {
+                        if let Err(e) = cron_svc.run_job(&job_id, true).await {
+                            warn!("Event-triggered job '{}' failed: {}", job_id, e);
+                        }
+                    });
+                }
             }
         }
 

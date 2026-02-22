@@ -51,11 +51,22 @@ impl EventMatcher {
     }
 
     /// Check a message against all event matchers.
-    /// Returns jobs that should fire, respecting channel filter and cooldown.
+    /// Returns jobs that should fire, respecting channel filter, cooldown,
+    /// expiry (`expires_at_ms`), and run limits (`max_runs`).
     /// Updates local fired timestamps so cooldowns work across calls.
     pub fn check_message(&mut self, content: &str, channel: &str, now_ms: i64) -> Vec<CronJob> {
         let mut matched = Vec::new();
-        for (id, regex, channel_filter, job) in &self.matchers {
+        for (id, regex, channel_filter, job) in &mut self.matchers {
+            // Expiry check: skip if past expires_at
+            if job.expires_at_ms.is_some_and(|exp| exp <= now_ms) {
+                continue;
+            }
+
+            // Max runs check: skip if exhausted
+            if job.max_runs.is_some_and(|max| job.state.run_count >= max) {
+                continue;
+            }
+
             // Channel filter: skip if job is restricted to a different channel
             if let Some(required_channel) = channel_filter
                 && required_channel != channel
@@ -70,7 +81,7 @@ impl EventMatcher {
 
             // Cooldown check: use local tracking (updated after each fire)
             if let Some(cooldown) = job.cooldown_secs
-                && let Some(&last_fired) = self.last_fired.get(id)
+                && let Some(&last_fired) = self.last_fired.get(id.as_str())
             {
                 let elapsed_secs = (now_ms - last_fired) / 1000;
                 if elapsed_secs < cooldown as i64 {
@@ -78,8 +89,10 @@ impl EventMatcher {
                 }
             }
 
-            // Update local fired timestamp
+            // Update local fired timestamp and run count
             self.last_fired.insert(id.clone(), now_ms);
+            job.state.last_fired_at_ms = Some(now_ms);
+            job.state.run_count = job.state.run_count.saturating_add(1);
             matched.push(job.clone());
         }
         matched
@@ -204,6 +217,59 @@ mod tests {
                 .check_message("deploy now", "slack", 1_061_000)
                 .len(),
             1
+        );
+    }
+
+    #[test]
+    fn test_expired_job_skipped() {
+        let mut job = make_event_job("e1", r"deploy", None);
+        job.expires_at_ms = Some(500_000); // expired
+        let mut matcher = EventMatcher::from_jobs(&[job]);
+        assert!(
+            matcher
+                .check_message("deploy now", "slack", 1_000_000)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn test_max_runs_exhausted_skipped() {
+        let mut job = make_event_job("e1", r"deploy", None);
+        job.max_runs = Some(2);
+        job.state.run_count = 2;
+        let mut matcher = EventMatcher::from_jobs(&[job]);
+        assert!(
+            matcher
+                .check_message("deploy now", "slack", 1_000_000)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn test_run_count_incremented_on_fire() {
+        let mut job = make_event_job("e1", r"deploy", None);
+        job.max_runs = Some(2);
+        let mut matcher = EventMatcher::from_jobs(&[job]);
+        // First fire
+        assert_eq!(
+            matcher
+                .check_message("deploy now", "slack", 1_000_000)
+                .len(),
+            1
+        );
+        // Second fire (should still work, run_count now 1 -> 2 which will be returned but
+        // the next call should be blocked)
+        assert_eq!(
+            matcher
+                .check_message("deploy now", "slack", 1_001_000)
+                .len(),
+            1
+        );
+        // Third fire should be blocked (run_count=2, max_runs=2)
+        assert!(
+            matcher
+                .check_message("deploy now", "slack", 1_002_000)
+                .is_empty()
         );
     }
 

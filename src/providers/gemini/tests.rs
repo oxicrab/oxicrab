@@ -253,8 +253,8 @@ fn test_parse_response_function_call() {
     assert!(resp.content.is_none());
     assert_eq!(resp.tool_calls.len(), 1);
     assert_eq!(resp.tool_calls[0].name, "get_weather");
-    // Gemini uses function name as ID
-    assert_eq!(resp.tool_calls[0].id, "get_weather");
+    // Tool call ID is a unique generated value
+    assert!(resp.tool_calls[0].id.starts_with("gemini_"));
     assert_eq!(resp.tool_calls[0].arguments["city"], "Paris");
 }
 
@@ -321,6 +321,6 @@ fn test_parse_response_function_call_no_name_fallback_id() {
     });
     let resp = GeminiProvider::parse_response(&json).unwrap();
     assert_eq!(resp.tool_calls.len(), 1);
-    // Without a name, ID should be the fallback pattern
-    assert!(resp.tool_calls[0].id.starts_with("gemini_tc_"));
+    // Without a name, ID is still a unique generated value
+    assert!(resp.tool_calls[0].id.starts_with("gemini_"));
 }

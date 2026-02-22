@@ -74,7 +74,13 @@ fn compute_next_run_with_last(
         CronSchedule::Event { .. } => None,
         CronSchedule::Cron { expr, tz } => {
             if let Some(expr_str) = expr {
-                let normalized = validate_cron_expr(expr_str).ok()?;
+                // validate_cron_expr normalizes and validates the expression;
+                // parse it directly here to avoid a redundant second parse.
+                let normalized = if expr_str.split_whitespace().count() == 5 {
+                    format!("0 {}", expr_str)
+                } else {
+                    expr_str.clone()
+                };
                 let sched = normalized.parse::<Schedule>().ok()?;
                 let now_sec = now_ms / 1000;
                 let now_dt: Option<DateTime<Tz>> = if let Some(tz_str) = tz {
@@ -154,10 +160,16 @@ impl CronService {
             if !store_path.exists() {
                 return Ok(None);
             }
-            let file = std::fs::File::open(&store_path)?;
-            fs2::FileExt::lock_shared(&file)?;
+            // Use the same lock file as save_store for proper coordination
+            let lock_path = store_path.with_extension("json.lock");
+            let lock_file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&lock_path)?;
+            fs2::FileExt::lock_shared(&lock_file)?;
             let content = std::fs::read_to_string(&store_path)?;
-            // lock released when `file` drops
+            // lock released when `lock_file` drops
             let store: CronStore = serde_json::from_str(&content)?;
             Ok(Some(store))
         })
@@ -173,24 +185,27 @@ impl CronService {
 
     async fn save_store(&self) -> Result<()> {
         let store_guard = self.store.lock().await;
-        if let Some(store) = store_guard.as_ref() {
-            let content = serde_json::to_string_pretty(store)?;
-            let store_path = self.store_path.clone();
-            // Drop the async lock before blocking I/O
-            drop(store_guard);
-            tokio::task::spawn_blocking(move || -> Result<()> {
-                let lock_path = store_path.with_extension("json.lock");
-                let lock_file = std::fs::OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .truncate(true)
-                    .open(&lock_path)?;
-                fs2::FileExt::lock_exclusive(&lock_file)?;
-                atomic_write(&store_path, &content)?;
-                Ok(())
-            })
-            .await??;
-        }
+        // Serialize while still holding the lock to avoid TOCTOU — another task
+        // could modify the in-memory store between drop and write.
+        let content = match store_guard.as_ref() {
+            Some(store) => serde_json::to_string_pretty(store)?,
+            None => return Ok(()),
+        };
+        drop(store_guard);
+        let store_path = self.store_path.clone();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let lock_path = store_path.with_extension("json.lock");
+            let lock_file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&lock_path)?;
+            fs2::FileExt::lock_exclusive(&lock_file)?;
+            atomic_write(&store_path, &content)?;
+            // lock_file dropped here, releasing the exclusive lock
+            Ok(())
+        })
+        .await??;
         Ok(())
     }
 
@@ -581,16 +596,24 @@ impl CronService {
                 let job_clone = job.clone();
                 let callback = callback.clone();
                 drop(on_job_guard);
-                let result = callback(job_clone).await?;
 
-                // Update last run time and compute next run
+                let (status, error_msg, callback_result) = match callback(job_clone).await {
+                    Ok(result) => ("ok".to_string(), None, Ok(result)),
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        ("error".to_string(), Some(err_str), Err(e))
+                    }
+                };
+
+                // Update state regardless of success or failure
                 let now = now_ms();
                 let mut store_guard = self.store.lock().await;
                 if let Some(ref mut store) = *store_guard {
                     for j in &mut store.jobs {
                         if j.id == job_id {
                             j.state.last_run_at_ms = Some(now);
-                            j.state.last_status = Some("success".to_string());
+                            j.state.last_status = Some(status);
+                            j.state.last_error = error_msg;
                             j.state.run_count = j.state.run_count.saturating_add(1);
                             j.state.next_run_at_ms =
                                 compute_next_run_with_last(&j.schedule, now, Some(now));
@@ -601,7 +624,8 @@ impl CronService {
                 }
                 drop(store_guard);
                 self.save_store().await?;
-                Ok(Some(result))
+                // Propagate the callback error after persisting state
+                Ok(Some(callback_result?))
             } else {
                 warn!("Cron job callback not set, cannot run job");
                 Ok(None)

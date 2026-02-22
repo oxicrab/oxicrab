@@ -399,7 +399,7 @@ impl Tool for CronTool {
                 let targets_desc: Vec<String> = targets.iter().map(|t| t.channel.clone()).collect();
 
                 let job = CronJob {
-                    id: uuid::Uuid::new_v4().to_string()[..8].to_string(),
+                    id: uuid::Uuid::new_v4().simple().to_string()[..12].to_string(),
                     name: {
                         let truncated: String = message.chars().take(30).collect();
                         if message.chars().count() > 30 {

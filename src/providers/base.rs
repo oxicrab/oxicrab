@@ -206,7 +206,15 @@ pub trait LLMProvider: Send + Sync {
                     return Ok(response);
                 }
                 Err(e) => {
-                    // Don't retry non-transient errors
+                    // Check for rate limit with retry_after hint
+                    let rate_limit_delay = e
+                        .downcast_ref::<crate::errors::OxicrabError>()
+                        .and_then(|ox| match ox {
+                            crate::errors::OxicrabError::RateLimit { retry_after } => *retry_after,
+                            _ => None,
+                        });
+
+                    // Don't retry non-transient errors (but do retry rate limits)
                     let is_transient =
                         e.downcast_ref::<crate::errors::OxicrabError>()
                             .is_none_or(|ox| match ox {
@@ -214,9 +222,9 @@ pub trait LLMProvider: Send + Sync {
                                     *retryable
                                 }
                                 crate::errors::OxicrabError::Auth(_)
-                                | crate::errors::OxicrabError::Config(_)
-                                | crate::errors::OxicrabError::RateLimit { .. } => false,
-                                crate::errors::OxicrabError::Internal(_) => true,
+                                | crate::errors::OxicrabError::Config(_) => false,
+                                crate::errors::OxicrabError::RateLimit { .. }
+                                | crate::errors::OxicrabError::Internal(_) => true,
                             });
                     warn!("Chat request failed on attempt {}: {}", attempt, e);
                     if !is_transient {
@@ -224,17 +232,25 @@ pub trait LLMProvider: Send + Sync {
                     }
                     last_error = Some(e);
                     if attempt < config.max_retries {
-                        let delay = (config.initial_delay_ms as f64
-                            * config.backoff_multiplier.powi(attempt as i32))
-                        .min(config.max_delay_ms as f64) as u64;
-                        // Add jitter (up to 25% of delay) to avoid thundering herd
-                        let jitter = (delay as f64 * 0.25 * fastrand::f64()) as u64;
-                        let total_delay = delay + jitter;
-                        debug!(
-                            "Waiting {}ms before retry ({}ms base + {}ms jitter)",
-                            total_delay, delay, jitter
-                        );
-                        tokio::time::sleep(tokio::time::Duration::from_millis(total_delay)).await;
+                        // Use retry_after from rate limit if available, otherwise exponential backoff
+                        let delay = if let Some(retry_secs) = rate_limit_delay {
+                            debug!("Using retry-after hint: {}s", retry_secs);
+                            retry_secs * 1000
+                        } else {
+                            let base = (config.initial_delay_ms as f64
+                                * config.backoff_multiplier.powi(attempt as i32))
+                            .min(config.max_delay_ms as f64)
+                                as u64;
+                            // Add jitter (up to 25% of delay) to avoid thundering herd
+                            let jitter = (base as f64 * 0.25 * fastrand::f64()) as u64;
+                            let total = base + jitter;
+                            debug!(
+                                "Waiting {}ms before retry ({}ms base + {}ms jitter)",
+                                total, base, jitter
+                            );
+                            total
+                        };
+                        tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
                     }
                 }
             }

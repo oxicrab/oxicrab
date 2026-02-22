@@ -85,6 +85,8 @@ pub struct CronJob {
     pub created_at_ms: i64,
     #[serde(rename = "updatedAtMs")]
     pub updated_at_ms: i64,
+    /// If true, disable the job after its first execution.
+    /// Disabled jobs are eventually pruned from the store.
     #[serde(rename = "deleteAfterRun", default)]
     pub delete_after_run: bool,
     #[serde(
@@ -103,6 +105,7 @@ pub struct CronJob {
     )]
     pub cooldown_secs: Option<u64>,
     /// Maximum concurrent executions for event-triggered jobs.
+    /// Reserved for future use — not currently enforced by the scheduler.
     #[serde(
         rename = "maxConcurrent",
         default,

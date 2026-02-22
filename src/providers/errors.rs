@@ -33,9 +33,9 @@ impl ProviderErrorHandler {
                     message: format!(
                         "Model '{}' not found. This model may be deprecated or incorrect.\n\
                             Please update your config file (~/.oxicrab/config.json) to use a valid model:\n\
-                            - claude-sonnet-4-5-20250929 (recommended)\n\
+                            - claude-sonnet-4-6 (recommended)\n\
                             - claude-haiku-4-5-20251001 (fastest)\n\
-                            - claude-opus-4-5-20251101 (most capable)\n\
+                            - claude-opus-4-6 (most capable)\n\
                             \n\
                             Or remove the 'model' field from your config to use the default.",
                         model_name
@@ -246,7 +246,7 @@ mod tests {
         match err {
             OxicrabError::Provider { message, retryable } => {
                 assert!(message.contains("not found"));
-                assert!(message.contains("claude-sonnet-4-5-20250929"));
+                assert!(message.contains("claude-sonnet-4-6"));
                 assert!(!retryable);
             }
             _ => panic!("expected Provider error"),

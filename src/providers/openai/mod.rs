@@ -251,10 +251,12 @@ impl LLMProvider for OpenAIProvider {
         for (k, v) in &self.custom_headers {
             req = req.header(k.as_str(), v.as_str());
         }
-        let resp = req.json(&payload).send().await.context(format!(
-            "Failed to send request to {} API",
-            self.provider_name
-        ))?;
+        let provider_name = &self.provider_name;
+        let resp = req
+            .json(&payload)
+            .send()
+            .await
+            .with_context(|| format!("Failed to send request to {} API", provider_name))?;
 
         let json =
             ProviderErrorHandler::check_response(resp, &self.provider_name, &self.metrics).await?;
@@ -309,15 +311,21 @@ impl LLMProvider for OpenAIProvider {
         }
         let result = req.json(&payload).send().await;
         match result {
+            Ok(resp) if !resp.status().is_success() => {
+                warn!(
+                    "{} warmup got HTTP {} (non-fatal)",
+                    self.provider_name,
+                    resp.status()
+                );
+            }
             Ok(_) => info!(
                 "{} provider warmed up in {}ms",
                 self.provider_name,
                 start.elapsed().as_millis()
             ),
-            Err(e) => tracing::warn!(
+            Err(e) => warn!(
                 "{} warmup request failed (non-fatal): {}",
-                self.provider_name,
-                e
+                self.provider_name, e
             ),
         }
         Ok(())

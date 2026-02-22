@@ -55,21 +55,9 @@ impl CircuitBreakerProvider {
     }
 
     fn is_transient(error: &str) -> bool {
+        // First, try typed error downcasting for precise classification
+        // (This method receives a string, so we use pattern matching as fallback)
         let lower = error.to_lowercase();
-        let transient_patterns = [
-            "rate limit",
-            "rate_limit",
-            "overloaded",
-            "429",
-            "500",
-            "502",
-            "503",
-            "504",
-            "timeout",
-            "connection refused",
-            "connection reset",
-            "broken pipe",
-        ];
         let non_transient_patterns = [
             "authentication",
             "unauthorized",
@@ -85,7 +73,36 @@ impl CircuitBreakerProvider {
             return false;
         }
 
-        transient_patterns.iter().any(|p| lower.contains(p))
+        // Use word-boundary-aware matching for HTTP status codes to avoid
+        // false positives (e.g., "50000" matching "500")
+        let transient_words = [
+            "rate limit",
+            "rate_limit",
+            "overloaded",
+            "timeout",
+            "connection refused",
+            "connection reset",
+            "broken pipe",
+        ];
+        if transient_words.iter().any(|p| lower.contains(p)) {
+            return true;
+        }
+
+        // Match HTTP status codes with word boundaries (preceded/followed by
+        // non-digit or string boundary) to avoid false positives
+        for code in ["429", "500", "502", "503", "504"] {
+            if let Some(pos) = lower.find(code) {
+                let before_ok = pos == 0 || !lower.as_bytes()[pos - 1].is_ascii_digit();
+                let after_pos = pos + code.len();
+                let after_ok =
+                    after_pos >= lower.len() || !lower.as_bytes()[after_pos].is_ascii_digit();
+                if before_ok && after_ok {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     async fn should_allow(&self) -> Result<(), anyhow::Error> {
@@ -199,6 +216,10 @@ impl LLMProvider for CircuitBreakerProvider {
 
     fn default_model(&self) -> &str {
         self.inner.default_model()
+    }
+
+    fn metrics(&self) -> crate::providers::base::ProviderMetrics {
+        self.inner.metrics()
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {
@@ -504,6 +525,24 @@ mod tests {
             "context length exceeded"
         ));
         assert!(!CircuitBreakerProvider::is_transient("invalid api key"));
+
+        // Verify no false positives from numeric substrings
+        assert!(
+            !CircuitBreakerProvider::is_transient("token limit 50000 exceeded"),
+            "50000 should not match 500"
+        );
+        assert!(
+            !CircuitBreakerProvider::is_transient("error code 4291"),
+            "4291 should not match 429"
+        );
+        assert!(
+            CircuitBreakerProvider::is_transient("HTTP 503"),
+            "503 at end of string should match"
+        );
+        assert!(
+            CircuitBreakerProvider::is_transient("status=429 rate limited"),
+            "429 preceded by non-digit should match"
+        );
     }
 
     #[tokio::test]

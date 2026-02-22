@@ -145,6 +145,9 @@ impl LLMProvider for AnthropicProvider {
             .send()
             .await;
         match result {
+            Ok(resp) if !resp.status().is_success() => {
+                tracing::warn!("anthropic warmup got HTTP {} (non-fatal)", resp.status());
+            }
             Ok(_) => info!(
                 "anthropic provider warmed up in {}ms",
                 start.elapsed().as_millis()

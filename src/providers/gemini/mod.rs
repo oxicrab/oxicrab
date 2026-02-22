@@ -61,17 +61,16 @@ impl GeminiProvider {
 
         let mut tool_calls = Vec::new();
         if let Some(parts) = candidate["content"]["parts"].as_array() {
-            for (i, part) in parts.iter().enumerate() {
+            for part in parts {
                 // Gemini returns singular `functionCall` per part (not plural array)
                 if let Some(fc) = part.get("functionCall") {
-                    // Gemini doesn't return tool call IDs; use function name as ID
-                    // since Gemini's functionResponse.name needs the actual function name
-                    let id = fc["name"]
-                        .as_str()
-                        .map_or_else(|| format!("gemini_tc_{}", i), str::to_string);
+                    let name = fc["name"].as_str().unwrap_or("").to_string();
+                    // Generate a unique ID per tool call to avoid collisions
+                    // when the same function is called multiple times
+                    let id = format!("gemini_{}", &uuid::Uuid::new_v4().to_string()[..12]);
                     tool_calls.push(ToolCallRequest {
                         id,
-                        name: fc["name"].as_str().unwrap_or("").to_string(),
+                        name,
                         arguments: fc["args"].clone(),
                     });
                 }
@@ -197,7 +196,9 @@ impl LLMProvider for GeminiProvider {
         }
 
         let model_name = req.model.unwrap_or(&self.default_model);
-        let url = format!("{}/models/{}:generateContent", self.base_url, model_name);
+        // URL-encode model name to prevent path injection
+        let encoded_model = urlencoding::encode(model_name);
+        let url = format!("{}/models/{}:generateContent", self.base_url, encoded_model);
 
         let resp = self
             .client
@@ -243,11 +244,10 @@ impl LLMProvider for GeminiProvider {
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {
+        use tracing::warn;
         let start = std::time::Instant::now();
-        let url = format!(
-            "{}/models/{}:generateContent",
-            self.base_url, self.default_model
-        );
+        let encoded_model = urlencoding::encode(&self.default_model);
+        let url = format!("{}/models/{}:generateContent", self.base_url, encoded_model);
         let payload = json!({
             "contents": [{"parts": [{"text": "hi"}]}],
             "generationConfig": {"maxOutputTokens": 1}
@@ -262,11 +262,14 @@ impl LLMProvider for GeminiProvider {
             .send()
             .await;
         match result {
+            Ok(resp) if !resp.status().is_success() => {
+                warn!("gemini warmup got HTTP {} (non-fatal)", resp.status());
+            }
             Ok(_) => info!(
                 "gemini provider warmed up in {}ms",
                 start.elapsed().as_millis()
             ),
-            Err(e) => tracing::warn!("gemini warmup request failed (non-fatal): {}", e),
+            Err(e) => warn!("gemini warmup request failed (non-fatal): {}", e),
         }
         Ok(())
     }
