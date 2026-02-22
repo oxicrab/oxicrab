@@ -988,5 +988,7 @@ async fn test_api_error_unauthorized() {
         .unwrap();
 
     assert!(result.is_error);
-    assert!(result.content.contains("Bad credentials"));
+    // Error message is sanitized to prevent token leakage — the raw "Bad credentials"
+    // message from GitHub is replaced with a safe alternative
+    assert!(result.content.contains("authentication error"));
 }

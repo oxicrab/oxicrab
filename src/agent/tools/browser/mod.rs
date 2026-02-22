@@ -67,11 +67,17 @@ impl BrowserTool {
         }
 
         // Use a unique temp directory per session to avoid SingletonLock conflicts
-        // when previous browser instances crashed without cleanup
-        let user_data_dir =
-            std::env::temp_dir().join(format!("oxicrab-chrome-{}", std::process::id()));
+        // when previous browser instances crashed without cleanup.
+        // Include UUID to prevent PID reuse collisions.
+        let user_data_dir = std::env::temp_dir().join(format!(
+            "oxicrab-chrome-{}-{}",
+            std::process::id(),
+            &uuid::Uuid::new_v4().to_string()[..8]
+        ));
 
         let mut builder = ChromeBrowserConfig::builder()
+            // no_sandbox is required when running as root (e.g. Docker containers).
+            // Chrome refuses to start with sandbox when running as root.
             .no_sandbox()
             .user_data_dir(&user_data_dir)
             .launch_timeout(Duration::from_secs(self.timeout))
@@ -305,7 +311,19 @@ impl BrowserTool {
             .with_timeout(async {
                 let bytes = session
                     .page
-                    .screenshot(ScreenshotParams::builder().full_page(true).build())
+                    .screenshot(
+                        ScreenshotParams::builder()
+                            .full_page(true)
+                            // Clip height to prevent OOM on pathologically tall pages
+                            .clip(chromiumoxide::cdp::browser_protocol::page::Viewport {
+                                x: 0.0,
+                                y: 0.0,
+                                width: 1920.0,
+                                height: 10080.0, // ~5x 1080p
+                                scale: 1.0,
+                            })
+                            .build(),
+                    )
                     .await
                     .map_err(|e| format!("screenshot failed: {e}"))?;
 
@@ -464,7 +482,20 @@ impl BrowserTool {
                             .content()
                             .await
                             .map_err(|e| format!("failed to get HTML: {e}"))?;
-                        Ok(html)
+                        // Cap HTML to 500KB to prevent oversized responses
+                        if html.len() > 500 * 1024 {
+                            Ok(format!(
+                                "{}... [truncated at 500KB, full page is {} bytes]",
+                                &html[..html
+                                    .char_indices()
+                                    .take_while(|(i, _)| *i < 500 * 1024)
+                                    .last()
+                                    .map_or(0, |(i, _)| i)],
+                                html.len()
+                            ))
+                        } else {
+                            Ok(html)
+                        }
                     }
                     "value" => {
                         let sel = selector.ok_or_else(|| {

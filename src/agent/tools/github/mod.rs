@@ -53,6 +53,20 @@ impl GitHubTool {
         }
     }
 
+    /// Extract error message from GitHub API response, sanitizing to prevent
+    /// token leakage if the API echoes back auth details.
+    fn sanitize_api_error(body: &Value) -> String {
+        let msg = body["message"].as_str().unwrap_or("unknown error");
+        // Don't include the raw message if it might contain auth details
+        if msg.to_lowercase().contains("bearer")
+            || msg.to_lowercase().contains("token")
+            || msg.to_lowercase().contains("credential")
+        {
+            return "authentication error (check token)".to_string();
+        }
+        msg.to_string()
+    }
+
     async fn api_get(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
         let resp = self
             .client
@@ -68,9 +82,12 @@ impl GitHubTool {
 
         let status = resp.status();
         Self::check_rate_limit(&resp);
+        if status.as_u16() == 429 {
+            anyhow::bail!("GitHub API rate limit exceeded, try again later");
+        }
         let body: Value = resp.json().await?;
         if !status.is_success() {
-            let msg = body["message"].as_str().unwrap_or("Unknown error");
+            let msg = Self::sanitize_api_error(&body);
             anyhow::bail!("GitHub API {}: {}", status, msg);
         }
         Ok(body)
@@ -91,9 +108,12 @@ impl GitHubTool {
 
         let status = resp.status();
         Self::check_rate_limit(&resp);
+        if status.as_u16() == 429 {
+            anyhow::bail!("GitHub API rate limit exceeded, try again later");
+        }
         let result: Value = resp.json().await?;
         if !status.is_success() {
-            let msg = result["message"].as_str().unwrap_or("Unknown error");
+            let msg = Self::sanitize_api_error(&result);
             anyhow::bail!("GitHub API {}: {}", status, msg);
         }
         Ok(result)
@@ -446,9 +466,15 @@ impl GitHubTool {
             query.push(("ref", r));
         }
 
+        // URL-encode each path segment to handle spaces, ?, # and other special chars
+        let encoded_path: String = file_path
+            .split('/')
+            .map(|seg| urlencoding::encode(seg))
+            .collect::<Vec<_>>()
+            .join("/");
         let json = self
             .api_get(
-                &format!("/repos/{}/{}/contents/{}", owner, repo, file_path),
+                &format!("/repos/{}/{}/contents/{}", owner, repo, encoded_path),
                 &query,
             )
             .await?;
@@ -724,6 +750,13 @@ impl Tool for GitHubTool {
                     return Ok(ToolResult::error("missing 'repo' parameter".to_string()));
                 };
 
+                // Validate owner/repo
+                if owner.contains('/') || repo.contains('/') {
+                    return Ok(ToolResult::error(
+                        "owner and repo must not contain '/'".to_string(),
+                    ));
+                }
+
                 // Extract pagination params with defaults and cap
                 let page_num = params["page"].as_u64().unwrap_or(1).max(1);
                 let per_page_num = params["per_page"].as_u64().unwrap_or(10).clamp(1, 100);
@@ -733,10 +766,22 @@ impl Tool for GitHubTool {
                 let result = match action {
                     "list_issues" => {
                         let state = params["state"].as_str().unwrap_or("open");
+                        if !matches!(state, "open" | "closed" | "all") {
+                            return Ok(ToolResult::error(format!(
+                                "invalid state '{}', must be open, closed, or all",
+                                state
+                            )));
+                        }
                         self.list_issues(owner, repo, state, &page, &per_page).await
                     }
                     "list_prs" => {
                         let state = params["state"].as_str().unwrap_or("open");
+                        if !matches!(state, "open" | "closed" | "all") {
+                            return Ok(ToolResult::error(format!(
+                                "invalid state '{}', must be open, closed, or all",
+                                state
+                            )));
+                        }
                         self.list_prs(owner, repo, state, &page, &per_page).await
                     }
                     "create_issue" => {
