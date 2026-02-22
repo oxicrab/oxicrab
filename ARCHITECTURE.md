@@ -16,7 +16,7 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 
 - **`Tool`** (`src/agent/tools/base.rs`): `name()`, `description()`, `parameters()` (JSON Schema), `execute(Value, &ExecutionContext) → ToolResult`. Optional: `cacheable()`.
 - **`ToolMiddleware`** (`src/agent/tools/base.rs`): `before_execute()` (can short-circuit), `after_execute()` (can modify result). Built-in: `CacheMiddleware`, `TruncationMiddleware`, `LoggingMiddleware`.
-- **`ExecutionContext`** (`src/agent/tools/base.rs`): Passed to every `execute()` call. Fields: `channel`, `chat_id`, `context_summary`.
+- **`ExecutionContext`** (`src/agent/tools/base.rs`): Passed to every `execute()` call. Fields: `channel`, `chat_id`, `context_summary`, `metadata` (channel-specific metadata from the originating inbound message, e.g. Slack `ts` for threading).
 - **`BaseChannel`** (`src/channels/base.rs`): `start()`, `stop()`, `send()`. Optional: `send_typing()`, `send_and_get_id()`, `edit_message()`, `delete_message()`. Discord supports slash commands, button component interactions, embeds, and interaction webhook followups — metadata keys `discord_interaction_token`/`discord_application_id` route responses through webhook API instead of channel messages.
 - **`LLMProvider`** (`src/providers/base.rs`): `chat(ChatRequest) → LLMResponse`, `default_model()`, `warmup()`. Has default `chat_with_retry()` with exponential backoff. `warmup()` pre-warms HTTP connections on startup (default no-op, implemented for Anthropic/OpenAI/Gemini).
 
@@ -94,6 +94,10 @@ Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowe
 ## Cognitive Routines (`src/agent/cognitive/mod.rs`)
 
 `CheckpointTracker` emits escalating pressure messages that nudge the LLM to self-checkpoint during long tool-heavy agent loop runs. Tracks tool call volume with a rolling window (`recent_tools_window`, default 10) and fires three one-shot pressure levels: gentle hint (`gentleThreshold`, default 12), firm warning (`firmThreshold`, default 20), urgent demand (`urgentThreshold`, default 30). Each level emits only once per cycle; counters reset when a periodic checkpoint fires. The tracker is local to each `run_agent_loop()` invocation (not persisted). A `breadcrumb()` method produces a cognitive state summary injected into compaction recovery context. Static cognitive instructions are injected as a system message when enabled. Config under `agents.defaults.cognitive`: `enabled` (default false), thresholds, `recentToolsWindow`.
+
+## Cron System (`src/cron/`)
+
+`CronService` manages scheduled and event-triggered jobs. Supports 4 schedule types: `At` (one-shot), `Every` (interval), `Cron` (5-field expression), `Event` (regex match on inbound messages). Jobs are persisted to `cron_store.json`. `CronPayload` specifies execution semantics: `kind` ("agent_turn" or "echo"), `message`, `targets` (channel + recipient), `agent_echo`, and `origin_metadata` (channel-specific metadata from the originating message, propagated to outbound messages so responses land in the correct thread/context). `EventMatcher` checks inbound messages against event-triggered jobs with regex matching, channel filtering, cooldown enforcement, expiry, and max_runs. The cron tool supports actions: add, list, remove, run.
 
 ## Doctor (`src/cli/doctor.rs`)
 
