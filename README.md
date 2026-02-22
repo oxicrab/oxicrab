@@ -344,6 +344,11 @@ oxicrab auth google              # OAuth2 for Gmail + Calendar
 # Diagnostics
 oxicrab status                   # quick setup overview
 oxicrab doctor                   # full system health check
+
+# Statistics — LLM costs and memory search metrics
+oxicrab stats today              # today's LLM spend
+oxicrab stats costs -d 30        # cost breakdown by model (last 30 days)
+oxicrab stats search             # memory search hit counts and top sources
 ```
 
 ### Voice Transcription

@@ -238,3 +238,122 @@ fn test_memory_db_clone_works() {
     let results = db2.search("cloning", 10, None).unwrap();
     assert!(!results.is_empty());
 }
+
+#[test]
+fn test_search_logging_roundtrip() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test_memory.db");
+
+    let test_file = dir.path().join("notes.md");
+    std::fs::write(
+        &test_file,
+        "This is a document about Rust programming and memory safety.",
+    )
+    .unwrap();
+
+    let db = MemoryDB::new(&db_path).unwrap();
+    db.index_file("notes.md", &test_file).unwrap();
+
+    // search() internally calls log_search()
+    let results = db.search("Rust programming", 10, None).unwrap();
+    assert!(!results.is_empty());
+
+    let stats = db.get_search_stats().unwrap();
+    assert_eq!(stats.total_searches, 1);
+    assert!(stats.total_hits > 0);
+}
+
+#[test]
+fn test_source_hit_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test_memory.db");
+
+    let test_file = dir.path().join("notes.md");
+    std::fs::write(
+        &test_file,
+        "This is a document about Rust programming and concurrency.",
+    )
+    .unwrap();
+
+    let db = MemoryDB::new(&db_path).unwrap();
+    db.index_file("notes.md", &test_file).unwrap();
+
+    // Before any search, hit count should be 0
+    assert_eq!(db.get_source_hit_count("notes.md").unwrap(), 0);
+
+    // Search triggers a log
+    let _ = db.search("Rust", 10, None).unwrap();
+
+    // Now notes.md should have hits
+    let count = db.get_source_hit_count("notes.md").unwrap();
+    assert!(count > 0);
+
+    // Search again
+    let _ = db.search("programming", 10, None).unwrap();
+    let count2 = db.get_source_hit_count("notes.md").unwrap();
+    assert!(count2 >= count);
+}
+
+#[test]
+fn test_cost_record_and_query() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test_memory.db");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    db.record_cost("claude-sonnet-4", 1000, 500, 0, 0, 4.5, "main")
+        .unwrap();
+    db.record_cost("gpt-4o", 2000, 1000, 100, 200, 3.2, "subagent")
+        .unwrap();
+
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let daily = db.get_daily_cost(&today).unwrap();
+    assert!((daily - 7.7).abs() < 0.01, "expected 7.7, got {}", daily);
+}
+
+#[test]
+fn test_cost_summary() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test_memory.db");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    db.record_cost("claude-sonnet-4", 1000, 500, 0, 0, 4.5, "main")
+        .unwrap();
+    db.record_cost("claude-sonnet-4", 2000, 1000, 0, 0, 9.0, "main")
+        .unwrap();
+    db.record_cost("gpt-4o", 500, 200, 0, 0, 1.0, "main")
+        .unwrap();
+
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let summary = db.get_cost_summary(&today).unwrap();
+    assert!(!summary.is_empty());
+    // Should have two groups: claude-sonnet-4 and gpt-4o
+    assert_eq!(summary.len(), 2);
+}
+
+#[test]
+fn test_entries_missing_embeddings() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test_memory.db");
+
+    let test_file = dir.path().join("notes.md");
+    std::fs::write(
+        &test_file,
+        "This is about embeddings and vector search.\n\nAnother paragraph about neural networks.",
+    )
+    .unwrap();
+
+    let db = MemoryDB::new(&db_path).unwrap();
+    db.index_file("notes.md", &test_file).unwrap();
+
+    let missing = db.get_entries_missing_embeddings().unwrap();
+    assert!(!missing.is_empty());
+
+    // Store an embedding for the first entry
+    let (entry_id, _, _) = &missing[0];
+    let fake_embedding = vec![0u8; 128];
+    db.store_embedding(*entry_id, &fake_embedding).unwrap();
+
+    // Now one fewer should be missing
+    let missing_after = db.get_entries_missing_embeddings().unwrap();
+    assert_eq!(missing_after.len(), missing.len() - 1);
+}

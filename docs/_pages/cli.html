@@ -36,6 +36,7 @@ max_width: 820px
             <li><a href="#doctor">doctor</a></li>
             <li><a href="#pairing">pairing</a></li>
             <li><a href="#credentials">credentials</a></li>
+            <li><a href="#stats">stats</a></li>
         </ul>
     </div>
 
@@ -322,5 +323,35 @@ oxicrab credentials import
 
 <span class="hl-comment"># Remove a credential</span>
 oxicrab credentials delete anthropic-api-key</pre>
+
+    <!-- STATS -->
+    <h2 id="stats">stats</h2>
+    <div class="cmd-sig">oxicrab stats &lt;SUBCOMMAND&gt;</div>
+    <p>Query memory search and LLM cost statistics from the local SQLite database. Costs are recorded per-call with model, token counts, and cache breakdown.</p>
+
+    <h3>stats today</h3>
+    <div class="cmd-sig">oxicrab stats today</div>
+    <p>Show total LLM cost for today in cents and dollars.</p>
+
+    <h3>stats costs</h3>
+    <div class="cmd-sig">oxicrab stats costs [--days N]</div>
+    <p>Show cost summary grouped by date and model.</p>
+    <table class="flag-table">
+        <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+        <tr><td><code>--days, -d</code></td><td>7</td><td>Number of days to look back</td></tr>
+    </table>
+
+    <h3>stats search</h3>
+    <div class="cmd-sig">oxicrab stats search</div>
+    <p>Show memory search statistics: total searches, hit counts, average results per search, and top source files by hit count.</p>
+
+    <pre><span class="hl-comment"># Today's spend</span>
+oxicrab stats today
+
+<span class="hl-comment"># Last 30 days of costs by model</span>
+oxicrab stats costs -d 30
+
+<span class="hl-comment"># Memory search effectiveness</span>
+oxicrab stats search</pre>
 
 </div>

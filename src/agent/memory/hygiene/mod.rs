@@ -20,7 +20,14 @@ fn lock_memory_exclusive(memory_dir: &Path) -> Option<std::fs::File> {
 }
 
 /// Archive daily notes older than `archive_after_days` into `memory/archive/`.
-pub fn archive_old_notes(memory_dir: &Path, archive_after_days: u32) -> Result<u32> {
+///
+/// When `db` is provided, notes between `archive_after_days / 2` and `archive_after_days`
+/// are archived early if they have zero search hits (utility-based pruning).
+pub fn archive_old_notes(
+    memory_dir: &Path,
+    archive_after_days: u32,
+    db: Option<&MemoryDB>,
+) -> Result<u32> {
     if archive_after_days == 0 {
         return Ok(0);
     }
@@ -29,6 +36,8 @@ pub fn archive_old_notes(memory_dir: &Path, archive_after_days: u32) -> Result<u
 
     let archive_dir = memory_dir.join("archive");
     let cutoff = Utc::now().date_naive() - chrono::Duration::days(i64::from(archive_after_days));
+    let early_cutoff =
+        Utc::now().date_naive() - chrono::Duration::days(i64::from(archive_after_days / 2));
     let mut count = 0;
 
     for entry in std::fs::read_dir(memory_dir)? {
@@ -52,7 +61,32 @@ pub fn archive_old_notes(memory_dir: &Path, archive_after_days: u32) -> Result<u
             continue;
         };
 
-        if date < cutoff {
+        let should_archive = if date < cutoff {
+            // Always archive notes past the normal cutoff
+            true
+        } else if date < early_cutoff {
+            // Early archive: only if zero search hits (utility-based)
+            if let Some(db) = db {
+                let source_key = format!("{}.md", stem);
+                match db.get_source_hit_count(&source_key) {
+                    Ok(0) => {
+                        debug!("early-archiving unused note: {}", stem);
+                        true
+                    }
+                    Ok(_) => false,
+                    Err(e) => {
+                        warn!("failed to check hit count for {}: {}", stem, e);
+                        false
+                    }
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if should_archive {
             std::fs::create_dir_all(&archive_dir)?;
             let dest = archive_dir.join(entry.file_name());
             std::fs::rename(&path, &dest)?;
@@ -133,7 +167,7 @@ pub fn cleanup_orphaned_entries(db: &MemoryDB, memory_dir: &Path) -> Result<u32>
 
 /// Run all hygiene tasks.
 pub fn run_hygiene(db: &MemoryDB, memory_dir: &Path, archive_days: u32, purge_days: u32) {
-    if let Err(e) = archive_old_notes(memory_dir, archive_days) {
+    if let Err(e) = archive_old_notes(memory_dir, archive_days, Some(db)) {
         warn!("memory archive failed: {}", e);
     }
     if let Err(e) = purge_expired_archives(memory_dir, purge_days) {

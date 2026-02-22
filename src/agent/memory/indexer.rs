@@ -192,6 +192,7 @@ impl MemoryIndexer {
                 // Generate embeddings for indexed sources
                 if let Some(ref emb_svc) = embedding_service {
                     Self::generate_embeddings_for_sources(&db, emb_svc, &indexed_sources);
+                    Self::backfill_missing_embeddings(&db, emb_svc);
                 }
 
                 debug!("Memory indexing completed");
@@ -241,6 +242,61 @@ impl MemoryIndexer {
                 }
                 Err(e) => {
                     warn!("embedding generation failed for {}: {}", source_key, e);
+                }
+            }
+        }
+    }
+
+    /// Back-fill embeddings for entries that were indexed before embeddings were enabled.
+    fn backfill_missing_embeddings(db: &MemoryDB, embedding_service: &EmbeddingService) {
+        let missing = match db.get_entries_missing_embeddings() {
+            Ok(m) => m,
+            Err(e) => {
+                warn!("failed to get entries missing embeddings: {}", e);
+                return;
+            }
+        };
+
+        if missing.is_empty() {
+            return;
+        }
+
+        info!("back-filling embeddings for {} entries", missing.len());
+
+        // Group by source_key for batch processing
+        let mut by_source: std::collections::HashMap<String, Vec<(i64, String)>> =
+            std::collections::HashMap::new();
+        for (id, source_key, content) in missing {
+            by_source.entry(source_key).or_default().push((id, content));
+        }
+
+        for (source_key, entries) in &by_source {
+            let texts: Vec<&str> = entries
+                .iter()
+                .map(|(_, content)| content.as_str())
+                .collect();
+            match embedding_service.embed_texts(&texts) {
+                Ok(embeddings) => {
+                    for ((entry_id, _), emb) in entries.iter().zip(embeddings.iter()) {
+                        let bytes = crate::agent::memory::embeddings::serialize_embedding(emb);
+                        if let Err(e) = db.store_embedding(*entry_id, &bytes) {
+                            warn!(
+                                "failed to store back-fill embedding for entry {}: {}",
+                                entry_id, e
+                            );
+                        }
+                    }
+                    debug!(
+                        "back-filled {} embeddings for {}",
+                        entries.len(),
+                        source_key
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        "back-fill embedding generation failed for {}: {}",
+                        source_key, e
+                    );
                 }
             }
         }

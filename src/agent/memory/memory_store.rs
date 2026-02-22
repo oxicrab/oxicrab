@@ -131,6 +131,11 @@ impl MemoryStore {
         })
     }
 
+    /// Accessor for the inner database (used by `CostGuard` for persistence).
+    pub fn db(&self) -> Arc<MemoryDB> {
+        self.db.clone()
+    }
+
     /// Whether embeddings are available for hybrid search.
     pub fn has_embeddings(&self) -> bool {
         self.embedding_service.is_some()
@@ -209,7 +214,17 @@ impl MemoryStore {
         let mut chunks = Vec::new();
         if let Some(query) = query {
             let exclude: HashSet<String> = [today_key.clone()].iter().cloned().collect();
-            let hits = self.db.search(query, 8, Some(&exclude))?;
+            let hits = if self.has_embeddings() {
+                match self.hybrid_search(query, 8, Some(&exclude)) {
+                    Ok(h) => h,
+                    Err(e) => {
+                        warn!("hybrid search failed, falling back to keyword: {}", e);
+                        self.db.search(query, 8, Some(&exclude))?
+                    }
+                }
+            } else {
+                self.db.search(query, 8, Some(&exclude))?
+            };
             for hit in hits {
                 chunks.push(format!("**{}**: {}", hit.source_key, hit.content));
             }

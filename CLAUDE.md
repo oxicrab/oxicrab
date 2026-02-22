@@ -139,3 +139,7 @@ Do **not** use `#[path = "foo_tests.rs"]` — this was previously used in 4 modu
 - **Empty `allowFrom` is now deny-all**: Channels with empty `allowFrom` will reject all senders. Add `["*"]` for the old behavior, set `"dmPolicy": "pairing"` to let unknown senders request access, or set `"dmPolicy": "open"` to allow everyone.
 - **Adding a new credential**: Add one line to `define_credentials!` in `src/config/credentials/mod.rs`. This auto-generates env var override, keyring access, credential helper lookup, CLI listing, and source detection.
 - **`record_llm_call()` takes cache token params**: `cache_creation_input_tokens` and `cache_read_input_tokens` (both `Option<u64>`) for Anthropic prompt caching cost tracking.
+- **CostGuard persists to SQLite**: Use `CostGuard::with_db()` (not `::new()`) to enable cost persistence. Daily cost is restored on startup. Records go to `llm_cost_log` table in `memory.sqlite3`.
+- **Memory search tracking**: All searches (keyword and hybrid) are logged to `memory_access_log` + `memory_search_hits` tables. Use `db.get_source_hit_count()` to check utility. The `archive_old_notes()` function takes an optional `db` parameter for utility-based early archiving.
+- **Embedding back-fill**: `MemoryIndexer` automatically back-fills embeddings for entries that were indexed before embeddings were enabled, via `get_entries_missing_embeddings()`.
+- **CLI `stats` command**: `oxicrab stats today|costs|search` queries the memory database for cost and search metrics.

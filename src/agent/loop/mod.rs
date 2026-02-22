@@ -801,7 +801,7 @@ impl AgentLoop {
             "cost guard active (daily_budget={:?} cents, max_actions_per_hour={:?})",
             cost_guard_config.daily_budget_cents, cost_guard_config.max_actions_per_hour
         );
-        let cost_guard = Some(Arc::new(CostGuard::new(cost_guard_config)));
+        let cost_guard = Some(Arc::new(CostGuard::with_db(cost_guard_config, memory.db())));
 
         let tool_ctx = ToolBuildContext {
             workspace: workspace.clone(),

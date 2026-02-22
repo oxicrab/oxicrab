@@ -11,6 +11,23 @@ pub struct MemoryHit {
     pub content: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct CostSummaryRow {
+    pub date: String,
+    pub model: String,
+    pub total_cents: f64,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub call_count: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchStats {
+    pub total_searches: u64,
+    pub total_hits: u64,
+    pub avg_results_per_search: f64,
+}
+
 /// Minimum size for a memory chunk (paragraphs shorter than this are skipped)
 const MIN_CHUNK_SIZE: usize = 12;
 /// Maximum size for a memory chunk (longer paragraphs are truncated)
@@ -127,6 +144,47 @@ impl MemoryDB {
                 embedding BLOB NOT NULL
             )",
             [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS memory_access_log (
+                id INTEGER PRIMARY KEY,
+                query TEXT NOT NULL,
+                search_type TEXT NOT NULL,
+                result_count INTEGER NOT NULL,
+                top_score REAL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS memory_search_hits (
+                id INTEGER PRIMARY KEY,
+                access_log_id INTEGER NOT NULL REFERENCES memory_access_log(id),
+                source_key TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS llm_cost_log (
+                id INTEGER PRIMARY KEY,
+                timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+                model TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                cost_cents REAL NOT NULL,
+                caller TEXT NOT NULL DEFAULT 'main'
+            )",
+            [],
+        )?;
+
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_cost_log_date ON llm_cost_log(timestamp);
+             CREATE INDEX IF NOT EXISTS idx_cost_log_model ON llm_cost_log(model);",
         )?;
 
         // Try to create FTS5 virtual table
@@ -461,14 +519,21 @@ impl MemoryDB {
 
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-        Ok(scored
+        let top_score = scored.first().map(|(s, _, _)| f64::from(*s));
+        let hits: Vec<MemoryHit> = scored
             .into_iter()
             .take(limit)
             .map(|(_, source_key, content)| MemoryHit {
                 source_key,
                 content,
             })
-            .collect())
+            .collect();
+
+        if let Err(e) = self.log_search(query_text, "hybrid", &hits, top_score) {
+            debug!("failed to log hybrid search: {}", e);
+        }
+
+        Ok(hits)
     }
 
     /// Return entry IDs and content for a given source key (for embedding generation).
@@ -522,7 +587,217 @@ impl MemoryDB {
         Ok(())
     }
 
+    /// Log a search query and the source keys it returned.
+    pub fn log_search(
+        &self,
+        query: &str,
+        search_type: &str,
+        results: &[MemoryHit],
+        top_score: Option<f64>,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        conn.execute(
+            "INSERT INTO memory_access_log (query, search_type, result_count, top_score)
+             VALUES (?, ?, ?, ?)",
+            params![query, search_type, results.len() as i64, top_score],
+        )?;
+        let log_id = conn.last_insert_rowid();
+        for hit in results {
+            conn.execute(
+                "INSERT INTO memory_search_hits (access_log_id, source_key) VALUES (?, ?)",
+                params![log_id, hit.source_key],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Count how many times a source key appeared in search results.
+    pub fn get_source_hit_count(&self, source_key: &str) -> Result<u64> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM memory_search_hits WHERE source_key = ?",
+                [source_key],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        Ok(count as u64)
+    }
+
+    /// Get entries that have no embeddings (for back-fill).
+    pub fn get_entries_missing_embeddings(&self) -> Result<Vec<(i64, String, String)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT e.id, e.source_key, e.content FROM memory_entries e
+             LEFT JOIN memory_embeddings em ON e.id = em.entry_id
+             WHERE em.entry_id IS NULL",
+        )?;
+        let rows: Result<Vec<_>, _> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect();
+        rows.map_err(|e| anyhow::anyhow!("failed to get entries missing embeddings: {}", e))
+    }
+
+    /// Record an LLM cost entry.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_cost(
+        &self,
+        model: &str,
+        input_tokens: u64,
+        output_tokens: u64,
+        cache_creation_tokens: u64,
+        cache_read_tokens: u64,
+        cost_cents: f64,
+        caller: &str,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        conn.execute(
+            "INSERT INTO llm_cost_log
+             (model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_cents, caller)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![
+                model,
+                input_tokens as i64,
+                output_tokens as i64,
+                cache_creation_tokens as i64,
+                cache_read_tokens as i64,
+                cost_cents,
+                caller,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Get total cost in cents for a given date (YYYY-MM-DD).
+    pub fn get_daily_cost(&self, date_str: &str) -> Result<f64> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let pattern = format!("{}%", date_str);
+        let total: f64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(cost_cents), 0.0) FROM llm_cost_log WHERE timestamp LIKE ?",
+                [&pattern],
+                |row| row.get(0),
+            )
+            .unwrap_or(0.0);
+        Ok(total)
+    }
+
+    /// Get cost summary grouped by date and model since a given date (YYYY-MM-DD).
+    pub fn get_cost_summary(&self, since_date: &str) -> Result<Vec<CostSummaryRow>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT DATE(timestamp) as day, model,
+                    SUM(cost_cents) as total_cents,
+                    SUM(input_tokens) as total_input,
+                    SUM(output_tokens) as total_output,
+                    COUNT(*) as call_count
+             FROM llm_cost_log
+             WHERE DATE(timestamp) >= ?
+             GROUP BY day, model
+             ORDER BY day DESC, total_cents DESC",
+        )?;
+        let rows: Result<Vec<_>, _> = stmt
+            .query_map([since_date], |row| {
+                Ok(CostSummaryRow {
+                    date: row.get(0)?,
+                    model: row.get(1)?,
+                    total_cents: row.get(2)?,
+                    total_input_tokens: row.get(3)?,
+                    total_output_tokens: row.get(4)?,
+                    call_count: row.get(5)?,
+                })
+            })?
+            .collect();
+        rows.map_err(|e| anyhow::anyhow!("failed to get cost summary: {}", e))
+    }
+
+    /// Get search log stats: total searches, total hits, unique queries.
+    pub fn get_search_stats(&self) -> Result<SearchStats> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let total_searches: i64 = conn
+            .query_row("SELECT COUNT(*) FROM memory_access_log", [], |row| {
+                row.get(0)
+            })
+            .unwrap_or(0);
+        let total_hits: i64 = conn
+            .query_row("SELECT COUNT(*) FROM memory_search_hits", [], |row| {
+                row.get(0)
+            })
+            .unwrap_or(0);
+        let avg_results: f64 = conn
+            .query_row(
+                "SELECT COALESCE(AVG(result_count), 0.0) FROM memory_access_log",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0.0);
+        Ok(SearchStats {
+            total_searches: total_searches as u64,
+            total_hits: total_hits as u64,
+            avg_results_per_search: avg_results,
+        })
+    }
+
+    /// Get top source keys by search hit count.
+    pub fn get_top_sources(&self, limit: usize) -> Result<Vec<(String, u64)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT source_key, COUNT(*) as hits FROM memory_search_hits
+             GROUP BY source_key ORDER BY hits DESC LIMIT ?",
+        )?;
+        let rows: Result<Vec<_>, _> = stmt
+            .query_map([limit as i64], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64))
+            })?
+            .collect();
+        rows.map_err(|e| anyhow::anyhow!("failed to get top sources: {}", e))
+    }
+
     pub fn search(
+        &self,
+        query_text: &str,
+        limit: usize,
+        exclude_sources: Option<&std::collections::HashSet<String>>,
+    ) -> Result<Vec<MemoryHit>> {
+        let hits = self.search_inner(query_text, limit, exclude_sources)?;
+        // Log search asynchronously (best-effort, don't fail the search)
+        if let Err(e) = self.log_search(query_text, "keyword", &hits, None) {
+            debug!("failed to log search: {}", e);
+        }
+        Ok(hits)
+    }
+
+    fn search_inner(
         &self,
         query_text: &str,
         limit: usize,

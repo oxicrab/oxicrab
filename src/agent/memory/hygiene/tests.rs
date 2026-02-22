@@ -17,7 +17,7 @@ fn test_archive_old_notes() {
     // Non-dated file should be ignored
     std::fs::write(memory_dir.join("MEMORY.md"), "long-term").unwrap();
 
-    let count = archive_old_notes(memory_dir, 30).unwrap();
+    let count = archive_old_notes(memory_dir, 30, None).unwrap();
     assert_eq!(count, 1);
     assert!(!memory_dir.join("2020-01-01.md").exists());
     assert!(memory_dir.join("archive/2020-01-01.md").exists());
@@ -29,7 +29,7 @@ fn test_archive_old_notes() {
 fn test_archive_zero_days_is_noop() {
     let tmp = TempDir::new().unwrap();
     create_dated_file(tmp.path(), "2020-01-01", "old note");
-    let count = archive_old_notes(tmp.path(), 0).unwrap();
+    let count = archive_old_notes(tmp.path(), 0, None).unwrap();
     assert_eq!(count, 0);
     assert!(tmp.path().join("2020-01-01.md").exists());
 }
@@ -77,4 +77,67 @@ fn test_cleanup_orphaned_entries() {
     // Search should return nothing now
     let results = db.search("orphaned", 10, None).unwrap();
     assert!(results.is_empty());
+}
+
+#[test]
+fn test_utility_based_early_archive() {
+    let tmp = TempDir::new().unwrap();
+    let memory_dir = tmp.path();
+    let db_path = tmp.path().join("test.db");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    // archive_after_days = 30, so early_cutoff = 15 days ago
+    // Create a note 20 days ago (between early and normal cutoff)
+    let twenty_days_ago = (Utc::now().date_naive() - chrono::Duration::days(20))
+        .format("%Y-%m-%d")
+        .to_string();
+    let note_content = "This is a note about utility based archiving and early pruning.";
+    create_dated_file(memory_dir, &twenty_days_ago, note_content);
+
+    // Index the file so it exists in DB
+    let note_path = memory_dir.join(format!("{}.md", twenty_days_ago));
+    db.index_file(&format!("{}.md", twenty_days_ago), &note_path)
+        .unwrap();
+
+    // Without db: note should NOT be early-archived (it's between early and normal cutoff)
+    let count = archive_old_notes(memory_dir, 30, None).unwrap();
+    assert_eq!(count, 0, "should not archive without db for utility check");
+
+    // With db but note has zero hits: should be early-archived
+    let count = archive_old_notes(memory_dir, 30, Some(&db)).unwrap();
+    assert_eq!(count, 1, "should early-archive unused note");
+    assert!(!note_path.exists());
+    assert!(
+        memory_dir
+            .join("archive")
+            .join(format!("{}.md", twenty_days_ago))
+            .exists()
+    );
+}
+
+#[test]
+fn test_utility_based_keeps_used_notes() {
+    let tmp = TempDir::new().unwrap();
+    let memory_dir = tmp.path();
+    let db_path = tmp.path().join("test.db");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    // Create a note 20 days ago (between early cutoff at 15 and normal at 30)
+    let twenty_days_ago = (Utc::now().date_naive() - chrono::Duration::days(20))
+        .format("%Y-%m-%d")
+        .to_string();
+    let note_content = "This is about Rust programming and memory management techniques.";
+    create_dated_file(memory_dir, &twenty_days_ago, note_content);
+
+    let note_path = memory_dir.join(format!("{}.md", twenty_days_ago));
+    db.index_file(&format!("{}.md", twenty_days_ago), &note_path)
+        .unwrap();
+
+    // Search for something that will hit this note — this creates search hits
+    let _ = db.search("Rust programming", 10, None).unwrap();
+
+    // With db: note has search hits, should NOT be early-archived
+    let count = archive_old_notes(memory_dir, 30, Some(&db)).unwrap();
+    assert_eq!(count, 0, "should keep note that has search hits");
+    assert!(note_path.exists());
 }

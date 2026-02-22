@@ -72,6 +72,11 @@ enum Commands {
         #[command(subcommand)]
         cmd: CredentialCommands,
     },
+    /// Show memory and cost statistics
+    Stats {
+        #[command(subcommand)]
+        cmd: StatsCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -188,6 +193,20 @@ enum ChannelCommands {
 }
 
 #[derive(Subcommand)]
+enum StatsCommands {
+    /// Show LLM cost summary
+    Costs {
+        /// Number of days to look back (default: 7)
+        #[arg(long, short = 'd', default_value = "7")]
+        days: u32,
+    },
+    /// Show memory search statistics
+    Search,
+    /// Show cost for today
+    Today,
+}
+
+#[derive(Subcommand)]
 enum CredentialCommands {
     /// Store a credential in the OS keyring
     Set {
@@ -249,6 +268,9 @@ pub async fn run() -> Result<()> {
         }
         Commands::Credentials { cmd } => {
             credentials_command(cmd)?;
+        }
+        Commands::Stats { ref cmd } => {
+            stats_command(cmd)?;
         }
     }
 
@@ -1673,6 +1695,94 @@ fn credentials_command(cmd: CredentialCommands) -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+fn stats_command(cmd: &StatsCommands) -> Result<()> {
+    let config = load_config(None)?;
+    let workspace = config.workspace_path();
+    let db_path = workspace.join("memory").join("memory.sqlite3");
+
+    if !db_path.exists() {
+        anyhow::bail!(
+            "memory database not found at {}. Run the agent first to initialize it.",
+            db_path.display()
+        );
+    }
+
+    let db = crate::agent::memory::MemoryDB::new(&db_path)?;
+
+    match cmd {
+        StatsCommands::Today => {
+            let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+            let daily = db.get_daily_cost(&today)?;
+            println!(
+                "Cost today ({}): {:.2} cents (${:.4})",
+                today,
+                daily,
+                daily / 100.0
+            );
+        }
+        StatsCommands::Costs { days } => {
+            let since = (chrono::Utc::now().date_naive()
+                - chrono::Duration::days(i64::from(*days)))
+            .format("%Y-%m-%d")
+            .to_string();
+            let summary = db.get_cost_summary(&since)?;
+
+            if summary.is_empty() {
+                println!("No cost data in the last {} days.", days);
+                return Ok(());
+            }
+
+            println!(
+                "{:<12} {:<30} {:>8} {:>10} {:>10} {:>6}",
+                "Date", "Model", "Cents", "Input", "Output", "Calls"
+            );
+            println!("{}", "\u{2500}".repeat(80));
+
+            let mut total_cents = 0.0;
+            let mut total_calls = 0i64;
+            for row in &summary {
+                println!(
+                    "{:<12} {:<30} {:>8.2} {:>10} {:>10} {:>6}",
+                    row.date,
+                    row.model,
+                    row.total_cents,
+                    row.total_input_tokens,
+                    row.total_output_tokens,
+                    row.call_count,
+                );
+                total_cents += row.total_cents;
+                total_calls += row.call_count;
+            }
+
+            println!("{}", "\u{2500}".repeat(80));
+            println!(
+                "Total: {:.2} cents (${:.4}) across {} calls",
+                total_cents,
+                total_cents / 100.0,
+                total_calls
+            );
+        }
+        StatsCommands::Search => {
+            let stats = db.get_search_stats()?;
+            println!("Memory Search Statistics");
+            println!("{}", "\u{2500}".repeat(40));
+            println!("Total searches:       {}", stats.total_searches);
+            println!("Total hits:           {}", stats.total_hits);
+            println!("Avg results/search:   {:.1}", stats.avg_results_per_search);
+
+            let top = db.get_top_sources(10)?;
+            if !top.is_empty() {
+                println!("\nTop Sources by Hit Count:");
+                for (key, count) in &top {
+                    println!("  {:<30} {} hits", key, count);
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 

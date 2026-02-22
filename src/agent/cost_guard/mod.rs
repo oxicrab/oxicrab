@@ -1,3 +1,4 @@
+use crate::agent::memory::MemoryDB;
 use crate::config::CostGuardConfig;
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -37,6 +38,8 @@ pub struct CostGuard {
     hourly_actions: Mutex<VecDeque<Instant>>,
     /// Parsed pricing lookup: config overrides first, then embedded data.
     pricing_lookup: Vec<(ModelMatcher, ModelCost)>,
+    /// Optional database handle for persisting cost records.
+    db: Option<std::sync::Arc<MemoryDB>>,
 }
 
 impl CostGuard {
@@ -87,7 +90,32 @@ impl CostGuard {
             }),
             hourly_actions: Mutex::new(VecDeque::new()),
             pricing_lookup,
+            db: None,
         }
+    }
+
+    /// Create a `CostGuard` backed by a database for cost persistence.
+    /// Restores today's accumulated cost from the database on startup.
+    pub fn with_db(config: CostGuardConfig, db: std::sync::Arc<MemoryDB>) -> Self {
+        let mut guard = Self::new(config);
+
+        // Restore today's accumulated cost from the database
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        match db.get_daily_cost(&today) {
+            Ok(restored) if restored > 0.0 => {
+                if let Ok(mut daily) = guard.daily_cost.lock() {
+                    daily.total_cents = restored;
+                    info!("restored daily cost from db: {:.2} cents", restored);
+                }
+            }
+            Err(e) => {
+                warn!("failed to restore daily cost from db: {}", e);
+            }
+            _ => {}
+        }
+
+        guard.db = Some(db);
+        guard
     }
 
     /// Pre-flight check before an LLM call. Returns `Err(message)` if blocked.
@@ -205,6 +233,21 @@ impl CostGuard {
             && let Ok(mut actions) = self.hourly_actions.lock()
         {
             actions.push_back(Instant::now());
+        }
+
+        // Persist to database (best-effort)
+        if let Some(ref db) = self.db
+            && let Err(e) = db.record_cost(
+                model,
+                input_tokens.unwrap_or(0),
+                output_tokens.unwrap_or(0),
+                cache_creation_input_tokens.unwrap_or(0),
+                cache_read_input_tokens.unwrap_or(0),
+                cost_cents,
+                "main",
+            )
+        {
+            warn!("failed to persist cost to db: {}", e);
         }
 
         if cost_cents > 0.0 {

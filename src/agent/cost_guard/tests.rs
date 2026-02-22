@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::memory::MemoryDB;
 use std::collections::HashMap;
 
 fn default_config() -> CostGuardConfig {
@@ -274,4 +275,53 @@ fn test_cache_tokens_combined_with_regular() {
         cost,
         expected_cents
     );
+}
+
+// --- cost persistence tests ---
+
+#[test]
+fn test_with_db_persists_costs() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = std::sync::Arc::new(MemoryDB::new(dir.path().join("test.db")).unwrap());
+    let guard = CostGuard::with_db(default_config(), db.clone());
+
+    guard.record_llm_call(
+        "claude-sonnet-4-5-20250929",
+        Some(10_000),
+        Some(5_000),
+        None,
+        None,
+    );
+
+    // Check that cost was persisted to the database
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let daily = db.get_daily_cost(&today).unwrap();
+    assert!(daily > 0.0, "cost should be persisted to db, got {}", daily);
+}
+
+#[test]
+fn test_with_db_restores_daily_cost() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = std::sync::Arc::new(MemoryDB::new(dir.path().join("test.db")).unwrap());
+
+    // Manually insert a cost record for today
+    db.record_cost("test-model", 1000, 500, 0, 0, 42.5, "main")
+        .unwrap();
+
+    // Create a new CostGuard with the same db — should restore daily total
+    let guard = CostGuard::with_db(default_config(), db);
+    let daily = guard.daily_cost.lock().unwrap().total_cents;
+    assert!(
+        (daily - 42.5).abs() < 0.01,
+        "expected restored cost 42.5, got {}",
+        daily
+    );
+}
+
+#[test]
+fn test_without_db_still_works() {
+    // CostGuard::new (no db) should still function normally
+    let guard = CostGuard::new(default_config());
+    guard.record_llm_call("test-model", Some(1000), Some(500), None, None);
+    assert!(guard.check_allowed().is_ok());
 }
