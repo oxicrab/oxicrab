@@ -1,8 +1,11 @@
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tracing::debug;
+use tracing::warn;
 use walkdir::WalkDir;
+
+/// Maximum size for a single SKILL.md file (1 MB)
+const MAX_SKILL_FILE_SIZE: u64 = 1024 * 1024;
 
 pub struct SkillsLoader {
     workspace_skills: PathBuf,
@@ -26,6 +29,7 @@ impl SkillsLoader {
         if self.workspace_skills.exists() {
             for entry in WalkDir::new(&self.workspace_skills)
                 .max_depth(1)
+                .follow_links(false)
                 .into_iter()
                 .flatten()
             {
@@ -52,7 +56,12 @@ impl SkillsLoader {
         if let Some(ref builtin) = self.builtin_skills
             && builtin.exists()
         {
-            for entry in WalkDir::new(builtin).max_depth(1).into_iter().flatten() {
+            for entry in WalkDir::new(builtin)
+                .max_depth(1)
+                .follow_links(false)
+                .into_iter()
+                .flatten()
+            {
                 if entry.file_type().is_dir() && entry.path() != builtin {
                     let skill_file = entry.path().join("SKILL.md");
                     if skill_file.exists() {
@@ -93,21 +102,51 @@ impl SkillsLoader {
     }
 
     pub fn load_skill(&self, name: &str) -> Option<String> {
+        // Validate name — must be a simple directory name, no path components
+        if name.is_empty()
+            || name.contains('/')
+            || name.contains('\\')
+            || name.contains("..")
+            || name == "."
+        {
+            warn!("rejecting skill name with path components: {:?}", name);
+            return None;
+        }
+
         // Check workspace first
         let workspace_skill = self.workspace_skills.join(name).join("SKILL.md");
-        if workspace_skill.exists() {
-            return std::fs::read_to_string(&workspace_skill).ok();
+        if let Some(content) = Self::read_skill_file(&workspace_skill) {
+            return Some(content);
         }
 
         // Check built-in
         if let Some(ref builtin) = self.builtin_skills {
             let builtin_skill = builtin.join(name).join("SKILL.md");
-            if builtin_skill.exists() {
-                return std::fs::read_to_string(&builtin_skill).ok();
+            if let Some(content) = Self::read_skill_file(&builtin_skill) {
+                return Some(content);
             }
         }
 
         None
+    }
+
+    /// Read a skill file with size validation.
+    fn read_skill_file(path: &Path) -> Option<String> {
+        if !path.exists() {
+            return None;
+        }
+        if let Ok(meta) = std::fs::metadata(path)
+            && meta.len() > MAX_SKILL_FILE_SIZE
+        {
+            warn!(
+                "skill file too large ({} bytes, max {}): {}",
+                meta.len(),
+                MAX_SKILL_FILE_SIZE,
+                path.display()
+            );
+            return None;
+        }
+        std::fs::read_to_string(path).ok()
     }
 
     pub fn load_skills_for_context(&self, skill_names: &[String]) -> String {
@@ -139,8 +178,13 @@ impl SkillsLoader {
         for s in all_skills {
             let name = s.get("name").map_or("unknown", std::string::String::as_str);
             let path = s.get("path").map_or("", std::string::String::as_str);
-            let desc = escape_xml(&self.get_skill_description(name));
+            // Load metadata once — avoids duplicate file reads per skill
             let meta = self.get_skill_metadata(name);
+            let desc_str = meta
+                .as_ref()
+                .and_then(|m| m.get("description")?.as_str().map(String::from))
+                .unwrap_or_else(|| name.to_string());
+            let desc = escape_xml(&desc_str);
             let available = Self::check_requirements(meta.as_ref());
 
             let name_escaped = escape_xml(name);
@@ -193,15 +237,6 @@ impl SkillsLoader {
         missing.join(", ")
     }
 
-    fn get_skill_description(&self, name: &str) -> String {
-        let meta = self.get_skill_metadata(name);
-        meta.and_then(|m| {
-            m.get("description")
-                .and_then(|v| v.as_str().map(std::string::ToString::to_string))
-        })
-        .unwrap_or_else(|| name.to_string())
-    }
-
     fn strip_frontmatter(content: &str) -> String {
         if let Some(rest) = content.strip_prefix("---")
             && let Some(end_idx) = rest.find("\n---\n")
@@ -247,7 +282,10 @@ impl SkillsLoader {
             match serde_yaml_ng::from_str::<Value>(yaml_content) {
                 Ok(val) => Some(val),
                 Err(e) => {
-                    debug!("Failed to parse skill YAML frontmatter: {}", e);
+                    warn!(
+                        "failed to parse skill YAML frontmatter for '{}': {}",
+                        name, e
+                    );
                     None
                 }
             }

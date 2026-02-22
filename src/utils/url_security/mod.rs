@@ -29,6 +29,12 @@ pub async fn validate_and_resolve(url_str: &str) -> Result<ResolvedUrl, String> 
         ));
     }
 
+    // Reject URLs with embedded credentials (user:pass@host) to prevent
+    // accidental credential leakage in requests
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("URLs with embedded credentials are not allowed".to_string());
+    }
+
     let host = parsed.host().ok_or("URL has no host")?;
     let port = parsed.port_or_known_default().unwrap_or(80);
     let host_str = host.to_string();
