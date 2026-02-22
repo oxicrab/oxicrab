@@ -9,6 +9,15 @@ use std::time::Duration;
 const REDDIT_BASE: &str = "https://www.reddit.com";
 const MAX_LIMIT: u64 = 25;
 
+/// Validate a subreddit name: only allow safe characters to prevent URL path traversal.
+fn is_valid_subreddit(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 21
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 pub struct RedditTool {
     base_url: String,
     client: Client,
@@ -26,6 +35,7 @@ impl RedditTool {
             base_url: REDDIT_BASE.to_string(),
             client: Client::builder()
                 .user_agent("oxicrab/1.0")
+                .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(15))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
@@ -38,6 +48,7 @@ impl RedditTool {
             base_url,
             client: Client::builder()
                 .user_agent("oxicrab/1.0")
+                .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(15))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
@@ -232,6 +243,13 @@ impl Tool for RedditTool {
                 ));
             }
         };
+
+        if !is_valid_subreddit(subreddit) {
+            return Ok(ToolResult::error(
+                "invalid subreddit name: must be 1-21 alphanumeric/underscore characters"
+                    .to_string(),
+            ));
+        }
 
         let action = params["action"].as_str().unwrap_or("hot");
         let limit = params["limit"].as_u64().unwrap_or(10).min(MAX_LIMIT);

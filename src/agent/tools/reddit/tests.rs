@@ -48,6 +48,45 @@ async fn test_search_missing_query() {
     assert!(result.content.contains("query"));
 }
 
+#[tokio::test]
+async fn test_invalid_subreddit_path_traversal() {
+    let result = tool()
+        .execute(
+            serde_json::json!({"subreddit": "../../api/v1", "action": "hot"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("invalid subreddit"));
+}
+
+#[tokio::test]
+async fn test_invalid_subreddit_with_slash() {
+    let result = tool()
+        .execute(
+            serde_json::json!({"subreddit": "foo/bar", "action": "hot"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("invalid subreddit"));
+}
+
+#[test]
+fn test_is_valid_subreddit() {
+    assert!(is_valid_subreddit("rust"));
+    assert!(is_valid_subreddit("Ask_Reddit"));
+    assert!(is_valid_subreddit("programming"));
+    assert!(!is_valid_subreddit(""));
+    assert!(!is_valid_subreddit("foo/bar"));
+    assert!(!is_valid_subreddit("../../etc"));
+    assert!(!is_valid_subreddit("a".repeat(22).as_str()));
+    assert!(!is_valid_subreddit("has spaces"));
+    assert!(!is_valid_subreddit("has-dashes"));
+}
+
 // --- Wiremock tests ---
 
 fn reddit_listing(posts: Vec<serde_json::Value>) -> serde_json::Value {

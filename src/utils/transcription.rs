@@ -4,6 +4,7 @@ use reqwest::Client;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::fs;
 use tracing::{debug, info, warn};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
@@ -48,10 +49,11 @@ impl TranscriptionService {
                 info!("loading whisper model from {}", model_path.display());
                 let mut ctx_params = WhisperContextParameters::default();
                 ctx_params.use_gpu(false);
-                match WhisperContext::new_with_params(
-                    model_path.to_str().unwrap_or_default(),
-                    ctx_params,
-                ) {
+                let Some(path_str) = model_path.to_str() else {
+                    warn!("whisper model path is not valid UTF-8: {}", model_path.display());
+                    return None;
+                };
+                match WhisperContext::new_with_params(path_str, ctx_params) {
                     Ok(ctx) => {
                         info!("whisper model loaded successfully");
                         Some(Arc::new(ctx))
@@ -138,7 +140,18 @@ impl TranscriptionService {
             _ => "audio/ogg",
         };
 
-        let data = tokio::fs::read(audio_path)
+        let metadata = fs::metadata(audio_path)
+            .await
+            .with_context(|| format!("failed to stat audio file: {}", audio_path.display()))?;
+        if metadata.len() > MAX_AUDIO_FILE_BYTES {
+            bail!(
+                "audio file too large ({} bytes, max {})",
+                metadata.len(),
+                MAX_AUDIO_FILE_BYTES
+            );
+        }
+
+        let data = fs::read(audio_path)
             .await
             .with_context(|| format!("failed to read audio file: {}", audio_path.display()))?;
 
@@ -217,10 +230,13 @@ impl TranscriptionService {
             let num_segments = state.full_n_segments();
             let mut result = String::new();
             for i in 0..num_segments {
-                if let Some(segment) = state.get_segment(i)
-                    && let Ok(text) = segment.to_str_lossy()
-                {
-                    result.push_str(&text);
+                let Some(segment) = state.get_segment(i) else {
+                    warn!("whisper segment {i} out of bounds");
+                    continue;
+                };
+                match segment.to_str_lossy() {
+                    Ok(text) => result.push_str(&text),
+                    Err(e) => warn!("whisper segment {i} text unavailable: {e}"),
                 }
             }
 
@@ -238,6 +254,9 @@ impl TranscriptionService {
         Ok(text)
     }
 }
+
+/// Maximum audio file size for cloud upload (25 MB, Whisper API limit).
+const MAX_AUDIO_FILE_BYTES: u64 = 25 * 1024 * 1024;
 
 /// Maximum PCM data size from ffmpeg (50 MB).
 const MAX_PCM_BYTES: usize = 50 * 1024 * 1024;
