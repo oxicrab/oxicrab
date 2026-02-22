@@ -470,10 +470,9 @@ impl AnthropicOAuthProvider {
         let data: Value =
             serde_json::from_str(&content).context("Failed to parse Claude CLI credentials")?;
 
-        let oauth = data
-            .get("claudeAiOauth")
-            .and_then(Value::as_object)
-            .ok_or_else(|| anyhow::anyhow!("Missing claudeAiOauth"))?;
+        let Some(oauth) = data.get("claudeAiOauth").and_then(Value::as_object) else {
+            return Ok(None);
+        };
 
         if let Some(access) = oauth.get("accessToken").and_then(Value::as_str) {
             let refresh = oauth
