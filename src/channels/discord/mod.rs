@@ -542,6 +542,7 @@ impl BaseChannel for DiscordChannel {
                 };
 
                 info!("Connecting to Discord gateway...");
+                let conn_start = std::time::Instant::now();
                 match Client::builder(
                     &token,
                     GatewayIntents::GUILD_MESSAGES
@@ -553,7 +554,16 @@ impl BaseChannel for DiscordChannel {
                 {
                     Ok(mut client) => match client.start().await {
                         Ok(()) => reconnect_attempt = 0,
-                        Err(why) => error!("Discord client connection error: {:?}", why),
+                        Err(why) => {
+                            error!("Discord client connection error: {:?}", why);
+                            // Decay backoff if connection lasted a while
+                            let elapsed = conn_start.elapsed().as_secs();
+                            if elapsed > 300 {
+                                reconnect_attempt = 0;
+                            } else if elapsed > 60 && reconnect_attempt > 0 {
+                                reconnect_attempt /= 2;
+                            }
+                        }
                     },
                     Err(e) => {
                         error!("Failed to create Discord client: {}", e);

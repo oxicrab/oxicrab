@@ -203,6 +203,25 @@ impl BaseChannel for TwilioChannel {
         *running = true;
         drop(running);
 
+        // Validate webhook URL before using it for signature verification
+        if let Ok(parsed) = url::Url::parse(&self.config.webhook_url) {
+            if parsed.scheme() != "https"
+                && !parsed
+                    .host_str()
+                    .is_some_and(|h| h == "localhost" || h.starts_with("127."))
+            {
+                warn!(
+                    "twilio webhook_url uses {} (not HTTPS) — signature validation may fail in production",
+                    parsed.scheme()
+                );
+            }
+        } else {
+            warn!(
+                "twilio webhook_url is not a valid URL: {}",
+                self.config.webhook_url
+            );
+        }
+
         let state = WebhookState {
             auth_token: self.config.auth_token.clone(),
             webhook_url: self.config.webhook_url.clone(),

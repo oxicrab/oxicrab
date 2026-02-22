@@ -336,9 +336,13 @@ impl BaseChannel for TelegramChannel {
                     break;
                 }
 
-                // Reset backoff if the dispatcher ran for >60s (was a healthy connection)
-                if dispatch_start.elapsed().as_secs() > 60 {
+                // Reset backoff if the dispatcher ran stably (>5min = healthy connection).
+                // For shorter runs (>60s), halve the attempt counter to decay gradually.
+                let elapsed = dispatch_start.elapsed().as_secs();
+                if elapsed > 300 {
                     reconnect_attempt = 0;
+                } else if elapsed > 60 && reconnect_attempt > 0 {
+                    reconnect_attempt /= 2;
                 }
 
                 let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);

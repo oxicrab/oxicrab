@@ -16,6 +16,8 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 const MAX_USER_CACHE: usize = 1000;
+const MAX_IMAGE_DOWNLOAD: usize = 20 * 1024 * 1024; // 20 MB
+const MAX_AUDIO_DOWNLOAD: usize = 50 * 1024 * 1024; // 50 MB
 
 pub struct SlackChannel {
     config: SlackConfig,
@@ -884,7 +886,13 @@ async fn handle_slack_event(
                         // Slack's ?redir= login-page URLs to direct file paths.
                         match download_slack_file(client, bot_token, file_url).await {
                             Ok(bytes) => {
-                                if is_image_magic_bytes(&bytes) {
+                                if bytes.len() > MAX_IMAGE_DOWNLOAD {
+                                    warn!(
+                                        "Slack file too large ({} bytes, max {}), skipping",
+                                        bytes.len(),
+                                        MAX_IMAGE_DOWNLOAD
+                                    );
+                                } else if is_image_magic_bytes(&bytes) {
                                     info!("Downloaded Slack image: {} bytes", bytes.len());
                                     let fp = file_path.clone();
                                     let b = bytes.clone();
@@ -930,6 +938,14 @@ async fn handle_slack_event(
 
                         match download_slack_file(client, bot_token, file_url).await {
                             Ok(bytes) => {
+                                if bytes.len() > MAX_AUDIO_DOWNLOAD {
+                                    warn!(
+                                        "Slack audio too large ({} bytes, max {}), skipping",
+                                        bytes.len(),
+                                        MAX_AUDIO_DOWNLOAD
+                                    );
+                                    continue;
+                                }
                                 info!("Downloaded Slack audio: {} bytes", bytes.len());
                                 let fp = file_path.clone();
                                 let b = bytes.clone();
