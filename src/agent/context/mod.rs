@@ -1,9 +1,12 @@
+pub mod providers;
+
 use crate::agent::memory::MemoryStore;
 use crate::agent::skills::SkillsLoader;
 use anyhow::{Context, Result};
 use chrono::{Datelike, Local};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tracing::warn;
 
 const BOOTSTRAP_FILES: &[&str] = &["USER.md", "TOOLS.md", "AGENTS.md"];
@@ -16,6 +19,8 @@ pub struct ContextBuilder {
     skills: SkillsLoader,
     bootstrap_cache: Option<String>,
     bootstrap_mtimes: HashMap<String, u64>,
+    providers: Option<Arc<providers::ContextProviderRunner>>,
+    cached_provider_context: Option<String>,
 }
 
 impl ContextBuilder {
@@ -60,7 +65,20 @@ impl ContextBuilder {
             skills,
             bootstrap_cache: None,
             bootstrap_mtimes: HashMap::new(),
+            providers: None,
+            cached_provider_context: None,
         })
+    }
+
+    pub fn set_providers(&mut self, runner: Arc<providers::ContextProviderRunner>) {
+        self.providers = Some(runner);
+    }
+
+    pub async fn refresh_provider_context(&mut self) {
+        if let Some(ref runner) = self.providers {
+            let ctx = runner.get_all_context().await;
+            self.cached_provider_context = if ctx.is_empty() { None } else { Some(ctx) };
+        }
     }
 
     pub fn build_system_prompt(
@@ -91,6 +109,11 @@ impl ContextBuilder {
         };
         if !memory.is_empty() {
             parts.push(format!("# Memory\n\n{}", memory));
+        }
+
+        // Dynamic context from external providers
+        if let Some(ref ctx) = self.cached_provider_context {
+            parts.push(ctx.clone());
         }
 
         // Skills - progressive loading

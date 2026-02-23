@@ -600,6 +600,46 @@ max_width: 820px
         <p>User messages are scanned with the configured action. Tool output is always warn-only (tool output may legitimately contain these phrases).</p>
     </div>
 
+    <!-- CONTEXT PROVIDERS -->
+    <div id="context-providers" class="cfg-section">
+        <h2>Context Providers</h2>
+        <p>External shell commands that inject dynamic content into the system prompt each turn. Each provider runs its command, caches the output with a TTL, and appends it under a <code># Dynamic Context</code> header.</p>
+
+        <p>Config path: <code>agents.defaults.contextProviders</code></p>
+        <pre><code>{
+  "agents": {
+    "defaults": {
+      "contextProviders": [
+        {
+          "name": "Git Status",
+          "command": "git",
+          "args": ["status", "--short"],
+          "enabled": true,
+          "timeout": 5,
+          "ttl": 60,
+          "requiresBins": ["git"],
+          "requiresEnv": []
+        }
+      ]
+    }
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>name</td><td>string</td><td><em>required</em></td><td>Section header in the system prompt</td></tr>
+            <tr><td>command</td><td>string</td><td><em>required</em></td><td>Executable to run</td></tr>
+            <tr><td>args</td><td>string[]</td><td>[]</td><td>Command arguments</td></tr>
+            <tr><td>enabled</td><td>bool</td><td>true</td><td>Enable or disable this provider</td></tr>
+            <tr><td>timeout</td><td>u64</td><td>5</td><td>Execution timeout in seconds</td></tr>
+            <tr><td>ttl</td><td>u64</td><td>300</td><td>Cache lifetime in seconds before re-executing</td></tr>
+            <tr><td>requiresBins</td><td>string[]</td><td>[]</td><td>Required binaries (skipped if any missing)</td></tr>
+            <tr><td>requiresEnv</td><td>string[]</td><td>[]</td><td>Required environment variables (skipped if any missing)</td></tr>
+        </table>
+
+        <p>Providers that fail, time out, or have missing dependencies are silently skipped &mdash; they never block the agent loop.</p>
+    </div>
+
     <!-- GATEWAY -->
     <div id="gateway" class="cfg-section">
         <h2>Gateway</h2>
