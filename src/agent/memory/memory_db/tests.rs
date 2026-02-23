@@ -464,3 +464,131 @@ fn test_index_knowledge_directory_nonexistent() {
     let result = db.index_knowledge_directory(&tmp.path().join("nonexistent"));
     assert!(result.is_ok());
 }
+
+// ── DLQ tests ────────────────────────────────────────────
+
+#[test]
+fn test_dlq_insert_and_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    let id = db
+        .insert_dlq_entry("job-1", "daily-report", "{}", "connection timeout")
+        .unwrap();
+    assert!(id > 0);
+
+    let entries = db.list_dlq_entries(None).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].job_id, "job-1");
+    assert_eq!(entries[0].job_name, "daily-report");
+    assert_eq!(entries[0].error_message, "connection timeout");
+    assert_eq!(entries[0].retry_count, 0);
+    assert_eq!(entries[0].status, "pending_retry");
+}
+
+#[test]
+fn test_dlq_list_with_status_filter() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    let id1 = db.insert_dlq_entry("j1", "a", "{}", "err1").unwrap();
+    db.insert_dlq_entry("j2", "b", "{}", "err2").unwrap();
+
+    db.update_dlq_status(id1, "replayed").unwrap();
+
+    let pending = db.list_dlq_entries(Some("pending_retry")).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].job_id, "j2");
+
+    let replayed = db.list_dlq_entries(Some("replayed")).unwrap();
+    assert_eq!(replayed.len(), 1);
+    assert_eq!(replayed[0].job_id, "j1");
+}
+
+#[test]
+fn test_dlq_update_status() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    let id = db.insert_dlq_entry("j1", "test", "{}", "err").unwrap();
+    assert!(db.update_dlq_status(id, "failed_replay").unwrap());
+
+    let entries = db.list_dlq_entries(None).unwrap();
+    assert_eq!(entries[0].status, "failed_replay");
+
+    // Non-existent ID returns false
+    assert!(!db.update_dlq_status(9999, "replayed").unwrap());
+}
+
+#[test]
+fn test_dlq_increment_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    let id = db.insert_dlq_entry("j1", "test", "{}", "err").unwrap();
+    assert_eq!(db.list_dlq_entries(None).unwrap()[0].retry_count, 0);
+
+    db.increment_dlq_retry(id).unwrap();
+    assert_eq!(db.list_dlq_entries(None).unwrap()[0].retry_count, 1);
+
+    db.increment_dlq_retry(id).unwrap();
+    db.increment_dlq_retry(id).unwrap();
+    assert_eq!(db.list_dlq_entries(None).unwrap()[0].retry_count, 3);
+
+    // Non-existent ID returns false
+    assert!(!db.increment_dlq_retry(9999).unwrap());
+}
+
+#[test]
+fn test_dlq_clear_all() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    db.insert_dlq_entry("j1", "a", "{}", "e1").unwrap();
+    db.insert_dlq_entry("j2", "b", "{}", "e2").unwrap();
+    db.insert_dlq_entry("j3", "c", "{}", "e3").unwrap();
+
+    let deleted = db.clear_dlq(None).unwrap();
+    assert_eq!(deleted, 3);
+    assert!(db.list_dlq_entries(None).unwrap().is_empty());
+}
+
+#[test]
+fn test_dlq_clear_by_status() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    let id1 = db.insert_dlq_entry("j1", "a", "{}", "e1").unwrap();
+    db.insert_dlq_entry("j2", "b", "{}", "e2").unwrap();
+
+    db.update_dlq_status(id1, "replayed").unwrap();
+
+    let deleted = db.clear_dlq(Some("replayed")).unwrap();
+    assert_eq!(deleted, 1);
+
+    let remaining = db.list_dlq_entries(None).unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].job_id, "j2");
+}
+
+#[test]
+fn test_dlq_retention_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    // Insert 105 entries — only 100 most recent should survive
+    for i in 0..105 {
+        db.insert_dlq_entry(&format!("j{i}"), &format!("name{i}"), "{}", "err")
+            .unwrap();
+    }
+
+    let entries = db.list_dlq_entries(None).unwrap();
+    assert_eq!(entries.len(), 100);
+
+    // Oldest entries (j0-j4) should have been purged
+    let ids: Vec<&str> = entries.iter().map(|e| e.job_id.as_str()).collect();
+    assert!(!ids.contains(&"j0"));
+    assert!(!ids.contains(&"j4"));
+    // Most recent should still be present
+    assert!(ids.contains(&"j104"));
+}

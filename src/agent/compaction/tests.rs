@@ -1,4 +1,6 @@
 use super::*;
+use crate::providers::base::LLMResponse;
+use async_trait::async_trait;
 use proptest::prelude::*;
 use serde_json::json;
 
@@ -115,4 +117,97 @@ fn extract_message_text_none() {
 fn extract_message_text_non_string_non_array() {
     let content = json!(42);
     assert_eq!(extract_message_text(Some(&content)), "");
+}
+
+// ── Pre-compaction flush tests ───────────────────────────
+
+struct FlushMock {
+    response: String,
+}
+
+#[async_trait]
+impl LLMProvider for FlushMock {
+    async fn chat(&self, _req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+        Ok(LLMResponse {
+            content: Some(self.response.clone()),
+            tool_calls: vec![],
+            reasoning_content: None,
+            input_tokens: None,
+            output_tokens: None,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
+        })
+    }
+    fn default_model(&self) -> &'static str {
+        "mock"
+    }
+}
+
+#[tokio::test]
+async fn flush_to_memory_extracts_facts() {
+    let provider = Arc::new(FlushMock {
+        response: "- User prefers dark mode\n- Project uses Rust nightly".to_string(),
+    });
+    let compactor = MessageCompactor::new(provider, None);
+
+    let messages = vec![{
+        let mut m = HashMap::new();
+        m.insert("role".to_string(), Value::String("user".to_string()));
+        m.insert(
+            "content".to_string(),
+            Value::String("I always use dark mode. This project runs on Rust nightly.".to_string()),
+        );
+        m
+    }];
+
+    let result = compactor.flush_to_memory(&messages).await.unwrap();
+    assert!(result.contains("dark mode"));
+    assert!(result.contains("Rust nightly"));
+}
+
+#[tokio::test]
+async fn flush_to_memory_returns_empty_for_nothing() {
+    let provider = Arc::new(FlushMock {
+        response: "NOTHING".to_string(),
+    });
+    let compactor = MessageCompactor::new(provider, None);
+
+    let messages = vec![{
+        let mut m = HashMap::new();
+        m.insert("role".to_string(), Value::String("user".to_string()));
+        m.insert("content".to_string(), Value::String("hello".to_string()));
+        m
+    }];
+
+    let result = compactor.flush_to_memory(&messages).await.unwrap();
+    assert!(result.is_empty());
+}
+
+#[tokio::test]
+async fn flush_to_memory_nothing_case_insensitive() {
+    let provider = Arc::new(FlushMock {
+        response: "Nothing worth preserving here".to_string(),
+    });
+    let compactor = MessageCompactor::new(provider, None);
+
+    let messages = vec![{
+        let mut m = HashMap::new();
+        m.insert("role".to_string(), Value::String("user".to_string()));
+        m.insert("content".to_string(), Value::String("test".to_string()));
+        m
+    }];
+
+    let result = compactor.flush_to_memory(&messages).await.unwrap();
+    assert!(result.is_empty());
+}
+
+#[tokio::test]
+async fn flush_to_memory_empty_messages() {
+    let provider = Arc::new(FlushMock {
+        response: "NOTHING".to_string(),
+    });
+    let compactor = MessageCompactor::new(provider, None);
+
+    let result = compactor.flush_to_memory(&[]).await.unwrap();
+    assert!(result.is_empty());
 }

@@ -265,6 +265,36 @@ pub async fn get_task_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::Router;
+    use axum::body::Body;
+    use axum::http::Request;
+    use axum::routing::{get, post};
+    use tower::ServiceExt;
+
+    fn make_a2a_state() -> (A2aState, mpsc::Receiver<InboundMessage>) {
+        let (tx, rx) = mpsc::channel(16);
+        let state = A2aState {
+            config: A2aConfig {
+                enabled: true,
+                agent_name: "test-agent".to_string(),
+                agent_description: "A test agent".to_string(),
+            },
+            store: Arc::new(A2aTaskStore::new()),
+            inbound_tx: Arc::new(tx),
+            pending: Arc::new(Mutex::new(HashMap::new())),
+            host: "127.0.0.1".to_string(),
+            port: 3000,
+        };
+        (state, rx)
+    }
+
+    fn a2a_router(state: A2aState) -> Router {
+        Router::new()
+            .route("/.well-known/agent.json", get(agent_card_handler))
+            .route("/a2a/tasks", post(create_task_handler))
+            .route("/a2a/tasks/{id}", get(get_task_handler))
+            .with_state(state)
+    }
 
     #[test]
     fn test_task_store_lifecycle() {
@@ -313,5 +343,156 @@ mod tests {
             serde_json::to_string(&TaskStatus::Failed).unwrap(),
             "\"failed\""
         );
+    }
+
+    #[tokio::test]
+    async fn test_agent_card_returns_config_values() {
+        let (state, _rx) = make_a2a_state();
+        let app = a2a_router(state);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/.well-known/agent.json")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["name"], "test-agent");
+        assert_eq!(json["description"], "A test agent");
+        assert_eq!(json["url"], "http://127.0.0.1:3000");
+        assert!(
+            json["capabilities"]["content_types"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v == "text/plain")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_agent_card_defaults_when_empty() {
+        let (mut state, _rx) = make_a2a_state();
+        state.config.agent_name = String::new();
+        state.config.agent_description = String::new();
+        let app = a2a_router(state);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/.well-known/agent.json")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["name"], "oxicrab");
+        assert_eq!(json["description"], "AI assistant powered by oxicrab");
+    }
+
+    #[tokio::test]
+    async fn test_create_task_publishes_inbound_message() {
+        let (state, mut rx) = make_a2a_state();
+        let app = a2a_router(state.clone());
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/a2a/tasks")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"message": "hello from A2A"}"#))
+            .unwrap();
+
+        let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::ACCEPTED);
+
+        let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let task_id = json["task_id"].as_str().unwrap();
+        assert!(task_id.starts_with("a2a-"));
+        assert_eq!(json["status"], "submitted");
+
+        // Verify inbound message was published
+        let msg = rx.recv().await.unwrap();
+        assert_eq!(msg.channel, "http");
+        assert_eq!(msg.sender_id, "a2a");
+        assert_eq!(msg.content, "hello from A2A");
+        assert_eq!(msg.chat_id, task_id);
+    }
+
+    #[tokio::test]
+    async fn test_get_task_found() {
+        let (state, _rx) = make_a2a_state();
+        let task = A2aTask {
+            id: "a2a-test-123".to_string(),
+            status: TaskStatus::Completed,
+            message: "original".to_string(),
+            result: Some("done".to_string()),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:01:00Z".to_string(),
+        };
+        state.store.insert(task);
+
+        let app = a2a_router(state);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/a2a/tasks/a2a-test-123")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["id"], "a2a-test-123");
+        assert_eq!(json["status"], "completed");
+        assert_eq!(json["result"], "done");
+    }
+
+    #[tokio::test]
+    async fn test_get_task_not_found() {
+        let (state, _rx) = make_a2a_state();
+        let app = a2a_router(state);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/a2a/tasks/nonexistent")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"], "task not found");
+    }
+
+    #[tokio::test]
+    async fn test_create_task_updates_store_to_working() {
+        let (state, _rx) = make_a2a_state();
+        let store = state.store.clone();
+        let app = a2a_router(state);
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/a2a/tasks")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"message": "check store"}"#))
+            .unwrap();
+
+        let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let task_id = json["task_id"].as_str().unwrap();
+
+        // Task should exist in the store with Working status
+        let task = store.get(task_id).unwrap();
+        assert_eq!(task.status, TaskStatus::Working);
+        assert_eq!(task.message, "check store");
     }
 }
