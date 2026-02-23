@@ -586,6 +586,62 @@ jobs:
         run: hdiutil verify "oxicrab-ci-arm64.dmg"
 
   # ── CI Gate ─────────────────────────────────────────────────────────
+  # ── Fuzz Testing (Informational) ────────────────────────────────
+  fuzz:
+    name: Fuzz Testing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.NIGHTLY_VERSION }}
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Cache cargo (fuzz)
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            fuzz/target/
+          key: cargo-fuzz-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-fuzz-${{ env.NIGHTLY_VERSION }}-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Fuzz webhook signature (30s)
+        run: cargo fuzz run fuzz_webhook_signature -- -max_total_time=30
+        working-directory: fuzz
+        continue-on-error: true
+
+      - name: Fuzz config parse (30s)
+        run: cargo fuzz run fuzz_config_parse -- -max_total_time=30
+        working-directory: fuzz
+        continue-on-error: true
+
+      - name: Fuzz prompt guard (30s)
+        run: cargo fuzz run fuzz_prompt_guard -- -max_total_time=30
+        working-directory: fuzz
+        continue-on-error: true
+
+      - name: Fuzz leak detector (30s)
+        run: cargo fuzz run fuzz_leak_detector -- -max_total_time=30
+        working-directory: fuzz
+        continue-on-error: true
+
+      - name: Fuzz URL validation (30s)
+        run: cargo fuzz run fuzz_url_validation -- -max_total_time=30
+        working-directory: fuzz
+        continue-on-error: true
+
   ci-gate:
     name: CI
     runs-on: ubuntu-latest
