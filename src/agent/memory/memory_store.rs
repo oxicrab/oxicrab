@@ -315,6 +315,16 @@ impl MemoryStore {
             .join(format!("{}.md", today.format("%Y-%m-%d")))
     }
 
+    /// Read today's daily notes file, returning empty string if it doesn't exist.
+    pub fn read_today(&self) -> Result<String> {
+        let path = self.get_today_file();
+        if path.exists() {
+            Ok(std::fs::read_to_string(&path)?)
+        } else {
+            Ok(String::new())
+        }
+    }
+
     pub fn append_today(&self, content: &str) -> Result<()> {
         use fs2::FileExt;
         use std::io::Write;
