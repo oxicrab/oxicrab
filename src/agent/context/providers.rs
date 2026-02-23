@@ -88,7 +88,13 @@ impl ContextProviderRunner {
         .await
         {
             Ok(Ok(output)) if output.status.success() => {
-                String::from_utf8_lossy(&output.stdout).to_string()
+                let mut result = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if !stderr.trim().is_empty() {
+                    result.push_str("\n[stderr] ");
+                    result.push_str(stderr.trim());
+                }
+                result
             }
             Ok(Ok(output)) => {
                 warn!(
