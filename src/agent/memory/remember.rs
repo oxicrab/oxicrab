@@ -68,7 +68,7 @@ pub fn is_duplicate(content: &str, existing_notes: &str) -> bool {
     for line in existing_notes.lines() {
         let line = line.trim();
         // Skip empty lines and headers
-        if line.is_empty() || line.starts_with('#') || line.starts_with("- ") && line.len() < 4 {
+        if line.is_empty() || line.starts_with('#') || (line.starts_with("- ") && line.len() < 4) {
             continue;
         }
         // Strip leading "- " for comparison
