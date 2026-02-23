@@ -668,6 +668,7 @@ max_width: 820px
             <tr><td>host</td><td>string</td><td>127.0.0.1</td><td>Bind address for the gateway HTTP server</td></tr>
             <tr><td>port</td><td>u16</td><td>18790</td><td>Port for the gateway HTTP server</td></tr>
             <tr><td>webhooks</td><td>object</td><td>{}</td><td>Named webhook receivers (see below)</td></tr>
+            <tr><td>a2a</td><td>object</td><td>{}</td><td>Agent-to-Agent protocol configuration (see below)</td></tr>
         </table>
 
         <h3>HTTP API Endpoints</h3>
@@ -676,7 +677,29 @@ max_width: 820px
             <tr><td>/api/chat</td><td>POST</td><td>Send a message and receive the agent's response. Body: <code>{"message": "...", "session_id": "..."}</code></td></tr>
             <tr><td>/api/health</td><td>GET</td><td>Health check. Returns <code>{"status": "ok", "version": "..."}</code></td></tr>
             <tr><td>/api/webhook/{name}</td><td>POST</td><td>Receive a webhook from an external service (see webhook config below)</td></tr>
+            <tr><td>/.well-known/agent.json</td><td>GET</td><td>A2A AgentCard (when A2A enabled)</td></tr>
+            <tr><td>/a2a/tasks</td><td>POST</td><td>Submit an A2A task. Body: <code>{"message": "..."}</code></td></tr>
+            <tr><td>/a2a/tasks/{id}</td><td>GET</td><td>Get A2A task status and result</td></tr>
         </table>
+
+        <h3>Agent-to-Agent (A2A) Protocol</h3>
+        <p>Google's A2A protocol for agent discovery and interoperability. When enabled, exposes an <code>AgentCard</code> at <code>/.well-known/agent.json</code> and a task lifecycle at <code>/a2a/tasks</code>.</p>
+        <pre><code>{
+  "gateway": {
+    "a2a": {
+      "enabled": true,
+      "agentName": "My Agent",
+      "agentDescription": "A helpful AI assistant"
+    }
+  }
+}</code></pre>
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable A2A protocol endpoints</td></tr>
+            <tr><td>agentName</td><td>string</td><td>"oxicrab"</td><td>Agent name in the AgentCard</td></tr>
+            <tr><td>agentDescription</td><td>string</td><td>"AI assistant powered by oxicrab"</td><td>Agent description in the AgentCard</td></tr>
+        </table>
+        <p>Tasks are processed through the same agent loop as chat messages. The task lifecycle: <strong>submitted</strong> &rarr; <strong>working</strong> &rarr; <strong>completed</strong> (or <strong>failed</strong>). Poll <code>GET /a2a/tasks/{id}</code> to check status.</p>
 
         <h3>Webhook Configuration</h3>
         <p>Each entry in <code>webhooks</code> creates a receiver at <code>POST /api/webhook/{name}</code>. Payloads are validated with HMAC-SHA256 signature verification (constant-time comparison).</p>

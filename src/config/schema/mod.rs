@@ -95,6 +95,8 @@ pub struct GatewayConfig {
     pub port: u16,
     #[serde(default)]
     pub webhooks: HashMap<String, WebhookConfig>,
+    #[serde(default)]
+    pub a2a: A2aConfig,
 }
 
 impl Default for GatewayConfig {
@@ -104,8 +106,19 @@ impl Default for GatewayConfig {
             host: default_host(),
             port: default_port(),
             webhooks: HashMap::new(),
+            a2a: A2aConfig::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct A2aConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, rename = "agentName")]
+    pub agent_name: String,
+    #[serde(default, rename = "agentDescription")]
+    pub agent_description: String,
 }
 
 /// Configuration for a named webhook receiver endpoint.

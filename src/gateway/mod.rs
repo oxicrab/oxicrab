@@ -1,3 +1,5 @@
+pub mod a2a;
+
 /// HTTP API server for the gateway.
 ///
 /// Provides REST endpoints for programmatic access to the agent and
@@ -70,12 +72,23 @@ pub struct ErrorResponse {
 }
 
 /// Build the HTTP API router.
-fn build_router(state: HttpApiState) -> Router {
-    Router::new()
+fn build_router(state: HttpApiState, a2a_state: Option<a2a::A2aState>) -> Router {
+    let mut router = Router::new()
         .route("/api/chat", post(chat_handler))
         .route("/api/health", get(health_handler))
         .route("/api/webhook/{name}", post(webhook_handler))
-        .with_state(state)
+        .with_state(state);
+
+    if let Some(a2a) = a2a_state {
+        let a2a_router = Router::new()
+            .route("/.well-known/agent.json", get(a2a::agent_card_handler))
+            .route("/a2a/tasks", post(a2a::create_task_handler))
+            .route("/a2a/tasks/{id}", get(a2a::get_task_handler))
+            .with_state(a2a);
+        router = router.merge(a2a_router);
+    }
+
+    router
 }
 
 /// POST /api/chat — send a message and receive the agent's response.
@@ -393,6 +406,7 @@ pub async fn start<S: BuildHasher>(
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
     outbound_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>,
     webhooks: HashMap<String, WebhookConfig, S>,
+    a2a_config: Option<crate::config::A2aConfig>,
 ) -> Result<(tokio::task::JoinHandle<()>, HttpApiState)> {
     let webhook_map: HashMap<String, WebhookConfig> = webhooks.into_iter().collect();
     let active: Vec<_> = webhook_map
@@ -408,14 +422,32 @@ pub async fn start<S: BuildHasher>(
         );
     }
 
+    let pending = Arc::new(Mutex::new(HashMap::new()));
+
     let state = HttpApiState {
-        inbound_tx,
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        inbound_tx: inbound_tx.clone(),
+        pending: pending.clone(),
         webhooks: Arc::new(webhook_map),
         outbound_tx,
     };
 
-    let app = build_router(state.clone());
+    // Set up A2A state if enabled
+    let a2a_state = match a2a_config {
+        Some(cfg) if cfg.enabled => {
+            info!("A2A protocol enabled");
+            Some(a2a::A2aState {
+                config: cfg,
+                store: Arc::new(a2a::A2aTaskStore::new()),
+                inbound_tx,
+                pending,
+                host: host.to_string(),
+                port,
+            })
+        }
+        _ => None,
+    };
+
+    let app = build_router(state.clone(), a2a_state);
     let addr = format!("{}:{}", host, port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("HTTP API listening on {}", addr);
