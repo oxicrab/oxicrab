@@ -258,6 +258,37 @@ impl TranscriptionService {
     }
 }
 
+/// Lazy wrapper that initializes the transcription service in a background task.
+/// The whisper model load (~200ms) doesn't block startup; callers fall back to
+/// `strip_audio_tags()` until initialization completes.
+pub struct LazyTranscriptionService {
+    cell: Arc<tokio::sync::OnceCell<TranscriptionService>>,
+}
+
+impl LazyTranscriptionService {
+    /// Spawn background initialization of the transcription service.
+    pub fn new(config: TranscriptionConfig) -> Self {
+        let cell = Arc::new(tokio::sync::OnceCell::new());
+        let cell_clone = cell.clone();
+        tokio::spawn(async move {
+            match tokio::task::spawn_blocking(move || TranscriptionService::new(&config)).await {
+                Ok(Some(svc)) => {
+                    let _ = cell_clone.set(svc);
+                    info!("transcription service initialized (background)");
+                }
+                Ok(None) => debug!("transcription service not available"),
+                Err(e) => warn!("transcription init panicked: {}", e),
+            }
+        });
+        Self { cell }
+    }
+
+    /// Get the service if ready, None if still initializing.
+    pub fn get(&self) -> Option<&TranscriptionService> {
+        self.cell.get()
+    }
+}
+
 /// Maximum audio file size for cloud upload (25 MB, Whisper API limit).
 const MAX_AUDIO_FILE_BYTES: u64 = 25 * 1024 * 1024;
 

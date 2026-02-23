@@ -2,7 +2,7 @@ use crate::agent::memory::MemoryDB;
 /// Background memory indexer service
 ///
 /// Periodically indexes memory files in the background to avoid blocking queries.
-use crate::agent::memory::embeddings::EmbeddingService;
+use crate::agent::memory::embeddings::{EmbeddingService, LazyEmbeddingService};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -19,7 +19,7 @@ pub struct MemoryIndexer {
     last_index_time: Arc<Mutex<Option<std::time::Instant>>>,
     archive_after_days: u32,
     purge_after_days: u32,
-    embedding_service: Option<Arc<EmbeddingService>>,
+    embedding_service: Option<Arc<LazyEmbeddingService>>,
     indexing_in_progress: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -67,7 +67,7 @@ impl MemoryIndexer {
         interval_secs: u64,
         archive_after_days: u32,
         purge_after_days: u32,
-        embedding_service: Option<Arc<EmbeddingService>>,
+        embedding_service: Option<Arc<LazyEmbeddingService>>,
     ) -> Self {
         Self {
             db,
@@ -102,16 +102,17 @@ impl MemoryIndexer {
         let purge_days = self.purge_after_days;
         let embedding_service = self.embedding_service.clone();
 
-        // Do initial indexing immediately
-        Self::index_memory_files(
-            &db,
-            &memory_dir,
-            knowledge_dir.as_deref(),
-            embedding_service.as_ref(),
-        )
-        .await;
-
+        // Initial indexing now runs inside the spawn (non-blocking)
         tokio::spawn(async move {
+            // Initial index
+            Self::index_memory_files(
+                &db,
+                &memory_dir,
+                knowledge_dir.as_deref(),
+                embedding_service.as_ref(),
+            )
+            .await;
+
             let mut last_index = std::time::Instant::now();
             *last_index_time.lock().await = Some(last_index);
 
@@ -169,7 +170,7 @@ impl MemoryIndexer {
         db: &MemoryDB,
         memory_dir: &Path,
         knowledge_dir: Option<&Path>,
-        embedding_service: Option<&Arc<EmbeddingService>>,
+        embedding_service: Option<&Arc<LazyEmbeddingService>>,
     ) {
         debug!("Starting memory indexing...");
         match tokio::task::spawn_blocking({
@@ -216,8 +217,12 @@ impl MemoryIndexer {
                     warn!("failed to index knowledge directory: {}", e);
                 }
 
+                // Unwrap lazy service — if still loading, skip embeddings this cycle
+                let inner_embedding_service =
+                    embedding_service.as_ref().and_then(|lazy| lazy.get());
+
                 // Generate embeddings for indexed sources
-                if let Some(ref emb_svc) = embedding_service {
+                if let Some(emb_svc) = inner_embedding_service {
                     Self::generate_embeddings_for_sources(&db, emb_svc, &indexed_sources);
                     Self::backfill_missing_embeddings(&db, emb_svc);
                 }

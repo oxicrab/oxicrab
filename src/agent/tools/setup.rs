@@ -1,8 +1,8 @@
 use crate::agent::memory::MemoryStore;
 use crate::agent::subagent::{SubagentConfig, SubagentManager};
-use crate::agent::tools::ToolRegistry;
 use crate::agent::tools::mcp::McpManager;
 use crate::agent::tools::mcp::proxy::AttenuatedMcpTool;
+use crate::agent::tools::{Tool, ToolRegistry};
 use crate::bus::{MessageBus, OutboundMessage};
 use crate::config;
 use crate::cron::service::CronService;
@@ -77,7 +77,6 @@ pub async fn register_all_tools(
     register_browser(&mut tools, ctx);
     register_image_gen(&mut tools, ctx);
     register_cron(&mut tools, ctx);
-    register_google(&mut tools, ctx).await;
     register_github(&mut tools, ctx);
     register_weather(&mut tools, ctx);
     register_todoist(&mut tools, ctx);
@@ -86,7 +85,22 @@ pub async fn register_all_tools(
     register_http(&mut tools);
     register_reddit(&mut tools);
     register_memory_search(&mut tools, ctx);
-    let mcp_manager = register_mcp(&mut tools, ctx).await;
+
+    // Slow async registrations — run in parallel
+    let (google_tools, mcp_result) = tokio::join!(create_google_tools(ctx), create_mcp(ctx),);
+
+    for tool in google_tools {
+        tools.register(tool);
+    }
+
+    let mcp_manager = if let Some((mcp_tools, manager)) = mcp_result {
+        for tool in mcp_tools {
+            tools.register(tool);
+        }
+        Some(manager)
+    } else {
+        None
+    };
 
     Ok((tools, subagents, mcp_manager))
 }
@@ -208,9 +222,11 @@ fn register_cron(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     }
 }
 
-async fn register_google(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+async fn create_google_tools(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
     use crate::agent::tools::google_calendar::GoogleCalendarTool;
     use crate::agent::tools::google_mail::GoogleMailTool;
+
+    let mut result: Vec<Arc<dyn Tool>> = Vec::new();
 
     if let Some(ref google_cfg) = ctx.google_config
         && google_cfg.enabled
@@ -226,8 +242,8 @@ async fn register_google(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         .await
         {
             Ok(creds) => {
-                registry.register(Arc::new(GoogleMailTool::new(creds.clone())));
-                registry.register(Arc::new(GoogleCalendarTool::new(creds)));
+                result.push(Arc::new(GoogleMailTool::new(creds.clone())));
+                result.push(Arc::new(GoogleCalendarTool::new(creds)));
                 info!("Google tools registered (gmail, calendar)");
             }
             Err(e) => {
@@ -235,6 +251,8 @@ async fn register_google(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
             }
         }
     }
+
+    result
 }
 
 fn register_github(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
@@ -333,16 +351,16 @@ fn register_memory_search(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     registry.register(Arc::new(MemorySearchTool::new(ctx.memory.clone())));
 }
 
-async fn register_mcp(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Option<McpManager> {
+async fn create_mcp(ctx: &ToolBuildContext) -> Option<(Vec<Arc<dyn Tool>>, McpManager)> {
     let mcp_cfg = ctx.mcp_config.as_ref()?;
     if mcp_cfg.servers.is_empty() {
         return None;
     }
     match McpManager::new(mcp_cfg, &ctx.workspace).await {
         Ok(manager) => {
-            let tools = manager.discover_tools().await;
-            let mut registered = 0usize;
-            for (trust, tool) in tools {
+            let discovered = manager.discover_tools().await;
+            let mut accepted: Vec<Arc<dyn Tool>> = Vec::new();
+            for (trust, tool) in discovered {
                 let name = tool.name().to_string();
 
                 // Reject tools that shadow built-in names (case-insensitive)
@@ -356,12 +374,10 @@ async fn register_mcp(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Op
 
                 match trust.as_str() {
                     "local" => {
-                        registry.register(tool);
-                        registered += 1;
+                        accepted.push(tool);
                     }
                     "verified" => {
-                        registry.register(Arc::new(AttenuatedMcpTool::new(tool)));
-                        registered += 1;
+                        accepted.push(Arc::new(AttenuatedMcpTool::new(tool)));
                     }
                     "community" => {
                         let name_lower = name.to_lowercase();
@@ -369,8 +385,7 @@ async fn register_mcp(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Op
                             .iter()
                             .any(|kw| name_lower.contains(kw))
                         {
-                            registry.register(Arc::new(AttenuatedMcpTool::new(tool)));
-                            registered += 1;
+                            accepted.push(Arc::new(AttenuatedMcpTool::new(tool)));
                         } else {
                             warn!(
                                 "MCP tool '{}' rejected: community trust, name does not contain a safe keyword",
@@ -386,10 +401,10 @@ async fn register_mcp(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Op
                     }
                 }
             }
-            if registered > 0 {
-                info!("Registered {} MCP tool(s)", registered);
+            if !accepted.is_empty() {
+                info!("Registered {} MCP tool(s)", accepted.len());
             }
-            Some(manager)
+            Some((accepted, manager))
         }
         Err(e) => {
             error!("MCP initialization failed: {}", e);

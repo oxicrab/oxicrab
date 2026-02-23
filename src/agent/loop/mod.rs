@@ -277,7 +277,7 @@ pub struct AgentLoop {
     tool_temperature: f32,
     max_tokens: u32,
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
-    transcriber: Option<Arc<crate::utils::transcription::TranscriptionService>>,
+    transcriber: Option<Arc<crate::utils::transcription::LazyTranscriptionService>>,
     event_matcher: Option<std::sync::Mutex<EventMatcher>>,
     /// Last time the event matcher was rebuilt from disk
     event_matcher_last_rebuild: Arc<std::sync::Mutex<std::time::Instant>>,
@@ -441,10 +441,12 @@ impl AgentLoop {
 
         let transcriber = voice_config
             .as_ref()
-            .and_then(|vc| {
-                crate::utils::transcription::TranscriptionService::new(&vc.transcription)
-            })
-            .map(Arc::new);
+            .filter(|vc| vc.transcription.enabled)
+            .map(|vc| {
+                Arc::new(crate::utils::transcription::LazyTranscriptionService::new(
+                    vc.transcription.clone(),
+                ))
+            });
 
         let compactor = if compaction_config.enabled {
             Some(Arc::new(MessageCompactor::new(
@@ -685,8 +687,10 @@ impl AgentLoop {
         debug!("Got {} history messages", history.len());
 
         // Transcribe any audio files before other processing
-        let msg_content = if let Some(ref transcriber) = self.transcriber {
-            transcribe_audio_tags(&msg.content, transcriber).await
+        let msg_content = if let Some(ref lazy) = self.transcriber
+            && let Some(svc) = lazy.get()
+        {
+            transcribe_audio_tags(&msg.content, svc).await
         } else {
             strip_audio_tags(&msg.content)
         };

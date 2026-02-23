@@ -1,4 +1,4 @@
-use crate::agent::memory::embeddings::EmbeddingService;
+use crate::agent::memory::embeddings::LazyEmbeddingService;
 use crate::agent::memory::{MemoryDB, MemoryIndexer};
 use crate::config::MemoryConfig;
 use anyhow::{Context, Result};
@@ -24,7 +24,7 @@ pub struct MemoryStore {
     knowledge_dir: PathBuf,
     db: Arc<MemoryDB>,
     indexer: Option<Arc<MemoryIndexer>>,
-    embedding_service: Option<Arc<EmbeddingService>>,
+    embedding_service: Option<Arc<LazyEmbeddingService>>,
     hybrid_weight: f32,
     fusion_strategy: crate::config::FusionStrategy,
     rrf_k: u32,
@@ -74,18 +74,12 @@ impl MemoryStore {
             )
         })?);
 
-        // Create embedding service if enabled (with configurable cache size)
+        // Create embedding service if enabled (lazy background initialization)
         let embedding_service = if memory_config.embeddings_enabled {
-            match EmbeddingService::with_cache_size(
-                &memory_config.embeddings_model,
+            Some(Arc::new(LazyEmbeddingService::new(
+                memory_config.embeddings_model.clone(),
                 memory_config.embedding_cache_size,
-            ) {
-                Ok(svc) => Some(Arc::new(svc)),
-                Err(e) => {
-                    warn!("failed to initialize embedding service: {}", e);
-                    None
-                }
-            }
+            )))
         } else {
             None
         };
@@ -176,7 +170,9 @@ impl MemoryStore {
 
     /// Whether embeddings are available for hybrid search.
     pub fn has_embeddings(&self) -> bool {
-        self.embedding_service.is_some()
+        self.embedding_service
+            .as_ref()
+            .is_some_and(|s| s.is_ready())
     }
 
     /// Hybrid search combining keyword and vector similarity.
@@ -189,6 +185,7 @@ impl MemoryStore {
         let emb_svc = self
             .embedding_service
             .as_ref()
+            .and_then(|lazy| lazy.get())
             .ok_or_else(|| anyhow::anyhow!("embeddings not available"))?;
         let query_embedding = emb_svc.embed_query(query)?;
         let hits = self.db.hybrid_search(

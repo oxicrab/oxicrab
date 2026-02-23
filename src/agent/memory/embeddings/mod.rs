@@ -1,11 +1,11 @@
 /// Local embedding generation via fastembed (ONNX-based, no API key needed).
 use std::num::NonZeroUsize;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
 use lru::LruCache;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 const DEFAULT_CACHE_SIZE: usize = 10_000;
 
@@ -92,6 +92,45 @@ impl EmbeddingService {
     #[cfg(test)]
     pub fn cache_len(&self) -> usize {
         self.cache.lock().map_or(0, |c| c.len())
+    }
+}
+
+/// Lazy wrapper that initializes the embedding model in a background task.
+/// Callers can check readiness via `get()` or `is_ready()`.
+pub struct LazyEmbeddingService {
+    cell: Arc<tokio::sync::OnceCell<EmbeddingService>>,
+}
+
+impl LazyEmbeddingService {
+    /// Spawn background initialization of the embedding model.
+    pub fn new(model_name: String, cache_size: usize) -> Self {
+        let cell = Arc::new(tokio::sync::OnceCell::new());
+        let cell_clone = cell.clone();
+        tokio::spawn(async move {
+            match tokio::task::spawn_blocking(move || {
+                EmbeddingService::with_cache_size(&model_name, cache_size)
+            })
+            .await
+            {
+                Ok(Ok(svc)) => {
+                    let _ = cell_clone.set(svc);
+                    info!("embedding model initialized (background)");
+                }
+                Ok(Err(e)) => warn!("embedding init failed: {}", e),
+                Err(e) => warn!("embedding init panicked: {}", e),
+            }
+        });
+        Self { cell }
+    }
+
+    /// Get the service if ready, None if still initializing.
+    pub fn get(&self) -> Option<&EmbeddingService> {
+        self.cell.get()
+    }
+
+    /// Check if initialization is complete.
+    pub fn is_ready(&self) -> bool {
+        self.cell.get().is_some()
     }
 }
 
