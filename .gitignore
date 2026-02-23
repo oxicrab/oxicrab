@@ -22,3 +22,6 @@ Thumbs.db
 
 # Build artifacts
 *.pdb
+
+# Embedding model cache
+.fastembed_cache/
