@@ -636,6 +636,7 @@ impl Tool for CronTool {
 
                 // Parse payload to get the job_id and try to re-run it
                 let job_id = &entry.job_id;
+                db.increment_dlq_retry(dlq_id)?;
                 match self.cron_service.run_job(job_id, true).await? {
                     Some(Some(result)) => {
                         db.update_dlq_status(dlq_id, "replayed")?;
@@ -652,7 +653,6 @@ impl Tool for CronTool {
                         )))
                     }
                     None => {
-                        // Job no longer exists; increment retry count
                         db.update_dlq_status(dlq_id, "failed_replay")?;
                         Ok(ToolResult::error(format!(
                             "Job {} not found or no callback configured. DLQ entry marked as failed_replay.",

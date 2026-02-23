@@ -1189,6 +1189,15 @@ impl MemoryDB {
         Ok(updated > 0)
     }
 
+    pub fn increment_dlq_retry(&self, id: i64) -> Result<bool> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let updated = conn.execute(
+            "UPDATE scheduled_task_dlq SET retry_count = retry_count + 1 WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(updated > 0)
+    }
+
     pub fn clear_dlq(&self, status_filter: Option<&str>) -> Result<usize> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         let deleted = if let Some(status) = status_filter {
