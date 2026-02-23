@@ -35,6 +35,10 @@ pub struct CompactionConfig {
     pub model: Option<String>,
     #[serde(default)]
     pub checkpoint: CheckpointConfig,
+    /// Before compaction, make a silent LLM call to extract important context
+    /// from about-to-be-compacted messages and persist to daily notes.
+    #[serde(default, rename = "preFlushEnabled")]
+    pub pre_flush_enabled: bool,
 }
 
 impl Default for CompactionConfig {
@@ -46,6 +50,7 @@ impl Default for CompactionConfig {
             extraction_enabled: true,
             model: None,
             checkpoint: CheckpointConfig::default(),
+            pre_flush_enabled: false,
         }
     }
 }

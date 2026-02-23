@@ -37,6 +37,7 @@ async fn test_compaction_disabled_preserves_full_history() {
                 extraction_enabled: false,
                 model: None,
                 checkpoint: Default::default(),
+                pre_flush_enabled: false,
             }),
             ..Default::default()
         },
@@ -177,6 +178,7 @@ async fn test_compaction_triggers_at_threshold() {
                 extraction_enabled: false,
                 model: None,
                 checkpoint: Default::default(),
+                pre_flush_enabled: false,
             }),
             ..Default::default()
         },
