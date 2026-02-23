@@ -37,6 +37,9 @@ enum Commands {
         /// Override the LLM provider (e.g. anthropic, openai, groq, ollama)
         #[arg(long)]
         provider: Option<String>,
+        /// Echo mode: test channel connectivity without an LLM
+        #[arg(long)]
+        echo: bool,
     },
     /// Interact with the agent directly
     Agent {
@@ -243,8 +246,16 @@ pub async fn run() -> Result<()> {
         Commands::Onboard => {
             onboard()?;
         }
-        Commands::Gateway { model, provider } => {
-            gateway(model, provider).await?;
+        Commands::Gateway {
+            model,
+            provider,
+            echo,
+        } => {
+            if echo {
+                gateway_echo().await?;
+            } else {
+                gateway(model, provider).await?;
+            }
         }
         Commands::Agent {
             message,
@@ -522,6 +533,89 @@ async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> 
             // Channels will stop themselves when the task ends
         }
         _ = agent_task => {}
+        _ = channels_task => {}
+    }
+
+    Ok(())
+}
+
+async fn gateway_echo() -> Result<()> {
+    info!("Loading configuration for echo mode...");
+    let config = load_config(None)?;
+
+    let (inbound_tx, outbound_tx, outbound_rx, bus) = setup_message_bus(&config)?;
+    // Create typing indicator channel (not used in echo mode but needed for channels)
+    let (echo_typing_tx, typing_rx) = tokio::sync::mpsc::channel::<(String, String)>(100);
+    drop(echo_typing_tx);
+
+    // Start HTTP API server if enabled
+    let http_state = if config.gateway.enabled {
+        let (http_task, state) = crate::gateway::start(
+            &config.gateway.host,
+            config.gateway.port,
+            Arc::new(inbound_tx.clone()),
+            Some(outbound_tx.clone()),
+            config.gateway.webhooks.clone(),
+        )
+        .await?;
+        drop(http_task);
+        Some(state)
+    } else {
+        None
+    };
+
+    let channels = setup_channels(&config, inbound_tx);
+
+    println!("Starting oxicrab gateway in ECHO mode (no LLM)...");
+    println!("Enabled channels: {:?}", channels.enabled_channels());
+    if config.gateway.enabled {
+        println!(
+            "HTTP API listening on {}:{}",
+            config.gateway.host, config.gateway.port
+        );
+    }
+
+    // Take inbound receiver from the bus
+    let mut inbound_rx = {
+        let mut bus_guard = bus.lock().await;
+        bus_guard
+            .take_inbound_rx()
+            .ok_or_else(|| anyhow::anyhow!("Inbound receiver already taken"))?
+    };
+
+    // Echo loop: read inbound, write echo outbound
+    let echo_task = {
+        let outbound_tx = outbound_tx.clone();
+        tokio::spawn(async move {
+            info!("echo loop started");
+            while let Some(msg) = inbound_rx.recv().await {
+                let echo_text = format!(
+                    "[echo] channel={} | sender={} | message: {}",
+                    msg.channel, msg.sender_id, msg.content
+                );
+                let _ = outbound_tx
+                    .send(crate::bus::OutboundMessage {
+                        channel: msg.channel,
+                        chat_id: msg.chat_id,
+                        content: echo_text,
+                        reply_to: None,
+                        media: vec![],
+                        metadata: msg.metadata,
+                    })
+                    .await;
+            }
+        })
+    };
+
+    let channels_task = start_channels_loop(channels, outbound_rx, typing_rx, http_state);
+
+    info!("Echo gateway running");
+
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            println!("\nShutting down...");
+        }
+        _ = echo_task => {}
         _ = channels_task => {}
     }
 
