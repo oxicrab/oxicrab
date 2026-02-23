@@ -4,7 +4,7 @@ pub mod schema;
 
 pub use loader::{get_config_path, load_config, save_config};
 pub use schema::{
-    AgentDefaults, AgentsConfig, AnthropicOAuthConfig, BrowserConfig, ChannelsConfig,
+    A2aConfig, AgentDefaults, AgentsConfig, AnthropicOAuthConfig, BrowserConfig, ChannelsConfig,
     CheckpointConfig, CircuitBreakerConfig, CognitiveConfig, CompactionConfig, Config,
     CostGuardConfig, CredentialHelperConfig, DiscordCommand, DiscordCommandOption, DiscordConfig,
     DmPolicy, ExecToolConfig, ExfiltrationGuardConfig, FusionStrategy, GatewayConfig, GitHubConfig,

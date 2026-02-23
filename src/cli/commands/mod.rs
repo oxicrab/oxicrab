@@ -476,12 +476,18 @@ async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> 
 
     // Start HTTP API server (needs inbound_tx clone before channels takes ownership)
     let http_state = if config.gateway.enabled {
+        let a2a_config = if config.gateway.a2a.enabled {
+            Some(config.gateway.a2a.clone())
+        } else {
+            None
+        };
         let (_http_task, state) = crate::gateway::start(
             &config.gateway.host,
             config.gateway.port,
             Arc::new(inbound_tx.clone()),
             Some(outbound_tx.clone()),
             config.gateway.webhooks.clone(),
+            a2a_config,
         )
         .await?;
         Some(state)

@@ -15,7 +15,7 @@ async fn test_health_endpoint_returns_json() {
     use tower::ServiceExt;
 
     let state = make_state();
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     let req = Request::builder()
         .method("GET")
@@ -175,7 +175,7 @@ async fn test_webhook_disabled_returns_404() {
         make_webhook_config(false, "secret123"),
     );
     let state = make_state_with_webhooks(webhooks);
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     let body = b"payload";
     let sig = sign_body("secret123", body);
@@ -201,7 +201,7 @@ async fn test_webhook_enabled_validates_signature() {
         make_webhook_config(true, "secret123"),
     );
     let state = make_state_with_webhooks(webhooks);
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     let body = b"payload";
     let sig = sign_body("secret123", body);
@@ -228,7 +228,7 @@ async fn test_webhook_bad_signature_returns_forbidden() {
         make_webhook_config(true, "secret123"),
     );
     let state = make_state_with_webhooks(webhooks);
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     let req = Request::builder()
         .method("POST")
@@ -247,7 +247,7 @@ async fn test_webhook_unknown_name_returns_404() {
     use tower::ServiceExt;
 
     let state = make_state_with_webhooks(HashMap::new());
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     let req = Request::builder()
         .method("POST")
@@ -271,7 +271,7 @@ async fn test_webhook_missing_signature_returns_forbidden() {
         make_webhook_config(true, "secret123"),
     );
     let state = make_state_with_webhooks(webhooks);
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     // No signature header at all
     let req = Request::builder()
@@ -295,7 +295,7 @@ async fn test_webhook_payload_too_large_returns_413() {
         make_webhook_config(true, "secret123"),
     );
     let state = make_state_with_webhooks(webhooks);
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     let oversized = vec![b'x'; WEBHOOK_MAX_BODY + 1];
     let sig = sign_body("secret123", &oversized);
@@ -326,7 +326,7 @@ async fn test_webhook_alternative_signature_headers() {
             make_webhook_config(true, "secret123"),
         );
         let state = make_state_with_webhooks(webhooks);
-        let app = build_router(state);
+        let app = build_router(state, None);
 
         let req = Request::builder()
             .method("POST")
@@ -379,7 +379,7 @@ async fn test_webhook_direct_delivery_to_targets() {
         webhooks: Arc::new(webhooks),
         outbound_tx: Some(Arc::new(outbound_tx)),
     };
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     let body = b"v2.0 released";
     let sig = sign_body("deploy-secret", body);
@@ -440,7 +440,7 @@ async fn test_webhook_agent_turn_routes_through_agent() {
         outbound_tx: Some(Arc::new(outbound_tx)),
     };
     let pending = state.pending.clone();
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     let body = b"server down";
     let sig = sign_body("alert-secret", body);
@@ -500,7 +500,7 @@ async fn test_chat_handler_sends_inbound_and_returns_response() {
         outbound_tx: None,
     };
     let pending = state.pending.clone();
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     let req = Request::builder()
         .method("POST")
@@ -552,7 +552,7 @@ async fn test_chat_handler_with_session_id() {
         outbound_tx: None,
     };
     let pending = state.pending.clone();
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     let req = Request::builder()
         .method("POST")
@@ -599,7 +599,7 @@ async fn test_chat_handler_creates_pending_and_publishes_inbound() {
         outbound_tx: None,
     };
     let pending = state.pending.clone();
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     let req = Request::builder()
         .method("POST")
@@ -666,7 +666,7 @@ async fn test_webhook_template_with_json_fields() {
         webhooks: Arc::new(webhooks),
         outbound_tx: Some(Arc::new(outbound_tx)),
     };
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     let body = serde_json::to_vec(&serde_json::json!({"action":"push","repo":"test"})).unwrap();
     let sig = sign_body("json-secret", &body);
@@ -702,7 +702,7 @@ async fn test_chat_handler_inbound_send_fails() {
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
     };
-    let app = build_router(state);
+    let app = build_router(state, None);
 
     let req = Request::builder()
         .method("POST")
