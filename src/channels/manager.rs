@@ -127,32 +127,61 @@ impl ChannelManager {
     }
 
     pub async fn start_all(&mut self) -> Result<()> {
-        for (idx, channel) in self.channels.iter_mut().enumerate() {
-            let channel_name = self
+        let channel_count = self.channels.len();
+        let mut handles = Vec::with_capacity(channel_count);
+        let channels: Vec<Box<dyn BaseChannel>> = std::mem::take(&mut self.channels);
+
+        for (idx, mut channel) in channels.into_iter().enumerate() {
+            let name = self
                 .enabled_channels
                 .get(idx)
-                .map_or("unknown", std::string::String::as_str);
-            info!("Starting channel: {}", channel_name);
-            if let Err(e) = channel.start().await {
-                error!("Failed to start channel {}: {}", channel_name, e);
-                // Stop any channels that were already started
-                for prev in &mut self.channels[..idx] {
-                    if let Err(stop_err) = prev.stop().await {
-                        warn!(
-                            "error stopping channel {} during cleanup: {}",
-                            prev.name(),
-                            stop_err
-                        );
-                    }
-                }
-                return Err(anyhow::anyhow!(
-                    "Failed to start channel {}: {}",
-                    channel_name,
-                    e
-                ));
-            }
-            info!("Channel {} started successfully", channel_name);
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string());
+            handles.push(tokio::spawn(async move {
+                info!("starting channel: {}", name);
+                let result = channel.start().await;
+                (name, channel, result)
+            }));
         }
+
+        let mut started = Vec::with_capacity(channel_count);
+        let mut failed = None;
+        for handle in handles {
+            match handle.await {
+                Ok((name, channel, result)) => match result {
+                    Ok(()) => {
+                        info!("channel {} started successfully", name);
+                        started.push(channel);
+                    }
+                    Err(e) => {
+                        error!("failed to start channel {}: {}", name, e);
+                        failed = Some((name, e));
+                        // Don't break — let other handles complete to avoid orphaned tasks
+                    }
+                },
+                Err(e) => {
+                    error!("channel start task panicked: {}", e);
+                    failed = Some((
+                        "unknown".to_string(),
+                        anyhow::anyhow!("task panicked: {}", e),
+                    ));
+                    // Continue awaiting remaining handles
+                }
+            }
+        }
+
+        if let Some((name, e)) = failed {
+            // Rollback: stop channels that started
+            for ch in &mut started {
+                if let Err(stop_err) = ch.stop().await {
+                    warn!("error stopping {} during cleanup: {}", ch.name(), stop_err);
+                }
+            }
+            self.channels = started;
+            return Err(anyhow::anyhow!("failed to start channel {}: {}", name, e));
+        }
+
+        self.channels = started;
         Ok(())
     }
 

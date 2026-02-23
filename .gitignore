@@ -19,6 +19,7 @@ Thumbs.db
 .oxicrab/
 *.db
 *.log
+.fastembed_cache
 
 # Build artifacts
 *.pdb
