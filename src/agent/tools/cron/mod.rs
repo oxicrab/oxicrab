@@ -1,3 +1,4 @@
+use crate::agent::memory::memory_db::MemoryDB;
 use crate::agent::tools::base::ExecutionContext;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::config::ChannelsConfig;
@@ -12,13 +13,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct CronTool {
     cron_service: Arc<CronService>,
     channels_config: Option<ChannelsConfig>,
+    memory_db: Option<Arc<MemoryDB>>,
 }
 
 impl CronTool {
-    pub fn new(cron_service: Arc<CronService>, channels_config: Option<ChannelsConfig>) -> Self {
+    pub fn new(
+        cron_service: Arc<CronService>,
+        channels_config: Option<ChannelsConfig>,
+        memory_db: Option<Arc<MemoryDB>>,
+    ) -> Self {
         Self {
             cron_service,
             channels_config,
+            memory_db,
         }
     }
 
@@ -250,7 +257,7 @@ impl Tool for CronTool {
     }
 
     fn description(&self) -> &'static str {
-        "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, remove, run."
+        "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, remove, run, dlq_list, dlq_replay, dlq_clear."
     }
 
     fn parameters(&self) -> Value {
@@ -259,8 +266,8 @@ impl Tool for CronTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["add", "list", "remove", "run"],
-                    "description": "Action to perform"
+                    "enum": ["add", "list", "remove", "run", "dlq_list", "dlq_replay", "dlq_clear"],
+                    "description": "Action to perform. dlq_list/dlq_replay/dlq_clear manage the dead letter queue for failed executions."
                 },
                 "type": {
                     "type": "string",
@@ -315,6 +322,14 @@ impl Tool for CronTool {
                 "cooldown_secs": {
                     "type": "integer",
                     "description": "Minimum seconds between event-triggered firings. Prevents flooding."
+                },
+                "dlq_id": {
+                    "type": "integer",
+                    "description": "DLQ entry ID (for dlq_replay)"
+                },
+                "dlq_status": {
+                    "type": "string",
+                    "description": "Filter DLQ entries by status (for dlq_list and dlq_clear). E.g. 'pending_retry', 'replayed', 'discarded'."
                 }
             },
             "required": ["action"]
@@ -570,6 +585,97 @@ impl Tool for CronTool {
                         job_id
                     ))),
                 }
+            }
+            "dlq_list" => {
+                let Some(ref db) = self.memory_db else {
+                    return Ok(ToolResult::error(
+                        "DLQ not available (no memory database)".to_string(),
+                    ));
+                };
+                let status_filter = params["dlq_status"].as_str();
+                let entries = db.list_dlq_entries(status_filter)?;
+                if entries.is_empty() {
+                    return Ok(ToolResult::new("No DLQ entries.".to_string()));
+                }
+                let lines: Vec<String> = entries
+                    .iter()
+                    .map(|e| {
+                        format!(
+                            "- [{}] job={} ({}) | status={} | retries={} | failed={} | error: {}",
+                            e.id,
+                            e.job_id,
+                            e.job_name,
+                            e.status,
+                            e.retry_count,
+                            e.failed_at,
+                            e.error_message
+                        )
+                    })
+                    .collect();
+                Ok(ToolResult::new(format!(
+                    "DLQ entries:\n{}",
+                    lines.join("\n")
+                )))
+            }
+            "dlq_replay" => {
+                let Some(ref db) = self.memory_db else {
+                    return Ok(ToolResult::error(
+                        "DLQ not available (no memory database)".to_string(),
+                    ));
+                };
+                let dlq_id = params["dlq_id"]
+                    .as_i64()
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'dlq_id' parameter for dlq_replay"))?;
+
+                // Find the entry
+                let entries = db.list_dlq_entries(None)?;
+                let entry = entries.iter().find(|e| e.id == dlq_id);
+                let Some(entry) = entry else {
+                    return Ok(ToolResult::error(format!("DLQ entry {} not found", dlq_id)));
+                };
+
+                // Parse payload to get the job_id and try to re-run it
+                let job_id = &entry.job_id;
+                match self.cron_service.run_job(job_id, true).await? {
+                    Some(Some(result)) => {
+                        db.update_dlq_status(dlq_id, "replayed")?;
+                        Ok(ToolResult::new(format!(
+                            "Replayed DLQ entry {} (job {}). Result:\n{}",
+                            dlq_id, job_id, result
+                        )))
+                    }
+                    Some(None) => {
+                        db.update_dlq_status(dlq_id, "replayed")?;
+                        Ok(ToolResult::new(format!(
+                            "Replayed DLQ entry {} (job {}) — no output",
+                            dlq_id, job_id
+                        )))
+                    }
+                    None => {
+                        // Job no longer exists; increment retry count
+                        db.update_dlq_status(dlq_id, "failed_replay")?;
+                        Ok(ToolResult::error(format!(
+                            "Job {} not found or no callback configured. DLQ entry marked as failed_replay.",
+                            job_id
+                        )))
+                    }
+                }
+            }
+            "dlq_clear" => {
+                let Some(ref db) = self.memory_db else {
+                    return Ok(ToolResult::error(
+                        "DLQ not available (no memory database)".to_string(),
+                    ));
+                };
+                let status_filter = params["dlq_status"].as_str();
+                let deleted = db.clear_dlq(status_filter)?;
+                Ok(ToolResult::new(format!(
+                    "Cleared {} DLQ entries{}",
+                    deleted,
+                    status_filter
+                        .map(|s| format!(" (status={})", s))
+                        .unwrap_or_default()
+                )))
             }
             _ => Ok(ToolResult::error(format!("unknown action: {}", action))),
         }

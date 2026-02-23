@@ -433,6 +433,7 @@ impl AgentLoop {
             allowed_commands,
             mcp_config,
             sandbox_config,
+            memory_db: Some(memory.db()),
         };
 
         let (tools, subagents, mcp_manager) =
@@ -592,6 +593,10 @@ impl AgentLoop {
 
         info!("Agent loop stopped");
         Ok(())
+    }
+
+    pub fn memory_db(&self) -> Arc<crate::agent::memory::memory_db::MemoryDB> {
+        self.memory.db()
     }
 
     pub async fn stop(&self) {
