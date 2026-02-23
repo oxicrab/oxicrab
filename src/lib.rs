@@ -31,5 +31,16 @@ pub mod safety;
 pub mod session;
 pub(crate) mod utils;
 
+/// Re-exports for fuzz targets. Not part of the public API.
+#[doc(hidden)]
+pub mod fuzz_api {
+    pub use crate::utils::url_security::validate_and_resolve;
+
+    /// Wrapper around `gateway::validate_webhook_signature` for fuzz targets.
+    pub fn validate_webhook_signature(secret: &str, signature: &str, body: &[u8]) -> bool {
+        crate::gateway::validate_webhook_signature(secret, signature, body)
+    }
+}
+
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const LOGO: &str = "🤖";
