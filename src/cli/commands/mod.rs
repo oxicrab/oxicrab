@@ -482,7 +482,14 @@ async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> 
         &config,
     )
     .await?;
-    setup_cron_callbacks(cron.clone(), agent.clone(), bus_for_channels.clone()).await?;
+    let memory_db_for_dlq = agent.memory_db();
+    setup_cron_callbacks(
+        cron.clone(),
+        agent.clone(),
+        bus_for_channels.clone(),
+        memory_db_for_dlq,
+    )
+    .await?;
     let heartbeat = setup_heartbeat(&config, &agent);
 
     // Start HTTP API server (needs inbound_tx clone before channels takes ownership)
@@ -742,82 +749,105 @@ async fn setup_cron_callbacks(
     cron: Arc<CronService>,
     agent: Arc<AgentLoop>,
     bus: Arc<Mutex<MessageBus>>,
+    memory_db: Arc<crate::agent::memory::memory_db::MemoryDB>,
 ) -> Result<()> {
     debug!("Setting up cron job callback...");
     let agent_clone = agent.clone();
     let bus_clone = bus.clone();
+    let db_clone = memory_db;
     cron.set_on_job(move |job| {
         debug!("Cron job triggered: {} - {}", job.id, job.payload.message);
         let agent = agent_clone.clone();
         let bus = bus_clone.clone();
+        let db = db_clone.clone();
         Box::pin(async move {
-            if job.payload.kind == "echo" {
-                // Echo mode: deliver message directly without invoking the LLM
-                for target in &job.payload.targets {
-                    let mut bus_guard = bus.lock().await;
-                    if let Err(e) = bus_guard
-                        .publish_outbound(crate::bus::OutboundMessage {
-                            channel: target.channel.clone(),
-                            chat_id: target.to.clone(),
-                            content: job.payload.message.clone(),
-                            reply_to: None,
-                            media: vec![],
-                            metadata: job.payload.origin_metadata.clone(),
-                        })
-                        .await
-                    {
-                        error!(
-                            "Failed to publish echo message from cron to {}:{}: {}",
-                            target.channel, target.to, e
-                        );
-                    }
-                }
-                return Ok(Some(job.payload.message.clone()));
-            }
+            let result = cron_job_execute(&job, &agent, &bus).await;
 
-            // Agent mode: process as a full agent turn
-            let (ctx_channel, ctx_chat_id) = job
-                .payload
-                .targets
-                .first()
-                .map_or(("cli", "direct"), |t| (t.channel.as_str(), t.to.as_str()));
-
-            let response = agent
-                .process_direct(
-                    &job.payload.message,
-                    &format!("cron:{}", job.id),
-                    ctx_channel,
-                    ctx_chat_id,
-                )
-                .await?;
-
-            if job.payload.agent_echo {
-                for target in &job.payload.targets {
-                    let mut bus_guard = bus.lock().await;
-                    if let Err(e) = bus_guard
-                        .publish_outbound(crate::bus::OutboundMessage {
-                            channel: target.channel.clone(),
-                            chat_id: target.to.clone(),
-                            content: response.clone(),
-                            reply_to: None,
-                            media: vec![],
-                            metadata: job.payload.origin_metadata.clone(),
-                        })
-                        .await
-                    {
-                        error!(
-                            "Failed to publish outbound message from cron to {}:{}: {}",
-                            target.channel, target.to, e
-                        );
-                    }
+            if let Err(ref e) = result {
+                let payload_json =
+                    serde_json::to_string(&job.payload).unwrap_or_else(|_| "{}".to_string());
+                if let Err(dlq_err) =
+                    db.insert_dlq_entry(&job.id, &job.name, &payload_json, &e.to_string())
+                {
+                    warn!("failed to insert DLQ entry for job {}: {}", job.id, dlq_err);
                 }
             }
 
-            Ok(Some(response))
+            result
         })
     })
     .await;
     Ok(())
+}
+
+async fn cron_job_execute(
+    job: &CronJob,
+    agent: &Arc<AgentLoop>,
+    bus: &Arc<Mutex<MessageBus>>,
+) -> Result<Option<String>> {
+    if job.payload.kind == "echo" {
+        // Echo mode: deliver message directly without invoking the LLM
+        for target in &job.payload.targets {
+            let mut bus_guard = bus.lock().await;
+            if let Err(e) = bus_guard
+                .publish_outbound(crate::bus::OutboundMessage {
+                    channel: target.channel.clone(),
+                    chat_id: target.to.clone(),
+                    content: job.payload.message.clone(),
+                    reply_to: None,
+                    media: vec![],
+                    metadata: job.payload.origin_metadata.clone(),
+                })
+                .await
+            {
+                error!(
+                    "Failed to publish echo message from cron to {}:{}: {}",
+                    target.channel, target.to, e
+                );
+            }
+        }
+        return Ok(Some(job.payload.message.clone()));
+    }
+
+    // Agent mode: process as a full agent turn
+    let (ctx_channel, ctx_chat_id) = job
+        .payload
+        .targets
+        .first()
+        .map_or(("cli", "direct"), |t| (t.channel.as_str(), t.to.as_str()));
+
+    let response = agent
+        .process_direct(
+            &job.payload.message,
+            &format!("cron:{}", job.id),
+            ctx_channel,
+            ctx_chat_id,
+        )
+        .await?;
+
+    if job.payload.agent_echo {
+        for target in &job.payload.targets {
+            let mut bus_guard = bus.lock().await;
+            if let Err(e) = bus_guard
+                .publish_outbound(crate::bus::OutboundMessage {
+                    channel: target.channel.clone(),
+                    chat_id: target.to.clone(),
+                    content: response.clone(),
+                    reply_to: None,
+                    media: vec![],
+                    metadata: job.payload.origin_metadata.clone(),
+                })
+                .await
+            {
+                error!(
+                    "Failed to publish outbound message from cron to {}:{}: {}",
+                    target.channel, target.to, e
+                );
+            }
+        }
+    }
+
+    Ok(Some(response))
 }
 
 fn setup_heartbeat(config: &Config, agent: &Arc<AgentLoop>) -> Arc<HeartbeatService> {
