@@ -256,6 +256,16 @@ impl CostGuard {
             cache_read_input_tokens.unwrap_or(0),
         );
 
+        // Snapshot hot-reloadable limits once, before acquiring other locks,
+        // to avoid nested-mutex deadlock with daily_cost / hourly_actions.
+        let (daily_budget, max_actions_per_hour) = {
+            let limits = self.limits.lock().ok();
+            (
+                limits.as_ref().and_then(|l| l.daily_budget_cents),
+                limits.as_ref().and_then(|l| l.max_actions_per_hour),
+            )
+        };
+
         // Update daily cost
         if let Ok(mut daily) = self.daily_cost.lock() {
             let today = chrono::Utc::now().date_naive();
@@ -266,8 +276,7 @@ impl CostGuard {
             }
             daily.total_cents += cost_cents;
 
-            let budget = self.limits.lock().ok().and_then(|l| l.daily_budget_cents);
-            if let Some(budget) = budget
+            if let Some(budget) = daily_budget
                 && daily.total_cents >= budget as f64
             {
                 self.budget_exceeded.store(true, Ordering::Release);
@@ -279,12 +288,7 @@ impl CostGuard {
         }
 
         // Record action for rate limiting
-        if self
-            .limits
-            .lock()
-            .ok()
-            .and_then(|l| l.max_actions_per_hour)
-            .is_some()
+        if max_actions_per_hour.is_some()
             && let Ok(mut actions) = self.hourly_actions.lock()
         {
             actions.push_back(Instant::now());
