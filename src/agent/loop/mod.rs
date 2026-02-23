@@ -723,6 +723,29 @@ impl AgentLoop {
             }
         }
 
+        // Remember fast path: bypass LLM for explicit "remember that..." messages
+        if let Some(content) =
+            crate::agent::memory::remember::extract_remember_content(&msg_content)
+        {
+            let response = match self.try_remember_fast_path(&content, &session_key).await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    warn!("remember fast path failed, falling through to LLM: {}", e);
+                    None
+                }
+            };
+            if let Some(response_text) = response {
+                return Ok(Some(OutboundMessage {
+                    channel: msg.channel,
+                    chat_id: msg.chat_id,
+                    content: response_text,
+                    reply_to: None,
+                    media: vec![],
+                    metadata: msg.metadata,
+                }));
+            }
+        }
+
         // Load and encode any attached images (skip audio files)
         let audio_extensions = ["ogg", "mp3", "mp4", "m4a", "wav", "webm", "flac", "oga"];
         let image_media: Vec<String> = msg
@@ -1614,6 +1637,60 @@ impl AgentLoop {
             media: collected_media,
             metadata: HashMap::new(),
         }))
+    }
+
+    /// Attempt to persist a "remember that..." message directly to memory,
+    /// bypassing the LLM. Returns `Ok(Some(response))` if handled, `Ok(None)` if
+    /// the caller should fall through to normal LLM processing.
+    async fn try_remember_fast_path(
+        &self,
+        content: &str,
+        session_key: &str,
+    ) -> Result<Option<String>> {
+        use crate::agent::memory::remember::is_duplicate;
+
+        // Read today's notes for dedup
+        let today_notes = self.memory.read_today().unwrap_or_default();
+        if is_duplicate(content, &today_notes) {
+            info!("remember fast path: duplicate detected, skipping write");
+            // Record to session history
+            let mut session = self.sessions.get_or_create(session_key).await?;
+            let extra = HashMap::new();
+            session.add_message(
+                "user".to_string(),
+                format!("remember that {}", content),
+                extra.clone(),
+            );
+            session.add_message(
+                "assistant".to_string(),
+                "I already have that noted.".to_string(),
+                extra,
+            );
+            self.sessions.save(&session).await?;
+            return Ok(Some("I already have that noted.".to_string()));
+        }
+
+        // Write to daily notes
+        self.memory.append_today(&format!("\n- {}\n", content))?;
+        info!(
+            "remember fast path: wrote {} chars to daily notes",
+            content.len()
+        );
+
+        let response = format!("Noted! I'll remember: {}", content);
+
+        // Record to session history
+        let mut session = self.sessions.get_or_create(session_key).await?;
+        let extra = HashMap::new();
+        session.add_message(
+            "user".to_string(),
+            format!("remember that {}", content),
+            extra.clone(),
+        );
+        session.add_message("assistant".to_string(), response.clone(), extra);
+        self.sessions.save(&session).await?;
+
+        Ok(Some(response))
     }
 
     pub async fn process_direct(
