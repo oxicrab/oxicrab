@@ -365,6 +365,8 @@ pub struct AgentDefaults {
     pub cognitive: CognitiveConfig,
     #[serde(default, rename = "promptGuard")]
     pub prompt_guard: PromptGuardConfig,
+    #[serde(default, rename = "contextProviders")]
+    pub context_providers: Vec<ContextProviderConfig>,
 }
 
 impl Default for AgentDefaults {
@@ -387,8 +389,35 @@ impl Default for AgentDefaults {
             cost_guard: CostGuardConfig::default(),
             cognitive: CognitiveConfig::default(),
             prompt_guard: PromptGuardConfig::default(),
+            context_providers: vec![],
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextProviderConfig {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default = "super::default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_context_provider_timeout")]
+    pub timeout: u64,
+    #[serde(default = "default_context_provider_ttl")]
+    pub ttl: u64,
+    #[serde(default, rename = "requiresBins")]
+    pub requires_bins: Vec<String>,
+    #[serde(default, rename = "requiresEnv")]
+    pub requires_env: Vec<String>,
+}
+
+fn default_context_provider_timeout() -> u64 {
+    5
+}
+
+fn default_context_provider_ttl() -> u64 {
+    300
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

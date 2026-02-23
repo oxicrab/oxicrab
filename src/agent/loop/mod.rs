@@ -111,6 +111,8 @@ pub struct AgentLoopConfig {
     pub prompt_guard_config: crate::config::PromptGuardConfig,
     /// Landlock sandbox configuration for shell commands
     pub sandbox_config: crate::config::SandboxConfig,
+    /// External context providers that inject dynamic content into the system prompt
+    pub context_providers: Vec<crate::config::ContextProviderConfig>,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -181,6 +183,7 @@ impl AgentLoopConfig {
             exfiltration_guard: config.tools.exfiltration_guard.clone(),
             prompt_guard_config: config.agents.defaults.prompt_guard.clone(),
             sandbox_config: config.tools.exec.sandbox.clone(),
+            context_providers: config.agents.defaults.context_providers.clone(),
         }
     }
 
@@ -243,6 +246,7 @@ impl AgentLoopConfig {
                 enabled: false,
                 ..crate::config::SandboxConfig::default()
             },
+            context_providers: vec![],
         }
     }
 }
@@ -340,6 +344,7 @@ impl AgentLoop {
             exfiltration_guard,
             prompt_guard_config,
             sandbox_config,
+            context_providers,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -351,7 +356,13 @@ impl AgentLoop {
                 .ok_or_else(|| anyhow::anyhow!("Inbound receiver already taken"))?
         }));
         let model = model.unwrap_or_else(|| provider.default_model().to_string());
-        let context = Arc::new(Mutex::new(ContextBuilder::new(&workspace)?));
+        let mut context_builder = ContextBuilder::new(&workspace)?;
+        if !context_providers.is_empty() {
+            use crate::agent::context::providers::ContextProviderRunner;
+            let runner = Arc::new(ContextProviderRunner::new(context_providers));
+            context_builder.set_providers(runner);
+        }
+        let context = Arc::new(Mutex::new(context_builder));
         let session_mgr = SessionManager::new(&workspace)?;
 
         // Clean up expired sessions in background
@@ -763,6 +774,7 @@ impl AgentLoop {
             .unwrap_or(false);
         let messages = {
             let mut ctx = self.context.lock().await;
+            ctx.refresh_provider_context().await;
             ctx.build_messages(
                 &history,
                 &content,
@@ -1562,6 +1574,7 @@ impl AgentLoop {
 
         let messages = {
             let mut context = self.context.lock().await;
+            context.refresh_provider_context().await;
             context.build_messages(
                 &history,
                 &msg.content,
@@ -1645,6 +1658,7 @@ impl AgentLoop {
 
         let messages = {
             let mut ctx = self.context.lock().await;
+            ctx.refresh_provider_context().await;
             ctx.build_messages(
                 &history,
                 content,
