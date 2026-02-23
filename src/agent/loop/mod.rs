@@ -594,6 +594,11 @@ impl AgentLoop {
         Ok(())
     }
 
+    /// Access the cost guard for hot-reloading limits.
+    pub fn cost_guard(&self) -> Option<&Arc<CostGuard>> {
+        self.cost_guard.as_ref()
+    }
+
     pub async fn stop(&self) {
         {
             let mut guard = self.running.lock().await;

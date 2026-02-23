@@ -31,8 +31,14 @@ struct DailyCost {
     date: chrono::NaiveDate,
 }
 
+/// Hot-reloadable subset of `CostGuardConfig`.
+struct ReloadableLimits {
+    daily_budget_cents: Option<u64>,
+    max_actions_per_hour: Option<u64>,
+}
+
 pub struct CostGuard {
-    config: CostGuardConfig,
+    limits: Mutex<ReloadableLimits>,
     budget_exceeded: AtomicBool,
     daily_cost: Mutex<DailyCost>,
     hourly_actions: Mutex<VecDeque<Instant>>,
@@ -44,10 +50,16 @@ pub struct CostGuard {
 
 impl CostGuard {
     pub fn new(config: CostGuardConfig) -> Self {
+        let CostGuardConfig {
+            daily_budget_cents,
+            max_actions_per_hour,
+            model_costs,
+        } = config;
+
         let mut pricing_lookup = Vec::new();
 
         // Config overrides take priority
-        for (pattern, cost) in &config.model_costs {
+        for (pattern, cost) in &model_costs {
             pricing_lookup.push((
                 ModelMatcher::StartsWith(pattern.clone()),
                 ModelCost {
@@ -81,8 +93,12 @@ impl CostGuard {
             warn!("failed to parse embedded pricing data");
         }
 
+        let limits = ReloadableLimits {
+            daily_budget_cents,
+            max_actions_per_hour,
+        };
         Self {
-            config,
+            limits: Mutex::new(limits),
             budget_exceeded: AtomicBool::new(false),
             daily_cost: Mutex::new(DailyCost {
                 total_cents: 0.0,
@@ -118,11 +134,44 @@ impl CostGuard {
         guard
     }
 
+    /// Hot-reload budget and rate limits from a new config. Only updates
+    /// `daily_budget_cents` and `max_actions_per_hour` — other fields (model
+    /// costs, pricing data) require a restart.
+    pub fn update_limits(&self, new_config: &CostGuardConfig) {
+        let Ok(mut limits) = self.limits.lock() else {
+            warn!("cost guard limits mutex poisoned — skipping hot-reload");
+            return;
+        };
+        if limits.daily_budget_cents != new_config.daily_budget_cents {
+            info!(
+                "cost guard daily budget updated: {:?} -> {:?} cents",
+                limits.daily_budget_cents, new_config.daily_budget_cents
+            );
+            limits.daily_budget_cents = new_config.daily_budget_cents;
+            // Reset the exceeded flag so the new budget takes effect immediately
+            self.budget_exceeded.store(false, Ordering::Release);
+        }
+        if limits.max_actions_per_hour != new_config.max_actions_per_hour {
+            info!(
+                "cost guard max actions/hour updated: {:?} -> {:?}",
+                limits.max_actions_per_hour, new_config.max_actions_per_hour
+            );
+            limits.max_actions_per_hour = new_config.max_actions_per_hour;
+        }
+    }
+
     /// Pre-flight check before an LLM call. Returns `Err(message)` if blocked.
     pub fn check_allowed(&self) -> Result<(), String> {
+        // Snapshot the hot-reloadable limits once per call
+        let (daily_budget, max_actions_per_hour) = {
+            let Ok(limits) = self.limits.lock() else {
+                return Err("Cost guard mutex poisoned — blocking LLM call".to_string());
+            };
+            (limits.daily_budget_cents, limits.max_actions_per_hour)
+        };
+
         // Fast-path: if budget was already exceeded, skip the mutex unless it's a new day
-        if self.budget_exceeded.load(Ordering::Acquire) && self.config.daily_budget_cents.is_some()
-        {
+        if self.budget_exceeded.load(Ordering::Acquire) && daily_budget.is_some() {
             // Still need to check for date rollover — take the lock
             let Ok(daily) = self.daily_cost.lock() else {
                 return Err("Cost guard mutex poisoned — blocking LLM call".to_string());
@@ -132,7 +181,7 @@ impl CostGuard {
                 return Err(format!(
                     "Daily budget exceeded ({:.1} cents spent, limit {} cents). Try again tomorrow.",
                     daily.total_cents,
-                    self.config.daily_budget_cents.unwrap_or(0)
+                    daily_budget.unwrap_or(0)
                 ));
             }
             // Day rolled over — fall through to the full check which will reset
@@ -140,7 +189,7 @@ impl CostGuard {
         }
 
         // Check daily budget
-        if let Some(budget) = self.config.daily_budget_cents {
+        if let Some(budget) = daily_budget {
             let Ok(mut daily) = self.daily_cost.lock() else {
                 warn!("cost guard daily_cost mutex poisoned — blocking LLM call");
                 return Err("Cost guard mutex poisoned — blocking LLM call".to_string());
@@ -161,7 +210,7 @@ impl CostGuard {
         }
 
         // Check hourly rate limit
-        if let Some(max_actions) = self.config.max_actions_per_hour {
+        if let Some(max_actions) = max_actions_per_hour {
             let Ok(mut actions) = self.hourly_actions.lock() else {
                 warn!("cost guard hourly_actions mutex poisoned — blocking LLM call");
                 return Err("Cost guard mutex poisoned — blocking LLM call".to_string());
@@ -217,7 +266,8 @@ impl CostGuard {
             }
             daily.total_cents += cost_cents;
 
-            if let Some(budget) = self.config.daily_budget_cents
+            let budget = self.limits.lock().ok().and_then(|l| l.daily_budget_cents);
+            if let Some(budget) = budget
                 && daily.total_cents >= budget as f64
             {
                 self.budget_exceeded.store(true, Ordering::Release);
@@ -229,7 +279,12 @@ impl CostGuard {
         }
 
         // Record action for rate limiting
-        if self.config.max_actions_per_hour.is_some()
+        if self
+            .limits
+            .lock()
+            .ok()
+            .and_then(|l| l.max_actions_per_hour)
+            .is_some()
             && let Ok(mut actions) = self.hourly_actions.lock()
         {
             actions.push_back(Instant::now());

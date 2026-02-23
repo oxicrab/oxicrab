@@ -468,6 +468,9 @@ max_width: 820px
             <li><strong>Historical data</strong> &mdash; query past costs via <code>oxicrab stats costs</code> and <code>oxicrab stats today</code></li>
             <li><strong>Per-call breakdown</strong> &mdash; model, input/output tokens, cache tokens, cost in cents, and caller</li>
         </ul>
+
+        <h3>Hot-Reload</h3>
+        <p>The <code>dailyBudgetCents</code> and <code>maxActionsPerHour</code> fields support <strong>hot-reload</strong> &mdash; changes to the config file take effect immediately without a restart. Other fields (model costs, pricing data) require a restart.</p>
     </div>
 
     <!-- CIRCUIT BREAKER -->

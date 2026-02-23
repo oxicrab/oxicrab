@@ -503,6 +503,27 @@ async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> 
         println!("HTTP API server: disabled");
     }
 
+    // Start config watcher for hot-reloading budget/rate limits
+    let config_path = crate::config::get_config_path()?;
+    if config_path.exists() {
+        match crate::config::watcher::start_watching(&config_path, config.clone()) {
+            Ok((mut config_rx, _watcher_handle)) => {
+                if let Some(cost_guard) = agent.cost_guard().cloned() {
+                    tokio::spawn(async move {
+                        while config_rx.changed().await.is_ok() {
+                            let new_config = config_rx.borrow_and_update();
+                            cost_guard.update_limits(&new_config.agents.defaults.cost_guard);
+                        }
+                    });
+                }
+                info!("config hot-reload enabled for cost guard limits");
+            }
+            Err(e) => {
+                warn!("config watcher not started: {}", e);
+            }
+        }
+    }
+
     // Start services
     start_services(cron.clone(), heartbeat.clone()).await?;
 

@@ -1,6 +1,7 @@
 pub mod credentials;
 pub mod loader;
 pub mod schema;
+pub mod watcher;
 
 pub use loader::{get_config_path, load_config, save_config};
 pub use schema::{

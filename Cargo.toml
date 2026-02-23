@@ -53,6 +53,7 @@ html-escape = "0.2"
 indexmap = "2"
 keyring = { version = "3", optional = true }
 lru = "0.16"
+notify = "7"
 oauth2 = "5.0"
 open = "5.0"
 qr2term = { version = "0.3", optional = true }
