@@ -379,3 +379,213 @@ async fn test_chat_with_json_schema_format() {
     let result = provider.chat(req).await.unwrap();
     assert!(result.content.unwrap().contains("Alice"));
 }
+
+// --- Additional coverage tests ---
+
+#[test]
+fn test_parse_response_with_reasoning_content() {
+    let json = json!({
+        "choices": [{"message": {
+            "content": "The answer is 42",
+            "reasoning_content": "Let me think..."
+        }, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5}
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    assert_eq!(resp.content.as_deref(), Some("The answer is 42"));
+    assert_eq!(resp.reasoning_content.as_deref(), Some("Let me think..."));
+}
+
+#[test]
+fn test_parse_response_content_and_tool_calls_together() {
+    let json = json!({
+        "choices": [{"message": {
+            "content": "I'll check",
+            "tool_calls": [{
+                "id": "call_abc",
+                "type": "function",
+                "function": {"name": "lookup", "arguments": "{\"q\":\"test\"}"}
+            }]
+        }, "finish_reason": "tool_calls"}],
+        "usage": {"prompt_tokens": 8, "completion_tokens": 12}
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    assert_eq!(resp.content.as_deref(), Some("I'll check"));
+    assert_eq!(resp.tool_calls.len(), 1);
+    assert_eq!(resp.tool_calls[0].name, "lookup");
+    assert_eq!(resp.tool_calls[0].id, "call_abc");
+    assert_eq!(resp.tool_calls[0].arguments["q"], "test");
+}
+
+#[tokio::test]
+async fn test_chat_tool_choice_any_mapped_to_required() {
+    use wiremock::matchers::body_partial_json;
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(body_partial_json(json!({"tool_choice": "required"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "my_tool", "arguments": "{}"}
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let req = ChatRequest {
+        messages: vec![Message::user("do something")],
+        tools: Some(vec![crate::providers::base::ToolDefinition {
+            name: "my_tool".to_string(),
+            description: "a test tool".to_string(),
+            parameters: json!({"type": "object", "properties": {}}),
+        }]),
+        model: None,
+        max_tokens: 1024,
+        temperature: 0.7,
+        tool_choice: Some("any".to_string()),
+        response_format: None,
+    };
+    let result = provider.chat(req).await.unwrap();
+    assert!(result.has_tool_calls());
+    assert_eq!(result.tool_calls[0].name, "my_tool");
+}
+
+#[tokio::test]
+async fn test_chat_with_image_in_message() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "I see an image"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 20, "completion_tokens": 5, "total_tokens": 25}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let req = ChatRequest {
+        messages: vec![Message::user_with_images(
+            "What is this?",
+            vec![crate::providers::base::ImageData {
+                media_type: "image/png".to_string(),
+                data: "iVBORw0KGgoAAAANSUhEUg==".to_string(),
+            }],
+        )],
+        tools: None,
+        model: None,
+        max_tokens: 1024,
+        temperature: 0.7,
+        tool_choice: None,
+        response_format: None,
+    };
+    let result = provider.chat(req).await.unwrap();
+    assert_eq!(result.content.as_deref(), Some("I see an image"));
+}
+
+#[tokio::test]
+async fn test_chat_with_document_in_message() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "I read the PDF"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 30, "completion_tokens": 5, "total_tokens": 35}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let req = ChatRequest {
+        messages: vec![Message::user_with_images(
+            "Summarize this document",
+            vec![crate::providers::base::ImageData {
+                media_type: "application/pdf".to_string(),
+                data: "JVBERi0xLjQK".to_string(),
+            }],
+        )],
+        tools: None,
+        model: None,
+        max_tokens: 1024,
+        temperature: 0.7,
+        tool_choice: None,
+        response_format: None,
+    };
+    let result = provider.chat(req).await.unwrap();
+    assert_eq!(result.content.as_deref(), Some("I read the PDF"));
+}
+
+#[tokio::test]
+async fn test_custom_headers_are_sent() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(header("X-Custom", "my-value"))
+        .and(header("Authorization", "Bearer hdr_key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "ok"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"total_tokens": 5}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut headers = std::collections::HashMap::new();
+    headers.insert("X-Custom".to_string(), "my-value".to_string());
+    let provider = OpenAIProvider::with_config_and_headers(
+        "hdr_key".to_string(),
+        "gpt-4o".to_string(),
+        server.uri(),
+        "TestProvider".to_string(),
+        headers,
+    );
+    let result = provider.chat(simple_chat_request("Hi")).await.unwrap();
+    assert_eq!(result.content.as_deref(), Some("ok"));
+}
+
+#[test]
+fn test_default_model_new() {
+    let provider = OpenAIProvider::new("key".to_string(), None);
+    assert_eq!(provider.default_model(), "gpt-4o");
+}
+
+#[test]
+fn test_default_model_with_config() {
+    let provider = OpenAIProvider::with_config(
+        "key".to_string(),
+        "deepseek-r1".to_string(),
+        "https://example.com".to_string(),
+        "DeepSeek".to_string(),
+    );
+    assert_eq!(provider.default_model(), "deepseek-r1");
+}
+
+#[test]
+fn test_metrics_fresh_provider() {
+    let provider = OpenAIProvider::new("key".to_string(), None);
+    let metrics = provider.metrics();
+    assert_eq!(metrics.request_count, 0);
+    assert_eq!(metrics.token_count, 0);
+    assert_eq!(metrics.error_count, 0);
+}

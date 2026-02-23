@@ -393,4 +393,35 @@ mod tests {
         let result = expand_tilde("~");
         assert_eq!(result, PathBuf::from("~"));
     }
+
+    #[test]
+    fn test_new_disabled_returns_none() {
+        let config = TranscriptionConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        assert!(TranscriptionService::new(&config).is_none());
+    }
+
+    #[test]
+    fn test_new_no_backends_returns_none() {
+        let config = TranscriptionConfig {
+            enabled: true,
+            api_key: String::new(),
+            local_model_path: String::new(),
+            ..Default::default()
+        };
+        assert!(TranscriptionService::new(&config).is_none());
+    }
+
+    #[test]
+    fn test_new_cloud_only() {
+        let config = TranscriptionConfig {
+            enabled: true,
+            api_key: "test-key".to_string(),
+            local_model_path: String::new(),
+            ..Default::default()
+        };
+        assert!(TranscriptionService::new(&config).is_some());
+    }
 }

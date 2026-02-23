@@ -486,3 +486,231 @@ async fn test_webhook_agent_turn_routes_through_agent() {
     assert_eq!(delivered.chat_id, "G789");
     assert_eq!(delivered.content, "I'm investigating the server issue.");
 }
+
+#[tokio::test]
+async fn test_chat_handler_sends_inbound_and_returns_response() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
+    let state = HttpApiState {
+        inbound_tx: Arc::new(inbound_tx),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(HashMap::new()),
+        outbound_tx: None,
+    };
+    let pending = state.pending.clone();
+    let app = build_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from(r#"{"message":"hello"}"#))
+        .unwrap();
+
+    // Spawn the request so we can simulate the agent response concurrently
+    let handle = tokio::spawn(async move { app.oneshot(req).await.unwrap() });
+
+    // Receive the inbound message
+    let msg = inbound_rx.recv().await.unwrap();
+    assert_eq!(msg.channel, "http");
+    assert_eq!(msg.content, "hello");
+    assert_eq!(msg.sender_id, "http-api");
+
+    // Send a response through the pending oneshot
+    let request_id = msg.chat_id.clone();
+    let tx = pending.lock().unwrap().remove(&request_id).unwrap();
+    tx.send(OutboundMessage {
+        channel: "http".to_string(),
+        chat_id: request_id,
+        content: "world".to_string(),
+        reply_to: None,
+        media: vec![],
+        metadata: HashMap::new(),
+    })
+    .unwrap();
+
+    let resp = handle.await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["content"], "world");
+}
+
+#[tokio::test]
+async fn test_chat_handler_with_session_id() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
+    let state = HttpApiState {
+        inbound_tx: Arc::new(inbound_tx),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(HashMap::new()),
+        outbound_tx: None,
+    };
+    let pending = state.pending.clone();
+    let app = build_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from(
+            r#"{"message":"hi","session_id":"my-session"}"#,
+        ))
+        .unwrap();
+
+    let handle = tokio::spawn(async move { app.oneshot(req).await.unwrap() });
+
+    let msg = inbound_rx.recv().await.unwrap();
+    let request_id = msg.chat_id.clone();
+    let tx = pending.lock().unwrap().remove(&request_id).unwrap();
+    tx.send(OutboundMessage {
+        channel: "http".to_string(),
+        chat_id: request_id,
+        content: "reply".to_string(),
+        reply_to: None,
+        media: vec![],
+        metadata: HashMap::new(),
+    })
+    .unwrap();
+
+    let resp = handle.await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["session_id"], "my-session");
+}
+
+#[tokio::test]
+async fn test_chat_handler_creates_pending_and_publishes_inbound() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
+    let state = HttpApiState {
+        inbound_tx: Arc::new(inbound_tx),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(HashMap::new()),
+        outbound_tx: None,
+    };
+    let pending = state.pending.clone();
+    let app = build_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from(r#"{"message":"test"}"#))
+        .unwrap();
+
+    // Spawn but don't resolve — we just want to verify setup
+    let _handle = tokio::spawn(async move { app.oneshot(req).await.unwrap() });
+
+    // Wait for the inbound message to arrive
+    let msg = inbound_rx.recv().await.unwrap();
+    assert_eq!(msg.channel, "http");
+    assert_eq!(msg.content, "test");
+    assert!(msg.chat_id.starts_with("http-"));
+
+    // Verify the pending map has an entry for this request
+    let has_pending = pending.lock().unwrap().contains_key(&msg.chat_id);
+    assert!(has_pending, "pending map should contain the request_id");
+}
+
+#[tokio::test]
+async fn test_deliver_to_targets_no_outbound_tx() {
+    let state = HttpApiState {
+        inbound_tx: Arc::new(mpsc::channel(1).0),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(HashMap::new()),
+        outbound_tx: None,
+    };
+    let targets = vec![WebhookTarget {
+        channel: "slack".to_string(),
+        chat_id: "C123".to_string(),
+    }];
+    // Should not panic — just warn and return
+    deliver_to_targets(&state, &targets, "hello", "test-hook").await;
+}
+
+#[tokio::test]
+async fn test_webhook_template_with_json_fields() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let (outbound_tx, mut outbound_rx) = mpsc::channel(16);
+
+    let mut webhooks = HashMap::new();
+    webhooks.insert(
+        "gh-push".to_string(),
+        WebhookConfig {
+            enabled: true,
+            secret: "json-secret".to_string(),
+            template: "{{action}} on {{repo}}".to_string(),
+            targets: vec![WebhookTarget {
+                channel: "slack".to_string(),
+                chat_id: "C456".to_string(),
+            }],
+            agent_turn: false,
+        },
+    );
+
+    let state = HttpApiState {
+        inbound_tx: Arc::new(mpsc::channel(1).0),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(webhooks),
+        outbound_tx: Some(Arc::new(outbound_tx)),
+    };
+    let app = build_router(state);
+
+    let body = serde_json::to_vec(&serde_json::json!({"action":"push","repo":"test"})).unwrap();
+    let sig = sign_body("json-secret", &body);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/webhook/gh-push")
+        .header("X-Signature-256", &sig)
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from(body))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let msg = outbound_rx.recv().await.unwrap();
+    assert_eq!(msg.content, "push on test");
+    assert_eq!(msg.channel, "slack");
+    assert_eq!(msg.chat_id, "C456");
+}
+
+#[tokio::test]
+async fn test_chat_handler_inbound_send_fails() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    // Create a channel and immediately drop the receiver so send fails
+    let (inbound_tx, inbound_rx) = mpsc::channel(1);
+    drop(inbound_rx);
+
+    let state = HttpApiState {
+        inbound_tx: Arc::new(inbound_tx),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(HashMap::new()),
+        outbound_tx: None,
+    };
+    let app = build_router(state);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from(r#"{"message":"hello"}"#))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
