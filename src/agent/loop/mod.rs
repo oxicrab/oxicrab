@@ -111,6 +111,8 @@ pub struct AgentLoopConfig {
     pub prompt_guard_config: crate::config::PromptGuardConfig,
     /// Landlock sandbox configuration for shell commands
     pub sandbox_config: crate::config::SandboxConfig,
+    /// External context providers that inject dynamic content into the system prompt
+    pub context_providers: Vec<crate::config::ContextProviderConfig>,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -181,6 +183,7 @@ impl AgentLoopConfig {
             exfiltration_guard: config.tools.exfiltration_guard.clone(),
             prompt_guard_config: config.agents.defaults.prompt_guard.clone(),
             sandbox_config: config.tools.exec.sandbox.clone(),
+            context_providers: config.agents.defaults.context_providers.clone(),
         }
     }
 
@@ -212,6 +215,7 @@ impl AgentLoopConfig {
                 extraction_enabled: false,
                 model: None,
                 checkpoint: crate::config::CheckpointConfig::default(),
+                pre_flush_enabled: false,
             },
             outbound_tx,
             cron_service: None,
@@ -243,6 +247,7 @@ impl AgentLoopConfig {
                 enabled: false,
                 ..crate::config::SandboxConfig::default()
             },
+            context_providers: vec![],
         }
     }
 }
@@ -340,6 +345,7 @@ impl AgentLoop {
             exfiltration_guard,
             prompt_guard_config,
             sandbox_config,
+            context_providers,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -351,7 +357,13 @@ impl AgentLoop {
                 .ok_or_else(|| anyhow::anyhow!("Inbound receiver already taken"))?
         }));
         let model = model.unwrap_or_else(|| provider.default_model().to_string());
-        let context = Arc::new(Mutex::new(ContextBuilder::new(&workspace)?));
+        let mut context_builder = ContextBuilder::new(&workspace)?;
+        if !context_providers.is_empty() {
+            use crate::agent::context::providers::ContextProviderRunner;
+            let runner = Arc::new(ContextProviderRunner::new(context_providers));
+            context_builder.set_providers(runner);
+        }
+        let context = Arc::new(Mutex::new(context_builder));
         let session_mgr = SessionManager::new(&workspace)?;
 
         // Clean up expired sessions in background
@@ -433,6 +445,7 @@ impl AgentLoop {
             allowed_commands,
             mcp_config,
             sandbox_config,
+            memory_db: Some(memory.db()),
         };
 
         let (tools, subagents, mcp_manager) =
@@ -594,6 +607,10 @@ impl AgentLoop {
         Ok(())
     }
 
+    pub fn memory_db(&self) -> Arc<crate::agent::memory::memory_db::MemoryDB> {
+        self.memory.db()
+    }
+
     pub async fn stop(&self) {
         {
             let mut guard = self.running.lock().await;
@@ -718,6 +735,29 @@ impl AgentLoop {
             }
         }
 
+        // Remember fast path: bypass LLM for explicit "remember that..." messages
+        if let Some(content) =
+            crate::agent::memory::remember::extract_remember_content(&msg_content)
+        {
+            let response = match self.try_remember_fast_path(&content, &session_key).await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    warn!("remember fast path failed, falling through to LLM: {}", e);
+                    None
+                }
+            };
+            if let Some(response_text) = response {
+                return Ok(Some(OutboundMessage {
+                    channel: msg.channel,
+                    chat_id: msg.chat_id,
+                    content: response_text,
+                    reply_to: None,
+                    media: vec![],
+                    metadata: msg.metadata,
+                }));
+            }
+        }
+
         // Load and encode any attached images (skip audio files)
         let audio_extensions = ["ogg", "mp3", "mp4", "m4a", "wav", "webm", "flac", "oga"];
         let image_media: Vec<String> = msg
@@ -763,6 +803,7 @@ impl AgentLoop {
             .unwrap_or(false);
         let messages = {
             let mut ctx = self.context.lock().await;
+            ctx.refresh_provider_context().await;
             ctx.build_messages(
                 &history,
                 &content,
@@ -1477,6 +1518,50 @@ impl AgentLoop {
         let checkpoint = self.last_checkpoint.lock().await.clone();
         let cognitive_crumb = self.cognitive_breadcrumb.lock().await.clone();
 
+        // Pre-compaction flush: extract important context before messages are lost
+        if self.compaction_config.pre_flush_enabled
+            && let Some(ref compactor) = self.compactor
+        {
+            // Check if we already flushed for this message count to avoid double-flush
+            let old_msg_count = old_messages.len();
+            let already_flushed = session
+                .metadata
+                .get("pre_flush_msg_count")
+                .and_then(serde_json::Value::as_u64)
+                .is_some_and(|c| c as usize >= old_msg_count);
+
+            if !already_flushed {
+                match compactor.flush_to_memory(old_messages).await {
+                    Ok(ref facts) if !facts.is_empty() => {
+                        if let Err(e) = self
+                            .memory
+                            .append_today(&format!("\n## Pre-compaction context\n\n{}\n", facts))
+                        {
+                            warn!("failed to write pre-compaction flush: {}", e);
+                        } else {
+                            debug!(
+                                "pre-compaction flush: saved {} bytes to daily notes",
+                                facts.len()
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!("pre-compaction flush failed (non-fatal): {}", e);
+                    }
+                    _ => {}
+                }
+                // Mark that we've flushed up to this message count
+                let mut updated_session = session.clone();
+                updated_session.metadata.insert(
+                    "pre_flush_msg_count".to_string(),
+                    Value::Number(serde_json::Number::from(old_msg_count as u64)),
+                );
+                if let Err(e) = self.sessions.save(&updated_session).await {
+                    warn!("failed to save pre-flush marker: {}", e);
+                }
+            }
+        }
+
         // Compact old messages
         if let Some(ref compactor) = self.compactor {
             match compactor.compact(old_messages, &previous_summary).await {
@@ -1562,6 +1647,7 @@ impl AgentLoop {
 
         let messages = {
             let mut context = self.context.lock().await;
+            context.refresh_provider_context().await;
             context.build_messages(
                 &history,
                 &msg.content,
@@ -1611,6 +1697,60 @@ impl AgentLoop {
         }))
     }
 
+    /// Attempt to persist a "remember that..." message directly to memory,
+    /// bypassing the LLM. Returns `Ok(Some(response))` if handled, `Ok(None)` if
+    /// the caller should fall through to normal LLM processing.
+    async fn try_remember_fast_path(
+        &self,
+        content: &str,
+        session_key: &str,
+    ) -> Result<Option<String>> {
+        use crate::agent::memory::remember::is_duplicate;
+
+        // Read today's notes for dedup
+        let today_notes = self.memory.read_today().unwrap_or_default();
+        if is_duplicate(content, &today_notes) {
+            info!("remember fast path: duplicate detected, skipping write");
+            // Record to session history
+            let mut session = self.sessions.get_or_create(session_key).await?;
+            let extra = HashMap::new();
+            session.add_message(
+                "user".to_string(),
+                format!("remember that {}", content),
+                extra.clone(),
+            );
+            session.add_message(
+                "assistant".to_string(),
+                "I already have that noted.".to_string(),
+                extra,
+            );
+            self.sessions.save(&session).await?;
+            return Ok(Some("I already have that noted.".to_string()));
+        }
+
+        // Write to daily notes
+        self.memory.append_today(&format!("\n- {}\n", content))?;
+        info!(
+            "remember fast path: wrote {} chars to daily notes",
+            content.len()
+        );
+
+        let response = format!("Noted! I'll remember: {}", content);
+
+        // Record to session history
+        let mut session = self.sessions.get_or_create(session_key).await?;
+        let extra = HashMap::new();
+        session.add_message(
+            "user".to_string(),
+            format!("remember that {}", content),
+            extra.clone(),
+        );
+        session.add_message("assistant".to_string(), response.clone(), extra);
+        self.sessions.save(&session).await?;
+
+        Ok(Some(response))
+    }
+
     pub async fn process_direct(
         &self,
         content: &str,
@@ -1645,6 +1785,7 @@ impl AgentLoop {
 
         let messages = {
             let mut ctx = self.context.lock().await;
+            ctx.refresh_provider_context().await;
             ctx.build_messages(
                 &history,
                 content,

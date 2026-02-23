@@ -1,4 +1,5 @@
 use crate::agent::memory::MemoryStore;
+use crate::agent::memory::memory_db::MemoryDB;
 use crate::agent::subagent::{SubagentConfig, SubagentManager};
 use crate::agent::tools::mcp::McpManager;
 use crate::agent::tools::mcp::proxy::AttenuatedMcpTool;
@@ -60,6 +61,7 @@ pub struct ToolBuildContext {
     pub memory: Arc<MemoryStore>,
     pub subagent_config: SubagentConfig,
     pub mcp_config: Option<config::McpConfig>,
+    pub memory_db: Option<Arc<MemoryDB>>,
 }
 
 /// Register all tools into the registry using decentralized per-module `register()` functions.
@@ -218,6 +220,7 @@ fn register_cron(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         registry.register(Arc::new(CronTool::new(
             cron_svc.clone(),
             ctx.channels_config.clone(),
+            ctx.memory_db.clone(),
         )));
     }
 }
