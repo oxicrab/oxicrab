@@ -1,0 +1,44 @@
+[package]
+name = "oxicrab-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+oxicrab = { path = ".." }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "fuzz_webhook_signature"
+path = "fuzz_targets/fuzz_webhook_signature.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_config_parse"
+path = "fuzz_targets/fuzz_config_parse.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_prompt_guard"
+path = "fuzz_targets/fuzz_prompt_guard.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_leak_detector"
+path = "fuzz_targets/fuzz_leak_detector.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_url_validation"
+path = "fuzz_targets/fuzz_url_validation.rs"
+doc = false
