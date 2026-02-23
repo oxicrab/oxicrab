@@ -1,0 +1,831 @@
+[
+  {
+    "description": "Control a headless browser for web automation. Open pages, click elements, type text, take screenshots, and extract content.",
+    "name": "browser",
+    "parameters": {
+      "properties": {
+        "action": {
+          "description": "The browser action to perform",
+          "enum": [
+            "open",
+            "click",
+            "type",
+            "fill",
+            "screenshot",
+            "snapshot",
+            "eval",
+            "get",
+            "scroll",
+            "wait",
+            "close",
+            "navigate"
+          ],
+          "type": "string"
+        },
+        "direction": {
+          "description": "Scroll direction (for scroll action)",
+          "enum": [
+            "up",
+            "down",
+            "left",
+            "right"
+          ],
+          "type": "string"
+        },
+        "javascript": {
+          "description": "JavaScript to evaluate (for eval action)",
+          "type": "string"
+        },
+        "navigation": {
+          "description": "Navigation direction (for navigate action)",
+          "enum": [
+            "back",
+            "forward",
+            "reload"
+          ],
+          "type": "string"
+        },
+        "pixels": {
+          "description": "Number of pixels to scroll (default varies by direction)",
+          "type": "integer"
+        },
+        "selector": {
+          "description": "CSS selector for the target element (for click/type/fill/get/wait)",
+          "type": "string"
+        },
+        "text": {
+          "description": "Text to type or fill (for type/fill actions)",
+          "type": "string"
+        },
+        "url": {
+          "description": "URL to open (required for 'open' action)",
+          "type": "string"
+        },
+        "what": {
+          "description": "What to get: text, html, title, url, value (for get action)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, remove, run.",
+    "name": "cron",
+    "parameters": {
+      "properties": {
+        "action": {
+          "description": "Action to perform",
+          "enum": [
+            "add",
+            "list",
+            "remove",
+            "run"
+          ],
+          "type": "string"
+        },
+        "at_time": {
+          "description": "ISO 8601 datetime for a one-shot job (e.g. '2025-01-15T09:00:00-05:00'). The job runs once at this time and is automatically deleted afterward.",
+          "type": "string"
+        },
+        "channels": {
+          "description": "Target channels: [\"all\"] for all enabled channels, [\"slack\", \"discord\"] for specific ones, or omit for current channel only",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cooldown_secs": {
+          "description": "Minimum seconds between event-triggered firings. Prevents flooding.",
+          "type": "integer"
+        },
+        "cron_expr": {
+          "description": "Cron expression like '0 9 * * *' (for scheduled tasks). Standard 5-field format.",
+          "type": "string"
+        },
+        "event_channel": {
+          "description": "Optional channel filter for event-triggered jobs (only fire for messages from this channel).",
+          "type": "string"
+        },
+        "event_pattern": {
+          "description": "Regex pattern to trigger the job when an inbound message matches. Mutually exclusive with every_seconds/cron_expr/at_time.",
+          "type": "string"
+        },
+        "every_seconds": {
+          "description": "Interval in seconds (for recurring tasks)",
+          "type": "integer"
+        },
+        "expires_at": {
+          "description": "ISO 8601 datetime after which the job auto-disables (e.g. '2025-01-15T17:00:00-05:00'). For recurring jobs that should stop at a certain date/time.",
+          "type": "string"
+        },
+        "job_id": {
+          "description": "Job ID (for remove or run)",
+          "type": "string"
+        },
+        "max_runs": {
+          "description": "Maximum number of times the job should run before auto-disabling. E.g. 7 for '7 pings then stop'.",
+          "type": "integer"
+        },
+        "message": {
+          "description": "For 'agent' type: instruction/prompt for the agent (e.g. 'fetch my todoist tasks'). For 'echo' type: the exact text to deliver (e.g. 'Standup in 5 minutes!').",
+          "type": "string"
+        },
+        "type": {
+          "description": "Job type: 'agent' (default) runs a full agent turn with tools; 'echo' delivers the message directly without LLM (saves tokens, good for simple reminders)",
+          "enum": [
+            "agent",
+            "echo"
+          ],
+          "type": "string"
+        },
+        "tz": {
+          "description": "IANA timezone for cron_expr (e.g. 'America/New_York'). Defaults to system timezone.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Edit a file by replacing old_text with new_text. The old_text must exist exactly in the file.",
+    "name": "edit_file",
+    "parameters": {
+      "properties": {
+        "new_text": {
+          "description": "The text to replace with",
+          "type": "string"
+        },
+        "old_text": {
+          "description": "The exact text to find and replace",
+          "type": "string"
+        },
+        "path": {
+          "description": "The file path to edit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "old_text",
+        "new_text"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Execute a shell command and return its output. Use with caution.",
+    "name": "exec",
+    "parameters": {
+      "properties": {
+        "command": {
+          "description": "The shell command to execute",
+          "type": "string"
+        },
+        "working_dir": {
+          "description": "Optional working directory for the command",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Interact with GitHub. Actions: list_issues, create_issue, get_issue, list_prs, get_pr, get_pr_files, create_pr_review, get_file_content, trigger_workflow, get_workflow_runs, notifications.",
+    "name": "github",
+    "parameters": {
+      "properties": {
+        "action": {
+          "description": "Action to perform",
+          "enum": [
+            "list_issues",
+            "create_issue",
+            "get_issue",
+            "list_prs",
+            "get_pr",
+            "get_pr_files",
+            "create_pr_review",
+            "get_file_content",
+            "trigger_workflow",
+            "get_workflow_runs",
+            "notifications"
+          ],
+          "type": "string"
+        },
+        "body": {
+          "description": "Issue/review body text",
+          "type": "string"
+        },
+        "event": {
+          "description": "Review event type (for create_pr_review)",
+          "enum": [
+            "APPROVE",
+            "REQUEST_CHANGES",
+            "COMMENT"
+          ],
+          "type": "string"
+        },
+        "inputs": {
+          "description": "Workflow dispatch inputs (for trigger_workflow)",
+          "type": "object"
+        },
+        "labels": {
+          "description": "Labels to add (for create_issue)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "number": {
+          "description": "Issue or PR number",
+          "type": "integer"
+        },
+        "owner": {
+          "description": "Repository owner (e.g. 'jamtur01')",
+          "type": "string"
+        },
+        "page": {
+          "default": 1,
+          "description": "Page number for pagination (for list_issues/list_prs)",
+          "type": "integer"
+        },
+        "path": {
+          "description": "File path in repo (for get_file_content)",
+          "type": "string"
+        },
+        "per_page": {
+          "default": 10,
+          "description": "Results per page, max 100 (for list_issues/list_prs)",
+          "type": "integer"
+        },
+        "ref": {
+          "description": "Git ref — branch, tag, or SHA (for get_file_content, trigger_workflow)",
+          "type": "string"
+        },
+        "repo": {
+          "description": "Repository name (e.g. 'oxicrab')",
+          "type": "string"
+        },
+        "state": {
+          "default": "open",
+          "description": "Filter by state (for list_issues/list_prs)",
+          "enum": [
+            "open",
+            "closed",
+            "all"
+          ],
+          "type": "string"
+        },
+        "title": {
+          "description": "Issue title (for create_issue)",
+          "type": "string"
+        },
+        "workflow_id": {
+          "description": "Workflow ID or filename (for trigger_workflow, get_workflow_runs)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Make HTTP requests (GET/POST/PUT/PATCH/DELETE). For REST APIs, webhooks, and services.",
+    "name": "http",
+    "parameters": {
+      "properties": {
+        "body": {
+          "description": "Request body (string or JSON object). Sent as JSON if object, raw if string."
+        },
+        "headers": {
+          "description": "Request headers as key-value pairs",
+          "type": "object"
+        },
+        "method": {
+          "default": "GET",
+          "description": "HTTP method",
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ],
+          "type": "string"
+        },
+        "timeout_secs": {
+          "description": "Request timeout in seconds (default 30, max 120)",
+          "type": "integer"
+        },
+        "url": {
+          "description": "Full URL to request",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Generate images from text prompts using AI (OpenAI gpt-image-1 or Google Imagen 3)",
+    "name": "image_gen",
+    "parameters": {
+      "properties": {
+        "aspect_ratio": {
+          "description": "Aspect ratio (Google only, default 1:1)",
+          "enum": [
+            "1:1",
+            "3:4",
+            "4:3",
+            "9:16",
+            "16:9"
+          ],
+          "type": "string"
+        },
+        "prompt": {
+          "description": "Text description of the image to generate",
+          "type": "string"
+        },
+        "provider": {
+          "description": "Which provider to use. Defaults to configured default.",
+          "enum": [
+            "openai",
+            "google"
+          ],
+          "type": "string"
+        },
+        "quality": {
+          "description": "Image quality (OpenAI only, default medium)",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        "size": {
+          "description": "Image size (OpenAI only, default 1024x1024)",
+          "enum": [
+            "1024x1024",
+            "1024x1536",
+            "1536x1024"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "List the contents of a directory.",
+    "name": "list_dir",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "The directory path to list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Manage movies and TV series via Radarr (movies) and Sonarr (TV). Actions: search_movie, add_movie (by TMDB ID), get_movie, list_movies, search_series, add_series (by TVDB ID), get_series, list_series, profiles (list quality profiles), root_folders (list root folders). For add_movie/add_series, quality profile and root folder are auto-selected if omitted.",
+    "name": "media",
+    "parameters": {
+      "properties": {
+        "action": {
+          "description": "Action to perform. Radarr manages movies, Sonarr manages TV series.",
+          "enum": [
+            "search_movie",
+            "add_movie",
+            "get_movie",
+            "list_movies",
+            "search_series",
+            "add_series",
+            "get_series",
+            "list_series",
+            "profiles",
+            "root_folders"
+          ],
+          "type": "string"
+        },
+        "filter": {
+          "description": "Filter text for list_movies/list_series (matches title)",
+          "type": "string"
+        },
+        "id": {
+          "description": "Radarr/Sonarr internal ID (for get_movie, get_series)",
+          "type": "integer"
+        },
+        "quality_profile_id": {
+          "description": "Quality profile ID (for add_movie, add_series). Auto-selected if omitted.",
+          "type": "integer"
+        },
+        "query": {
+          "description": "Search query (for search_movie, search_series)",
+          "type": "string"
+        },
+        "root_folder": {
+          "description": "Root folder path (for add_movie, add_series). Auto-selected if omitted.",
+          "type": "string"
+        },
+        "service": {
+          "description": "Which service (for profiles, root_folders)",
+          "enum": [
+            "radarr",
+            "sonarr"
+          ],
+          "type": "string"
+        },
+        "tmdb_id": {
+          "description": "TMDB ID from search results (for add_movie)",
+          "type": "integer"
+        },
+        "tvdb_id": {
+          "description": "TVDB ID from search results (for add_series)",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Search long-term memory and daily notes. Use to recall user preferences, past conversations, important facts.",
+    "name": "memory_search",
+    "parameters": {
+      "properties": {
+        "query": {
+          "description": "Search query to find relevant memories",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Read, write, search, and list notes in an Obsidian vault. Actions: read (read a note), write (create/overwrite a note, auto-generates YAML frontmatter for new notes), append (append to a note), search (full-text search), list (list notes, optionally in a folder).",
+    "name": "obsidian",
+    "parameters": {
+      "properties": {
+        "action": {
+          "description": "The action to perform: read, write, append, search, or list",
+          "enum": [
+            "read",
+            "write",
+            "append",
+            "search",
+            "list"
+          ],
+          "type": "string"
+        },
+        "content": {
+          "description": "Content to write or append. Required for write and append.",
+          "type": "string"
+        },
+        "folder": {
+          "description": "Optional folder prefix to filter when listing notes.",
+          "type": "string"
+        },
+        "frontmatter": {
+          "description": "Optional frontmatter fields for new notes. Supported: type, tags, link, status, order, parent. create-date is auto-filled. Only used on write when the note doesn't already exist.",
+          "properties": {
+            "link": {
+              "type": "string"
+            },
+            "order": {
+              "type": "string"
+            },
+            "parent": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "tags": {
+              "description": "Tags as an array [\"tag1\", \"tag2\"] or comma/space-separated string"
+            },
+            "type": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "path": {
+          "description": "Path to the note (e.g. 'Daily/2025-01-15.md'). Required for read, write, append.",
+          "type": "string"
+        },
+        "query": {
+          "description": "Search query for full-text search. Required for search.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Read the contents of a file at the given path.",
+    "name": "read_file",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "The file path to read",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Browse Reddit. Get hot, new, or top posts from a subreddit, or search within a subreddit. Read-only, no authentication required.",
+    "name": "reddit",
+    "parameters": {
+      "properties": {
+        "action": {
+          "default": "hot",
+          "description": "What to fetch: hot (trending), new (latest), top (highest scored), or search",
+          "enum": [
+            "hot",
+            "new",
+            "top",
+            "search"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "default": 10,
+          "description": "Number of posts to return (max 25)",
+          "type": "integer"
+        },
+        "query": {
+          "description": "Search query (required for 'search' action)",
+          "type": "string"
+        },
+        "subreddit": {
+          "description": "Subreddit name without the r/ prefix (e.g. 'rust', 'programming')",
+          "type": "string"
+        },
+        "time": {
+          "default": "day",
+          "description": "Time filter for 'top' action",
+          "enum": [
+            "hour",
+            "day",
+            "week",
+            "month",
+            "year",
+            "all"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "subreddit"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Manage persistent tmux shell sessions. Create long-running sessions, send commands, and read output.",
+    "name": "tmux",
+    "parameters": {
+      "properties": {
+        "action": {
+          "description": "The tmux action to perform",
+          "enum": [
+            "create",
+            "send",
+            "read",
+            "list",
+            "kill"
+          ],
+          "type": "string"
+        },
+        "command": {
+          "description": "Command to send (required for send action)",
+          "type": "string"
+        },
+        "lines": {
+          "description": "Number of lines to capture (default 50, for read action)",
+          "type": "integer"
+        },
+        "session_name": {
+          "description": "Session name (required for create/send/read/kill)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Manage Todoist tasks and projects. Actions: list_tasks, get_task, create_task, update_task, complete_task, delete_task, add_comment, list_comments, list_projects.",
+    "name": "todoist",
+    "parameters": {
+      "properties": {
+        "action": {
+          "description": "Action to perform",
+          "enum": [
+            "list_tasks",
+            "get_task",
+            "create_task",
+            "update_task",
+            "complete_task",
+            "delete_task",
+            "add_comment",
+            "list_comments",
+            "list_projects"
+          ],
+          "type": "string"
+        },
+        "comment_content": {
+          "description": "Comment text (for add_comment)",
+          "type": "string"
+        },
+        "content": {
+          "description": "Task content/title (for create_task, update_task)",
+          "type": "string"
+        },
+        "description": {
+          "description": "Task description (for create_task, update_task)",
+          "type": "string"
+        },
+        "due_string": {
+          "description": "Due date in natural language, e.g. 'tomorrow', 'every friday', 'Jan 15'",
+          "type": "string"
+        },
+        "filter": {
+          "description": "Todoist filter query (for list_tasks), e.g. 'today', 'overdue', '#Work'",
+          "type": "string"
+        },
+        "labels": {
+          "description": "Labels to apply to the task",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "priority": {
+          "description": "Task priority (1=urgent, 4=normal)",
+          "enum": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "type": "integer"
+        },
+        "project_id": {
+          "description": "Project ID to filter tasks or assign new task to",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "Task ID (for get_task, update_task, complete_task, delete_task, add_comment, list_comments)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Get current weather or forecast for a location. Uses OpenWeatherMap.",
+    "name": "weather",
+    "parameters": {
+      "properties": {
+        "action": {
+          "default": "current",
+          "description": "Get current weather or 24h forecast",
+          "enum": [
+            "current",
+            "forecast"
+          ],
+          "type": "string"
+        },
+        "location": {
+          "description": "City name, optionally with country code (e.g. 'New York,US' or 'London')",
+          "type": "string"
+        },
+        "units": {
+          "default": "imperial",
+          "description": "Temperature units",
+          "enum": [
+            "imperial",
+            "metric"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "location"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Fetch URL and extract readable content (HTML → markdown/text).",
+    "name": "web_fetch",
+    "parameters": {
+      "properties": {
+        "extractMode": {
+          "default": "markdown",
+          "enum": [
+            "markdown",
+            "text"
+          ],
+          "type": "string"
+        },
+        "maxChars": {
+          "minimum": 100,
+          "type": "integer"
+        },
+        "url": {
+          "description": "URL to fetch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Search the web. Returns titles, URLs, and snippets. Uses Brave Search if API key is configured, otherwise falls back to DuckDuckGo.",
+    "name": "web_search",
+    "parameters": {
+      "properties": {
+        "count": {
+          "description": "Results (1-10)",
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "query": {
+          "description": "Search query",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Write content to a file at the given path. Creates parent directories if needed.",
+    "name": "write_file",
+    "parameters": {
+      "properties": {
+        "content": {
+          "description": "The content to write",
+          "type": "string"
+        },
+        "path": {
+          "description": "The file path to write to",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "type": "object"
+    }
+  }
+]

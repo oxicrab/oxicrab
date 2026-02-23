@@ -1,7 +1,7 @@
 use super::{
     AgentLoop, AuthCommands, ChannelCommands, Context, CredentialCommands, CronCommands, CronJob,
-    CronJobState, CronPayload, CronSchedule, CronService, MessageBus, PairingCommands,
-    SetupAgentParams, StatsCommands, SystemTime, UNIX_EPOCH, setup_agent,
+    CronJobState, CronPayload, CronSchedule, CronService, DocsCommands, MessageBus,
+    PairingCommands, SetupAgentParams, StatsCommands, SystemTime, UNIX_EPOCH, setup_agent,
 };
 use anyhow::Result;
 use std::sync::Arc;
@@ -1011,5 +1011,90 @@ async fn whatsapp_login() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+pub(super) fn docs_command(cmd: &DocsCommands) -> Result<()> {
+    use anyhow::Context;
+
+    let registry = crate::agent::tools::setup::register_all_tools_for_docs();
+    let defs = registry.get_tool_definitions();
+
+    match cmd {
+        DocsCommands::Generate { format, output } => {
+            let content = match format.as_str() {
+                "json" => {
+                    let json_defs: Vec<serde_json::Value> = defs
+                        .iter()
+                        .map(|d| {
+                            serde_json::json!({
+                                "name": d.name,
+                                "description": d.description,
+                                "parameters": d.parameters,
+                            })
+                        })
+                        .collect();
+                    serde_json::to_string_pretty(&json_defs)?
+                }
+                "markdown" => {
+                    use std::fmt::Write;
+                    let mut md = String::from("# Tool Reference\n\n");
+                    for d in &defs {
+                        let _ = writeln!(md, "## {}\n", d.name);
+                        let _ = writeln!(md, "{}\n", d.description);
+                        if let Some(props) = d.parameters.get("properties") {
+                            md.push_str("| Parameter | Type | Description |\n");
+                            md.push_str("|-----------|------|-------------|\n");
+                            if let Some(obj) = props.as_object() {
+                                for (key, val) in obj {
+                                    let ptype =
+                                        val.get("type").and_then(|v| v.as_str()).unwrap_or("any");
+                                    let desc = val
+                                        .get("description")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+                                    let _ = writeln!(md, "| {} | {} | {} |", key, ptype, desc);
+                                }
+                            }
+                        }
+                        md.push('\n');
+                    }
+                    md
+                }
+                other => anyhow::bail!("unsupported format: {}. Use 'json' or 'markdown'", other),
+            };
+
+            if let Some(path) = output {
+                std::fs::write(path, &content)?;
+                println!("Wrote {} tool definitions to {}", defs.len(), path);
+            } else {
+                print!("{content}");
+            }
+        }
+        DocsCommands::Check { reference } => {
+            let json_defs: Vec<serde_json::Value> = defs
+                .iter()
+                .map(|d| {
+                    serde_json::json!({
+                        "name": d.name,
+                        "description": d.description,
+                        "parameters": d.parameters,
+                    })
+                })
+                .collect();
+            let generated = serde_json::to_string_pretty(&json_defs)?;
+            let committed = std::fs::read_to_string(reference)
+                .with_context(|| format!("failed to read reference file: {reference}"))?;
+
+            if generated.trim() == committed.trim() {
+                println!("Tool reference is up to date ({} tools)", defs.len());
+            } else {
+                eprintln!(
+                    "Tool reference is out of date. Run `oxicrab docs generate -o {reference}` to update."
+                );
+                std::process::exit(1);
+            }
+        }
+    }
     Ok(())
 }

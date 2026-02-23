@@ -82,6 +82,11 @@ enum Commands {
         #[command(subcommand)]
         cmd: StatsCommands,
     },
+    /// Generate or check tool reference documentation
+    Docs {
+        #[command(subcommand)]
+        cmd: DocsCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -212,6 +217,25 @@ enum StatsCommands {
 }
 
 #[derive(Subcommand)]
+enum DocsCommands {
+    /// Generate tool reference documentation
+    Generate {
+        /// Output format: json or markdown
+        #[arg(long, short = 'f', default_value = "json")]
+        format: String,
+        /// Output file (defaults to stdout)
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+    },
+    /// Check that committed reference matches generated output
+    Check {
+        /// Path to reference file to compare against
+        #[arg(long, short = 'r')]
+        reference: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum CredentialCommands {
     /// Store a credential in the OS keyring
     Set {
@@ -276,6 +300,9 @@ pub async fn run() -> Result<()> {
         }
         Commands::Stats { ref cmd } => {
             subcommands::stats_command(cmd)?;
+        }
+        Commands::Docs { ref cmd } => {
+            subcommands::docs_command(cmd)?;
         }
     }
 

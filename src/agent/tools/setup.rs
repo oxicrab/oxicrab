@@ -412,3 +412,98 @@ async fn create_mcp(ctx: &ToolBuildContext) -> Option<(Vec<Arc<dyn Tool>>, McpMa
         }
     }
 }
+
+/// Register all built-in tools unconditionally (with dummy configs) for docs generation.
+/// Tools that require runtime deps (Google OAuth, MCP servers) are skipped.
+pub fn register_all_tools_for_docs() -> ToolRegistry {
+    use crate::agent::tools::browser::BrowserTool;
+    use crate::agent::tools::cron::CronTool;
+    use crate::agent::tools::filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool};
+    use crate::agent::tools::github::GitHubTool;
+    use crate::agent::tools::http::HttpTool;
+    use crate::agent::tools::image_gen::ImageGenTool;
+    use crate::agent::tools::media::MediaTool;
+    use crate::agent::tools::memory_search::MemorySearchTool;
+    use crate::agent::tools::obsidian::ObsidianTool;
+    use crate::agent::tools::reddit::RedditTool;
+    use crate::agent::tools::shell::ExecTool;
+    use crate::agent::tools::tmux::TmuxTool;
+    use crate::agent::tools::todoist::TodoistTool;
+    use crate::agent::tools::weather::WeatherTool;
+    use crate::agent::tools::web::{WebFetchTool, WebSearchTool};
+
+    let mut registry = ToolRegistry::new();
+    let workspace = PathBuf::from("/tmp/oxicrab-docs");
+
+    // Filesystem tools
+    registry.register(Arc::new(ReadFileTool::new(None, Some(workspace.clone()))));
+    registry.register(Arc::new(WriteFileTool::new(
+        None,
+        None,
+        Some(workspace.clone()),
+    )));
+    registry.register(Arc::new(EditFileTool::new(
+        None,
+        None,
+        Some(workspace.clone()),
+    )));
+    registry.register(Arc::new(ListDirTool::new(None, Some(workspace.clone()))));
+
+    // Shell
+    if let Ok(exec) = ExecTool::new(
+        30,
+        Some(workspace.clone()),
+        false,
+        vec![],
+        config::SandboxConfig::default(),
+    ) {
+        registry.register(Arc::new(exec));
+    }
+
+    // Web
+    registry.register(Arc::new(WebSearchTool::new(None, 5)));
+    if let Ok(fetch) = WebFetchTool::new(50000) {
+        registry.register(Arc::new(fetch));
+    }
+
+    // Cron (with dummy CronService)
+    let cron_svc = Arc::new(CronService::new(workspace.join("cron.json")));
+    registry.register(Arc::new(CronTool::new(cron_svc, None)));
+
+    // Subagent/spawn tools skipped (require LLMProvider)
+
+    // Simple tools
+    registry.register(Arc::new(TmuxTool::new()));
+    registry.register(Arc::new(HttpTool::new()));
+    registry.register(Arc::new(RedditTool::new()));
+    registry.register(Arc::new(GitHubTool::new(String::new())));
+    registry.register(Arc::new(WeatherTool::new(String::new())));
+    registry.register(Arc::new(TodoistTool::new(String::new())));
+    registry.register(Arc::new(ImageGenTool::new(None, None, String::new())));
+
+    // Browser
+    let browser_cfg = config::BrowserConfig {
+        enabled: true,
+        ..Default::default()
+    };
+    registry.register(Arc::new(BrowserTool::new(&browser_cfg)));
+
+    // Media
+    let media_cfg = config::MediaConfig::default();
+    registry.register(Arc::new(MediaTool::new(&media_cfg)));
+
+    // Obsidian
+    if let Ok((tool, _)) = ObsidianTool::new("http://localhost", "dummy", "", 10) {
+        registry.register(Arc::new(tool));
+    }
+
+    // Memory search (dummy store)
+    if let Ok(store) = crate::agent::memory::MemoryStore::new(workspace.join("memory")) {
+        registry.register(Arc::new(MemorySearchTool::new(Arc::new(store))));
+    }
+
+    // Google Calendar / Gmail skipped (require OAuth)
+    // MCP tools skipped (require server connections)
+
+    registry
+}
