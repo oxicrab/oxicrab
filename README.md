@@ -8,6 +8,10 @@
 
 **[Documentation](https://oxicrab.github.io/oxicrab/)** | [Config](https://oxicrab.github.io/oxicrab/config.html) | [Channel Setup](https://oxicrab.github.io/oxicrab/channels.html) | [Tool Reference](https://oxicrab.github.io/oxicrab/tools.html) | [CLI Reference](https://oxicrab.github.io/oxicrab/cli.html) | [Deployment](https://oxicrab.github.io/oxicrab/deploy.html)
 
+## Motives
+
+This is largely a personal toy with features I want or care about. For example, I only included channels that matter to me. The inspiration was playing with OpenClaw and deciding that Rust made more sense as a platform for this. I was also curious how easy it would be to harden the bot. So the normal caveats apply ... no warranties, no guarantees, etc. 
+
 ## Features
 
 - **Multi-channel**: Telegram, Discord (slash commands, embeds, buttons), Slack, WhatsApp, Twilio SMS/MMS
