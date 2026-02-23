@@ -212,6 +212,7 @@ impl AgentLoopConfig {
                 extraction_enabled: false,
                 model: None,
                 checkpoint: crate::config::CheckpointConfig::default(),
+                pre_flush_enabled: false,
             },
             outbound_tx,
             cron_service: None,
@@ -1476,6 +1477,50 @@ impl AgentLoop {
         // Get most recent checkpoint if available
         let checkpoint = self.last_checkpoint.lock().await.clone();
         let cognitive_crumb = self.cognitive_breadcrumb.lock().await.clone();
+
+        // Pre-compaction flush: extract important context before messages are lost
+        if self.compaction_config.pre_flush_enabled
+            && let Some(ref compactor) = self.compactor
+        {
+            // Check if we already flushed for this message count to avoid double-flush
+            let old_msg_count = old_messages.len();
+            let already_flushed = session
+                .metadata
+                .get("pre_flush_msg_count")
+                .and_then(serde_json::Value::as_u64)
+                .is_some_and(|c| c as usize >= old_msg_count);
+
+            if !already_flushed {
+                match compactor.flush_to_memory(old_messages).await {
+                    Ok(ref facts) if !facts.is_empty() => {
+                        if let Err(e) = self
+                            .memory
+                            .append_today(&format!("\n## Pre-compaction context\n\n{}\n", facts))
+                        {
+                            warn!("failed to write pre-compaction flush: {}", e);
+                        } else {
+                            debug!(
+                                "pre-compaction flush: saved {} bytes to daily notes",
+                                facts.len()
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!("pre-compaction flush failed (non-fatal): {}", e);
+                    }
+                    _ => {}
+                }
+                // Mark that we've flushed up to this message count
+                let mut updated_session = session.clone();
+                updated_session.metadata.insert(
+                    "pre_flush_msg_count".to_string(),
+                    Value::Number(serde_json::Number::from(old_msg_count as u64)),
+                );
+                if let Err(e) = self.sessions.save(&updated_session).await {
+                    warn!("failed to save pre-flush marker: {}", e);
+                }
+            }
+        }
 
         // Compact old messages
         if let Some(ref compactor) = self.compactor {

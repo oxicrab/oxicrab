@@ -9,10 +9,14 @@ const COMPACTION_PROMPT: &str = "Summarize this conversation history concisely w
 
 const EXTRACTION_PROMPT: &str = "Review this conversation exchange and extract any facts worth remembering long-term. Focus on:\n- User preferences, habits, or personal details shared\n- Decisions made or commitments given\n- Project names, technical choices, or configuration details\n- Anything the user would expect you to remember next time\n\nUser: {user_message}\n\nAssistant: {assistant_message}\n\nIf there are notable facts, respond with a short bullet list (one line per fact). If nothing is worth remembering, respond with exactly: NOTHING";
 
+const PRE_FLUSH_PROMPT: &str = "Review these conversation messages that are about to be removed from context. Extract any important information worth preserving long-term:\n- User preferences and decisions\n- Project state and progress\n- Key facts, names, dates, or configuration details\n- Commitments or pending items\n\nRespond with a concise bullet list of important items. If nothing is worth preserving, respond with exactly: NOTHING\n\nMessages:\n{messages}";
+
 const COMPACTION_MAX_TOKENS: u32 = 2000;
 const EXTRACTION_MAX_TOKENS: u32 = 500;
+const PRE_FLUSH_MAX_TOKENS: u32 = 800;
 const COMPACTION_TEMPERATURE: f32 = 0.3;
 const EXTRACTION_TEMPERATURE: f32 = 0.0;
+const PRE_FLUSH_TEMPERATURE: f32 = 0.0;
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
 
 pub fn estimate_tokens(text: &str) -> usize {
@@ -139,6 +143,50 @@ impl MessageCompactor {
         }
         debug!("compaction complete: summary_len={}", summary.len());
         Ok(summary)
+    }
+
+    /// Review messages about to be compacted and extract important context.
+    /// Returns extracted facts as a string, or empty if nothing worth preserving.
+    pub async fn flush_to_memory(&self, messages: &[HashMap<String, Value>]) -> Result<String> {
+        debug!(
+            "pre-compaction flush: reviewing {} messages",
+            messages.len()
+        );
+        let formatted: Vec<String> = messages
+            .iter()
+            .map(|m| {
+                let role = m.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                let content = extract_message_text(m.get("content"));
+                format!("{}: {}", role, content)
+            })
+            .collect();
+
+        let messages_text = formatted.join("\n");
+        let prompt = PRE_FLUSH_PROMPT.replace("{messages}", &messages_text);
+
+        let llm_messages = vec![Message::user(prompt)];
+
+        let response = self
+            .provider
+            .chat(ChatRequest {
+                messages: llm_messages,
+                tools: None,
+                model: self.model.as_deref(),
+                max_tokens: PRE_FLUSH_MAX_TOKENS,
+                temperature: PRE_FLUSH_TEMPERATURE,
+                tool_choice: None,
+                response_format: None,
+            })
+            .await?;
+
+        let content = response.content.unwrap_or_default();
+        if content.trim().to_ascii_uppercase().starts_with("NOTHING") {
+            debug!("pre-compaction flush: nothing worth preserving");
+            Ok(String::new())
+        } else {
+            debug!("pre-compaction flush: extracted {} bytes", content.len());
+            Ok(content)
+        }
     }
 
     pub async fn extract_facts(
