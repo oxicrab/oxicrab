@@ -562,6 +562,7 @@ async fn gateway_echo() -> Result<()> {
             Arc::new(inbound_tx.clone()),
             Some(outbound_tx.clone()),
             config.gateway.webhooks.clone(),
+            None, // A2A not available in echo mode
         )
         .await?;
         drop(http_task);
