@@ -180,7 +180,7 @@ async fn health_handler() -> impl IntoResponse {
 }
 
 /// Validate HMAC-SHA256 signature against a payload.
-fn validate_webhook_signature(secret: &str, signature: &str, body: &[u8]) -> bool {
+pub(crate) fn validate_webhook_signature(secret: &str, signature: &str, body: &[u8]) -> bool {
     let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
         return false;
     };
