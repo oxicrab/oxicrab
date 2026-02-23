@@ -248,7 +248,13 @@ pub async fn get_task_handler(
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
     match state.store.get(&task_id) {
-        Some(task) => (StatusCode::OK, Json(serde_json::to_value(task).unwrap())),
+        Some(task) => match serde_json::to_value(task) {
+            Ok(val) => (StatusCode::OK, Json(val)),
+            Err(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "serialization failed"})),
+            ),
+        },
         None => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "task not found"})),
