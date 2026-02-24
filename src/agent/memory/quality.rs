@@ -184,7 +184,8 @@ pub fn filter_lines(content: &str) -> String {
         match check_quality(check_text) {
             QualityVerdict::Pass => output.push(line.to_string()),
             QualityVerdict::Reframed(reframed) => {
-                output.push(format!("{}{}", prefix, reframed));
+                let indent = line.len() - trimmed.len();
+                output.push(format!("{}{}{}", &line[..indent], prefix, reframed));
             }
             QualityVerdict::Reject(_) => {
                 // Drop low-signal lines
@@ -443,5 +444,13 @@ mod tests {
     #[test]
     fn filter_lines_empty_input() {
         assert_eq!(filter_lines(""), "");
+    }
+
+    #[test]
+    fn filter_lines_preserves_indentation_on_reframe() {
+        let input = "  - The API was broken after deployment";
+        let result = filter_lines(input);
+        assert!(result.starts_with("  - NOTE (reframed):"));
+        assert!(result.contains("API was broken"));
     }
 }
