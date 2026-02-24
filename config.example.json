@@ -11,12 +11,18 @@
       "mediaTtlDays": 7,
       "maxConcurrentSubagents": 5,
       "localModel": null,
+      "contextProviders": [],
       "compaction": {
         "enabled": true,
         "thresholdTokens": 40000,
         "keepRecent": 10,
         "extractionEnabled": true,
-        "model": null
+        "model": null,
+        "preFlushEnabled": false,
+        "checkpoint": {
+          "enabled": false,
+          "intervalIterations": 10
+        }
       },
       "daemon": {
         "enabled": true,
@@ -31,7 +37,25 @@
         "purgeAfterDays": 90,
         "embeddingsEnabled": false,
         "embeddingsModel": "BAAI/bge-small-en-v1.5",
-        "hybridWeight": 0.5
+        "hybridWeight": 0.5,
+        "searchFusionStrategy": "weighted_score",
+        "rrfK": 60,
+        "embeddingCacheSize": 10000
+      },
+      "costGuard": {
+        "dailyBudgetCents": null,
+        "maxActionsPerHour": null
+      },
+      "promptGuard": {
+        "enabled": false,
+        "action": "warn"
+      },
+      "cognitive": {
+        "enabled": false,
+        "gentleThreshold": 12,
+        "firmThreshold": 20,
+        "urgentThreshold": 30,
+        "recentToolsWindow": 10
       }
     }
   },
@@ -123,8 +147,15 @@
     }
   },
   "gateway": {
+    "enabled": true,
     "host": "0.0.0.0",
-    "port": 18790
+    "port": 18790,
+    "webhooks": {},
+    "a2a": {
+      "enabled": false,
+      "agentName": "",
+      "agentDescription": ""
+    }
   },
   "tools": {
     "web": {

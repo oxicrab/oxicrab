@@ -313,9 +313,13 @@
         <tr><td>list</td><td>List all scheduled jobs</td></tr>
         <tr><td>remove</td><td>Delete a job by ID</td></tr>
         <tr><td>run</td><td>Manually trigger a job</td></tr>
+        <tr><td>dlq_list</td><td>List dead letter queue entries (failed job executions). Optional <code>dlq_status</code> filter.</td></tr>
+        <tr><td>dlq_replay</td><td>Retry a failed job by DLQ entry ID (<code>dlq_id</code>)</td></tr>
+        <tr><td>dlq_clear</td><td>Purge DLQ entries. Optional <code>dlq_status</code> filter.</td></tr>
       </tbody>
     </table>
     <p>Optional limits: <code>expires_at</code> (auto-disable after datetime), <code>max_runs</code> (auto-disable after N executions).</p>
+    <p><strong>Dead Letter Queue (DLQ):</strong> Failed cron job executions are automatically recorded in the DLQ with job ID, payload, error message, and timestamp. The DLQ auto-purges to keep the 100 most recent entries.</p>
   </div>
 
   <div id="memory_search" class="tool-section">

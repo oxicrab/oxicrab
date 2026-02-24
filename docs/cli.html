@@ -146,16 +146,19 @@
 
     <!-- GATEWAY -->
     <h2 id="gateway">gateway</h2>
-    <div class="cmd-sig">oxicrab gateway [--model &lt;MODEL&gt;] [--provider &lt;PROVIDER&gt;]</div>
+    <div class="cmd-sig">oxicrab gateway [--model &lt;MODEL&gt;] [--provider &lt;PROVIDER&gt;] [--echo]</div>
     <p>Start the multi-channel gateway daemon. Loads configuration, initializes the LLM provider (with optional circuit breaker), starts all enabled channels, the agent loop, cron service, and heartbeat service. Runs until interrupted with Ctrl+C.</p>
     <table class="flag-table">
         <tr><th>Flag</th><th>Description</th></tr>
         <tr><td>--model</td><td>Override the default LLM model for this session</td></tr>
         <tr><td>--provider</td><td>Override the LLM provider (e.g. <code>anthropic</code>, <code>openai</code>, <code>groq</code>, <code>ollama</code>)</td></tr>
+        <tr><td>--echo</td><td>Echo mode: test channel connectivity without an LLM. Echoes received messages back to the sender without agent processing.</td></tr>
     </table>
     <pre>oxicrab gateway
 oxicrab gateway --model gpt-4o
-oxicrab gateway --model my-fine-tune --provider anthropic</pre>
+oxicrab gateway --model my-fine-tune --provider anthropic
+<span class="hl-comment"># Test channels without LLM</span>
+oxicrab gateway --echo</pre>
 
     <!-- AGENT -->
     <h2 id="agent">agent</h2>
