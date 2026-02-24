@@ -16,3 +16,21 @@ Bypass with: git commit --no-verify
 EOF
   exit 1
 fi
+
+# Check docs freshness when source pages are staged
+if git diff --cached --name-only | grep -q '^docs/_pages/\|^docs/_layout.html'; then
+  python3 docs/build.py
+  if ! git diff --quiet -- docs/*.html; then
+    cat <<EOF
+
+ERROR: docs source changed but generated HTML is stale.
+Run:
+
+  python3 docs/build.py && git add docs/
+
+Bypass with: git commit --no-verify
+
+EOF
+    exit 1
+  fi
+fi

@@ -11,6 +11,7 @@
       "mediaTtlDays": 7,
       "maxConcurrentSubagents": 5,
       "localModel": null,
+      "provider": null,
       "contextProviders": [],
       "compaction": {
         "enabled": true,
@@ -44,7 +45,8 @@
       },
       "costGuard": {
         "dailyBudgetCents": null,
-        "maxActionsPerHour": null
+        "maxActionsPerHour": null,
+        "modelCosts": {}
       },
       "promptGuard": {
         "enabled": false,
@@ -64,22 +66,38 @@
       "enabled": false,
       "token": "your-telegram-bot-token",
       "allowFrom": [],
-      "proxy": null
+      "dmPolicy": "allowlist"
     },
     "discord": {
       "enabled": false,
       "token": "your-discord-bot-token",
-      "allowFrom": []
+      "allowFrom": [],
+      "commands": [
+        {
+          "name": "ask",
+          "description": "Ask the AI assistant",
+          "options": [
+            {
+              "name": "question",
+              "description": "Your question or message",
+              "required": true
+            }
+          ]
+        }
+      ],
+      "dmPolicy": "allowlist"
     },
     "slack": {
       "enabled": false,
       "botToken": "xoxb-your-slack-bot-token",
       "appToken": "xapp-your-slack-app-token",
-      "allowFrom": []
+      "allowFrom": [],
+      "dmPolicy": "allowlist"
     },
     "whatsapp": {
       "enabled": false,
-      "allowFrom": []
+      "allowFrom": [],
+      "dmPolicy": "allowlist"
     },
     "twilio": {
       "enabled": false,
@@ -89,13 +107,15 @@
       "webhookPort": 8080,
       "webhookPath": "/twilio/webhook",
       "webhookUrl": "https://your-domain.com/twilio/webhook",
-      "allowFrom": []
+      "allowFrom": [],
+      "dmPolicy": "allowlist"
     }
   },
   "providers": {
     "anthropic": {
       "apiKey": "sk-ant-your-anthropic-key",
-      "apiBase": null
+      "apiBase": null,
+      "promptGuidedTools": false
     },
     "anthropicOAuth": {
       "enabled": false,
@@ -107,43 +127,59 @@
     },
     "openai": {
       "apiKey": "",
-      "apiBase": null
+      "apiBase": null,
+      "promptGuidedTools": false
     },
     "gemini": {
       "apiKey": "",
-      "apiBase": null
+      "apiBase": null,
+      "promptGuidedTools": false
     },
     "openrouter": {
       "apiKey": "",
-      "apiBase": null
+      "apiBase": null,
+      "promptGuidedTools": false
     },
     "deepseek": {
       "apiKey": "",
-      "apiBase": null
+      "apiBase": null,
+      "promptGuidedTools": false
     },
     "groq": {
       "apiKey": "",
-      "apiBase": null
+      "apiBase": null,
+      "promptGuidedTools": false
     },
     "moonshot": {
       "apiKey": "",
-      "apiBase": null
+      "apiBase": null,
+      "promptGuidedTools": false
     },
     "zhipu": {
       "apiKey": "",
-      "apiBase": null
+      "apiBase": null,
+      "promptGuidedTools": false
     },
     "dashscope": {
       "apiKey": "",
-      "apiBase": null
+      "apiBase": null,
+      "promptGuidedTools": false
     },
     "vllm": {
       "apiKey": "",
-      "apiBase": null
+      "apiBase": null,
+      "promptGuidedTools": false
     },
     "ollama": {
       "apiKey": "",
-      "apiBase": null
+      "apiBase": null,
+      "promptGuidedTools": false
+    },
+    "circuitBreaker": {
+      "enabled": false,
+      "failureThreshold": 5,
+      "recoveryTimeoutSecs": 60,
+      "halfOpenProbes": 2
     }
   },
   "gateway": {
@@ -158,6 +194,10 @@
     }
   },
   "tools": {
+    "exfiltrationGuard": {
+      "enabled": false,
+      "blockedTools": ["http", "web_fetch", "browser"]
+    },
     "web": {
       "search": {
         "provider": "brave",
@@ -167,7 +207,27 @@
     },
     "exec": {
       "timeout": 60,
-      "allowedCommands": ["ls", "find", "cat", "grep", "git", "cargo", "node", "python3"]
+      "allowedCommands": [
+        "ls", "find", "tree", "pwd", "basename", "dirname", "realpath", "stat", "file",
+        "cat", "head", "tail", "less", "wc", "md5sum", "sha256sum",
+        "grep", "awk", "sed", "sort", "uniq", "cut", "tr", "diff", "comm", "paste",
+        "rg", "ag", "fd",
+        "jq", "yq",
+        "git",
+        "cargo", "rustc", "npm", "npx", "node", "python3", "pip3", "make", "go",
+        "date", "cal", "whoami", "hostname", "uname", "uptime", "df", "du", "free", "ps",
+        "env", "printenv", "which", "type",
+        "curl", "wget", "dig", "nslookup", "ping", "host",
+        "echo", "printf", "test", "true", "false", "yes", "seq", "xargs",
+        "tar", "zip", "unzip", "gzip", "gunzip", "zcat",
+        "tee", "touch", "mkdir", "cp", "mv", "ln"
+      ],
+      "sandbox": {
+        "enabled": true,
+        "additionalReadPaths": [],
+        "additionalWritePaths": [],
+        "blockNetwork": true
+      }
     },
     "restrictToWorkspace": false,
     "google": {

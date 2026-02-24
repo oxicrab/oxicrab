@@ -135,7 +135,9 @@ Do **not** use `#[path = "foo_tests.rs"]` — this was previously used in 4 modu
   - **CLAUDE.md** → update architecture/patterns sections if internal behavior changed
 - **Adding fields to `AgentLoopConfig`**: must update `src/cli/commands.rs` (`setup_agent`), destructure in `AgentLoop::new()`, add to `ToolBuildContext` if tool-related, AND update `tests/common/mod.rs` `create_test_agent_with()` AND `tests/compaction_integration.rs` `create_compaction_agent()`.
 - **Adding a new tool**: Add a `register_*()` function in `src/agent/tools/setup.rs`, call it from `register_all_tools()`. Update `README.md` and the workspace files (`AGENTS.md`, `MEMORY.md`) if they exist.
-- **Adding fields to config structs with manual `Default` impl**: update both the struct definition and `Default::default()`.
+- **Adding fields to config structs with manual `Default` impl**: update both the struct definition and `Default::default()`. If the field affects `config.example.json`, update it too — a unit test (`test_config_example_is_up_to_date`) compares Config::default() + credential overlays against the committed file. Add credential placeholders to `credential_overlays()` in `src/config/schema/tests.rs`.
+- **Docs staleness is enforced**: A pre-commit hook checks `docs/*.html` freshness when `docs/_pages/` or `docs/_layout.html` are staged. CI also checks via `python3 docs/build.py && git diff --quiet -- docs/`. Always run `python3 docs/build.py` after editing source pages.
+- **CI skips heavy jobs for non-code changes**: Docs-only, README-only, and config-example-only PRs run only the `check` and `ci-gate` jobs (~30s). Code paths (`src/`, `tests/`, `Cargo.*`, `fuzz/`, etc.) trigger the full pipeline. Managed by `dorny/paths-filter` in the `changes` job.
 - **YAML parsing**: uses `serde_yaml_ng` (not the deprecated `serde_yaml`).
 - **`main.rs` is a thin entry point**: it calls `oxicrab::cli::commands::run()`. All module declarations are in `lib.rs`.
 - **UTF-8 string slicing**: always use `is_char_boundary()` or `chars()` before slicing.
