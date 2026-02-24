@@ -44,6 +44,11 @@ fn test_action_claims_positive() {
         "Added! The new entry is in the database.",
         "Marked as complete: Call Sun Logistics",
         "\nCreated: a new issue in the tracker.",
+        // Prefix-word evasion patterns (LLM adds word before action verb)
+        "Both created:\n• Feed the cat\n• Feed the dog",
+        "Task created: Click the box — due tomorrow at 10:00 AM.",
+        "Job scheduled: one-shot at 4pm today.",
+        "All done! Everything is configured.",
     ];
     for text in cases {
         assert!(contains_action_claims(text), "should match: {}", text);
