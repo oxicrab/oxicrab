@@ -319,6 +319,17 @@ impl ContextBuilder {
             }
             system_prompt.push_str(&session_info);
         }
+        // Tell the model that the history below IS its real conversation, so it
+        // doesn't claim it "can't look up past messages" or needs a tool to do so.
+        if !history.is_empty() {
+            system_prompt.push_str(
+                "\n\n## Conversation History\n\n\
+                 The messages that follow contain your actual conversation history with this user. \
+                 You do NOT need any tool to look up what was said — it is already included below. \
+                 If the user references something from earlier, look at the conversation history.",
+            );
+        }
+
         messages.push(crate::providers::base::Message::system(system_prompt));
 
         // History (skip messages with empty content — Anthropic rejects empty text blocks)
@@ -347,7 +358,6 @@ impl ContextBuilder {
             }
         }
 
-        // Current message with local time prefix
         let time_prefix = format!("[{}] ", Local::now().format("%H:%M"));
         let user_content = format!("{}{}", time_prefix, current_message);
         if images.is_empty() {

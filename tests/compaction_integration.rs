@@ -117,7 +117,7 @@ async fn test_extract_facts_returns_nothing() {
     let compactor = MessageCompactor::new(Arc::new(provider), None);
 
     let facts = compactor
-        .extract_facts("What time is it?", "It's 3pm.")
+        .extract_facts("What time is it?", "It's 3pm.", "")
         .await
         .unwrap();
 
@@ -137,7 +137,7 @@ async fn test_extract_facts_returns_bullets() {
     let compactor = MessageCompactor::new(Arc::new(provider), None);
 
     let facts = compactor
-        .extract_facts("Call me Alice, and I like dark mode.", "Got it, Alice!")
+        .extract_facts("Call me Alice, and I like dark mode.", "Got it, Alice!", "")
         .await
         .unwrap();
 

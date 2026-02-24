@@ -646,19 +646,22 @@ impl AgentLoop {
         // Periodically rebuild the matcher from the cron store (every 60s)
         // so new/modified event jobs are picked up at runtime.
         if let Some(cron_svc) = &self.cron_service {
-            let needs_rebuild = self
-                .event_matcher_last_rebuild
-                .lock()
-                .is_ok_and(|t| t.elapsed().as_secs() >= 60);
+            // Check-and-claim: update the timestamp atomically to prevent
+            // concurrent messages from triggering duplicate rebuilds.
+            let needs_rebuild = self.event_matcher_last_rebuild.lock().is_ok_and(|mut t| {
+                if t.elapsed().as_secs() >= 60 {
+                    *t = std::time::Instant::now(); // claim the rebuild
+                    true
+                } else {
+                    false
+                }
+            });
             if needs_rebuild && let Ok(store) = cron_svc.load_store(true).await {
                 let new_matcher = EventMatcher::from_jobs(&store.jobs);
                 if let Some(ref matcher_mutex) = self.event_matcher
                     && let Ok(mut guard) = matcher_mutex.lock()
                 {
                     *guard = new_matcher;
-                }
-                if let Ok(mut t) = self.event_matcher_last_rebuild.lock() {
-                    *t = std::time::Instant::now();
                 }
             }
 
@@ -827,16 +830,24 @@ impl AgentLoop {
         let mut session = self.sessions.get_or_create(&session_key).await?;
         let extra = HashMap::new();
         session.add_message("user".to_string(), msg.content.clone(), extra.clone());
-        if let Some(ref content) = final_content {
-            let mut assistant_extra = HashMap::new();
-            if !tools_used.is_empty() {
-                assistant_extra.insert(
-                    "tools_used".to_string(),
-                    Value::Array(tools_used.into_iter().map(Value::String).collect()),
-                );
-            }
-            session.add_message("assistant".to_string(), content.clone(), assistant_extra);
+        // Always save an assistant message to maintain user/assistant alternation.
+        // Broken alternation causes the Anthropic provider to merge consecutive user
+        // messages, which garbles conversation context for future turns.
+        let response_text = final_content
+            .as_deref()
+            .unwrap_or("I wasn't able to generate a response.");
+        let mut assistant_extra = HashMap::new();
+        if !tools_used.is_empty() {
+            assistant_extra.insert(
+                "tools_used".to_string(),
+                Value::Array(tools_used.into_iter().map(Value::String).collect()),
+            );
         }
+        session.add_message(
+            "assistant".to_string(),
+            response_text.to_string(),
+            assistant_extra,
+        );
         // Store provider-reported input tokens for precise compaction threshold checks
         if let Some(tokens) = input_tokens {
             session.metadata.insert(
@@ -860,12 +871,14 @@ impl AgentLoop {
             // Use spawn_auto_cleanup since this is a one-off task that should remove itself
             task_tracker
                 .spawn_auto_cleanup(task_name, async move {
-                    match compactor.extract_facts(&user_msg, &assistant_msg).await {
+                    let existing = memory.read_today_section("Facts").unwrap_or_default();
+                    match compactor
+                        .extract_facts(&user_msg, &assistant_msg, &existing)
+                        .await
+                    {
                         Ok(facts) => {
                             if !facts.is_empty() {
-                                if let Err(e) =
-                                    memory.append_today(&format!("\n## Facts\n\n{}\n", facts))
-                                {
+                                if let Err(e) = memory.append_to_section("Facts", &facts) {
                                     warn!("Failed to save facts to daily note: {}", e);
                                 } else {
                                     debug!(
@@ -898,7 +911,18 @@ impl AgentLoop {
                 metadata: msg.metadata,
             }))
         } else {
-            Ok(None)
+            warn!(
+                "agent loop produced no response for {}:{}",
+                msg.channel, msg.chat_id
+            );
+            Ok(Some(OutboundMessage {
+                channel: msg.channel,
+                chat_id: msg.chat_id,
+                content: "I wasn't able to generate a response. Please try again.".to_string(),
+                reply_to: None,
+                media: vec![],
+                metadata: msg.metadata,
+            }))
         }
     }
 
@@ -925,8 +949,9 @@ impl AgentLoop {
     /// Core agent loop implementation with per-invocation overrides.
     ///
     /// Iterates up to `max_iterations` rounds of: LLM call → parallel tool execution → append results.
-    /// First iteration forces `tool_choice="any"` to prevent text-only hallucinations. At 70% of
-    /// max iterations, a wrap-up nudge is injected.
+    /// Uses `tool_choice=None` (auto) on all iterations — hallucination detection in
+    /// `handle_text_response()` catches false action claims. At 70% of max iterations, a wrap-up
+    /// nudge is injected.
     ///
     /// Returns `(response_text, last_message_id, collected_media, tool_names_used)`.
     async fn run_agent_loop_with_overrides(
@@ -966,36 +991,34 @@ impl AgentLoop {
         // Extract tool names for hallucination detection (immutable snapshot for the full loop)
         let tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
 
-        // Inject tool facts reminder so the LLM knows exactly what tools are available
+        // Append tool facts to the system prompt so the LLM knows what tools are available.
+        // This MUST go in the system prompt (messages[0]), NOT as a separate user message —
+        // injecting a fake user message breaks user/assistant alternation and causes
+        // the model to lose conversational context on short replies like "Sure" or "Yes".
         if !tool_names.is_empty() {
             let tool_list = tool_names.join(", ");
             let tool_facts = format!(
-                "## Available Tools\n\nYou have access to the following tools: {}\n\n\
+                "\n\n## Available Tools\n\nYou have access to the following tools: {}\n\n\
                  If a user asks for external actions, do not claim tools are unavailable — \
                  call the matching tool directly.",
                 tool_list
             );
-            // Insert as second message (after system prompt, before history/user message)
-            if messages.len() > 1 {
-                messages.insert(1, Message::user(tool_facts));
-            } else {
-                messages.push(Message::user(tool_facts));
+            if let Some(system_msg) = messages.first_mut() {
+                system_msg.content.push_str(&tool_facts);
             }
         }
 
-        // Inject static cognitive routines instructions when enabled
-        if self.cognitive_config.enabled && messages.len() > 1 {
-            messages.insert(
-                2,
-                Message::system(
-                    "## Cognitive Routines\n\n\
-                     When working on complex tasks with many tool calls:\n\
-                     - Periodically summarize your progress in your responses\n\
-                     - If you receive a checkpoint hint, briefly note: what's done, \
-                     what's in progress, what's next\n\
-                     - Keep track of your overall plan and remaining steps"
-                        .to_string(),
-                ),
+        // Append cognitive routines to system prompt when enabled
+        if self.cognitive_config.enabled
+            && let Some(system_msg) = messages.first_mut()
+        {
+            system_msg.content.push_str(
+                "\n\n## Cognitive Routines\n\n\
+                 When working on complex tasks with many tool calls:\n\
+                 - Periodically summarize your progress in your responses\n\
+                 - If you receive a checkpoint hint, briefly note: what's done, \
+                 what's in progress, what's next\n\
+                 - Keep track of your overall plan and remaining steps",
             );
         }
 
@@ -1026,12 +1049,9 @@ impl AgentLoop {
                 // For initial/text-only responses, use configured temperature
                 self.temperature
             };
-            // Force tool use on first iteration to prevent text-only hallucinated responses
-            let tool_choice = if iteration == 1 && !tools_defs.is_empty() {
-                Some("any".to_string())
-            } else {
-                None // defaults to "auto" in provider
-            };
+            // Let the model decide when to use tools (auto mode). Hallucination detection
+            // in handle_text_response() catches false action claims as a safety net.
+            let tool_choice: Option<String> = None;
 
             // Cost guard pre-flight check
             if let Some(ref cg) = self.cost_guard
@@ -1243,13 +1263,22 @@ impl AgentLoop {
         iteration: usize,
     ) {
         // Add all results to messages in order and collect media
-        debug_assert_eq!(
-            tool_calls.len(),
-            results.len(),
-            "tool_calls and results length mismatch: {} vs {}",
-            tool_calls.len(),
-            results.len()
-        );
+        if tool_calls.len() != results.len() {
+            error!(
+                "tool_calls and results length mismatch: {} vs {} — adding error results for missing entries",
+                tool_calls.len(),
+                results.len()
+            );
+            // Pad results to match tool_calls length so every tool call gets a response
+            let mut results = results;
+            while results.len() < tool_calls.len() {
+                results.push(("Tool execution result was lost".to_string(), true));
+            }
+            for (tc, (result_str, is_error)) in tool_calls.iter().zip(results.into_iter()) {
+                ContextBuilder::add_tool_result(messages, &tc.id, &tc.name, &result_str, is_error);
+            }
+            return;
+        }
         for (tc, (result_str, is_error)) in tool_calls.iter().zip(results.into_iter()) {
             if !is_error {
                 collected_media.extend(extract_media_paths(&result_str));
@@ -1370,7 +1399,6 @@ impl AgentLoop {
 
         // Detect hallucinated actions: LLM claims it did something but never called tools
         if !any_tools_called
-            && !*correction_sent
             && (contains_action_claims(content) || mentions_multiple_tools(content, tool_names))
         {
             warn!("Action hallucination detected: LLM claims actions but no tools were called");
@@ -1540,7 +1568,7 @@ impl AgentLoop {
                             debug!("pre-compaction flush: all facts filtered by quality gates");
                         } else if let Err(e) = self
                             .memory
-                            .append_today(&format!("\n## Pre-compaction context\n\n{}\n", filtered))
+                            .append_to_section("Pre-compaction context", &filtered)
                         {
                             warn!("failed to write pre-compaction flush: {}", e);
                         } else {
@@ -1556,14 +1584,19 @@ impl AgentLoop {
                     }
                     _ => {}
                 }
-                // Mark that we've flushed up to this message count
-                let mut updated_session = session.clone();
-                updated_session.metadata.insert(
-                    "pre_flush_msg_count".to_string(),
-                    Value::Number(serde_json::Number::from(old_msg_count as u64)),
-                );
-                if let Err(e) = self.sessions.save(&updated_session).await {
-                    warn!("failed to save pre-flush marker: {}", e);
+                // Mark that we've flushed up to this message count.
+                // Reload the latest session to avoid overwriting concurrent changes.
+                match self.sessions.get_or_create(&session.key).await {
+                    Ok(mut latest) => {
+                        latest.metadata.insert(
+                            "pre_flush_msg_count".to_string(),
+                            Value::Number(serde_json::Number::from(old_msg_count as u64)),
+                        );
+                        if let Err(e) = self.sessions.save(&latest).await {
+                            warn!("failed to save pre-flush marker: {}", e);
+                        }
+                    }
+                    Err(e) => warn!("failed to reload session for pre-flush marker: {}", e),
                 }
             }
         }
@@ -1598,18 +1631,22 @@ impl AgentLoop {
                     *self.last_checkpoint.lock().await = Some(recovery_summary.clone());
 
                     // Update session metadata with new summary.
-                    // Clone the current session rather than get_or_create() to avoid
-                    // loading a stale snapshot that could discard concurrent messages.
-                    let mut updated_session = session.clone();
-                    updated_session
-                        .metadata
-                        .insert("compaction_summary".to_string(), Value::String(summary));
-                    if let Err(e) = self.sessions.save(&updated_session).await {
-                        // Cache summary locally so it survives save failures
-                        warn!(
-                            "failed to persist compaction summary: {}, will retry next cycle",
-                            e
-                        );
+                    // Reload the latest session to avoid overwriting concurrent changes.
+                    match self.sessions.get_or_create(&session.key).await {
+                        Ok(mut latest) => {
+                            latest
+                                .metadata
+                                .insert("compaction_summary".to_string(), Value::String(summary));
+                            if let Err(e) = self.sessions.save(&latest).await {
+                                warn!(
+                                    "failed to persist compaction summary: {}, will retry next cycle",
+                                    e
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            warn!("failed to reload session for compaction summary: {}", e);
+                        }
                     }
 
                     // Return recovery-enriched summary + recent messages

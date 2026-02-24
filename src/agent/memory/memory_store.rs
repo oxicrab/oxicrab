@@ -358,6 +358,89 @@ impl MemoryStore {
         Ok(())
     }
 
+    /// Append content under a `## Section` header in today's daily notes.
+    ///
+    /// If the section already exists, content is appended at the end of that section
+    /// (before the next `## ` header or end of file). If it doesn't exist, the section
+    /// header and content are appended at the end.
+    pub fn append_to_section(&self, section: &str, content: &str) -> Result<()> {
+        use fs2::FileExt;
+        use std::fmt::Write;
+        let today_file = self.get_today_file();
+        let today = Utc::now();
+        let date_str = today.format("%Y-%m-%d").to_string();
+
+        let lock_path = today_file.with_extension("md.lock");
+        let lock_file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&lock_path)
+            .with_context(|| "failed to open memory notes lock file")?;
+        lock_file
+            .lock_exclusive()
+            .with_context(|| "failed to acquire memory notes lock")?;
+
+        let mut text = if today_file.exists() {
+            std::fs::read_to_string(&today_file)?
+        } else {
+            format!("# {}\n", date_str)
+        };
+
+        let header = format!("## {}", section);
+        if let Some(section_start) = text.find(&header) {
+            // Find the end of this section (next ## header or end of file)
+            let after_header = section_start + header.len();
+            let insert_pos = text[after_header..]
+                .find("\n## ")
+                .map_or(text.len(), |p| after_header + p);
+
+            // Ensure we end with a newline before inserting
+            if !text[..insert_pos].ends_with('\n') {
+                text.insert(insert_pos, '\n');
+            }
+            let insert_pos = if text[..insert_pos].ends_with('\n') {
+                insert_pos
+            } else {
+                insert_pos + 1
+            };
+            text.insert_str(insert_pos, content);
+            text.insert(insert_pos + content.len(), '\n');
+        } else {
+            // Section doesn't exist — append it
+            if !text.ends_with('\n') {
+                text.push('\n');
+            }
+            write!(text, "\n{}\n\n{}\n", header, content).unwrap();
+        }
+
+        std::fs::write(&today_file, text)?;
+        Ok(())
+    }
+
+    /// Read content under a specific `## Section` header from today's daily notes.
+    /// Returns empty string if the section doesn't exist.
+    pub fn read_today_section(&self, section: &str) -> Result<String> {
+        let today_content = self.read_today()?;
+        if today_content.is_empty() {
+            return Ok(String::new());
+        }
+        let header = format!("## {}", section);
+        if let Some(start) = today_content.find(&header) {
+            let after_header = start + header.len();
+            // Skip past the header line
+            let content_start = today_content[after_header..]
+                .find('\n')
+                .map_or(today_content.len(), |p| after_header + p + 1);
+            let content_end = today_content[content_start..]
+                .find("\n## ")
+                .map_or(today_content.len(), |p| content_start + p);
+            Ok(today_content[content_start..content_end].to_string())
+        } else {
+            Ok(String::new())
+        }
+    }
+
     pub fn read_long_term(&self) -> Result<String> {
         let memory_file = self.memory_dir.join("MEMORY.md");
         if memory_file.exists() {

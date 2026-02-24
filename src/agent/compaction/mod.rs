@@ -7,7 +7,7 @@ use tracing::{debug, warn};
 
 const COMPACTION_PROMPT: &str = "Summarize this conversation history concisely while preserving:\n1. Key decisions made and their reasoning\n2. Important facts, names, dates, and numbers mentioned\n3. User preferences and requests\n4. Pending tasks or commitments\n5. Technical context that may be needed later\n\nPrevious summary (if any):\n{previous_summary}\n\nMessages to summarize:\n{messages}\n\nWrite a concise summary (max 500 words) that captures the essential context. Do not include preamble - just the summary.";
 
-const EXTRACTION_PROMPT: &str = "Review this conversation exchange and extract any facts worth remembering long-term. Focus on:\n- User preferences, habits, or personal details shared\n- Decisions made or commitments given\n- Project names, technical choices, or configuration details\n- Anything the user would expect you to remember next time\n\nUser: {user_message}\n\nAssistant: {assistant_message}\n\nIf there are notable facts, respond with a short bullet list (one line per fact). If nothing is worth remembering, respond with exactly: NOTHING";
+const EXTRACTION_PROMPT: &str = "Review this conversation exchange and extract any NEW facts worth remembering long-term. Focus on:\n- User preferences, habits, or personal details shared\n- Decisions made or commitments given\n- Project names, technical choices, or configuration details\n- Anything the user would expect you to remember next time\n\nIMPORTANT: Do NOT repeat facts that are already recorded below. Only extract genuinely new information.\n\nAlready recorded today:\n{existing_facts}\n\nUser: {user_message}\n\nAssistant: {assistant_message}\n\nIf there are new facts not already recorded, respond with a short bullet list (one line per fact). If nothing new is worth remembering, respond with exactly: NOTHING";
 
 const PRE_FLUSH_PROMPT: &str = "Review these conversation messages that are about to be removed from context. Extract any important information worth preserving long-term:\n- User preferences and decisions\n- Project state and progress\n- Key facts, names, dates, or configuration details\n- Commitments or pending items\n\nRespond with a concise bullet list of important items. If nothing is worth preserving, respond with exactly: NOTHING\n\nMessages:\n{messages}";
 
@@ -145,16 +145,49 @@ pub fn strip_orphaned_tool_messages(messages: &mut Vec<HashMap<String, Value>>) 
     });
     let orphaned_results = before_len - messages.len();
 
-    // Count orphaned tool_calls (assistant has tool_call with no matching result)
-    // We don't remove assistant messages, but we log the count
-    let orphaned_calls = assistant_tool_ids
+    // Strip orphaned tool_calls from assistant messages (tool_call with no matching result).
+    // Providers like Anthropic reject unmatched tool_use blocks.
+    let orphaned_call_ids: HashSet<&String> = assistant_tool_ids
         .iter()
         .filter(|id| !result_tool_ids.contains(*id))
-        .count();
+        .collect();
+    let orphaned_calls = orphaned_call_ids.len();
+
+    if orphaned_calls > 0 {
+        for msg in messages.iter_mut() {
+            if msg.get("role").and_then(Value::as_str) != Some("assistant") {
+                continue;
+            }
+            // Strip from OpenAI-style tool_calls array
+            if let Some(Value::Array(tool_calls)) = msg.get_mut("tool_calls") {
+                tool_calls.retain(|tc| {
+                    tc.get("id")
+                        .and_then(Value::as_str)
+                        .is_none_or(|id| !orphaned_call_ids.contains(&id.to_string()))
+                });
+                // Remove the key entirely if the array is now empty
+                if tool_calls.is_empty() {
+                    msg.remove("tool_calls");
+                }
+            }
+            // Strip from Anthropic-style content array (tool_use blocks)
+            if let Some(Value::Array(content)) = msg.get_mut("content") {
+                content.retain(|block| {
+                    if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+                        return true;
+                    }
+                    block
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .is_none_or(|id| !orphaned_call_ids.contains(&id.to_string()))
+                });
+            }
+        }
+    }
 
     if orphaned_results > 0 || orphaned_calls > 0 {
         debug!(
-            "stripped {} orphaned tool_result message(s) and found {} orphaned tool_call(s)",
+            "stripped {} orphaned tool_result(s) and {} orphaned tool_call(s)",
             orphaned_results, orphaned_calls
         );
     }
@@ -278,9 +311,16 @@ impl MessageCompactor {
         &self,
         user_message: &str,
         assistant_message: &str,
+        existing_facts: &str,
     ) -> Result<String> {
         debug!("extracting facts from exchange");
+        let effective_existing = if existing_facts.is_empty() {
+            "(none)"
+        } else {
+            existing_facts
+        };
         let prompt = EXTRACTION_PROMPT
+            .replace("{existing_facts}", effective_existing)
             .replace("{user_message}", user_message)
             .replace("{assistant_message}", assistant_message);
 

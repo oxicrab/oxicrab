@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 
 fn create_test_context(workspace: &Path) -> ContextBuilder {
     std::fs::create_dir_all(workspace.join("memory")).unwrap();
@@ -392,4 +393,73 @@ async fn test_build_messages_group_excludes_personal_memory() {
         !group_system.contains("My secret notes"),
         "group chat should NOT include personal memory"
     );
+}
+
+// ── User message construction tests ──────────────────────────
+
+fn history_msg(role: &str, content: &str) -> HashMap<String, serde_json::Value> {
+    HashMap::from([
+        ("role".into(), json!(role)),
+        ("content".into(), json!(content)),
+    ])
+}
+
+#[tokio::test]
+async fn test_user_message_includes_timestamp_prefix() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut ctx = create_test_context(tmp.path());
+
+    let messages = ctx
+        .build_messages(
+            &[],
+            "hello",
+            Some("telegram"),
+            Some("c1"),
+            None,
+            vec![],
+            false,
+        )
+        .unwrap();
+
+    let user_msg = messages.last().unwrap();
+    // Should have timestamp prefix and the original message
+    assert!(user_msg.content.contains("hello"));
+    assert!(
+        user_msg.content.contains(']'),
+        "should have timestamp prefix"
+    );
+}
+
+#[tokio::test]
+async fn test_user_message_no_context_injection() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut ctx = create_test_context(tmp.path());
+
+    let history = vec![
+        history_msg("user", "List all my scheduled tasks for this week"),
+        history_msg(
+            "assistant",
+            "Here are your tasks. Want me to run the first one?",
+        ),
+    ];
+
+    let messages = ctx
+        .build_messages(
+            &history,
+            "sure",
+            Some("telegram"),
+            Some("c1"),
+            None,
+            vec![],
+            false,
+        )
+        .unwrap();
+
+    let user_msg = messages.last().unwrap();
+    // No context injection — just the user's message with timestamp
+    assert!(
+        !user_msg.content.contains("Replying to your message"),
+        "should NOT inject context"
+    );
+    assert!(user_msg.content.contains("sure"));
 }
