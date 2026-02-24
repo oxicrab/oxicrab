@@ -1535,15 +1535,19 @@ impl AgentLoop {
             if !already_flushed {
                 match compactor.flush_to_memory(old_messages).await {
                     Ok(ref facts) if !facts.is_empty() => {
-                        if let Err(e) = self
+                        let filtered = crate::agent::memory::quality::filter_lines(facts);
+                        if filtered.trim().is_empty() {
+                            debug!("pre-compaction flush: all facts filtered by quality gates");
+                        } else if let Err(e) = self
                             .memory
-                            .append_today(&format!("\n## Pre-compaction context\n\n{}\n", facts))
+                            .append_today(&format!("\n## Pre-compaction context\n\n{}\n", filtered))
                         {
                             warn!("failed to write pre-compaction flush: {}", e);
                         } else {
                             debug!(
-                                "pre-compaction flush: saved {} bytes to daily notes",
-                                facts.len()
+                                "pre-compaction flush: saved {} bytes to daily notes ({} filtered)",
+                                filtered.len(),
+                                facts.len() - filtered.len()
                             );
                         }
                     }
@@ -1711,13 +1715,43 @@ impl AgentLoop {
         content: &str,
         session_key: &str,
     ) -> Result<Option<String>> {
+        use crate::agent::memory::quality::{QualityVerdict, check_quality};
         use crate::agent::memory::remember::is_duplicate;
+
+        // Quality gate: reject low-signal content
+        let (write_content, response) = match check_quality(content) {
+            QualityVerdict::Reject(reason) => {
+                info!("remember fast path: rejected ({:?})", reason);
+                let resp =
+                    "That doesn't seem like something worth remembering. Try being more specific."
+                        .to_string();
+                // Record to session but don't write to memory
+                let mut session = self.sessions.get_or_create(session_key).await?;
+                let extra = HashMap::new();
+                session.add_message(
+                    "user".to_string(),
+                    format!("remember that {}", content),
+                    extra.clone(),
+                );
+                session.add_message("assistant".to_string(), resp.clone(), extra);
+                self.sessions.save(&session).await?;
+                return Ok(Some(resp));
+            }
+            QualityVerdict::Reframed(reframed) => {
+                info!("remember fast path: reframed negative memory");
+                let resp = format!("Noted (reframed for accuracy): {}", reframed);
+                (reframed, resp)
+            }
+            QualityVerdict::Pass => {
+                let resp = format!("Noted! I'll remember: {}", content);
+                (content.to_string(), resp)
+            }
+        };
 
         // Read today's notes for dedup
         let today_notes = self.memory.read_today().unwrap_or_default();
-        if is_duplicate(content, &today_notes) {
+        if is_duplicate(&write_content, &today_notes) {
             info!("remember fast path: duplicate detected, skipping write");
-            // Record to session history
             let mut session = self.sessions.get_or_create(session_key).await?;
             let extra = HashMap::new();
             session.add_message(
@@ -1735,13 +1769,12 @@ impl AgentLoop {
         }
 
         // Write to daily notes
-        self.memory.append_today(&format!("\n- {}\n", content))?;
+        self.memory
+            .append_today(&format!("\n- {}\n", write_content))?;
         info!(
             "remember fast path: wrote {} chars to daily notes",
-            content.len()
+            write_content.len()
         );
-
-        let response = format!("Noted! I'll remember: {}", content);
 
         // Record to session history
         let mut session = self.sessions.get_or_create(session_key).await?;
