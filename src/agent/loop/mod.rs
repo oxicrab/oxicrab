@@ -646,19 +646,22 @@ impl AgentLoop {
         // Periodically rebuild the matcher from the cron store (every 60s)
         // so new/modified event jobs are picked up at runtime.
         if let Some(cron_svc) = &self.cron_service {
-            let needs_rebuild = self
-                .event_matcher_last_rebuild
-                .lock()
-                .is_ok_and(|t| t.elapsed().as_secs() >= 60);
+            // Check-and-claim: update the timestamp atomically to prevent
+            // concurrent messages from triggering duplicate rebuilds.
+            let needs_rebuild = self.event_matcher_last_rebuild.lock().is_ok_and(|mut t| {
+                if t.elapsed().as_secs() >= 60 {
+                    *t = std::time::Instant::now(); // claim the rebuild
+                    true
+                } else {
+                    false
+                }
+            });
             if needs_rebuild && let Ok(store) = cron_svc.load_store(true).await {
                 let new_matcher = EventMatcher::from_jobs(&store.jobs);
                 if let Some(ref matcher_mutex) = self.event_matcher
                     && let Ok(mut guard) = matcher_mutex.lock()
                 {
                     *guard = new_matcher;
-                }
-                if let Ok(mut t) = self.event_matcher_last_rebuild.lock() {
-                    *t = std::time::Instant::now();
                 }
             }
 
@@ -898,7 +901,18 @@ impl AgentLoop {
                 metadata: msg.metadata,
             }))
         } else {
-            Ok(None)
+            warn!(
+                "agent loop produced no response for {}:{}",
+                msg.channel, msg.chat_id
+            );
+            Ok(Some(OutboundMessage {
+                channel: msg.channel,
+                chat_id: msg.chat_id,
+                content: "I wasn't able to generate a response. Please try again.".to_string(),
+                reply_to: None,
+                media: vec![],
+                metadata: msg.metadata,
+            }))
         }
     }
 
@@ -1562,14 +1576,19 @@ impl AgentLoop {
                     }
                     _ => {}
                 }
-                // Mark that we've flushed up to this message count
-                let mut updated_session = session.clone();
-                updated_session.metadata.insert(
-                    "pre_flush_msg_count".to_string(),
-                    Value::Number(serde_json::Number::from(old_msg_count as u64)),
-                );
-                if let Err(e) = self.sessions.save(&updated_session).await {
-                    warn!("failed to save pre-flush marker: {}", e);
+                // Mark that we've flushed up to this message count.
+                // Reload the latest session to avoid overwriting concurrent changes.
+                match self.sessions.get_or_create(&session.key).await {
+                    Ok(mut latest) => {
+                        latest.metadata.insert(
+                            "pre_flush_msg_count".to_string(),
+                            Value::Number(serde_json::Number::from(old_msg_count as u64)),
+                        );
+                        if let Err(e) = self.sessions.save(&latest).await {
+                            warn!("failed to save pre-flush marker: {}", e);
+                        }
+                    }
+                    Err(e) => warn!("failed to reload session for pre-flush marker: {}", e),
                 }
             }
         }
@@ -1604,18 +1623,22 @@ impl AgentLoop {
                     *self.last_checkpoint.lock().await = Some(recovery_summary.clone());
 
                     // Update session metadata with new summary.
-                    // Clone the current session rather than get_or_create() to avoid
-                    // loading a stale snapshot that could discard concurrent messages.
-                    let mut updated_session = session.clone();
-                    updated_session
-                        .metadata
-                        .insert("compaction_summary".to_string(), Value::String(summary));
-                    if let Err(e) = self.sessions.save(&updated_session).await {
-                        // Cache summary locally so it survives save failures
-                        warn!(
-                            "failed to persist compaction summary: {}, will retry next cycle",
-                            e
-                        );
+                    // Reload the latest session to avoid overwriting concurrent changes.
+                    match self.sessions.get_or_create(&session.key).await {
+                        Ok(mut latest) => {
+                            latest
+                                .metadata
+                                .insert("compaction_summary".to_string(), Value::String(summary));
+                            if let Err(e) = self.sessions.save(&latest).await {
+                                warn!(
+                                    "failed to persist compaction summary: {}, will retry next cycle",
+                                    e
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            warn!("failed to reload session for compaction summary: {}", e);
+                        }
                     }
 
                     // Return recovery-enriched summary + recent messages

@@ -145,16 +145,49 @@ pub fn strip_orphaned_tool_messages(messages: &mut Vec<HashMap<String, Value>>) 
     });
     let orphaned_results = before_len - messages.len();
 
-    // Count orphaned tool_calls (assistant has tool_call with no matching result)
-    // We don't remove assistant messages, but we log the count
-    let orphaned_calls = assistant_tool_ids
+    // Strip orphaned tool_calls from assistant messages (tool_call with no matching result).
+    // Providers like Anthropic reject unmatched tool_use blocks.
+    let orphaned_call_ids: HashSet<&String> = assistant_tool_ids
         .iter()
         .filter(|id| !result_tool_ids.contains(*id))
-        .count();
+        .collect();
+    let orphaned_calls = orphaned_call_ids.len();
+
+    if orphaned_calls > 0 {
+        for msg in messages.iter_mut() {
+            if msg.get("role").and_then(Value::as_str) != Some("assistant") {
+                continue;
+            }
+            // Strip from OpenAI-style tool_calls array
+            if let Some(Value::Array(tool_calls)) = msg.get_mut("tool_calls") {
+                tool_calls.retain(|tc| {
+                    tc.get("id")
+                        .and_then(Value::as_str)
+                        .is_none_or(|id| !orphaned_call_ids.contains(&id.to_string()))
+                });
+                // Remove the key entirely if the array is now empty
+                if tool_calls.is_empty() {
+                    msg.remove("tool_calls");
+                }
+            }
+            // Strip from Anthropic-style content array (tool_use blocks)
+            if let Some(Value::Array(content)) = msg.get_mut("content") {
+                content.retain(|block| {
+                    if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+                        return true;
+                    }
+                    block
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .is_none_or(|id| !orphaned_call_ids.contains(&id.to_string()))
+                });
+            }
+        }
+    }
 
     if orphaned_results > 0 || orphaned_calls > 0 {
         debug!(
-            "stripped {} orphaned tool_result message(s) and found {} orphaned tool_call(s)",
+            "stripped {} orphaned tool_result(s) and {} orphaned tool_call(s)",
             orphaned_results, orphaned_calls
         );
     }

@@ -84,8 +84,13 @@ fn strip_orphans_detects_orphaned_tool_call() {
     let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
     assert_eq!(orphaned_results, 0);
     assert_eq!(orphaned_calls, 1);
-    // All messages kept (we don't remove assistant messages)
+    // All messages kept but tool_calls stripped from assistant
     assert_eq!(msgs.len(), 3);
+    // The orphaned tool_calls key should be removed entirely
+    assert!(
+        !msgs[1].contains_key("tool_calls"),
+        "orphaned tool_calls should be stripped from assistant message"
+    );
 }
 
 #[test]
@@ -101,6 +106,10 @@ fn strip_orphans_multiple_tool_calls_partial_orphan() {
     assert_eq!(orphaned_results, 0);
     assert_eq!(orphaned_calls, 1);
     assert_eq!(msgs.len(), 4);
+    // tc_2 should be stripped but tc_1 should remain
+    let tool_calls = msgs[1]["tool_calls"].as_array().unwrap();
+    assert_eq!(tool_calls.len(), 1, "only matched tc_1 should remain");
+    assert_eq!(tool_calls[0]["id"], "tc_1");
 }
 
 #[test]
@@ -123,6 +132,80 @@ fn strip_orphans_empty_messages() {
     let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
     assert_eq!(orphaned_results, 0);
     assert_eq!(orphaned_calls, 0);
+}
+
+#[test]
+fn strip_orphans_openai_all_calls_orphaned_removes_key() {
+    // When ALL tool_calls in an assistant message are orphaned, the key is removed entirely
+    let mut msgs = vec![
+        user_msg("do things"),
+        assistant_with_tool_calls("calling", &["tc_a", "tc_b"]),
+        // No results for either
+        assistant_msg("done"),
+    ];
+    let (_, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_calls, 2);
+    // tool_calls key should be removed entirely (not left as empty array)
+    assert!(
+        !msgs[1].contains_key("tool_calls"),
+        "tool_calls key should be removed when all calls are orphaned"
+    );
+}
+
+#[test]
+fn strip_orphans_anthropic_tool_use_blocks_stripped() {
+    // Anthropic-style: orphaned tool_use blocks in content array should be stripped
+    let mut msgs = vec![
+        user_msg("test"),
+        HashMap::from([
+            ("role".into(), json!("assistant")),
+            (
+                "content".into(),
+                json!([
+                    {"type": "text", "text": "Let me help"},
+                    {"type": "tool_use", "id": "tc_orphan", "name": "read", "input": {}},
+                    {"type": "tool_use", "id": "tc_matched", "name": "write", "input": {}}
+                ]),
+            ),
+        ]),
+        tool_result_msg("tc_matched", "write result"),
+        assistant_msg("done"),
+    ];
+    let (_, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_calls, 1);
+    // Content array should still have text block + matched tool_use, but orphaned one removed
+    let content = msgs[1]["content"].as_array().unwrap();
+    assert_eq!(content.len(), 2, "text + matched tool_use should remain");
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[1]["type"], "tool_use");
+    assert_eq!(content[1]["id"], "tc_matched");
+}
+
+#[test]
+fn strip_orphans_anthropic_all_tool_use_blocks_orphaned() {
+    // When all tool_use blocks in content are orphaned, only text blocks remain
+    let mut msgs = vec![
+        user_msg("test"),
+        HashMap::from([
+            ("role".into(), json!("assistant")),
+            (
+                "content".into(),
+                json!([
+                    {"type": "text", "text": "Calling tools"},
+                    {"type": "tool_use", "id": "tc_1", "name": "read", "input": {}},
+                    {"type": "tool_use", "id": "tc_2", "name": "write", "input": {}}
+                ]),
+            ),
+        ]),
+        // No results for either tool_use
+        assistant_msg("continuing"),
+    ];
+    let (_, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_calls, 2);
+    let content = msgs[1]["content"].as_array().unwrap();
+    assert_eq!(content.len(), 1, "only text block should remain");
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[0]["text"], "Calling tools");
 }
 
 #[test]
