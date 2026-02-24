@@ -301,6 +301,7 @@ impl ContextBuilder {
         sender_id: Option<&str>,
         images: Vec<crate::providers::base::ImageData>,
         is_group: bool,
+        entity_context: Option<&str>,
     ) -> Result<Vec<crate::providers::base::Message>> {
         let mut messages = Vec::new();
 
@@ -324,9 +325,25 @@ impl ContextBuilder {
         if !history.is_empty() {
             system_prompt.push_str(
                 "\n\n## Conversation History\n\n\
-                 The messages that follow contain your actual conversation history with this user. \
-                 You do NOT need any tool to look up what was said — it is already included below. \
-                 If the user references something from earlier, look at the conversation history.",
+                 The messages below are your actual conversation history with this user. \
+                 You do NOT need any tool to recall what was said — it is right here. \
+                 CRITICAL: When the user says \"that\", \"it\", \"this one\", \"the task\", \
+                 \"close it\", \"complete that\", \"mark it done\", etc., resolve the reference \
+                 from the messages below and ACT. Never respond with \"What would you like me to ...?\" \
+                 or \"Which one?\" when the referent is clear from this history.",
+            );
+        }
+
+        // Inject tracked entities so the LLM has a structured reference for resolution
+        if let Some(ctx) = entity_context {
+            use std::fmt::Write as _;
+            let _ = write!(
+                system_prompt,
+                "\n\n## Recently Referenced Entities\n\n\
+                 These entities were mentioned in this conversation. When the user refers to \
+                 \"that\", \"it\", \"the task\", etc., match to an entity below and ACT on it. \
+                 Do NOT ask which one — if one entity matches, use it.\n\n{}",
+                ctx
             );
         }
 

@@ -32,6 +32,18 @@ fn test_action_claims_positive() {
         "Successfully executed the command.",
         "Successfully tested all endpoints.",
         "Already completed the migration.",
+        // Terse-format action claims (no first-person pronoun)
+        "Created: Send out the form — due tomorrow at 10:00 AM.",
+        "Updated: config.json with the new API key.",
+        "Deleted: old-backup.tar.gz",
+        "Done! The task has been set up.",
+        "Sent: the email to the team.",
+        "Scheduled: deployment for tomorrow at 9am.",
+        "Completed: all items on the checklist.",
+        "Saved: your preferences.",
+        "Added! The new entry is in the database.",
+        "Marked as complete: Call Sun Logistics",
+        "\nCreated: a new issue in the tracker.",
     ];
     for text in cases {
         assert!(contains_action_claims(text), "should match: {}", text);
@@ -47,6 +59,9 @@ fn test_action_claims_negative() {
         "To update the config, you need to edit settings.json.",
         "Hello! How can I help you today?",
         "You updated the file yesterday.",
+        // "Created" in descriptive context (not terse action claim)
+        "Tasks created before Monday will be archived.",
+        "Created tasks can be viewed in the dashboard.",
     ];
     for text in cases {
         assert!(!contains_action_claims(text), "should NOT match: {}", text);

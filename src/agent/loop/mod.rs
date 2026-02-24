@@ -806,6 +806,11 @@ impl AgentLoop {
             .get("is_group")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
+        // Load discourse entity register from session for reference resolution
+        let mut discourse_register =
+            crate::agent::discourse::DiscourseRegister::from_session_metadata(&session.metadata);
+        let entity_context = discourse_register.to_context_string();
+
         let messages = {
             let mut ctx = self.context.lock().await;
             ctx.refresh_provider_context().await;
@@ -817,13 +822,18 @@ impl AgentLoop {
                 Some(&msg.sender_id),
                 images,
                 is_group,
+                entity_context.as_deref(),
             )?
         };
         debug!("Built {} messages, starting agent loop", messages.len());
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
-        let (final_content, input_tokens, tools_used, collected_media) =
+        let (final_content, input_tokens, tools_used, collected_media, loop_discourse) =
             self.run_agent_loop(messages, typing_ctx, &exec_ctx).await?;
+
+        // Merge loop-extracted entities into the session's discourse register
+        discourse_register.turn = loop_discourse.turn;
+        discourse_register.register(loop_discourse.entities);
 
         // Reload session in case compaction updated it during the agent loop
         // (compaction saves a compaction_summary to session metadata)
@@ -855,6 +865,8 @@ impl AgentLoop {
                 Value::Number(serde_json::Number::from(tokens)),
             );
         }
+        // Persist discourse entity register for next-turn reference resolution
+        discourse_register.to_session_metadata(&mut session.metadata);
         self.sessions.save(&session).await?;
 
         // Background fact extraction
@@ -936,7 +948,13 @@ impl AgentLoop {
         messages: Vec<Message>,
         typing_context: Option<(String, String)>,
         exec_ctx: &ExecutionContext,
-    ) -> Result<(Option<String>, Option<u64>, Vec<String>, Vec<String>)> {
+    ) -> Result<(
+        Option<String>,
+        Option<u64>,
+        Vec<String>,
+        Vec<String>,
+        crate::agent::discourse::DiscourseRegister,
+    )> {
         self.run_agent_loop_with_overrides(
             messages,
             typing_context,
@@ -953,14 +971,20 @@ impl AgentLoop {
     /// `handle_text_response()` catches false action claims. At 70% of max iterations, a wrap-up
     /// nudge is injected.
     ///
-    /// Returns `(response_text, last_message_id, collected_media, tool_names_used)`.
+    /// Returns `(response_text, last_message_id, collected_media, tool_names_used, discourse_register)`.
     async fn run_agent_loop_with_overrides(
         &self,
         mut messages: Vec<Message>,
         typing_context: Option<(String, String)>,
         exec_ctx: &ExecutionContext,
         overrides: &AgentRunOverrides,
-    ) -> Result<(Option<String>, Option<u64>, Vec<String>, Vec<String>)> {
+    ) -> Result<(
+        Option<String>,
+        Option<u64>,
+        Vec<String>,
+        Vec<String>,
+        crate::agent::discourse::DiscourseRegister,
+    )> {
         let effective_model = overrides.model.as_deref().unwrap_or(&self.model);
         let effective_max_iterations = overrides.max_iterations.unwrap_or(self.max_iterations);
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
@@ -970,6 +994,7 @@ impl AgentLoop {
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
         let mut checkpoint_tracker = CheckpointTracker::new(self.cognitive_config.clone());
+        let mut discourse_register = crate::agent::discourse::DiscourseRegister::default();
 
         let tools_defs = self.tools.get_tool_definitions();
 
@@ -1061,7 +1086,13 @@ impl AgentLoop {
                 if let Some(h) = typing_handle {
                     h.abort();
                 }
-                return Ok((Some(msg), last_input_tokens, tools_used, collected_media));
+                return Ok((
+                    Some(msg),
+                    last_input_tokens,
+                    tools_used,
+                    collected_media,
+                    discourse_register,
+                ));
             }
 
             let response = self
@@ -1125,16 +1156,30 @@ impl AgentLoop {
                     h.abort();
                 }
 
+                discourse_register.advance_turn();
                 self.handle_tool_results(
                     &mut messages,
                     &response.tool_calls,
                     results,
                     &mut collected_media,
+                    &mut discourse_register,
                     &mut checkpoint_tracker,
                     iteration,
                 )
                 .await;
             } else if let Some(content) = response.content {
+                // Extract entities from assistant text for reference resolution.
+                // This catches entities even when the LLM summarizes tool results
+                // in prose or (as a safety net) hallucinates actions.
+                let text_entities =
+                    crate::agent::discourse::DiscourseRegister::extract_from_assistant_text(
+                        &content,
+                        discourse_register.turn,
+                    );
+                if !text_entities.is_empty() {
+                    discourse_register.register(text_entities);
+                }
+
                 match Self::handle_text_response(
                     &content,
                     &mut messages,
@@ -1150,6 +1195,7 @@ impl AgentLoop {
                             last_input_tokens,
                             tools_used,
                             collected_media,
+                            discourse_register,
                         ));
                     }
                 }
@@ -1184,10 +1230,17 @@ impl AgentLoop {
                 last_input_tokens,
                 tools_used,
                 collected_media,
+                discourse_register,
             ));
         }
 
-        Ok((None, last_input_tokens, tools_used, collected_media))
+        Ok((
+            None,
+            last_input_tokens,
+            tools_used,
+            collected_media,
+            discourse_register,
+        ))
     }
 
     /// Execute tool calls — single-tool fast-path or parallel `spawn`+`join_all`.
@@ -1251,14 +1304,16 @@ impl AgentLoop {
         }
     }
 
-    /// Collect media from tool results, scan for prompt injection, update
-    /// cognitive tracking, and fire periodic checkpoints.
+    /// Collect media from tool results, extract discourse entities, scan for
+    /// prompt injection, update cognitive tracking, and fire periodic checkpoints.
+    #[allow(clippy::too_many_arguments)]
     async fn handle_tool_results(
         &self,
         messages: &mut Vec<Message>,
         tool_calls: &[ToolCallRequest],
         results: Vec<(String, bool)>,
         collected_media: &mut Vec<String>,
+        discourse_register: &mut crate::agent::discourse::DiscourseRegister,
         checkpoint_tracker: &mut CheckpointTracker,
         iteration: usize,
     ) {
@@ -1282,6 +1337,15 @@ impl AgentLoop {
         for (tc, (result_str, is_error)) in tool_calls.iter().zip(results.into_iter()) {
             if !is_error {
                 collected_media.extend(extract_media_paths(&result_str));
+                // Extract discourse entities from successful tool results
+                let entities = crate::agent::discourse::DiscourseRegister::extract_from_tool_result(
+                    &tc.name,
+                    &result_str,
+                    discourse_register.turn,
+                );
+                if !entities.is_empty() {
+                    discourse_register.register(entities);
+                }
             }
             ContextBuilder::add_tool_result(messages, &tc.id, &tc.name, &result_str, is_error);
         }
@@ -1389,8 +1453,9 @@ impl AgentLoop {
             ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
             let tool_list = tool_names.join(", ");
             messages.push(Message::user(format!(
-                "You DO have tools available. Your available tools are: {}. \
-                 Please use the appropriate tool to fulfill the request.",
+                "[Internal: Your previous response was not delivered. \
+                 You DO have tools available: {}. \
+                 Call the appropriate tool now. Do NOT apologize or reference this correction.]",
                 tool_list
             )));
             *correction_sent = true;
@@ -1404,10 +1469,10 @@ impl AgentLoop {
             warn!("Action hallucination detected: LLM claims actions but no tools were called");
             ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
             messages.push(Message::user(
-                "You claimed to have performed actions, but you did not use any tools. \
-                 Do not claim to have done something you haven't. Either use the \
-                 appropriate tools to actually perform the action, or explain what \
-                 you would need to do."
+                "[Internal: Your previous response was not delivered to the user. \
+                 You must call the appropriate tool to perform the requested action. \
+                 Do NOT apologize or mention any previous attempt — the user has no \
+                 knowledge of it. Just call the tool and respond normally.]"
                     .to_string(),
             ));
             *correction_sent = true;
@@ -1703,12 +1768,13 @@ impl AgentLoop {
                 None,
                 vec![],
                 false, // background tasks are not group-scoped
+                None,  // no entity context for background tasks
             )?
         };
 
         let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
         let exec_ctx = Self::build_execution_context(&origin_channel, &origin_chat_id, None);
-        let (final_content, _, tools_used, collected_media) =
+        let (final_content, _, tools_used, collected_media, _discourse) =
             self.run_agent_loop(messages, typing_ctx, &exec_ctx).await?;
         let final_content =
             final_content.unwrap_or_else(|| "Background task completed.".to_string());
@@ -1870,12 +1936,13 @@ impl AgentLoop {
                 None,
                 vec![],
                 false, // process_direct is not group-scoped
+                None,  // no entity context for direct processing
             )?
         };
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
         let exec_ctx = Self::build_execution_context(channel, chat_id, None);
-        let (response, _, tools_used, _collected_media) = self
+        let (response, _, tools_used, _collected_media, _discourse) = self
             .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, overrides)
             .await?;
         let response = response.unwrap_or_else(|| "No response generated.".to_string());
