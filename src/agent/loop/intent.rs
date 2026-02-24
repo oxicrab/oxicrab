@@ -107,26 +107,25 @@ static PROTOTYPE_CACHE: LazyLock<Mutex<Option<Vec<Vec<f32>>>>> = LazyLock::new(|
 
 /// Classify action intent using embedding cosine similarity.
 ///
-/// Compares the user message against `ACTION_PROTOTYPES` and returns `true`
-/// if the max similarity exceeds the threshold. Returns `None` if embeddings
-/// are unavailable or fail (caller should fall back to regex).
+/// Returns `Some((is_action, score))` where `score` is the max cosine similarity
+/// against action prototypes. Returns `None` if embeddings are unavailable or fail.
 ///
 /// Prototype embeddings are computed once and cached for the process lifetime.
 pub fn classify_action_intent_semantic(
     text: &str,
     embedding_service: &EmbeddingService,
-) -> Option<bool> {
+) -> Option<(bool, f32)> {
     let trimmed = text.trim();
     if trimmed.len() < 5 {
-        return Some(false);
+        return Some((false, 0.0));
     }
 
     // Informational and negation overrides apply to semantic classification too
     if INFORMATIONAL_OVERRIDE_RE.is_match(trimmed) {
-        return Some(false);
+        return Some((false, 0.0));
     }
     if NEGATION_RE.is_match(trimmed) && !NEGATION_EXCEPTION_RE.is_match(trimmed) {
-        return Some(false);
+        return Some((false, 0.0));
     }
 
     // Embed the user's message (LRU-cached in EmbeddingService)
@@ -155,7 +154,7 @@ pub fn classify_action_intent_semantic(
         max_sim, SEMANTIC_ACTION_THRESHOLD, trimmed
     );
 
-    Some(max_sim >= SEMANTIC_ACTION_THRESHOLD)
+    Some((max_sim >= SEMANTIC_ACTION_THRESHOLD, max_sim))
 }
 
 /// Classify whether a user message likely requires tool use.

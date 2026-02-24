@@ -17,6 +17,7 @@ use crate::agent::compaction::{
 use crate::agent::context::ContextBuilder;
 use crate::agent::cost_guard::CostGuard;
 use crate::agent::memory::MemoryStore;
+use crate::agent::memory::memory_db::MemoryDB;
 use crate::agent::subagent::{SubagentConfig, SubagentManager};
 use crate::agent::tools::ToolRegistry;
 use crate::agent::tools::base::ExecutionContext;
@@ -828,12 +829,35 @@ impl AgentLoop {
         };
         debug!("Built {} messages, starting agent loop", messages.len());
 
-        let user_action_intent = intent::classify_action_intent(&content)
-            || self
-                .memory
+        let regex_intent = intent::classify_action_intent(&content);
+        let (semantic_result, semantic_score) = if regex_intent {
+            (None, None)
+        } else {
+            self.memory
                 .embedding_service()
                 .and_then(|svc| intent::classify_action_intent_semantic(&content, svc))
-                .unwrap_or(false);
+                .map_or((None, None), |(result, score)| (Some(result), Some(score)))
+        };
+        let user_action_intent = regex_intent || semantic_result.unwrap_or(false);
+
+        // Record intent classification metrics
+        let intent_method = if regex_intent {
+            "regex"
+        } else if semantic_result == Some(true) {
+            "semantic"
+        } else {
+            "none"
+        };
+        if let Err(e) = self.memory.db().record_intent_event(
+            "classification",
+            Some(intent_method),
+            semantic_score,
+            None,
+            &content,
+        ) {
+            debug!("failed to record intent metric: {}", e);
+        }
+
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
         let (final_content, input_tokens, tools_used, collected_media, loop_discourse) = self
             .run_agent_loop(messages, typing_ctx, &exec_ctx, user_action_intent)
@@ -1199,6 +1223,7 @@ impl AgentLoop {
                     &mut correction_sent,
                     &tool_names,
                     user_has_action_intent,
+                    Some(&self.memory.db()),
                 ) {
                     TextAction::Continue => {}
                     TextAction::Return => {
@@ -1453,6 +1478,7 @@ impl AgentLoop {
     /// 1. False "no tools" claim detection (LLM says it has no tools)
     /// 2. Regex-based action claim detection (fast-path for obvious hallucinations)
     /// 3. Intent-based structural detection (backstop: user asked for action + no tools called)
+    #[allow(clippy::too_many_arguments)]
     fn handle_text_response(
         content: &str,
         messages: &mut Vec<Message>,
@@ -1461,6 +1487,7 @@ impl AgentLoop {
         correction_sent: &mut bool,
         tool_names: &[String],
         user_has_action_intent: bool,
+        db: Option<&MemoryDB>,
     ) -> TextAction {
         // Detect false "no tools" claims and retry with correction
         if !tool_names.is_empty() && is_false_no_tools_claim(content) {
@@ -1468,6 +1495,17 @@ impl AgentLoop {
                 "False no-tools claim detected: LLM claims tools unavailable but {} tools are registered",
                 tool_names.len()
             );
+            if let Some(db) = db
+                && let Err(e) = db.record_intent_event(
+                    "hallucination",
+                    None,
+                    None,
+                    Some("layer0_false_no_tools"),
+                    content,
+                )
+            {
+                debug!("failed to record hallucination metric: {}", e);
+            }
             ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
             let tool_list = tool_names.join(", ");
             messages.push(Message::user(format!(
@@ -1485,6 +1523,17 @@ impl AgentLoop {
             && (contains_action_claims(content) || mentions_multiple_tools(content, tool_names))
         {
             warn!("Action hallucination detected: LLM claims actions but no tools were called");
+            if let Some(db) = db
+                && let Err(e) = db.record_intent_event(
+                    "hallucination",
+                    None,
+                    None,
+                    Some("layer1_regex"),
+                    content,
+                )
+            {
+                debug!("failed to record hallucination metric: {}", e);
+            }
             ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
             messages.push(Message::user(
                 "[Internal: Your previous response was not delivered to the user. \
@@ -1509,6 +1558,17 @@ impl AgentLoop {
             warn!(
                 "Intent mismatch: user requested action but LLM returned text without calling tools"
             );
+            if let Some(db) = db
+                && let Err(e) = db.record_intent_event(
+                    "hallucination",
+                    None,
+                    None,
+                    Some("layer2_intent"),
+                    content,
+                )
+            {
+                debug!("failed to record hallucination metric: {}", e);
+            }
             ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
             messages.push(Message::user(
                 "[Internal: Your previous response was not delivered to the user. \
@@ -1985,12 +2045,34 @@ impl AgentLoop {
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
         let exec_ctx = Self::build_execution_context(channel, chat_id, None);
-        let user_action_intent = intent::classify_action_intent(content)
-            || self
-                .memory
+        let regex_intent = intent::classify_action_intent(content);
+        let (semantic_result, semantic_score) = if regex_intent {
+            (None, None)
+        } else {
+            self.memory
                 .embedding_service()
                 .and_then(|svc| intent::classify_action_intent_semantic(content, svc))
-                .unwrap_or(false);
+                .map_or((None, None), |(result, score)| (Some(result), Some(score)))
+        };
+        let user_action_intent = regex_intent || semantic_result.unwrap_or(false);
+
+        let intent_method = if regex_intent {
+            "regex"
+        } else if semantic_result == Some(true) {
+            "semantic"
+        } else {
+            "none"
+        };
+        if let Err(e) = self.memory.db().record_intent_event(
+            "classification",
+            Some(intent_method),
+            semantic_score,
+            None,
+            content,
+        ) {
+            debug!("failed to record intent metric: {}", e);
+        }
+
         let (response, _, tools_used, _collected_media, _discourse) = self
             .run_agent_loop_with_overrides(
                 messages,

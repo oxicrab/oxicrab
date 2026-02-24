@@ -30,6 +30,26 @@ pub struct SearchStats {
 }
 
 #[derive(Debug, Clone)]
+pub struct IntentStats {
+    pub total_classified: u64,
+    pub regex_action: u64,
+    pub semantic_action: u64,
+    pub not_action: u64,
+    pub hallucinations_caught: u64,
+    pub layer1_regex: u64,
+    pub layer2_intent: u64,
+    pub avg_semantic_score_action: f64,
+    pub avg_semantic_score_non_action: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct IntentEvent {
+    pub timestamp: String,
+    pub detection_layer: Option<String>,
+    pub message_preview: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct DlqEntry {
     pub id: i64,
     pub job_id: String,
@@ -223,6 +243,24 @@ impl MemoryDB {
                 status TEXT NOT NULL DEFAULT 'pending_retry'
             )",
             [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS intent_metrics (
+                id INTEGER PRIMARY KEY,
+                timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+                event_type TEXT NOT NULL,
+                intent_method TEXT,
+                semantic_score REAL,
+                detection_layer TEXT,
+                message_preview TEXT
+            )",
+            [],
+        )?;
+
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_intent_metrics_date ON intent_metrics(timestamp);
+             CREATE INDEX IF NOT EXISTS idx_intent_metrics_type ON intent_metrics(event_type);",
         )?;
 
         // Try to create FTS5 virtual table
@@ -1010,6 +1048,165 @@ impl MemoryDB {
             })?
             .collect();
         rows.map_err(|e| anyhow::anyhow!("failed to get top sources: {}", e))
+    }
+
+    /// Record an intent classification or hallucination detection event.
+    ///
+    /// - `event_type`: `"classification"` or `"hallucination"`
+    /// - `intent_method`: `"regex"`, `"semantic"`, or `"none"` (for classification)
+    /// - `semantic_score`: cosine similarity score (if semantic classifier ran)
+    /// - `detection_layer`: `"layer0_false_no_tools"`, `"layer1_regex"`, `"layer2_intent"`
+    /// - `message_preview`: first 100 chars of user message or LLM response
+    pub fn record_intent_event(
+        &self,
+        event_type: &str,
+        intent_method: Option<&str>,
+        semantic_score: Option<f32>,
+        detection_layer: Option<&str>,
+        message_preview: &str,
+    ) -> Result<()> {
+        let preview = if message_preview.len() > 100 {
+            &message_preview[..message_preview
+                .char_indices()
+                .nth(100)
+                .map_or(message_preview.len(), |(i, _)| i)]
+        } else {
+            message_preview
+        };
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        conn.execute(
+            "INSERT INTO intent_metrics
+             (event_type, intent_method, semantic_score, detection_layer, message_preview)
+             VALUES (?, ?, ?, ?, ?)",
+            params![
+                event_type,
+                intent_method,
+                semantic_score,
+                detection_layer,
+                preview,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Get intent metrics summary for the given period.
+    pub fn get_intent_stats(&self, since_date: &str) -> Result<IntentStats> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+
+        let total: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'classification' AND DATE(timestamp) >= ?",
+                [since_date],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        let regex_action: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'classification' AND intent_method = 'regex' AND DATE(timestamp) >= ?",
+                [since_date],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        let semantic_action: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'classification' AND intent_method = 'semantic' AND DATE(timestamp) >= ?",
+                [since_date],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        let not_action: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'classification' AND intent_method = 'none' AND DATE(timestamp) >= ?",
+                [since_date],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        let hallucinations: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'hallucination' AND DATE(timestamp) >= ?",
+                [since_date],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        let layer1_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'hallucination' AND detection_layer = 'layer1_regex' AND DATE(timestamp) >= ?",
+                [since_date],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        let layer2_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'hallucination' AND detection_layer = 'layer2_intent' AND DATE(timestamp) >= ?",
+                [since_date],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        let avg_semantic_action: f64 = conn
+            .query_row(
+                "SELECT COALESCE(AVG(semantic_score), 0.0) FROM intent_metrics
+                 WHERE event_type = 'classification' AND intent_method = 'semantic' AND DATE(timestamp) >= ?",
+                [since_date],
+                |row| row.get(0),
+            )
+            .unwrap_or(0.0);
+
+        let avg_semantic_non_action: f64 = conn
+            .query_row(
+                "SELECT COALESCE(AVG(semantic_score), 0.0) FROM intent_metrics
+                 WHERE event_type = 'classification' AND intent_method = 'none' AND semantic_score IS NOT NULL AND DATE(timestamp) >= ?",
+                [since_date],
+                |row| row.get(0),
+            )
+            .unwrap_or(0.0);
+
+        Ok(IntentStats {
+            total_classified: total as u64,
+            regex_action: regex_action as u64,
+            semantic_action: semantic_action as u64,
+            not_action: not_action as u64,
+            hallucinations_caught: hallucinations as u64,
+            layer1_regex: layer1_count as u64,
+            layer2_intent: layer2_count as u64,
+            avg_semantic_score_action: avg_semantic_action,
+            avg_semantic_score_non_action: avg_semantic_non_action,
+        })
+    }
+
+    /// Get recent hallucination events for inspection.
+    pub fn get_recent_hallucinations(&self, limit: usize) -> Result<Vec<IntentEvent>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT timestamp, detection_layer, message_preview
+             FROM intent_metrics WHERE event_type = 'hallucination'
+             ORDER BY timestamp DESC LIMIT ?",
+        )?;
+        let rows: Result<Vec<_>, _> = stmt
+            .query_map([limit as i64], |row| {
+                Ok(IntentEvent {
+                    timestamp: row.get(0)?,
+                    detection_layer: row.get(1)?,
+                    message_preview: row.get(2)?,
+                })
+            })?
+            .collect();
+        rows.map_err(|e| anyhow::anyhow!("failed to get recent hallucinations: {}", e))
     }
 
     /// Purge search access logs older than `days`. Returns number of rows deleted.

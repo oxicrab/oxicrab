@@ -859,6 +859,7 @@ fn test_conversational_reply_passes_through() {
             &mut correction_sent,
             &tool_names,
             false, // user message was conversational, not action intent
+            None,
         );
         assert!(
             matches!(result, TextAction::Return),
@@ -883,6 +884,7 @@ fn test_action_hallucination_caught_without_tool_forcing() {
         &mut correction_sent,
         &tool_names,
         true, // user requested an action
+        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
@@ -906,6 +908,7 @@ fn test_action_hallucination_repeatable_correction() {
         &mut correction_sent,
         &tool_names,
         true, // user requested an action
+        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
@@ -928,6 +931,7 @@ fn test_legitimate_tool_response_passes_through() {
         &mut correction_sent,
         &tool_names,
         true, // user requested an action
+        None,
     );
     assert!(
         matches!(result, TextAction::Return),
@@ -952,6 +956,7 @@ fn test_false_no_tools_claim_always_fires() {
         &mut correction_sent,
         &tool_names,
         true, // user requested an action
+        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
@@ -987,6 +992,7 @@ fn test_text_after_tools_called_passes_action_claims() {
             &mut correction_sent,
             &tool_names,
             true, // user requested an action
+            None,
         );
         assert!(
             matches!(result, TextAction::Return),
@@ -1015,6 +1021,7 @@ fn test_empty_tool_names_disables_false_no_tools_check() {
         &mut correction_sent,
         &tool_names,
         true, // user requested an action
+        None,
     );
     assert!(
         matches!(result, TextAction::Return),
@@ -1043,6 +1050,7 @@ fn test_mentions_multiple_tools_triggers_correction() {
         &mut correction_sent,
         &tool_names,
         true, // user requested an action
+        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
