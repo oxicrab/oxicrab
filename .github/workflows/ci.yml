@@ -24,10 +24,24 @@ jobs:
     name: Detect Changes
     runs-on: ubuntu-latest
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      code: ${{ steps.result.outputs.code }}
+      skip: ${{ steps.skip.outputs.skip }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Check for [no ci] in commit message
+        id: skip
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message || github.event.pull_request.title }}
+        run: |
+          if echo "$COMMIT_MSG" | grep -qiF '[no ci]'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: dorny/paths-filter@v3
+        if: steps.skip.outputs.skip != 'true'
         id: filter
         with:
           filters: |
@@ -42,6 +56,15 @@ jobs:
               - 'deploy/**'
               - '.github/workflows/**'
               - '.cargo/**'
+
+      - name: Set code output
+        id: result
+        run: |
+          if [[ "${{ steps.skip.outputs.skip }}" == "true" ]]; then
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=${{ steps.filter.outputs.code }}" >> "$GITHUB_OUTPUT"
+          fi
 
   # ── Compile (Debug) ──────────────────────────────────────────────────
   compile-debug:
@@ -147,6 +170,8 @@ jobs:
   # ── Quick Checks (no compilation) ────────────────────────────────────
   check:
     name: Format & Advisories
+    needs: [changes]
+    if: needs.changes.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -704,6 +729,7 @@ jobs:
       - name: Check results
         run: |
           echo "changes.code: ${{ needs.changes.outputs.code }}"
+          echo "changes.skip: ${{ needs.changes.outputs.skip }}"
           echo "check: ${{ needs.check.result }}"
           echo "clippy: ${{ needs.clippy.result }}"
           echo "test-unit: ${{ needs.test-unit.result }}"
@@ -714,7 +740,7 @@ jobs:
           echo "package-linux: ${{ needs.package-linux.result }}"
           echo "package-macos: ${{ needs.package-macos.result }}"
 
-          # check always runs (lightweight) — must pass
+          # check runs unless [no ci] — must pass when it runs
           if [[ "${{ needs.check.result }}" == "failure" || "${{ needs.check.result }}" == "cancelled" ]]; then
             echo "::error::check failed"
             exit 1
