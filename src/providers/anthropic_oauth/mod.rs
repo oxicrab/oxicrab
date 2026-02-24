@@ -613,6 +613,28 @@ impl LLMProvider for AnthropicOAuthProvider {
             .send()
             .await;
         match result {
+            Ok(resp) if resp.status() == reqwest::StatusCode::UNAUTHORIZED => {
+                // Token was stale despite expires_at not elapsed (e.g. Claude CLI
+                // refreshed it after we read the file). Retry with refresh, same
+                // as chat() does.
+                warn!("anthropic oauth warmup got 401, attempting token refresh");
+                let refresh_token = self.refresh_token.lock().await.clone();
+                if refresh_token.is_empty() {
+                    warn!("oauth warmup 401 but no refresh token available");
+                } else {
+                    match self.refresh_token_internal(&refresh_token).await {
+                        Ok(()) => {
+                            info!(
+                                "oauth token refreshed during warmup in {}ms",
+                                start.elapsed().as_millis()
+                            );
+                        }
+                        Err(e) => {
+                            warn!("oauth token refresh failed during warmup: {}", e);
+                        }
+                    }
+                }
+            }
             Ok(resp) if !resp.status().is_success() => {
                 warn!(
                     "anthropic oauth warmup got HTTP {} (non-fatal)",

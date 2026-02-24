@@ -208,6 +208,10 @@ impl ProviderFactory {
 
         // Try explicit config first
         if !self.oauth_config.access_token.is_empty() {
+            info!(
+                "using Anthropic OAuth provider (explicit config) for model: {}",
+                model
+            );
             return Ok(Some(Arc::new(AnthropicOAuthProvider::new(
                 self.oauth_config.access_token.clone(),
                 self.oauth_config.refresh_token.clone(),
@@ -223,11 +227,19 @@ impl ProviderFactory {
         // Try Claude CLI auto-detection
         if let Ok(Some(provider)) = AnthropicOAuthProvider::from_claude_cli(Some(model.to_string()))
         {
+            info!(
+                "using Anthropic OAuth provider (Claude CLI auto-detect) for model: {}",
+                model
+            );
             return Ok(Some(Arc::new(provider)));
         }
 
         // Try OpenClaw auto-detection
         if let Ok(Some(provider)) = AnthropicOAuthProvider::from_openclaw(Some(model.to_string())) {
+            info!(
+                "using Anthropic OAuth provider (OpenClaw auto-detect) for model: {}",
+                model
+            );
             return Ok(Some(Arc::new(provider)));
         }
 
@@ -237,6 +249,10 @@ impl ProviderFactory {
             if let Ok(Some(provider)) =
                 AnthropicOAuthProvider::from_credentials_file(&path_buf, Some(model.to_string()))
             {
+                info!(
+                    "using Anthropic OAuth provider (credentials file) for model: {}",
+                    model
+                );
                 return Ok(Some(Arc::new(provider)));
             }
         }
