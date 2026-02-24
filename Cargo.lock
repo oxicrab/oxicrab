@@ -3115,6 +3115,7 @@ dependencies = [
 name = "oxicrab"
 version = "0.11.3"
 dependencies = [
+ "aho-corasick",
  "anyhow",
  "async-trait",
  "axum",

@@ -31,6 +31,7 @@ channel-whatsapp = ["dep:whatsapp-rust", "dep:whatsapp-rust-tokio-transport", "d
 channel-twilio = ["dep:sha1"]
 
 [dependencies]
+aho-corasick = "1.1"
 anyhow = "1.0"
 async-trait = "0.1"
 axum = "0.8"

@@ -208,3 +208,66 @@ fn test_decode_hex_odd_length() {
 fn test_decode_hex_invalid_chars() {
     assert!(hex::decode("zzzz").is_err());
 }
+
+// --- Aho-Corasick two-phase tests ---
+
+#[test]
+fn test_multiple_secret_types_detected_in_one_pass() {
+    let detector = LeakDetector::new();
+    let text = concat!(
+        "keys: sk-ant-api03-abcdefghijklmnopqrst12345 ",
+        "and ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij ",
+        "and gsk_abcdefghijklmnopqrstuvwx"
+    );
+    let matches = detector.scan(text);
+    let names: Vec<&str> = matches.iter().map(|m| m.name).collect();
+    assert!(names.contains(&"anthropic_api_key"));
+    assert!(names.contains(&"github_pat"));
+    assert!(names.contains(&"groq_api_key"));
+    assert_eq!(matches.len(), 3);
+}
+
+#[test]
+fn test_sk_prefix_resolves_correct_pattern() {
+    let detector = LeakDetector::new();
+    // sk-ant- should match Anthropic, not OpenAI
+    let text = "sk-ant-api03-abcdefghijklmnopqrst12345";
+    let matches = detector.scan(text);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "anthropic_api_key");
+
+    // sk-proj- should match OpenAI
+    let text2 = "sk-proj-abcdefghijklmnopqrstuvwx";
+    let matches2 = detector.scan(text2);
+    assert_eq!(matches2.len(), 1);
+    assert_eq!(matches2[0].name, "openai_api_key");
+}
+
+#[test]
+fn test_no_secrets_skips_regex_phase() {
+    let detector = LeakDetector::new();
+    // Long text with no secret prefixes — AC should find nothing,
+    // regex phase should be skipped entirely
+    let text = "The quick brown fox jumps over the lazy dog. ".repeat(100);
+    let matches = detector.scan(&text);
+    assert!(matches.is_empty());
+}
+
+#[test]
+fn test_discord_token_detected() {
+    let detector = LeakDetector::new();
+    // Discord tokens have dots as separators: <24chars>.<6chars>.<27+chars>
+    let text = "ABCDEFGHIJKLMNOPQRSTUVWx.ABCDEf.ABCDEFGHIJKLMNOPQRSTUVWXYZa";
+    let matches = detector.scan(text);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "discord_bot_token");
+}
+
+#[test]
+fn test_aws_key_detected() {
+    let detector = LeakDetector::new();
+    let text = "AWS key: AKIAIOSFODNN7EXAMPLE";
+    let matches = detector.scan(text);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "aws_access_key");
+}
