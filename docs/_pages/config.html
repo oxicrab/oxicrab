@@ -368,6 +368,7 @@ max_width: 820px
 
         <h3>Compaction</h3>
         <p>Config path: <code>agents.defaults.compaction</code></p>
+        <p>After compaction builds the final message list, orphaned tool messages are automatically cleaned up. Tool result messages (<code>role="tool"</code>) whose <code>tool_call_id</code> has no matching assistant <code>tool_use</code> block are removed to prevent API errors with providers that enforce strict tool pairing (e.g. Anthropic).</p>
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
             <tr><td>enabled</td><td>bool</td><td>true</td><td>Enable automatic context compaction</td></tr>
@@ -412,6 +413,7 @@ max_width: 820px
             <tr><td>searchFusionStrategy</td><td>string</td><td>"weighted_score"</td><td>Fusion strategy for hybrid search: <code>"weighted_score"</code> (linear blend) or <code>"rrf"</code> (reciprocal rank fusion)</td></tr>
             <tr><td>rrfK</td><td>u32</td><td>60</td><td>RRF smoothing constant (only used when fusion strategy is <code>"rrf"</code>)</td></tr>
             <tr><td>embeddingCacheSize</td><td>usize</td><td>10000</td><td>LRU cache size for embedding query results</td></tr>
+            <tr><td>recencyHalfLifeDays</td><td>u32</td><td>90</td><td>Half-life in days for BM25 recency decay. Older entries get lower keyword search scores. 0 disables decay.</td></tr>
         </table>
 
         <p>When embeddings are enabled, the system prompt context injection automatically uses hybrid search (combined keyword + vector similarity) instead of keyword-only search. Missing embeddings are back-filled automatically during indexing.</p>

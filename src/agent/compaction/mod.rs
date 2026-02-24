@@ -1,7 +1,7 @@
 use crate::providers::base::{ChatRequest, LLMProvider, Message};
 use anyhow::Result;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, warn};
 
@@ -75,6 +75,91 @@ fn extract_message_text(content: Option<&Value>) -> String {
         return parts.join(" ");
     }
     String::new()
+}
+
+/// Remove orphaned tool messages from a message list.
+///
+/// After compaction removes older messages, a `tool_result` (role="tool")
+/// may reference a `tool_use` that no longer exists, or an assistant message
+/// with `tool_calls` may lack corresponding `tool_result` responses. These
+/// orphans can cause API errors with providers that enforce strict pairing
+/// (e.g. Anthropic).
+///
+/// Scans the message list in two passes:
+/// 1. Collect all `tool_call` IDs from assistant messages and all
+///    `tool_call` IDs referenced by tool-result messages.
+/// 2. Remove tool-result messages whose ID has no matching assistant
+///    `tool_call`, and remove assistant `tool_calls` whose ID has no
+///    matching tool-result.
+#[allow(clippy::implicit_hasher)]
+pub fn strip_orphaned_tool_messages(messages: &mut Vec<HashMap<String, Value>>) -> (usize, usize) {
+    // Collect tool_call IDs from assistant messages (tool_use side)
+    let mut assistant_tool_ids: HashSet<String> = HashSet::new();
+    for msg in messages.iter() {
+        if msg.get("role").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+        // tool_calls stored as array in extra map
+        if let Some(tool_calls) = msg.get("tool_calls").and_then(Value::as_array) {
+            for tc in tool_calls {
+                if let Some(id) = tc.get("id").and_then(Value::as_str) {
+                    assistant_tool_ids.insert(id.to_string());
+                }
+            }
+        }
+        // Also check content array for Anthropic-style tool_use blocks
+        if let Some(content) = msg.get("content").and_then(Value::as_array) {
+            for block in content {
+                if block.get("type").and_then(Value::as_str) == Some("tool_use")
+                    && let Some(id) = block.get("id").and_then(Value::as_str)
+                {
+                    assistant_tool_ids.insert(id.to_string());
+                }
+            }
+        }
+    }
+
+    // Collect tool_call IDs from tool-result messages
+    let mut result_tool_ids: HashSet<String> = HashSet::new();
+    for msg in messages.iter() {
+        if msg.get("role").and_then(Value::as_str) != Some("tool") {
+            continue;
+        }
+        if let Some(id) = msg.get("tool_call_id").and_then(Value::as_str) {
+            result_tool_ids.insert(id.to_string());
+        }
+    }
+
+    // Remove orphaned tool-result messages (no matching assistant tool_call)
+    let before_len = messages.len();
+    messages.retain(|msg| {
+        if msg.get("role").and_then(Value::as_str) != Some("tool") {
+            return true;
+        }
+        if let Some(id) = msg.get("tool_call_id").and_then(Value::as_str) {
+            assistant_tool_ids.contains(id)
+        } else {
+            // No tool_call_id — malformed, remove
+            false
+        }
+    });
+    let orphaned_results = before_len - messages.len();
+
+    // Count orphaned tool_calls (assistant has tool_call with no matching result)
+    // We don't remove assistant messages, but we log the count
+    let orphaned_calls = assistant_tool_ids
+        .iter()
+        .filter(|id| !result_tool_ids.contains(*id))
+        .count();
+
+    if orphaned_results > 0 || orphaned_calls > 0 {
+        debug!(
+            "stripped {} orphaned tool_result message(s) and found {} orphaned tool_call(s)",
+            orphaned_results, orphaned_calls
+        );
+    }
+
+    (orphaned_results, orphaned_calls)
 }
 
 pub struct MessageCompactor {

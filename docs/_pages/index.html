@@ -456,7 +456,7 @@ max_width: 1120px
         <div class="feature-name">23 Built-in Tools</div>
         <div class="feature-detail">
           <h3>Filesystem, shell, web, browser, and more</h3>
-          <p>Every tool has timeout protection, panic isolation via tokio::spawn, result caching, and truncation middleware. Plus MCP for external tool servers.</p>
+          <p>Every tool has timeout protection, panic isolation via tokio::spawn, result caching, binary blob sanitization, and truncation middleware. Plus MCP for external tool servers.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -470,7 +470,7 @@ max_width: 1120px
         <div class="feature-name">Sessions</div>
         <div class="feature-detail">
           <h3>Persistent sessions with automatic compaction</h3>
-          <p>Per-channel session management with context summarization. Long conversations are automatically compacted to stay within context limits while preserving key information.</p>
+          <p>Per-channel session management with context summarization. Long conversations are automatically compacted to stay within context limits while preserving key information. Orphaned tool messages are cleaned up post-compaction to prevent API errors.</p>
         </div>
       </div>
       <div class="feature-row">
