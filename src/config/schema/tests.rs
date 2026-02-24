@@ -670,3 +670,195 @@ fn test_fusion_strategy_default_and_serde() {
     let rrf: FusionStrategy = serde_json::from_str(r#""rrf""#).unwrap();
     assert_eq!(rrf, FusionStrategy::Rrf);
 }
+
+// -----------------------------------------------------------------------
+// config.example.json auto-generation
+// -----------------------------------------------------------------------
+
+/// Credential and structural overlays applied on top of `Config::default()`
+/// to produce a useful `config.example.json`. Paths use JSON pointer syntax.
+fn credential_overlays() -> Vec<(&'static str, serde_json::Value)> {
+    use serde_json::json;
+    vec![
+        // --- Fix f32 serialization artifacts ---
+        ("/agents/defaults/temperature", json!(0.7)),
+        // --- Credential helper example ---
+        ("/credentialHelper/format", json!("json")),
+        // --- Provider API keys ---
+        (
+            "/providers/anthropic/apiKey",
+            json!("sk-ant-your-anthropic-key"),
+        ),
+        ("/providers/openai/apiKey", json!("")),
+        ("/providers/gemini/apiKey", json!("")),
+        ("/providers/openrouter/apiKey", json!("")),
+        ("/providers/deepseek/apiKey", json!("")),
+        ("/providers/groq/apiKey", json!("")),
+        ("/providers/moonshot/apiKey", json!("")),
+        ("/providers/zhipu/apiKey", json!("")),
+        ("/providers/dashscope/apiKey", json!("")),
+        ("/providers/vllm/apiKey", json!("")),
+        ("/providers/ollama/apiKey", json!("")),
+        // --- Channel tokens ---
+        ("/channels/telegram/token", json!("your-telegram-bot-token")),
+        ("/channels/discord/token", json!("your-discord-bot-token")),
+        (
+            "/channels/slack/botToken",
+            json!("xoxb-your-slack-bot-token"),
+        ),
+        (
+            "/channels/slack/appToken",
+            json!("xapp-your-slack-app-token"),
+        ),
+        (
+            "/channels/twilio/accountSid",
+            json!("your-twilio-account-sid"),
+        ),
+        (
+            "/channels/twilio/authToken",
+            json!("your-twilio-auth-token"),
+        ),
+        ("/channels/twilio/phoneNumber", json!("+1234567890")),
+        ("/channels/twilio/webhookPort", json!(8080)),
+        ("/channels/twilio/webhookPath", json!("/twilio/webhook")),
+        (
+            "/channels/twilio/webhookUrl",
+            json!("https://your-domain.com/twilio/webhook"),
+        ),
+        // --- Tool credentials ---
+        (
+            "/tools/web/search/apiKey",
+            json!("your-brave-search-api-key"),
+        ),
+        ("/tools/github/token", json!("ghp_your-github-token")),
+        (
+            "/tools/weather/apiKey",
+            json!("your-openweathermap-api-key"),
+        ),
+        ("/tools/todoist/token", json!("your-todoist-api-token")),
+        ("/tools/google/clientId", json!("your-google-client-id")),
+        (
+            "/tools/google/clientSecret",
+            json!("your-google-client-secret"),
+        ),
+        ("/tools/media/radarr/apiKey", json!("your-radarr-api-key")),
+        ("/tools/media/sonarr/apiKey", json!("your-sonarr-api-key")),
+        (
+            "/tools/obsidian/apiKey",
+            json!("your-obsidian-local-rest-api-key"),
+        ),
+        ("/tools/obsidian/apiUrl", json!("https://127.0.0.1:27124")),
+        ("/tools/obsidian/vaultName", json!("MyVault")),
+        // --- Media URLs ---
+        ("/tools/media/radarr/url", json!("http://localhost:7878")),
+        ("/tools/media/sonarr/url", json!("http://localhost:8989")),
+        // --- Voice ---
+        ("/voice/transcription/apiKey", json!("your-groq-api-key")),
+        // --- Structural examples for empty HashMaps ---
+        (
+            "/tools/mcp/servers",
+            json!({
+                "example-server": {
+                    "command": "npx",
+                    "args": ["-y", "@example/mcp-server"],
+                    "env": {},
+                    "enabled": true
+                }
+            }),
+        ),
+        ("/gateway/webhooks", json!({})),
+        // --- Gateway host override for example (bind to all interfaces) ---
+        ("/gateway/host", json!("0.0.0.0")),
+    ]
+}
+
+/// Generate the expected `config.example.json` as a parsed JSON Value
+/// from `Config::default()` + credential overlays.
+fn generate_example_config() -> serde_json::Value {
+    let config = Config::default();
+    let mut value = serde_json::to_value(&config).expect("Config serializes to JSON");
+
+    for (pointer, overlay) in credential_overlays() {
+        // Walk the pointer path, creating intermediate objects if needed
+        let parts: Vec<&str> = pointer.trim_start_matches('/').split('/').collect();
+        let mut current = &mut value;
+        for (i, part) in parts.iter().enumerate() {
+            if i == parts.len() - 1 {
+                current[part] = overlay.clone();
+            } else {
+                if current.get(part).is_none() {
+                    current[part] = serde_json::json!({});
+                }
+                current = &mut current[part];
+            }
+        }
+    }
+
+    value
+}
+
+/// Collect paths where two JSON values differ, for readable error output.
+fn json_diff(path: &str, expected: &serde_json::Value, actual: &serde_json::Value) -> Vec<String> {
+    use serde_json::Value;
+    let mut diffs = Vec::new();
+
+    match (expected, actual) {
+        (Value::Object(e), Value::Object(a)) => {
+            for key in e.keys() {
+                let child_path = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                match a.get(key) {
+                    Some(av) => diffs.extend(json_diff(&child_path, &e[key], av)),
+                    None => diffs.push(format!("  missing key: {child_path}")),
+                }
+            }
+            for key in a.keys() {
+                if !e.contains_key(key) {
+                    let child_path = if path.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{path}.{key}")
+                    };
+                    diffs.push(format!("  extra key:   {child_path}"));
+                }
+            }
+        }
+        (Value::Array(e), Value::Array(a)) => {
+            if e.len() != a.len() {
+                diffs.push(format!("  {path}: array length {expected} vs {actual}"));
+            }
+            for (i, (ev, av)) in e.iter().zip(a.iter()).enumerate() {
+                diffs.extend(json_diff(&format!("{path}[{i}]"), ev, av));
+            }
+        }
+        _ => {
+            if expected != actual {
+                diffs.push(format!("  {path}: expected {expected}, got {actual}"));
+            }
+        }
+    }
+    diffs
+}
+
+#[test]
+fn test_config_example_is_up_to_date() {
+    let expected = generate_example_config();
+    let committed_str = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config.example.json"),
+    )
+    .expect("config.example.json should exist");
+    let committed: serde_json::Value =
+        serde_json::from_str(&committed_str).expect("config.example.json should be valid JSON");
+
+    let diffs = json_diff("", &expected, &committed);
+    assert!(
+        diffs.is_empty(),
+        "config.example.json is out of date with Config::default() + overlays!\n\
+         Update the file to match the schema, then re-run this test.\n\
+         Differences:\n{}",
+        diffs.join("\n")
+    );
+}

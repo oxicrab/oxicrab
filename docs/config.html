@@ -473,6 +473,7 @@
             <tr><td>keepRecent</td><td>usize</td><td>10</td><td>Number of recent messages to preserve verbatim</td></tr>
             <tr><td>extractionEnabled</td><td>bool</td><td>true</td><td>Extract facts to memory during compaction</td></tr>
             <tr><td>model</td><td>string?</td><td>null</td><td>Override model for compaction (uses default if null)</td></tr>
+            <tr><td>preFlushEnabled</td><td>bool</td><td>false</td><td>Flush pending memory notes to disk before compaction runs, ensuring extracted facts survive context truncation</td></tr>
             <tr><td>checkpoint</td><td>object</td><td>see below</td><td>Periodic checkpoint configuration</td></tr>
         </table>
 
@@ -506,6 +507,9 @@
             <tr><td>embeddingsEnabled</td><td>bool</td><td>false</td><td>Enable hybrid vector+keyword search via local ONNX embeddings</td></tr>
             <tr><td>embeddingsModel</td><td>string</td><td>BAAI/bge-small-en-v1.5</td><td>Embedding model for vector search</td></tr>
             <tr><td>hybridWeight</td><td>f32</td><td>0.5</td><td>Blend weight: 0.0 = keyword only, 1.0 = vector only</td></tr>
+            <tr><td>searchFusionStrategy</td><td>string</td><td>"weighted_score"</td><td>Fusion strategy for hybrid search: <code>"weighted_score"</code> (linear blend) or <code>"rrf"</code> (reciprocal rank fusion)</td></tr>
+            <tr><td>rrfK</td><td>u32</td><td>60</td><td>RRF smoothing constant (only used when fusion strategy is <code>"rrf"</code>)</td></tr>
+            <tr><td>embeddingCacheSize</td><td>usize</td><td>10000</td><td>LRU cache size for embedding query results</td></tr>
         </table>
 
         <p>When embeddings are enabled, the system prompt context injection automatically uses hybrid search (combined keyword + vector similarity) instead of keyword-only search. Missing embeddings are back-filled automatically during indexing.</p>
@@ -698,6 +702,46 @@
         <p>User messages are scanned with the configured action. Tool output is always warn-only (tool output may legitimately contain these phrases).</p>
     </div>
 
+    <!-- CONTEXT PROVIDERS -->
+    <div id="context-providers" class="cfg-section">
+        <h2>Context Providers</h2>
+        <p>External shell commands that inject dynamic content into the system prompt each turn. Each provider runs its command, caches the output with a TTL, and appends it under a <code># Dynamic Context</code> header.</p>
+
+        <p>Config path: <code>agents.defaults.contextProviders</code></p>
+        <pre><code>{
+  "agents": {
+    "defaults": {
+      "contextProviders": [
+        {
+          "name": "Git Status",
+          "command": "git",
+          "args": ["status", "--short"],
+          "enabled": true,
+          "timeout": 5,
+          "ttl": 60,
+          "requiresBins": ["git"],
+          "requiresEnv": []
+        }
+      ]
+    }
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>name</td><td>string</td><td><em>required</em></td><td>Section header in the system prompt</td></tr>
+            <tr><td>command</td><td>string</td><td><em>required</em></td><td>Executable to run</td></tr>
+            <tr><td>args</td><td>string[]</td><td>[]</td><td>Command arguments</td></tr>
+            <tr><td>enabled</td><td>bool</td><td>true</td><td>Enable or disable this provider</td></tr>
+            <tr><td>timeout</td><td>u64</td><td>5</td><td>Execution timeout in seconds</td></tr>
+            <tr><td>ttl</td><td>u64</td><td>300</td><td>Cache lifetime in seconds before re-executing</td></tr>
+            <tr><td>requiresBins</td><td>string[]</td><td>[]</td><td>Required binaries (skipped if any missing)</td></tr>
+            <tr><td>requiresEnv</td><td>string[]</td><td>[]</td><td>Required environment variables (skipped if any missing)</td></tr>
+        </table>
+
+        <p>Providers that fail, time out, or have missing dependencies are silently skipped &mdash; they never block the agent loop.</p>
+    </div>
+
     <!-- GATEWAY -->
     <div id="gateway" class="cfg-section">
         <h2>Gateway</h2>
@@ -726,6 +770,7 @@
             <tr><td>host</td><td>string</td><td>127.0.0.1</td><td>Bind address for the gateway HTTP server</td></tr>
             <tr><td>port</td><td>u16</td><td>18790</td><td>Port for the gateway HTTP server</td></tr>
             <tr><td>webhooks</td><td>object</td><td>{}</td><td>Named webhook receivers (see below)</td></tr>
+            <tr><td>a2a</td><td>object</td><td>{}</td><td>Agent-to-Agent protocol configuration (see below)</td></tr>
         </table>
 
         <h3>HTTP API Endpoints</h3>
@@ -734,7 +779,29 @@
             <tr><td>/api/chat</td><td>POST</td><td>Send a message and receive the agent's response. Body: <code>{"message": "...", "session_id": "..."}</code></td></tr>
             <tr><td>/api/health</td><td>GET</td><td>Health check. Returns <code>{"status": "ok", "version": "..."}</code></td></tr>
             <tr><td>/api/webhook/{name}</td><td>POST</td><td>Receive a webhook from an external service (see webhook config below)</td></tr>
+            <tr><td>/.well-known/agent.json</td><td>GET</td><td>A2A AgentCard (when A2A enabled)</td></tr>
+            <tr><td>/a2a/tasks</td><td>POST</td><td>Submit an A2A task. Body: <code>{"message": "..."}</code></td></tr>
+            <tr><td>/a2a/tasks/{id}</td><td>GET</td><td>Get A2A task status and result</td></tr>
         </table>
+
+        <h3>Agent-to-Agent (A2A) Protocol</h3>
+        <p>Google's A2A protocol for agent discovery and interoperability. When enabled, exposes an <code>AgentCard</code> at <code>/.well-known/agent.json</code> and a task lifecycle at <code>/a2a/tasks</code>.</p>
+        <pre><code>{
+  "gateway": {
+    "a2a": {
+      "enabled": true,
+      "agentName": "My Agent",
+      "agentDescription": "A helpful AI assistant"
+    }
+  }
+}</code></pre>
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable A2A protocol endpoints</td></tr>
+            <tr><td>agentName</td><td>string</td><td>"oxicrab"</td><td>Agent name in the AgentCard</td></tr>
+            <tr><td>agentDescription</td><td>string</td><td>"AI assistant powered by oxicrab"</td><td>Agent description in the AgentCard</td></tr>
+        </table>
+        <p>Tasks are processed through the same agent loop as chat messages. The task lifecycle: <strong>submitted</strong> &rarr; <strong>working</strong> &rarr; <strong>completed</strong> (or <strong>failed</strong>). Poll <code>GET /a2a/tasks/{id}</code> to check status.</p>
 
         <h3>Webhook Configuration</h3>
         <p>Each entry in <code>webhooks</code> creates a receiver at <code>POST /api/webhook/{name}</code>. Payloads are validated with HMAC-SHA256 signature verification (constant-time comparison).</p>

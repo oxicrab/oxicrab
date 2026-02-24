@@ -19,9 +19,58 @@ env:
   CMAKE_MACOS: ""
 
 jobs:
+  # ── Change Detection ────────────────────────────────────────────────
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.result.outputs.code }}
+      skip: ${{ steps.skip.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check for [no ci] in commit message
+        id: skip
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message || github.event.pull_request.title }}
+        run: |
+          if echo "$COMMIT_MSG" | grep -qiF '[no ci]'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: dorny/paths-filter@v3
+        if: steps.skip.outputs.skip != 'true'
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'tests/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'build.rs'
+              - 'fuzz/**'
+              - 'cmake/**'
+              - 'deploy/**'
+              - '.github/workflows/**'
+              - '.cargo/**'
+
+      - name: Set code output
+        id: result
+        run: |
+          if [[ "${{ steps.skip.outputs.skip }}" == "true" ]]; then
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=${{ steps.filter.outputs.code }}" >> "$GITHUB_OUTPUT"
+          fi
+
   # ── Compile (Debug) ──────────────────────────────────────────────────
   compile-debug:
     name: Compile Debug (${{ matrix.name }})
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -83,6 +132,8 @@ jobs:
   # ── Compile (Release, Linux) ─────────────────────────────────────────
   compile-release-linux:
     name: Compile Release (linux)
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -119,6 +170,8 @@ jobs:
   # ── Quick Checks (no compilation) ────────────────────────────────────
   check:
     name: Format & Advisories
+    needs: [changes]
+    if: needs.changes.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -140,11 +193,21 @@ jobs:
       - name: cargo-deny advisories
         run: cargo deny check advisories
 
+      - name: Check generated docs are up to date
+        run: |
+          python3 docs/build.py
+          if ! git diff --quiet -- docs/; then
+            echo "::error::Generated docs are stale. Run 'python3 docs/build.py' and commit."
+            git diff --stat -- docs/
+            exit 1
+          fi
+
   # ── Clippy ─────────────────────────────────────────────────────────
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
-    needs: [compile-debug]
+    needs: [changes, compile-debug]
+    if: needs.changes.outputs.code == 'true'
     permissions:
       contents: read
       security-events: write
@@ -199,7 +262,8 @@ jobs:
   # ── Unit Tests ──────────────────────────────────────────────────────
   test-unit:
     name: Unit Tests (${{ matrix.name }})
-    needs: [compile-debug]
+    needs: [changes, compile-debug]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -259,7 +323,8 @@ jobs:
   # ── Integration Tests ───────────────────────────────────────────────
   test-integration:
     name: Integration Tests (${{ matrix.name }})
-    needs: [compile-debug]
+    needs: [changes, compile-debug]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -336,8 +401,8 @@ jobs:
   test-results:
     name: Test Results
     runs-on: ubuntu-latest
-    needs: [test-unit, test-integration]
-    if: always()
+    needs: [changes, test-unit, test-integration]
+    if: always() && needs.changes.outputs.code == 'true'
     permissions:
       checks: write
       pull-requests: write
@@ -358,6 +423,8 @@ jobs:
   # ── Coverage ────────────────────────────────────────────────────────
   coverage:
     name: Coverage
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -411,7 +478,8 @@ jobs:
   binary-size:
     name: Binary Size
     runs-on: ubuntu-latest
-    needs: [compile-release-linux]
+    needs: [changes, compile-release-linux]
+    if: needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -487,7 +555,8 @@ jobs:
   package-linux:
     name: Package (linux)
     runs-on: ubuntu-latest
-    needs: [compile-release-linux]
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -496,21 +565,26 @@ jobs:
         with:
           toolchain: ${{ env.NIGHTLY_VERSION }}
 
-      - name: Restore cargo cache
-        uses: actions/cache/restore@v5
+      - name: Cache cargo
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: cargo-release-linux-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-release-linux-${{ env.NIGHTLY_VERSION }}-
+          key: cargo-package-linux-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-package-linux-${{ env.NIGHTLY_VERSION }}-
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake
+
+      - name: Build release binary
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+        env:
+          SOURCE_DATE_EPOCH: "1"
 
       - name: Build DEB package
         run: |
@@ -541,6 +615,8 @@ jobs:
   # ── Package (macOS) ─────────────────────────────────────────────────
   package-macos:
     name: Package (macos)
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
@@ -585,10 +661,11 @@ jobs:
       - name: Validate DMG
         run: hdiutil verify "oxicrab-ci-arm64.dmg"
 
-  # ── CI Gate ─────────────────────────────────────────────────────────
   # ── Fuzz Testing (Informational) ────────────────────────────────
   fuzz:
     name: Fuzz Testing
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -642,14 +719,17 @@ jobs:
         working-directory: fuzz
         continue-on-error: true
 
+  # ── CI Gate ─────────────────────────────────────────────────────────
   ci-gate:
     name: CI
     runs-on: ubuntu-latest
     if: always()
-    needs: [check, clippy, test-unit, test-integration, compile-debug, coverage, binary-size, package-linux, package-macos]
+    needs: [changes, check, clippy, test-unit, test-integration, compile-debug, coverage, binary-size, package-linux, package-macos]
     steps:
       - name: Check results
         run: |
+          echo "changes.code: ${{ needs.changes.outputs.code }}"
+          echo "changes.skip: ${{ needs.changes.outputs.skip }}"
           echo "check: ${{ needs.check.result }}"
           echo "clippy: ${{ needs.clippy.result }}"
           echo "test-unit: ${{ needs.test-unit.result }}"
@@ -660,11 +740,13 @@ jobs:
           echo "package-linux: ${{ needs.package-linux.result }}"
           echo "package-macos: ${{ needs.package-macos.result }}"
 
-          # Fail if any required job failed or was cancelled
+          # check runs unless [no ci] — must pass when it runs
           if [[ "${{ needs.check.result }}" == "failure" || "${{ needs.check.result }}" == "cancelled" ]]; then
             echo "::error::check failed"
             exit 1
           fi
+
+          # Code-gated jobs: fail on failure/cancelled, accept skipped (docs-only changes)
           if [[ "${{ needs.clippy.result }}" == "failure" || "${{ needs.clippy.result }}" == "cancelled" ]]; then
             echo "::error::clippy failed"
             exit 1
@@ -681,7 +763,8 @@ jobs:
             echo "::error::compile-debug failed"
             exit 1
           fi
-          # coverage, binary-size, and package are informational — warn but don't block
+
+          # Informational jobs — warn but don't block (accept skipped too)
           if [[ "${{ needs.coverage.result }}" == "failure" ]]; then
             echo "::warning::coverage failed (non-blocking)"
           fi

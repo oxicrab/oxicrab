@@ -532,8 +532,15 @@ max_width: 1120px
       <div class="feature-row">
         <div class="feature-name">HTTP Gateway</div>
         <div class="feature-detail">
-          <h3>REST API and webhook receivers</h3>
-          <p>Programmatic access via <code>POST /api/chat</code>. Named webhook endpoints with HMAC-SHA256 signature validation, template-based message formatting, and multi-channel delivery.</p>
+          <h3>REST API, webhooks, and A2A protocol</h3>
+          <p>Programmatic access via <code>POST /api/chat</code>. Named webhook endpoints with HMAC-SHA256 signature validation. Google A2A protocol for agent discovery and interoperability. Echo mode for channel testing without LLM.</p>
+        </div>
+      </div>
+      <div class="feature-row">
+        <div class="feature-name">Context Providers</div>
+        <div class="feature-detail">
+          <h3>Dynamic system prompt injection</h3>
+          <p>Shell commands that inject live context into every LLM turn. Cached with configurable TTL, dependency-checked, and silently skipped on failure. Add git status, environment info, or any external data to the system prompt.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -752,12 +759,14 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
       <span class="hl-key">"mediaTtlDays"</span>: <span class="hl-num">7</span>,
       <span class="hl-key">"maxConcurrentSubagents"</span>: <span class="hl-num">5</span>,
       <span class="hl-key">"localModel"</span>: <span class="hl-num">null</span>,
+      <span class="hl-key">"contextProviders"</span>: [],
       <span class="hl-key">"compaction"</span>: {
         <span class="hl-key">"enabled"</span>: <span class="hl-num">true</span>,
         <span class="hl-key">"thresholdTokens"</span>: <span class="hl-num">40000</span>,
         <span class="hl-key">"keepRecent"</span>: <span class="hl-num">10</span>,
         <span class="hl-key">"extractionEnabled"</span>: <span class="hl-num">true</span>,
-        <span class="hl-key">"model"</span>: <span class="hl-num">null</span>
+        <span class="hl-key">"model"</span>: <span class="hl-num">null</span>,
+        <span class="hl-key">"preFlushEnabled"</span>: <span class="hl-num">false</span>
       },
       <span class="hl-key">"daemon"</span>: {
         <span class="hl-key">"enabled"</span>: <span class="hl-num">true</span>,
@@ -772,7 +781,10 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
         <span class="hl-key">"purgeAfterDays"</span>: <span class="hl-num">90</span>,
         <span class="hl-key">"embeddingsEnabled"</span>: <span class="hl-num">false</span>,
         <span class="hl-key">"embeddingsModel"</span>: <span class="hl-str">"BAAI/bge-small-en-v1.5"</span>,
-        <span class="hl-key">"hybridWeight"</span>: <span class="hl-num">0.5</span>
+        <span class="hl-key">"hybridWeight"</span>: <span class="hl-num">0.5</span>,
+        <span class="hl-key">"searchFusionStrategy"</span>: <span class="hl-str">"weighted_score"</span>,
+        <span class="hl-key">"rrfK"</span>: <span class="hl-num">60</span>,
+        <span class="hl-key">"embeddingCacheSize"</span>: <span class="hl-num">10000</span>
       },
       <span class="hl-key">"costGuard"</span>: {
         <span class="hl-key">"dailyBudgetCents"</span>: <span class="hl-num">500</span>,
@@ -840,8 +852,11 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
     }
   },
   <span class="hl-key">"gateway"</span>: {
+    <span class="hl-key">"enabled"</span>: <span class="hl-num">true</span>,
     <span class="hl-key">"host"</span>: <span class="hl-str">"0.0.0.0"</span>,
-    <span class="hl-key">"port"</span>: <span class="hl-num">18790</span>
+    <span class="hl-key">"port"</span>: <span class="hl-num">18790</span>,
+    <span class="hl-key">"webhooks"</span>: {},
+    <span class="hl-key">"a2a"</span>: { <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span> }
   },
   <span class="hl-key">"tools"</span>: {
     <span class="hl-key">"web"</span>: {
