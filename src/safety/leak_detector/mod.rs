@@ -7,7 +7,8 @@ struct LeakPattern {
     name: &'static str,
     regex: Regex,
     /// Index into the Aho-Corasick automaton's pattern list.
-    ac_index: usize,
+    /// `None` if this pattern has no usable AC prefix and should always run.
+    ac_index: Option<usize>,
 }
 
 /// A runtime-added pattern for a known secret value (raw, base64, hex).
@@ -100,32 +101,38 @@ impl LeakDetector {
                 r"\b[0-9]+:AA[A-Za-z0-9_\-]{33,}",
                 ":AA",
             ),
-            // Discord bot tokens — no reliable short prefix, use "." as the
-            // separator that must appear in any match
+            // Discord bot tokens — no reliable literal prefix exists (pattern
+            // is all character classes). Empty prefix means AC cannot filter
+            // this pattern, so its regex always runs unconditionally.
             (
                 "discord_bot_token",
                 r"[A-Za-z0-9_\-]{24}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,200}",
-                ".",
+                "",
             ),
         ];
 
         let mut prefixes = Vec::with_capacity(pattern_defs.len());
         let mut patterns = Vec::with_capacity(pattern_defs.len());
 
-        for (i, (name, regex_str, prefix)) in pattern_defs.into_iter().enumerate() {
+        for (name, regex_str, prefix) in pattern_defs {
             match Regex::new(regex_str) {
                 Ok(regex) => {
-                    prefixes.push(prefix);
+                    let ac_index = if prefix.is_empty() {
+                        // No usable prefix — pattern will always run unconditionally
+                        None
+                    } else {
+                        let idx = prefixes.len();
+                        prefixes.push(prefix);
+                        Some(idx)
+                    };
                     patterns.push(LeakPattern {
                         name,
                         regex,
-                        ac_index: i,
+                        ac_index,
                     });
                 }
                 Err(e) => {
                     warn!("failed to compile leak pattern '{}': {}", name, e);
-                    // Push a dummy prefix to keep indices aligned
-                    prefixes.push("");
                 }
             }
         }
@@ -233,14 +240,16 @@ impl LeakDetector {
     }
 
     /// Use the Aho-Corasick automaton to determine which patterns have at least
-    /// one literal prefix hit in `text`. Returns a boolean vec indexed by
-    /// `self.patterns` position.
+    /// one literal prefix hit in `text`. Patterns without a usable AC prefix
+    /// are always marked as candidates (their regex runs unconditionally).
+    /// Returns a boolean vec indexed by `self.patterns` position.
     fn find_candidate_patterns(&self, text: &str) -> Vec<bool> {
-        let mut candidates = vec![false; self.patterns.len()];
+        let mut candidates: Vec<bool> =
+            self.patterns.iter().map(|p| p.ac_index.is_none()).collect();
         for ac_match in self.ac.find_overlapping_iter(text) {
             let ac_pattern_id = ac_match.pattern().as_usize();
             for (i, pattern) in self.patterns.iter().enumerate() {
-                if pattern.ac_index == ac_pattern_id {
+                if pattern.ac_index == Some(ac_pattern_id) {
                     candidates[i] = true;
                 }
             }
