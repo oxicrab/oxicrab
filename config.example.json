@@ -41,7 +41,8 @@
         "hybridWeight": 0.5,
         "searchFusionStrategy": "weighted_score",
         "rrfK": 60,
-        "embeddingCacheSize": 10000
+        "embeddingCacheSize": 10000,
+        "recencyHalfLifeDays": 90
       },
       "costGuard": {
         "dailyBudgetCents": null,
