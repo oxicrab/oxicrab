@@ -39,6 +39,13 @@ cargo test -- --test-threads=1
 
 Integration tests need `OXICRAB_HOME` set to a temp directory (CI uses `$RUNNER_TEMP/oxicrab-test`). Tests use `MockLLMProvider` from `tests/common/mod.rs` and `TempDir` for isolation.
 
+```bash
+# Fuzz testing (requires cargo-fuzz)
+cargo fuzz run fuzz_webhook_signature -- -max_total_time=30
+cargo fuzz run fuzz_config_parse -- -max_total_time=30
+# Targets: fuzz_webhook_signature, fuzz_config_parse, fuzz_prompt_guard, fuzz_leak_detector, fuzz_url_validation
+```
+
 ## Linting
 
 ```bash
@@ -160,3 +167,10 @@ Do **not** use `#[path = "foo_tests.rs"]` — this was previously used in 4 modu
 - **Input validation patterns (hardening)**: Strip `\r`/`\n` from email headers (Gmail). Reject URLs with embedded credentials. Filter control characters from sender IDs. Sanitize API error messages before returning to LLM (GitHub). Validate file paths against traversal (Reddit, Todoist, Skills). Reject `system` role messages in conversation history.
 - **Gateway router testing**: `tower` (dev dependency, `features = ["util"]`) provides `ServiceExt::oneshot()` for handler-level tests without starting a TCP server. Pattern: `build_router(state).oneshot(Request::builder()...build()).await`. Response type needs annotation: `let resp: axum::http::Response<_> = ...`. Use `axum::body::to_bytes(resp.into_body(), limit)` to read response bodies.
 - **MCP timeouts**: Server handshake: 30s. Tool discovery: 10s per server. Applied in `McpManager`.
+- **A2A protocol (Agent-to-Agent)**: `src/gateway/a2a.rs`. Config: `gateway.a2a` with `enabled` (default false), `agentName`, `agentDescription`. Three routes: `GET /.well-known/agent.json` (AgentCard), `POST /a2a/tasks` (submit task), `GET /a2a/tasks/{id}` (get status). Tasks use `channel="http"`, `sender_id="a2a"` — routed through the same `pending` map and `route_response()` as the chat API. 120s timeout. `gateway::start()` accepts `a2a_config: Option<A2aConfig>`.
+- **Context providers (dynamic system prompt)**: `src/agent/context/providers.rs`. Config: `agents.defaults.contextProviders` array of `ContextProviderConfig` with fields: `name`, `command`, `args`, `enabled` (default true), `timeout` (default 5s), `ttl` (default 300s), `requiresBins`, `requiresEnv`. Providers execute shell commands and cache output. Output injected into system prompt as `# Dynamic Context` section. `context_providers: Vec<ContextProviderConfig>` was added to `AgentLoopConfig`.
+- **Cron dead letter queue**: Failed cron job executions are stored in `scheduled_task_dlq` SQLite table (`DlqEntry` struct in `src/agent/memory/memory_db/mod.rs`). Auto-purge keeps only 100 most recent entries. Three new cron tool actions: `dlq_list` (with optional `dlq_status` filter), `dlq_replay` (by `dlq_id`), `dlq_clear`. `CronTool::new()` takes `memory_db: Option<Arc<MemoryDB>>`. `setup_cron_callbacks()` also takes a `memory_db` parameter.
+- **Pre-compaction memory flush**: `CompactionConfig.pre_flush_enabled` (camelCase: `preFlushEnabled`, default false). When enabled, before compaction removes messages, an LLM call (800 max tokens, temperature 0.0) extracts important context and appends it to daily notes as `## Pre-compaction context`. Session metadata tracks `pre_flush_msg_count` to prevent double-flush.
+- **Remember fast path**: `src/agent/memory/remember.rs`. Six trigger patterns (case-insensitive): "remember that ", "remember: ", "please remember ", "don't forget ", "note that ", "keep in mind ". Bypasses LLM entirely — writes directly to daily notes. Rejects: content < 8 chars, questions ending with `?`, interrogative forms (when/how/what/why/if/whether). Deduplication via Jaccard similarity (threshold 0.7) against existing daily notes. Intercepts messages in `process_message()` before image encoding.
+- **Echo gateway mode**: `oxicrab gateway --echo` starts all channels and HTTP API without an LLM provider. Responds with `[echo] channel={} | sender={} | message: {}` format. Useful for testing channel connectivity. A2A is not available in echo mode.
+- **Fuzz testing**: `fuzz/` directory with 5 `cargo-fuzz` targets: `fuzz_webhook_signature`, `fuzz_config_parse`, `fuzz_prompt_guard`, `fuzz_leak_detector`, `fuzz_url_validation`. Run with `cargo fuzz run <target> -- -max_total_time=30`. CI runs each for 30s (informational, `continue-on-error`). `pub mod fuzz_api` in `src/lib.rs` re-exports `validate_and_resolve` and `validate_webhook_signature` for fuzz access — this module is `#[doc(hidden)]` and not public API.
