@@ -7,7 +7,7 @@ use tracing::{debug, warn};
 
 const COMPACTION_PROMPT: &str = "Summarize this conversation history concisely while preserving:\n1. Key decisions made and their reasoning\n2. Important facts, names, dates, and numbers mentioned\n3. User preferences and requests\n4. Pending tasks or commitments\n5. Technical context that may be needed later\n\nPrevious summary (if any):\n{previous_summary}\n\nMessages to summarize:\n{messages}\n\nWrite a concise summary (max 500 words) that captures the essential context. Do not include preamble - just the summary.";
 
-const EXTRACTION_PROMPT: &str = "Review this conversation exchange and extract any facts worth remembering long-term. Focus on:\n- User preferences, habits, or personal details shared\n- Decisions made or commitments given\n- Project names, technical choices, or configuration details\n- Anything the user would expect you to remember next time\n\nUser: {user_message}\n\nAssistant: {assistant_message}\n\nIf there are notable facts, respond with a short bullet list (one line per fact). If nothing is worth remembering, respond with exactly: NOTHING";
+const EXTRACTION_PROMPT: &str = "Review this conversation exchange and extract any NEW facts worth remembering long-term. Focus on:\n- User preferences, habits, or personal details shared\n- Decisions made or commitments given\n- Project names, technical choices, or configuration details\n- Anything the user would expect you to remember next time\n\nIMPORTANT: Do NOT repeat facts that are already recorded below. Only extract genuinely new information.\n\nAlready recorded today:\n{existing_facts}\n\nUser: {user_message}\n\nAssistant: {assistant_message}\n\nIf there are new facts not already recorded, respond with a short bullet list (one line per fact). If nothing new is worth remembering, respond with exactly: NOTHING";
 
 const PRE_FLUSH_PROMPT: &str = "Review these conversation messages that are about to be removed from context. Extract any important information worth preserving long-term:\n- User preferences and decisions\n- Project state and progress\n- Key facts, names, dates, or configuration details\n- Commitments or pending items\n\nRespond with a concise bullet list of important items. If nothing is worth preserving, respond with exactly: NOTHING\n\nMessages:\n{messages}";
 
@@ -311,9 +311,16 @@ impl MessageCompactor {
         &self,
         user_message: &str,
         assistant_message: &str,
+        existing_facts: &str,
     ) -> Result<String> {
         debug!("extracting facts from exchange");
+        let effective_existing = if existing_facts.is_empty() {
+            "(none)"
+        } else {
+            existing_facts
+        };
         let prompt = EXTRACTION_PROMPT
+            .replace("{existing_facts}", effective_existing)
             .replace("{user_message}", user_message)
             .replace("{assistant_message}", assistant_message);
 

@@ -830,16 +830,24 @@ impl AgentLoop {
         let mut session = self.sessions.get_or_create(&session_key).await?;
         let extra = HashMap::new();
         session.add_message("user".to_string(), msg.content.clone(), extra.clone());
-        if let Some(ref content) = final_content {
-            let mut assistant_extra = HashMap::new();
-            if !tools_used.is_empty() {
-                assistant_extra.insert(
-                    "tools_used".to_string(),
-                    Value::Array(tools_used.into_iter().map(Value::String).collect()),
-                );
-            }
-            session.add_message("assistant".to_string(), content.clone(), assistant_extra);
+        // Always save an assistant message to maintain user/assistant alternation.
+        // Broken alternation causes the Anthropic provider to merge consecutive user
+        // messages, which garbles conversation context for future turns.
+        let response_text = final_content
+            .as_deref()
+            .unwrap_or("I wasn't able to generate a response.");
+        let mut assistant_extra = HashMap::new();
+        if !tools_used.is_empty() {
+            assistant_extra.insert(
+                "tools_used".to_string(),
+                Value::Array(tools_used.into_iter().map(Value::String).collect()),
+            );
         }
+        session.add_message(
+            "assistant".to_string(),
+            response_text.to_string(),
+            assistant_extra,
+        );
         // Store provider-reported input tokens for precise compaction threshold checks
         if let Some(tokens) = input_tokens {
             session.metadata.insert(
@@ -863,12 +871,14 @@ impl AgentLoop {
             // Use spawn_auto_cleanup since this is a one-off task that should remove itself
             task_tracker
                 .spawn_auto_cleanup(task_name, async move {
-                    match compactor.extract_facts(&user_msg, &assistant_msg).await {
+                    let existing = memory.read_today_section("Facts").unwrap_or_default();
+                    match compactor
+                        .extract_facts(&user_msg, &assistant_msg, &existing)
+                        .await
+                    {
                         Ok(facts) => {
                             if !facts.is_empty() {
-                                if let Err(e) =
-                                    memory.append_today(&format!("\n## Facts\n\n{}\n", facts))
-                                {
+                                if let Err(e) = memory.append_to_section("Facts", &facts) {
                                     warn!("Failed to save facts to daily note: {}", e);
                                 } else {
                                     debug!(
@@ -999,17 +1009,17 @@ impl AgentLoop {
         }
 
         // Append cognitive routines to system prompt when enabled
-        if self.cognitive_config.enabled {
-            if let Some(system_msg) = messages.first_mut() {
-                system_msg.content.push_str(
-                    "\n\n## Cognitive Routines\n\n\
-                     When working on complex tasks with many tool calls:\n\
-                     - Periodically summarize your progress in your responses\n\
-                     - If you receive a checkpoint hint, briefly note: what's done, \
-                     what's in progress, what's next\n\
-                     - Keep track of your overall plan and remaining steps",
-                );
-            }
+        if self.cognitive_config.enabled
+            && let Some(system_msg) = messages.first_mut()
+        {
+            system_msg.content.push_str(
+                "\n\n## Cognitive Routines\n\n\
+                 When working on complex tasks with many tool calls:\n\
+                 - Periodically summarize your progress in your responses\n\
+                 - If you receive a checkpoint hint, briefly note: what's done, \
+                 what's in progress, what's next\n\
+                 - Keep track of your overall plan and remaining steps",
+            );
         }
 
         let wrapup_threshold =
@@ -1558,7 +1568,7 @@ impl AgentLoop {
                             debug!("pre-compaction flush: all facts filtered by quality gates");
                         } else if let Err(e) = self
                             .memory
-                            .append_today(&format!("\n## Pre-compaction context\n\n{}\n", filtered))
+                            .append_to_section("Pre-compaction context", &filtered)
                         {
                             warn!("failed to write pre-compaction flush: {}", e);
                         } else {
