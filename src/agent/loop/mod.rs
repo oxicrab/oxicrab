@@ -981,37 +981,35 @@ impl AgentLoop {
         // Extract tool names for hallucination detection (immutable snapshot for the full loop)
         let tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
 
-        // Inject tool facts reminder so the LLM knows exactly what tools are available
+        // Append tool facts to the system prompt so the LLM knows what tools are available.
+        // This MUST go in the system prompt (messages[0]), NOT as a separate user message —
+        // injecting a fake user message breaks user/assistant alternation and causes
+        // the model to lose conversational context on short replies like "Sure" or "Yes".
         if !tool_names.is_empty() {
             let tool_list = tool_names.join(", ");
             let tool_facts = format!(
-                "## Available Tools\n\nYou have access to the following tools: {}\n\n\
+                "\n\n## Available Tools\n\nYou have access to the following tools: {}\n\n\
                  If a user asks for external actions, do not claim tools are unavailable — \
                  call the matching tool directly.",
                 tool_list
             );
-            // Insert as second message (after system prompt, before history/user message)
-            if messages.len() > 1 {
-                messages.insert(1, Message::user(tool_facts));
-            } else {
-                messages.push(Message::user(tool_facts));
+            if let Some(system_msg) = messages.first_mut() {
+                system_msg.content.push_str(&tool_facts);
             }
         }
 
-        // Inject static cognitive routines instructions when enabled
-        if self.cognitive_config.enabled && messages.len() > 1 {
-            messages.insert(
-                2,
-                Message::system(
-                    "## Cognitive Routines\n\n\
+        // Append cognitive routines to system prompt when enabled
+        if self.cognitive_config.enabled {
+            if let Some(system_msg) = messages.first_mut() {
+                system_msg.content.push_str(
+                    "\n\n## Cognitive Routines\n\n\
                      When working on complex tasks with many tool calls:\n\
                      - Periodically summarize your progress in your responses\n\
                      - If you receive a checkpoint hint, briefly note: what's done, \
                      what's in progress, what's next\n\
-                     - Keep track of your overall plan and remaining steps"
-                        .to_string(),
-                ),
-            );
+                     - Keep track of your overall plan and remaining steps",
+                );
+            }
         }
 
         let wrapup_threshold =
