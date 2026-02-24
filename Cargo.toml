@@ -110,6 +110,7 @@ strip = true          # Strip debug symbols
 panic = "unwind"      # Unwind on panic (required for tool panic isolation via tokio::task::spawn)
 
 [dev-dependencies]
+filetime = "0.2"
 proptest = "1.4"
 tower = { version = "0.5", features = ["util"] }
 wiremock = "0.6.5"

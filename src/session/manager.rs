@@ -537,4 +537,162 @@ mod tests {
             format!("Message {}", MAX_SESSION_MESSAGES + 4)
         );
     }
+
+    // --- SessionManager persistence tests ---
+
+    #[tokio::test]
+    async fn test_save_and_load_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new(dir.path()).unwrap();
+
+        let mut session = Session::new("roundtrip:key");
+        session.add_message("user", "hello world", HashMap::new());
+        session.add_message("assistant", "hi there", HashMap::new());
+        mgr.save(&session).await.unwrap();
+
+        // Create a fresh manager at the same path — forces disk load
+        let mgr2 = SessionManager::new(dir.path()).unwrap();
+        let loaded = mgr2.get_or_create("roundtrip:key").await.unwrap();
+
+        assert_eq!(loaded.key, "roundtrip:key");
+        assert_eq!(loaded.messages.len(), 2);
+        assert_eq!(loaded.messages[0].role, "user");
+        assert_eq!(loaded.messages[0].content, "hello world");
+        assert_eq!(loaded.messages[1].role, "assistant");
+        assert_eq!(loaded.messages[1].content, "hi there");
+    }
+
+    #[tokio::test]
+    async fn test_cache_hit_returns_same_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new(dir.path()).unwrap();
+
+        // First call creates and caches
+        let s1 = mgr.get_or_create("cache:test").await.unwrap();
+        assert_eq!(s1.key, "cache:test");
+
+        // Second call should return from cache (same content)
+        let s2 = mgr.get_or_create("cache:test").await.unwrap();
+        assert_eq!(s2.key, s1.key);
+        assert_eq!(s2.messages.len(), s1.messages.len());
+    }
+
+    #[tokio::test]
+    async fn test_lru_eviction() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new(dir.path()).unwrap();
+
+        // Save a session with known content
+        let mut first = Session::new("evict:first");
+        first.add_message("user", "important data", HashMap::new());
+        mgr.save(&first).await.unwrap();
+
+        // Fill cache to capacity with other sessions to evict the first one
+        for i in 0..MAX_CACHED_SESSIONS {
+            let _ = mgr
+                .get_or_create(&format!("evict:filler_{}", i))
+                .await
+                .unwrap();
+        }
+
+        // "evict:first" should be evicted from LRU cache.
+        // get_or_create should still load it from disk.
+        let reloaded = mgr.get_or_create("evict:first").await.unwrap();
+        assert_eq!(reloaded.key, "evict:first");
+        assert_eq!(reloaded.messages.len(), 1);
+        assert_eq!(reloaded.messages[0].content, "important data");
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_old_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new(dir.path()).unwrap();
+
+        // Save a session so a file exists
+        let session = Session::new("old:session");
+        mgr.save(&session).await.unwrap();
+
+        let path = mgr.get_session_path("old:session");
+        assert!(path.exists());
+
+        // Backdate the file to 100 days ago
+        let old_time =
+            filetime::FileTime::from_unix_time(chrono::Utc::now().timestamp() - 100 * 86400, 0);
+        filetime::set_file_mtime(&path, old_time).unwrap();
+
+        // Cleanup with 30-day TTL should delete it
+        let deleted = mgr.cleanup_old_sessions(30).unwrap();
+        assert_eq!(deleted, 1);
+        assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_preserves_recent_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new(dir.path()).unwrap();
+
+        let session = Session::new("recent:session");
+        mgr.save(&session).await.unwrap();
+
+        let path = mgr.get_session_path("recent:session");
+        assert!(path.exists());
+
+        // Cleanup with 30-day TTL should preserve a just-created file
+        let deleted = mgr.cleanup_old_sessions(30).unwrap();
+        assert_eq!(deleted, 0);
+        assert!(path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_load_handles_metadata_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new(dir.path()).unwrap();
+
+        // Save a session (which writes a metadata line with key + created_at)
+        let mut session = Session::new("meta:test");
+        session.metadata.insert(
+            "custom".to_string(),
+            serde_json::Value::String("value".to_string()),
+        );
+        mgr.save(&session).await.unwrap();
+
+        // Load from a fresh manager
+        let mgr2 = SessionManager::new(dir.path()).unwrap();
+        let loaded = mgr2.get_or_create("meta:test").await.unwrap();
+
+        assert_eq!(loaded.key, "meta:test");
+        assert_eq!(
+            loaded.metadata.get("custom"),
+            Some(&serde_json::Value::String("value".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_load_handles_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new(dir.path()).unwrap();
+
+        // No file on disk — should create a new empty session
+        let session = mgr.get_or_create("does:not:exist").await.unwrap();
+        assert_eq!(session.key, "does:not:exist");
+        assert!(session.messages.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_session_key_roundtrip_with_colons() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new(dir.path()).unwrap();
+
+        // Keys with colons are common (e.g. "telegram:12345")
+        let mut session = Session::new("telegram:12345");
+        session.add_message("user", "test", HashMap::new());
+        mgr.save(&session).await.unwrap();
+
+        let mgr2 = SessionManager::new(dir.path()).unwrap();
+        let loaded = mgr2.get_or_create("telegram:12345").await.unwrap();
+
+        // The metadata line preserves the original key despite filename mangling
+        assert_eq!(loaded.key, "telegram:12345");
+        assert_eq!(loaded.messages.len(), 1);
+    }
 }
