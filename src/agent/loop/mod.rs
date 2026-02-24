@@ -1,4 +1,5 @@
 mod helpers;
+mod intent;
 
 #[cfg(test)]
 use helpers::MAX_IMAGES;
@@ -827,9 +828,16 @@ impl AgentLoop {
         };
         debug!("Built {} messages, starting agent loop", messages.len());
 
+        let user_action_intent = intent::classify_action_intent(&content)
+            || self
+                .memory
+                .embedding_service()
+                .and_then(|svc| intent::classify_action_intent_semantic(&content, svc))
+                .unwrap_or(false);
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
-        let (final_content, input_tokens, tools_used, collected_media, loop_discourse) =
-            self.run_agent_loop(messages, typing_ctx, &exec_ctx).await?;
+        let (final_content, input_tokens, tools_used, collected_media, loop_discourse) = self
+            .run_agent_loop(messages, typing_ctx, &exec_ctx, user_action_intent)
+            .await?;
 
         // Merge loop-extracted entities into the session's discourse register
         discourse_register.turn = loop_discourse.turn;
@@ -948,6 +956,7 @@ impl AgentLoop {
         messages: Vec<Message>,
         typing_context: Option<(String, String)>,
         exec_ctx: &ExecutionContext,
+        user_has_action_intent: bool,
     ) -> Result<(
         Option<String>,
         Option<u64>,
@@ -960,6 +969,7 @@ impl AgentLoop {
             typing_context,
             exec_ctx,
             &AgentRunOverrides::default(),
+            user_has_action_intent,
         )
         .await
     }
@@ -978,6 +988,7 @@ impl AgentLoop {
         typing_context: Option<(String, String)>,
         exec_ctx: &ExecutionContext,
         overrides: &AgentRunOverrides,
+        user_has_action_intent: bool,
     ) -> Result<(
         Option<String>,
         Option<u64>,
@@ -1187,6 +1198,7 @@ impl AgentLoop {
                     any_tools_called,
                     &mut correction_sent,
                     &tool_names,
+                    user_has_action_intent,
                 ) {
                     TextAction::Continue => {}
                     TextAction::Return => {
@@ -1436,6 +1448,11 @@ impl AgentLoop {
     /// Handle a text-only LLM response: false no-tools correction or
     /// hallucination detection. Returns [`TextAction::Continue`] if a
     /// correction was injected, or [`TextAction::Return`] if the response is final.
+    ///
+    /// Detection is layered:
+    /// 1. False "no tools" claim detection (LLM says it has no tools)
+    /// 2. Regex-based action claim detection (fast-path for obvious hallucinations)
+    /// 3. Intent-based structural detection (backstop: user asked for action + no tools called)
     fn handle_text_response(
         content: &str,
         messages: &mut Vec<Message>,
@@ -1443,6 +1460,7 @@ impl AgentLoop {
         any_tools_called: bool,
         correction_sent: &mut bool,
         tool_names: &[String],
+        user_has_action_intent: bool,
     ) -> TextAction {
         // Detect false "no tools" claims and retry with correction
         if !tool_names.is_empty() && is_false_no_tools_claim(content) {
@@ -1462,7 +1480,7 @@ impl AgentLoop {
             return TextAction::Continue;
         }
 
-        // Detect hallucinated actions: LLM claims it did something but never called tools
+        // Layer 1: Regex-based action claim detection (fast path)
         if !any_tools_called
             && (contains_action_claims(content) || mentions_multiple_tools(content, tool_names))
         {
@@ -1473,6 +1491,30 @@ impl AgentLoop {
                  You must call the appropriate tool to perform the requested action. \
                  Do NOT apologize or mention any previous attempt — the user has no \
                  knowledge of it. Just call the tool and respond normally.]"
+                    .to_string(),
+            ));
+            *correction_sent = true;
+            return TextAction::Continue;
+        }
+
+        // Layer 2: Intent-based structural detection (robust backstop)
+        // If the user asked for an action and the LLM returned text without
+        // calling tools AND the response isn't a clarification question,
+        // this is a hallucination regardless of phrasing.
+        if !any_tools_called
+            && !tool_names.is_empty()
+            && user_has_action_intent
+            && !intent::is_clarification_question(content)
+        {
+            warn!(
+                "Intent mismatch: user requested action but LLM returned text without calling tools"
+            );
+            ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
+            messages.push(Message::user(
+                "[Internal: Your previous response was not delivered to the user. \
+                 The user is requesting an action that requires a tool call. \
+                 Call the appropriate tool now. Do NOT apologize or reference \
+                 this correction — the user has no knowledge of it.]"
                     .to_string(),
             ));
             *correction_sent = true;
@@ -1774,8 +1816,9 @@ impl AgentLoop {
 
         let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
         let exec_ctx = Self::build_execution_context(&origin_channel, &origin_chat_id, None);
-        let (final_content, _, tools_used, collected_media, _discourse) =
-            self.run_agent_loop(messages, typing_ctx, &exec_ctx).await?;
+        let (final_content, _, tools_used, collected_media, _discourse) = self
+            .run_agent_loop(messages, typing_ctx, &exec_ctx, true)
+            .await?;
         let final_content =
             final_content.unwrap_or_else(|| "Background task completed.".to_string());
 
@@ -1942,8 +1985,20 @@ impl AgentLoop {
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
         let exec_ctx = Self::build_execution_context(channel, chat_id, None);
+        let user_action_intent = intent::classify_action_intent(content)
+            || self
+                .memory
+                .embedding_service()
+                .and_then(|svc| intent::classify_action_intent_semantic(content, svc))
+                .unwrap_or(false);
         let (response, _, tools_used, _collected_media, _discourse) = self
-            .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, overrides)
+            .run_agent_loop_with_overrides(
+                messages,
+                typing_ctx,
+                &exec_ctx,
+                overrides,
+                user_action_intent,
+            )
             .await?;
         let response = response.unwrap_or_else(|| "No response generated.".to_string());
 
