@@ -354,6 +354,15 @@ fn register_memory_search(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     registry.register(Arc::new(MemorySearchTool::new(ctx.memory.clone())));
 }
 
+/// Check whether a tool name is safe for community-trust MCP servers.
+/// Extracted for testability — used by `create_mcp` filtering logic.
+fn is_community_safe(tool_name: &str) -> bool {
+    let name_lower = tool_name.to_lowercase();
+    COMMUNITY_SAFE_KEYWORDS
+        .iter()
+        .any(|kw| name_lower.contains(kw))
+}
+
 async fn create_mcp(ctx: &ToolBuildContext) -> Option<(Vec<Arc<dyn Tool>>, McpManager)> {
     let mcp_cfg = ctx.mcp_config.as_ref()?;
     if mcp_cfg.servers.is_empty() {
@@ -383,11 +392,7 @@ async fn create_mcp(ctx: &ToolBuildContext) -> Option<(Vec<Arc<dyn Tool>>, McpMa
                         accepted.push(Arc::new(AttenuatedMcpTool::new(tool)));
                     }
                     "community" => {
-                        let name_lower = name.to_lowercase();
-                        if COMMUNITY_SAFE_KEYWORDS
-                            .iter()
-                            .any(|kw| name_lower.contains(kw))
-                        {
+                        if is_community_safe(&name) {
                             accepted.push(Arc::new(AttenuatedMcpTool::new(tool)));
                         } else {
                             warn!(
@@ -413,5 +418,63 @@ async fn create_mcp(ctx: &ToolBuildContext) -> Option<(Vec<Arc<dyn Tool>>, McpMa
             error!("MCP initialization failed: {}", e);
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn test_protected_tool_names_are_lowercase() {
+        for name in PROTECTED_TOOL_NAMES {
+            assert_eq!(
+                *name,
+                name.to_lowercase(),
+                "protected tool name '{}' must be lowercase for case-insensitive comparison",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_protected_tool_names_no_duplicates() {
+        let mut seen = HashSet::new();
+        for name in PROTECTED_TOOL_NAMES {
+            assert!(
+                seen.insert(*name),
+                "duplicate protected tool name: '{}'",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_community_safe_keywords_covers_read_operations() {
+        let expected = ["read", "list", "get", "search", "fetch"];
+        for kw in &expected {
+            assert!(
+                COMMUNITY_SAFE_KEYWORDS.contains(kw),
+                "expected safe keyword '{}' not found",
+                kw
+            );
+        }
+    }
+
+    #[test]
+    fn test_community_safe_keyword_matching() {
+        // Read-only tool names should pass
+        assert!(is_community_safe("list_users"));
+        assert!(is_community_safe("get_document"));
+        assert!(is_community_safe("search_records"));
+        assert!(is_community_safe("ReadConfig"));
+        assert!(is_community_safe("fetchData"));
+
+        // Mutating tool names should be rejected
+        assert!(!is_community_safe("delete_users"));
+        assert!(!is_community_safe("create_record"));
+        assert!(!is_community_safe("execute_command"));
+        assert!(!is_community_safe("send_email"));
     }
 }
