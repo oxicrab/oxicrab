@@ -10,7 +10,9 @@ use helpers::{
 pub use helpers::{contains_action_claims, is_false_no_tools_claim, mentions_multiple_tools};
 
 use crate::agent::cognitive::CheckpointTracker;
-use crate::agent::compaction::{MessageCompactor, estimate_messages_tokens};
+use crate::agent::compaction::{
+    MessageCompactor, estimate_messages_tokens, strip_orphaned_tool_messages,
+};
 use crate::agent::context::ContextBuilder;
 use crate::agent::cost_guard::CostGuard;
 use crate::agent::memory::MemoryStore;
@@ -1618,6 +1620,10 @@ impl AgentLoop {
                         ),
                     ])];
                     result.extend(recent_messages.iter().cloned());
+
+                    // Strip orphaned tool messages that lost their pair during compaction
+                    strip_orphaned_tool_messages(&mut result);
+
                     Ok(result)
                 }
                 Err(e) => {

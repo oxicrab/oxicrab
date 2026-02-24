@@ -466,6 +466,7 @@
 
         <h3>Compaction</h3>
         <p>Config path: <code>agents.defaults.compaction</code></p>
+        <p>After compaction builds the final message list, orphaned tool messages are automatically cleaned up. Tool result messages (<code>role="tool"</code>) whose <code>tool_call_id</code> has no matching assistant <code>tool_use</code> block are removed to prevent API errors with providers that enforce strict tool pairing (e.g. Anthropic).</p>
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
             <tr><td>enabled</td><td>bool</td><td>true</td><td>Enable automatic context compaction</td></tr>

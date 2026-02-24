@@ -4,6 +4,167 @@ use async_trait::async_trait;
 use proptest::prelude::*;
 use serde_json::json;
 
+// ── Helper for building test messages ───────────────────────
+
+fn user_msg(content: &str) -> HashMap<String, Value> {
+    HashMap::from([
+        ("role".into(), json!("user")),
+        ("content".into(), json!(content)),
+    ])
+}
+
+fn assistant_msg(content: &str) -> HashMap<String, Value> {
+    HashMap::from([
+        ("role".into(), json!("assistant")),
+        ("content".into(), json!(content)),
+    ])
+}
+
+fn assistant_with_tool_calls(content: &str, tool_call_ids: &[&str]) -> HashMap<String, Value> {
+    let calls: Vec<Value> = tool_call_ids
+        .iter()
+        .map(|id| json!({"id": id, "name": "test_tool", "input": {}}))
+        .collect();
+    HashMap::from([
+        ("role".into(), json!("assistant")),
+        ("content".into(), json!(content)),
+        ("tool_calls".into(), Value::Array(calls)),
+    ])
+}
+
+fn tool_result_msg(tool_call_id: &str, content: &str) -> HashMap<String, Value> {
+    HashMap::from([
+        ("role".into(), json!("tool")),
+        ("content".into(), json!(content)),
+        ("tool_call_id".into(), json!(tool_call_id)),
+    ])
+}
+
+// ── Orphan cleanup tests ────────────────────────────────────
+
+#[test]
+fn strip_orphans_matched_pairs_unchanged() {
+    let mut msgs = vec![
+        user_msg("hello"),
+        assistant_with_tool_calls("calling tool", &["tc_1"]),
+        tool_result_msg("tc_1", "tool output"),
+        assistant_msg("done"),
+    ];
+    let original_len = msgs.len();
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_results, 0);
+    assert_eq!(orphaned_calls, 0);
+    assert_eq!(msgs.len(), original_len);
+}
+
+#[test]
+fn strip_orphans_removes_orphaned_tool_result() {
+    let mut msgs = vec![
+        user_msg("hello"),
+        // tc_1 has no matching assistant tool_call
+        tool_result_msg("tc_1", "orphaned result"),
+        assistant_msg("response"),
+    ];
+    let (orphaned_results, _) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_results, 1);
+    assert_eq!(msgs.len(), 2);
+    // Only user + assistant remain
+    assert_eq!(msgs[0]["role"], json!("user"));
+    assert_eq!(msgs[1]["role"], json!("assistant"));
+}
+
+#[test]
+fn strip_orphans_detects_orphaned_tool_call() {
+    let mut msgs = vec![
+        user_msg("hello"),
+        assistant_with_tool_calls("calling", &["tc_1"]),
+        // No tool_result for tc_1
+        assistant_msg("continuing without result"),
+    ];
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_results, 0);
+    assert_eq!(orphaned_calls, 1);
+    // All messages kept (we don't remove assistant messages)
+    assert_eq!(msgs.len(), 3);
+}
+
+#[test]
+fn strip_orphans_multiple_tool_calls_partial_orphan() {
+    let mut msgs = vec![
+        user_msg("do two things"),
+        assistant_with_tool_calls("calling tools", &["tc_1", "tc_2"]),
+        tool_result_msg("tc_1", "result 1"),
+        // tc_2 result is missing (orphaned call)
+        assistant_msg("done"),
+    ];
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_results, 0);
+    assert_eq!(orphaned_calls, 1);
+    assert_eq!(msgs.len(), 4);
+}
+
+#[test]
+fn strip_orphans_no_tool_messages() {
+    let mut msgs = vec![
+        user_msg("hello"),
+        assistant_msg("hi there"),
+        user_msg("how are you"),
+        assistant_msg("great"),
+    ];
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_results, 0);
+    assert_eq!(orphaned_calls, 0);
+    assert_eq!(msgs.len(), 4);
+}
+
+#[test]
+fn strip_orphans_empty_messages() {
+    let mut msgs: Vec<HashMap<String, Value>> = vec![];
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_results, 0);
+    assert_eq!(orphaned_calls, 0);
+}
+
+#[test]
+fn strip_orphans_anthropic_content_block_format() {
+    // Anthropic-style content array with tool_use blocks
+    let mut msgs = vec![
+        user_msg("test"),
+        HashMap::from([
+            ("role".into(), json!("assistant")),
+            (
+                "content".into(),
+                json!([
+                    {"type": "text", "text": "Let me check"},
+                    {"type": "tool_use", "id": "tc_abc", "name": "read", "input": {}}
+                ]),
+            ),
+        ]),
+        tool_result_msg("tc_abc", "file contents"),
+        assistant_msg("here's what I found"),
+    ];
+    let (orphaned_results, orphaned_calls) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_results, 0);
+    assert_eq!(orphaned_calls, 0);
+    assert_eq!(msgs.len(), 4);
+}
+
+#[test]
+fn strip_orphans_tool_result_without_id_removed() {
+    let mut msgs = vec![
+        user_msg("test"),
+        HashMap::from([
+            ("role".into(), json!("tool")),
+            ("content".into(), json!("malformed result")),
+            // No tool_call_id field
+        ]),
+        assistant_msg("response"),
+    ];
+    let (orphaned_results, _) = strip_orphaned_tool_messages(&mut msgs);
+    assert_eq!(orphaned_results, 1);
+    assert_eq!(msgs.len(), 2);
+}
+
 proptest! {
     #[test]
     fn estimate_tokens_never_panics(s in "\\PC*") {
