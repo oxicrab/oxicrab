@@ -592,3 +592,68 @@ fn test_dlq_retention_cap() {
     // Most recent should still be present
     assert!(ids.contains(&"j104"));
 }
+
+// ── Recency decay tests ───────────────────────────────────
+
+#[test]
+fn test_recency_decay_fresh_entry() {
+    // Age 0 → multiplier is 1.0
+    let decay = recency_decay(0.0, 90);
+    assert!((decay - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_recency_decay_one_half_life() {
+    // At exactly one half-life (90 days), multiplier should be 0.5
+    let decay = recency_decay(90.0, 90);
+    assert!((decay - 0.5).abs() < 1e-6);
+}
+
+#[test]
+fn test_recency_decay_two_half_lives() {
+    // At two half-lives (180 days), multiplier should be 0.25
+    let decay = recency_decay(180.0, 90);
+    assert!((decay - 0.25).abs() < 1e-6);
+}
+
+#[test]
+fn test_recency_decay_disabled_when_zero() {
+    // half_life_days = 0 disables decay
+    let decay = recency_decay(365.0, 0);
+    assert!((decay - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_recency_decay_negative_age() {
+    // Negative age (future timestamp) treated as fresh
+    let decay = recency_decay(-10.0, 90);
+    assert!((decay - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_recency_decay_very_old_entry() {
+    // 360 days (4 half-lives) → 0.5^4 = 0.0625
+    let decay = recency_decay(360.0, 90);
+    assert!((decay - 0.0625).abs() < 1e-5);
+}
+
+#[test]
+fn test_recency_decay_short_half_life() {
+    // 7-day half-life: at 7 days → 0.5, at 14 days → 0.25
+    assert!((recency_decay(7.0, 7) - 0.5).abs() < 1e-6);
+    assert!((recency_decay(14.0, 7) - 0.25).abs() < 1e-6);
+}
+
+#[test]
+fn test_recency_decay_preserves_relevance_ordering() {
+    // A highly relevant old entry (score 0.9) should still beat
+    // a low-relevance recent entry (score 0.2) even with decay
+    let old_score = 0.9 * recency_decay(180.0, 90); // 0.9 * 0.25 = 0.225
+    let recent_score = 0.2 * recency_decay(1.0, 90); // 0.2 * ~1.0 = ~0.2
+    assert!(
+        old_score > recent_score,
+        "highly relevant old entry ({}) should still beat low-relevance recent entry ({})",
+        old_score,
+        recent_score
+    );
+}

@@ -28,6 +28,7 @@ pub struct MemoryStore {
     hybrid_weight: f32,
     fusion_strategy: crate::config::FusionStrategy,
     rrf_k: u32,
+    recency_half_life_days: u32,
 }
 
 impl MemoryStore {
@@ -103,6 +104,7 @@ impl MemoryStore {
             hybrid_weight: memory_config.hybrid_weight,
             fusion_strategy: memory_config.fusion_strategy,
             rrf_k: memory_config.rrf_k,
+            recency_half_life_days: memory_config.recency_half_life_days,
         })
     }
 
@@ -155,6 +157,7 @@ impl MemoryStore {
             hybrid_weight: 0.5,
             fusion_strategy: crate::config::FusionStrategy::default(),
             rrf_k: 60,
+            recency_half_life_days: 90,
         })
     }
 
@@ -196,6 +199,7 @@ impl MemoryStore {
             self.hybrid_weight,
             self.fusion_strategy,
             self.rrf_k,
+            self.recency_half_life_days,
         )?;
         debug!(
             "memory hybrid search: query_len={}, results={}",

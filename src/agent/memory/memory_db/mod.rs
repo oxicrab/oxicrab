@@ -48,6 +48,18 @@ const MAX_CHUNK_SIZE: usize = 1200;
 /// Maximum number of unique terms used in FTS queries
 const MAX_FTS_TERMS: usize = 16;
 
+/// Compute a recency decay multiplier for a BM25 score.
+///
+/// Uses exponential decay: `0.5 ^ (age_days / half_life_days)`.
+/// Returns 1.0 for fresh entries, 0.5 at one half-life, 0.25 at two, etc.
+/// A `half_life_days` of 0 disables decay (returns 1.0).
+pub fn recency_decay(age_days: f64, half_life_days: u32) -> f32 {
+    if half_life_days == 0 || age_days <= 0.0 {
+        return 1.0;
+    }
+    (0.5_f64.powf(age_days / f64::from(half_life_days))) as f32
+}
+
 pub struct MemoryDB {
     conn: std::sync::Mutex<Connection>,
     db_path: String,
@@ -515,6 +527,7 @@ impl MemoryDB {
         keyword_weight: f32,
         fusion_strategy: FusionStrategy,
         rrf_k: u32,
+        recency_half_life_days: u32,
     ) -> Result<Vec<MemoryHit>> {
         use crate::agent::memory::embeddings::{cosine_similarity, deserialize_embedding};
 
@@ -537,7 +550,7 @@ impl MemoryDB {
                     .lock()
                     .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
                 let mut stmt = conn.prepare(
-                    "SELECT me.id, me.source_key, me.content, bm25(memory_fts) as score
+                    "SELECT me.id, me.source_key, me.content, bm25(memory_fts) as score, me.created_at
                      FROM memory_fts
                      JOIN memory_entries me ON memory_fts.rowid = me.id
                      WHERE memory_fts MATCH ?
@@ -545,6 +558,7 @@ impl MemoryDB {
                      LIMIT 100",
                 )?;
 
+                let now = Utc::now();
                 let rows: Vec<_> = stmt
                     .query_map([&query], |row| {
                         Ok((
@@ -552,33 +566,39 @@ impl MemoryDB {
                             row.get::<_, String>(1)?,
                             row.get::<_, String>(2)?,
                             row.get::<_, f64>(3)?,
+                            row.get::<_, String>(4)?,
                         ))
                     })?
                     .filter_map(std::result::Result::ok)
-                    .filter(|(_, key, _, _)| !exclude.contains(key))
+                    .filter(|(_, key, _, _, _)| !exclude.contains(key))
                     .collect();
 
                 // BM25 scores are negative (more negative = better match).
-                // Normalize to 0..1 range.
+                // Normalize to 0..1 range, then apply recency decay.
                 if !rows.is_empty() {
                     let min_score = rows
                         .iter()
-                        .map(|(_, _, _, s)| *s)
+                        .map(|(_, _, _, s, _)| *s)
                         .fold(f64::INFINITY, f64::min);
                     let max_score = rows
                         .iter()
-                        .map(|(_, _, _, s)| *s)
+                        .map(|(_, _, _, s, _)| *s)
                         .fold(f64::NEG_INFINITY, f64::max);
                     let range = max_score - min_score;
 
-                    for (id, key, content, score) in rows {
+                    for (id, key, content, score, created_at) in rows {
                         let normalized = if range.abs() < 1e-10 {
                             1.0
                         } else {
                             // Invert: most negative (best) -> 1.0, least negative (worst) -> 0.0
                             ((max_score - score) / range) as f32
                         };
-                        fts_scores.insert(id, (normalized, key, content));
+                        let age_days = chrono::DateTime::parse_from_rfc3339(&created_at)
+                            .map_or(0.0, |dt| {
+                                (now - dt.with_timezone(&Utc)).num_seconds() as f64 / 86400.0
+                            });
+                        let decayed = normalized * recency_decay(age_days, recency_half_life_days);
+                        fts_scores.insert(id, (decayed, key, content));
                     }
                 }
             }

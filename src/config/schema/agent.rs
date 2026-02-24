@@ -249,6 +249,10 @@ fn default_embedding_cache_size() -> usize {
     10_000
 }
 
+fn default_recency_half_life_days() -> u32 {
+    90
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConfig {
     #[serde(
@@ -277,6 +281,13 @@ pub struct MemoryConfig {
         rename = "embeddingCacheSize"
     )]
     pub embedding_cache_size: usize,
+    /// Half-life in days for BM25 recency decay. Older entries get lower keyword scores.
+    /// 0 = no decay (default: 90).
+    #[serde(
+        default = "default_recency_half_life_days",
+        rename = "recencyHalfLifeDays"
+    )]
+    pub recency_half_life_days: u32,
 }
 
 impl Default for MemoryConfig {
@@ -290,6 +301,7 @@ impl Default for MemoryConfig {
             fusion_strategy: FusionStrategy::default(),
             rrf_k: default_rrf_k(),
             embedding_cache_size: default_embedding_cache_size(),
+            recency_half_life_days: default_recency_half_life_days(),
         }
     }
 }
