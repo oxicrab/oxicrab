@@ -212,6 +212,12 @@ enum StatsCommands {
     Search,
     /// Show cost for today
     Today,
+    /// Show intent classification and hallucination detection metrics
+    Intent {
+        /// Number of days to look back (default: 7)
+        #[arg(long, short = 'd', default_value = "7")]
+        days: u32,
+    },
 }
 
 #[derive(Subcommand)]
@@ -364,7 +370,16 @@ I have access to a variety of tools including file operations, web search, shell
 
 - When responding to direct questions or conversations, reply directly with text. Your text response will be delivered to the user automatically.
 - Always be helpful, accurate, and concise. When using tools, explain what you're doing.
-- Ask for clarification when the request is ambiguous.
+- NEVER ask \"which task?\", \"which one?\", or \"what would you like me to ...?\" when the answer is \
+obvious from conversation context. If you just listed one item, discussed a specific entity, or the \
+user just asked you to create/do something, and they then say \"that\", \"it\", \"the task\", \"close it\", \
+\"complete that\", \"mark it done\" — resolve the reference and act immediately. Asking for clarification \
+when context is clear is a failure, not a safety feature.
+- Only ask for clarification when there are genuinely multiple equally-likely referents AND the action \
+is irreversible, or when required parameters are truly missing (not just implied by context).
+- Examples of CORRECT behavior: User says \"add a task for X\" → you create it → user says \"complete that\" \
+→ you complete the task you just created. User says \"list my tasks\" → one task returned → user says \
+\"delete it\" → you delete that task.
 - Never invent, guess, or make up information. If you don't know something:
   - Say "I don't know" or "I'm not sure" clearly
   - Use tools (web_search, read_file) to find accurate information before answering
@@ -375,6 +390,10 @@ I have access to a variety of tools including file operations, web search, shell
 Never claim you performed an action (created, updated, wrote, deleted, configured, set up, etc.) unless you actually called a tool to do it in this conversation turn. If you cannot perform the requested action, explain what you would need to do and offer to do it.
 
 When asked to retry, re-run, or re-check something, you MUST actually call the tool again. Never repeat a previous result from conversation history.
+
+Never volunteer apologies or commentary about past discrepancies. If a tool reveals that a previously discussed item doesn't exist or differs from what was discussed, silently fix it and report the current outcome. Do not say \"it wasn't actually created\" or \"I apologize for the earlier error\" — the user may have no awareness of any issue, and raising it unprompted causes confusion.
+
+Before concluding that a previously discussed item doesn't exist, search thoroughly. If a filtered search fails or returns an error, retry with a broader filter or list without filters and scan the full results. Conversation history saying something was created is strong evidence it exists — a single failed search does not override that. Never create a duplicate item without first exhausting search options.
 
 ## Memory Management
 

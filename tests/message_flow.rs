@@ -289,7 +289,7 @@ async fn test_hallucination_detection_triggers_retry() {
     let second_msgs = &recorded[1].messages;
     let has_correction = second_msgs
         .iter()
-        .any(|m| m.role == "user" && m.content.contains("did not use any tools"));
+        .any(|m| m.role == "user" && m.content.contains("was not delivered"));
     assert!(
         has_correction,
         "Second call should contain the hallucination correction"
@@ -519,7 +519,7 @@ async fn test_repeated_hallucination_corrected_each_time() {
     assert!(
         second_msgs
             .iter()
-            .any(|m| m.role == "user" && m.content.contains("did not use any tools")),
+            .any(|m| m.role == "user" && m.content.contains("was not delivered")),
         "second call should contain first correction"
     );
 
@@ -527,7 +527,7 @@ async fn test_repeated_hallucination_corrected_each_time() {
     let third_msgs = &recorded[2].messages;
     let correction_count = third_msgs
         .iter()
-        .filter(|m| m.role == "user" && m.content.contains("did not use any tools"))
+        .filter(|m| m.role == "user" && m.content.contains("was not delivered"))
         .count();
     assert_eq!(
         correction_count, 2,
@@ -645,7 +645,7 @@ async fn test_multi_turn_interleaved_tools_and_conversation() {
     assert_eq!(r1, "Found test.txt in the directory.");
 
     let r2 = agent
-        .process_direct("Can you read it?", "test:multi", "telegram", "multi")
+        .process_direct("What's in that file?", "test:multi", "telegram", "multi")
         .await
         .expect("turn 2");
     assert_eq!(r2, "Sure, I can read it for you.");

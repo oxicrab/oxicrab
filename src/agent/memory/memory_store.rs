@@ -1,4 +1,4 @@
-use crate::agent::memory::embeddings::LazyEmbeddingService;
+use crate::agent::memory::embeddings::{EmbeddingService, LazyEmbeddingService};
 use crate::agent::memory::{MemoryDB, MemoryIndexer};
 use crate::config::MemoryConfig;
 use anyhow::{Context, Result};
@@ -169,6 +169,11 @@ impl MemoryStore {
     /// Path to the knowledge directory for document ingestion.
     pub fn knowledge_dir(&self) -> &Path {
         &self.knowledge_dir
+    }
+
+    /// Get the embedding service if ready (None if disabled or still initializing).
+    pub fn embedding_service(&self) -> Option<&EmbeddingService> {
+        self.embedding_service.as_ref().and_then(|lazy| lazy.get())
     }
 
     /// Whether embeddings are available for hybrid search.

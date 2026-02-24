@@ -909,6 +909,53 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
                 }
             }
         }
+        StatsCommands::Intent { days } => {
+            let since = (chrono::Utc::now().date_naive()
+                - chrono::Duration::days(i64::from(*days)))
+            .format("%Y-%m-%d")
+            .to_string();
+            let stats = db.get_intent_stats(&since)?;
+
+            println!(
+                "Intent Classification & Hallucination Detection (last {} days)",
+                days
+            );
+            println!("{}", "\u{2500}".repeat(55));
+            println!();
+            println!("Classification:");
+            println!("  Total classified:     {}", stats.total_classified);
+            println!("  Regex action:         {}", stats.regex_action);
+            println!("  Semantic action:      {}", stats.semantic_action);
+            println!("  Not action:           {}", stats.not_action);
+            if stats.avg_semantic_score_action > 0.0 {
+                println!(
+                    "  Avg semantic score (action):     {:.3}",
+                    stats.avg_semantic_score_action
+                );
+            }
+            if stats.avg_semantic_score_non_action > 0.0 {
+                println!(
+                    "  Avg semantic score (non-action): {:.3}",
+                    stats.avg_semantic_score_non_action
+                );
+            }
+            println!();
+            println!("Hallucination Detection:");
+            println!("  Total caught:         {}", stats.hallucinations_caught);
+            println!("  Layer 1 (regex):      {}", stats.layer1_regex);
+            println!("  Layer 2 (intent):     {}", stats.layer2_intent);
+
+            let recent = db.get_recent_hallucinations(10)?;
+            if !recent.is_empty() {
+                println!();
+                println!("Recent Hallucinations:");
+                for event in &recent {
+                    let layer = event.detection_layer.as_deref().unwrap_or("unknown");
+                    let preview = event.message_preview.as_deref().unwrap_or("");
+                    println!("  [{}] {}: {:.60}", event.timestamp, layer, preview);
+                }
+            }
+        }
     }
 
     Ok(())

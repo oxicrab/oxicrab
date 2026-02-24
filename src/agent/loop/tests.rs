@@ -32,6 +32,23 @@ fn test_action_claims_positive() {
         "Successfully executed the command.",
         "Successfully tested all endpoints.",
         "Already completed the migration.",
+        // Terse-format action claims (no first-person pronoun)
+        "Created: Send out the form — due tomorrow at 10:00 AM.",
+        "Updated: config.json with the new API key.",
+        "Deleted: old-backup.tar.gz",
+        "Done! The task has been set up.",
+        "Sent: the email to the team.",
+        "Scheduled: deployment for tomorrow at 9am.",
+        "Completed: all items on the checklist.",
+        "Saved: your preferences.",
+        "Added! The new entry is in the database.",
+        "Marked as complete: Call Sun Logistics",
+        "\nCreated: a new issue in the tracker.",
+        // Prefix-word evasion patterns (LLM adds word before action verb)
+        "Both created:\n• Feed the cat\n• Feed the dog",
+        "Task created: Click the box — due tomorrow at 10:00 AM.",
+        "Job scheduled: one-shot at 4pm today.",
+        "All done! Everything is configured.",
     ];
     for text in cases {
         assert!(contains_action_claims(text), "should match: {}", text);
@@ -47,6 +64,9 @@ fn test_action_claims_negative() {
         "To update the config, you need to edit settings.json.",
         "Hello! How can I help you today?",
         "You updated the file yesterday.",
+        // "Created" in descriptive context (not terse action claim)
+        "Tasks created before Monday will be archived.",
+        "Created tasks can be viewed in the dashboard.",
     ];
     for text in cases {
         assert!(!contains_action_claims(text), "should NOT match: {}", text);
@@ -838,6 +858,8 @@ fn test_conversational_reply_passes_through() {
             false,
             &mut correction_sent,
             &tool_names,
+            false, // user message was conversational, not action intent
+            None,
         );
         assert!(
             matches!(result, TextAction::Return),
@@ -861,6 +883,8 @@ fn test_action_hallucination_caught_without_tool_forcing() {
         false,
         &mut correction_sent,
         &tool_names,
+        true, // user requested an action
+        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
@@ -883,6 +907,8 @@ fn test_action_hallucination_repeatable_correction() {
         false,
         &mut correction_sent,
         &tool_names,
+        true, // user requested an action
+        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
@@ -904,6 +930,8 @@ fn test_legitimate_tool_response_passes_through() {
         true, // tools were called
         &mut correction_sent,
         &tool_names,
+        true, // user requested an action
+        None,
     );
     assert!(
         matches!(result, TextAction::Return),
@@ -927,6 +955,8 @@ fn test_false_no_tools_claim_always_fires() {
         false,
         &mut correction_sent,
         &tool_names,
+        true, // user requested an action
+        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
@@ -961,6 +991,8 @@ fn test_text_after_tools_called_passes_action_claims() {
             true, // tools WERE called
             &mut correction_sent,
             &tool_names,
+            true, // user requested an action
+            None,
         );
         assert!(
             matches!(result, TextAction::Return),
@@ -988,6 +1020,8 @@ fn test_empty_tool_names_disables_false_no_tools_check() {
         false,
         &mut correction_sent,
         &tool_names,
+        true, // user requested an action
+        None,
     );
     assert!(
         matches!(result, TextAction::Return),
@@ -1015,6 +1049,8 @@ fn test_mentions_multiple_tools_triggers_correction() {
         false,
         &mut correction_sent,
         &tool_names,
+        true, // user requested an action
+        None,
     );
     assert!(
         matches!(result, TextAction::Continue),

@@ -446,6 +446,14 @@ oxicrab credentials delete anthropic-api-key</pre>
     <div class="cmd-sig">oxicrab stats search</div>
     <p>Show memory search statistics: total searches, hit counts, average results per search, and top source files by hit count.</p>
 
+    <h3>stats intent</h3>
+    <div class="cmd-sig">oxicrab stats intent [--days N]</div>
+    <p>Show intent classification and hallucination detection metrics: regex vs. semantic classification counts, average semantic scores, and hallucination catches by detection layer.</p>
+    <table class="flag-table">
+        <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+        <tr><td><code>--days, -d</code></td><td>7</td><td>Number of days to look back</td></tr>
+    </table>
+
     <pre><span class="hl-comment"># Today's spend</span>
 oxicrab stats today
 
@@ -453,7 +461,10 @@ oxicrab stats today
 oxicrab stats costs -d 30
 
 <span class="hl-comment"># Memory search effectiveness</span>
-oxicrab stats search</pre>
+oxicrab stats search
+
+<span class="hl-comment"># Intent classification &amp; hallucination detection</span>
+oxicrab stats intent -d 30</pre>
 
 </div>
 

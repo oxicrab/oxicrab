@@ -200,6 +200,7 @@ async fn test_build_messages_includes_sender_id() {
             Some("user42"),
             vec![],
             false,
+            None,
         )
         .unwrap();
 
@@ -224,6 +225,7 @@ async fn test_build_messages_no_sender_id() {
             None,
             vec![],
             false,
+            None,
         )
         .unwrap();
 
@@ -252,6 +254,7 @@ async fn test_build_messages_with_images() {
             Some("user42"),
             images,
             false,
+            None,
         )
         .unwrap();
 
@@ -278,6 +281,7 @@ async fn test_build_messages_without_images() {
             None,
             vec![],
             false,
+            None,
         )
         .unwrap();
 
@@ -313,6 +317,7 @@ async fn test_build_messages_includes_channel_hint() {
             Some("user42"),
             vec![],
             false,
+            None,
         )
         .unwrap();
 
@@ -368,6 +373,7 @@ async fn test_build_messages_group_excludes_personal_memory() {
             None,
             vec![],
             false,
+            None,
         )
         .unwrap();
     let dm_system = &dm_msgs[0].content;
@@ -386,6 +392,7 @@ async fn test_build_messages_group_excludes_personal_memory() {
             None,
             vec![],
             true,
+            None,
         )
         .unwrap();
     let group_system = &group_msgs[0].content;
@@ -418,6 +425,7 @@ async fn test_user_message_includes_timestamp_prefix() {
             None,
             vec![],
             false,
+            None,
         )
         .unwrap();
 
@@ -452,6 +460,7 @@ async fn test_user_message_no_context_injection() {
             None,
             vec![],
             false,
+            None,
         )
         .unwrap();
 
