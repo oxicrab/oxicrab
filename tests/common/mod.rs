@@ -22,6 +22,7 @@ pub struct RecordedCall {
     pub tools: Option<Vec<ToolDefinition>>,
     pub temperature: f32,
     pub max_tokens: u32,
+    pub tool_choice: Option<String>,
 }
 
 pub struct MockLLMProvider {
@@ -52,6 +53,7 @@ impl LLMProvider for MockLLMProvider {
                 tools: req.tools,
                 temperature: req.temperature,
                 max_tokens: req.max_tokens,
+                tool_choice: req.tool_choice.clone(),
             });
 
         let response = self.responses.lock().expect("lock responses").pop_front();
@@ -248,6 +250,7 @@ impl LLMProvider for FailingMockProvider {
                 tools: req.tools,
                 temperature: req.temperature,
                 max_tokens: req.max_tokens,
+                tool_choice: req.tool_choice.clone(),
             });
         Err(anyhow::anyhow!("{}", self.error_message))
     }

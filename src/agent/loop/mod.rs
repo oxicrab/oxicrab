@@ -925,8 +925,9 @@ impl AgentLoop {
     /// Core agent loop implementation with per-invocation overrides.
     ///
     /// Iterates up to `max_iterations` rounds of: LLM call → parallel tool execution → append results.
-    /// First iteration forces `tool_choice="any"` to prevent text-only hallucinations. At 70% of
-    /// max iterations, a wrap-up nudge is injected.
+    /// Uses `tool_choice=None` (auto) on all iterations — hallucination detection in
+    /// `handle_text_response()` catches false action claims. At 70% of max iterations, a wrap-up
+    /// nudge is injected.
     ///
     /// Returns `(response_text, last_message_id, collected_media, tool_names_used)`.
     async fn run_agent_loop_with_overrides(
@@ -1026,12 +1027,9 @@ impl AgentLoop {
                 // For initial/text-only responses, use configured temperature
                 self.temperature
             };
-            // Force tool use on first iteration to prevent text-only hallucinated responses
-            let tool_choice = if iteration == 1 && !tools_defs.is_empty() {
-                Some("any".to_string())
-            } else {
-                None // defaults to "auto" in provider
-            };
+            // Let the model decide when to use tools (auto mode). Hallucination detection
+            // in handle_text_response() catches false action claims as a safety net.
+            let tool_choice: Option<String> = None;
 
             // Cost guard pre-flight check
             if let Some(ref cg) = self.cost_guard
@@ -1243,13 +1241,22 @@ impl AgentLoop {
         iteration: usize,
     ) {
         // Add all results to messages in order and collect media
-        debug_assert_eq!(
-            tool_calls.len(),
-            results.len(),
-            "tool_calls and results length mismatch: {} vs {}",
-            tool_calls.len(),
-            results.len()
-        );
+        if tool_calls.len() != results.len() {
+            error!(
+                "tool_calls and results length mismatch: {} vs {} — adding error results for missing entries",
+                tool_calls.len(),
+                results.len()
+            );
+            // Pad results to match tool_calls length so every tool call gets a response
+            let mut results = results;
+            while results.len() < tool_calls.len() {
+                results.push(("Tool execution result was lost".to_string(), true));
+            }
+            for (tc, (result_str, is_error)) in tool_calls.iter().zip(results.into_iter()) {
+                ContextBuilder::add_tool_result(messages, &tc.id, &tc.name, &result_str, is_error);
+            }
+            return;
+        }
         for (tc, (result_str, is_error)) in tool_calls.iter().zip(results.into_iter()) {
             if !is_error {
                 collected_media.extend(extract_media_paths(&result_str));
@@ -1370,7 +1377,6 @@ impl AgentLoop {
 
         // Detect hallucinated actions: LLM claims it did something but never called tools
         if !any_tools_called
-            && !*correction_sent
             && (contains_action_claims(content) || mentions_multiple_tools(content, tool_names))
         {
             warn!("Action hallucination detected: LLM claims actions but no tools were called");

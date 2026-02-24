@@ -214,6 +214,63 @@ async fn test_text_only_response_returned_as_is() {
     assert!(result.tool_calls.is_empty());
 }
 
+#[tokio::test]
+async fn test_text_only_with_tools_available_not_rejected() {
+    // With tool_choice=None (auto mode), the primary returning text-only when
+    // tools are available should NOT trigger a fallback. The model legitimately
+    // chose not to use tools (e.g., for a conversational response).
+    let primary = MockProvider::ok("local-model", text_response("Sure, I can help with that."));
+    let fallback = MockProvider::ok("cloud-model", text_response("should not reach fallback"));
+
+    let provider = FallbackProvider::new(
+        primary,
+        fallback,
+        "local-model".to_string(),
+        "cloud-model".to_string(),
+    );
+
+    // Request WITH tools but tool_choice=None (auto)
+    let req = ChatRequest {
+        messages: vec![],
+        tools: Some(vec![crate::providers::base::ToolDefinition {
+            name: "web_search".to_string(),
+            description: "Search the web".to_string(),
+            parameters: json!({"type": "object"}),
+        }]),
+        model: None,
+        max_tokens: 1024,
+        temperature: 0.7,
+        tool_choice: None, // auto mode — model can choose text
+        response_format: None,
+    };
+
+    let result = provider.chat(req).await.unwrap();
+    // Primary's text response should be returned (not fallback)
+    assert_eq!(
+        result.content.as_deref(),
+        Some("Sure, I can help with that.")
+    );
+}
+
+#[tokio::test]
+async fn test_both_providers_fail_returns_fallback_error() {
+    let primary = MockProvider::err("local-model", "connection refused");
+    let fallback = MockProvider::err("cloud-model", "API quota exceeded");
+
+    let provider = FallbackProvider::new(
+        primary,
+        fallback,
+        "local-model".to_string(),
+        "cloud-model".to_string(),
+    );
+
+    let err = provider.chat(make_request()).await.unwrap_err();
+    assert!(
+        err.to_string().contains("API quota exceeded"),
+        "should return fallback provider's error"
+    );
+}
+
 #[test]
 fn test_default_model_returns_primary() {
     let primary = MockProvider::ok("local-model", text_response(""));

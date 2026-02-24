@@ -814,6 +814,214 @@ fn test_load_and_encode_images_rejects_fake_pdf() {
     assert!(images.is_empty(), "should reject non-PDF content");
 }
 
+// --- handle_text_response tests ---
+
+#[test]
+fn test_conversational_reply_passes_through() {
+    // Short conversational replies should be returned as-is (not flagged as hallucination)
+    let tool_names = vec!["memory_search".to_string(), "cron".to_string()];
+    let mut messages = vec![];
+    let mut correction_sent = false;
+
+    let cases = [
+        "Sure, I'll do that now.",
+        "Sounds good!",
+        "The first option, please.",
+        "Yes",
+        "No, let's skip that.",
+    ];
+    for reply in cases {
+        let result = AgentLoop::handle_text_response(
+            reply,
+            &mut messages,
+            None,
+            false,
+            &mut correction_sent,
+            &tool_names,
+        );
+        assert!(
+            matches!(result, TextAction::Return),
+            "conversational reply '{}' should pass through",
+            reply
+        );
+    }
+}
+
+#[test]
+fn test_action_hallucination_caught_without_tool_forcing() {
+    // Action claims should be caught by hallucination detection even without tool_choice="any"
+    let tool_names = vec!["write_file".to_string()];
+    let mut messages = vec![];
+    let mut correction_sent = false;
+
+    let result = AgentLoop::handle_text_response(
+        "I've updated the configuration file.",
+        &mut messages,
+        None,
+        false,
+        &mut correction_sent,
+        &tool_names,
+    );
+    assert!(
+        matches!(result, TextAction::Continue),
+        "action claim should trigger correction"
+    );
+    assert!(correction_sent);
+}
+
+#[test]
+fn test_action_hallucination_repeatable_correction() {
+    // After correction_sent is already true, a second action claim should STILL be caught
+    let tool_names = vec!["write_file".to_string()];
+    let mut messages = vec![];
+    let mut correction_sent = true; // already corrected once
+
+    let result = AgentLoop::handle_text_response(
+        "I've written the new module.",
+        &mut messages,
+        None,
+        false,
+        &mut correction_sent,
+        &tool_names,
+    );
+    assert!(
+        matches!(result, TextAction::Continue),
+        "repeated action claim should still be corrected"
+    );
+}
+
+#[test]
+fn test_legitimate_tool_response_passes_through() {
+    // After tools were actually called, text responses pass through
+    let tool_names = vec!["write_file".to_string()];
+    let mut messages = vec![];
+    let mut correction_sent = false;
+
+    let result = AgentLoop::handle_text_response(
+        "I've updated the configuration file.",
+        &mut messages,
+        None,
+        true, // tools were called
+        &mut correction_sent,
+        &tool_names,
+    );
+    assert!(
+        matches!(result, TextAction::Return),
+        "after real tool calls, text should pass through"
+    );
+}
+
+// --- Multi-iteration hallucination correction tests ---
+
+#[test]
+fn test_false_no_tools_claim_always_fires() {
+    // false-no-tools correction should fire even after correction_sent is true
+    let tool_names = vec!["exec".to_string(), "read_file".to_string()];
+    let mut messages = vec![];
+    let mut correction_sent = true; // already corrected once
+
+    let result = AgentLoop::handle_text_response(
+        "I don't have access to tools to help with that.",
+        &mut messages,
+        None,
+        false,
+        &mut correction_sent,
+        &tool_names,
+    );
+    assert!(
+        matches!(result, TextAction::Continue),
+        "false no-tools claim should always trigger correction"
+    );
+}
+
+#[test]
+fn test_text_after_tools_called_passes_action_claims() {
+    // After tools have been called (any_tools_called=true), text claiming actions
+    // should pass through since the model actually DID call tools
+    let tool_names = vec![
+        "exec".to_string(),
+        "read_file".to_string(),
+        "write_file".to_string(),
+    ];
+    let mut messages = vec![];
+    let mut correction_sent = false;
+
+    let claims = [
+        "I've updated the configuration file.",
+        "I've created a new module for the project.",
+        "Changes have been applied successfully.",
+        "I've executed the commands.",
+        "All tests passed.",
+    ];
+    for claim in claims {
+        let result = AgentLoop::handle_text_response(
+            claim,
+            &mut messages,
+            None,
+            true, // tools WERE called
+            &mut correction_sent,
+            &tool_names,
+        );
+        assert!(
+            matches!(result, TextAction::Return),
+            "claim '{}' should pass through after tools were called",
+            claim
+        );
+        assert!(
+            !correction_sent,
+            "correction should not be sent after real tool use"
+        );
+    }
+}
+
+#[test]
+fn test_empty_tool_names_disables_false_no_tools_check() {
+    // When no tools are registered, the false-no-tools check should not fire
+    let tool_names: Vec<String> = vec![];
+    let mut messages = vec![];
+    let mut correction_sent = false;
+
+    let result = AgentLoop::handle_text_response(
+        "I don't have access to tools.",
+        &mut messages,
+        None,
+        false,
+        &mut correction_sent,
+        &tool_names,
+    );
+    assert!(
+        matches!(result, TextAction::Return),
+        "no-tools claim should pass through when no tools are registered"
+    );
+}
+
+#[test]
+fn test_mentions_multiple_tools_triggers_correction() {
+    // A response listing many tool names (without calling them) should be caught
+    let tool_names = vec![
+        "web_search".to_string(),
+        "weather".to_string(),
+        "cron".to_string(),
+        "exec".to_string(),
+        "read_file".to_string(),
+    ];
+    let mut messages = vec![];
+    let mut correction_sent = false;
+
+    let result = AgentLoop::handle_text_response(
+        "## Available Tools\n- web_search: Search the web\n- weather: Get weather\n- cron: Schedule jobs\n- exec: Run commands",
+        &mut messages,
+        None,
+        false,
+        &mut correction_sent,
+        &tool_names,
+    );
+    assert!(
+        matches!(result, TextAction::Continue),
+        "listing multiple tools without calling them should trigger correction"
+    );
+}
+
 // --- Media cleanup tests ---
 
 #[test]

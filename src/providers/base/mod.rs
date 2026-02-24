@@ -267,7 +267,7 @@ pub trait LLMProvider: Send + Sync {
                         // Use retry_after from rate limit if available, otherwise exponential backoff
                         let delay = if let Some(retry_secs) = rate_limit_delay {
                             debug!("Using retry-after hint: {}s", retry_secs);
-                            retry_secs * 1000
+                            (retry_secs * 1000).max(1000) // floor at 1s to avoid thundering herd
                         } else {
                             let base = (config.initial_delay_ms as f64
                                 * config.backoff_multiplier.powi(attempt as i32))
