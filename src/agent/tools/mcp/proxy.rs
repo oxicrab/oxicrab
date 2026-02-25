@@ -174,7 +174,7 @@ impl Tool for AttenuatedMcpTool {
         self.inner.name()
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         self.inner.description()
     }
 

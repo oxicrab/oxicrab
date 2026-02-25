@@ -23,5 +23,8 @@ pub mod todoist;
 pub mod weather;
 pub mod web;
 
-pub use base::{ExecutionContext, Tool, ToolMiddleware, ToolResult, ToolVersion};
+pub use base::{
+    ActionDescriptor, ExecutionContext, SubagentAccess, Tool, ToolCapabilities, ToolMiddleware,
+    ToolResult, ToolVersion,
+};
 pub use registry::ToolRegistry;

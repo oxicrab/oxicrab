@@ -73,7 +73,7 @@ pub struct ExecutionContext {
 #[async_trait]
 pub trait Tool: Send + Sync {
     fn name(&self) -> &str;
-    fn description(&self) -> &'static str;
+    fn description(&self) -> &str;
     fn parameters(&self) -> Value; // JSON Schema
 
     async fn execute(&self, params: Value, ctx: &ExecutionContext) -> anyhow::Result<ToolResult>;
@@ -117,6 +117,81 @@ pub trait Tool: Send + Sync {
     /// Per-tool execution timeout. Overrides the registry-level default.
     fn execution_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_mins(2)
+    }
+
+    /// Capability metadata for this tool. Used by subagent builder,
+    /// exfiltration guard, and MCP trust filter.
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_capabilities_are_deny_all() {
+        let caps = ToolCapabilities::default();
+        assert!(!caps.built_in);
+        assert!(!caps.network_outbound);
+        assert_eq!(caps.subagent_access, SubagentAccess::Denied);
+        assert!(caps.actions.is_empty());
+    }
+
+    #[test]
+    fn test_subagent_access_equality() {
+        assert_eq!(SubagentAccess::Full, SubagentAccess::Full);
+        assert_ne!(SubagentAccess::Full, SubagentAccess::ReadOnly);
+        assert_ne!(SubagentAccess::ReadOnly, SubagentAccess::Denied);
+    }
+}
+
+/// How a tool should be exposed in subagent contexts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubagentAccess {
+    /// All actions available
+    Full,
+    /// Only read-only actions exposed; mutating actions hidden from schema
+    /// and rejected at execution time
+    ReadOnly,
+    /// Tool not available to subagents at all (e.g., spawn, cron)
+    Denied,
+}
+
+/// Per-action metadata for tools using the action dispatch pattern.
+#[derive(Debug, Clone)]
+pub struct ActionDescriptor {
+    /// Action name matching the `"action"` enum value in `parameters()`
+    pub name: &'static str,
+    /// Whether this action only reads data (no side effects)
+    pub read_only: bool,
+}
+
+/// Capability metadata intrinsic to a tool. Queried by the registry,
+/// subagent builder, exfiltration guard, and MCP trust filter.
+#[derive(Debug, Clone)]
+pub struct ToolCapabilities {
+    /// Tool is built-in to oxicrab. Protected from MCP shadowing.
+    pub built_in: bool,
+    /// Tool's primary purpose involves outbound network requests.
+    /// Used by exfiltration guard to determine default blocking.
+    pub network_outbound: bool,
+    /// How this tool should be exposed in subagent contexts.
+    pub subagent_access: SubagentAccess,
+    /// Per-action metadata. Empty for single-purpose tools.
+    /// For action-based tools, every action MUST be listed.
+    pub actions: Vec<ActionDescriptor>,
+}
+
+impl Default for ToolCapabilities {
+    fn default() -> Self {
+        Self {
+            built_in: false,
+            network_outbound: false,
+            subagent_access: SubagentAccess::Denied,
+            actions: vec![],
+        }
     }
 }
 
