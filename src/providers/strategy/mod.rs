@@ -126,8 +126,10 @@ impl ProviderFactory {
         // Step 1: Parse model reference for prefix notation
         let model_ref = parse_model_ref(model);
 
-        // Step 2: Determine effective provider (explicit > prefix > inference)
-        let effective_provider = self.explicit_provider.as_deref().or(model_ref.provider);
+        // Step 2: Determine effective provider (prefix > explicit > inference)
+        // Model prefix (e.g. "ollama/qwen3") takes priority over the global
+        // explicit provider setting — the prefix is a per-model override.
+        let effective_provider = model_ref.provider.or(self.explicit_provider.as_deref());
         let bare_model = model_ref.model;
 
         // Step 3: If we have an explicit/prefix provider, route directly

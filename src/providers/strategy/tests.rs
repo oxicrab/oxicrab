@@ -201,14 +201,13 @@ fn test_deepseek_no_api_key_errors() {
 }
 
 #[test]
-fn test_explicit_provider_overrides_prefix() {
+fn test_model_prefix_overrides_explicit_provider() {
     let mut config = ProvidersConfig::default();
-    config.anthropic.api_key = "sk-ant-test".to_string();
-    // Model has groq/ prefix, but explicit provider says anthropic
+    config.groq.api_key = "gsk-test".to_string();
+    // Model has groq/ prefix, explicit provider says anthropic.
+    // Prefix is a per-model override and should win.
     let factory = factory_with_explicit(&config, "anthropic");
     let provider = factory.create_provider("groq/some-model").unwrap();
-    // Should use anthropic, not groq — model sent is bare "some-model"
-    // (prefix still stripped by parse_model_ref, but provider is explicit)
     assert_eq!(provider.default_model(), "some-model");
 }
 
