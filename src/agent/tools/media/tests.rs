@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::tools::Tool;
 
 #[test]
 fn test_format_movie_search_results() {
@@ -250,4 +251,68 @@ async fn test_movie_search_truncates_long_overview() {
     assert!(output.contains("..."));
     // The overview should be truncated, not full 600 chars
     assert!(!output.contains(&long_overview));
+}
+
+// --- Capabilities tests ---
+
+#[test]
+fn test_media_capabilities() {
+    use crate::agent::tools::base::SubagentAccess;
+    let config = MediaConfig::default();
+    let tool = MediaTool::new(&config);
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::ReadOnly);
+    let read_only: Vec<&str> = caps
+        .actions
+        .iter()
+        .filter(|a| a.read_only)
+        .map(|a| a.name)
+        .collect();
+    let mutating: Vec<&str> = caps
+        .actions
+        .iter()
+        .filter(|a| !a.read_only)
+        .map(|a| a.name)
+        .collect();
+    assert!(read_only.contains(&"search_movie"));
+    assert!(read_only.contains(&"get_movie"));
+    assert!(read_only.contains(&"list_movies"));
+    assert!(read_only.contains(&"search_series"));
+    assert!(read_only.contains(&"get_series"));
+    assert!(read_only.contains(&"list_series"));
+    assert!(read_only.contains(&"profiles"));
+    assert!(read_only.contains(&"root_folders"));
+    assert!(mutating.contains(&"add_movie"));
+    assert!(mutating.contains(&"add_series"));
+}
+
+#[test]
+fn test_media_actions_match_schema() {
+    let config = MediaConfig::default();
+    let tool = MediaTool::new(&config);
+    let caps = tool.capabilities();
+    let params = tool.parameters();
+    let schema_actions: Vec<String> = params["properties"]["action"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let cap_actions: Vec<String> = caps.actions.iter().map(|a| a.name.to_string()).collect();
+    for action in &schema_actions {
+        assert!(
+            cap_actions.contains(action),
+            "action '{}' in schema but not in capabilities()",
+            action
+        );
+    }
+    for action in &cap_actions {
+        assert!(
+            schema_actions.contains(action),
+            "action '{}' in capabilities() but not in schema",
+            action
+        );
+    }
 }

@@ -127,16 +127,21 @@ pub(super) async fn execute_tool_call(
     tc_args: &Value,
     available_tools: &[String],
     ctx: &ExecutionContext,
-    exfil_blocked: &[String],
+    exfil_allow: Option<&[String]>,
     workspace: Option<&std::path::Path>,
 ) -> (String, bool) {
-    // Exfiltration guard: block tools that were hidden from the LLM
-    if !exfil_blocked.is_empty() && exfil_blocked.iter().any(|b| b == tc_name) {
-        warn!("exfiltration guard blocked tool: {}", tc_name);
-        return (
-            "Error: this tool is not available in the current security mode".to_string(),
-            true,
-        );
+    // Exfiltration guard: block network-outbound tools the LLM shouldn't call
+    if let Some(allow_tools) = exfil_allow {
+        let is_network = registry
+            .get(tc_name)
+            .is_some_and(|t| t.capabilities().network_outbound);
+        if is_network && !allow_tools.contains(&tc_name.to_string()) {
+            warn!("exfiltration guard blocked tool: {}", tc_name);
+            return (
+                "Error: this tool is not available in the current security mode".to_string(),
+                true,
+            );
+        }
     }
 
     // Check if tool exists before delegating to registry

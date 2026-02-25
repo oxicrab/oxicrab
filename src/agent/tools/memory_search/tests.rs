@@ -53,3 +53,14 @@ fn test_tool_metadata() {
     assert!(tool.cacheable());
     assert!(tool.description().contains("memory"));
 }
+
+#[test]
+fn test_memory_search_capabilities() {
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = create_tool();
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(!caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::Denied);
+    assert!(caps.actions.is_empty());
+}

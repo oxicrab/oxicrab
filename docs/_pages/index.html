@@ -463,7 +463,7 @@ max_width: 1120px
         <div class="feature-name">Subagents</div>
         <div class="feature-detail">
           <h3>Parallel background task execution</h3>
-          <p>Semaphore-based concurrency control, context injection from compaction summaries, silent mode for daemon tasks, and lifecycle management.</p>
+          <p>Capability-based tool access (full, read-only, or denied per tool), semaphore-based concurrency control, context injection from compaction summaries, silent mode for daemon tasks, and lifecycle management.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -654,7 +654,7 @@ cargo build --release --no-default-features \
       <div>
         <div class="tool-cat-label">Communication &amp; Agents</div>
         <div class="tool-grid">
-          <div class="tool-item" data-detail="Spawn a subagent to handle a task in the background. Use for complex or time-consuming tasks that can run independently. The subagent has access to filesystem, shell, and web tools and reports back when done."><span class="tool-dot core"></span><div><span class="tool-name">spawn</span><br><span class="tool-desc">Launch background subagents</span></div></div>
+          <div class="tool-item" data-detail="Spawn a subagent to handle a task in the background. Tools are filtered by capability metadata: full access (filesystem, shell, web_search), read-only access (GitHub, Gmail, Calendar, etc.), or denied (http, MCP, spawn). Reports back when done."><span class="tool-dot core"></span><div><span class="tool-name">spawn</span><br><span class="tool-desc">Launch background subagents</span></div></div>
           <div class="tool-item" data-detail="List or cancel running subagents. Use to track background tasks or stop one by ID. Semaphore-based concurrency control limits parallel agents."><span class="tool-dot core"></span><div><span class="tool-name">subagent_control</span><br><span class="tool-desc">List and cancel running agents</span></div></div>
           <div class="tool-item" data-detail="Schedule recurring or one-shot tasks. Two job types: 'agent' processes the message as a full LLM turn with all tools; 'echo' delivers messages directly without invoking the LLM. Supports cron expressions, intervals, and one-shot ISO 8601 times. Optional expires_at and max_runs limits."><span class="tool-dot core"></span><div><span class="tool-name">cron</span><br><span class="tool-desc">Schedule recurring tasks</span></div></div>
           <div class="tool-item" data-detail="Search long-term memory and daily notes. Use to recall user preferences, past conversations, and important facts. Supports FTS5 full-text search with optional hybrid vector+keyword search via local ONNX embeddings."><span class="tool-dot core"></span><div><span class="tool-name">memory_search</span><br><span class="tool-desc">FTS5 + hybrid vector search</span></div></div>

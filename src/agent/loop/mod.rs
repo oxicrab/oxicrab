@@ -429,21 +429,13 @@ impl AgentLoop {
                 provider: provider.clone(),
                 workspace: workspace.clone(),
                 model: Some(model.clone()),
-                brave_api_key: brave_api_key.clone(),
-                exec_timeout,
-                restrict_to_workspace,
-                allowed_commands: allowed_commands.clone(),
                 max_tokens,
                 tool_temperature,
                 max_concurrent: max_concurrent_subagents,
-                exfil_blocked_tools: if exfiltration_guard.enabled {
-                    exfiltration_guard.blocked_tools.clone()
-                } else {
-                    vec![]
-                },
                 cost_guard: cost_guard.clone(),
                 prompt_guard_config: prompt_guard_config.clone(),
-                sandbox_config: sandbox_config.clone(),
+                exfil_guard: exfiltration_guard.clone(),
+                main_tools: None, // set after register_all_tools()
             },
             brave_api_key,
             allowed_commands,
@@ -455,6 +447,7 @@ impl AgentLoop {
         let (tools, subagents, mcp_manager) =
             crate::agent::tools::setup::register_all_tools(&tool_ctx).await?;
         let tools = Arc::new(tools);
+        subagents.set_main_tools(tools.clone());
 
         let transcriber = voice_config
             .as_ref()
@@ -1033,19 +1026,21 @@ impl AgentLoop {
 
         let tools_defs = self.tools.get_tool_definitions();
 
-        // Exfiltration guard: hide outbound-capable tools from the LLM
-        let exfil_blocked: Vec<String> = if self.exfiltration_guard.enabled {
-            self.exfiltration_guard.blocked_tools.clone()
-        } else {
-            vec![]
-        };
-        let tools_defs = if exfil_blocked.is_empty() {
-            tools_defs
-        } else {
+        // Exfiltration guard: hide network-outbound tools from the LLM
+        let tools_defs = if self.exfiltration_guard.enabled {
+            let allowed = &self.exfiltration_guard.allow_tools;
             tools_defs
                 .into_iter()
-                .filter(|td| !exfil_blocked.contains(&td.name))
+                .filter(|td| {
+                    let is_network = self
+                        .tools
+                        .get(&td.name)
+                        .is_some_and(|t| t.capabilities().network_outbound);
+                    !is_network || allowed.contains(&td.name)
+                })
                 .collect()
+        } else {
+            tools_defs
         };
 
         // Extract tool names for hallucination detection (immutable snapshot for the full loop)
@@ -1182,8 +1177,13 @@ impl AgentLoop {
                 // Start periodic typing indicator before tool execution
                 let typing_handle = start_typing(self.typing_tx.as_ref(), typing_context.as_ref());
 
+                let exfil_ref = if self.exfiltration_guard.enabled {
+                    Some(&self.exfiltration_guard)
+                } else {
+                    None
+                };
                 let results = self
-                    .execute_tools(&response.tool_calls, &tool_names, exec_ctx, &exfil_blocked)
+                    .execute_tools(&response.tool_calls, &tool_names, exec_ctx, exfil_ref)
                     .await;
 
                 // Stop typing indicator after tool execution
@@ -1286,8 +1286,9 @@ impl AgentLoop {
         tool_calls: &[ToolCallRequest],
         tool_names: &[String],
         exec_ctx: &ExecutionContext,
-        exfil_blocked: &[String],
+        exfil_guard: Option<&crate::config::ExfiltrationGuardConfig>,
     ) -> Vec<(String, bool)> {
+        let allow_tools: Option<Vec<String>> = exfil_guard.map(|g| g.allow_tools.clone());
         if tool_calls.len() == 1 {
             let tc = &tool_calls[0];
             vec![
@@ -1297,7 +1298,7 @@ impl AgentLoop {
                     &tc.arguments,
                     tool_names,
                     exec_ctx,
-                    exfil_blocked,
+                    allow_tools.as_deref(),
                     Some(&self.workspace),
                 )
                 .await,
@@ -1311,7 +1312,7 @@ impl AgentLoop {
                     let tc_args = tc.arguments.clone();
                     let available = tool_names.to_vec();
                     let ctx = exec_ctx.clone();
-                    let blocked = exfil_blocked.to_vec();
+                    let allow = allow_tools.clone();
                     let ws = self.workspace.clone();
                     tokio::task::spawn(async move {
                         execute_tool_call(
@@ -1320,7 +1321,7 @@ impl AgentLoop {
                             &tc_args,
                             &available,
                             &ctx,
-                            &blocked,
+                            allow.as_deref(),
                             Some(&ws),
                         )
                         .await

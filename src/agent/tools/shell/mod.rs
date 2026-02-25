@@ -1,4 +1,4 @@
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::config::SandboxConfig;
 use crate::utils::regex::compile_security_patterns;
@@ -276,6 +276,15 @@ impl Tool for ExecTool {
 
     fn execution_timeout(&self) -> Duration {
         Duration::from_secs(self.timeout)
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: false,
+            subagent_access: SubagentAccess::Full,
+            actions: vec![],
+        }
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {

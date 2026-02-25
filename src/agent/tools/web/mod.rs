@@ -1,4 +1,4 @@
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::utils::media::{extension_from_content_type, save_media_file};
 use crate::utils::regex::{RegexPatterns, compile_regex};
@@ -137,6 +137,15 @@ impl Tool for WebSearchTool {
 
     fn cacheable(&self) -> bool {
         true
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: true,
+            subagent_access: SubagentAccess::Full,
+            actions: vec![],
+        }
     }
 
     fn parameters(&self) -> Value {
@@ -375,6 +384,15 @@ impl Tool for WebFetchTool {
 
     fn cacheable(&self) -> bool {
         true
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: true,
+            subagent_access: SubagentAccess::Full,
+            actions: vec![],
+        }
     }
 
     fn parameters(&self) -> Value {

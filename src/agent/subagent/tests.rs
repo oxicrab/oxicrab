@@ -82,25 +82,24 @@ impl LLMProvider for DelayedProvider {
 
 fn make_manager(provider: Arc<dyn LLMProvider>, max_concurrent: usize) -> SubagentManager {
     let bus = Arc::new(Mutex::new(MessageBus::default()));
-    SubagentManager::new(
+    let mgr = SubagentManager::new(
         SubagentConfig {
             provider,
             workspace: PathBuf::from("/tmp/test"),
             model: Some("mock".to_string()),
-            brave_api_key: None,
-            exec_timeout: 10,
-            restrict_to_workspace: false,
-            allowed_commands: vec![],
             max_tokens: 1024,
             tool_temperature: 0.0,
             max_concurrent,
-            exfil_blocked_tools: vec![],
             cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
-            sandbox_config: crate::config::SandboxConfig::default(),
+            exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
+            main_tools: None,
         },
         bus,
-    )
+    );
+    // Provide a minimal main tools registry so spawned subagents can build their tool set
+    mgr.set_main_tools(make_test_main_registry());
+    mgr
 }
 
 // --- Prompt building tests ---
@@ -243,20 +242,17 @@ async fn test_silent_mode_no_bus_message() {
             provider,
             workspace: PathBuf::from("/tmp/test"),
             model: Some("mock".to_string()),
-            brave_api_key: None,
-            exec_timeout: 10,
-            restrict_to_workspace: false,
-            allowed_commands: vec![],
             max_tokens: 1024,
             tool_temperature: 0.0,
             max_concurrent: 5,
-            exfil_blocked_tools: vec![],
             cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
-            sandbox_config: crate::config::SandboxConfig::default(),
+            exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
+            main_tools: None,
         },
         bus.clone(),
     );
+    mgr.set_main_tools(make_test_main_registry());
 
     mgr.spawn(
         "silent task".to_string(),
@@ -301,20 +297,17 @@ async fn test_non_silent_mode_publishes_bus_message() {
             provider,
             workspace: PathBuf::from("/tmp/test"),
             model: Some("mock".to_string()),
-            brave_api_key: None,
-            exec_timeout: 10,
-            restrict_to_workspace: false,
-            allowed_commands: vec![],
             max_tokens: 1024,
             tool_temperature: 0.0,
             max_concurrent: 5,
-            exfil_blocked_tools: vec![],
             cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
-            sandbox_config: crate::config::SandboxConfig::default(),
+            exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
+            main_tools: None,
         },
         bus.clone(),
     );
+    mgr.set_main_tools(make_test_main_registry());
 
     mgr.spawn(
         "announce task".to_string(),
@@ -447,3 +440,274 @@ async fn test_spawn_explicit_label() {
 }
 
 use std::path::Path;
+
+// --- Subagent tool registration tests ---
+
+/// Helper to build a `SubagentInner` config for tool registration tests.
+fn make_inner_with_tools(
+    exfil_guard: crate::config::ExfiltrationGuardConfig,
+    main_tools: Arc<crate::agent::tools::ToolRegistry>,
+) -> super::SubagentInner {
+    let lock = std::sync::OnceLock::new();
+    let _ = lock.set(main_tools);
+    super::SubagentInner {
+        provider: Arc::new(MockProvider::immediate("done")),
+        workspace: PathBuf::from("/tmp/test"),
+        model: "mock".to_string(),
+        max_tokens: 1024,
+        tool_temperature: 0.0,
+        cost_guard: None,
+        prompt_guard: None,
+        prompt_guard_config: crate::config::PromptGuardConfig::default(),
+        exfil_guard,
+        main_tools: lock,
+    }
+}
+
+/// Build a realistic main tool registry for testing subagent tool filtering.
+fn make_test_main_registry() -> Arc<crate::agent::tools::ToolRegistry> {
+    use crate::agent::tools::ToolRegistry;
+    use crate::agent::tools::filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool};
+    use crate::agent::tools::github::GitHubTool;
+    use crate::agent::tools::reddit::RedditTool;
+    use crate::agent::tools::shell::ExecTool;
+    use crate::agent::tools::web::{WebFetchTool, WebSearchTool};
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(ReadFileTool::new(None, None)));
+    registry.register(Arc::new(WriteFileTool::new(None, None, None)));
+    registry.register(Arc::new(ListDirTool::new(None, None)));
+    registry.register(Arc::new(EditFileTool::new(None, None, None)));
+    registry.register(Arc::new(
+        ExecTool::new(
+            10,
+            None,
+            false,
+            vec![],
+            crate::config::SandboxConfig::default(),
+        )
+        .unwrap(),
+    ));
+    registry.register(Arc::new(WebSearchTool::new(None, 5)));
+    registry.register(Arc::new(WebFetchTool::new(50000).unwrap()));
+    registry.register(Arc::new(GitHubTool::new("fake".to_string())));
+    registry.register(Arc::new(RedditTool::new()));
+    Arc::new(registry)
+}
+
+#[test]
+fn test_subagent_tools_capability_based() {
+    let main = make_test_main_registry();
+    let config = make_inner_with_tools(crate::config::ExfiltrationGuardConfig::default(), main);
+    let tools = super::build_subagent_tools(&config);
+    let names = tools.tool_names();
+
+    // Full access tools: read_file, write_file, list_dir, exec, web_search, web_fetch
+    assert!(names.contains(&"read_file".to_string()));
+    assert!(names.contains(&"write_file".to_string()));
+    assert!(names.contains(&"list_dir".to_string()));
+    assert!(names.contains(&"exec".to_string()));
+    assert!(names.contains(&"web_search".to_string()));
+    assert!(names.contains(&"web_fetch".to_string()));
+
+    // ReadOnly tools appear (github, reddit) — wrapped with read-only actions
+    assert!(
+        names.contains(&"github".to_string()),
+        "github should be available as read-only"
+    );
+    assert!(
+        names.contains(&"reddit".to_string()),
+        "reddit should be available as read-only"
+    );
+}
+
+#[test]
+fn test_subagent_tools_denied_tools_excluded() {
+    let main = make_test_main_registry();
+    let config = make_inner_with_tools(crate::config::ExfiltrationGuardConfig::default(), main);
+    let tools = super::build_subagent_tools(&config);
+
+    // Denied tools should NOT appear
+    assert!(tools.get("edit_file").is_none(), "edit_file is Denied");
+}
+
+#[test]
+fn test_subagent_github_is_read_only() {
+    let main = make_test_main_registry();
+    let config = make_inner_with_tools(crate::config::ExfiltrationGuardConfig::default(), main);
+    let tools = super::build_subagent_tools(&config);
+
+    let github = tools
+        .get("github")
+        .expect("github should be in subagent tools");
+    let params = github.parameters();
+    let actions: Vec<String> = params["properties"]["action"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+
+    // Only read-only actions should be exposed
+    assert!(actions.contains(&"list_prs".to_string()));
+    assert!(actions.contains(&"get_issue".to_string()));
+    assert!(
+        !actions.contains(&"create_issue".to_string()),
+        "mutating action should be hidden"
+    );
+    assert!(
+        !actions.contains(&"trigger_workflow".to_string()),
+        "mutating action should be hidden"
+    );
+}
+
+#[test]
+fn test_subagent_tools_exfil_blocks_all_network() {
+    let main = make_test_main_registry();
+    // Guard enabled with no allow_tools → all network_outbound tools blocked
+    let guard = crate::config::ExfiltrationGuardConfig {
+        enabled: true,
+        allow_tools: vec![],
+    };
+    let config = make_inner_with_tools(guard, main);
+    let tools = super::build_subagent_tools(&config);
+    let names = tools.tool_names();
+
+    assert!(!names.contains(&"web_search".to_string()));
+    assert!(!names.contains(&"web_fetch".to_string()));
+    // But filesystem, exec, and read-only domain tools should remain
+    assert!(names.contains(&"read_file".to_string()));
+    assert!(names.contains(&"exec".to_string()));
+    assert!(names.contains(&"github".to_string()));
+}
+
+#[test]
+fn test_subagent_tools_exfil_allows_specific_tool() {
+    let main = make_test_main_registry();
+    // Guard enabled but web_search is allow-listed
+    let guard = crate::config::ExfiltrationGuardConfig {
+        enabled: true,
+        allow_tools: vec!["web_search".to_string()],
+    };
+    let config = make_inner_with_tools(guard, main);
+    let tools = super::build_subagent_tools(&config);
+    let names = tools.tool_names();
+
+    assert!(
+        names.contains(&"web_search".to_string()),
+        "web_search should be allowed via allow_tools"
+    );
+    assert!(
+        !names.contains(&"web_fetch".to_string()),
+        "web_fetch should be blocked"
+    );
+}
+
+// --- Activity log tests ---
+
+#[test]
+fn test_activity_log_creates_file() {
+    let log = super::ActivityLog::new("test1234");
+    assert!(log.is_some(), "ActivityLog should be creatable");
+    let log = log.unwrap();
+    assert!(log.path().exists(), "Log file should exist on disk");
+    assert!(
+        log.path()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("subagent-test1234-"),
+        "Log filename should contain task ID"
+    );
+    // Cleanup
+    let _ = std::fs::remove_file(log.path());
+}
+
+#[test]
+fn test_activity_log_writes_content() {
+    let mut log = super::ActivityLog::new("logtest").unwrap();
+    log.log_start("test task for logging");
+    log.log_tools(&["exec".to_string(), "read_file".to_string()]);
+    log.log_iteration_tool_calls(1, 2);
+    log.log_tool_call("exec", &serde_json::json!({"command": "ls"}));
+    log.log_tool_result("exec", "file1.txt file2.txt", false);
+    log.log_tool_result("exec", "command not found", true);
+    log.log_iteration_text(2, 100);
+    log.log_end("ok");
+
+    let content = std::fs::read_to_string(log.path()).unwrap();
+
+    assert!(content.contains("SUBAGENT START task_id=logtest"));
+    assert!(content.contains("TASK: test task for logging"));
+    assert!(content.contains("TOOLS REGISTERED: exec, read_file"));
+    assert!(content.contains("ITERATION 1: LLM responded with 2 tool call(s)"));
+    assert!(content.contains("TOOL CALL: exec {\"command\":\"ls\"}"));
+    assert!(content.contains("TOOL RESULT: exec (19 chars): file1.txt file2.txt"));
+    assert!(content.contains("TOOL ERROR: exec (17 chars): command not found"));
+    assert!(content.contains("ITERATION 2: LLM responded with text (100 chars)"));
+    assert!(content.contains("SUBAGENT END task_id=logtest status=ok duration="));
+
+    // Cleanup
+    let _ = std::fs::remove_file(log.path());
+}
+
+#[test]
+fn test_activity_log_truncates_long_content() {
+    let mut log = super::ActivityLog::new("trunctest").unwrap();
+    let long_result = "x".repeat(1000);
+    log.log_tool_result("exec", &long_result, false);
+
+    let content = std::fs::read_to_string(log.path()).unwrap();
+    // Should contain "..." suffix indicating truncation
+    assert!(content.contains("..."));
+    // Should contain the char count of the full content
+    assert!(content.contains("(1000 chars)"));
+
+    let _ = std::fs::remove_file(log.path());
+}
+
+#[test]
+fn test_activity_log_special_entries() {
+    let mut log = super::ActivityLog::new("spectest").unwrap();
+    log.log_cost_blocked("monthly budget exceeded");
+    log.log_max_iterations(15);
+    log.log_iteration_empty(3, 1);
+
+    let content = std::fs::read_to_string(log.path()).unwrap();
+    assert!(content.contains("COST GUARD BLOCKED: monthly budget exceeded"));
+    assert!(content.contains("MAX ITERATIONS REACHED (15)"));
+    assert!(content.contains("ITERATION 3: LLM returned empty response (retries left: 1)"));
+
+    let _ = std::fs::remove_file(log.path());
+}
+
+// --- ToolRegistry::tool_names test ---
+
+#[test]
+fn test_tool_registry_tool_names() {
+    use crate::agent::tools::ToolRegistry;
+    use crate::agent::tools::filesystem::ReadFileTool;
+
+    let mut registry = ToolRegistry::new();
+    assert!(registry.tool_names().is_empty());
+
+    registry.register(Arc::new(ReadFileTool::new(None, None)));
+    let names = registry.tool_names();
+    assert_eq!(names, vec!["read_file"]);
+}
+
+#[test]
+fn test_tool_registry_tool_names_sorted() {
+    use crate::agent::tools::ToolRegistry;
+    use crate::agent::tools::filesystem::{ListDirTool, ReadFileTool, WriteFileTool};
+
+    let mut registry = ToolRegistry::new();
+    // Register in non-sorted order
+    registry.register(Arc::new(WriteFileTool::new(None, None, None)));
+    registry.register(Arc::new(ReadFileTool::new(None, None)));
+    registry.register(Arc::new(ListDirTool::new(None, None)));
+
+    let names = registry.tool_names();
+    assert_eq!(names, vec!["list_dir", "read_file", "write_file"]);
+}

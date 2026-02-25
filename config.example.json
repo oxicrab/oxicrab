@@ -197,7 +197,7 @@
   "tools": {
     "exfiltrationGuard": {
       "enabled": false,
-      "blockedTools": ["http", "web_fetch", "browser"]
+      "allowTools": []
     },
     "web": {
       "search": {

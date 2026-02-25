@@ -107,8 +107,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed implementation docs.
 ### Tool Structs
 - Constructor: `pub fn new(...)` builds the client with timeouts
 - Test constructor: `#[cfg(test)] fn with_base_url(...)` for mock server testing
-- Implement `Tool` trait: `name()`, `description()`, `version()`, `parameters()`, `execute(params, ctx)`
-- Action-based tools use `params["action"].as_str()` dispatch pattern (e.g. GitHub tool has 11 actions: list_issues, create_issue, get_issue, list_prs, get_pr, get_pr_files, create_pr_review, get_file_content, trigger_workflow, get_workflow_runs, notifications)
+- Implement `Tool` trait: `name()`, `description()`, `version()`, `parameters()`, `capabilities()`, `execute(params, ctx)`
+- **`capabilities()`** returns `ToolCapabilities` with: `built_in` (true for core tools), `network_outbound` (true if tool makes external network calls), `subagent_access` (`Full`/`ReadOnly`/`Denied`), `actions` (vec of `ActionDescriptor` with `name` and `read_only` for action-based tools). Defaults: `built_in=false, network_outbound=false, subagent_access=Denied, actions=[]`. Used by exfiltration guard, subagent builder, and MCP shadow protection.
+- Action-based tools use `params["action"].as_str()` dispatch pattern (e.g. GitHub tool has 11 actions: list_issues, create_issue, get_issue, list_prs, get_pr, get_pr_files, create_pr_review, get_file_content, trigger_workflow, get_workflow_runs, notifications). Each action-based tool declares `ActionDescriptor` entries matching its action enum — enforced by completeness tests.
+- `ReadOnlyToolWrapper` (`src/agent/tools/read_only_wrapper.rs`) wraps action-based tools to expose only read-only actions to subagents. Dual enforcement: schema filtering (removes mutating actions from enum) + execution-time rejection.
 - Registration: Each module has a `register_*()` function in `src/agent/tools/setup.rs`
 
 ### Error Handling

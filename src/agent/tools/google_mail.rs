@@ -1,4 +1,6 @@
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{
+    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
+};
 use crate::agent::tools::google_common::GoogleApiClient;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::auth::google::GoogleCredentials;
@@ -27,6 +29,40 @@ impl Tool for GoogleMailTool {
 
     fn description(&self) -> &'static str {
         "Interact with Gmail. Actions: search, read, send, reply, list_labels, label."
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: true,
+            subagent_access: SubagentAccess::ReadOnly,
+            actions: vec![
+                ActionDescriptor {
+                    name: "search",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "read",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "send",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "reply",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "list_labels",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "label",
+                    read_only: false,
+                },
+            ],
+        }
     }
 
     fn parameters(&self) -> Value {
@@ -496,5 +532,73 @@ mod tests {
         });
         // Should not crash, falls through to no readable body
         assert_eq!(extract_body(&payload), "(no readable body)");
+    }
+
+    fn test_credentials() -> GoogleCredentials {
+        GoogleCredentials {
+            token: "fake".to_string(),
+            refresh_token: None,
+            token_uri: "https://oauth2.googleapis.com/token".to_string(),
+            client_id: "fake".to_string(),
+            client_secret: "fake".to_string(),
+            scopes: vec![],
+            expiry: None,
+        }
+    }
+
+    #[test]
+    fn test_google_mail_capabilities() {
+        use crate::agent::tools::base::SubagentAccess;
+        let tool = GoogleMailTool::new(test_credentials());
+        let caps = tool.capabilities();
+        assert!(caps.built_in);
+        assert!(caps.network_outbound);
+        assert_eq!(caps.subagent_access, SubagentAccess::ReadOnly);
+        let read_only: Vec<&str> = caps
+            .actions
+            .iter()
+            .filter(|a| a.read_only)
+            .map(|a| a.name)
+            .collect();
+        let mutating: Vec<&str> = caps
+            .actions
+            .iter()
+            .filter(|a| !a.read_only)
+            .map(|a| a.name)
+            .collect();
+        assert!(read_only.contains(&"search"));
+        assert!(read_only.contains(&"read"));
+        assert!(read_only.contains(&"list_labels"));
+        assert!(mutating.contains(&"send"));
+        assert!(mutating.contains(&"reply"));
+        assert!(mutating.contains(&"label"));
+    }
+
+    #[test]
+    fn test_google_mail_actions_match_schema() {
+        let tool = GoogleMailTool::new(test_credentials());
+        let caps = tool.capabilities();
+        let params = tool.parameters();
+        let schema_actions: Vec<String> = params["properties"]["action"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        let cap_actions: Vec<String> = caps.actions.iter().map(|a| a.name.to_string()).collect();
+        for action in &schema_actions {
+            assert!(
+                cap_actions.contains(action),
+                "action '{}' in schema but not in capabilities()",
+                action
+            );
+        }
+        for action in &cap_actions {
+            assert!(
+                schema_actions.contains(action),
+                "action '{}' in capabilities() but not in schema",
+                action
+            );
+        }
     }
 }

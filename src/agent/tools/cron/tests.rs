@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::tools::Tool;
 use crate::config::{
     ChannelsConfig, DiscordConfig, SlackConfig, TelegramConfig, TwilioConfig, WhatsAppConfig,
 };
@@ -144,4 +145,65 @@ fn test_resolve_wildcard_only_excluded() {
     let targets = resolve_all_channel_targets_from_config(Some(&cfg));
     // Telegram wildcard has no concrete target -> excluded
     assert!(!targets.iter().any(|t| t.channel == "telegram"));
+}
+
+// --- Capabilities tests ---
+
+#[test]
+fn test_cron_capabilities() {
+    use crate::agent::tools::base::SubagentAccess;
+    let cron_service = Arc::new(CronService::new(std::path::PathBuf::from("/tmp/test-cron")));
+    let tool = CronTool::new(cron_service, None, None);
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::ReadOnly);
+    let read_only: Vec<&str> = caps
+        .actions
+        .iter()
+        .filter(|a| a.read_only)
+        .map(|a| a.name)
+        .collect();
+    let mutating: Vec<&str> = caps
+        .actions
+        .iter()
+        .filter(|a| !a.read_only)
+        .map(|a| a.name)
+        .collect();
+    assert!(read_only.contains(&"list"));
+    assert!(read_only.contains(&"dlq_list"));
+    assert!(mutating.contains(&"add"));
+    assert!(mutating.contains(&"remove"));
+    assert!(mutating.contains(&"run"));
+    assert!(mutating.contains(&"dlq_replay"));
+    assert!(mutating.contains(&"dlq_clear"));
+}
+
+#[test]
+fn test_cron_actions_match_schema() {
+    let cron_service = Arc::new(CronService::new(std::path::PathBuf::from("/tmp/test-cron")));
+    let tool = CronTool::new(cron_service, None, None);
+    let caps = tool.capabilities();
+    let params = tool.parameters();
+    let schema_actions: Vec<String> = params["properties"]["action"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let cap_actions: Vec<String> = caps.actions.iter().map(|a| a.name.to_string()).collect();
+    for action in &schema_actions {
+        assert!(
+            cap_actions.contains(action),
+            "action '{}' in schema but not in capabilities()",
+            action
+        );
+    }
+    for action in &cap_actions {
+        assert!(
+            schema_actions.contains(action),
+            "action '{}' in capabilities() but not in schema",
+            action
+        );
+    }
 }

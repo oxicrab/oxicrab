@@ -15,7 +15,7 @@ use tempfile::TempDir;
 // ===========================================================================
 
 #[tokio::test]
-async fn test_exfil_guard_hides_blocked_tools_from_llm() {
+async fn test_exfil_guard_hides_network_tools_from_llm() {
     let tmp = TempDir::new().expect("create temp dir");
     let provider = ToolCapturingProvider::with_responses(vec![text_response("ok")]);
     let tool_defs = provider.tool_defs.clone();
@@ -26,7 +26,7 @@ async fn test_exfil_guard_hides_blocked_tools_from_llm() {
         TestAgentOverrides {
             exfiltration_guard: Some(ExfiltrationGuardConfig {
                 enabled: true,
-                blocked_tools: vec!["http".into(), "web_fetch".into(), "browser".into()],
+                allow_tools: vec![],
             }),
             ..Default::default()
         },
@@ -43,7 +43,7 @@ async fn test_exfil_guard_hides_blocked_tools_from_llm() {
     let tools = recorded[0].as_ref().unwrap();
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
 
-    // Blocked tools must not appear in definitions sent to LLM
+    // Network-outbound tools must not appear in definitions sent to LLM
     assert!(
         !tool_names.contains(&"http"),
         "http should be hidden from LLM, got: {:?}",
@@ -55,12 +55,12 @@ async fn test_exfil_guard_hides_blocked_tools_from_llm() {
         tool_names
     );
     assert!(
-        !tool_names.contains(&"browser"),
-        "browser should be hidden from LLM, got: {:?}",
+        !tool_names.contains(&"web_search"),
+        "web_search should be hidden from LLM, got: {:?}",
         tool_names
     );
 
-    // Non-blocked tools still visible
+    // Non-network tools still visible
     assert!(
         tool_names.contains(&"read_file"),
         "read_file should still be visible"
@@ -80,7 +80,7 @@ async fn test_exfil_guard_disabled_shows_all_tools() {
         TestAgentOverrides {
             exfiltration_guard: Some(ExfiltrationGuardConfig {
                 enabled: false,
-                blocked_tools: vec!["http".into(), "web_fetch".into(), "browser".into()],
+                allow_tools: vec![],
             }),
             ..Default::default()
         },
@@ -96,7 +96,7 @@ async fn test_exfil_guard_disabled_shows_all_tools() {
     let tools = recorded[0].as_ref().unwrap();
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
 
-    // When disabled, http/web_fetch/browser should still be visible
+    // When disabled, all tools should be visible
     assert!(
         tool_names.contains(&"http"),
         "http should be visible when guard disabled"
@@ -115,7 +115,7 @@ async fn test_exfil_guard_disabled_shows_all_tools() {
 async fn test_exfil_guard_blocks_tool_at_dispatch() {
     let tmp = TempDir::new().expect("create temp dir");
 
-    // LLM tries to call 'http' (blocked) — should get an error result, then respond
+    // LLM tries to call 'http' (network_outbound, not allow-listed) — should get an error result
     let provider = ToolCapturingProvider::with_responses(vec![
         tool_response(vec![tool_call(
             "tc1",
@@ -132,7 +132,7 @@ async fn test_exfil_guard_blocks_tool_at_dispatch() {
         TestAgentOverrides {
             exfiltration_guard: Some(ExfiltrationGuardConfig {
                 enabled: true,
-                blocked_tools: vec!["http".into(), "web_fetch".into(), "browser".into()],
+                allow_tools: vec![],
             }),
             ..Default::default()
         },
@@ -152,10 +152,10 @@ async fn test_exfil_guard_blocks_tool_at_dispatch() {
 }
 
 #[tokio::test]
-async fn test_exfil_guard_allows_non_blocked_tools() {
+async fn test_exfil_guard_allows_non_network_tools() {
     let tmp = TempDir::new().expect("create temp dir");
 
-    // LLM calls list_dir (not blocked) — should succeed normally
+    // LLM calls list_dir (not network_outbound) — should succeed normally
     let provider = ToolCapturingProvider::with_responses(vec![
         tool_response(vec![tool_call(
             "tc1",
@@ -171,7 +171,7 @@ async fn test_exfil_guard_allows_non_blocked_tools() {
         TestAgentOverrides {
             exfiltration_guard: Some(ExfiltrationGuardConfig {
                 enabled: true,
-                blocked_tools: vec!["http".into(), "web_fetch".into(), "browser".into()],
+                allow_tools: vec![],
             }),
             ..Default::default()
         },
@@ -382,7 +382,7 @@ async fn test_exfil_and_prompt_guard_both_enabled() {
         TestAgentOverrides {
             exfiltration_guard: Some(ExfiltrationGuardConfig {
                 enabled: true,
-                blocked_tools: vec!["http".into(), "web_fetch".into(), "browser".into()],
+                allow_tools: vec![],
             }),
             prompt_guard_config: Some(PromptGuardConfig {
                 enabled: true,
@@ -401,7 +401,7 @@ async fn test_exfil_and_prompt_guard_both_enabled() {
 
     assert_eq!(response, "ok");
 
-    // Tools should be filtered
+    // Network tools should be filtered
     let recorded = tool_defs.lock().expect("lock tool defs");
     let tools = recorded[0].as_ref().unwrap();
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
@@ -409,19 +409,19 @@ async fn test_exfil_and_prompt_guard_both_enabled() {
 }
 
 #[tokio::test]
-async fn test_exfil_guard_custom_blocked_tools() {
+async fn test_exfil_guard_allow_tools_override() {
     let tmp = TempDir::new().expect("create temp dir");
     let provider = ToolCapturingProvider::with_responses(vec![text_response("ok")]);
     let tool_defs = provider.tool_defs.clone();
 
-    // Block exec and list_dir instead of the defaults
+    // Guard enabled, but web_search is allow-listed
     let agent = create_test_agent_with(
         provider,
         &tmp,
         TestAgentOverrides {
             exfiltration_guard: Some(ExfiltrationGuardConfig {
                 enabled: true,
-                blocked_tools: vec!["exec".into(), "list_dir".into()],
+                allow_tools: vec!["web_search".into()],
             }),
             ..Default::default()
         },
@@ -429,7 +429,7 @@ async fn test_exfil_guard_custom_blocked_tools() {
     .await;
 
     agent
-        .process_direct("Hello", "test:custom_exfil", "telegram", "custom_exfil")
+        .process_direct("Hello", "test:allow_exfil", "telegram", "allow_exfil")
         .await
         .expect("process message");
 
@@ -437,21 +437,20 @@ async fn test_exfil_guard_custom_blocked_tools() {
     let tools = recorded[0].as_ref().unwrap();
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
 
-    // Custom blocked tools should be hidden
+    // web_search should be visible (allow-listed)
     assert!(
-        !tool_names.contains(&"exec"),
-        "exec should be blocked by custom config"
-    );
-    assert!(
-        !tool_names.contains(&"list_dir"),
-        "list_dir should be blocked by custom config"
+        tool_names.contains(&"web_search"),
+        "web_search should be allowed via allow_tools"
     );
 
-    // Default blocked tools should still be visible
+    // Other network tools should still be hidden
+    assert!(!tool_names.contains(&"http"), "http should be blocked");
     assert!(
-        tool_names.contains(&"http"),
-        "http should be visible with custom config"
+        !tool_names.contains(&"web_fetch"),
+        "web_fetch should be blocked"
     );
+
+    // Non-network tools always visible
     assert!(
         tool_names.contains(&"read_file"),
         "read_file should still be visible"

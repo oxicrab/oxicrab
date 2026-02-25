@@ -992,3 +992,64 @@ async fn test_api_error_unauthorized() {
     // message from GitHub is replaced with a safe alternative
     assert!(result.content.contains("authentication error"));
 }
+
+#[test]
+fn test_github_capabilities() {
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = GitHubTool::new("fake".to_string());
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::ReadOnly);
+    let read_only: Vec<&str> = caps
+        .actions
+        .iter()
+        .filter(|a| a.read_only)
+        .map(|a| a.name)
+        .collect();
+    let mutating: Vec<&str> = caps
+        .actions
+        .iter()
+        .filter(|a| !a.read_only)
+        .map(|a| a.name)
+        .collect();
+    assert!(read_only.contains(&"list_prs"));
+    assert!(read_only.contains(&"list_issues"));
+    assert!(read_only.contains(&"get_issue"));
+    assert!(read_only.contains(&"get_pr"));
+    assert!(read_only.contains(&"get_pr_files"));
+    assert!(read_only.contains(&"get_file_content"));
+    assert!(read_only.contains(&"get_workflow_runs"));
+    assert!(read_only.contains(&"notifications"));
+    assert!(mutating.contains(&"create_issue"));
+    assert!(mutating.contains(&"create_pr_review"));
+    assert!(mutating.contains(&"trigger_workflow"));
+}
+
+#[test]
+fn test_github_actions_match_schema() {
+    let tool = GitHubTool::new("fake".to_string());
+    let caps = tool.capabilities();
+    let params = tool.parameters();
+    let schema_actions: Vec<String> = params["properties"]["action"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let cap_actions: Vec<String> = caps.actions.iter().map(|a| a.name.to_string()).collect();
+    for action in &schema_actions {
+        assert!(
+            cap_actions.contains(action),
+            "action '{}' in schema but not in capabilities()",
+            action
+        );
+    }
+    for action in &cap_actions {
+        assert!(
+            schema_actions.contains(action),
+            "action '{}' in capabilities() but not in schema",
+            action
+        );
+    }
+}

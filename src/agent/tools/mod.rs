@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod media;
 pub mod memory_search;
 pub mod obsidian;
+pub mod read_only_wrapper;
 pub mod reddit;
 pub mod registry;
 pub mod setup;
@@ -23,5 +24,8 @@ pub mod todoist;
 pub mod weather;
 pub mod web;
 
-pub use base::{ExecutionContext, Tool, ToolMiddleware, ToolResult, ToolVersion};
+pub use base::{
+    ActionDescriptor, ExecutionContext, SubagentAccess, Tool, ToolCapabilities, ToolMiddleware,
+    ToolResult, ToolVersion,
+};
 pub use registry::ToolRegistry;

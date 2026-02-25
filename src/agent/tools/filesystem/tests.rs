@@ -518,3 +518,49 @@ async fn test_edit_file_creates_backup() {
 
     fs::remove_dir_all(&dir).unwrap();
 }
+
+// --- capabilities ---
+
+#[test]
+fn test_read_file_capabilities() {
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = ReadFileTool::new(None, None);
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(!caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::Full);
+    assert!(caps.actions.is_empty());
+}
+
+#[test]
+fn test_write_file_capabilities() {
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = WriteFileTool::new(None, None, None);
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(!caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::Full);
+    assert!(caps.actions.is_empty());
+}
+
+#[test]
+fn test_edit_file_capabilities() {
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = EditFileTool::new(None, None, None);
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(!caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::Denied);
+    assert!(caps.actions.is_empty());
+}
+
+#[test]
+fn test_list_dir_capabilities() {
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = ListDirTool::new(None, None);
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(!caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::Full);
+    assert!(caps.actions.is_empty());
+}

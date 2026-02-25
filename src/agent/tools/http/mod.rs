@@ -1,4 +1,4 @@
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::utils::media::{extension_from_content_type, save_media_file};
 use anyhow::Result;
@@ -214,6 +214,15 @@ impl Tool for HttpTool {
 
     fn version(&self) -> ToolVersion {
         ToolVersion::new(1, 0, 0)
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: true,
+            subagent_access: SubagentAccess::Denied,
+            actions: vec![],
+        }
     }
 
     fn parameters(&self) -> Value {

@@ -275,7 +275,7 @@ async fn test_parallel_tool_execution_ordering() {
                     &tc_args,
                     &available,
                     &ExecutionContext::default(),
-                    &[],
+                    None,
                     None,
                 )
                 .await
@@ -312,7 +312,7 @@ async fn test_single_tool_no_parallel_overhead() {
         &serde_json::json!({}),
         &empty_tools(),
         &ExecutionContext::default(),
-        &[],
+        None,
         None,
     )
     .await;
@@ -358,7 +358,7 @@ async fn test_parallel_tool_one_panics() {
                     &tc_args,
                     &available,
                     &ExecutionContext::default(),
-                    &[],
+                    None,
                     None,
                 )
                 .await
@@ -422,7 +422,7 @@ async fn test_parallel_tool_one_errors() {
                     &tc_args,
                     &available,
                     &ExecutionContext::default(),
-                    &[],
+                    None,
                     None,
                 )
                 .await
@@ -478,7 +478,7 @@ async fn test_unknown_tool_lists_available() {
         &serde_json::json!({}),
         &available,
         &ExecutionContext::default(),
-        &[],
+        None,
         None,
     )
     .await;
@@ -585,7 +585,7 @@ async fn test_validation_rejects_before_execution() {
         &serde_json::json!({}),
         &empty_tools(),
         &ExecutionContext::default(),
-        &[],
+        None,
         None,
     )
     .await;
@@ -630,7 +630,7 @@ async fn test_requires_approval_blocks_execution() {
         &serde_json::json!({}),
         &empty_tools(),
         &ExecutionContext::default(),
-        &[],
+        None,
         None,
     )
     .await;
@@ -652,7 +652,7 @@ async fn test_normal_tool_not_blocked_by_approval() {
         &serde_json::json!({}),
         &empty_tools(),
         &ExecutionContext::default(),
-        &[],
+        None,
         None,
     )
     .await;

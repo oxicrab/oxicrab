@@ -13,29 +13,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
-/// Built-in tool names that MCP tools must not shadow.
-const PROTECTED_TOOL_NAMES: &[&str] = &[
-    "exec",
-    "read_file",
-    "write_file",
-    "edit_file",
-    "list_dir",
-    "web_search",
-    "web_fetch",
-    "http",
-    "spawn",
-    "subagent_control",
-    "cron",
-    "tmux",
-    "browser",
-    "memory_search",
-];
-
-/// Keywords that indicate a tool is safe for community-trust MCP servers.
-const COMMUNITY_SAFE_KEYWORDS: &[&str] = &[
-    "read", "list", "get", "search", "find", "query", "fetch", "view", "show", "count",
-];
-
 /// All configuration and shared state needed to construct tools.
 /// Built once during `AgentLoop::new()` and passed to each module's `register()`.
 pub struct ToolBuildContext {
@@ -97,6 +74,14 @@ pub async fn register_all_tools(
 
     let mcp_manager = if let Some((mcp_tools, manager)) = mcp_result {
         for tool in mcp_tools {
+            let name = tool.name().to_string();
+            // Reject MCP tools that shadow built-in tools (capability-based)
+            if let Some(existing) = tools.get(&name)
+                && existing.capabilities().built_in
+            {
+                warn!("MCP tool '{}' rejected: shadows a built-in tool", name);
+                continue;
+            }
             tools.register(tool);
         }
         Some(manager)
@@ -355,12 +340,12 @@ fn register_memory_search(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
 }
 
 /// Check whether a tool name is safe for community-trust MCP servers.
-/// Extracted for testability — used by `create_mcp` filtering logic.
 fn is_community_safe(tool_name: &str) -> bool {
+    const SAFE_KEYWORDS: &[&str] = &[
+        "read", "list", "get", "search", "find", "query", "fetch", "view", "show", "count",
+    ];
     let name_lower = tool_name.to_lowercase();
-    COMMUNITY_SAFE_KEYWORDS
-        .iter()
-        .any(|kw| name_lower.contains(kw))
+    SAFE_KEYWORDS.iter().any(|kw| name_lower.contains(kw))
 }
 
 async fn create_mcp(ctx: &ToolBuildContext) -> Option<(Vec<Arc<dyn Tool>>, McpManager)> {
@@ -374,16 +359,6 @@ async fn create_mcp(ctx: &ToolBuildContext) -> Option<(Vec<Arc<dyn Tool>>, McpMa
             let mut accepted: Vec<Arc<dyn Tool>> = Vec::new();
             for (trust, tool) in discovered {
                 let name = tool.name().to_string();
-
-                // Reject tools that shadow built-in names (case-insensitive)
-                if PROTECTED_TOOL_NAMES.contains(&name.to_lowercase().as_str()) {
-                    warn!(
-                        "MCP tool '{}' rejected: shadows a protected built-in tool",
-                        name
-                    );
-                    continue;
-                }
-
                 match trust.as_str() {
                     "local" => {
                         accepted.push(tool);
@@ -424,43 +399,6 @@ async fn create_mcp(ctx: &ToolBuildContext) -> Option<(Vec<Arc<dyn Tool>>, McpMa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
-
-    #[test]
-    fn test_protected_tool_names_are_lowercase() {
-        for name in PROTECTED_TOOL_NAMES {
-            assert_eq!(
-                *name,
-                name.to_lowercase(),
-                "protected tool name '{}' must be lowercase for case-insensitive comparison",
-                name
-            );
-        }
-    }
-
-    #[test]
-    fn test_protected_tool_names_no_duplicates() {
-        let mut seen = HashSet::new();
-        for name in PROTECTED_TOOL_NAMES {
-            assert!(
-                seen.insert(*name),
-                "duplicate protected tool name: '{}'",
-                name
-            );
-        }
-    }
-
-    #[test]
-    fn test_community_safe_keywords_covers_read_operations() {
-        let expected = ["read", "list", "get", "search", "fetch"];
-        for kw in &expected {
-            assert!(
-                COMMUNITY_SAFE_KEYWORDS.contains(kw),
-                "expected safe keyword '{}' not found",
-                kw
-            );
-        }
-    }
 
     #[test]
     fn test_community_safe_keyword_matching() {
@@ -476,5 +414,22 @@ mod tests {
         assert!(!is_community_safe("create_record"));
         assert!(!is_community_safe("execute_command"));
         assert!(!is_community_safe("send_email"));
+    }
+
+    #[test]
+    fn test_builtin_tools_have_builtin_capability() {
+        // Verify that all built-in tool types declare built_in: true
+        use crate::agent::tools::filesystem::ReadFileTool;
+        use crate::agent::tools::shell::ExecTool;
+        use crate::agent::tools::web::WebSearchTool;
+
+        assert!(ReadFileTool::new(None, None).capabilities().built_in);
+        assert!(
+            ExecTool::new(10, None, false, vec![], config::SandboxConfig::default())
+                .unwrap()
+                .capabilities()
+                .built_in
+        );
+        assert!(WebSearchTool::new(None, 5).capabilities().built_in);
     }
 }

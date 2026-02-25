@@ -767,3 +767,64 @@ async fn test_add_comment_bad_request() {
     assert!(result.is_error);
     assert!(result.content.contains("400"));
 }
+
+// --- Capabilities tests ---
+
+#[test]
+fn test_todoist_capabilities() {
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = TodoistTool::new("fake".to_string());
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::ReadOnly);
+    let read_only: Vec<&str> = caps
+        .actions
+        .iter()
+        .filter(|a| a.read_only)
+        .map(|a| a.name)
+        .collect();
+    let mutating: Vec<&str> = caps
+        .actions
+        .iter()
+        .filter(|a| !a.read_only)
+        .map(|a| a.name)
+        .collect();
+    assert!(read_only.contains(&"list_tasks"));
+    assert!(read_only.contains(&"get_task"));
+    assert!(read_only.contains(&"list_comments"));
+    assert!(read_only.contains(&"list_projects"));
+    assert!(mutating.contains(&"create_task"));
+    assert!(mutating.contains(&"update_task"));
+    assert!(mutating.contains(&"complete_task"));
+    assert!(mutating.contains(&"delete_task"));
+    assert!(mutating.contains(&"add_comment"));
+}
+
+#[test]
+fn test_todoist_actions_match_schema() {
+    let tool = TodoistTool::new("fake".to_string());
+    let caps = tool.capabilities();
+    let params = tool.parameters();
+    let schema_actions: Vec<String> = params["properties"]["action"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let cap_actions: Vec<String> = caps.actions.iter().map(|a| a.name.to_string()).collect();
+    for action in &schema_actions {
+        assert!(
+            cap_actions.contains(action),
+            "action '{}' in schema but not in capabilities()",
+            action
+        );
+    }
+    for action in &cap_actions {
+        assert!(
+            schema_actions.contains(action),
+            "action '{}' in capabilities() but not in schema",
+            action
+        );
+    }
+}

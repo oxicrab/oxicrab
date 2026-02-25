@@ -1,4 +1,6 @@
-use crate::agent::tools::base::{ExecutionContext, Tool, ToolResult};
+use crate::agent::tools::base::{
+    ExecutionContext, SubagentAccess, Tool, ToolCapabilities, ToolResult,
+};
 use async_trait::async_trait;
 use rmcp::RoleClient;
 use rmcp::model::{CallToolRequestParams, RawContent};
@@ -54,6 +56,15 @@ impl Tool for McpProxyTool {
 
     fn parameters(&self) -> Value {
         self.input_schema.clone()
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: false,
+            network_outbound: true,
+            subagent_access: SubagentAccess::Denied,
+            actions: vec![],
+        }
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
@@ -158,6 +169,8 @@ impl Tool for McpProxyTool {
 }
 
 /// Wrapper that forces `requires_approval() = true` for untrusted MCP tools.
+/// Also overrides capabilities to ensure MCP tools are never marked built-in
+/// and are excluded from subagents.
 pub struct AttenuatedMcpTool {
     inner: Arc<dyn Tool>,
 }
@@ -174,12 +187,21 @@ impl Tool for AttenuatedMcpTool {
         self.inner.name()
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         self.inner.description()
     }
 
     fn parameters(&self) -> Value {
         self.inner.parameters()
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: false,
+            network_outbound: true,
+            subagent_access: SubagentAccess::Denied,
+            actions: vec![],
+        }
     }
 
     async fn execute(&self, params: Value, ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
@@ -196,5 +218,47 @@ impl Tool for AttenuatedMcpTool {
 
     fn cacheable(&self) -> bool {
         self.inner.cacheable()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+
+    struct FakeTool;
+
+    #[async_trait]
+    impl Tool for FakeTool {
+        fn name(&self) -> &'static str {
+            "fake_mcp_tool"
+        }
+        fn description(&self) -> &'static str {
+            "A fake MCP tool"
+        }
+        fn parameters(&self) -> Value {
+            serde_json::json!({"type": "object"})
+        }
+        async fn execute(&self, _params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
+            Ok(ToolResult::new("ok".to_string()))
+        }
+    }
+
+    #[test]
+    fn test_attenuated_mcp_capabilities() {
+        let inner: Arc<dyn Tool> = Arc::new(FakeTool);
+        let tool = AttenuatedMcpTool::new(inner);
+        let caps = tool.capabilities();
+        assert!(!caps.built_in);
+        assert!(caps.network_outbound);
+        assert_eq!(caps.subagent_access, SubagentAccess::Denied);
+        assert!(caps.actions.is_empty());
+    }
+
+    #[test]
+    fn test_attenuated_mcp_requires_approval() {
+        let inner: Arc<dyn Tool> = Arc::new(FakeTool);
+        let tool = AttenuatedMcpTool::new(inner);
+        assert!(tool.requires_approval());
     }
 }

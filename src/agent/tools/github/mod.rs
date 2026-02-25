@@ -1,4 +1,6 @@
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{
+    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
+};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -651,6 +653,60 @@ impl Tool for GitHubTool {
 
     fn version(&self) -> ToolVersion {
         ToolVersion::new(1, 1, 0)
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: true,
+            subagent_access: SubagentAccess::ReadOnly,
+            actions: vec![
+                ActionDescriptor {
+                    name: "list_issues",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "create_issue",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "get_issue",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "list_prs",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "get_pr",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "get_pr_files",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "create_pr_review",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "get_file_content",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "trigger_workflow",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "get_workflow_runs",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "notifications",
+                    read_only: true,
+                },
+            ],
+        }
     }
 
     fn parameters(&self) -> Value {
