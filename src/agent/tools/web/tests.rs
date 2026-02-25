@@ -427,3 +427,27 @@ async fn test_fetch_markdown_mode_includes_title() {
     let text = json["text"].as_str().unwrap();
     assert!(text.contains("# My Article"));
 }
+
+#[test]
+fn test_web_search_capabilities() {
+    use crate::agent::tools::Tool;
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = WebSearchTool::new(None, 5);
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::Full);
+    assert!(caps.actions.is_empty());
+}
+
+#[test]
+fn test_web_fetch_capabilities() {
+    use crate::agent::tools::Tool;
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = WebFetchTool::new(50000).unwrap();
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::Full);
+    assert!(caps.actions.is_empty());
+}

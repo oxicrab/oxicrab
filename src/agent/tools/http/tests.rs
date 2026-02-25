@@ -435,3 +435,15 @@ async fn test_empty_response_body() {
     assert!(!result.is_error);
     assert!(result.content.contains("HTTP 200 GET"));
 }
+
+#[test]
+fn test_http_capabilities() {
+    use crate::agent::tools::Tool;
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = HttpTool::new();
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::Denied);
+    assert!(caps.actions.is_empty());
+}

@@ -310,3 +310,15 @@ async fn test_new_posts_action() {
     assert!(!result.is_error);
     assert!(result.content.contains("first crate"));
 }
+
+#[test]
+fn test_reddit_capabilities() {
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = RedditTool::new();
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::ReadOnly);
+    assert_eq!(caps.actions.len(), 4);
+    assert!(caps.actions.iter().all(|a| a.read_only));
+}

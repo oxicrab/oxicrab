@@ -315,3 +315,14 @@ async fn test_google_with_aspect_ratio() {
         let _ = std::fs::remove_file(path);
     }
 }
+
+#[test]
+fn test_image_gen_capabilities() {
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = ImageGenTool::new(None, None, "openai".into());
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::Denied);
+    assert!(caps.actions.is_empty());
+}

@@ -110,3 +110,14 @@ async fn test_read_missing_session_name() {
         .await;
     assert!(result.is_err());
 }
+
+#[test]
+fn test_tmux_capabilities() {
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = TmuxTool::new();
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(!caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::Denied);
+    assert!(caps.actions.is_empty());
+}

@@ -251,3 +251,14 @@ async fn test_default_units_is_imperial() {
     assert!(!result.is_error);
     assert!(result.content.contains("°F"));
 }
+
+#[test]
+fn test_weather_capabilities() {
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = WeatherTool::new("fake_key".to_string());
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::ReadOnly);
+    assert!(caps.actions.is_empty());
+}

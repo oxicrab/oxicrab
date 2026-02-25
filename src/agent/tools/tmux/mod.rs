@@ -1,4 +1,4 @@
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::utils::regex::compile_security_patterns;
 use anyhow::Result;
@@ -88,6 +88,15 @@ impl Tool for TmuxTool {
 
     fn description(&self) -> &'static str {
         "Manage persistent tmux shell sessions. Create long-running sessions, send commands, and read output."
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: false,
+            subagent_access: SubagentAccess::Denied,
+            actions: vec![],
+        }
     }
 
     fn parameters(&self) -> Value {

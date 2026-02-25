@@ -382,3 +382,15 @@ fn test_extract_all_commands_quoted_operator() {
     // dangerous command sneaks through.
     assert!(!cmds.is_empty());
 }
+
+#[test]
+fn test_exec_capabilities() {
+    use crate::agent::tools::Tool;
+    use crate::agent::tools::base::SubagentAccess;
+    let tool = tool(vec![]);
+    let caps = tool.capabilities();
+    assert!(caps.built_in);
+    assert!(!caps.network_outbound);
+    assert_eq!(caps.subagent_access, SubagentAccess::Full);
+    assert!(caps.actions.is_empty());
+}

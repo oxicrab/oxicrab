@@ -1,4 +1,4 @@
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -171,6 +171,15 @@ impl Tool for ReadFileTool {
         "Read the contents of a file at the given path."
     }
 
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: false,
+            subagent_access: SubagentAccess::Full,
+            actions: vec![],
+        }
+    }
+
     fn version(&self) -> ToolVersion {
         ToolVersion::new(1, 0, 0)
     }
@@ -316,6 +325,15 @@ impl Tool for WriteFileTool {
         "Write content to a file at the given path. Creates parent directories if needed."
     }
 
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: false,
+            subagent_access: SubagentAccess::Full,
+            actions: vec![],
+        }
+    }
+
     fn parameters(&self) -> Value {
         serde_json::json!({
             "type": "object",
@@ -437,6 +455,15 @@ impl Tool for EditFileTool {
 
     fn description(&self) -> &'static str {
         "Edit a file by replacing old_text with new_text. The old_text must exist exactly in the file."
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: false,
+            subagent_access: SubagentAccess::Denied,
+            actions: vec![],
+        }
     }
 
     fn parameters(&self) -> Value {
@@ -602,6 +629,15 @@ impl Tool for ListDirTool {
 
     fn description(&self) -> &'static str {
         "List the contents of a directory."
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: false,
+            subagent_access: SubagentAccess::Full,
+            actions: vec![],
+        }
     }
 
     fn parameters(&self) -> Value {
