@@ -21,6 +21,7 @@ use tracing::{debug, error, info, warn};
 #[derive(Parser)]
 #[command(name = "oxicrab")]
 #[command(about = "Personal AI Assistant")]
+#[command(version)]
 pub struct Cli {
     #[command(subcommand)]
     command: Commands,
