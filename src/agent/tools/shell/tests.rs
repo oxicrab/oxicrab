@@ -372,15 +372,191 @@ fn test_truncate_at_utf8_boundary_beyond_length() {
 }
 
 #[test]
-fn test_extract_all_commands_quoted_operator() {
-    // Operator inside quotes — conservative split extracts extra segments.
-    // This is safe: false positives block commands (conservative), while
-    // false negatives (allowing dangerous commands) cannot occur.
+fn test_extract_all_commands_quoted_pipe_double() {
+    // Pipe inside double quotes must not be treated as a pipeline separator
     let cmds = ExecTool::extract_all_commands(r#"echo "hello | world""#);
-    // The naive split produces fragments; "echo" may appear as part of
-    // a fragment that shlex can't parse. The important thing is no
-    // dangerous command sneaks through.
-    assert!(!cmds.is_empty());
+    assert_eq!(cmds, vec!["echo"]);
+}
+
+#[test]
+fn test_extract_all_commands_quoted_pipe_single() {
+    // Pipe inside single quotes (common in jq filters) must not split
+    let cmds = ExecTool::extract_all_commands("jq '.[] | .name' file.json");
+    assert_eq!(cmds, vec!["jq"]);
+}
+
+#[test]
+fn test_jq_filter_allowed() {
+    // Reproduces the production bug: jq with a quoted filter was rejected
+    // because the naive split broke on the pipe inside single quotes
+    let mut cmds = allowed();
+    cmds.push("jq".to_string());
+    let t = tool(cmds);
+    assert!(
+        t.guard_command("jq '.[] | .name' /tmp/data.json", Path::new("/tmp"))
+            .is_none(),
+        "jq with quoted pipe filter should be allowed"
+    );
+}
+
+#[test]
+fn test_grep_with_quoted_pattern_allowed() {
+    // Reproduces the production bug: grep with quoted pattern was rejected
+    let t = tool(allowed());
+    assert!(
+        t.guard_command(r#"grep -E '"number"' /tmp/data.json"#, Path::new("/tmp"))
+            .is_none(),
+        "grep with quoted pattern should be allowed"
+    );
+}
+
+#[test]
+fn test_extract_all_commands_real_pipe_still_splits() {
+    // A real (unquoted) pipe must still be split correctly
+    let cmds = ExecTool::extract_all_commands("cat file.txt | grep foo | sort");
+    assert_eq!(cmds, vec!["cat", "grep", "sort"]);
+}
+
+#[test]
+fn test_extract_all_commands_mixed_quoted_and_real_pipe() {
+    // Quoted pipe followed by a real pipe
+    let cmds = ExecTool::extract_all_commands("jq '.[] | .name' file.json | head -5");
+    assert_eq!(cmds, vec!["jq", "head"]);
+}
+
+#[test]
+fn test_extract_all_commands_escaped_quote() {
+    // Escaped quote should not toggle quoting state
+    let cmds = ExecTool::extract_all_commands(r#"echo "it\'s" | cat"#);
+    assert_eq!(cmds, vec!["echo", "cat"]);
+}
+
+#[test]
+fn test_extract_command_name_shlex_fallback() {
+    // Malformed quoting falls back to whitespace split
+    let name = ExecTool::extract_command_name("grep 'unmatched");
+    assert_eq!(name, "grep");
+}
+
+// --- Comprehensive shlex / quoting coverage for typical LLM command patterns ---
+
+#[test]
+fn test_awk_with_pipe_in_pattern() {
+    // awk programs often contain pipes inside single quotes
+    let mut cmds = allowed();
+    cmds.extend(["awk", "sort"].iter().map(ToString::to_string));
+    let t = tool(cmds);
+    assert!(
+        t.guard_command(
+            "awk '{print $1 | \"sort\"}' /tmp/data.txt",
+            Path::new("/tmp")
+        )
+        .is_none(),
+        "awk with pipe inside quotes should be allowed"
+    );
+}
+
+#[test]
+fn test_sed_with_semicolons_in_pattern() {
+    // sed scripts use semicolons inside quotes
+    let mut cmds = allowed();
+    cmds.push("sed".to_string());
+    let t = tool(cmds);
+    assert!(
+        t.guard_command(
+            "sed 's/foo/bar/;s/baz/qux/' /tmp/file.txt",
+            Path::new("/tmp")
+        )
+        .is_none(),
+        "sed with semicolons inside quotes should be allowed"
+    );
+}
+
+#[test]
+fn test_find_exec_chain() {
+    // find with -exec uses semicolons (escaped)
+    let cmds_extracted = ExecTool::extract_all_commands("find /tmp -name '*.log' -exec ls -l {} +");
+    assert_eq!(cmds_extracted, vec!["find"]);
+}
+
+#[test]
+fn test_git_log_with_format_containing_pipes() {
+    // git log format strings can contain pipe characters
+    let t = tool(allowed());
+    assert!(
+        t.guard_command("git log --format='%H | %s' --oneline", Path::new("/tmp"))
+            .is_none(),
+        "git with pipe inside format string should be allowed"
+    );
+}
+
+#[test]
+fn test_double_quoted_semicolons() {
+    // Semicolons inside double quotes
+    let cmds = ExecTool::extract_all_commands(r#"echo "hello; world" && ls"#);
+    assert_eq!(cmds, vec!["echo", "ls"]);
+}
+
+#[test]
+fn test_nested_quotes() {
+    // Single quotes inside double quotes
+    let cmds = ExecTool::extract_all_commands(r#"echo "it's a 'test'" | cat"#);
+    assert_eq!(cmds, vec!["echo", "cat"]);
+}
+
+#[test]
+fn test_double_quotes_inside_single_quotes() {
+    // Double quotes inside single quotes (common in JSON grep)
+    let cmds = ExecTool::extract_all_commands(r#"grep '"key": "value"' file.json | head"#);
+    assert_eq!(cmds, vec!["grep", "head"]);
+}
+
+#[test]
+fn test_complex_jq_pipeline() {
+    // Complex jq filter with multiple pipes and brackets
+    let cmds = ExecTool::extract_all_commands(
+        "jq '[.[] | select(.status == \"active\") | .name]' /tmp/users.json",
+    );
+    assert_eq!(cmds, vec!["jq"]);
+}
+
+#[test]
+fn test_curl_with_data_containing_ampersands() {
+    // curl POST data can contain & characters
+    let t = tool(allowed());
+    assert!(
+        t.guard_command(
+            r#"curl -d "user=admin&pass=secret" http://localhost:8080"#,
+            Path::new("/tmp")
+        )
+        .is_none(),
+        "curl with ampersand in data should be allowed"
+    );
+}
+
+#[test]
+fn test_empty_command() {
+    let cmds = ExecTool::extract_all_commands("");
+    assert!(cmds.is_empty());
+}
+
+#[test]
+fn test_whitespace_only_command() {
+    let cmds = ExecTool::extract_all_commands("   ");
+    assert!(cmds.is_empty());
+}
+
+#[test]
+fn test_multiple_real_operators() {
+    // All operator types in one command
+    let cmds = ExecTool::extract_all_commands("echo a && echo b || echo c; echo d | cat");
+    assert_eq!(cmds, vec!["echo", "echo", "echo", "echo", "cat"]);
+}
+
+#[test]
+fn test_newline_as_separator() {
+    let cmds = ExecTool::extract_all_commands("echo a\necho b\necho c");
+    assert_eq!(cmds, vec!["echo", "echo", "echo"]);
 }
 
 #[test]

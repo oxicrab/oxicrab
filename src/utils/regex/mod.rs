@@ -203,7 +203,9 @@ pub fn compile_security_patterns() -> Result<Vec<Regex>> {
                 r"\brm\s+--(?:recursive|force)\b",
                 r"\bdel\s+/[fq]\b",
                 r"\brmdir\s+/s\b",
-                r"\b(format|mkfs|diskpart)\b",
+                // Match format/mkfs/diskpart only at command position (after
+                // whitespace or start-of-string), not inside flags like --format=
+                r"(?:^|\s)(format|mkfs|diskpart)\b",
                 r"\bdd\s+if=",
                 r">\s*/dev/sd",
                 r"\b(shutdown|reboot|poweroff)\b",
