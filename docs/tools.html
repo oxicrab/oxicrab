@@ -286,7 +286,20 @@
 
   <div id="spawn" class="tool-section">
     <h2>spawn <span class="badge badge-core">Core</span></h2>
-    <p class="desc">Spawn a subagent to handle a task in the background. Subagents have access to filesystem, shell, and web tools but cannot spawn more subagents. Concurrency is limited by a semaphore (default: 5 concurrent subagents).</p>
+    <p class="desc">Spawn a subagent to handle a task in the background. Tools are filtered by capability metadata &mdash; each tool declares its own subagent access level. Concurrency is limited by a semaphore (default: 5 concurrent subagents).</p>
+
+    <h3>Subagent tool access</h3>
+    <p>Each tool declares one of three subagent access levels via its capability metadata:</p>
+    <table class="action-table">
+      <thead><tr><th>Access Level</th><th>Behavior</th><th>Tools</th></tr></thead>
+      <tbody>
+        <tr><td>Full</td><td>Passed through directly</td><td>read_file, write_file, list_dir, exec, web_search</td></tr>
+        <tr><td>ReadOnly</td><td>Wrapped &mdash; only read-only actions exposed, mutating actions hidden from schema and blocked at execution</td><td>github, google_mail, google_calendar, cron, todoist, reddit, media, obsidian, browser, weather</td></tr>
+        <tr><td>Denied</td><td>Not available</td><td>edit_file, http, tmux, spawn, subagent_control, memory_search, image_gen, all MCP tools</td></tr>
+      </tbody>
+    </table>
+
+    <p>When the <a href="config.html#exfiltration-guard">exfiltration guard</a> is enabled, tools with <code>network_outbound</code> capability are additionally blocked unless listed in <code>allowTools</code>. This affects <code>web_search</code> (Full) and all ReadOnly tools (which are network-based).</p>
   </div>
 
   <div id="subagent_control" class="tool-section">
@@ -307,15 +320,15 @@
 
     <h3>Actions</h3>
     <table class="action-table">
-      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <thead><tr><th>Action</th><th>Description</th><th>Subagent</th></tr></thead>
       <tbody>
-        <tr><td>add</td><td>Create a new scheduled job</td></tr>
-        <tr><td>list</td><td>List all scheduled jobs</td></tr>
-        <tr><td>remove</td><td>Delete a job by ID</td></tr>
-        <tr><td>run</td><td>Manually trigger a job</td></tr>
-        <tr><td>dlq_list</td><td>List dead letter queue entries (failed job executions). Optional <code>dlq_status</code> filter.</td></tr>
-        <tr><td>dlq_replay</td><td>Retry a failed job by DLQ entry ID (<code>dlq_id</code>)</td></tr>
-        <tr><td>dlq_clear</td><td>Purge DLQ entries. Optional <code>dlq_status</code> filter.</td></tr>
+        <tr><td>add</td><td>Create a new scheduled job</td><td>&mdash;</td></tr>
+        <tr><td>list</td><td>List all scheduled jobs</td><td>&#x2713;</td></tr>
+        <tr><td>remove</td><td>Delete a job by ID</td><td>&mdash;</td></tr>
+        <tr><td>run</td><td>Manually trigger a job</td><td>&mdash;</td></tr>
+        <tr><td>dlq_list</td><td>List dead letter queue entries (failed job executions). Optional <code>dlq_status</code> filter.</td><td>&#x2713;</td></tr>
+        <tr><td>dlq_replay</td><td>Retry a failed job by DLQ entry ID (<code>dlq_id</code>)</td><td>&mdash;</td></tr>
+        <tr><td>dlq_clear</td><td>Purge DLQ entries. Optional <code>dlq_status</code> filter.</td><td>&mdash;</td></tr>
       </tbody>
     </table>
     <p>Optional limits: <code>expires_at</code> (auto-disable after datetime), <code>max_runs</code> (auto-disable after N executions).</p>
@@ -352,14 +365,14 @@
 
     <h3>Actions</h3>
     <table class="action-table">
-      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <thead><tr><th>Action</th><th>Description</th><th>Subagent</th></tr></thead>
       <tbody>
-        <tr><td>search</td><td>Search emails with Gmail query syntax</td></tr>
-        <tr><td>read</td><td>Read a specific email by ID</td></tr>
-        <tr><td>send</td><td>Send a new email</td></tr>
-        <tr><td>reply</td><td>Reply to an existing email thread</td></tr>
-        <tr><td>list_labels</td><td>List all Gmail labels</td></tr>
-        <tr><td>label</td><td>Apply or remove labels from messages</td></tr>
+        <tr><td>search</td><td>Search emails with Gmail query syntax</td><td>&#x2713;</td></tr>
+        <tr><td>read</td><td>Read a specific email by ID</td><td>&#x2713;</td></tr>
+        <tr><td>send</td><td>Send a new email</td><td>&mdash;</td></tr>
+        <tr><td>reply</td><td>Reply to an existing email thread</td><td>&mdash;</td></tr>
+        <tr><td>list_labels</td><td>List all Gmail labels</td><td>&#x2713;</td></tr>
+        <tr><td>label</td><td>Apply or remove labels from messages</td><td>&mdash;</td></tr>
       </tbody>
     </table>
 
@@ -389,14 +402,14 @@
 
     <h3>Actions</h3>
     <table class="action-table">
-      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <thead><tr><th>Action</th><th>Description</th><th>Subagent</th></tr></thead>
       <tbody>
-        <tr><td>list_events</td><td>List upcoming events</td></tr>
-        <tr><td>get_event</td><td>Get details of a specific event</td></tr>
-        <tr><td>create_event</td><td>Create a new calendar event</td></tr>
-        <tr><td>update_event</td><td>Update an existing event</td></tr>
-        <tr><td>delete_event</td><td>Delete an event</td></tr>
-        <tr><td>list_calendars</td><td>List available calendars</td></tr>
+        <tr><td>list_events</td><td>List upcoming events</td><td>&#x2713;</td></tr>
+        <tr><td>get_event</td><td>Get details of a specific event</td><td>&#x2713;</td></tr>
+        <tr><td>create_event</td><td>Create a new calendar event</td><td>&mdash;</td></tr>
+        <tr><td>update_event</td><td>Update an existing event</td><td>&mdash;</td></tr>
+        <tr><td>delete_event</td><td>Delete an event</td><td>&mdash;</td></tr>
+        <tr><td>list_calendars</td><td>List available calendars</td><td>&#x2713;</td></tr>
       </tbody>
     </table>
 
@@ -412,21 +425,22 @@
 
     <h3>Actions</h3>
     <table class="action-table">
-      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <thead><tr><th>Action</th><th>Description</th><th>Subagent</th></tr></thead>
       <tbody>
-        <tr><td>list_issues</td><td>List issues for a repository</td></tr>
-        <tr><td>create_issue</td><td>Create a new issue</td></tr>
-        <tr><td>get_issue</td><td>Get issue details</td></tr>
-        <tr><td>list_prs</td><td>List pull requests</td></tr>
-        <tr><td>get_pr</td><td>Get pull request details</td></tr>
-        <tr><td>get_pr_files</td><td>List files changed in a pull request</td></tr>
-        <tr><td>create_pr_review</td><td>Submit a PR review (approve, request changes, or comment)</td></tr>
-        <tr><td>get_file_content</td><td>Get file content from a repository</td></tr>
-        <tr><td>trigger_workflow</td><td>Trigger a GitHub Actions workflow</td></tr>
-        <tr><td>get_workflow_runs</td><td>List recent workflow runs</td></tr>
-        <tr><td>notifications</td><td>List recent notifications</td></tr>
+        <tr><td>list_issues</td><td>List issues for a repository</td><td>&#x2713;</td></tr>
+        <tr><td>create_issue</td><td>Create a new issue</td><td>&mdash;</td></tr>
+        <tr><td>get_issue</td><td>Get issue details</td><td>&#x2713;</td></tr>
+        <tr><td>list_prs</td><td>List pull requests</td><td>&#x2713;</td></tr>
+        <tr><td>get_pr</td><td>Get pull request details</td><td>&#x2713;</td></tr>
+        <tr><td>get_pr_files</td><td>List files changed in a pull request</td><td>&#x2713;</td></tr>
+        <tr><td>create_pr_review</td><td>Submit a PR review (approve, request changes, or comment)</td><td>&mdash;</td></tr>
+        <tr><td>get_file_content</td><td>Get file content from a repository</td><td>&#x2713;</td></tr>
+        <tr><td>trigger_workflow</td><td>Trigger a GitHub Actions workflow</td><td>&mdash;</td></tr>
+        <tr><td>get_workflow_runs</td><td>List recent workflow runs</td><td>&#x2713;</td></tr>
+        <tr><td>notifications</td><td>List recent notifications</td><td>&#x2713;</td></tr>
       </tbody>
     </table>
+    <p>Subagents get read-only access (8 of 11 actions). Mutating actions (<code>create_issue</code>, <code>create_pr_review</code>, <code>trigger_workflow</code>) are hidden from the schema and blocked at execution.</p>
 
     <h3>Setup</h3>
     <ol>
@@ -470,17 +484,17 @@
 
     <h3>Actions</h3>
     <table class="action-table">
-      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <thead><tr><th>Action</th><th>Description</th><th>Subagent</th></tr></thead>
       <tbody>
-        <tr><td>list_tasks</td><td>List tasks (optionally filtered by project or filter query)</td></tr>
-        <tr><td>get_task</td><td>Get detailed info for a single task</td></tr>
-        <tr><td>create_task</td><td>Create a new task</td></tr>
-        <tr><td>update_task</td><td>Update a task's content, description, due date, priority, or labels</td></tr>
-        <tr><td>complete_task</td><td>Mark a task as complete</td></tr>
-        <tr><td>delete_task</td><td>Permanently delete a task</td></tr>
-        <tr><td>add_comment</td><td>Add a comment to a task</td></tr>
-        <tr><td>list_comments</td><td>List all comments on a task</td></tr>
-        <tr><td>list_projects</td><td>List all projects</td></tr>
+        <tr><td>list_tasks</td><td>List tasks (optionally filtered by project or filter query)</td><td>&#x2713;</td></tr>
+        <tr><td>get_task</td><td>Get detailed info for a single task</td><td>&#x2713;</td></tr>
+        <tr><td>create_task</td><td>Create a new task</td><td>&mdash;</td></tr>
+        <tr><td>update_task</td><td>Update a task's content, description, due date, priority, or labels</td><td>&mdash;</td></tr>
+        <tr><td>complete_task</td><td>Mark a task as complete</td><td>&mdash;</td></tr>
+        <tr><td>delete_task</td><td>Permanently delete a task</td><td>&mdash;</td></tr>
+        <tr><td>add_comment</td><td>Add a comment to a task</td><td>&mdash;</td></tr>
+        <tr><td>list_comments</td><td>List all comments on a task</td><td>&#x2713;</td></tr>
+        <tr><td>list_projects</td><td>List all projects</td><td>&#x2713;</td></tr>
       </tbody>
     </table>
 
@@ -505,14 +519,16 @@
 
     <h3>Actions</h3>
     <table class="action-table">
-      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <thead><tr><th>Action</th><th>Description</th><th>Subagent</th></tr></thead>
       <tbody>
-        <tr><td>search_movie</td><td>Search for movies by name</td></tr>
-        <tr><td>add_movie</td><td>Add a movie by TMDB ID</td></tr>
-        <tr><td>get_movie / list_movies</td><td>View library movies</td></tr>
-        <tr><td>search_series</td><td>Search for TV series by name</td></tr>
-        <tr><td>add_series</td><td>Add a series by TVDB ID</td></tr>
-        <tr><td>get_series / list_series</td><td>View library series</td></tr>
+        <tr><td>search_movie</td><td>Search for movies by name</td><td>&#x2713;</td></tr>
+        <tr><td>add_movie</td><td>Add a movie by TMDB ID</td><td>&mdash;</td></tr>
+        <tr><td>get_movie / list_movies</td><td>View library movies</td><td>&#x2713;</td></tr>
+        <tr><td>search_series</td><td>Search for TV series by name</td><td>&#x2713;</td></tr>
+        <tr><td>add_series</td><td>Add a series by TVDB ID</td><td>&mdash;</td></tr>
+        <tr><td>get_series / list_series</td><td>View library series</td><td>&#x2713;</td></tr>
+        <tr><td>profiles</td><td>List quality profiles</td><td>&#x2713;</td></tr>
+        <tr><td>root_folders</td><td>List root folder paths</td><td>&#x2713;</td></tr>
       </tbody>
     </table>
 
@@ -545,13 +561,13 @@
 
     <h3>Actions</h3>
     <table class="action-table">
-      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <thead><tr><th>Action</th><th>Description</th><th>Subagent</th></tr></thead>
       <tbody>
-        <tr><td>read</td><td>Read a note by path</td></tr>
-        <tr><td>write</td><td>Create or overwrite a note (auto-generates YAML frontmatter)</td></tr>
-        <tr><td>append</td><td>Append content to an existing note</td></tr>
-        <tr><td>search</td><td>Full-text search across the vault</td></tr>
-        <tr><td>list</td><td>List notes, optionally filtered by folder</td></tr>
+        <tr><td>read</td><td>Read a note by path</td><td>&#x2713;</td></tr>
+        <tr><td>write</td><td>Create or overwrite a note (auto-generates YAML frontmatter)</td><td>&mdash;</td></tr>
+        <tr><td>append</td><td>Append content to an existing note</td><td>&mdash;</td></tr>
+        <tr><td>search</td><td>Full-text search across the vault</td><td>&#x2713;</td></tr>
+        <tr><td>list</td><td>List notes, optionally filtered by folder</td><td>&#x2713;</td></tr>
       </tbody>
     </table>
 
@@ -623,7 +639,7 @@
 
   <div id="mcp" class="tool-section">
     <h2>MCP <span class="badge badge-ext">External</span></h2>
-    <p class="desc">Connect external tool servers via the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>. Tools are auto-discovered at startup from child processes and registered as native tools with full middleware pipeline support.</p>
+    <p class="desc">Connect external tool servers via the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>. Tools are auto-discovered at startup from child processes and registered as native tools with full middleware pipeline support. MCP tools cannot shadow built-in tools (rejected if they share a name with a <code>built_in</code> tool) and are not available to subagents.</p>
 
     <h3>Configuration</h3>
     <pre><code>{
