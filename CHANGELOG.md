@@ -2,6 +2,94 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.4] - 2026-02-25
+
+### Added
+- **agent:** add intent metrics recording and stats CLI subcommand ([5df0a62](https://github.com/oxicrab/oxicrab/commit/5df0a628628979470e2466bc0efcf99deb79353c))
+- **agent:** add intent-based hallucination detection with semantic embedding fallback ([ba84433](https://github.com/oxicrab/oxicrab/commit/ba8443308afed271ab0a27933a775b7d51bea44d))
+- tweaked prompt ([ceb50f8](https://github.com/oxicrab/oxicrab/commit/ceb50f823c1b40b822141d97144b740ea7e4940a))
+- discourse fixes ([50815af](https://github.com/oxicrab/oxicrab/commit/50815af3717f790e291dfd55beb307508ed7f9c4))
+- **memory:** add quality gates and negative memory reframing ([be253dc](https://github.com/oxicrab/oxicrab/commit/be253dc792a9e3898b5a986c03529f18e715b9f6))
+- **truncation:** add tool result blob sanitization ([e6d6a47](https://github.com/oxicrab/oxicrab/commit/e6d6a4798e8396f3d4775180c9aba61f44771fe8))
+- **memory:** add recency-weighted BM25 search scoring ([8487119](https://github.com/oxicrab/oxicrab/commit/848711905f3120ec969406c9719026522b307435))
+- **compaction:** add orphan tool message cleanup post-compaction ([05f60cf](https://github.com/oxicrab/oxicrab/commit/05f60cfa104c38a08f35d0978761c11148116558))
+- **safety:** use Aho-Corasick for two-phase leak detection ([9bd8d34](https://github.com/oxicrab/oxicrab/commit/9bd8d34c60b2da6572b5033e5724732fa7c80104))
+- **context:** add plugin context providers ([9d378a4](https://github.com/oxicrab/oxicrab/commit/9d378a45c070ecf6b4c24e42110d7b6e08a946f6))
+- **compaction:** add pre-compaction memory flush ([8f53d77](https://github.com/oxicrab/oxicrab/commit/8f53d77fc8a78a8f89f793c3c41340973de881e3))
+- **memory:** add explicit "remember" fast path ([5974c81](https://github.com/oxicrab/oxicrab/commit/5974c81d8ca529e50e6d15f725018f35f67ff6fa))
+- **cron:** add dead letter queue for failed job executions ([b715875](https://github.com/oxicrab/oxicrab/commit/b71587594cc37d53f51c58817f8dfa7a650f19e3))
+- **fuzz:** add cargo-fuzz targets for security-critical parsers ([05640a7](https://github.com/oxicrab/oxicrab/commit/05640a72291c0e67432e379ce40987bc86636666))
+- **gateway:** add --echo mode for LLM-free channel testing ([0a0e756](https://github.com/oxicrab/oxicrab/commit/0a0e7562785d293e03d0cb7d0263d9bf0d0f86a5))
+- **gateway:** add A2A protocol support ([cb991be](https://github.com/oxicrab/oxicrab/commit/cb991bef6374750d790583dd7351f68254aa7368))
+- **gateway:** add enabled flags and expand test coverage ([94e1808](https://github.com/oxicrab/oxicrab/commit/94e180843f03d614b41280f3be1949387eebf7df))
+- **memory:** add knowledge directory for RAG document ingestion ([df58ce3](https://github.com/oxicrab/oxicrab/commit/df58ce3d8c3155a41e0d17cf51af028cc5da14f2))
+- **gateway:** add generic webhook receiver endpoint ([e98074a](https://github.com/oxicrab/oxicrab/commit/e98074a02485cef56e6580278b365670681def12))
+- **gateway:** add HTTP API server with POST /api/chat and GET /api/health ([457e075](https://github.com/oxicrab/oxicrab/commit/457e0759966069bf7a7290540b38781ae166bddc))
+- **providers:** add PDF document support across all providers ([8aed9be](https://github.com/oxicrab/oxicrab/commit/8aed9be0bd036844b4888caa00d87696de4dc873))
+- **providers:** add JSON mode and structured output support ([5f62f49](https://github.com/oxicrab/oxicrab/commit/5f62f49d90346da795307143927bec5e084f9911))
+- **memory:** add LRU cache for query embeddings ([701702f](https://github.com/oxicrab/oxicrab/commit/701702f44616673995fab7a2e2be319fddf2d93e))
+- **memory:** add configurable hybrid search fusion strategy ([02f072b](https://github.com/oxicrab/oxicrab/commit/02f072b0e06f95bb05d4aede6f98ba6a1d9fdece))
+- **memory:** isolate personal memory from group chats ([9233298](https://github.com/oxicrab/oxicrab/commit/9233298fac8ac2fb191bfe0d72e8ebb34a7f0755))
+- **cron:** propagate origin metadata through cron job lifecycle ([23d5da2](https://github.com/oxicrab/oxicrab/commit/23d5da25e84d14f98cc7ac3b6f29dc251adeb942))
+
+
+### CI/CD
+- add [no ci] commit message flag to skip all CI jobs ([3dc3b4a](https://github.com/oxicrab/oxicrab/commit/3dc3b4a509a8fd78b1f703481ff89379a96ab595))
+- make package-linux self-contained like package-macos ([e81abef](https://github.com/oxicrab/oxicrab/commit/e81abef82ce16451b211dbade3de7cfe29c0a54d))
+- add config auto-generation test, docs freshness checks, and CI path filtering ([ba8f980](https://github.com/oxicrab/oxicrab/commit/ba8f980b58c510f7beaa4e1530422fe1abc6f23e))
+
+
+### Changed
+- extract inline tests to separate files for 20 modules ([6a27e68](https://github.com/oxicrab/oxicrab/commit/6a27e680c3ff9bfca57eaf0a980f7133decb061a))
+
+
+### Documentation
+- update config example, CLI, and docs for recent features ([c773d97](https://github.com/oxicrab/oxicrab/commit/c773d9766a203c1e10e481db882464cfec6efe5f))
+- **claude:** document 7 recent features in CLAUDE.md ([971d772](https://github.com/oxicrab/oxicrab/commit/971d772f2d05694f8ef1f78484c56f6ef890b526))
+- add cross-review of 6 competitor repos (Feb 23) ([127e147](https://github.com/oxicrab/oxicrab/commit/127e147c3732eac3493ec03750eb4fecf730f773))
+- update CLAUDE.md for test split threshold, gateway flags, and router testing ([5c0752a](https://github.com/oxicrab/oxicrab/commit/5c0752aa20ec84a401fd6c4f0c54af6a38e738d4))
+- update docs for gateway API, webhooks, knowledge dir, and media ([a4a3bde](https://github.com/oxicrab/oxicrab/commit/a4a3bdea4d9462fdb03541236fec10c4c8bf04b4))
+- rewrite README.md as concise summary with docs links ([9588367](https://github.com/oxicrab/oxicrab/commit/958836779a13f2dba6136ab8b7e11e61358305cd))
+- document resource limits, tool constraints, and hardening patterns ([dab13f5](https://github.com/oxicrab/oxicrab/commit/dab13f5c29c3a9a8e1c6f7fa2c7ba475804ae831))
+- update CLAUDE.md and ARCHITECTURE.md for recent features ([98e556a](https://github.com/oxicrab/oxicrab/commit/98e556acb19575bb3f14a47992774162bf195aff))
+- document prompt caching, cron metadata, and known gaps ([b31a882](https://github.com/oxicrab/oxicrab/commit/b31a8820343dfb10d191461195ca44fdf4494421))
+
+
+### Fixed
+- **providers:** model prefix overrides explicit provider setting ([3ed6469](https://github.com/oxicrab/oxicrab/commit/3ed64698ef2a4f222c22e006cd049069fd342294))
+- **oauth:** add 401 retry to warmup and log provider selection ([c34e6e8](https://github.com/oxicrab/oxicrab/commit/c34e6e84ec2775eae825a1e6a6856a2500ee9d82))
+- **agent:** deduplicate fact extraction and use section-based daily notes ([ef263ff](https://github.com/oxicrab/oxicrab/commit/ef263ffc192ed18da7b1eaf3801b07a2e9e55036))
+- **agent:** move tool facts from user message to system prompt ([cb99eaf](https://github.com/oxicrab/oxicrab/commit/cb99eaf9c83bbfd86dd3deb5b0f3a4d9f0920060))
+- **agent:** fix empty response, orphan stripping, event matcher race, session save race ([9eacdc5](https://github.com/oxicrab/oxicrab/commit/9eacdc5bef66043302734ba7300f68327238ad47))
+- **agent:** remove tool_choice="any" forcing and fix conversation flow ([450a811](https://github.com/oxicrab/oxicrab/commit/450a811e12b9f68f516ec1ed45b7e1b5d7b7f03d))
+- **memory:** preserve leading whitespace when reframing lines ([9786c80](https://github.com/oxicrab/oxicrab/commit/9786c80324067b65f8a109096d11a86d0890ea21))
+- **safety:** use empty prefix for Discord token instead of "." ([d236d40](https://github.com/oxicrab/oxicrab/commit/d236d4061a20a5a327b666b7b9689b775008754e))
+- **context:** include stderr in provider output ([db92da4](https://github.com/oxicrab/oxicrab/commit/db92da4d36764e290ffee03f0e4a3b1400fdf6fd))
+- **memory:** add parentheses for operator precedence clarity ([1ebfebe](https://github.com/oxicrab/oxicrab/commit/1ebfebe6b1b00a4574c6b2adc53b12aab33f5b39))
+- **cron:** increment retry_count on DLQ replay ([f58af4a](https://github.com/oxicrab/oxicrab/commit/f58af4a243e0f27fe9fb9780838b6c2d5c65b057))
+- **a2a:** remove unwrap on task serialization ([fc0ed60](https://github.com/oxicrab/oxicrab/commit/fc0ed60f14c43da0f5cd720d919f01027b54784e))
+- **gateway:** add a2a_config param to echo-mode gateway start ([fcb8adf](https://github.com/oxicrab/oxicrab/commit/fcb8adf7a81009f635411dfca52dbcd3ed913740))
+- **whatsapp:** handle document and video media downloads ([6dd5904](https://github.com/oxicrab/oxicrab/commit/6dd590407e6999deadaddc7056e55b2370d936cb))
+- **providers:** preserve reasoning_content across message lifecycle ([536139e](https://github.com/oxicrab/oxicrab/commit/536139e48292f00ae0603b788d76106db45bffe2))
+
+
+### Maintenance
+- remove stale cross-review workspace file ([95dc6e4](https://github.com/oxicrab/oxicrab/commit/95dc6e405fe38eed083a5b7af8173414fca714be))
+- merge main into feat/a2a-protocol ([e6768dd](https://github.com/oxicrab/oxicrab/commit/e6768dd916face61cdcf6c7d0295b46b322722d6))
+- **readme:** updated readme with motives ([f4e4cae](https://github.com/oxicrab/oxicrab/commit/f4e4cae2adb21e1776125ad3cefca2528e809be5))
+- add .fastembed_cache to gitignore ([aceba2f](https://github.com/oxicrab/oxicrab/commit/aceba2f6f1438b3f3ff6ea0b76be343dfcbf01e0))
+- **crates:** Updated crates ([f95caab](https://github.com/oxicrab/oxicrab/commit/f95caab5af5c7df83d9da5b6ac73c267d6c34910))
+
+
+### Performance
+- parallelize startup for faster boot time ([1046e84](https://github.com/oxicrab/oxicrab/commit/1046e84181cb532f542b76685737924a26331efb))
+
+
+### Testing
+- add 25 unit tests across 4 untested modules ([b2ca75d](https://github.com/oxicrab/oxicrab/commit/b2ca75de14c0f16d902fdc67d6dce8a2df18ce63))
+- add 40 tests for recent features ([2ddce3c](https://github.com/oxicrab/oxicrab/commit/2ddce3c78da9c880dbda40482ac67282906ecf8e))
+- add 45 unit tests across config, gateway, openai, and transcription ([4ad4fa6](https://github.com/oxicrab/oxicrab/commit/4ad4fa6c9cfd4bc35a6a3f3aeb06c22ec62d83ad))
+
 ## [0.11.3] - 2026-02-22
 
 ### Added
