@@ -260,18 +260,18 @@ fn test_prompt_guard_parses_from_json() {
 fn test_exfiltration_guard_default_config() {
     let config: ExfiltrationGuardConfig = serde_json::from_str("{}").expect("parse json");
     assert!(!config.enabled);
-    assert_eq!(config.blocked_tools, vec!["http", "web_fetch", "browser"]);
+    assert!(config.allow_tools.is_empty());
 }
 
 #[test]
-fn test_exfiltration_guard_custom_blocked_tools() {
+fn test_exfiltration_guard_with_allow_tools() {
     let json = serde_json::json!({
         "enabled": true,
-        "blockedTools": ["http", "exec", "custom_tool"]
+        "allowTools": ["web_search"]
     });
     let config: ExfiltrationGuardConfig = serde_json::from_value(json).expect("parse json");
     assert!(config.enabled);
-    assert_eq!(config.blocked_tools, vec!["http", "exec", "custom_tool"]);
+    assert_eq!(config.allow_tools, vec!["web_search"]);
 }
 
 #[test]
@@ -280,14 +280,14 @@ fn test_exfiltration_guard_parses_from_full_config() {
         "tools": {
             "exfiltrationGuard": {
                 "enabled": true,
-                "blockedTools": ["http", "browser"]
+                "allowTools": ["web_fetch"]
             }
         }
     });
     let config: Config = serde_json::from_value(json).expect("parse config");
     assert!(config.tools.exfiltration_guard.enabled);
     assert_eq!(
-        config.tools.exfiltration_guard.blocked_tools,
-        vec!["http", "browser"]
+        config.tools.exfiltration_guard.allow_tools,
+        vec!["web_fetch"]
     );
 }

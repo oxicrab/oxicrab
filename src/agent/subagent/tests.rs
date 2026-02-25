@@ -87,17 +87,12 @@ fn make_manager(provider: Arc<dyn LLMProvider>, max_concurrent: usize) -> Subage
             provider,
             workspace: PathBuf::from("/tmp/test"),
             model: Some("mock".to_string()),
-            brave_api_key: None,
-            exec_timeout: 10,
-            restrict_to_workspace: false,
-            allowed_commands: vec![],
             max_tokens: 1024,
             tool_temperature: 0.0,
             max_concurrent,
-            exfil_blocked_tools: vec![],
             cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
-            sandbox_config: crate::config::SandboxConfig::default(),
+            exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
             main_tools: None,
         },
         bus,
@@ -247,17 +242,12 @@ async fn test_silent_mode_no_bus_message() {
             provider,
             workspace: PathBuf::from("/tmp/test"),
             model: Some("mock".to_string()),
-            brave_api_key: None,
-            exec_timeout: 10,
-            restrict_to_workspace: false,
-            allowed_commands: vec![],
             max_tokens: 1024,
             tool_temperature: 0.0,
             max_concurrent: 5,
-            exfil_blocked_tools: vec![],
             cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
-            sandbox_config: crate::config::SandboxConfig::default(),
+            exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
             main_tools: None,
         },
         bus.clone(),
@@ -307,17 +297,12 @@ async fn test_non_silent_mode_publishes_bus_message() {
             provider,
             workspace: PathBuf::from("/tmp/test"),
             model: Some("mock".to_string()),
-            brave_api_key: None,
-            exec_timeout: 10,
-            restrict_to_workspace: false,
-            allowed_commands: vec![],
             max_tokens: 1024,
             tool_temperature: 0.0,
             max_concurrent: 5,
-            exfil_blocked_tools: vec![],
             cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
-            sandbox_config: crate::config::SandboxConfig::default(),
+            exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
             main_tools: None,
         },
         bus.clone(),
@@ -460,7 +445,7 @@ use std::path::Path;
 
 /// Helper to build a `SubagentInner` config for tool registration tests.
 fn make_inner_with_tools(
-    exfil_blocked_tools: Vec<String>,
+    exfil_guard: crate::config::ExfiltrationGuardConfig,
     main_tools: Arc<crate::agent::tools::ToolRegistry>,
 ) -> super::SubagentInner {
     let lock = std::sync::OnceLock::new();
@@ -471,10 +456,10 @@ fn make_inner_with_tools(
         model: "mock".to_string(),
         max_tokens: 1024,
         tool_temperature: 0.0,
-        exfil_blocked_tools,
         cost_guard: None,
         prompt_guard: None,
         prompt_guard_config: crate::config::PromptGuardConfig::default(),
+        exfil_guard,
         main_tools: lock,
     }
 }
@@ -513,7 +498,7 @@ fn make_test_main_registry() -> Arc<crate::agent::tools::ToolRegistry> {
 #[test]
 fn test_subagent_tools_capability_based() {
     let main = make_test_main_registry();
-    let config = make_inner_with_tools(vec![], main);
+    let config = make_inner_with_tools(crate::config::ExfiltrationGuardConfig::default(), main);
     let tools = super::build_subagent_tools(&config);
     let names = tools.tool_names();
 
@@ -539,7 +524,7 @@ fn test_subagent_tools_capability_based() {
 #[test]
 fn test_subagent_tools_denied_tools_excluded() {
     let main = make_test_main_registry();
-    let config = make_inner_with_tools(vec![], main);
+    let config = make_inner_with_tools(crate::config::ExfiltrationGuardConfig::default(), main);
     let tools = super::build_subagent_tools(&config);
 
     // Denied tools should NOT appear
@@ -549,7 +534,7 @@ fn test_subagent_tools_denied_tools_excluded() {
 #[test]
 fn test_subagent_github_is_read_only() {
     let main = make_test_main_registry();
-    let config = make_inner_with_tools(vec![], main);
+    let config = make_inner_with_tools(crate::config::ExfiltrationGuardConfig::default(), main);
     let tools = super::build_subagent_tools(&config);
 
     let github = tools
@@ -577,46 +562,14 @@ fn test_subagent_github_is_read_only() {
 }
 
 #[test]
-fn test_subagent_tools_exfil_blocks_web_search() {
+fn test_subagent_tools_exfil_blocks_all_network() {
     let main = make_test_main_registry();
-    let config = make_inner_with_tools(vec!["web_search".to_string()], main);
-    let tools = super::build_subagent_tools(&config);
-    let names = tools.tool_names();
-
-    assert!(
-        !names.contains(&"web_search".to_string()),
-        "web_search should be blocked by exfiltration guard"
-    );
-    assert!(
-        names.contains(&"web_fetch".to_string()),
-        "web_fetch should still be registered"
-    );
-}
-
-#[test]
-fn test_subagent_tools_exfil_blocks_web_fetch() {
-    let main = make_test_main_registry();
-    let config = make_inner_with_tools(vec!["web_fetch".to_string()], main);
-    let tools = super::build_subagent_tools(&config);
-    let names = tools.tool_names();
-
-    assert!(
-        !names.contains(&"web_fetch".to_string()),
-        "web_fetch should be blocked by exfiltration guard"
-    );
-    assert!(
-        names.contains(&"web_search".to_string()),
-        "web_search should still be registered"
-    );
-}
-
-#[test]
-fn test_subagent_tools_exfil_blocks_both_web_tools() {
-    let main = make_test_main_registry();
-    let config = make_inner_with_tools(
-        vec!["web_search".to_string(), "web_fetch".to_string()],
-        main,
-    );
+    // Guard enabled with no allow_tools → all network_outbound tools blocked
+    let guard = crate::config::ExfiltrationGuardConfig {
+        enabled: true,
+        allow_tools: vec![],
+    };
+    let config = make_inner_with_tools(guard, main);
     let tools = super::build_subagent_tools(&config);
     let names = tools.tool_names();
 
@@ -625,6 +578,29 @@ fn test_subagent_tools_exfil_blocks_both_web_tools() {
     // But filesystem, exec, and read-only domain tools should remain
     assert!(names.contains(&"read_file".to_string()));
     assert!(names.contains(&"exec".to_string()));
+    assert!(names.contains(&"github".to_string()));
+}
+
+#[test]
+fn test_subagent_tools_exfil_allows_specific_tool() {
+    let main = make_test_main_registry();
+    // Guard enabled but web_search is allow-listed
+    let guard = crate::config::ExfiltrationGuardConfig {
+        enabled: true,
+        allow_tools: vec!["web_search".to_string()],
+    };
+    let config = make_inner_with_tools(guard, main);
+    let tools = super::build_subagent_tools(&config);
+    let names = tools.tool_names();
+
+    assert!(
+        names.contains(&"web_search".to_string()),
+        "web_search should be allowed via allow_tools"
+    );
+    assert!(
+        !names.contains(&"web_fetch".to_string()),
+        "web_fetch should be blocked"
+    );
 }
 
 // --- Activity log tests ---
@@ -652,10 +628,7 @@ fn test_activity_log_creates_file() {
 fn test_activity_log_writes_content() {
     let mut log = super::ActivityLog::new("logtest").unwrap();
     log.log_start("test task for logging");
-    log.log_tools(
-        &["exec".to_string(), "read_file".to_string()],
-        &["web_fetch".to_string()],
-    );
+    log.log_tools(&["exec".to_string(), "read_file".to_string()]);
     log.log_iteration_tool_calls(1, 2);
     log.log_tool_call("exec", &serde_json::json!({"command": "ls"}));
     log.log_tool_result("exec", "file1.txt file2.txt", false);
@@ -668,7 +641,6 @@ fn test_activity_log_writes_content() {
     assert!(content.contains("SUBAGENT START task_id=logtest"));
     assert!(content.contains("TASK: test task for logging"));
     assert!(content.contains("TOOLS REGISTERED: exec, read_file"));
-    assert!(content.contains("TOOLS BLOCKED: web_fetch"));
     assert!(content.contains("ITERATION 1: LLM responded with 2 tool call(s)"));
     assert!(content.contains("TOOL CALL: exec {\"command\":\"ls\"}"));
     assert!(content.contains("TOOL RESULT: exec (19 chars): file1.txt file2.txt"));

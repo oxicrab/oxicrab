@@ -2,26 +2,13 @@ use serde::{Deserialize, Serialize};
 
 use super::default_true;
 
-fn default_exfil_blocked_tools() -> Vec<String> {
-    vec!["http".into(), "web_fetch".into(), "browser".into()]
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExfiltrationGuardConfig {
     #[serde(default)]
     pub enabled: bool,
-    /// Tool names to hide from LLM when enabled (default: http, `web_fetch`, browser)
-    #[serde(default = "default_exfil_blocked_tools", rename = "blockedTools")]
-    pub blocked_tools: Vec<String>,
-}
-
-impl Default for ExfiltrationGuardConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            blocked_tools: default_exfil_blocked_tools(),
-        }
-    }
+    /// Force-allow specific `network_outbound` tools when guard is enabled.
+    #[serde(default, rename = "allowTools")]
+    pub allow_tools: Vec<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

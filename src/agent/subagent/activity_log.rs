@@ -63,13 +63,8 @@ impl ActivityLog {
         self.write_line(&format!("TASK: {}", task));
     }
 
-    pub fn log_tools(&mut self, registered: &[String], blocked: &[String]) {
+    pub fn log_tools(&mut self, registered: &[String]) {
         self.write_line(&format!("TOOLS REGISTERED: {}", registered.join(", ")));
-        if blocked.is_empty() {
-            self.write_line("TOOLS BLOCKED: (none)");
-        } else {
-            self.write_line(&format!("TOOLS BLOCKED: {}", blocked.join(", ")));
-        }
     }
 
     pub fn log_iteration_tool_calls(&mut self, iteration: usize, count: usize) {

@@ -29,22 +29,15 @@ pub struct SubagentConfig {
     pub provider: Arc<dyn LLMProvider>,
     pub workspace: PathBuf,
     pub model: Option<String>,
-    pub brave_api_key: Option<String>,
-    pub exec_timeout: u64,
-    pub restrict_to_workspace: bool,
-    pub allowed_commands: Vec<String>,
     pub max_tokens: u32,
     pub tool_temperature: f32,
     pub max_concurrent: usize,
-    /// Tools blocked by the exfiltration guard (e.g., `web_fetch`, `web_search`).
-    /// When non-empty, these tools are NOT registered in the subagent.
-    pub exfil_blocked_tools: Vec<String>,
     /// Shared cost guard for budget/rate enforcement across main agent and subagents.
     pub cost_guard: Option<Arc<CostGuard>>,
     /// Prompt guard config for injection scanning on subagent inputs/outputs.
     pub prompt_guard_config: PromptGuardConfig,
-    /// Sandbox config for shell tool (propagated from main agent).
-    pub sandbox_config: crate::config::SandboxConfig,
+    /// Exfiltration guard config — network-outbound tools are excluded unless allow-listed.
+    pub exfil_guard: crate::config::ExfiltrationGuardConfig,
     /// Main agent's tool registry, used to build subagent tools from capabilities.
     /// Set after `register_all_tools()` returns via `SubagentManager::set_main_tools()`.
     pub main_tools: Option<Arc<ToolRegistry>>,
@@ -64,10 +57,10 @@ struct SubagentInner {
     model: String,
     max_tokens: u32,
     tool_temperature: f32,
-    exfil_blocked_tools: Vec<String>,
     cost_guard: Option<Arc<CostGuard>>,
     prompt_guard: Option<PromptGuard>,
     prompt_guard_config: PromptGuardConfig,
+    exfil_guard: crate::config::ExfiltrationGuardConfig,
     main_tools: std::sync::OnceLock<Arc<ToolRegistry>>,
 }
 
@@ -88,10 +81,10 @@ impl SubagentManager {
             model,
             max_tokens: config.max_tokens,
             tool_temperature: config.tool_temperature,
-            exfil_blocked_tools: config.exfil_blocked_tools,
             cost_guard: config.cost_guard,
             prompt_guard,
             prompt_guard_config: config.prompt_guard_config,
+            exfil_guard: config.exfil_guard,
             main_tools: {
                 let lock = std::sync::OnceLock::new();
                 if let Some(tools) = config.main_tools {
@@ -320,7 +313,10 @@ fn build_subagent_tools(config: &SubagentInner) -> ToolRegistry {
         let caps = tool.capabilities();
         match caps.subagent_access {
             SubagentAccess::Full => {
-                if caps.network_outbound && config.exfil_blocked_tools.contains(&name.to_string()) {
+                if caps.network_outbound
+                    && config.exfil_guard.enabled
+                    && !config.exfil_guard.allow_tools.contains(&name.to_string())
+                {
                     continue;
                 }
                 tools.register(tool.clone());
@@ -356,20 +352,20 @@ async fn run_subagent_inner(
     // Build tools from main registry capabilities
     let tools = build_subagent_tools(config);
 
-    // Log registered tools and any blocked tools
+    // Log registered tools
     let registered_names = tools.tool_names();
     info!(
-        "Subagent [{}] tools registered: [{}], blocked: [{}]",
+        "Subagent [{}] tools registered: [{}], exfil_guard: {}",
         task_id,
         registered_names.join(", "),
-        if config.exfil_blocked_tools.is_empty() {
-            "none".to_string()
+        if config.exfil_guard.enabled {
+            "enabled"
         } else {
-            config.exfil_blocked_tools.join(", ")
+            "disabled"
         }
     );
     if let Some(ref mut l) = log {
-        l.log_tools(&registered_names, &config.exfil_blocked_tools);
+        l.log_tools(&registered_names);
     }
 
     // Scan task input for prompt injection if configured to block

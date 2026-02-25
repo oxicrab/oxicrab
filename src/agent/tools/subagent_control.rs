@@ -134,7 +134,7 @@ mod tests {
     use crate::agent::tools::Tool;
     use crate::agent::tools::base::SubagentAccess;
     use crate::bus::MessageBus;
-    use crate::config::{PromptGuardConfig, SandboxConfig};
+    use crate::config::PromptGuardConfig;
     use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse};
     use std::path::PathBuf;
 
@@ -156,17 +156,12 @@ mod tests {
             provider: Arc::new(DummyProvider),
             workspace: PathBuf::from("/tmp"),
             model: None,
-            brave_api_key: None,
-            exec_timeout: 30,
-            restrict_to_workspace: false,
-            allowed_commands: vec![],
             max_tokens: 1024,
             tool_temperature: 0.0,
             max_concurrent: 2,
-            exfil_blocked_tools: vec![],
             cost_guard: None,
             prompt_guard_config: PromptGuardConfig::default(),
-            sandbox_config: SandboxConfig::default(),
+            exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
             main_tools: None,
         };
         let manager = Arc::new(SubagentManager::new(config, bus));
