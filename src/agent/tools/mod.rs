@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod media;
 pub mod memory_search;
 pub mod obsidian;
+pub mod read_only_wrapper;
 pub mod reddit;
 pub mod registry;
 pub mod setup;
