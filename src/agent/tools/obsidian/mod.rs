@@ -6,7 +6,9 @@ mod tests;
 use cache::ObsidianCache;
 use client::ObsidianApiClient;
 
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{
+    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
+};
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -104,6 +106,36 @@ impl Tool for ObsidianTool {
 
     fn description(&self) -> &'static str {
         "Read, write, search, and list notes in an Obsidian vault. Actions: read (read a note), write (create/overwrite a note, auto-generates YAML frontmatter for new notes), append (append to a note), search (full-text search), list (list notes, optionally in a folder)."
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: true,
+            subagent_access: SubagentAccess::ReadOnly,
+            actions: vec![
+                ActionDescriptor {
+                    name: "read",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "write",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "append",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "search",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "list",
+                    read_only: true,
+                },
+            ],
+        }
     }
 
     fn parameters(&self) -> Value {

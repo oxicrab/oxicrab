@@ -1,4 +1,6 @@
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{
+    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
+};
 use crate::agent::tools::google_common::GoogleApiClient;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::auth::google::GoogleCredentials;
@@ -28,6 +30,40 @@ impl Tool for GoogleCalendarTool {
 
     fn description(&self) -> &'static str {
         "Interact with Google Calendar. Actions: list_events, get_event, create_event, update_event, delete_event, list_calendars."
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: true,
+            subagent_access: SubagentAccess::ReadOnly,
+            actions: vec![
+                ActionDescriptor {
+                    name: "list_events",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "get_event",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "create_event",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "update_event",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "delete_event",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "list_calendars",
+                    read_only: true,
+                },
+            ],
+        }
     }
 
     fn parameters(&self) -> Value {
@@ -538,5 +574,73 @@ mod tests {
         let (start, _) =
             build_event_times("2026-02-15T14:00:00", Some("2026-02-15T15:00:00"), "UTC");
         assert_eq!(start["timeZone"], "UTC");
+    }
+
+    fn test_credentials() -> crate::auth::google::GoogleCredentials {
+        crate::auth::google::GoogleCredentials {
+            token: "fake".to_string(),
+            refresh_token: None,
+            token_uri: "https://oauth2.googleapis.com/token".to_string(),
+            client_id: "fake".to_string(),
+            client_secret: "fake".to_string(),
+            scopes: vec![],
+            expiry: None,
+        }
+    }
+
+    #[test]
+    fn test_google_calendar_capabilities() {
+        use crate::agent::tools::base::SubagentAccess;
+        let tool = GoogleCalendarTool::new(test_credentials());
+        let caps = tool.capabilities();
+        assert!(caps.built_in);
+        assert!(caps.network_outbound);
+        assert_eq!(caps.subagent_access, SubagentAccess::ReadOnly);
+        let read_only: Vec<&str> = caps
+            .actions
+            .iter()
+            .filter(|a| a.read_only)
+            .map(|a| a.name)
+            .collect();
+        let mutating: Vec<&str> = caps
+            .actions
+            .iter()
+            .filter(|a| !a.read_only)
+            .map(|a| a.name)
+            .collect();
+        assert!(read_only.contains(&"list_events"));
+        assert!(read_only.contains(&"get_event"));
+        assert!(read_only.contains(&"list_calendars"));
+        assert!(mutating.contains(&"create_event"));
+        assert!(mutating.contains(&"update_event"));
+        assert!(mutating.contains(&"delete_event"));
+    }
+
+    #[test]
+    fn test_google_calendar_actions_match_schema() {
+        let tool = GoogleCalendarTool::new(test_credentials());
+        let caps = tool.capabilities();
+        let params = tool.parameters();
+        let schema_actions: Vec<String> = params["properties"]["action"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        let cap_actions: Vec<String> = caps.actions.iter().map(|a| a.name.to_string()).collect();
+        for action in &schema_actions {
+            assert!(
+                cap_actions.contains(action),
+                "action '{}' in schema but not in capabilities()",
+                action
+            );
+        }
+        for action in &cap_actions {
+            assert!(
+                schema_actions.contains(action),
+                "action '{}' in capabilities() but not in schema",
+                action
+            );
+        }
     }
 }

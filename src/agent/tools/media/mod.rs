@@ -1,4 +1,6 @@
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{
+    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
+};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::config::MediaConfig;
 use anyhow::Result;
@@ -410,6 +412,56 @@ impl Tool for MediaTool {
 
     fn version(&self) -> ToolVersion {
         ToolVersion::new(1, 0, 0)
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: true,
+            subagent_access: SubagentAccess::ReadOnly,
+            actions: vec![
+                ActionDescriptor {
+                    name: "search_movie",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "add_movie",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "get_movie",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "list_movies",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "search_series",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "add_series",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "get_series",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "list_series",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "profiles",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "root_folders",
+                    read_only: true,
+                },
+            ],
+        }
     }
 
     fn parameters(&self) -> Value {

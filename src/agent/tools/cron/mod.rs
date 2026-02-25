@@ -1,5 +1,7 @@
 use crate::agent::memory::memory_db::MemoryDB;
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{
+    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
+};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::config::ChannelsConfig;
 use crate::cron::service::CronService;
@@ -258,6 +260,44 @@ impl Tool for CronTool {
 
     fn description(&self) -> &'static str {
         "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, remove, run, dlq_list, dlq_replay, dlq_clear."
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: true,
+            subagent_access: SubagentAccess::ReadOnly,
+            actions: vec![
+                ActionDescriptor {
+                    name: "add",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "list",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "remove",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "run",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "dlq_list",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "dlq_replay",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "dlq_clear",
+                    read_only: false,
+                },
+            ],
+        }
     }
 
     fn parameters(&self) -> Value {

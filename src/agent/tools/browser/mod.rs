@@ -1,4 +1,6 @@
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{
+    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
+};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::utils::media::save_media_file;
 use anyhow::Result;
@@ -661,6 +663,64 @@ impl Tool for BrowserTool {
 
     fn description(&self) -> &'static str {
         "Control a headless browser for web automation. Open pages, click elements, type text, take screenshots, and extract content."
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            built_in: true,
+            network_outbound: true,
+            subagent_access: SubagentAccess::ReadOnly,
+            actions: vec![
+                ActionDescriptor {
+                    name: "open",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "click",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "type",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "fill",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "screenshot",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "snapshot",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "eval",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "get",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "scroll",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "wait",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "close",
+                    read_only: false,
+                },
+                ActionDescriptor {
+                    name: "navigate",
+                    read_only: false,
+                },
+            ],
+        }
     }
 
     fn parameters(&self) -> Value {
