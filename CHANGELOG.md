@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.5] - 2026-02-25
+
+### Added
+- **cli:** add shell completion command ([3603510](https://github.com/oxicrab/oxicrab/commit/360351009cd2bcf3c71e38d51137396689ef0182))
+- **cli:** add --version flag ([c4880d8](https://github.com/oxicrab/oxicrab/commit/c4880d87365410ee43169d77b01a71e562642a11))
+- **mcp:** use built_in capability for shadow protection ([c34d668](https://github.com/oxicrab/oxicrab/commit/c34d668758752a49eebdb72bcb940014c46cf6e6))
+- **exfil:** replace blocked_tools list with network_outbound capability ([fc67ca1](https://github.com/oxicrab/oxicrab/commit/fc67ca12175eea3348b56bf420b30377c32aa31a))
+- **subagent:** build subagent tools from capabilities instead of hardcoded list ([34881ae](https://github.com/oxicrab/oxicrab/commit/34881ae1248fb7277f69b33ea5728b23d7ff7109))
+- **tools:** add ReadOnlyToolWrapper with dual enforcement ([9e97f18](https://github.com/oxicrab/oxicrab/commit/9e97f18972167d606b36c8385c61a2c56c5bb0b8))
+- **tools:** annotate action-based tools with per-action capabilities ([43295d5](https://github.com/oxicrab/oxicrab/commit/43295d5bb54582fec2223ae1ff8ea102f81bf36b))
+- **tools:** annotate single-purpose tools with capability metadata ([e427336](https://github.com/oxicrab/oxicrab/commit/e42733682ded2a0f2c782251f567eee46932f665))
+- **tools:** add ToolCapabilities types and capabilities() trait method ([add7d8a](https://github.com/oxicrab/oxicrab/commit/add7d8ada36a3954b2df5487718a49c08be0e72c))
+- **subagent:** add per-subagent activity log and tool visibility ([e98bbdd](https://github.com/oxicrab/oxicrab/commit/e98bbddec2a45fef14d76d8da29eb276cd19c013))
+
+
+### Documentation
+- document subagent tool access and capability metadata ([3eda2d3](https://github.com/oxicrab/oxicrab/commit/3eda2d37e66cb3be34ca7df4e167a746889fb844))
+- **plans:** Removed design docs for tool metadata ([cbb1cf5](https://github.com/oxicrab/oxicrab/commit/cbb1cf538de8b21ffe18474ea52b208d10f2bc2c))
+- update docs for capability-based tool metadata ([9ceaba3](https://github.com/oxicrab/oxicrab/commit/9ceaba3c7cf391dfa186193aa0503253de02edb3))
+- **plans:** add tool capability metadata implementation plan ([fee1a3b](https://github.com/oxicrab/oxicrab/commit/fee1a3b46d87092e0a76f0a6f4c92ba91c61921a))
+- **plans:** add tool capability metadata design ([69508aa](https://github.com/oxicrab/oxicrab/commit/69508aaa41f9854293078d3ed4544859c2e4a983))
+
+
+### Fixed
+- **exec:** make command parsing quote-aware to prevent false rejections ([7042903](https://github.com/oxicrab/oxicrab/commit/704290347f3cbd04a9fd858ae31f435c9039a3e2))
+
 ## [0.11.4] - 2026-02-25
 
 ### Added
