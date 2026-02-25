@@ -1,12 +1,7 @@
 mod activity_log;
 
 use crate::agent::cost_guard::CostGuard;
-use crate::agent::tools::{
-    ToolRegistry,
-    filesystem::{ListDirTool, ReadFileTool, WriteFileTool},
-    shell::ExecTool,
-    web::{WebFetchTool, WebSearchTool},
-};
+use crate::agent::tools::ToolRegistry;
 use crate::bus::{InboundMessage, MessageBus};
 use crate::config::PromptGuardConfig;
 use crate::providers::base::{LLMProvider, Message};
@@ -23,7 +18,6 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 const EMPTY_RESPONSE_RETRIES: usize = 2;
-const MAX_WEB_FETCH_CHARS: usize = 50000;
 const MAX_SUBAGENT_ITERATIONS: usize = 15;
 const MAX_CONTEXT_CHARS: usize = 2000;
 /// Overall timeout for a subagent run (5 minutes)
@@ -51,6 +45,9 @@ pub struct SubagentConfig {
     pub prompt_guard_config: PromptGuardConfig,
     /// Sandbox config for shell tool (propagated from main agent).
     pub sandbox_config: crate::config::SandboxConfig,
+    /// Main agent's tool registry, used to build subagent tools from capabilities.
+    /// Set after `register_all_tools()` returns via `SubagentManager::set_main_tools()`.
+    pub main_tools: Option<Arc<ToolRegistry>>,
 }
 
 pub struct SubagentManager {
@@ -65,17 +62,13 @@ struct SubagentInner {
     provider: Arc<dyn LLMProvider>,
     workspace: PathBuf,
     model: String,
-    brave_api_key: Option<String>,
-    exec_timeout: u64,
-    restrict_to_workspace: bool,
-    allowed_commands: Vec<String>,
     max_tokens: u32,
     tool_temperature: f32,
     exfil_blocked_tools: Vec<String>,
     cost_guard: Option<Arc<CostGuard>>,
     prompt_guard: Option<PromptGuard>,
     prompt_guard_config: PromptGuardConfig,
-    sandbox_config: crate::config::SandboxConfig,
+    main_tools: std::sync::OnceLock<Arc<ToolRegistry>>,
 }
 
 impl SubagentManager {
@@ -93,17 +86,19 @@ impl SubagentManager {
             provider: config.provider,
             workspace: config.workspace,
             model,
-            brave_api_key: config.brave_api_key,
-            exec_timeout: config.exec_timeout,
-            restrict_to_workspace: config.restrict_to_workspace,
-            allowed_commands: config.allowed_commands,
             max_tokens: config.max_tokens,
             tool_temperature: config.tool_temperature,
             exfil_blocked_tools: config.exfil_blocked_tools,
             cost_guard: config.cost_guard,
             prompt_guard,
             prompt_guard_config: config.prompt_guard_config,
-            sandbox_config: config.sandbox_config,
+            main_tools: {
+                let lock = std::sync::OnceLock::new();
+                if let Some(tools) = config.main_tools {
+                    let _ = lock.set(tools);
+                }
+                lock
+            },
         });
         Self {
             config: inner,
@@ -217,6 +212,12 @@ impl SubagentManager {
         }
     }
 
+    /// Set the main agent's tool registry after `register_all_tools()` returns.
+    /// This enables capability-based subagent tool filtering.
+    pub fn set_main_tools(&self, tools: Arc<ToolRegistry>) {
+        let _ = self.config.main_tools.set(tools);
+    }
+
     /// Returns (running, max, available) capacity info.
     pub async fn capacity(&self) -> (usize, usize, usize) {
         let running = self.running_tasks.lock().await.len();
@@ -300,56 +301,39 @@ async fn run_subagent(
     }
 }
 
-/// Build the tool registry for a subagent. Subagents get a restricted set of
-/// tools: filesystem (`read_file`/`write_file`/`list_dir`), `exec`, and optionally
-/// `web_search` + `web_fetch` (unless blocked by exfiltration guard).
-/// Domain-specific tools (github, google, cron, etc.) are NOT available.
-fn build_subagent_tools(config: &SubagentInner) -> Result<ToolRegistry> {
+/// Build the tool registry for a subagent by querying capabilities from the
+/// main agent's tool registry. Tools with `SubagentAccess::Full` are passed
+/// through (network-outbound tools respect the exfil block list), tools with
+/// `SubagentAccess::ReadOnly` are wrapped to expose only read-only actions,
+/// and `SubagentAccess::Denied` tools are excluded.
+fn build_subagent_tools(config: &SubagentInner) -> ToolRegistry {
+    use crate::agent::tools::base::SubagentAccess;
+    use crate::agent::tools::read_only_wrapper::ReadOnlyToolWrapper;
+
+    let main_tools = config
+        .main_tools
+        .get()
+        .expect("main_tools must be set before spawning subagents");
+
     let mut tools = ToolRegistry::new();
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-    let allowed_roots = if config.restrict_to_workspace {
-        Some(vec![config.workspace.clone(), home.join(".oxicrab")])
-    } else {
-        None
-    };
-
-    let backup_dir = Some(home.join(".oxicrab/backups"));
-
-    let workspace = Some(config.workspace.clone());
-    tools.register(Arc::new(ReadFileTool::new(
-        allowed_roots.clone(),
-        workspace.clone(),
-    )));
-    tools.register(Arc::new(WriteFileTool::new(
-        allowed_roots.clone(),
-        backup_dir,
-        workspace.clone(),
-    )));
-    tools.register(Arc::new(ListDirTool::new(allowed_roots, workspace)));
-    tools.register(Arc::new(ExecTool::new(
-        config.exec_timeout,
-        Some(config.workspace.clone()),
-        config.restrict_to_workspace,
-        config.allowed_commands.clone(),
-        config.sandbox_config.clone(),
-    )?));
-    // Only register outbound tools if not blocked by exfiltration guard
-    if !config
-        .exfil_blocked_tools
-        .contains(&"web_search".to_string())
-    {
-        tools.register(Arc::new(WebSearchTool::new(
-            config.brave_api_key.clone(),
-            5,
-        )));
+    for (name, tool) in main_tools.iter() {
+        let caps = tool.capabilities();
+        match caps.subagent_access {
+            SubagentAccess::Full => {
+                if caps.network_outbound && config.exfil_blocked_tools.contains(&name.to_string()) {
+                    continue;
+                }
+                tools.register(tool.clone());
+            }
+            SubagentAccess::ReadOnly => {
+                if let Some(wrapped) = ReadOnlyToolWrapper::new(tool.clone()) {
+                    tools.register(Arc::new(wrapped));
+                }
+            }
+            SubagentAccess::Denied => {}
+        }
     }
-    if !config
-        .exfil_blocked_tools
-        .contains(&"web_fetch".to_string())
-    {
-        tools.register(Arc::new(WebFetchTool::new(MAX_WEB_FETCH_CHARS)?));
-    }
-    Ok(tools)
+    tools
 }
 
 async fn run_subagent_inner(
@@ -369,8 +353,8 @@ async fn run_subagent_inner(
         l.log_start(task);
     }
 
-    // Build tools
-    let tools = build_subagent_tools(config)?;
+    // Build tools from main registry capabilities
+    let tools = build_subagent_tools(config);
 
     // Log registered tools and any blocked tools
     let registered_names = tools.tool_names();

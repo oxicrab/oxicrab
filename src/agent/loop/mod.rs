@@ -444,6 +444,7 @@ impl AgentLoop {
                 cost_guard: cost_guard.clone(),
                 prompt_guard_config: prompt_guard_config.clone(),
                 sandbox_config: sandbox_config.clone(),
+                main_tools: None, // set after register_all_tools()
             },
             brave_api_key,
             allowed_commands,
@@ -455,6 +456,7 @@ impl AgentLoop {
         let (tools, subagents, mcp_manager) =
             crate::agent::tools::setup::register_all_tools(&tool_ctx).await?;
         let tools = Arc::new(tools);
+        subagents.set_main_tools(tools.clone());
 
         let transcriber = voice_config
             .as_ref()

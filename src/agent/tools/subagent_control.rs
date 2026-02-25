@@ -167,6 +167,7 @@ mod tests {
             cost_guard: None,
             prompt_guard_config: PromptGuardConfig::default(),
             sandbox_config: SandboxConfig::default(),
+            main_tools: None,
         };
         let manager = Arc::new(SubagentManager::new(config, bus));
         SubagentControlTool::new(manager)

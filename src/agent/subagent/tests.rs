@@ -82,7 +82,7 @@ impl LLMProvider for DelayedProvider {
 
 fn make_manager(provider: Arc<dyn LLMProvider>, max_concurrent: usize) -> SubagentManager {
     let bus = Arc::new(Mutex::new(MessageBus::default()));
-    SubagentManager::new(
+    let mgr = SubagentManager::new(
         SubagentConfig {
             provider,
             workspace: PathBuf::from("/tmp/test"),
@@ -98,9 +98,13 @@ fn make_manager(provider: Arc<dyn LLMProvider>, max_concurrent: usize) -> Subage
             cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
             sandbox_config: crate::config::SandboxConfig::default(),
+            main_tools: None,
         },
         bus,
-    )
+    );
+    // Provide a minimal main tools registry so spawned subagents can build their tool set
+    mgr.set_main_tools(make_test_main_registry());
+    mgr
 }
 
 // --- Prompt building tests ---
@@ -254,9 +258,11 @@ async fn test_silent_mode_no_bus_message() {
             cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
             sandbox_config: crate::config::SandboxConfig::default(),
+            main_tools: None,
         },
         bus.clone(),
     );
+    mgr.set_main_tools(make_test_main_registry());
 
     mgr.spawn(
         "silent task".to_string(),
@@ -312,9 +318,11 @@ async fn test_non_silent_mode_publishes_bus_message() {
             cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
             sandbox_config: crate::config::SandboxConfig::default(),
+            main_tools: None,
         },
         bus.clone(),
     );
+    mgr.set_main_tools(make_test_main_registry());
 
     mgr.spawn(
         "announce task".to_string(),
@@ -451,95 +459,128 @@ use std::path::Path;
 // --- Subagent tool registration tests ---
 
 /// Helper to build a `SubagentInner` config for tool registration tests.
-fn make_inner(exfil_blocked_tools: Vec<String>) -> super::SubagentInner {
+fn make_inner_with_tools(
+    exfil_blocked_tools: Vec<String>,
+    main_tools: Arc<crate::agent::tools::ToolRegistry>,
+) -> super::SubagentInner {
+    let lock = std::sync::OnceLock::new();
+    let _ = lock.set(main_tools);
     super::SubagentInner {
         provider: Arc::new(MockProvider::immediate("done")),
         workspace: PathBuf::from("/tmp/test"),
         model: "mock".to_string(),
-        brave_api_key: None,
-        exec_timeout: 10,
-        restrict_to_workspace: false,
-        allowed_commands: vec![],
         max_tokens: 1024,
         tool_temperature: 0.0,
         exfil_blocked_tools,
         cost_guard: None,
         prompt_guard: None,
         prompt_guard_config: crate::config::PromptGuardConfig::default(),
-        sandbox_config: crate::config::SandboxConfig::default(),
+        main_tools: lock,
     }
 }
 
+/// Build a realistic main tool registry for testing subagent tool filtering.
+fn make_test_main_registry() -> Arc<crate::agent::tools::ToolRegistry> {
+    use crate::agent::tools::ToolRegistry;
+    use crate::agent::tools::filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool};
+    use crate::agent::tools::github::GitHubTool;
+    use crate::agent::tools::reddit::RedditTool;
+    use crate::agent::tools::shell::ExecTool;
+    use crate::agent::tools::web::{WebFetchTool, WebSearchTool};
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(ReadFileTool::new(None, None)));
+    registry.register(Arc::new(WriteFileTool::new(None, None, None)));
+    registry.register(Arc::new(ListDirTool::new(None, None)));
+    registry.register(Arc::new(EditFileTool::new(None, None, None)));
+    registry.register(Arc::new(
+        ExecTool::new(
+            10,
+            None,
+            false,
+            vec![],
+            crate::config::SandboxConfig::default(),
+        )
+        .unwrap(),
+    ));
+    registry.register(Arc::new(WebSearchTool::new(None, 5)));
+    registry.register(Arc::new(WebFetchTool::new(50000).unwrap()));
+    registry.register(Arc::new(GitHubTool::new("fake".to_string())));
+    registry.register(Arc::new(RedditTool::new()));
+    Arc::new(registry)
+}
+
 #[test]
-fn test_subagent_tools_default_set() {
-    let config = make_inner(vec![]);
-    let tools = super::build_subagent_tools(&config).unwrap();
+fn test_subagent_tools_capability_based() {
+    let main = make_test_main_registry();
+    let config = make_inner_with_tools(vec![], main);
+    let tools = super::build_subagent_tools(&config);
     let names = tools.tool_names();
 
-    // Subagents get exactly these 6 tools
-    assert_eq!(
-        names,
-        vec![
-            "exec",
-            "list_dir",
-            "read_file",
-            "web_fetch",
-            "web_search",
-            "write_file"
-        ],
-        "Subagents should have exactly 6 tools: filesystem + exec + web"
-    );
-}
+    // Full access tools: read_file, write_file, list_dir, exec, web_search, web_fetch
+    assert!(names.contains(&"read_file".to_string()));
+    assert!(names.contains(&"write_file".to_string()));
+    assert!(names.contains(&"list_dir".to_string()));
+    assert!(names.contains(&"exec".to_string()));
+    assert!(names.contains(&"web_search".to_string()));
+    assert!(names.contains(&"web_fetch".to_string()));
 
-#[test]
-fn test_subagent_tools_no_github() {
-    let config = make_inner(vec![]);
-    let tools = super::build_subagent_tools(&config).unwrap();
-
+    // ReadOnly tools appear (github, reddit) — wrapped with read-only actions
     assert!(
-        tools.get("github").is_none(),
-        "Subagents must NOT have the github tool"
+        names.contains(&"github".to_string()),
+        "github should be available as read-only"
+    );
+    assert!(
+        names.contains(&"reddit".to_string()),
+        "reddit should be available as read-only"
     );
 }
 
 #[test]
-fn test_subagent_tools_no_domain_tools() {
-    let config = make_inner(vec![]);
-    let tools = super::build_subagent_tools(&config).unwrap();
+fn test_subagent_tools_denied_tools_excluded() {
+    let main = make_test_main_registry();
+    let config = make_inner_with_tools(vec![], main);
+    let tools = super::build_subagent_tools(&config);
 
-    // None of these domain-specific tools should be available
-    let forbidden = [
-        "github",
-        "google_mail",
-        "google_calendar",
-        "cron",
-        "spawn",
-        "subagent_control",
-        "browser",
-        "image_gen",
-        "weather",
-        "todoist",
-        "obsidian",
-        "memory_search",
-        "media",
-        "tmux",
-        "http",
-        "reddit",
-        "edit_file",
-    ];
-    for name in &forbidden {
-        assert!(
-            tools.get(name).is_none(),
-            "Subagent should NOT have tool '{}' but it was found",
-            name
-        );
-    }
+    // Denied tools should NOT appear
+    assert!(tools.get("edit_file").is_none(), "edit_file is Denied");
+}
+
+#[test]
+fn test_subagent_github_is_read_only() {
+    let main = make_test_main_registry();
+    let config = make_inner_with_tools(vec![], main);
+    let tools = super::build_subagent_tools(&config);
+
+    let github = tools
+        .get("github")
+        .expect("github should be in subagent tools");
+    let params = github.parameters();
+    let actions: Vec<String> = params["properties"]["action"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+
+    // Only read-only actions should be exposed
+    assert!(actions.contains(&"list_prs".to_string()));
+    assert!(actions.contains(&"get_issue".to_string()));
+    assert!(
+        !actions.contains(&"create_issue".to_string()),
+        "mutating action should be hidden"
+    );
+    assert!(
+        !actions.contains(&"trigger_workflow".to_string()),
+        "mutating action should be hidden"
+    );
 }
 
 #[test]
 fn test_subagent_tools_exfil_blocks_web_search() {
-    let config = make_inner(vec!["web_search".to_string()]);
-    let tools = super::build_subagent_tools(&config).unwrap();
+    let main = make_test_main_registry();
+    let config = make_inner_with_tools(vec!["web_search".to_string()], main);
+    let tools = super::build_subagent_tools(&config);
     let names = tools.tool_names();
 
     assert!(
@@ -550,13 +591,13 @@ fn test_subagent_tools_exfil_blocks_web_search() {
         names.contains(&"web_fetch".to_string()),
         "web_fetch should still be registered"
     );
-    assert_eq!(names.len(), 5, "Should have 5 tools (6 minus web_search)");
 }
 
 #[test]
 fn test_subagent_tools_exfil_blocks_web_fetch() {
-    let config = make_inner(vec!["web_fetch".to_string()]);
-    let tools = super::build_subagent_tools(&config).unwrap();
+    let main = make_test_main_registry();
+    let config = make_inner_with_tools(vec!["web_fetch".to_string()], main);
+    let tools = super::build_subagent_tools(&config);
     let names = tools.tool_names();
 
     assert!(
@@ -567,20 +608,23 @@ fn test_subagent_tools_exfil_blocks_web_fetch() {
         names.contains(&"web_search".to_string()),
         "web_search should still be registered"
     );
-    assert_eq!(names.len(), 5, "Should have 5 tools (6 minus web_fetch)");
 }
 
 #[test]
 fn test_subagent_tools_exfil_blocks_both_web_tools() {
-    let config = make_inner(vec!["web_search".to_string(), "web_fetch".to_string()]);
-    let tools = super::build_subagent_tools(&config).unwrap();
+    let main = make_test_main_registry();
+    let config = make_inner_with_tools(
+        vec!["web_search".to_string(), "web_fetch".to_string()],
+        main,
+    );
+    let tools = super::build_subagent_tools(&config);
     let names = tools.tool_names();
 
-    assert_eq!(
-        names,
-        vec!["exec", "list_dir", "read_file", "write_file"],
-        "With both web tools blocked, subagent should have exactly 4 tools"
-    );
+    assert!(!names.contains(&"web_search".to_string()));
+    assert!(!names.contains(&"web_fetch".to_string()));
+    // But filesystem, exec, and read-only domain tools should remain
+    assert!(names.contains(&"read_file".to_string()));
+    assert!(names.contains(&"exec".to_string()));
 }
 
 // --- Activity log tests ---

@@ -95,6 +95,11 @@ impl ToolRegistry {
         names
     }
 
+    /// Iterate over all registered tools.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Arc<dyn Tool>)> {
+        self.tools.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
     pub fn get_tool_definitions(&self) -> Vec<crate::providers::base::ToolDefinition> {
         let mut defs: Vec<_> = self
             .tools
