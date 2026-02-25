@@ -88,6 +88,13 @@ impl ToolRegistry {
         self.tools.get(name).cloned()
     }
 
+    /// Returns a sorted list of all registered tool names.
+    pub fn tool_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.tools.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
     pub fn get_tool_definitions(&self) -> Vec<crate::providers::base::ToolDefinition> {
         let mut defs: Vec<_> = self
             .tools
@@ -311,10 +318,13 @@ impl ToolMiddleware for LoggingMiddleware {
         &self,
         name: &str,
         params: &Value,
-        _ctx: &ExecutionContext,
+        ctx: &ExecutionContext,
         _tool: &dyn Tool,
     ) -> Option<ToolResult> {
-        debug!("Executing tool: {} with arguments: {}", name, params);
+        debug!(
+            "Executing tool: {} (channel={}) with arguments: {}",
+            name, ctx.channel, params
+        );
         None
     }
 

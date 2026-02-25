@@ -1,3 +1,5 @@
+mod activity_log;
+
 use crate::agent::cost_guard::CostGuard;
 use crate::agent::tools::{
     ToolRegistry,
@@ -9,6 +11,7 @@ use crate::bus::{InboundMessage, MessageBus};
 use crate::config::PromptGuardConfig;
 use crate::providers::base::{LLMProvider, Message};
 use crate::safety::prompt_guard::PromptGuard;
+use activity_log::ActivityLog;
 use anyhow::Result;
 use chrono::Utc;
 use serde_json::Value;
@@ -297,14 +300,11 @@ async fn run_subagent(
     }
 }
 
-async fn run_subagent_inner(
-    config: &SubagentInner,
-    task_id: &str,
-    task: &str,
-    context: Option<&str>,
-    origin: &(String, String),
-) -> Result<String> {
-    // Build tools
+/// Build the tool registry for a subagent. Subagents get a restricted set of
+/// tools: filesystem (`read_file`/`write_file`/`list_dir`), `exec`, and optionally
+/// `web_search` + `web_fetch` (unless blocked by exfiltration guard).
+/// Domain-specific tools (github, google, cron, etc.) are NOT available.
+fn build_subagent_tools(config: &SubagentInner) -> Result<ToolRegistry> {
     let mut tools = ToolRegistry::new();
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
     let allowed_roots = if config.restrict_to_workspace {
@@ -349,6 +349,44 @@ async fn run_subagent_inner(
     {
         tools.register(Arc::new(WebFetchTool::new(MAX_WEB_FETCH_CHARS)?));
     }
+    Ok(tools)
+}
+
+async fn run_subagent_inner(
+    config: &SubagentInner,
+    task_id: &str,
+    task: &str,
+    context: Option<&str>,
+    origin: &(String, String),
+) -> Result<String> {
+    let mut log = ActivityLog::new(task_id);
+    if let Some(ref mut l) = log {
+        info!(
+            "Subagent [{}] activity log: {}",
+            task_id,
+            l.path().display()
+        );
+        l.log_start(task);
+    }
+
+    // Build tools
+    let tools = build_subagent_tools(config)?;
+
+    // Log registered tools and any blocked tools
+    let registered_names = tools.tool_names();
+    info!(
+        "Subagent [{}] tools registered: [{}], blocked: [{}]",
+        task_id,
+        registered_names.join(", "),
+        if config.exfil_blocked_tools.is_empty() {
+            "none".to_string()
+        } else {
+            config.exfil_blocked_tools.join(", ")
+        }
+    );
+    if let Some(ref mut l) = log {
+        l.log_tools(&registered_names, &config.exfil_blocked_tools);
+    }
 
     // Scan task input for prompt injection if configured to block
     if let Some(ref guard) = config.prompt_guard
@@ -361,6 +399,9 @@ async fn run_subagent_inner(
                     "Subagent [{}] prompt injection in task input ({:?}): {}",
                     task_id, m.category, m.pattern_name
                 );
+            }
+            if let Some(ref mut l) = log {
+                l.log_end("blocked-injection");
             }
             anyhow::bail!("prompt injection detected in subagent task input");
         }
@@ -386,6 +427,10 @@ async fn run_subagent_inner(
                 "Subagent [{}] cost guard blocked LLM call: {}",
                 task_id, msg
             );
+            if let Some(ref mut l) = log {
+                l.log_cost_blocked(&msg);
+                l.log_end("cost-blocked");
+            }
             return Ok(format!("Budget limit reached: {}", msg));
         }
 
@@ -414,6 +459,15 @@ async fn run_subagent_inner(
         }
 
         if response.has_tool_calls() {
+            let call_count = response.tool_calls.len();
+            info!(
+                "Subagent [{}] iteration {}: {} tool call(s)",
+                task_id, iteration, call_count
+            );
+            if let Some(ref mut l) = log {
+                l.log_iteration_tool_calls(iteration, call_count);
+            }
+
             // Add assistant message
             messages.push(Message::assistant_with_thinking(
                 response.content.clone().unwrap_or_default(),
@@ -430,6 +484,13 @@ async fn run_subagent_inner(
                     (tc.clone(), tool_opt)
                 })
                 .collect();
+
+            // Log each tool call before execution
+            if let Some(ref mut l) = log {
+                for (tc, _) in &tool_lookups {
+                    l.log_tool_call(&tc.name, &tc.arguments);
+                }
+            }
 
             // Execute tools in parallel through the registry middleware pipeline
             // (timeout, panic isolation, truncation, caching, logging).
@@ -451,6 +512,11 @@ async fn run_subagent_inner(
 
             // Add all tool results to messages in order
             for ((tc, _), (result_str, is_error)) in tool_lookups.iter().zip(results.into_iter()) {
+                // Log tool results
+                if let Some(ref mut l) = log {
+                    l.log_tool_result(&tc.name, &result_str, is_error);
+                }
+
                 // Scan tool output for prompt injection (warn only, matching main loop)
                 if let Some(ref guard) = config.prompt_guard {
                     let tool_matches = guard.scan(&result_str);
@@ -464,6 +530,10 @@ async fn run_subagent_inner(
                 messages.push(Message::tool_result(tc.id.clone(), result_str, is_error));
             }
         } else if let Some(content) = response.content {
+            if let Some(ref mut l) = log {
+                l.log_iteration_text(iteration, content.len());
+                l.log_end("ok");
+            }
             return Ok(content);
         } else {
             if empty_retries_left > 0 {
@@ -474,6 +544,9 @@ async fn run_subagent_inner(
                     "Subagent [{}] got empty response, retries left: {}, backing off {:.1}s",
                     task_id, empty_retries_left, delay
                 );
+                if let Some(ref mut l) = log {
+                    l.log_iteration_empty(iteration, empty_retries_left);
+                }
                 tokio::time::sleep(tokio::time::Duration::from_secs_f64(delay)).await;
                 continue;
             }
@@ -481,8 +554,24 @@ async fn run_subagent_inner(
                 "Subagent [{}] empty response, no retries left - giving up",
                 task_id
             );
+            if let Some(ref mut l) = log {
+                l.log_iteration_empty(iteration, 0);
+            }
             break;
         }
+    }
+
+    if iteration >= max_iterations {
+        warn!(
+            "Subagent [{}] reached max iterations ({})",
+            task_id, max_iterations
+        );
+    }
+    if let Some(ref mut l) = log {
+        if iteration >= max_iterations {
+            l.log_max_iterations(max_iterations);
+        }
+        l.log_end("no-final-response");
     }
 
     Ok("Task completed but no final response was generated.".to_string())

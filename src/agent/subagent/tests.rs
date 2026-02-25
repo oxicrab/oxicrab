@@ -447,3 +447,251 @@ async fn test_spawn_explicit_label() {
 }
 
 use std::path::Path;
+
+// --- Subagent tool registration tests ---
+
+/// Helper to build a `SubagentInner` config for tool registration tests.
+fn make_inner(exfil_blocked_tools: Vec<String>) -> super::SubagentInner {
+    super::SubagentInner {
+        provider: Arc::new(MockProvider::immediate("done")),
+        workspace: PathBuf::from("/tmp/test"),
+        model: "mock".to_string(),
+        brave_api_key: None,
+        exec_timeout: 10,
+        restrict_to_workspace: false,
+        allowed_commands: vec![],
+        max_tokens: 1024,
+        tool_temperature: 0.0,
+        exfil_blocked_tools,
+        cost_guard: None,
+        prompt_guard: None,
+        prompt_guard_config: crate::config::PromptGuardConfig::default(),
+        sandbox_config: crate::config::SandboxConfig::default(),
+    }
+}
+
+#[test]
+fn test_subagent_tools_default_set() {
+    let config = make_inner(vec![]);
+    let tools = super::build_subagent_tools(&config).unwrap();
+    let names = tools.tool_names();
+
+    // Subagents get exactly these 6 tools
+    assert_eq!(
+        names,
+        vec![
+            "exec",
+            "list_dir",
+            "read_file",
+            "web_fetch",
+            "web_search",
+            "write_file"
+        ],
+        "Subagents should have exactly 6 tools: filesystem + exec + web"
+    );
+}
+
+#[test]
+fn test_subagent_tools_no_github() {
+    let config = make_inner(vec![]);
+    let tools = super::build_subagent_tools(&config).unwrap();
+
+    assert!(
+        tools.get("github").is_none(),
+        "Subagents must NOT have the github tool"
+    );
+}
+
+#[test]
+fn test_subagent_tools_no_domain_tools() {
+    let config = make_inner(vec![]);
+    let tools = super::build_subagent_tools(&config).unwrap();
+
+    // None of these domain-specific tools should be available
+    let forbidden = [
+        "github",
+        "google_mail",
+        "google_calendar",
+        "cron",
+        "spawn",
+        "subagent_control",
+        "browser",
+        "image_gen",
+        "weather",
+        "todoist",
+        "obsidian",
+        "memory_search",
+        "media",
+        "tmux",
+        "http",
+        "reddit",
+        "edit_file",
+    ];
+    for name in &forbidden {
+        assert!(
+            tools.get(name).is_none(),
+            "Subagent should NOT have tool '{}' but it was found",
+            name
+        );
+    }
+}
+
+#[test]
+fn test_subagent_tools_exfil_blocks_web_search() {
+    let config = make_inner(vec!["web_search".to_string()]);
+    let tools = super::build_subagent_tools(&config).unwrap();
+    let names = tools.tool_names();
+
+    assert!(
+        !names.contains(&"web_search".to_string()),
+        "web_search should be blocked by exfiltration guard"
+    );
+    assert!(
+        names.contains(&"web_fetch".to_string()),
+        "web_fetch should still be registered"
+    );
+    assert_eq!(names.len(), 5, "Should have 5 tools (6 minus web_search)");
+}
+
+#[test]
+fn test_subagent_tools_exfil_blocks_web_fetch() {
+    let config = make_inner(vec!["web_fetch".to_string()]);
+    let tools = super::build_subagent_tools(&config).unwrap();
+    let names = tools.tool_names();
+
+    assert!(
+        !names.contains(&"web_fetch".to_string()),
+        "web_fetch should be blocked by exfiltration guard"
+    );
+    assert!(
+        names.contains(&"web_search".to_string()),
+        "web_search should still be registered"
+    );
+    assert_eq!(names.len(), 5, "Should have 5 tools (6 minus web_fetch)");
+}
+
+#[test]
+fn test_subagent_tools_exfil_blocks_both_web_tools() {
+    let config = make_inner(vec!["web_search".to_string(), "web_fetch".to_string()]);
+    let tools = super::build_subagent_tools(&config).unwrap();
+    let names = tools.tool_names();
+
+    assert_eq!(
+        names,
+        vec!["exec", "list_dir", "read_file", "write_file"],
+        "With both web tools blocked, subagent should have exactly 4 tools"
+    );
+}
+
+// --- Activity log tests ---
+
+#[test]
+fn test_activity_log_creates_file() {
+    let log = super::ActivityLog::new("test1234");
+    assert!(log.is_some(), "ActivityLog should be creatable");
+    let log = log.unwrap();
+    assert!(log.path().exists(), "Log file should exist on disk");
+    assert!(
+        log.path()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("subagent-test1234-"),
+        "Log filename should contain task ID"
+    );
+    // Cleanup
+    let _ = std::fs::remove_file(log.path());
+}
+
+#[test]
+fn test_activity_log_writes_content() {
+    let mut log = super::ActivityLog::new("logtest").unwrap();
+    log.log_start("test task for logging");
+    log.log_tools(
+        &["exec".to_string(), "read_file".to_string()],
+        &["web_fetch".to_string()],
+    );
+    log.log_iteration_tool_calls(1, 2);
+    log.log_tool_call("exec", &serde_json::json!({"command": "ls"}));
+    log.log_tool_result("exec", "file1.txt file2.txt", false);
+    log.log_tool_result("exec", "command not found", true);
+    log.log_iteration_text(2, 100);
+    log.log_end("ok");
+
+    let content = std::fs::read_to_string(log.path()).unwrap();
+
+    assert!(content.contains("SUBAGENT START task_id=logtest"));
+    assert!(content.contains("TASK: test task for logging"));
+    assert!(content.contains("TOOLS REGISTERED: exec, read_file"));
+    assert!(content.contains("TOOLS BLOCKED: web_fetch"));
+    assert!(content.contains("ITERATION 1: LLM responded with 2 tool call(s)"));
+    assert!(content.contains("TOOL CALL: exec {\"command\":\"ls\"}"));
+    assert!(content.contains("TOOL RESULT: exec (19 chars): file1.txt file2.txt"));
+    assert!(content.contains("TOOL ERROR: exec (17 chars): command not found"));
+    assert!(content.contains("ITERATION 2: LLM responded with text (100 chars)"));
+    assert!(content.contains("SUBAGENT END task_id=logtest status=ok duration="));
+
+    // Cleanup
+    let _ = std::fs::remove_file(log.path());
+}
+
+#[test]
+fn test_activity_log_truncates_long_content() {
+    let mut log = super::ActivityLog::new("trunctest").unwrap();
+    let long_result = "x".repeat(1000);
+    log.log_tool_result("exec", &long_result, false);
+
+    let content = std::fs::read_to_string(log.path()).unwrap();
+    // Should contain "..." suffix indicating truncation
+    assert!(content.contains("..."));
+    // Should contain the char count of the full content
+    assert!(content.contains("(1000 chars)"));
+
+    let _ = std::fs::remove_file(log.path());
+}
+
+#[test]
+fn test_activity_log_special_entries() {
+    let mut log = super::ActivityLog::new("spectest").unwrap();
+    log.log_cost_blocked("monthly budget exceeded");
+    log.log_max_iterations(15);
+    log.log_iteration_empty(3, 1);
+
+    let content = std::fs::read_to_string(log.path()).unwrap();
+    assert!(content.contains("COST GUARD BLOCKED: monthly budget exceeded"));
+    assert!(content.contains("MAX ITERATIONS REACHED (15)"));
+    assert!(content.contains("ITERATION 3: LLM returned empty response (retries left: 1)"));
+
+    let _ = std::fs::remove_file(log.path());
+}
+
+// --- ToolRegistry::tool_names test ---
+
+#[test]
+fn test_tool_registry_tool_names() {
+    use crate::agent::tools::ToolRegistry;
+    use crate::agent::tools::filesystem::ReadFileTool;
+
+    let mut registry = ToolRegistry::new();
+    assert!(registry.tool_names().is_empty());
+
+    registry.register(Arc::new(ReadFileTool::new(None, None)));
+    let names = registry.tool_names();
+    assert_eq!(names, vec!["read_file"]);
+}
+
+#[test]
+fn test_tool_registry_tool_names_sorted() {
+    use crate::agent::tools::ToolRegistry;
+    use crate::agent::tools::filesystem::{ListDirTool, ReadFileTool, WriteFileTool};
+
+    let mut registry = ToolRegistry::new();
+    // Register in non-sorted order
+    registry.register(Arc::new(WriteFileTool::new(None, None, None)));
+    registry.register(Arc::new(ReadFileTool::new(None, None)));
+    registry.register(Arc::new(ListDirTool::new(None, None)));
+
+    let names = registry.tool_names();
+    assert_eq!(names, vec!["list_dir", "read_file", "write_file"]);
+}
