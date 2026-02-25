@@ -11,7 +11,7 @@ use crate::cron::service::CronService;
 use crate::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule};
 use crate::heartbeat::service::HeartbeatService;
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -84,6 +84,12 @@ enum Commands {
     Stats {
         #[command(subcommand)]
         cmd: StatsCommands,
+    },
+    /// Generate shell completion scripts
+    Completion {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
     },
 }
 
@@ -293,6 +299,14 @@ pub async fn run() -> Result<()> {
         }
         Commands::Stats { ref cmd } => {
             subcommands::stats_command(cmd)?;
+        }
+        Commands::Completion { shell } => {
+            clap_complete::generate(
+                shell,
+                &mut Cli::command(),
+                "oxicrab",
+                &mut std::io::stdout(),
+            );
         }
     }
 

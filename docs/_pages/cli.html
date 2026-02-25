@@ -37,6 +37,7 @@ max_width: 820px
             <li><a href="#pairing">pairing</a></li>
             <li><a href="#credentials">credentials</a></li>
             <li><a href="#stats">stats</a></li>
+            <li><a href="#completion">completion</a></li>
         </ul>
     </div>
 
@@ -367,5 +368,22 @@ oxicrab stats search
 
 <span class="hl-comment"># Intent classification &amp; hallucination detection</span>
 oxicrab stats intent -d 30</pre>
+
+    <!-- COMPLETION -->
+    <h2 id="completion">completion</h2>
+    <div class="cmd-sig">oxicrab completion &lt;SHELL&gt;</div>
+    <p>Generate shell completion scripts. Outputs the completion script to stdout. Supported shells: <code>bash</code>, <code>zsh</code>, <code>fish</code>, <code>elvish</code>, <code>powershell</code>.</p>
+
+    <pre><span class="hl-comment"># Bash (add to ~/.bashrc)</span>
+eval "$(oxicrab completion bash)"
+
+<span class="hl-comment"># Zsh (add to ~/.zshrc)</span>
+eval "$(oxicrab completion zsh)"
+
+<span class="hl-comment"># Fish</span>
+oxicrab completion fish | source
+
+<span class="hl-comment"># Or save to a file</span>
+oxicrab completion zsh > ~/.zfunc/_oxicrab</pre>
 
 </div>
