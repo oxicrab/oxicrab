@@ -58,8 +58,11 @@ impl ExecTool {
     /// and returns the first actual executable token.
     fn extract_command_name(token: &str) -> String {
         let token = token.trim();
-        // Use shlex for proper shell-aware tokenization (handles quoting/escaping)
-        let parts = shlex::split(token).unwrap_or_default();
+        // Use shlex for proper shell-aware tokenization (handles quoting/escaping).
+        // Fall back to whitespace splitting when shlex cannot parse the input
+        // (e.g. truly malformed quoting).
+        let parts = shlex::split(token)
+            .unwrap_or_else(|| token.split_whitespace().map(String::from).collect());
         let mut found_prefix = false;
         for part in &parts {
             // Skip env var assignments (KEY=value)
@@ -83,52 +86,77 @@ impl ExecTool {
     }
 
     /// Extract all command names from a shell pipeline/chain.
-    /// Splits on |, &&, ||, ;, and newlines to find each command.
-    ///
-    /// NOTE: This is a conservative, string-based split that does NOT respect
-    /// shell quoting. Operators inside quotes (e.g. `cat "a | b"`) will cause
-    /// false splits, extracting extra command names. This is safe because:
-    /// - False positives block commands unnecessarily (conservative)
-    /// - False negatives (allowing dangerous commands) cannot occur
-    /// - The AST-based analysis in `guard_command()` provides primary protection
+    /// Splits on |, &&, ||, ;, and newlines to find each command,
+    /// respecting single and double quoting so that operators inside
+    /// quoted strings (e.g. `jq '.[] | .name'`) are not treated as
+    /// pipeline separators.
     fn extract_all_commands(command: &str) -> Vec<String> {
-        // Split on shell operators: |, &&, ||, ;, \n
-        // We need to handle these carefully to extract command names
         let mut commands = Vec::new();
-        let mut remaining = command;
+        let bytes = command.as_bytes();
+        let len = bytes.len();
+        let mut seg_start = 0;
+        let mut i = 0;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
 
-        while !remaining.is_empty() {
-            // Find the next shell operator
-            let next_split = remaining
-                .find("&&")
-                .map(|i| (i, 2))
-                .into_iter()
-                .chain(remaining.find("||").map(|i| (i, 2)))
-                .chain(remaining.find('|').map(|i| {
-                    // Make sure this isn't part of || (already handled)
-                    if remaining.get(i + 1..i + 2) == Some("|") {
-                        (usize::MAX, 1) // Skip, will be handled by ||
-                    } else {
-                        (i, 1)
-                    }
-                }))
-                .chain(remaining.find(';').map(|i| (i, 1)))
-                .chain(remaining.find('\n').map(|i| (i, 1)))
-                .filter(|(pos, _)| *pos != usize::MAX)
-                .min_by_key(|(pos, _)| *pos);
-
-            if let Some((pos, len)) = next_split {
-                let segment = &remaining[..pos];
-                if !segment.trim().is_empty() {
-                    commands.push(Self::extract_command_name(segment));
-                }
-                remaining = &remaining[pos + len..];
-            } else {
-                if !remaining.trim().is_empty() {
-                    commands.push(Self::extract_command_name(remaining));
-                }
-                break;
+        while i < len {
+            if escaped {
+                escaped = false;
+                i += 1;
+                continue;
             }
+
+            let ch = bytes[i];
+
+            // Backslash escapes outside single quotes
+            if ch == b'\\' && !in_single {
+                escaped = true;
+                i += 1;
+                continue;
+            }
+
+            // Quote tracking
+            if ch == b'\'' && !in_double {
+                in_single = !in_single;
+                i += 1;
+                continue;
+            }
+            if ch == b'"' && !in_single {
+                in_double = !in_double;
+                i += 1;
+                continue;
+            }
+
+            // Only split on operators outside quotes
+            if !in_single && !in_double {
+                let rest = &command[i..];
+                let op_len = if rest.starts_with("&&") || rest.starts_with("||") {
+                    Some(2)
+                } else if matches!(ch, b'|' | b';' | b'\n') {
+                    Some(1)
+                } else {
+                    None
+                };
+
+                if let Some(len) = op_len {
+                    let segment = &command[seg_start..i];
+                    if !segment.trim().is_empty() {
+                        commands.push(Self::extract_command_name(segment));
+                    }
+                    i += len;
+                    seg_start = i;
+                    continue;
+                }
+            }
+
+            i += 1;
+        }
+
+        // Remaining tail
+        let tail = &command[seg_start..];
+        if !tail.trim().is_empty() {
+            commands.push(Self::extract_command_name(tail));
         }
 
         commands
