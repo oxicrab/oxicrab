@@ -1490,7 +1490,8 @@ impl AgentLoop {
         user_has_action_intent: bool,
         db: Option<&MemoryDB>,
     ) -> TextAction {
-        // Detect false "no tools" claims and retry with correction
+        // Detect false "no tools" claims and retry with correction.
+        // This always fires — the LLM is factually wrong about not having tools.
         if !tool_names.is_empty() && is_false_no_tools_claim(content) {
             warn!(
                 "False no-tools claim detected: LLM claims tools unavailable but {} tools are registered",
@@ -1517,6 +1518,15 @@ impl AgentLoop {
             )));
             *correction_sent = true;
             return TextAction::Continue;
+        }
+
+        // Layers 1 and 2 only fire once per agent loop invocation. If we already
+        // sent a correction and the LLM still responds with text, accept it —
+        // it's likely summarizing subagent results or genuinely conversational.
+        // Without this guard, the LLM loops: hallucinate → correct → hallucinate
+        // → correct → ... until max_iterations.
+        if *correction_sent {
+            return TextAction::Return;
         }
 
         // Layer 1: Regex-based action claim detection (fast path)

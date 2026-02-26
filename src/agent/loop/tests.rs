@@ -894,8 +894,9 @@ fn test_action_hallucination_caught_without_tool_forcing() {
 }
 
 #[test]
-fn test_action_hallucination_repeatable_correction() {
-    // After correction_sent is already true, a second action claim should STILL be caught
+fn test_action_hallucination_not_repeated_after_correction() {
+    // After correction_sent is already true, a second action claim should pass through
+    // to prevent infinite correction loops (hallucinate → correct → hallucinate → ...)
     let tool_names = vec!["write_file".to_string()];
     let mut messages = vec![];
     let mut correction_sent = true; // already corrected once
@@ -911,8 +912,8 @@ fn test_action_hallucination_repeatable_correction() {
         None,
     );
     assert!(
-        matches!(result, TextAction::Continue),
-        "repeated action claim should still be corrected"
+        matches!(result, TextAction::Return),
+        "after correction was already sent, text should pass through"
     );
 }
 
