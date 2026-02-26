@@ -168,13 +168,19 @@ impl SessionManager {
             return Ok(None);
         }
 
-        let file = fs::File::open(path)
-            .with_context(|| format!("Failed to open session file: {}", path.display()))?;
-        file.lock_shared()
-            .with_context(|| "Failed to acquire shared lock on session file")?;
+        // Use the same lock file as save() for proper coordination.
+        // Shared lock blocks exclusive writes; read from data file while lock held.
+        let lock_path = path.with_extension("jsonl.lock");
+        let _lock_file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&lock_path)
+            .and_then(|f| f.lock_shared().map(|()| f))
+            .with_context(|| "Failed to acquire shared lock on session lock file")?;
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read session file: {}", path.display()))?;
-        // lock released when `file` drops
+        // lock released when `_lock_file` drops
 
         let mut messages = Vec::new();
         let mut metadata = HashMap::new();
@@ -385,8 +391,7 @@ impl SessionManager {
             atomic_write(&path_clone, &content).with_context(|| {
                 format!("Failed to write session file: {}", path_clone.display())
             })?;
-            // Clean up the lock file — it's only needed during the write
-            let _ = std::fs::remove_file(&lock_path);
+            // Lock file kept on disk for future load/save coordination
             Ok(())
         })
         .await??;

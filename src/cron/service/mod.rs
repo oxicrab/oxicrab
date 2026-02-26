@@ -59,13 +59,14 @@ fn compute_next_run_with_last(
         CronSchedule::Every { every_ms } => every_ms.and_then(|every| {
             if every > 0 {
                 // Anchor from last run time to prevent drift accumulation.
-                // If the computed next time is in the past, advance by intervals.
+                // Use O(1) arithmetic instead of a loop to handle large gaps
+                // (e.g. 24h gap with 1s interval would be 86,400 loop iterations).
                 let anchor = last_run_ms.unwrap_or(now_ms);
-                let mut next = anchor + every;
-                while next <= now_ms {
-                    next += every;
-                }
-                Some(next)
+                let gap = now_ms.saturating_sub(anchor);
+                let intervals = gap / every + 1;
+                intervals
+                    .checked_mul(every)
+                    .and_then(|offset| anchor.checked_add(offset))
             } else {
                 None
             }
