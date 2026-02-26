@@ -687,6 +687,41 @@ async fn test_webhook_template_with_json_fields() {
     assert_eq!(msg.chat_id, "C456");
 }
 
+#[test]
+fn test_apply_template_body_does_not_expand_keys() {
+    let json: serde_json::Value = serde_json::json!({"secret": "s3cret-value"});
+    let result = apply_template("Event: {{body}}", "check {{secret}} here", Some(&json));
+    // {{secret}} in body text must NOT be expanded — body is literal
+    assert_eq!(result, "Event: check {{secret}} here");
+}
+
+#[tokio::test]
+async fn test_chat_handler_rejects_oversized_message() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let (inbound_tx, _rx) = mpsc::channel(16);
+    let state = HttpApiState {
+        inbound_tx: Arc::new(inbound_tx),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(HashMap::new()),
+        outbound_tx: None,
+    };
+    let app = build_router(state, None);
+
+    let big_msg = "x".repeat(MAX_MESSAGE_SIZE + 1);
+    let body = serde_json::json!({"message": big_msg});
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
 #[tokio::test]
 async fn test_chat_handler_inbound_send_fails() {
     use axum::http::Request;

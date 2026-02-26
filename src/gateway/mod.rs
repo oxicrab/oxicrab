@@ -34,6 +34,9 @@ type HmacSha256 = Hmac<Sha256>;
 /// Max webhook payload size: 1 MB.
 const WEBHOOK_MAX_BODY: usize = 1_048_576;
 
+/// Max message size for chat API and A2A endpoints: 1 MB.
+const MAX_MESSAGE_SIZE: usize = 1_048_576;
+
 /// Timeout for waiting on agent response (2 minutes, matching provider timeout).
 const RESPONSE_TIMEOUT_SECS: u64 = 120;
 
@@ -100,6 +103,13 @@ async fn chat_handler(
         .session_id
         .unwrap_or_else(|| Uuid::new_v4().to_string());
     let request_id = format!("http-{}", Uuid::new_v4());
+
+    if body.message.len() > MAX_MESSAGE_SIZE {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({"error": "message too large"})),
+        );
+    }
 
     debug!(
         "HTTP API chat request: session={}, content_len={}",
@@ -208,8 +218,11 @@ pub(crate) fn validate_webhook_signature(secret: &str, signature: &str, body: &[
 
 /// Apply a template string, substituting `{{key}}` with JSON payload values.
 /// `{{body}}` is replaced with the raw body string.
+///
+/// JSON keys are expanded first, then `{{body}}` last, so that attacker-controlled
+/// body text cannot introduce secondary `{{key}}` expansions.
 fn apply_template(template: &str, body_str: &str, json: Option<&serde_json::Value>) -> String {
-    let mut result = template.replace("{{body}}", body_str);
+    let mut result = template.to_string();
     if let Some(serde_json::Value::Object(map)) = json {
         for (key, value) in map {
             let placeholder = format!("{{{{{}}}}}", key);
@@ -220,7 +233,7 @@ fn apply_template(template: &str, body_str: &str, json: Option<&serde_json::Valu
             result = result.replace(&placeholder, &replacement);
         }
     }
-    result
+    result.replace("{{body}}", body_str)
 }
 
 /// POST /api/webhook/{name} — receive a webhook from an external service.

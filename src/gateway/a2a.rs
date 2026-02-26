@@ -18,6 +18,9 @@ use crate::config::A2aConfig;
 /// Timeout for A2A task processing (same as chat handler).
 const A2A_TIMEOUT_SECS: u64 = 120;
 
+/// Maximum number of A2A tasks retained in memory.
+const MAX_A2A_TASKS: usize = 1000;
+
 // --- AgentCard types ---
 
 #[derive(Debug, Serialize)]
@@ -70,6 +73,15 @@ impl A2aTaskStore {
             .tasks
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Evict oldest task if at capacity
+        if tasks.len() >= MAX_A2A_TASKS
+            && let Some(oldest_id) = tasks
+                .values()
+                .min_by_key(|t| &t.created_at)
+                .map(|t| t.id.clone())
+        {
+            tasks.remove(&oldest_id);
+        }
         tasks.insert(task.id.clone(), task);
     }
 
@@ -151,6 +163,13 @@ pub async fn create_task_handler(
     State(state): State<A2aState>,
     Json(body): Json<CreateTaskRequest>,
 ) -> impl IntoResponse {
+    if body.message.len() > super::MAX_MESSAGE_SIZE {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({"error": "message too large"})),
+        );
+    }
+
     let task_id = format!("a2a-{}", Uuid::new_v4());
     let now = Utc::now().to_rfc3339();
 
@@ -212,6 +231,7 @@ pub async fn create_task_handler(
 
     // Spawn async processing — response will update the task store
     let store = state.store.clone();
+    let pending = state.pending.clone();
     let tid = task_id.clone();
     tokio::spawn(async move {
         match tokio::time::timeout(Duration::from_secs(A2A_TIMEOUT_SECS), rx).await {
@@ -227,6 +247,11 @@ pub async fn create_task_handler(
                 );
             }
             Err(_) => {
+                // Clean up dead pending entry
+                pending
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&tid);
                 warn!("A2A task {} timed out after {}s", tid, A2A_TIMEOUT_SECS);
                 store.update_status(&tid, TaskStatus::Failed, Some("timeout".to_string()));
             }
@@ -470,6 +495,52 @@ mod tests {
         let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"], "task not found");
+    }
+
+    #[test]
+    fn test_task_store_evicts_oldest_at_capacity() {
+        let store = A2aTaskStore::new();
+        for i in 0..MAX_A2A_TASKS {
+            store.insert(A2aTask {
+                id: format!("task-{i}"),
+                status: TaskStatus::Completed,
+                message: String::new(),
+                result: None,
+                created_at: format!("{i:06}"),
+                updated_at: String::new(),
+            });
+        }
+        // Insert one more — oldest (task-0, created_at "000000") should be evicted
+        store.insert(A2aTask {
+            id: "task-new".to_string(),
+            status: TaskStatus::Submitted,
+            message: String::new(),
+            result: None,
+            created_at: format!("{:06}", MAX_A2A_TASKS),
+            updated_at: String::new(),
+        });
+        assert!(store.get("task-new").is_some());
+        assert!(store.get("task-0").is_none());
+        let count = store.tasks.lock().unwrap().len();
+        assert_eq!(count, MAX_A2A_TASKS);
+    }
+
+    #[tokio::test]
+    async fn test_create_task_rejects_oversized_message() {
+        let (state, _rx) = make_a2a_state();
+        let app = a2a_router(state);
+
+        let big_msg = "x".repeat(1_048_576 + 1); // super::super::MAX_MESSAGE_SIZE + 1
+        let body_json = serde_json::json!({"message": big_msg});
+        let req = Request::builder()
+            .method("POST")
+            .uri("/a2a/tasks")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&body_json).unwrap()))
+            .unwrap();
+
+        let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     #[tokio::test]
