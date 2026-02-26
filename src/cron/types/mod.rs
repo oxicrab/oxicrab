@@ -153,16 +153,8 @@ impl CronSchedule {
             CronSchedule::Every { every_ms } => every_ms.map_or_else(
                 || "recurring (no interval set)".to_string(),
                 |ms| {
-                    let secs = ms / 1000;
-                    if secs >= 86400 {
-                        format!("every {}d", secs / 86400)
-                    } else if secs >= 3600 {
-                        format!("every {}h", secs / 3600)
-                    } else if secs >= 60 {
-                        format!("every {}m", secs / 60)
-                    } else {
-                        format!("every {}s", secs)
-                    }
+                    let dur = std::time::Duration::from_millis(ms as u64);
+                    format!("every {}", humantime::format_duration(dur))
                 },
             ),
             CronSchedule::Cron { expr, tz } => {

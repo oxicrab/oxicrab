@@ -100,6 +100,7 @@ crossbeam-utils = "0.8.21"  # CVE-2022-23639: >= 0.8.7 required
 lock_api = "0.4.14"  # CVE-2020-35910: >= 0.4.2 required
 thiserror = "2.0.18"
 iana-time-zone = "0.1.65"
+humantime = "2.3.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock = "0.4"

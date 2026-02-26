@@ -57,11 +57,7 @@ pub fn split_message(text: &str, limit: usize) -> Vec<String> {
     let mut remaining = text;
 
     while remaining.len() > limit {
-        // Find the largest valid byte index <= limit that is a char boundary
-        let mut split_at = limit;
-        while split_at > 0 && !remaining.is_char_boundary(split_at) {
-            split_at -= 1;
-        }
+        let mut split_at = remaining.floor_char_boundary(limit);
         if split_at == 0 {
             // Degenerate case: single character wider than limit
             split_at = remaining

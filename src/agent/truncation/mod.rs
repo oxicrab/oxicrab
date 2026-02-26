@@ -63,7 +63,7 @@ pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
     // For very small limits, just return a short indicator rather than
     // a truncation message that would exceed max_chars itself
     if max_chars < 120 {
-        let safe = floor_char_boundary(&clean, max_chars);
+        let safe = clean.floor_char_boundary(max_chars);
         return clean[..safe].to_string();
     }
 
@@ -76,7 +76,7 @@ pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
             return pretty;
         }
         let budget = max_chars - 120;
-        let safe_budget = floor_char_boundary(&pretty, budget);
+        let safe_budget = pretty.floor_char_boundary(budget);
         return format!(
             "{}\n\n... [JSON truncated - showed {} of {} chars. Do NOT re-run this tool to see more.]",
             &pretty[..safe_budget],
@@ -86,22 +86,13 @@ pub fn truncate_tool_result(result: &str, max_chars: usize) -> String {
     }
 
     let budget = max_chars - 100;
-    let safe_budget = floor_char_boundary(&clean, budget);
+    let safe_budget = clean.floor_char_boundary(budget);
     format!(
         "{}\n\n... [truncated - showed {} of {} chars. Do NOT re-run this tool to see more.]",
         &clean[..safe_budget],
         safe_budget,
         clean.len()
     )
-}
-
-/// Find the largest byte index <= `index` that is a valid char boundary.
-fn floor_char_boundary(s: &str, index: usize) -> usize {
-    let mut i = index.min(s.len());
-    while i > 0 && !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    i
 }
 
 #[cfg(test)]
