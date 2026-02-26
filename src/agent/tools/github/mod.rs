@@ -1,6 +1,5 @@
-use crate::agent::tools::base::{
-    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
-};
+use crate::actions;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -669,51 +668,18 @@ impl Tool for GitHubTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: vec![
-                ActionDescriptor {
-                    name: "list_issues",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "create_issue",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "get_issue",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "list_prs",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "get_pr",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "get_pr_files",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "create_pr_review",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "get_file_content",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "trigger_workflow",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "get_workflow_runs",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "notifications",
-                    read_only: true,
-                },
+            actions: actions![
+                list_issues: ro,
+                create_issue,
+                get_issue: ro,
+                list_prs: ro,
+                get_pr: ro,
+                get_pr_files: ro,
+                create_pr_review,
+                get_file_content: ro,
+                trigger_workflow,
+                get_workflow_runs: ro,
+                notifications: ro,
             ],
         }
     }
@@ -934,15 +900,12 @@ impl Tool for GitHubTool {
                     }
                 };
 
-                match result {
-                    Ok(content) => Ok(ToolResult::new(content)),
-                    Err(e) => Ok(ToolResult::error(format!("GitHub error: {}", e))),
-                }
+                Ok(ToolResult::from_result(result, "GitHub"))
             }
-            "notifications" => match self.list_notifications().await {
-                Ok(content) => Ok(ToolResult::new(content)),
-                Err(e) => Ok(ToolResult::error(format!("GitHub error: {}", e))),
-            },
+            "notifications" => Ok(ToolResult::from_result(
+                self.list_notifications().await,
+                "GitHub",
+            )),
             _ => Ok(ToolResult::error(format!("unknown action: {}", action))),
         }
     }

@@ -6,9 +6,8 @@ mod tests;
 use cache::ObsidianCache;
 use client::ObsidianApiClient;
 
-use crate::agent::tools::base::{
-    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
-};
+use crate::actions;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -113,27 +112,12 @@ impl Tool for ObsidianTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: vec![
-                ActionDescriptor {
-                    name: "read",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "write",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "append",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "search",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "list",
-                    read_only: true,
-                },
+            actions: actions![
+                read: ro,
+                write,
+                append,
+                search: ro,
+                list: ro,
             ],
         }
     }

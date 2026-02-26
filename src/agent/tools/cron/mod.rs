@@ -1,7 +1,6 @@
+use crate::actions;
 use crate::agent::memory::memory_db::MemoryDB;
-use crate::agent::tools::base::{
-    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
-};
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::config::ChannelsConfig;
 use crate::cron::service::CronService;
@@ -267,35 +266,14 @@ impl Tool for CronTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: vec![
-                ActionDescriptor {
-                    name: "add",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "list",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "remove",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "run",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "dlq_list",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "dlq_replay",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "dlq_clear",
-                    read_only: false,
-                },
+            actions: actions![
+                add,
+                list: ro,
+                remove,
+                run,
+                dlq_list: ro,
+                dlq_replay,
+                dlq_clear,
             ],
         }
     }
@@ -509,39 +487,7 @@ impl Tool for CronTool {
                 let lines: Vec<String> = jobs
                     .iter()
                     .map(|j| {
-                        let schedule_desc = match &j.schedule {
-                            CronSchedule::At { at_ms } => at_ms
-                                .and_then(|ms| {
-                                    chrono::DateTime::from_timestamp(ms / 1000, 0).map(|dt| {
-                                        format!("once at {}", dt.format("%Y-%m-%d %H:%M UTC"))
-                                    })
-                                })
-                                .unwrap_or_else(|| "once (no time set)".to_string()),
-                            CronSchedule::Every { every_ms } => every_ms.map_or_else(|| "recurring (no interval set)".to_string(), |ms| {
-                                    let secs = ms / 1000;
-                                    if secs >= 86400 {
-                                        format!("every {}d", secs / 86400)
-                                    } else if secs >= 3600 {
-                                        format!("every {}h", secs / 3600)
-                                    } else if secs >= 60 {
-                                        format!("every {}m", secs / 60)
-                                    } else {
-                                        format!("every {}s", secs)
-                                    }
-                                }),
-                            CronSchedule::Cron { expr, tz } => {
-                                let tz_str = tz.as_deref().unwrap_or("UTC");
-                                expr.as_deref().map_or_else(|| "cron (no expression)".to_string(), |e| format!("cron '{}' ({})", e, tz_str))
-                            }
-                            CronSchedule::Event { pattern, channel } => {
-                                let pat = pattern.as_deref().unwrap_or("*");
-                                if let Some(ch) = channel {
-                                    format!("event /{pat}/ on {ch}")
-                                } else {
-                                    format!("event /{pat}/")
-                                }
-                            }
-                        };
+                        let schedule_desc = j.schedule.describe();
                         let next_run = j
                             .state
                             .next_run_at_ms

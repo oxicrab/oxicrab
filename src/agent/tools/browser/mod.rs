@@ -1,6 +1,5 @@
-use crate::agent::tools::base::{
-    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
-};
+use crate::actions;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::utils::media::save_media_file;
 use anyhow::Result;
@@ -670,55 +669,19 @@ impl Tool for BrowserTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: vec![
-                ActionDescriptor {
-                    name: "open",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "click",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "type",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "fill",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "screenshot",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "snapshot",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "eval",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "get",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "scroll",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "wait",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "close",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "navigate",
-                    read_only: false,
-                },
+            actions: actions![
+                open,
+                click,
+                type_text,
+                fill,
+                screenshot,
+                snapshot: ro,
+                eval,
+                get: ro,
+                scroll,
+                wait,
+                close,
+                navigate,
             ],
         }
     }
@@ -729,7 +692,7 @@ impl Tool for BrowserTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["open", "click", "type", "fill", "screenshot", "snapshot", "eval", "get", "scroll", "wait", "close", "navigate"],
+                    "enum": ["open", "click", "type_text", "fill", "screenshot", "snapshot", "eval", "get", "scroll", "wait", "close", "navigate"],
                     "description": "The browser action to perform"
                 },
                 "url": {
@@ -803,18 +766,18 @@ impl Tool for BrowserTool {
                 };
                 self.action_click(selector).await
             }
-            "type" => {
+            "type_text" => {
                 let selector = match params["selector"].as_str() {
                     Some(s) if !s.trim().is_empty() => s,
                     _ => {
                         return Ok(ToolResult::error(
-                            "'type' action requires 'selector' parameter".to_string(),
+                            "'type_text' action requires 'selector' parameter".to_string(),
                         ));
                     }
                 };
                 let Some(text) = params["text"].as_str() else {
                     return Ok(ToolResult::error(
-                        "'type' action requires 'text' parameter".to_string(),
+                        "'type_text' action requires 'text' parameter".to_string(),
                     ));
                 };
                 self.action_type(selector, text).await
@@ -885,7 +848,7 @@ impl Tool for BrowserTool {
                 self.action_navigate(nav).await
             }
             unknown => Ok(ToolResult::error(format!(
-                "unknown browser action '{}'. Valid actions: open, click, type, fill, screenshot, snapshot, eval, get, scroll, wait, close, navigate",
+                "unknown browser action '{}'. Valid actions: open, click, type_text, fill, screenshot, snapshot, eval, get, scroll, wait, close, navigate",
                 unknown
             ))),
         }

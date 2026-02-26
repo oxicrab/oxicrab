@@ -21,6 +21,16 @@ impl ToolResult {
             is_error: true,
         }
     }
+
+    /// Convert a `Result<String>` into a `ToolResult`, formatting errors with
+    /// the given prefix (e.g. `"GitHub"`). Replaces the common pattern:
+    /// `match result { Ok(c) => Ok(ToolResult::new(c)), Err(e) => Ok(ToolResult::error(...)) }`
+    pub fn from_result(result: anyhow::Result<String>, error_prefix: &str) -> Self {
+        match result {
+            Ok(content) => Self::new(content),
+            Err(e) => Self::error(format!("{} error: {}", error_prefix, e)),
+        }
+    }
 }
 
 impl std::fmt::Display for ToolResult {
@@ -145,6 +155,28 @@ pub struct ActionDescriptor {
     pub name: &'static str,
     /// Whether this action only reads data (no side effects)
     pub read_only: bool,
+}
+
+/// Build a `Vec<ActionDescriptor>` concisely.
+///
+/// Mark read-only actions with `: ro`:
+/// ```ignore
+/// actions![
+///     list_issues: ro,       // read-only action
+///     create_issue,          // mutating action (default)
+/// ]
+/// ```
+#[macro_export]
+macro_rules! actions {
+    (@one $name:ident : ro) => {
+        $crate::agent::tools::base::ActionDescriptor { name: stringify!($name), read_only: true }
+    };
+    (@one $name:ident) => {
+        $crate::agent::tools::base::ActionDescriptor { name: stringify!($name), read_only: false }
+    };
+    ($($name:ident $(: $ro:ident)?),+ $(,)?) => {
+        vec![$(actions!(@one $name $(: $ro)?)),+]
+    };
 }
 
 /// Capability metadata intrinsic to a tool. Queried by the registry,

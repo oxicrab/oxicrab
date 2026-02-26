@@ -1,6 +1,5 @@
-use crate::agent::tools::base::{
-    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
-};
+use crate::actions;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::config::MediaConfig;
 use anyhow::Result;
@@ -30,28 +29,44 @@ impl MediaTool {
 
     // --- API helpers ---
 
-    async fn radarr_get(&self, path: &str) -> Result<Value> {
+    fn service_url(&self, service: &str) -> &str {
+        if service == "sonarr" {
+            &self.sonarr_url
+        } else {
+            &self.radarr_url
+        }
+    }
+
+    fn service_key(&self, service: &str) -> &str {
+        if service == "sonarr" {
+            &self.sonarr_api_key
+        } else {
+            &self.radarr_api_key
+        }
+    }
+
+    async fn api_get(&self, service: &str, path: &str) -> Result<Value> {
         let resp = self
             .client
-            .get(format!("{}{}", self.radarr_url, path))
-            .header("X-Api-Key", &self.radarr_api_key)
+            .get(format!("{}{}", self.service_url(service), path))
+            .header("X-Api-Key", self.service_key(service))
             .timeout(Duration::from_secs(15))
             .send()
             .await?;
         let status = resp.status();
         let json: Value = resp.json().await?;
         if !status.is_success() {
-            let msg = json["message"].as_str().unwrap_or("Unknown Radarr error");
-            anyhow::bail!("Radarr API error ({}): {}", status, msg);
+            let msg = json["message"].as_str().unwrap_or("unknown API error");
+            anyhow::bail!("{} API error ({}): {}", service, status, msg);
         }
         Ok(json)
     }
 
-    async fn radarr_post(&self, path: &str, body: Value) -> Result<Value> {
+    async fn api_post(&self, service: &str, path: &str, body: Value) -> Result<Value> {
         let resp = self
             .client
-            .post(format!("{}{}", self.radarr_url, path))
-            .header("X-Api-Key", &self.radarr_api_key)
+            .post(format!("{}{}", self.service_url(service), path))
+            .header("X-Api-Key", self.service_key(service))
             .json(&body)
             .timeout(Duration::from_secs(15))
             .send()
@@ -62,46 +77,8 @@ impl MediaTool {
             let msg = json["message"]
                 .as_str()
                 .or_else(|| json[0]["errorMessage"].as_str())
-                .unwrap_or("Unknown Radarr error");
-            anyhow::bail!("Radarr API error ({}): {}", status, msg);
-        }
-        Ok(json)
-    }
-
-    async fn sonarr_get(&self, path: &str) -> Result<Value> {
-        let resp = self
-            .client
-            .get(format!("{}{}", self.sonarr_url, path))
-            .header("X-Api-Key", &self.sonarr_api_key)
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
-        let status = resp.status();
-        let json: Value = resp.json().await?;
-        if !status.is_success() {
-            let msg = json["message"].as_str().unwrap_or("Unknown Sonarr error");
-            anyhow::bail!("Sonarr API error ({}): {}", status, msg);
-        }
-        Ok(json)
-    }
-
-    async fn sonarr_post(&self, path: &str, body: Value) -> Result<Value> {
-        let resp = self
-            .client
-            .post(format!("{}{}", self.sonarr_url, path))
-            .header("X-Api-Key", &self.sonarr_api_key)
-            .json(&body)
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
-        let status = resp.status();
-        let json: Value = resp.json().await?;
-        if !status.is_success() {
-            let msg = json["message"]
-                .as_str()
-                .or_else(|| json[0]["errorMessage"].as_str())
-                .unwrap_or("Unknown Sonarr error");
-            anyhow::bail!("Sonarr API error ({}): {}", status, msg);
+                .unwrap_or("unknown API error");
+            anyhow::bail!("{} API error ({}): {}", service, status, msg);
         }
         Ok(json)
     }
@@ -111,7 +88,7 @@ impl MediaTool {
     async fn search_movie(&self, query: &str) -> Result<String> {
         let encoded = urlencoding::encode(query);
         let results = self
-            .radarr_get(&format!("/api/v3/movie/lookup?term={}", encoded))
+            .api_get("radarr", &format!("/api/v3/movie/lookup?term={}", encoded))
             .await?;
         let arr = results.as_array().map_or(&[][..], Vec::as_slice);
         Ok(format_movie_search_results(arr))
@@ -128,7 +105,10 @@ impl MediaTool {
         }
         // Look up movie details first
         let lookup = self
-            .radarr_get(&format!("/api/v3/movie/lookup/tmdb?tmdbId={}", tmdb_id))
+            .api_get(
+                "radarr",
+                &format!("/api/v3/movie/lookup/tmdb?tmdbId={}", tmdb_id),
+            )
             .await?;
 
         let title = lookup["title"].as_str().unwrap_or("Unknown");
@@ -138,7 +118,7 @@ impl MediaTool {
         let profile_id = if let Some(id) = quality_profile_id {
             id
         } else {
-            let profiles = self.radarr_get("/api/v3/qualityprofile").await?;
+            let profiles = self.api_get("radarr", "/api/v3/qualityprofile").await?;
             profiles
                 .as_array()
                 .and_then(|a| a.first())
@@ -150,7 +130,7 @@ impl MediaTool {
         let folder = if let Some(f) = root_folder {
             f.to_string()
         } else {
-            let folders = self.radarr_get("/api/v3/rootfolder").await?;
+            let folders = self.api_get("radarr", "/api/v3/rootfolder").await?;
             folders
                 .as_array()
                 .and_then(|a| a.first())
@@ -172,7 +152,7 @@ impl MediaTool {
             "images": lookup["images"],
         });
 
-        let result = self.radarr_post("/api/v3/movie", body).await?;
+        let result = self.api_post("radarr", "/api/v3/movie", body).await?;
         let id = result["id"].as_i64().unwrap_or(0);
         Ok(format!(
             "Added: {} ({}) — Radarr ID: {}\nSearching for downloads...",
@@ -181,12 +161,14 @@ impl MediaTool {
     }
 
     async fn get_movie(&self, id: i64) -> Result<String> {
-        let movie = self.radarr_get(&format!("/api/v3/movie/{}", id)).await?;
+        let movie = self
+            .api_get("radarr", &format!("/api/v3/movie/{}", id))
+            .await?;
         Ok(format_movie_detail(&movie))
     }
 
     async fn list_movies(&self, filter: Option<&str>) -> Result<String> {
-        let movies = self.radarr_get("/api/v3/movie").await?;
+        let movies = self.api_get("radarr", "/api/v3/movie").await?;
         let arr = movies.as_array().map_or(&[][..], Vec::as_slice);
 
         let filtered: Vec<&Value> = if let Some(f) = filter {
@@ -237,7 +219,7 @@ impl MediaTool {
     async fn search_series(&self, query: &str) -> Result<String> {
         let encoded = urlencoding::encode(query);
         let results = self
-            .sonarr_get(&format!("/api/v3/series/lookup?term={}", encoded))
+            .api_get("sonarr", &format!("/api/v3/series/lookup?term={}", encoded))
             .await?;
         let arr = results.as_array().map_or(&[][..], Vec::as_slice);
         Ok(format_series_search_results(arr))
@@ -256,7 +238,10 @@ impl MediaTool {
         let tvdb_str = tvdb_id.to_string();
         let encoded = urlencoding::encode(&tvdb_str);
         let lookup_results = self
-            .sonarr_get(&format!("/api/v3/series/lookup?term=tvdb:{}", encoded))
+            .api_get(
+                "sonarr",
+                &format!("/api/v3/series/lookup?term=tvdb:{}", encoded),
+            )
             .await?;
         let lookup = lookup_results
             .as_array()
@@ -270,7 +255,7 @@ impl MediaTool {
         let profile_id = if let Some(id) = quality_profile_id {
             id
         } else {
-            let profiles = self.sonarr_get("/api/v3/qualityprofile").await?;
+            let profiles = self.api_get("sonarr", "/api/v3/qualityprofile").await?;
             profiles
                 .as_array()
                 .and_then(|a| a.first())
@@ -282,7 +267,7 @@ impl MediaTool {
         let folder = if let Some(f) = root_folder {
             f.to_string()
         } else {
-            let folders = self.sonarr_get("/api/v3/rootfolder").await?;
+            let folders = self.api_get("sonarr", "/api/v3/rootfolder").await?;
             folders
                 .as_array()
                 .and_then(|a| a.first())
@@ -306,7 +291,7 @@ impl MediaTool {
             "seasons": lookup["seasons"],
         });
 
-        let result = self.sonarr_post("/api/v3/series", body).await?;
+        let result = self.api_post("sonarr", "/api/v3/series", body).await?;
         let id = result["id"].as_i64().unwrap_or(0);
         Ok(format!(
             "Added: {} ({}) — Sonarr ID: {}\nSearching for missing episodes...",
@@ -315,12 +300,14 @@ impl MediaTool {
     }
 
     async fn get_series(&self, id: i64) -> Result<String> {
-        let series = self.sonarr_get(&format!("/api/v3/series/{}", id)).await?;
+        let series = self
+            .api_get("sonarr", &format!("/api/v3/series/{}", id))
+            .await?;
         Ok(format_series_detail(&series))
     }
 
     async fn list_series(&self, filter: Option<&str>) -> Result<String> {
-        let series = self.sonarr_get("/api/v3/series").await?;
+        let series = self.api_get("sonarr", "/api/v3/series").await?;
         let arr = series.as_array().map_or(&[][..], Vec::as_slice);
 
         let filtered: Vec<&Value> = if let Some(f) = filter {
@@ -376,21 +363,19 @@ impl MediaTool {
     }
 
     async fn profiles(&self, service: &str) -> Result<String> {
-        let profiles = match service {
-            "radarr" => self.radarr_get("/api/v3/qualityprofile").await?,
-            "sonarr" => self.sonarr_get("/api/v3/qualityprofile").await?,
-            _ => anyhow::bail!("Unknown service '{}'. Use 'radarr' or 'sonarr'.", service),
-        };
+        if service != "radarr" && service != "sonarr" {
+            anyhow::bail!("Unknown service '{}'. Use 'radarr' or 'sonarr'.", service);
+        }
+        let profiles = self.api_get(service, "/api/v3/qualityprofile").await?;
         let arr = profiles.as_array().map_or(&[][..], Vec::as_slice);
         Ok(format_quality_profiles(arr, service))
     }
 
     async fn root_folders(&self, service: &str) -> Result<String> {
-        let folders = match service {
-            "radarr" => self.radarr_get("/api/v3/rootfolder").await?,
-            "sonarr" => self.sonarr_get("/api/v3/rootfolder").await?,
-            _ => anyhow::bail!("Unknown service '{}'. Use 'radarr' or 'sonarr'.", service),
-        };
+        if service != "radarr" && service != "sonarr" {
+            anyhow::bail!("Unknown service '{}'. Use 'radarr' or 'sonarr'.", service);
+        }
+        let folders = self.api_get(service, "/api/v3/rootfolder").await?;
         let arr = folders.as_array().map_or(&[][..], Vec::as_slice);
         Ok(format_root_folders(arr, service))
     }
@@ -419,47 +404,17 @@ impl Tool for MediaTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: vec![
-                ActionDescriptor {
-                    name: "search_movie",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "add_movie",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "get_movie",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "list_movies",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "search_series",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "add_series",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "get_series",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "list_series",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "profiles",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "root_folders",
-                    read_only: true,
-                },
+            actions: actions![
+                search_movie: ro,
+                add_movie,
+                get_movie: ro,
+                list_movies: ro,
+                search_series: ro,
+                add_series,
+                get_series: ro,
+                list_series: ro,
+                profiles: ro,
+                root_folders: ro,
             ],
         }
     }
@@ -599,18 +554,46 @@ impl Tool for MediaTool {
             _ => return Ok(ToolResult::error(format!("unknown action: {}", action))),
         };
 
-        match result {
-            Ok(content) => Ok(ToolResult::new(content)),
-            Err(e) => Ok(ToolResult::error(format!("media error: {}", e))),
-        }
+        Ok(ToolResult::from_result(result, "media"))
     }
 }
 
 // --- Formatting functions (extracted for testability) ---
 
+/// Truncate an overview string to 500 chars at a safe boundary.
+fn truncate_overview(overview: &str) -> String {
+    if overview.len() <= 500 {
+        return overview.to_string();
+    }
+    let end = overview
+        .char_indices()
+        .take_while(|(idx, _)| *idx <= 500)
+        .last()
+        .map_or(500, |(idx, _)| idx);
+    format!("{}...", &overview[..end])
+}
+
 fn format_movie_search_results(results: &[Value]) -> String {
+    format_search_results(results, "movie", "tmdbId", "TMDB")
+}
+
+fn format_series_search_results(results: &[Value]) -> String {
+    format_search_results(results, "series", "tvdbId", "TVDB")
+}
+
+fn format_search_results(
+    results: &[Value],
+    media_type: &str,
+    id_field: &str,
+    id_label: &str,
+) -> String {
     if results.is_empty() {
-        return "No movies found.".to_string();
+        let label = if media_type == "series" {
+            "series"
+        } else {
+            "movies"
+        };
+        return format!("No {} found.", label);
     }
 
     let entries: Vec<String> = results
@@ -620,19 +603,9 @@ fn format_movie_search_results(results: &[Value]) -> String {
         .map(|(i, m)| {
             let title = m["title"].as_str().unwrap_or("?");
             let year = m["year"].as_i64().unwrap_or(0);
-            let tmdb_id = m["tmdbId"].as_i64().unwrap_or(0);
+            let ext_id = m[id_field].as_i64().unwrap_or(0);
             let overview = m["overview"].as_str().unwrap_or("No overview available.");
-            let overview_short = if overview.len() > 500 {
-                // Find a safe char boundary
-                let end = overview
-                    .char_indices()
-                    .take_while(|(idx, _)| *idx <= 500)
-                    .last()
-                    .map_or(500, |(idx, _)| idx);
-                format!("{}...", &overview[..end])
-            } else {
-                overview.to_string()
-            };
+            let overview_short = truncate_overview(overview);
             let in_library = m["id"].as_i64().unwrap_or(0) > 0;
             let status = if in_library {
                 "Already in library"
@@ -640,80 +613,46 @@ fn format_movie_search_results(results: &[Value]) -> String {
                 "Not in library"
             };
 
+            let extra = if media_type == "series" {
+                let seasons = m["statistics"]["seasonCount"]
+                    .as_i64()
+                    .or_else(|| m["seasons"].as_array().map(|a| a.len() as i64))
+                    .unwrap_or(0);
+                format!(
+                    " — {} season{}",
+                    seasons,
+                    if seasons == 1 { "" } else { "s" }
+                )
+            } else {
+                String::new()
+            };
             format!(
-                "{}. {} ({}) — TMDB: {}\n   {}\n   Status: {}",
+                "{}. {} ({}) — {}: {}{}\n   {}\n   Status: {}",
                 i + 1,
                 title,
                 year,
-                tmdb_id,
+                id_label,
+                ext_id,
+                extra,
                 overview_short,
                 status
             )
         })
         .collect();
 
-    format!(
-        "Found {} movie{}:\n\n{}",
-        results.len().min(5),
-        if results.len() == 1 { "" } else { "s" },
-        entries.join("\n\n")
-    )
-}
-
-fn format_series_search_results(results: &[Value]) -> String {
-    if results.is_empty() {
-        return "No series found.".to_string();
-    }
-
-    let entries: Vec<String> = results
-        .iter()
-        .take(5)
-        .enumerate()
-        .map(|(i, s)| {
-            let title = s["title"].as_str().unwrap_or("?");
-            let year = s["year"].as_i64().unwrap_or(0);
-            let tvdb_id = s["tvdbId"].as_i64().unwrap_or(0);
-            let overview = s["overview"].as_str().unwrap_or("No overview available.");
-            let overview_short = if overview.len() > 500 {
-                let end = overview
-                    .char_indices()
-                    .take_while(|(idx, _)| *idx <= 500)
-                    .last()
-                    .map_or(500, |(idx, _)| idx);
-                format!("{}...", &overview[..end])
-            } else {
-                overview.to_string()
-            };
-            let season_count = s["statistics"]["seasonCount"]
-                .as_i64()
-                .or_else(|| s["seasons"].as_array().map(|a| a.len() as i64))
-                .unwrap_or(0);
-            let in_library = s["id"].as_i64().unwrap_or(0) > 0;
-            let status = if in_library {
-                "Already in library"
-            } else {
-                "Not in library"
-            };
-
-            format!(
-                "{}. {} ({}) — TVDB: {} — {} season{}\n   {}\n   Status: {}",
-                i + 1,
-                title,
-                year,
-                tvdb_id,
-                season_count,
-                if season_count == 1 { "" } else { "s" },
-                overview_short,
-                status
-            )
-        })
-        .collect();
-
-    format!(
-        "Found {} series:\n\n{}",
-        results.len().min(5),
-        entries.join("\n\n")
-    )
+    let count = results.len().min(5);
+    let plural = if count == 1 && media_type != "series" {
+        ""
+    } else {
+        "s"
+    };
+    // "series" is already plural
+    let label = if media_type == "series" {
+        "series"
+    } else {
+        &format!("{media_type}{plural}")
+    };
+    format!("Found {} {}:\n\n{}", count, label, entries.join("\n\n"))
 }
 
 fn format_movie_detail(movie: &Value) -> String {
@@ -727,13 +666,11 @@ fn format_movie_detail(movie: &Value) -> String {
     let overview = movie["overview"].as_str().unwrap_or("");
     let radarr_id = movie["id"].as_i64().unwrap_or(0);
     let tmdb_id = movie["tmdbId"].as_i64().unwrap_or(0);
-
     let file_status = if has_file {
         format!("Downloaded ({:.1} GB)", size_gb)
     } else {
         "Missing".to_string()
     };
-
     format!(
         "{} ({})\nRadarr ID: {} | TMDB: {}\nStatus: {} | File: {}\nPath: {}\n\n{}",
         title, year, radarr_id, tmdb_id, status, file_status, path, overview
@@ -754,8 +691,7 @@ fn format_series_detail(series: &Value) -> String {
     let overview = series["overview"].as_str().unwrap_or("");
     let sonarr_id = series["id"].as_i64().unwrap_or(0);
     let tvdb_id = series["tvdbId"].as_i64().unwrap_or(0);
-    let season_count = series["statistics"]["seasonCount"].as_i64().unwrap_or(0);
-
+    let seasons = series["statistics"]["seasonCount"].as_i64().unwrap_or(0);
     format!(
         "{} ({})\nSonarr ID: {} | TVDB: {}\nStatus: {} | {} season{}\n\
          Episodes: {}/{} downloaded ({:.1} GB)\nPath: {}\n\n{}",
@@ -764,8 +700,8 @@ fn format_series_detail(series: &Value) -> String {
         sonarr_id,
         tvdb_id,
         status,
-        season_count,
-        if season_count == 1 { "" } else { "s" },
+        seasons,
+        if seasons == 1 { "" } else { "s" },
         ep_count,
         total,
         size_gb,

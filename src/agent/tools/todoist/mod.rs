@@ -1,6 +1,5 @@
-use crate::agent::tools::base::{
-    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
-};
+use crate::actions;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -474,43 +473,16 @@ impl Tool for TodoistTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: vec![
-                ActionDescriptor {
-                    name: "list_tasks",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "get_task",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "create_task",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "update_task",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "complete_task",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "delete_task",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "add_comment",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "list_comments",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "list_projects",
-                    read_only: true,
-                },
+            actions: actions![
+                list_tasks: ro,
+                get_task: ro,
+                create_task,
+                update_task,
+                complete_task,
+                delete_task,
+                add_comment,
+                list_comments: ro,
+                list_projects: ro,
             ],
         }
     }
@@ -658,10 +630,7 @@ impl Tool for TodoistTool {
             _ => return Ok(ToolResult::error(format!("unknown action: {}", action))),
         };
 
-        match result {
-            Ok(content) => Ok(ToolResult::new(content)),
-            Err(e) => Ok(ToolResult::error(format!("Todoist error: {}", e))),
-        }
+        Ok(ToolResult::from_result(result, "Todoist"))
     }
 }
 

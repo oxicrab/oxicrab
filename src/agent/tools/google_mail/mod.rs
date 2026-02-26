@@ -1,6 +1,5 @@
-use crate::agent::tools::base::{
-    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
-};
+use crate::actions;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::google_common::GoogleApiClient;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::auth::google::GoogleCredentials;
@@ -36,31 +35,13 @@ impl Tool for GoogleMailTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: vec![
-                ActionDescriptor {
-                    name: "search",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "read",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "send",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "reply",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "list_labels",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "label",
-                    read_only: false,
-                },
+            actions: actions![
+                search: ro,
+                read: ro,
+                send,
+                reply,
+                list_labels: ro,
+                label,
             ],
         }
     }

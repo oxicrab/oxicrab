@@ -140,6 +140,50 @@ fn default_version() -> i32 {
     1
 }
 
+impl CronSchedule {
+    /// Human-readable description of the schedule.
+    pub fn describe(&self) -> String {
+        match self {
+            CronSchedule::At { at_ms } => at_ms
+                .and_then(|ms| {
+                    chrono::DateTime::from_timestamp(ms / 1000, 0)
+                        .map(|dt| format!("once at {}", dt.format("%Y-%m-%d %H:%M UTC")))
+                })
+                .unwrap_or_else(|| "once (no time set)".to_string()),
+            CronSchedule::Every { every_ms } => every_ms.map_or_else(
+                || "recurring (no interval set)".to_string(),
+                |ms| {
+                    let secs = ms / 1000;
+                    if secs >= 86400 {
+                        format!("every {}d", secs / 86400)
+                    } else if secs >= 3600 {
+                        format!("every {}h", secs / 3600)
+                    } else if secs >= 60 {
+                        format!("every {}m", secs / 60)
+                    } else {
+                        format!("every {}s", secs)
+                    }
+                },
+            ),
+            CronSchedule::Cron { expr, tz } => {
+                let tz_str = tz.as_deref().unwrap_or("UTC");
+                expr.as_deref().map_or_else(
+                    || "cron (no expression)".to_string(),
+                    |e| format!("cron '{}' ({})", e, tz_str),
+                )
+            }
+            CronSchedule::Event { pattern, channel } => {
+                let pat = pattern.as_deref().unwrap_or("*");
+                if let Some(ch) = channel {
+                    format!("event /{pat}/ on {ch}")
+                } else {
+                    format!("event /{pat}/")
+                }
+            }
+        }
+    }
+}
+
 /// Parameters for updating an existing cron job.
 #[derive(Debug, Default)]
 pub struct UpdateJobParams {

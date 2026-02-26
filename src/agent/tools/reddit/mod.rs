@@ -1,6 +1,5 @@
-use crate::agent::tools::base::{
-    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
-};
+use crate::actions;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -205,23 +204,11 @@ impl Tool for RedditTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: vec![
-                ActionDescriptor {
-                    name: "hot",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "new",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "top",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "search",
-                    read_only: true,
-                },
+            actions: actions![
+                hot: ro,
+                new: ro,
+                top: ro,
+                search: ro,
             ],
         }
     }
