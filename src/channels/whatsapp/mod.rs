@@ -599,6 +599,8 @@ async fn send_whatsapp_message(
     Ok(last_id)
 }
 
+const MAX_MEDIA_DOWNLOAD: usize = 50 * 1024 * 1024; // 50 MB
+
 /// Download a `WhatsApp` media file and save to ~/.oxicrab/media/.
 async fn download_whatsapp_media(
     client: &Arc<whatsapp_rust::client::Client>,
@@ -641,6 +643,14 @@ async fn download_whatsapp_media(
     ));
 
     let data = client.download(downloadable).await?;
+    if data.len() > MAX_MEDIA_DOWNLOAD {
+        return Err(anyhow::anyhow!(
+            "WhatsApp {} too large ({} bytes, max {})",
+            media_type,
+            data.len(),
+            MAX_MEDIA_DOWNLOAD
+        ));
+    }
     tokio::fs::write(&file_path, &data).await?;
 
     let path_str = file_path.to_string_lossy().to_string();

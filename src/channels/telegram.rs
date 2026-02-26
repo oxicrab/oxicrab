@@ -245,7 +245,7 @@ impl BaseChannel for TelegramChannel {
                                         let ext = doc
                                             .file_name
                                             .as_deref()
-                                            .and_then(|n| n.rsplit('.').next())
+                                            .and_then(|n| n.rsplit_once('.').map(|(_, ext)| ext))
                                             .or_else(|| {
                                                 doc.mime_type
                                                     .as_ref()
