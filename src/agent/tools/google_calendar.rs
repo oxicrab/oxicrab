@@ -1,6 +1,5 @@
-use crate::agent::tools::base::{
-    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
-};
+use crate::actions;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::google_common::GoogleApiClient;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::auth::google::GoogleCredentials;
@@ -37,31 +36,13 @@ impl Tool for GoogleCalendarTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: vec![
-                ActionDescriptor {
-                    name: "list_events",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "get_event",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "create_event",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "update_event",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "delete_event",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "list_calendars",
-                    read_only: true,
-                },
+            actions: actions![
+                list_events: ro,
+                get_event: ro,
+                create_event,
+                update_event,
+                delete_event,
+                list_calendars: ro,
             ],
         }
     }

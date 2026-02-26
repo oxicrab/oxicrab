@@ -101,13 +101,12 @@ impl LeakDetector {
                 r"\b[0-9]+:AA[A-Za-z0-9_\-]{33,}",
                 ":AA",
             ),
-            // Discord bot tokens — no reliable literal prefix exists (pattern
-            // is all character classes). Empty prefix means AC cannot filter
-            // this pattern, so its regex always runs unconditionally.
+            // Discord bot tokens — use "." as AC prefix since all Discord tokens
+            // contain dot separators between the three segments.
             (
                 "discord_bot_token",
                 r"[A-Za-z0-9_\-]{24}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,200}",
-                "",
+                ".",
             ),
         ];
 
@@ -280,6 +279,17 @@ impl LeakDetector {
             }
         }
 
+        // Known secret exact matches (raw, base64, hex encodings)
+        for ks in &self.known_secrets {
+            for m in ks.regex.find_iter(text) {
+                matches.push(LeakMatch {
+                    name: "known_secret",
+                    start: m.start(),
+                    end: m.end(),
+                });
+            }
+        }
+
         // Encoded content scan (base64/hex decoded then checked)
         matches.extend(self.scan_encoded(text));
 
@@ -300,7 +310,11 @@ impl LeakDetector {
     /// Redact any detected secrets in text, replacing them with `[REDACTED]`.
     pub fn redact(&self, text: &str) -> String {
         let mut result = text.to_string();
-        // Redact plaintext pattern matches (only check patterns with prefix hits)
+        // Redact plaintext pattern matches (only check patterns with prefix hits).
+        // Note: AC candidates are computed on the original text and may become stale
+        // as replacements modify the string. This is safe because replacements only
+        // shrink text (secrets → "[REDACTED]"), so any pattern matched here was
+        // genuinely present. At worst we run a regex on already-redacted text (no-op).
         let candidate_indices = self.find_candidate_patterns(&result);
         for (i, pattern) in self.patterns.iter().enumerate() {
             if !candidate_indices[i] {

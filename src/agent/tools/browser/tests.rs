@@ -45,9 +45,9 @@ async fn test_missing_required_params() {
     let cases: Vec<(serde_json::Value, &str)> = vec![
         (serde_json::json!({"action": "open"}), "url"),
         (serde_json::json!({"action": "click"}), "selector"),
-        (serde_json::json!({"action": "type"}), "selector"),
+        (serde_json::json!({"action": "type_text"}), "selector"),
         (
-            serde_json::json!({"action": "type", "selector": "#input"}),
+            serde_json::json!({"action": "type_text", "selector": "#input"}),
             "text",
         ),
         (serde_json::json!({"action": "fill"}), "selector"),

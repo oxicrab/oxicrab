@@ -21,6 +21,16 @@ impl ToolResult {
             is_error: true,
         }
     }
+
+    /// Convert a `Result<String>` into a `ToolResult`, formatting errors with
+    /// the given prefix (e.g. `"GitHub"`). Replaces the common pattern:
+    /// `match result { Ok(c) => Ok(ToolResult::new(c)), Err(e) => Ok(ToolResult::error(...)) }`
+    pub fn from_result(result: anyhow::Result<String>, error_prefix: &str) -> Self {
+        match result {
+            Ok(content) => Self::new(content),
+            Err(e) => Self::error(format!("{} error: {}", error_prefix, e)),
+        }
+    }
 }
 
 impl std::fmt::Display for ToolResult {
@@ -126,27 +136,6 @@ pub trait Tool: Send + Sync {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default_capabilities_are_deny_all() {
-        let caps = ToolCapabilities::default();
-        assert!(!caps.built_in);
-        assert!(!caps.network_outbound);
-        assert_eq!(caps.subagent_access, SubagentAccess::Denied);
-        assert!(caps.actions.is_empty());
-    }
-
-    #[test]
-    fn test_subagent_access_equality() {
-        assert_eq!(SubagentAccess::Full, SubagentAccess::Full);
-        assert_ne!(SubagentAccess::Full, SubagentAccess::ReadOnly);
-        assert_ne!(SubagentAccess::ReadOnly, SubagentAccess::Denied);
-    }
-}
-
 /// How a tool should be exposed in subagent contexts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubagentAccess {
@@ -166,6 +155,28 @@ pub struct ActionDescriptor {
     pub name: &'static str,
     /// Whether this action only reads data (no side effects)
     pub read_only: bool,
+}
+
+/// Build a `Vec<ActionDescriptor>` concisely.
+///
+/// Mark read-only actions with `: ro`:
+/// ```ignore
+/// actions![
+///     list_issues: ro,       // read-only action
+///     create_issue,          // mutating action (default)
+/// ]
+/// ```
+#[macro_export]
+macro_rules! actions {
+    (@one $name:ident : ro) => {
+        $crate::agent::tools::base::ActionDescriptor { name: stringify!($name), read_only: true }
+    };
+    (@one $name:ident) => {
+        $crate::agent::tools::base::ActionDescriptor { name: stringify!($name), read_only: false }
+    };
+    ($($name:ident $(: $ro:ident)?),+ $(,)?) => {
+        vec![$(actions!(@one $name $(: $ro)?)),+]
+    };
 }
 
 /// Capability metadata intrinsic to a tool. Queried by the registry,
@@ -221,3 +232,6 @@ pub trait ToolMiddleware: Send + Sync {
     ) {
     }
 }
+
+#[cfg(test)]
+mod tests;

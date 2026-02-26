@@ -188,13 +188,16 @@ pub fn system_to_content_blocks(system: &str) -> Value {
 /// Parse an Anthropic API response into a generic [`LLMResponse`].
 pub fn parse_response(json: &Value) -> LLMResponse {
     let content = json["content"].as_array().and_then(|arr| {
-        arr.iter().find_map(|block| {
-            if block["type"] == "text" {
-                block["text"].as_str().map(std::string::ToString::to_string)
-            } else {
-                None
-            }
-        })
+        let texts: Vec<&str> = arr
+            .iter()
+            .filter(|block| block["type"] == "text")
+            .filter_map(|block| block["text"].as_str())
+            .collect();
+        if texts.is_empty() {
+            None
+        } else {
+            Some(texts.join("\n\n"))
+        }
     });
 
     let mut tool_calls = Vec::new();

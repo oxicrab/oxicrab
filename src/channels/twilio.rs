@@ -171,6 +171,11 @@ async fn webhook_handler(
         return StatusCode::OK.into_response();
     }
 
+    // Conversations API messages (ConversationSid) can be group chats;
+    // SMS messages (phone number chat_id) are always 1:1.
+    let is_group = params.contains_key("ConversationSid");
+    let mut metadata = HashMap::new();
+    metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
     let message = InboundMessage {
         channel: "twilio".to_string(),
         sender_id: sender,
@@ -178,7 +183,7 @@ async fn webhook_handler(
         content: body_text,
         timestamp: Utc::now(),
         media: Vec::new(),
-        metadata: HashMap::new(),
+        metadata,
     };
 
     if let Err(e) = state.inbound_tx.send(message).await {
@@ -310,7 +315,7 @@ impl BaseChannel for TwilioChannel {
                 // Conversations API: chat_id is a ConversationSid
                 let url = format!(
                     "https://conversations.twilio.com/v1/Conversations/{}/Messages",
-                    msg.chat_id
+                    urlencoding::encode(&msg.chat_id)
                 );
                 self.client
                     .post(&url)

@@ -192,13 +192,39 @@ pub(super) async fn execute_tool_call(
     }
 }
 
+/// Action claim regex fragments. Each captures a distinct hallucination pattern.
+/// Composed into `ACTION_CLAIM_RE` via alternation.
+///
+/// Pattern groups:
+/// - `FIRST_PERSON_PERFECT`: "I've updated", "I have created"
+/// - `FIRST_PERSON_PAST`: "I updated", "I wrote", "I created"
+/// - `PASSIVE_CHANGES`: "Changes have been made", "Updates were applied"
+/// - `PASSIVE_ENTITY`: "File has been updated", "Config was modified"
+/// - `STATUS_ALL`: "All tools working", "All tests passed"
+/// - `ADVERB_PAST`: "Successfully executed", "Already completed"
+/// - `TERSE_LINE_START`: "Created: ...", "Done!", "Updated —"
+pub(super) const ACTION_CLAIM_PATTERNS: &[&str] = &[
+    // "I've updated/written/created..." or "I have updated/written/created..."
+    r"\bI(?:'ve| have) (?:updated|written|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled|tested|ran|executed|fetched|searched|checked|verified|completed|performed|called|started|listed|read)\b",
+    // "I updated/wrote/created..." (simple past)
+    r"\bI (?:updated|wrote|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled|tested|ran|executed|fetched|searched|checked|verified|completed|performed|called|started|listed|read)\b",
+    // "Changes have been made", "Updates were applied"
+    r"\b(?:Changes|Updates|Modifications) (?:have been|were) (?:made|applied|saved|committed)\b",
+    // "File has been updated", "Config was modified"
+    r"\b(?:File|Config|Settings?) (?:has been|was) (?:updated|written|created|modified|saved|deleted)\b",
+    // "All tools working", "All tests passed"
+    r"\bAll (?:tools?|tests?|checks?) (?:are |were |have been )?(?:fully )?(?:working|functional|successful|passing|passed|completed)\b",
+    // "Successfully executed", "Already completed"
+    r"\b(?:Successfully|Already) (?:tested|executed|completed|verified|fetched|ran|performed|called|created|updated|sent|deleted)\b",
+    // Terse line-start claims: "Created: ...", "Done!", "Updated —"
+    r"(?:^|\n)\s*(?:\w+ )?(?:Created|Updated|Deleted|Removed|Added|Saved|Sent|Scheduled|Completed|Done|Configured|Fixed|Applied|Deployed|Executed|Started|Enabled|Disabled|Marked(?: as)? (?:complete|done)) *[:\u{2014}!]",
+];
+
 /// Regex that matches phrases where the LLM claims to have performed an action.
-/// Used to detect hallucinated actions when no tools were actually called.
+/// Built from composable `ACTION_CLAIM_PATTERNS` fragments.
 static ACTION_CLAIM_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-    Regex::new(
-        r"(?i)(?:\b(?:I(?:'ve| have) (?:updated|written|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled|tested|ran|executed|fetched|searched|checked|verified|completed|performed|called|started|listed|read)|I (?:updated|wrote|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled|tested|ran|executed|fetched|searched|checked|verified|completed|performed|called|started|listed|read)|(?:Changes|Updates|Modifications) (?:have been|were) (?:made|applied|saved|committed)|(?:File|Config|Settings?) (?:has been|was) (?:updated|written|created|modified|saved|deleted)|All (?:tools?|tests?|checks?) (?:are |were |have been )?(?:fully )?(?:working|functional|successful|passing|passed|completed)|(?:Successfully|Already) (?:tested|executed|completed|verified|fetched|ran|performed|called|created|updated|sent|deleted))\b|(?:^|\n)\s*(?:\w+ )?(?:Created|Updated|Deleted|Removed|Added|Saved|Sent|Scheduled|Completed|Done|Configured|Fixed|Applied|Deployed|Executed|Started|Enabled|Disabled|Marked(?: as)? (?:complete|done)) *[:\u2014!])"
-    )
-    .expect("Invalid action claim regex")
+    let combined = ACTION_CLAIM_PATTERNS.join("|");
+    Regex::new(&format!("(?i)(?:{})", combined)).expect("Invalid action claim regex")
 });
 
 /// Returns `true` if the text contains phrases claiming actions were performed.
@@ -222,11 +248,31 @@ pub fn is_false_no_tools_claim(text: &str) -> bool {
 /// Returns `true` if the text mentions 3+ tool names, suggesting hallucinated tool results.
 /// When the LLM lists tool names with "results" but never actually called them, this catches
 /// the pattern that the action-claim regex might miss.
+///
+/// Uses word-boundary-aware matching to avoid false positives from tool names
+/// that are common English words (e.g. "exec" in "execute", "read" in "reading").
 pub fn mentions_multiple_tools(text: &str, tool_names: &[String]) -> bool {
     let text_lower = text.to_lowercase();
     let count = tool_names
         .iter()
-        .filter(|name| text_lower.contains(name.as_str()))
+        .filter(|name| {
+            let name_lower = name.to_lowercase();
+            // Find all occurrences and check word boundaries
+            let mut start = 0;
+            while let Some(pos) = text_lower[start..].find(&name_lower) {
+                let abs_pos = start + pos;
+                let end_pos = abs_pos + name_lower.len();
+                let before_ok =
+                    abs_pos == 0 || !text_lower.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
+                let after_ok = end_pos >= text_lower.len()
+                    || !text_lower.as_bytes()[end_pos].is_ascii_alphanumeric();
+                if before_ok && after_ok {
+                    return true;
+                }
+                start = abs_pos + 1;
+            }
+            false
+        })
         .count();
     count >= TOOL_MENTION_HALLUCINATION_THRESHOLD
 }

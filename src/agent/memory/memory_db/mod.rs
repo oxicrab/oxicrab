@@ -4,7 +4,7 @@ use chrono::Utc;
 use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 use std::path::Path;
-use tracing::debug;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
 pub struct MemoryHit {
@@ -80,10 +80,23 @@ pub fn recency_decay(age_days: f64, half_life_days: u32) -> f32 {
     (0.5_f64.powf(age_days / f64::from(half_life_days))) as f32
 }
 
+/// Cached deserialized embedding for in-memory vector search.
+#[derive(Clone)]
+struct CachedEmbedding {
+    entry_id: i64,
+    source_key: String,
+    content: String,
+    embedding: Vec<f32>,
+}
+
 pub struct MemoryDB {
     conn: std::sync::Mutex<Connection>,
     db_path: String,
     has_fts: bool,
+    /// Lazily populated embedding cache. Set to `None` to invalidate
+    /// (e.g. after `store_embedding`). Avoids re-reading and deserializing
+    /// all embeddings from `SQLite` on every `hybrid_search` call.
+    embedding_cache: std::sync::Mutex<Option<Vec<CachedEmbedding>>>,
 }
 
 impl Clone for MemoryDB {
@@ -97,16 +110,23 @@ impl Clone for MemoryDB {
                 self.db_path, e
             )
         });
-        let _ = conn.execute_batch(
+        if let Err(e) = conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
              PRAGMA busy_timeout=3000;
              PRAGMA foreign_keys=ON;",
-        );
+        ) {
+            warn!(
+                "failed to set PRAGMAs on cloned DB connection: {} \
+                 (WAL mode, busy timeout, and foreign keys may not be active)",
+                e
+            );
+        }
         Self {
             conn: std::sync::Mutex::new(conn),
             db_path: self.db_path.clone(),
             has_fts: self.has_fts,
+            embedding_cache: std::sync::Mutex::new(None),
         }
     }
 }
@@ -143,6 +163,7 @@ impl MemoryDB {
             conn: std::sync::Mutex::new(conn),
             db_path: db_path.to_string_lossy().to_string(),
             has_fts: false,
+            embedding_cache: std::sync::Mutex::new(None),
         };
 
         db.ensure_schema().with_context(|| {
@@ -160,6 +181,7 @@ impl MemoryDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
 
+        // Column named mtime_ns for backwards compat (actually stores milliseconds)
         conn.execute(
             "CREATE TABLE IF NOT EXISTS memory_sources (
                 source_key TEXT PRIMARY KEY,
@@ -307,13 +329,13 @@ impl MemoryDB {
             self.has_fts = true;
         } else {
             self.has_fts = false;
-            debug!("FTS5 not available; falling back to LIKE");
+            warn!("FTS5 not available; search will use LIKE fallback (degraded quality)");
         }
 
         Ok(())
     }
 
-    fn get_mtime_ns(path: &Path) -> i64 {
+    fn get_mtime_ms(path: &Path) -> i64 {
         path.metadata()
             .and_then(|m| {
                 m.modified().map(|t| {
@@ -325,7 +347,17 @@ impl MemoryDB {
     }
 
     pub fn index_file(&self, source_key: &str, path: &Path) -> Result<()> {
-        let mtime_ns = Self::get_mtime_ns(path);
+        let text = if path.exists() && path.is_file() {
+            std::fs::read_to_string(path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        self.index_text(source_key, path, &text)
+    }
+
+    /// Shared indexing: mtime check, wipe old entries, chunk text, insert.
+    fn index_text(&self, source_key: &str, path: &Path, text: &str) -> Result<()> {
+        let mtime_ms = Self::get_mtime_ms(path);
         let now = Utc::now().to_rfc3339();
 
         let conn = self
@@ -343,7 +375,7 @@ impl MemoryDB {
             .ok();
 
         if let Some(existing_mtime) = existing
-            && existing_mtime == mtime_ns
+            && existing_mtime == mtime_ms
         {
             return Ok(()); // unchanged
         }
@@ -354,14 +386,7 @@ impl MemoryDB {
             [source_key],
         )?;
 
-        // Read and index file
-        let text = if path.exists() && path.is_file() {
-            std::fs::read_to_string(path).unwrap_or_default()
-        } else {
-            String::new()
-        };
-
-        for chunk in split_into_chunks(&text) {
+        for chunk in split_into_chunks(text) {
             let hash = hash_text(&chunk);
             conn.execute(
                 "INSERT OR IGNORE INTO memory_entries
@@ -378,10 +403,10 @@ impl MemoryDB {
             ON CONFLICT(source_key)
             DO UPDATE SET mtime_ns = excluded.mtime_ns,
                           updated_at = excluded.updated_at",
-            params![source_key, mtime_ns, now],
+            params![source_key, mtime_ms, now],
         )?;
 
-        debug!("Indexed memory file {}", source_key);
+        debug!("indexed {}", source_key);
         Ok(())
     }
 
@@ -440,66 +465,19 @@ impl MemoryDB {
 
     /// Index an HTML file by stripping tags before chunking.
     fn index_html_file(&self, source_key: &str, path: &Path) -> Result<()> {
-        let mtime_ns = Self::get_mtime_ns(path);
-        let now = chrono::Utc::now().to_rfc3339();
-
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
-
-        let existing: Option<i64> = conn
-            .query_row(
-                "SELECT mtime_ns FROM memory_sources WHERE source_key = ?",
-                [source_key],
-                |row| row.get(0),
-            )
-            .ok();
-
-        if let Some(existing_mtime) = existing
-            && existing_mtime == mtime_ns
-        {
-            return Ok(());
-        }
-
-        conn.execute(
-            "DELETE FROM memory_entries WHERE source_key = ?",
-            [source_key],
-        )?;
-
         let html = if path.exists() && path.is_file() {
             std::fs::read_to_string(path).unwrap_or_default()
         } else {
             String::new()
         };
-
-        // Strip HTML tags, keeping text content
         let text = strip_html_tags(&html);
-
-        for chunk in split_into_chunks(&text) {
-            let hash = hash_text(&chunk);
-            conn.execute(
-                "INSERT OR IGNORE INTO memory_entries
-                    (source_key, content, content_hash, created_at)
-                VALUES (?, ?, ?, ?)",
-                params![source_key, chunk, hash, now],
-            )?;
-        }
-
-        conn.execute(
-            "INSERT INTO memory_sources (source_key, mtime_ns, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(source_key)
-            DO UPDATE SET mtime_ns = excluded.mtime_ns,
-                          updated_at = excluded.updated_at",
-            params![source_key, mtime_ns, now],
-        )?;
-
-        debug!("Indexed knowledge file {}", source_key);
-        Ok(())
+        self.index_text(source_key, path, &text)
     }
 
     /// Store an embedding for a memory entry.
+    ///
+    /// Invalidates the in-memory embedding cache so the next `hybrid_search`
+    /// picks up the new data.
     pub fn store_embedding(&self, entry_id: i64, embedding: &[u8]) -> Result<()> {
         let conn = self
             .conn
@@ -509,15 +487,20 @@ impl MemoryDB {
             "INSERT OR REPLACE INTO memory_embeddings (entry_id, embedding) VALUES (?, ?)",
             params![entry_id, embedding],
         )?;
+        // Invalidate cached embeddings so hybrid_search reloads from DB
+        if let Ok(mut cache) = self.embedding_cache.lock() {
+            *cache = None;
+        }
         Ok(())
     }
 
     /// Get all embeddings, optionally excluding certain source keys.
-    /// Returns (`entry_id`, content, `embedding_blob`).
+    /// Returns (`entry_id`, `source_key`, content, `embedding_blob`).
+    #[allow(clippy::type_complexity)]
     pub fn get_all_embeddings(
         &self,
         exclude_sources: Option<&std::collections::HashSet<String>>,
-    ) -> Result<Vec<(i64, String, Vec<u8>)>> {
+    ) -> Result<Vec<(i64, String, String, Vec<u8>)>> {
         let conn = self
             .conn
             .lock()
@@ -546,7 +529,57 @@ impl MemoryDB {
             .map_err(|e| anyhow::anyhow!("Failed to get embeddings: {}", e))?
             .into_iter()
             .filter(|(_, _, key, _)| !exclude.contains(key))
-            .map(|(id, content, _, emb)| (id, content, emb))
+            .collect())
+    }
+
+    /// Get or populate the in-memory embedding cache.
+    /// Returns cached deserialized embeddings, loading from DB on first call
+    /// or after invalidation (e.g. after `store_embedding`).
+    fn get_cached_embeddings(
+        &self,
+        exclude_sources: Option<&std::collections::HashSet<String>>,
+    ) -> Result<Vec<CachedEmbedding>> {
+        use crate::agent::memory::embeddings::deserialize_embedding;
+
+        let default_set = std::collections::HashSet::new();
+        let exclude = exclude_sources.unwrap_or(&default_set);
+
+        // Check cache first
+        if let Ok(cache) = self.embedding_cache.lock()
+            && let Some(ref cached) = *cache
+        {
+            return Ok(cached
+                .iter()
+                .filter(|e| !exclude.contains(&e.source_key))
+                .cloned()
+                .collect());
+        }
+
+        // Cache miss — load from DB, deserialize, and cache
+        let raw = self.get_all_embeddings(None)?;
+        let mut entries = Vec::with_capacity(raw.len());
+        for (entry_id, source_key, content, emb_bytes) in raw {
+            match deserialize_embedding(&emb_bytes) {
+                Ok(embedding) => entries.push(CachedEmbedding {
+                    entry_id,
+                    source_key,
+                    content,
+                    embedding,
+                }),
+                Err(e) => {
+                    warn!("skipping corrupted embedding for entry {entry_id}: {e}");
+                }
+            }
+        }
+
+        // Store in cache (unfiltered so it can be reused with different excludes)
+        if let Ok(mut cache) = self.embedding_cache.lock() {
+            *cache = Some(entries.clone());
+        }
+
+        Ok(entries
+            .into_iter()
+            .filter(|e| !exclude.contains(&e.source_key))
             .collect())
     }
 
@@ -567,7 +600,7 @@ impl MemoryDB {
         rrf_k: u32,
         recency_half_life_days: u32,
     ) -> Result<Vec<MemoryHit>> {
-        use crate::agent::memory::embeddings::{cosine_similarity, deserialize_embedding};
+        use crate::agent::memory::embeddings::cosine_similarity;
 
         if query_embedding.is_empty() {
             anyhow::bail!("query embedding is empty");
@@ -642,45 +675,20 @@ impl MemoryDB {
             }
         }
 
-        // 2. Get vector similarity scores
+        // 2. Get vector similarity scores (from in-memory cache)
         let mut vec_scores: std::collections::HashMap<i64, (f32, String, String)> =
             std::collections::HashMap::new();
 
         if keyword_weight < 1.0 {
-            let all_embeddings = self.get_all_embeddings(exclude_sources)?;
-            for (entry_id, content, emb_bytes) in &all_embeddings {
-                let emb = match deserialize_embedding(emb_bytes) {
-                    Ok(e) => e,
-                    Err(e) => {
-                        tracing::warn!("skipping corrupted embedding for entry {entry_id}: {e}");
-                        continue;
-                    }
-                };
-                let sim = cosine_similarity(query_embedding, &emb);
+            let cached = self.get_cached_embeddings(exclude_sources)?;
+            for entry in &cached {
+                let sim = cosine_similarity(query_embedding, &entry.embedding);
                 // Cosine similarity is already in [-1, 1]; clamp to [0, 1]
                 let score = sim.max(0.0);
-                // We need source_key for display — extract from FTS scores or DB
-                // For simplicity, use content as lookup key
-                vec_scores.insert(*entry_id, (score, String::new(), content.clone()));
-            }
-
-            // Fill in source keys from DB if needed
-            if !vec_scores.is_empty() {
-                let conn = self
-                    .conn
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
-                let entry_ids: Vec<i64> = vec_scores.keys().copied().collect();
-                for entry_id in entry_ids {
-                    if let Ok(key) = conn.query_row(
-                        "SELECT source_key FROM memory_entries WHERE id = ?",
-                        [entry_id],
-                        |row| row.get::<_, String>(0),
-                    ) && let Some(entry) = vec_scores.get_mut(&entry_id)
-                    {
-                        entry.1 = key;
-                    }
-                }
+                vec_scores.insert(
+                    entry.entry_id,
+                    (score, entry.source_key.clone(), entry.content.clone()),
+                );
             }
         }
 
@@ -1065,14 +1073,10 @@ impl MemoryDB {
         detection_layer: Option<&str>,
         message_preview: &str,
     ) -> Result<()> {
-        let preview = if message_preview.len() > 100 {
-            &message_preview[..message_preview
-                .char_indices()
-                .nth(100)
-                .map_or(message_preview.len(), |(i, _)| i)]
-        } else {
-            message_preview
-        };
+        let preview = &message_preview[..message_preview
+            .char_indices()
+            .nth(100)
+            .map_or(message_preview.len(), |(i, _)| i)];
         let conn = self
             .conn
             .lock()
@@ -1280,17 +1284,22 @@ impl MemoryDB {
                 })?
                 .collect();
 
-            if let Ok(rows) = rows {
-                let hits: Vec<MemoryHit> = rows
-                    .into_iter()
-                    .filter(|(key, _)| !exclude.contains(key))
-                    .take(limit)
-                    .map(|(source_key, content)| MemoryHit {
-                        source_key,
-                        content,
-                    })
-                    .collect();
-                return Ok(hits);
+            match rows {
+                Ok(rows) => {
+                    let hits: Vec<MemoryHit> = rows
+                        .into_iter()
+                        .filter(|(key, _)| !exclude.contains(key))
+                        .take(limit)
+                        .map(|(source_key, content)| MemoryHit {
+                            source_key,
+                            content,
+                        })
+                        .collect();
+                    return Ok(hits);
+                }
+                Err(e) => {
+                    warn!("FTS5 query failed, falling back to LIKE: {}", e);
+                }
             }
         }
 

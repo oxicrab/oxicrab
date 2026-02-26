@@ -17,13 +17,15 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
     let path = config_path.unwrap_or(default_path.as_path());
 
     if path.exists() {
-        // Acquire shared (read) lock — allows concurrent readers, blocks during writes
-        let file = fs::File::open(path)
+        // Acquire shared (read) lock — allows concurrent readers, blocks during writes.
+        // Read from the locked fd (not a second open) so the lock protects the read.
+        let mut file = fs::File::open(path)
             .with_context(|| format!("Failed to open config at {}", path.display()))?;
         file.lock_shared()
             .with_context(|| "Failed to acquire shared lock on config file")?;
 
-        let content = fs::read_to_string(path)
+        let mut content = String::new();
+        std::io::Read::read_to_string(&mut file, &mut content)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
         // Lock released when `file` drops at end of scope
 

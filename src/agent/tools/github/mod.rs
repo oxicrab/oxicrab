@@ -1,6 +1,5 @@
-use crate::agent::tools::base::{
-    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
-};
+use crate::actions;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -11,6 +10,15 @@ use std::time::Duration;
 use tracing::warn;
 
 const GITHUB_API: &str = "https://api.github.com";
+
+/// Validate a GitHub owner or repo name: alphanumeric, hyphens, dots, underscores only.
+fn is_valid_github_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 100
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.' || b == b'_')
+}
 
 pub struct GitHubTool {
     token: String,
@@ -69,19 +77,17 @@ impl GitHubTool {
         msg.to_string()
     }
 
-    async fn api_get(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
-        let resp = self
-            .client
-            .get(format!("{}{}", self.base_url, path))
-            .query(query)
-            .header("Authorization", format!("Bearer {}", self.token))
+    fn github_headers(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        req.header("Authorization", format!("Bearer {}", self.token))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "oxicrab")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
+    }
 
+    /// Send a request, check rate limits, and parse the JSON response.
+    async fn api_send(&self, req: reqwest::RequestBuilder) -> Result<Value> {
+        let resp = req.send().await?;
         let status = resp.status();
         Self::check_rate_limit(&resp);
         if status.as_u16() == 429 {
@@ -89,59 +95,44 @@ impl GitHubTool {
         }
         let body: Value = resp.json().await?;
         if !status.is_success() {
-            let msg = Self::sanitize_api_error(&body);
-            anyhow::bail!("GitHub API {}: {}", status, msg);
+            anyhow::bail!("GitHub API {}: {}", status, Self::sanitize_api_error(&body));
         }
         Ok(body)
     }
 
-    async fn api_post(&self, path: &str, body: &Value) -> Result<Value> {
-        let resp = self
-            .client
-            .post(format!("{}{}", self.base_url, path))
-            .json(body)
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "oxicrab")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
+    async fn api_get(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
+        let req = self.github_headers(
+            self.client
+                .get(format!("{}{}", self.base_url, path))
+                .query(query),
+        );
+        self.api_send(req).await
+    }
 
-        let status = resp.status();
-        Self::check_rate_limit(&resp);
-        if status.as_u16() == 429 {
-            anyhow::bail!("GitHub API rate limit exceeded, try again later");
-        }
-        let result: Value = resp.json().await?;
-        if !status.is_success() {
-            let msg = Self::sanitize_api_error(&result);
-            anyhow::bail!("GitHub API {}: {}", status, msg);
-        }
-        Ok(result)
+    async fn api_post(&self, path: &str, body: &Value) -> Result<Value> {
+        let req = self.github_headers(
+            self.client
+                .post(format!("{}{}", self.base_url, path))
+                .json(body),
+        );
+        self.api_send(req).await
     }
 
     async fn api_post_no_content(&self, path: &str, body: &Value) -> Result<()> {
-        let resp = self
-            .client
-            .post(format!("{}{}", self.base_url, path))
-            .json(body)
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "oxicrab")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
-
+        let req = self.github_headers(
+            self.client
+                .post(format!("{}{}", self.base_url, path))
+                .json(body),
+        );
+        let resp = req.send().await?;
         let status = resp.status();
         Self::check_rate_limit(&resp);
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
-            let msg = serde_json::from_str::<Value>(&text)
-                .ok()
-                .and_then(|v| v["message"].as_str().map(String::from))
-                .unwrap_or_else(|| "Unknown error".to_string());
+            let msg = serde_json::from_str::<Value>(&text).map_or_else(
+                |_| "Unknown error".to_string(),
+                |v| Self::sanitize_api_error(&v),
+            );
             anyhow::bail!("GitHub API {}: {}", status, msg);
         }
         Ok(())
@@ -312,14 +303,6 @@ impl GitHubTool {
 
         let status_str = if merged { "merged" } else { state };
 
-        // Truncate body
-        let body_preview: String = body.chars().take(500).collect();
-        let body_truncated = if body.chars().count() > 500 {
-            format!("{}...", body_preview)
-        } else {
-            body_preview
-        };
-
         Ok(format!(
             "PR #{} — {} ({})\nBy: {} | {} → {} | {}\n+{} −{} in {} files\n\n{}",
             number,
@@ -332,7 +315,7 @@ impl GitHubTool {
             additions,
             deletions,
             changed_files,
-            body_truncated
+            crate::utils::truncate_chars(body, 500, "...")
         ))
     }
 
@@ -368,17 +351,17 @@ impl GitHubTool {
             format!("\nAssignees: {}", assignees.join(", "))
         };
 
-        // Truncate body
-        let body_preview: String = body.chars().take(500).collect();
-        let body_truncated = if body.chars().count() > 500 {
-            format!("{}...", body_preview)
-        } else {
-            body_preview
-        };
-
         Ok(format!(
             "Issue #{} — {} ({})\nBy: {} | {} comments{}{}\n{}\n\n{}",
-            number, title, state, user, comments, label_str, assignee_str, url, body_truncated
+            number,
+            title,
+            state,
+            user,
+            comments,
+            label_str,
+            assignee_str,
+            url,
+            crate::utils::truncate_chars(body, 500, "...")
         ))
     }
 
@@ -660,51 +643,18 @@ impl Tool for GitHubTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: vec![
-                ActionDescriptor {
-                    name: "list_issues",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "create_issue",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "get_issue",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "list_prs",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "get_pr",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "get_pr_files",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "create_pr_review",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "get_file_content",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "trigger_workflow",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "get_workflow_runs",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "notifications",
-                    read_only: true,
-                },
+            actions: actions![
+                list_issues: ro,
+                create_issue,
+                get_issue: ro,
+                list_prs: ro,
+                get_pr: ro,
+                get_pr_files: ro,
+                create_pr_review,
+                get_file_content: ro,
+                trigger_workflow,
+                get_workflow_runs: ro,
+                notifications: ro,
             ],
         }
     }
@@ -806,10 +756,10 @@ impl Tool for GitHubTool {
                     return Ok(ToolResult::error("missing 'repo' parameter".to_string()));
                 };
 
-                // Validate owner/repo
-                if owner.contains('/') || repo.contains('/') {
+                // Validate owner/repo — only alphanumeric, hyphens, dots, underscores
+                if !is_valid_github_name(owner) || !is_valid_github_name(repo) {
                     return Ok(ToolResult::error(
-                        "owner and repo must not contain '/'".to_string(),
+                        "owner and repo must contain only alphanumeric characters, hyphens, dots, or underscores".to_string(),
                     ));
                 }
 
@@ -925,15 +875,12 @@ impl Tool for GitHubTool {
                     }
                 };
 
-                match result {
-                    Ok(content) => Ok(ToolResult::new(content)),
-                    Err(e) => Ok(ToolResult::error(format!("GitHub error: {}", e))),
-                }
+                Ok(ToolResult::from_result(result, "GitHub"))
             }
-            "notifications" => match self.list_notifications().await {
-                Ok(content) => Ok(ToolResult::new(content)),
-                Err(e) => Ok(ToolResult::error(format!("GitHub error: {}", e))),
-            },
+            "notifications" => Ok(ToolResult::from_result(
+                self.list_notifications().await,
+                "GitHub",
+            )),
             _ => Ok(ToolResult::error(format!("unknown action: {}", action))),
         }
     }

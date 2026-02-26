@@ -1,6 +1,5 @@
-use crate::agent::tools::base::{
-    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities,
-};
+use crate::actions;
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -101,15 +100,13 @@ impl RedditTool {
                 let author = d["author"].as_str().unwrap_or("[deleted]");
                 let url = d["url"].as_str().unwrap_or("");
                 let selftext = d["selftext"].as_str().unwrap_or("");
-                let preview: String = if selftext.is_empty() {
+                let preview = if selftext.is_empty() {
                     String::new()
                 } else {
-                    let truncated: String = selftext.chars().take(150).collect();
-                    if selftext.chars().count() > 150 {
-                        format!("\n   {}...", truncated)
-                    } else {
-                        format!("\n   {}", truncated)
-                    }
+                    format!(
+                        "\n   {}",
+                        crate::utils::truncate_chars(selftext, 150, "...")
+                    )
                 };
 
                 format!(
@@ -205,23 +202,11 @@ impl Tool for RedditTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: vec![
-                ActionDescriptor {
-                    name: "hot",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "new",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "top",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "search",
-                    read_only: true,
-                },
+            actions: actions![
+                hot: ro,
+                new: ro,
+                top: ro,
+                search: ro,
             ],
         }
     }

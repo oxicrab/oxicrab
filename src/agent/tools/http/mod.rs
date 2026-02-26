@@ -143,12 +143,20 @@ impl HttpTool {
 
                 // Handle binary content — save to disk
                 if let Some(ext) = extension_from_content_type(&content_type) {
-                    let (bytes, _truncated) = crate::utils::http::limited_body(
+                    let (bytes, _truncated) = match crate::utils::http::limited_body(
                         resp,
                         crate::utils::http::DEFAULT_MAX_BODY_BYTES,
                     )
                     .await
-                    .unwrap_or_default();
+                    {
+                        Ok(result) => result,
+                        Err(e) => {
+                            return Ok(ToolResult::error(format!(
+                                "HTTP {} {} — binary download failed: {}",
+                                status, method, e
+                            )));
+                        }
+                    };
                     return match save_media_file(&bytes, "http", ext) {
                         Ok(path) => Ok(ToolResult::new(format!(
                             "HTTP {} {}{}\n\nBinary content saved to: {}\nSize: {} bytes\nType: {}",

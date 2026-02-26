@@ -1,4 +1,5 @@
 use super::*;
+use regex::Regex;
 
 #[test]
 fn test_action_claims_positive() {
@@ -74,6 +75,31 @@ fn test_action_claims_negative() {
 }
 
 #[test]
+fn test_action_claim_pattern_fragments_each_match() {
+    // Each ACTION_CLAIM_PATTERNS fragment should match at least one representative string
+    let representatives = [
+        "I've updated the configuration file.", // FIRST_PERSON_PERFECT
+        "I wrote the function as requested.",   // FIRST_PERSON_PAST
+        "Changes have been applied to the project.", // PASSIVE_CHANGES
+        "File has been updated successfully.",  // PASSIVE_ENTITY
+        "All tests passed successfully.",       // STATUS_ALL
+        "Successfully executed the command.",   // ADVERB_PAST
+        "Created: a new issue in the tracker.", // TERSE_LINE_START
+    ];
+    assert_eq!(
+        representatives.len(),
+        ACTION_CLAIM_PATTERNS.len(),
+        "each pattern fragment should have a representative test case"
+    );
+    for (i, text) in representatives.iter().enumerate() {
+        let pattern = ACTION_CLAIM_PATTERNS[i];
+        let re = Regex::new(&format!("(?i){}", pattern))
+            .unwrap_or_else(|_| panic!("fragment {} is invalid regex", i));
+        assert!(re.is_match(text), "fragment {} should match: {}", i, text);
+    }
+}
+
+#[test]
 fn test_tool_name_mentions() {
     let tools = vec![
         "web_search".to_string(),
@@ -101,6 +127,26 @@ fn test_tool_name_mentions() {
     assert!(!mentions_multiple_tools(
         "The web_search and weather tools are available.",
         &tools3
+    ));
+
+    // Word-boundary matching: tool names embedded in longer words should NOT match
+    let tools_short = vec![
+        "exec".to_string(),
+        "read".to_string(),
+        "list".to_string(),
+        "send".to_string(),
+    ];
+    assert!(
+        !mentions_multiple_tools(
+            "I'll execute the reading list and send it later.",
+            &tools_short
+        ),
+        "tool names as substrings of English words should not match"
+    );
+    // But exact matches separated by non-alphanumeric chars should match
+    assert!(mentions_multiple_tools(
+        "Use exec, then read, then list the results.",
+        &tools_short
     ));
 }
 
@@ -841,7 +887,7 @@ fn test_conversational_reply_passes_through() {
     // Short conversational replies should be returned as-is (not flagged as hallucination)
     let tool_names = vec!["memory_search".to_string(), "cron".to_string()];
     let mut messages = vec![];
-    let mut correction_sent = false;
+    let mut state = CorrectionState::new();
 
     let cases = [
         "Sure, I'll do that now.",
@@ -856,8 +902,9 @@ fn test_conversational_reply_passes_through() {
             &mut messages,
             None,
             false,
-            &mut correction_sent,
+            &mut state,
             &tool_names,
+            &[],
             false, // user message was conversational, not action intent
             None,
         );
@@ -874,15 +921,16 @@ fn test_action_hallucination_caught_without_tool_forcing() {
     // Action claims should be caught by hallucination detection even without tool_choice="any"
     let tool_names = vec!["write_file".to_string()];
     let mut messages = vec![];
-    let mut correction_sent = false;
+    let mut state = CorrectionState::new();
 
     let result = AgentLoop::handle_text_response(
         "I've updated the configuration file.",
         &mut messages,
         None,
         false,
-        &mut correction_sent,
+        &mut state,
         &tool_names,
+        &[],
         true, // user requested an action
         None,
     );
@@ -890,46 +938,78 @@ fn test_action_hallucination_caught_without_tool_forcing() {
         matches!(result, TextAction::Continue),
         "action claim should trigger correction"
     );
-    assert!(correction_sent);
+    assert!(state.layer1_fired);
 }
 
 #[test]
-fn test_action_hallucination_repeatable_correction() {
-    // After correction_sent is already true, a second action claim should STILL be caught
+fn test_action_hallucination_not_repeated_after_l1_correction() {
+    // After layer1_fired, a second action claim should pass through (L1 budget exhausted).
+    // Layer 2 may still fire if user_has_action_intent is true.
     let tool_names = vec!["write_file".to_string()];
     let mut messages = vec![];
-    let mut correction_sent = true; // already corrected once
+    let mut state = CorrectionState::new();
+    state.layer1_fired = true; // L1 already corrected
 
     let result = AgentLoop::handle_text_response(
         "I've written the new module.",
         &mut messages,
         None,
         false,
-        &mut correction_sent,
+        &mut state,
         &tool_names,
-        true, // user requested an action
+        &[],
+        false, // no action intent — L2 won't fire either
         None,
     );
     assert!(
-        matches!(result, TextAction::Continue),
-        "repeated action claim should still be corrected"
+        matches!(result, TextAction::Return),
+        "after L1 correction, text should pass through when no action intent"
     );
 }
 
 #[test]
-fn test_legitimate_tool_response_passes_through() {
-    // After tools were actually called, text responses pass through
+fn test_layer2_fires_after_layer1_exhausted() {
+    // When L1 has already fired and L2 hasn't, L2 should get its own shot
     let tool_names = vec!["write_file".to_string()];
     let mut messages = vec![];
-    let mut correction_sent = false;
+    let mut state = CorrectionState::new();
+    state.layer1_fired = true; // L1 already corrected
+
+    let result = AgentLoop::handle_text_response(
+        "Sure, I can help with that.",
+        &mut messages,
+        None,
+        false,
+        &mut state,
+        &tool_names,
+        &[],
+        true, // user has action intent — L2 should fire
+        None,
+    );
+    assert!(
+        matches!(result, TextAction::Continue),
+        "L2 should fire independently after L1 exhausted"
+    );
+    assert!(state.layer2_fired);
+}
+
+#[test]
+fn test_legitimate_tool_response_passes_through() {
+    // After tools were actually called, text responses with action claims pass through
+    // when the tools mentioned were actually used
+    let tool_names = vec!["write_file".to_string()];
+    let tools_used = vec!["write_file".to_string()];
+    let mut messages = vec![];
+    let mut state = CorrectionState::new();
 
     let result = AgentLoop::handle_text_response(
         "I've updated the configuration file.",
         &mut messages,
         None,
         true, // tools were called
-        &mut correction_sent,
+        &mut state,
         &tool_names,
+        &tools_used,
         true, // user requested an action
         None,
     );
@@ -942,39 +1022,73 @@ fn test_legitimate_tool_response_passes_through() {
 // --- Multi-iteration hallucination correction tests ---
 
 #[test]
-fn test_false_no_tools_claim_always_fires() {
-    // false-no-tools correction should fire even after correction_sent is true
+fn test_false_no_tools_claim_fires_despite_layers() {
+    // false-no-tools correction should fire even after L1/L2 have fired
     let tool_names = vec!["exec".to_string(), "read_file".to_string()];
     let mut messages = vec![];
-    let mut correction_sent = true; // already corrected once
+    let mut state = CorrectionState::new();
+    state.layer1_fired = true;
+    state.layer2_fired = true;
 
     let result = AgentLoop::handle_text_response(
         "I don't have access to tools to help with that.",
         &mut messages,
         None,
         false,
-        &mut correction_sent,
+        &mut state,
         &tool_names,
+        &[],
         true, // user requested an action
         None,
     );
     assert!(
         matches!(result, TextAction::Continue),
-        "false no-tools claim should always trigger correction"
+        "false no-tools claim should trigger correction regardless of L1/L2"
+    );
+    assert_eq!(state.layer0_count, 1);
+}
+
+#[test]
+fn test_false_no_tools_claim_capped_at_max_corrections() {
+    // After MAX_LAYER0_CORRECTIONS, no-tools claims should pass through
+    let tool_names = vec!["exec".to_string(), "read_file".to_string()];
+    let mut messages = vec![];
+    let mut state = CorrectionState::new();
+    state.layer0_count = MAX_LAYER0_CORRECTIONS; // exhausted budget
+
+    let result = AgentLoop::handle_text_response(
+        "I don't have access to tools to help with that.",
+        &mut messages,
+        None,
+        false,
+        &mut state,
+        &tool_names,
+        &[],
+        true,
+        None,
+    );
+    assert!(
+        matches!(result, TextAction::Return),
+        "false no-tools claim should pass through after max corrections"
     );
 }
 
 #[test]
 fn test_text_after_tools_called_passes_action_claims() {
     // After tools have been called (any_tools_called=true), text claiming actions
-    // should pass through since the model actually DID call tools
+    // should pass through since the model actually DID call the tools
     let tool_names = vec![
         "exec".to_string(),
         "read_file".to_string(),
         "write_file".to_string(),
     ];
+    let tools_used = vec![
+        "exec".to_string(),
+        "read_file".to_string(),
+        "write_file".to_string(),
+    ];
     let mut messages = vec![];
-    let mut correction_sent = false;
+    let mut state = CorrectionState::new();
 
     let claims = [
         "I've updated the configuration file.",
@@ -989,8 +1103,9 @@ fn test_text_after_tools_called_passes_action_claims() {
             &mut messages,
             None,
             true, // tools WERE called
-            &mut correction_sent,
+            &mut state,
             &tool_names,
+            &tools_used,
             true, // user requested an action
             None,
         );
@@ -1000,10 +1115,43 @@ fn test_text_after_tools_called_passes_action_claims() {
             claim
         );
         assert!(
-            !correction_sent,
+            !state.layer1_fired,
             "correction should not be sent after real tool use"
         );
     }
+}
+
+#[test]
+fn test_uncalled_tools_detected_after_some_tools_called() {
+    // When tools WERE called but the response mentions many tools that were NOT called,
+    // Layer 1 should catch it (the LLM is embellishing what it did)
+    let tool_names = vec![
+        "web_search".to_string(),
+        "weather".to_string(),
+        "cron".to_string(),
+        "exec".to_string(),
+        "memory_search".to_string(),
+    ];
+    let tools_used = vec!["exec".to_string()]; // only exec was actually called
+    let mut messages = vec![];
+    let mut state = CorrectionState::new();
+
+    let result = AgentLoop::handle_text_response(
+        "I used web_search, weather, and cron to gather the information.",
+        &mut messages,
+        None,
+        true, // some tools were called
+        &mut state,
+        &tool_names,
+        &tools_used,
+        true,
+        None,
+    );
+    assert!(
+        matches!(result, TextAction::Continue),
+        "mentioning many uncalled tools should trigger correction even after some tools were called"
+    );
+    assert!(state.layer1_fired);
 }
 
 #[test]
@@ -1011,15 +1159,16 @@ fn test_empty_tool_names_disables_false_no_tools_check() {
     // When no tools are registered, the false-no-tools check should not fire
     let tool_names: Vec<String> = vec![];
     let mut messages = vec![];
-    let mut correction_sent = false;
+    let mut state = CorrectionState::new();
 
     let result = AgentLoop::handle_text_response(
         "I don't have access to tools.",
         &mut messages,
         None,
         false,
-        &mut correction_sent,
+        &mut state,
         &tool_names,
+        &[],
         true, // user requested an action
         None,
     );
@@ -1040,15 +1189,16 @@ fn test_mentions_multiple_tools_triggers_correction() {
         "read_file".to_string(),
     ];
     let mut messages = vec![];
-    let mut correction_sent = false;
+    let mut state = CorrectionState::new();
 
     let result = AgentLoop::handle_text_response(
         "## Available Tools\n- web_search: Search the web\n- weather: Get weather\n- cron: Schedule jobs\n- exec: Run commands",
         &mut messages,
         None,
         false,
-        &mut correction_sent,
+        &mut state,
         &tool_names,
+        &[],
         true, // user requested an action
         None,
     );

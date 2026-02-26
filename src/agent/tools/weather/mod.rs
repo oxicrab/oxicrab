@@ -159,7 +159,7 @@ impl Tool for WeatherTool {
         ToolCapabilities {
             built_in: true,
             network_outbound: true,
-            subagent_access: SubagentAccess::ReadOnly,
+            subagent_access: SubagentAccess::Full,
             actions: vec![],
         }
     }

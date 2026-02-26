@@ -313,14 +313,15 @@ fn estimate_messages_tokens_array_content() {
         m.insert(
             "content".to_string(),
             serde_json::json!([
-                {"type": "text", "text": "a]a]a]a]"}, // 8 chars = 2 tokens
-                {"type": "image", "url": "http://example.com"},
-                {"type": "text", "text": "bbbb"}, // 4 chars = 1 token
+                {"type": "text", "text": "a]a]a]a]"}, // 8 chars
+                {"type": "image", "url": "http://example.com"}, // → "[image]" placeholder (7 chars)
+                {"type": "text", "text": "bbbb"}, // 4 chars
             ]),
         );
         m
     }];
-    assert_eq!(estimate_messages_tokens(&msgs), 3);
+    // After extract_message_text join: "a]a]a]a] [image] bbbb" = 21 chars = 5 tokens
+    assert_eq!(estimate_messages_tokens(&msgs), 5);
 }
 
 #[test]

@@ -137,7 +137,15 @@ impl ProviderErrorHandler {
         provider: &str,
         metrics: &Arc<Mutex<ProviderMetrics>>,
     ) -> Result<Value, anyhow::Error> {
-        let resp = Self::check_http_status(resp, provider).await?;
+        let resp = match Self::check_http_status(resp, provider).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                if let Ok(mut m) = metrics.lock() {
+                    m.error_count += 1;
+                }
+                return Err(e);
+            }
+        };
 
         let json: Value = resp
             .json()

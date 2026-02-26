@@ -22,6 +22,8 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 const DISCORD_API_BASE: &str = "https://discord.com/api/v10";
+const MAX_IMAGE_DOWNLOAD: usize = 20 * 1024 * 1024; // 20 MB
+const MAX_AUDIO_DOWNLOAD: usize = 50 * 1024 * 1024; // 50 MB
 
 struct Handler {
     inbound_tx: mpsc::Sender<InboundMessage>,
@@ -97,6 +99,10 @@ impl Handler {
             "discord_application_id".to_string(),
             serde_json::Value::String(cmd.application_id.to_string()),
         );
+        metadata.insert(
+            "is_group".to_string(),
+            serde_json::Value::Bool(cmd.guild_id.is_some()),
+        );
 
         let inbound_msg = InboundMessage {
             channel: "discord".to_string(),
@@ -169,6 +175,10 @@ impl Handler {
         metadata.insert(
             "discord_component_id".to_string(),
             serde_json::Value::String(custom_id),
+        );
+        metadata.insert(
+            "is_group".to_string(),
+            serde_json::Value::Bool(comp.guild_id.is_some()),
         );
 
         let inbound_msg = InboundMessage {
@@ -253,9 +263,23 @@ impl EventHandler for Handler {
             };
             let file_path = media_dir.join(format!("discord_{}.{}", attachment.id, ext));
 
+            let max_size = if is_image {
+                MAX_IMAGE_DOWNLOAD
+            } else {
+                MAX_AUDIO_DOWNLOAD
+            };
             match self.http_client.get(&attachment.url).send().await {
                 Ok(resp) => match resp.bytes().await {
                     Ok(bytes) => {
+                        if bytes.len() > max_size {
+                            warn!(
+                                "Discord {} too large ({} bytes, max {}), skipping",
+                                tag,
+                                bytes.len(),
+                                max_size
+                            );
+                            continue;
+                        }
                         let fp = file_path.clone();
                         if let Err(e) =
                             tokio::task::spawn_blocking(move || std::fs::write(&fp, &bytes))
@@ -463,7 +487,12 @@ async fn send_interaction_followup(
     token: &str,
     payload: &serde_json::Value,
 ) -> Result<()> {
-    let url = format!("{}/webhooks/{}/{}", DISCORD_API_BASE, app_id, token);
+    let url = format!(
+        "{}/webhooks/{}/{}",
+        DISCORD_API_BASE,
+        urlencoding::encode(app_id),
+        urlencoding::encode(token)
+    );
     let resp = http_client.post(&url).json(payload).send().await?;
 
     if !resp.status().is_success() {
@@ -481,7 +510,12 @@ async fn send_interaction_media_followup(
     token: &str,
     file_path: &std::path::Path,
 ) -> Result<()> {
-    let url = format!("{}/webhooks/{}/{}", DISCORD_API_BASE, app_id, token);
+    let url = format!(
+        "{}/webhooks/{}/{}",
+        DISCORD_API_BASE,
+        urlencoding::encode(app_id),
+        urlencoding::encode(token)
+    );
     let file_name = file_path
         .file_name()
         .and_then(|n| n.to_str())

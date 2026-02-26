@@ -87,12 +87,6 @@ impl EmbeddingService {
 
         Ok(embedding)
     }
-
-    /// Number of entries currently in the query embedding cache.
-    #[cfg(test)]
-    pub fn cache_len(&self) -> usize {
-        self.cache.lock().map_or(0, |c| c.len())
-    }
 }
 
 /// Lazy wrapper that initializes the embedding model in a background task.

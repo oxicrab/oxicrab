@@ -2,6 +2,8 @@ mod helpers;
 mod intent;
 
 #[cfg(test)]
+use helpers::ACTION_CLAIM_PATTERNS;
+#[cfg(test)]
 use helpers::MAX_IMAGES;
 pub(crate) use helpers::validate_tool_params;
 use helpers::{
@@ -56,6 +58,29 @@ pub struct AgentRunOverrides {
     pub max_iterations: Option<usize>,
 }
 
+/// Tool-specific configurations bundled together. These fields are only used
+/// to construct [`ToolBuildContext`] during [`AgentLoop::new`] — grouping them
+/// reduces `AgentLoopConfig` field count and makes adding new tools cheaper
+/// (only touch this struct + `from_config` + `ToolBuildContext`).
+pub struct ToolConfigs {
+    pub brave_api_key: Option<String>,
+    pub web_search_config: Option<crate::config::WebSearchConfig>,
+    pub exec_timeout: u64,
+    pub restrict_to_workspace: bool,
+    pub allowed_commands: Vec<String>,
+    pub sandbox_config: crate::config::SandboxConfig,
+    pub channels_config: Option<crate::config::ChannelsConfig>,
+    pub google_config: Option<crate::config::GoogleConfig>,
+    pub github_config: Option<crate::config::GitHubConfig>,
+    pub weather_config: Option<crate::config::WeatherConfig>,
+    pub todoist_config: Option<crate::config::TodoistConfig>,
+    pub media_config: Option<crate::config::MediaConfig>,
+    pub obsidian_config: Option<crate::config::ObsidianConfig>,
+    pub browser_config: Option<crate::config::BrowserConfig>,
+    pub image_gen_config: Option<crate::config::ImageGenConfig>,
+    pub mcp_config: Option<crate::config::McpConfig>,
+}
+
 /// Configuration for creating an [`AgentLoop`] instance.
 pub struct AgentLoopConfig {
     pub bus: Arc<Mutex<MessageBus>>,
@@ -63,20 +88,9 @@ pub struct AgentLoopConfig {
     pub workspace: PathBuf,
     pub model: Option<String>,
     pub max_iterations: usize,
-    pub brave_api_key: Option<String>,
-    pub web_search_config: Option<crate::config::WebSearchConfig>,
-    pub exec_timeout: u64,
-    pub restrict_to_workspace: bool,
-    pub allowed_commands: Vec<String>,
     pub compaction_config: crate::config::CompactionConfig,
     pub outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     pub cron_service: Option<Arc<CronService>>,
-    pub google_config: Option<crate::config::GoogleConfig>,
-    pub github_config: Option<crate::config::GitHubConfig>,
-    pub weather_config: Option<crate::config::WeatherConfig>,
-    pub todoist_config: Option<crate::config::TodoistConfig>,
-    pub media_config: Option<crate::config::MediaConfig>,
-    pub obsidian_config: Option<crate::config::ObsidianConfig>,
     /// Temperature for response generation (default 0.7)
     pub temperature: f32,
     /// Temperature for tool-calling iterations (default 0.0 for determinism)
@@ -87,8 +101,6 @@ pub struct AgentLoopConfig {
     pub max_tokens: u32,
     /// Sender for typing indicator events (channel, `chat_id`)
     pub typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
-    /// Channel configurations for multi-channel cron target resolution
-    pub channels_config: Option<crate::config::ChannelsConfig>,
     /// Memory indexer interval in seconds (default 300)
     pub memory_indexer_interval: u64,
     /// Media file TTL in days for cleanup (default 7)
@@ -99,12 +111,6 @@ pub struct AgentLoopConfig {
     pub voice_config: Option<crate::config::VoiceConfig>,
     /// Memory configuration (archive/purge days)
     pub memory_config: Option<crate::config::MemoryConfig>,
-    /// Browser tool configuration
-    pub browser_config: Option<crate::config::BrowserConfig>,
-    /// Image generation tool configuration
-    pub image_gen_config: Option<crate::config::ImageGenConfig>,
-    /// MCP (Model Context Protocol) server configuration
-    pub mcp_config: Option<crate::config::McpConfig>,
     /// Cost guard configuration for budget and rate limiting
     pub cost_guard_config: crate::config::CostGuardConfig,
     /// Cognitive routines configuration for checkpoint pressure signals
@@ -113,10 +119,10 @@ pub struct AgentLoopConfig {
     pub exfiltration_guard: crate::config::ExfiltrationGuardConfig,
     /// Prompt injection detection configuration
     pub prompt_guard_config: crate::config::PromptGuardConfig,
-    /// Landlock sandbox configuration for shell commands
-    pub sandbox_config: crate::config::SandboxConfig,
     /// External context providers that inject dynamic content into the system prompt
     pub context_providers: Vec<crate::config::ContextProviderConfig>,
+    /// Tool-specific configurations (forwarded to [`ToolBuildContext`])
+    pub tool_configs: ToolConfigs,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -154,40 +160,42 @@ impl AgentLoopConfig {
             workspace: config.workspace_path(),
             model: params.model,
             max_iterations: config.agents.defaults.max_tool_iterations,
-            brave_api_key: Some(config.tools.web.search.api_key.clone()),
-            web_search_config: Some(config.tools.web.search.clone()),
-            exec_timeout: config.tools.exec.timeout,
-            restrict_to_workspace: config.tools.restrict_to_workspace,
-            allowed_commands: config.tools.exec.allowed_commands.clone(),
             compaction_config: config.agents.defaults.compaction.clone(),
             outbound_tx: params.outbound_tx,
             cron_service: params.cron_service,
-            google_config: Some(config.tools.google.clone()),
-            github_config: Some(config.tools.github.clone()),
-            weather_config: Some(config.tools.weather.clone()),
-            todoist_config: Some(config.tools.todoist.clone()),
-            media_config: Some(config.tools.media.clone()),
-            obsidian_config: Some(config.tools.obsidian.clone()),
             temperature: config.agents.defaults.temperature,
             tool_temperature: TOOL_TEMPERATURE,
             session_ttl_days: config.agents.defaults.session_ttl_days,
             max_tokens: config.agents.defaults.max_tokens,
             typing_tx: params.typing_tx,
-            channels_config: params.channels_config,
             memory_indexer_interval: config.agents.defaults.memory_indexer_interval,
             media_ttl_days: config.agents.defaults.media_ttl_days,
             max_concurrent_subagents: config.agents.defaults.max_concurrent_subagents,
             voice_config: Some(config.voice.clone()),
             memory_config: Some(config.agents.defaults.memory.clone()),
-            browser_config: Some(config.tools.browser.clone()),
-            image_gen_config: Some(image_gen),
-            mcp_config: Some(config.tools.mcp.clone()),
             cost_guard_config: config.agents.defaults.cost_guard.clone(),
             cognitive_config: config.agents.defaults.cognitive.clone(),
             exfiltration_guard: config.tools.exfiltration_guard.clone(),
             prompt_guard_config: config.agents.defaults.prompt_guard.clone(),
-            sandbox_config: config.tools.exec.sandbox.clone(),
             context_providers: config.agents.defaults.context_providers.clone(),
+            tool_configs: ToolConfigs {
+                brave_api_key: Some(config.tools.web.search.api_key.clone()),
+                web_search_config: Some(config.tools.web.search.clone()),
+                exec_timeout: config.tools.exec.timeout,
+                restrict_to_workspace: config.tools.restrict_to_workspace,
+                allowed_commands: config.tools.exec.allowed_commands.clone(),
+                sandbox_config: config.tools.exec.sandbox.clone(),
+                channels_config: params.channels_config,
+                google_config: Some(config.tools.google.clone()),
+                github_config: Some(config.tools.github.clone()),
+                weather_config: Some(config.tools.weather.clone()),
+                todoist_config: Some(config.tools.todoist.clone()),
+                media_config: Some(config.tools.media.clone()),
+                obsidian_config: Some(config.tools.obsidian.clone()),
+                browser_config: Some(config.tools.browser.clone()),
+                image_gen_config: Some(image_gen),
+                mcp_config: Some(config.tools.mcp.clone()),
+            },
         }
     }
 
@@ -207,11 +215,6 @@ impl AgentLoopConfig {
             workspace,
             model: Some("mock-model".to_string()),
             max_iterations: 10,
-            brave_api_key: None,
-            web_search_config: None,
-            exec_timeout: 30,
-            restrict_to_workspace: true,
-            allowed_commands: vec![],
             compaction_config: crate::config::CompactionConfig {
                 enabled: false,
                 threshold_tokens: 40000,
@@ -223,35 +226,42 @@ impl AgentLoopConfig {
             },
             outbound_tx,
             cron_service: None,
-            google_config: None,
-            github_config: None,
-            weather_config: None,
-            todoist_config: None,
-            media_config: None,
-            obsidian_config: None,
             temperature: 0.7,
             tool_temperature: 0.0,
             session_ttl_days: 0,
             max_tokens: 8192,
             typing_tx: None,
-            channels_config: None,
             memory_indexer_interval: 300,
             media_ttl_days: 0,
             max_concurrent_subagents: 5,
             voice_config: None,
             memory_config: None,
-            browser_config: None,
-            image_gen_config: None,
-            mcp_config: None,
             cost_guard_config: crate::config::CostGuardConfig::default(),
             cognitive_config: crate::config::CognitiveConfig::default(),
             exfiltration_guard: crate::config::ExfiltrationGuardConfig::default(),
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
-            sandbox_config: crate::config::SandboxConfig {
-                enabled: false,
-                ..crate::config::SandboxConfig::default()
-            },
             context_providers: vec![],
+            tool_configs: ToolConfigs {
+                brave_api_key: None,
+                web_search_config: None,
+                exec_timeout: 30,
+                restrict_to_workspace: true,
+                allowed_commands: vec![],
+                sandbox_config: crate::config::SandboxConfig {
+                    enabled: false,
+                    ..crate::config::SandboxConfig::default()
+                },
+                channels_config: None,
+                google_config: None,
+                github_config: None,
+                weather_config: None,
+                todoist_config: None,
+                media_config: None,
+                obsidian_config: None,
+                browser_config: None,
+                image_gen_config: None,
+                mcp_config: None,
+            },
         }
     }
 }
@@ -264,6 +274,34 @@ enum TextAction {
     /// The response is final; the caller should return it.
     Return,
 }
+
+/// Tracks how many corrections each hallucination detection layer has sent,
+/// preventing infinite correction loops while allowing each layer its own budget.
+struct CorrectionState {
+    /// Layer 0 (false no-tools claim) correction count. Capped at
+    /// `MAX_LAYER0_CORRECTIONS` — if the LLM insists it has no tools after
+    /// that many corrections, give up.
+    layer0_count: u8,
+    /// Whether Layer 1 (regex action claims) has fired. Fires once — a second
+    /// hallucination after correction is accepted as the LLM's final answer.
+    layer1_fired: bool,
+    /// Whether Layer 2 (intent mismatch) has fired. Independent of Layer 1,
+    /// so if L1 corrects first and fails, L2 still gets its own attempt.
+    layer2_fired: bool,
+}
+
+impl CorrectionState {
+    fn new() -> Self {
+        Self {
+            layer0_count: 0,
+            layer1_fired: false,
+            layer2_fired: false,
+        }
+    }
+}
+
+/// Maximum corrections for Layer 0 (false no-tools claims).
+const MAX_LAYER0_CORRECTIONS: u8 = 2;
 
 pub struct AgentLoop {
     inbound_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<InboundMessage>>>,
@@ -288,8 +326,9 @@ pub struct AgentLoop {
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     transcriber: Option<Arc<crate::utils::transcription::LazyTranscriptionService>>,
     event_matcher: Option<std::sync::Mutex<EventMatcher>>,
-    /// Last time the event matcher was rebuilt from disk
-    event_matcher_last_rebuild: Arc<std::sync::Mutex<std::time::Instant>>,
+    /// Epoch-seconds timestamp of last event matcher rebuild (atomic to avoid
+    /// blocking the async runtime with a `std::sync::Mutex`)
+    event_matcher_last_rebuild: Arc<std::sync::atomic::AtomicU64>,
     cron_service: Option<Arc<CronService>>,
     cost_guard: Option<Arc<CostGuard>>,
     /// Most recent checkpoint summary (updated periodically during long loops)
@@ -316,40 +355,25 @@ impl AgentLoop {
             workspace,
             model,
             max_iterations,
-            brave_api_key,
-            web_search_config,
-            exec_timeout,
-            restrict_to_workspace,
-            allowed_commands,
             compaction_config,
             outbound_tx,
             cron_service,
-            google_config,
-            github_config,
-            weather_config,
-            todoist_config,
-            media_config,
-            obsidian_config,
             temperature,
             tool_temperature,
             session_ttl_days,
             max_tokens,
             typing_tx,
-            channels_config,
             memory_indexer_interval,
             media_ttl_days,
             max_concurrent_subagents,
             voice_config,
             memory_config,
-            browser_config,
-            image_gen_config,
-            mcp_config,
             cost_guard_config,
             cognitive_config,
             exfiltration_guard,
             prompt_guard_config,
-            sandbox_config,
             context_providers,
+            tool_configs,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -409,21 +433,21 @@ impl AgentLoop {
 
         let tool_ctx = ToolBuildContext {
             workspace: workspace.clone(),
-            restrict_to_workspace,
-            exec_timeout,
+            restrict_to_workspace: tool_configs.restrict_to_workspace,
+            exec_timeout: tool_configs.exec_timeout,
             outbound_tx: outbound_tx.clone(),
             bus: bus.clone(),
-            web_search_config,
+            web_search_config: tool_configs.web_search_config,
             cron_service: cron_service.clone(),
-            channels_config,
-            google_config,
-            github_config,
-            weather_config,
-            todoist_config,
-            media_config,
-            obsidian_config,
-            browser_config,
-            image_gen_config,
+            channels_config: tool_configs.channels_config,
+            google_config: tool_configs.google_config,
+            github_config: tool_configs.github_config,
+            weather_config: tool_configs.weather_config,
+            todoist_config: tool_configs.todoist_config,
+            media_config: tool_configs.media_config,
+            obsidian_config: tool_configs.obsidian_config,
+            browser_config: tool_configs.browser_config,
+            image_gen_config: tool_configs.image_gen_config,
             memory: memory.clone(),
             subagent_config: SubagentConfig {
                 provider: provider.clone(),
@@ -437,10 +461,10 @@ impl AgentLoop {
                 exfil_guard: exfiltration_guard.clone(),
                 main_tools: None, // set after register_all_tools()
             },
-            brave_api_key,
-            allowed_commands,
-            mcp_config,
-            sandbox_config,
+            brave_api_key: tool_configs.brave_api_key,
+            allowed_commands: tool_configs.allowed_commands,
+            mcp_config: tool_configs.mcp_config,
+            sandbox_config: tool_configs.sandbox_config,
             memory_db: Some(memory.db()),
         };
 
@@ -521,7 +545,11 @@ impl AgentLoop {
             typing_tx,
             transcriber,
             event_matcher,
-            event_matcher_last_rebuild: Arc::new(std::sync::Mutex::new(std::time::Instant::now())),
+            event_matcher_last_rebuild: Arc::new(std::sync::atomic::AtomicU64::new(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs()),
+            )),
             cron_service,
             cost_guard,
             last_checkpoint: Arc::new(Mutex::new(None)),
@@ -540,9 +568,8 @@ impl AgentLoop {
     }
 
     pub async fn run(&self) -> Result<()> {
-        info!("Agent loop started, waiting for messages...");
         *self.running.lock().await = true;
-        info!("Agent loop started");
+        info!("agent loop started, waiting for messages");
 
         loop {
             let running = {
@@ -641,16 +668,24 @@ impl AgentLoop {
         // Periodically rebuild the matcher from the cron store (every 60s)
         // so new/modified event jobs are picked up at runtime.
         if let Some(cron_svc) = &self.cron_service {
-            // Check-and-claim: update the timestamp atomically to prevent
+            // Check-and-claim: CAS on epoch-seconds timestamp to prevent
             // concurrent messages from triggering duplicate rebuilds.
-            let needs_rebuild = self.event_matcher_last_rebuild.lock().is_ok_and(|mut t| {
-                if t.elapsed().as_secs() >= 60 {
-                    *t = std::time::Instant::now(); // claim the rebuild
-                    true
-                } else {
-                    false
-                }
-            });
+            let now_epoch = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let last = self
+                .event_matcher_last_rebuild
+                .load(std::sync::atomic::Ordering::Relaxed);
+            let needs_rebuild = now_epoch.saturating_sub(last) >= 60
+                && self
+                    .event_matcher_last_rebuild
+                    .compare_exchange(
+                        last,
+                        now_epoch,
+                        std::sync::atomic::Ordering::AcqRel,
+                        std::sync::atomic::Ordering::Relaxed,
+                    )
+                    .is_ok();
             if needs_rebuild && let Ok(store) = cron_svc.load_store(true).await {
                 let new_matcher = EventMatcher::from_jobs(&store.jobs);
                 if let Some(ref matcher_mutex) = self.event_matcher
@@ -822,34 +857,7 @@ impl AgentLoop {
         };
         debug!("Built {} messages, starting agent loop", messages.len());
 
-        let regex_intent = intent::classify_action_intent(&content);
-        let (semantic_result, semantic_score) = if regex_intent {
-            (None, None)
-        } else {
-            self.memory
-                .embedding_service()
-                .and_then(|svc| intent::classify_action_intent_semantic(&content, svc))
-                .map_or((None, None), |(result, score)| (Some(result), Some(score)))
-        };
-        let user_action_intent = regex_intent || semantic_result.unwrap_or(false);
-
-        // Record intent classification metrics
-        let intent_method = if regex_intent {
-            "regex"
-        } else if semantic_result == Some(true) {
-            "semantic"
-        } else {
-            "none"
-        };
-        if let Err(e) = self.memory.db().record_intent_event(
-            "classification",
-            Some(intent_method),
-            semantic_score,
-            None,
-            &content,
-        ) {
-            debug!("failed to record intent metric: {}", e);
-        }
+        let user_action_intent = self.classify_and_record_intent(&content);
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
         let (final_content, input_tokens, tools_used, collected_media, loop_discourse) = self
@@ -895,14 +903,14 @@ impl AgentLoop {
         self.sessions.save(&session).await?;
 
         // Background fact extraction
-        if let (Some(compactor), Some(content)) = (&self.compactor, &final_content)
+        if let (Some(compactor), Some(assistant_content)) = (&self.compactor, &final_content)
             && self.compaction_config.extraction_enabled
             && msg.channel != "system"
         {
             let compactor = compactor.clone();
             let memory = self.memory.clone();
             let user_msg = msg.content.clone();
-            let assistant_msg = content.clone();
+            let assistant_msg = assistant_content.clone();
             let task_tracker = self.task_tracker.clone();
             let task_name = format!("fact_extraction_{}", chrono::Utc::now().timestamp());
             // Use spawn_auto_cleanup since this is a one-off task that should remove itself
@@ -915,12 +923,19 @@ impl AgentLoop {
                     {
                         Ok(facts) => {
                             if !facts.is_empty() {
-                                if let Err(e) = memory.append_to_section("Facts", &facts) {
-                                    warn!("Failed to save facts to daily note: {}", e);
+                                let filtered =
+                                    crate::agent::memory::quality::filter_lines(&facts);
+                                if filtered.trim().is_empty() {
+                                    debug!("fact extraction: all lines filtered by quality gates");
+                                } else if let Err(e) =
+                                    memory.append_to_section("Facts", &filtered)
+                                {
+                                    warn!("failed to save facts to daily note: {}", e);
                                 } else {
                                     debug!(
-                                        "Saved extracted facts to daily note ({} bytes)",
-                                        facts.len()
+                                        "saved extracted facts to daily note ({} bytes, {} filtered)",
+                                        filtered.len(),
+                                        facts.len() - filtered.len()
                                     );
                                 }
                             }
@@ -1017,7 +1032,7 @@ impl AgentLoop {
         let effective_max_iterations = overrides.max_iterations.unwrap_or(self.max_iterations);
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut any_tools_called = false;
-        let mut correction_sent = false;
+        let mut correction_state = CorrectionState::new();
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
@@ -1046,21 +1061,17 @@ impl AgentLoop {
         // Extract tool names for hallucination detection (immutable snapshot for the full loop)
         let tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
 
-        // Append tool facts to the system prompt so the LLM knows what tools are available.
-        // This MUST go in the system prompt (messages[0]), NOT as a separate user message —
-        // injecting a fake user message breaks user/assistant alternation and causes
-        // the model to lose conversational context on short replies like "Sure" or "Yes".
-        if !tool_names.is_empty() {
-            let tool_list = tool_names.join(", ");
-            let tool_facts = format!(
-                "\n\n## Available Tools\n\nYou have access to the following tools: {}\n\n\
-                 If a user asks for external actions, do not claim tools are unavailable — \
-                 call the matching tool directly.",
-                tool_list
+        // Anti-hallucination instruction in the system prompt. The tool definitions
+        // sent via the API `tools` parameter already list all available tools with
+        // descriptions, so we don't duplicate the name list here — just reinforce
+        // that tools ARE available and should be called directly.
+        if !tool_names.is_empty()
+            && let Some(system_msg) = messages.first_mut()
+        {
+            system_msg.content.push_str(
+                "\n\nYou have tools available. If a user asks for external actions, \
+                 do not claim tools are unavailable — call the matching tool directly.",
             );
-            if let Some(system_msg) = messages.first_mut() {
-                system_msg.content.push_str(&tool_facts);
-            }
         }
 
         // Append cognitive routines to system prompt when enabled
@@ -1094,14 +1105,13 @@ impl AgentLoop {
             // Start periodic typing indicator before LLM call
             let typing_handle = start_typing(self.typing_tx.as_ref(), typing_context.as_ref());
 
-            // Use retry logic for provider calls
-            // Use low temperature for tool-calling iterations (determinism),
-            // normal temperature for final text responses
+            // Temperature strategy: use low temperature after any tool calls for
+            // deterministic tool sequences, normal temperature before the first tool
+            // call (initial response). The post-loop summary uses self.temperature
+            // separately, so the final user-facing text always gets normal temperature.
             let current_temp = if any_tools_called {
-                // During active tool iteration, use low temp for determinism
                 self.tool_temperature
             } else {
-                // For initial/text-only responses, use configured temperature
                 self.temperature
             };
             // Let the model decide when to use tools (auto mode). Hallucination detection
@@ -1220,8 +1230,9 @@ impl AgentLoop {
                     &mut messages,
                     response.reasoning_content.as_deref(),
                     any_tools_called,
-                    &mut correction_sent,
+                    &mut correction_state,
                     &tool_names,
+                    &tools_used,
                     user_has_action_intent,
                     Some(&self.memory.db()),
                 ) {
@@ -1444,7 +1455,17 @@ impl AgentLoop {
                     .map(|m| {
                         let mut map = std::collections::HashMap::new();
                         map.insert("role".to_string(), Value::String(m.role.clone()));
-                        map.insert("content".to_string(), Value::String(m.content.clone()));
+                        // Annotate content with tool names so the checkpoint
+                        // summary reflects tool usage in long agentic loops.
+                        let content = if let Some(ref tcs) = m.tool_calls
+                            && !tcs.is_empty()
+                        {
+                            let names: Vec<&str> = tcs.iter().map(|tc| tc.name.as_str()).collect();
+                            format!("{}\n[tools used: {}]", m.content, names.join(", "))
+                        } else {
+                            m.content.clone()
+                        };
+                        map.insert("content".to_string(), Value::String(content));
                         map
                     })
                     .collect();
@@ -1471,6 +1492,40 @@ impl AgentLoop {
         }
     }
 
+    /// Classify user message intent and record the metric to the database.
+    /// Returns `true` if the message has action intent (should trigger tool use).
+    fn classify_and_record_intent(&self, content: &str) -> bool {
+        let regex_intent = intent::classify_action_intent(content);
+        let (semantic_result, semantic_score) = if regex_intent {
+            (None, None)
+        } else {
+            self.memory
+                .embedding_service()
+                .and_then(|svc| intent::classify_action_intent_semantic(content, svc))
+                .map_or((None, None), |(result, score)| (Some(result), Some(score)))
+        };
+        let user_action_intent = regex_intent || semantic_result.unwrap_or(false);
+
+        let intent_method = if regex_intent {
+            "regex"
+        } else if semantic_result == Some(true) {
+            "semantic"
+        } else {
+            "none"
+        };
+        if let Err(e) = self.memory.db().record_intent_event(
+            "classification",
+            Some(intent_method),
+            semantic_score,
+            None,
+            content,
+        ) {
+            debug!("failed to record intent metric: {}", e);
+        }
+
+        user_action_intent
+    }
+
     /// Handle a text-only LLM response: false no-tools correction or
     /// hallucination detection. Returns [`TextAction::Continue`] if a
     /// correction was injected, or [`TextAction::Return`] if the response is final.
@@ -1485,16 +1540,28 @@ impl AgentLoop {
         messages: &mut Vec<Message>,
         reasoning_content: Option<&str>,
         any_tools_called: bool,
-        correction_sent: &mut bool,
+        state: &mut CorrectionState,
         tool_names: &[String],
+        tools_used: &[String],
         user_has_action_intent: bool,
         db: Option<&MemoryDB>,
     ) -> TextAction {
-        // Detect false "no tools" claims and retry with correction
+        // Layer 0: Detect false "no tools" claims and retry with correction.
+        // The LLM is factually wrong about not having tools — correct up to
+        // MAX_LAYER0_CORRECTIONS times before giving up.
         if !tool_names.is_empty() && is_false_no_tools_claim(content) {
+            if state.layer0_count >= MAX_LAYER0_CORRECTIONS {
+                warn!(
+                    "False no-tools claim persists after {} corrections, giving up",
+                    MAX_LAYER0_CORRECTIONS
+                );
+                return TextAction::Return;
+            }
             warn!(
-                "False no-tools claim detected: LLM claims tools unavailable but {} tools are registered",
-                tool_names.len()
+                "False no-tools claim detected: LLM claims tools unavailable but {} tools are registered (correction {}/{})",
+                tool_names.len(),
+                state.layer0_count + 1,
+                MAX_LAYER0_CORRECTIONS
             );
             if let Some(db) = db
                 && let Err(e) = db.record_intent_event(
@@ -1515,43 +1582,68 @@ impl AgentLoop {
                  Call the appropriate tool now. Do NOT apologize or reference this correction.]",
                 tool_list
             )));
-            *correction_sent = true;
+            state.layer0_count += 1;
             return TextAction::Continue;
         }
 
         // Layer 1: Regex-based action claim detection (fast path)
-        if !any_tools_called
-            && (contains_action_claims(content) || mentions_multiple_tools(content, tool_names))
-        {
-            warn!("Action hallucination detected: LLM claims actions but no tools were called");
-            if let Some(db) = db
-                && let Err(e) = db.record_intent_event(
-                    "hallucination",
+        //
+        // When no tools have been called, check for action claims and multi-tool
+        // mentions. When tools HAVE been called, action claims (e.g. "I've updated
+        // the config") are likely legitimate summaries, so skip that check — but
+        // still catch mentions of tools that were never actually called (the LLM
+        // embellishing what it did).
+        if !state.layer1_fired {
+            let trigger = if any_tools_called {
+                // Only check for mentions of uncalled tools
+                let uncalled: Vec<String> = tool_names
+                    .iter()
+                    .filter(|name| !tools_used.iter().any(|u| u == *name))
+                    .cloned()
+                    .collect();
+                mentions_multiple_tools(content, &uncalled)
+            } else {
+                contains_action_claims(content) || mentions_multiple_tools(content, tool_names)
+            };
+            if trigger {
+                warn!(
+                    "Action hallucination detected: LLM claims actions but tools were not called"
+                );
+                if let Some(db) = db
+                    && let Err(e) = db.record_intent_event(
+                        "hallucination",
+                        None,
+                        None,
+                        Some("layer1_regex"),
+                        content,
+                    )
+                {
+                    debug!("failed to record hallucination metric: {}", e);
+                }
+                ContextBuilder::add_assistant_message(
+                    messages,
+                    Some(content),
                     None,
-                    None,
-                    Some("layer1_regex"),
-                    content,
-                )
-            {
-                debug!("failed to record hallucination metric: {}", e);
+                    reasoning_content,
+                );
+                messages.push(Message::user(
+                    "[Internal: Your previous response was not delivered to the user. \
+                     You must call the appropriate tool to perform the requested action. \
+                     Do NOT apologize or mention any previous attempt — the user has no \
+                     knowledge of it. Just call the tool and respond normally.]"
+                        .to_string(),
+                ));
+                state.layer1_fired = true;
+                return TextAction::Continue;
             }
-            ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
-            messages.push(Message::user(
-                "[Internal: Your previous response was not delivered to the user. \
-                 You must call the appropriate tool to perform the requested action. \
-                 Do NOT apologize or mention any previous attempt — the user has no \
-                 knowledge of it. Just call the tool and respond normally.]"
-                    .to_string(),
-            ));
-            *correction_sent = true;
-            return TextAction::Continue;
         }
 
         // Layer 2: Intent-based structural detection (robust backstop)
         // If the user asked for an action and the LLM returned text without
         // calling tools AND the response isn't a clarification question,
         // this is a hallucination regardless of phrasing.
-        if !any_tools_called
+        if !state.layer2_fired
+            && !any_tools_called
             && !tool_names.is_empty()
             && user_has_action_intent
             && !intent::is_clarification_question(content)
@@ -1578,7 +1670,7 @@ impl AgentLoop {
                  this correction — the user has no knowledge of it.]"
                     .to_string(),
             ));
-            *correction_sent = true;
+            state.layer2_fired = true;
             return TextAction::Continue;
         }
 
@@ -1603,7 +1695,7 @@ impl AgentLoop {
         messages.push(Message::user(
             "Provide a brief summary of what you accomplished for the user.".to_string(),
         ));
-        if let Ok(response) = self
+        match self
             .provider
             .chat_with_retry(
                 crate::providers::base::ChatRequest {
@@ -1618,12 +1710,24 @@ impl AgentLoop {
                 Some(crate::providers::base::RetryConfig::default()),
             )
             .await
-            && let Some(content) = response.content
         {
-            return Ok(Some(content));
+            Ok(response) => {
+                if let Some(ref cg) = self.cost_guard {
+                    cg.record_llm_call(
+                        effective_model,
+                        response.input_tokens,
+                        response.output_tokens,
+                        response.cache_creation_input_tokens,
+                        response.cache_read_input_tokens,
+                    );
+                }
+                Ok(response.content)
+            }
+            Err(e) => {
+                warn!("post-loop summary LLM call failed: {}", e);
+                Ok(None)
+            }
         }
-
-        Ok(None)
     }
 
     fn build_execution_context(
@@ -1729,6 +1833,7 @@ impl AgentLoop {
                 .is_some_and(|c| c as usize >= old_msg_count);
 
             if !already_flushed {
+                let mut flushed_content = false;
                 match compactor.flush_to_memory(old_messages).await {
                     Ok(ref facts) if !facts.is_empty() => {
                         let filtered = crate::agent::memory::quality::filter_lines(facts);
@@ -1745,6 +1850,7 @@ impl AgentLoop {
                                 filtered.len(),
                                 facts.len() - filtered.len()
                             );
+                            flushed_content = true;
                         }
                     }
                     Err(e) => {
@@ -1752,19 +1858,21 @@ impl AgentLoop {
                     }
                     _ => {}
                 }
-                // Mark that we've flushed up to this message count.
-                // Reload the latest session to avoid overwriting concurrent changes.
-                match self.sessions.get_or_create(&session.key).await {
-                    Ok(mut latest) => {
-                        latest.metadata.insert(
-                            "pre_flush_msg_count".to_string(),
-                            Value::Number(serde_json::Number::from(old_msg_count as u64)),
-                        );
-                        if let Err(e) = self.sessions.save(&latest).await {
-                            warn!("failed to save pre-flush marker: {}", e);
+                // Only mark flushed when content was actually persisted, so a
+                // retry can attempt extraction again if nothing was saved.
+                if flushed_content {
+                    match self.sessions.get_or_create(&session.key).await {
+                        Ok(mut latest) => {
+                            latest.metadata.insert(
+                                "pre_flush_msg_count".to_string(),
+                                Value::Number(serde_json::Number::from(old_msg_count as u64)),
+                            );
+                            if let Err(e) = self.sessions.save(&latest).await {
+                                warn!("failed to save pre-flush marker: {}", e);
+                            }
                         }
+                        Err(e) => warn!("failed to reload session for pre-flush marker: {}", e),
                     }
-                    Err(e) => warn!("failed to reload session for pre-flush marker: {}", e),
                 }
             }
         }
@@ -1798,13 +1906,15 @@ impl AgentLoop {
                     // Cache summary locally so it survives save failures
                     *self.last_checkpoint.lock().await = Some(recovery_summary.clone());
 
-                    // Update session metadata with new summary.
-                    // Reload the latest session to avoid overwriting concurrent changes.
+                    // Persist the enriched summary so the next compaction cycle
+                    // builds incrementally on the same context the LLM actually saw
+                    // (including checkpoint/recovery annotations).
                     match self.sessions.get_or_create(&session.key).await {
                         Ok(mut latest) => {
-                            latest
-                                .metadata
-                                .insert("compaction_summary".to_string(), Value::String(summary));
+                            latest.metadata.insert(
+                                "compaction_summary".to_string(),
+                                Value::String(recovery_summary.clone()),
+                            );
                             if let Err(e) = self.sessions.save(&latest).await {
                                 warn!(
                                     "failed to persist compaction summary: {}, will retry next cycle",
@@ -1836,8 +1946,30 @@ impl AgentLoop {
                     Ok(result)
                 }
                 Err(e) => {
-                    warn!("Compaction failed: {}, returning recent messages only", e);
-                    Ok(recent_messages.to_vec())
+                    if previous_summary.is_empty() {
+                        // No previous summary — return full history (oversized but not lost)
+                        warn!(
+                            "compaction failed with no previous summary: {}, returning full history",
+                            e
+                        );
+                        Ok(full_history)
+                    } else {
+                        // Reuse the last successful summary rather than losing all context
+                        warn!("compaction failed: {}, falling back to previous summary", e);
+                        let mut result = vec![HashMap::from([
+                            ("role".to_string(), Value::String("system".to_string())),
+                            (
+                                "content".to_string(),
+                                Value::String(format!(
+                                    "[Previous conversation summary: {}]",
+                                    previous_summary
+                                )),
+                            ),
+                        ])];
+                        result.extend(recent_messages.iter().cloned());
+                        strip_orphaned_tool_messages(&mut result);
+                        Ok(result)
+                    }
                 }
             }
         } else {
@@ -1877,8 +2009,9 @@ impl AgentLoop {
 
         let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
         let exec_ctx = Self::build_execution_context(&origin_channel, &origin_chat_id, None);
+        let user_action_intent = self.classify_and_record_intent(&msg.content);
         let (final_content, _, tools_used, collected_media, _discourse) = self
-            .run_agent_loop(messages, typing_ctx, &exec_ctx, true)
+            .run_agent_loop(messages, typing_ctx, &exec_ctx, user_action_intent)
             .await?;
         let final_content =
             final_content.unwrap_or_else(|| "Background task completed.".to_string());
@@ -1926,64 +2059,44 @@ impl AgentLoop {
         use crate::agent::memory::remember::is_duplicate;
 
         // Quality gate: reject low-signal content
-        let (write_content, response) = match check_quality(content) {
+        let response = match check_quality(content) {
             QualityVerdict::Reject(reason) => {
                 info!("remember fast path: rejected ({:?})", reason);
-                let resp =
-                    "That doesn't seem like something worth remembering. Try being more specific."
-                        .to_string();
-                // Record to session but don't write to memory
-                let mut session = self.sessions.get_or_create(session_key).await?;
-                let extra = HashMap::new();
-                session.add_message(
-                    "user".to_string(),
-                    format!("remember that {}", content),
-                    extra.clone(),
-                );
-                session.add_message("assistant".to_string(), resp.clone(), extra);
-                self.sessions.save(&session).await?;
-                return Ok(Some(resp));
+                "That doesn't seem like something worth remembering. Try being more specific."
+                    .to_string()
             }
             QualityVerdict::Reframed(reframed) => {
-                info!("remember fast path: reframed negative memory");
-                let resp = format!("Noted (reframed for accuracy): {}", reframed);
-                (reframed, resp)
+                // Read today's notes for dedup (use reframed text)
+                let today_notes = self.memory.read_today().unwrap_or_default();
+                if is_duplicate(&reframed, &today_notes) {
+                    info!("remember fast path: duplicate detected, skipping write");
+                    "I already have that noted.".to_string()
+                } else {
+                    self.memory.append_today(&format!("\n- {}\n", reframed))?;
+                    info!(
+                        "remember fast path: wrote {} chars to daily notes (reframed)",
+                        reframed.len()
+                    );
+                    format!("Noted (reframed for accuracy): {}", reframed)
+                }
             }
             QualityVerdict::Pass => {
-                let resp = format!("Noted! I'll remember: {}", content);
-                (content.to_string(), resp)
+                let today_notes = self.memory.read_today().unwrap_or_default();
+                if is_duplicate(content, &today_notes) {
+                    info!("remember fast path: duplicate detected, skipping write");
+                    "I already have that noted.".to_string()
+                } else {
+                    self.memory.append_today(&format!("\n- {}\n", content))?;
+                    info!(
+                        "remember fast path: wrote {} chars to daily notes",
+                        content.len()
+                    );
+                    format!("Noted! I'll remember: {}", content)
+                }
             }
         };
 
-        // Read today's notes for dedup
-        let today_notes = self.memory.read_today().unwrap_or_default();
-        if is_duplicate(&write_content, &today_notes) {
-            info!("remember fast path: duplicate detected, skipping write");
-            let mut session = self.sessions.get_or_create(session_key).await?;
-            let extra = HashMap::new();
-            session.add_message(
-                "user".to_string(),
-                format!("remember that {}", content),
-                extra.clone(),
-            );
-            session.add_message(
-                "assistant".to_string(),
-                "I already have that noted.".to_string(),
-                extra,
-            );
-            self.sessions.save(&session).await?;
-            return Ok(Some("I already have that noted.".to_string()));
-        }
-
-        // Write to daily notes
-        self.memory
-            .append_today(&format!("\n- {}\n", write_content))?;
-        info!(
-            "remember fast path: wrote {} chars to daily notes",
-            write_content.len()
-        );
-
-        // Record to session history
+        // Single session load + save for all branches
         let mut session = self.sessions.get_or_create(session_key).await?;
         let extra = HashMap::new();
         session.add_message(
@@ -2026,6 +2139,26 @@ impl AgentLoop {
     ) -> Result<String> {
         // Acquire processing lock to prevent concurrent processing
         let _lock = self.processing_lock.lock().await;
+
+        // Prompt injection preflight check
+        if let Some(ref guard) = self.prompt_guard {
+            let matches = guard.scan(content);
+            if !matches.is_empty() {
+                for m in &matches {
+                    warn!(
+                        "prompt injection detected in direct call ({:?}): {}",
+                        m.category, m.pattern_name
+                    );
+                }
+                if self.prompt_guard_config.should_block() {
+                    return Ok(
+                        "I can't process this message as it appears to contain prompt injection patterns."
+                            .to_string(),
+                    );
+                }
+            }
+        }
+
         let session = self.sessions.get_or_create(session_key).await?;
         let history = self.get_compacted_history(&session).await?;
 
@@ -2046,33 +2179,7 @@ impl AgentLoop {
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
         let exec_ctx = Self::build_execution_context(channel, chat_id, None);
-        let regex_intent = intent::classify_action_intent(content);
-        let (semantic_result, semantic_score) = if regex_intent {
-            (None, None)
-        } else {
-            self.memory
-                .embedding_service()
-                .and_then(|svc| intent::classify_action_intent_semantic(content, svc))
-                .map_or((None, None), |(result, score)| (Some(result), Some(score)))
-        };
-        let user_action_intent = regex_intent || semantic_result.unwrap_or(false);
-
-        let intent_method = if regex_intent {
-            "regex"
-        } else if semantic_result == Some(true) {
-            "semantic"
-        } else {
-            "none"
-        };
-        if let Err(e) = self.memory.db().record_intent_event(
-            "classification",
-            Some(intent_method),
-            semantic_score,
-            None,
-            content,
-        ) {
-            debug!("failed to record intent metric: {}", e);
-        }
+        let user_action_intent = self.classify_and_record_intent(content);
 
         let (response, _, tools_used, _collected_media, _discourse) = self
             .run_agent_loop_with_overrides(

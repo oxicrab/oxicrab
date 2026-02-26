@@ -69,12 +69,11 @@ impl ToolRegistry {
 
     pub fn register(&mut self, tool: Arc<dyn Tool>) {
         let name = tool.name().to_string();
-        if name.is_empty() || name.len() > 256 || name.contains('\0') || name.contains('\n') {
+        if name.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
             warn!(
-                "tool registry: rejecting tool with invalid name (len={}, has_null={}, has_newline={})",
+                "tool registry: rejecting tool with invalid name (len={}, has_control_chars={})",
                 name.len(),
-                name.contains('\0'),
-                name.contains('\n')
+                name.chars().any(char::is_control)
             );
             return;
         }

@@ -1,5 +1,5 @@
 use crate::providers::anthropic_common;
-use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse};
+use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse, ProviderMetrics};
 use crate::providers::errors::ProviderErrorHandler;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -17,6 +17,13 @@ const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
 /// Default `expires_in` when the OAuth response omits the field (1 hour).
 const DEFAULT_EXPIRES_IN_SECS: u64 = 3600;
+
+/// Return the oxicrab-specific OAuth cache path (`~/.oxicrab/.oauth-cache.json`).
+/// Used when borrowing credentials from external sources (Claude CLI, `OpenClaw`)
+/// so that token refresh writes go here instead of corrupting the source files.
+fn oxicrab_oauth_cache_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".oxicrab").join(".oauth-cache.json"))
+}
 
 // Headers that identify the request as a Claude Code client
 fn claude_code_headers() -> Vec<(&'static str, &'static str)> {
@@ -38,6 +45,7 @@ pub struct AnthropicOAuthProvider {
     default_model: String,
     credentials_path: Option<PathBuf>,
     client: Client,
+    metrics: Arc<std::sync::Mutex<ProviderMetrics>>,
 }
 
 impl AnthropicOAuthProvider {
@@ -71,6 +79,7 @@ impl AnthropicOAuthProvider {
             ),
             credentials_path,
             client,
+            metrics: Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),
         };
 
         // Load cached tokens if available (synchronous — called before tokio runtime
@@ -421,6 +430,9 @@ impl AnthropicOAuthProvider {
                 }
 
                 if let Some(cred_type) = cred.get("type").and_then(Value::as_str) {
+                    // Use oxicrab's own cache path for refreshed tokens so we
+                    // never overwrite OpenClaw's auth-profiles.json with our format.
+                    let cache_path = oxicrab_oauth_cache_path();
                     if cred_type == "oauth" {
                         if let Some(access) = cred.get("access").and_then(Value::as_str) {
                             let refresh = cred.get("refresh").and_then(Value::as_str).unwrap_or("");
@@ -431,7 +443,7 @@ impl AnthropicOAuthProvider {
                                 refresh.to_string(),
                                 expires,
                                 default_model,
-                                Some(store_path),
+                                cache_path,
                             )?));
                         }
                     } else if cred_type == "token"
@@ -444,7 +456,7 @@ impl AnthropicOAuthProvider {
                             String::new(),
                             expires,
                             default_model,
-                            Some(store_path),
+                            cache_path,
                         )?));
                     }
                 }
@@ -481,16 +493,40 @@ impl AnthropicOAuthProvider {
                 .unwrap_or("");
             let expires = oauth.get("expiresAt").and_then(Value::as_i64).unwrap_or(0);
 
+            // Use oxicrab's own cache path for refreshed tokens so we
+            // never overwrite Claude CLI's .credentials.json with our format.
             return Ok(Some(Self::new(
                 access.to_string(),
                 refresh.to_string(),
                 expires,
                 default_model,
-                Some(cred_path),
+                oxicrab_oauth_cache_path(),
             )?));
         }
 
         Ok(None)
+    }
+}
+
+impl AnthropicOAuthProvider {
+    fn update_metrics(&self, json: &Value) {
+        if let Ok(mut metrics) = self.metrics.lock() {
+            metrics.request_count += 1;
+            if let Some(usage) = json.get("usage").and_then(|u| u.as_object()) {
+                if let Some(tokens) = usage
+                    .get("input_tokens")
+                    .and_then(serde_json::Value::as_u64)
+                {
+                    metrics.token_count += tokens;
+                }
+                if let Some(tokens) = usage
+                    .get("output_tokens")
+                    .and_then(serde_json::Value::as_u64)
+                {
+                    metrics.token_count += tokens;
+                }
+            }
+        }
     }
 }
 
@@ -564,13 +600,13 @@ impl LLMProvider for AnthropicOAuthProvider {
                     Ok(()) => {
                         let new_token = self.access_token.lock().await.clone();
                         let retry_resp = self.send_chat_request(&new_token, &payload).await?;
-                        let retry_resp =
-                            ProviderErrorHandler::check_http_status(retry_resp, "AnthropicOAuth")
-                                .await?;
-                        let json: Value = retry_resp
-                            .json()
-                            .await
-                            .context("failed to parse response")?;
+                        let json = ProviderErrorHandler::check_response(
+                            retry_resp,
+                            "AnthropicOAuth",
+                            &self.metrics,
+                        )
+                        .await?;
+                        self.update_metrics(&json);
                         return Ok(anthropic_common::parse_response(&json));
                     }
                     Err(e) => {
@@ -585,13 +621,20 @@ impl LLMProvider for AnthropicOAuthProvider {
             );
         }
 
-        let resp = ProviderErrorHandler::check_http_status(resp, "AnthropicOAuth").await?;
-        let json: Value = resp.json().await.context("failed to parse response")?;
+        let json =
+            ProviderErrorHandler::check_response(resp, "AnthropicOAuth", &self.metrics).await?;
+        self.update_metrics(&json);
         Ok(anthropic_common::parse_response(&json))
     }
 
     fn default_model(&self) -> &str {
         &self.default_model
+    }
+
+    fn metrics(&self) -> ProviderMetrics {
+        self.metrics
+            .lock()
+            .map_or_else(|_| ProviderMetrics::default(), |m| m.clone())
     }
 
     async fn warmup(&self) -> Result<()> {
