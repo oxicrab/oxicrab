@@ -318,8 +318,9 @@ pub struct AgentLoop {
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     transcriber: Option<Arc<crate::utils::transcription::LazyTranscriptionService>>,
     event_matcher: Option<std::sync::Mutex<EventMatcher>>,
-    /// Last time the event matcher was rebuilt from disk
-    event_matcher_last_rebuild: Arc<std::sync::Mutex<std::time::Instant>>,
+    /// Epoch-seconds timestamp of last event matcher rebuild (atomic to avoid
+    /// blocking the async runtime with a `std::sync::Mutex`)
+    event_matcher_last_rebuild: Arc<std::sync::atomic::AtomicU64>,
     cron_service: Option<Arc<CronService>>,
     cost_guard: Option<Arc<CostGuard>>,
     /// Most recent checkpoint summary (updated periodically during long loops)
@@ -551,7 +552,11 @@ impl AgentLoop {
             typing_tx,
             transcriber,
             event_matcher,
-            event_matcher_last_rebuild: Arc::new(std::sync::Mutex::new(std::time::Instant::now())),
+            event_matcher_last_rebuild: Arc::new(std::sync::atomic::AtomicU64::new(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs()),
+            )),
             cron_service,
             cost_guard,
             last_checkpoint: Arc::new(Mutex::new(None)),
@@ -570,9 +575,8 @@ impl AgentLoop {
     }
 
     pub async fn run(&self) -> Result<()> {
-        info!("Agent loop started, waiting for messages...");
         *self.running.lock().await = true;
-        info!("Agent loop started");
+        info!("agent loop started, waiting for messages");
 
         loop {
             let running = {
@@ -671,16 +675,24 @@ impl AgentLoop {
         // Periodically rebuild the matcher from the cron store (every 60s)
         // so new/modified event jobs are picked up at runtime.
         if let Some(cron_svc) = &self.cron_service {
-            // Check-and-claim: update the timestamp atomically to prevent
+            // Check-and-claim: CAS on epoch-seconds timestamp to prevent
             // concurrent messages from triggering duplicate rebuilds.
-            let needs_rebuild = self.event_matcher_last_rebuild.lock().is_ok_and(|mut t| {
-                if t.elapsed().as_secs() >= 60 {
-                    *t = std::time::Instant::now(); // claim the rebuild
-                    true
-                } else {
-                    false
-                }
-            });
+            let now_epoch = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let last = self
+                .event_matcher_last_rebuild
+                .load(std::sync::atomic::Ordering::Relaxed);
+            let needs_rebuild = now_epoch.saturating_sub(last) >= 60
+                && self
+                    .event_matcher_last_rebuild
+                    .compare_exchange(
+                        last,
+                        now_epoch,
+                        std::sync::atomic::Ordering::AcqRel,
+                        std::sync::atomic::Ordering::Relaxed,
+                    )
+                    .is_ok();
             if needs_rebuild && let Ok(store) = cron_svc.load_store(true).await {
                 let new_matcher = EventMatcher::from_jobs(&store.jobs);
                 if let Some(ref matcher_mutex) = self.event_matcher
@@ -898,14 +910,14 @@ impl AgentLoop {
         self.sessions.save(&session).await?;
 
         // Background fact extraction
-        if let (Some(compactor), Some(content)) = (&self.compactor, &final_content)
+        if let (Some(compactor), Some(assistant_content)) = (&self.compactor, &final_content)
             && self.compaction_config.extraction_enabled
             && msg.channel != "system"
         {
             let compactor = compactor.clone();
             let memory = self.memory.clone();
             let user_msg = msg.content.clone();
-            let assistant_msg = content.clone();
+            let assistant_msg = assistant_content.clone();
             let task_tracker = self.task_tracker.clone();
             let task_name = format!("fact_extraction_{}", chrono::Utc::now().timestamp());
             // Use spawn_auto_cleanup since this is a one-off task that should remove itself
@@ -1093,14 +1105,13 @@ impl AgentLoop {
             // Start periodic typing indicator before LLM call
             let typing_handle = start_typing(self.typing_tx.as_ref(), typing_context.as_ref());
 
-            // Use retry logic for provider calls
-            // Use low temperature for tool-calling iterations (determinism),
-            // normal temperature for final text responses
+            // Temperature strategy: use low temperature after any tool calls for
+            // deterministic tool sequences, normal temperature before the first tool
+            // call (initial response). The post-loop summary uses self.temperature
+            // separately, so the final user-facing text always gets normal temperature.
             let current_temp = if any_tools_called {
-                // During active tool iteration, use low temp for determinism
                 self.tool_temperature
             } else {
-                // For initial/text-only responses, use configured temperature
                 self.temperature
             };
             // Let the model decide when to use tools (auto mode). Hallucination detection
@@ -1674,7 +1685,7 @@ impl AgentLoop {
         messages.push(Message::user(
             "Provide a brief summary of what you accomplished for the user.".to_string(),
         ));
-        if let Ok(response) = self
+        match self
             .provider
             .chat_with_retry(
                 crate::providers::base::ChatRequest {
@@ -1689,12 +1700,24 @@ impl AgentLoop {
                 Some(crate::providers::base::RetryConfig::default()),
             )
             .await
-            && let Some(content) = response.content
         {
-            return Ok(Some(content));
+            Ok(response) => {
+                if let Some(ref cg) = self.cost_guard {
+                    cg.record_llm_call(
+                        effective_model,
+                        response.input_tokens,
+                        response.output_tokens,
+                        response.cache_creation_input_tokens,
+                        response.cache_read_input_tokens,
+                    );
+                }
+                Ok(response.content)
+            }
+            Err(e) => {
+                warn!("post-loop summary LLM call failed: {}", e);
+                Ok(None)
+            }
         }
-
-        Ok(None)
     }
 
     fn build_execution_context(
@@ -1948,8 +1971,9 @@ impl AgentLoop {
 
         let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
         let exec_ctx = Self::build_execution_context(&origin_channel, &origin_chat_id, None);
+        let user_action_intent = self.classify_and_record_intent(&msg.content);
         let (final_content, _, tools_used, collected_media, _discourse) = self
-            .run_agent_loop(messages, typing_ctx, &exec_ctx, true)
+            .run_agent_loop(messages, typing_ctx, &exec_ctx, user_action_intent)
             .await?;
         let final_content =
             final_content.unwrap_or_else(|| "Background task completed.".to_string());
@@ -1997,64 +2021,44 @@ impl AgentLoop {
         use crate::agent::memory::remember::is_duplicate;
 
         // Quality gate: reject low-signal content
-        let (write_content, response) = match check_quality(content) {
+        let response = match check_quality(content) {
             QualityVerdict::Reject(reason) => {
                 info!("remember fast path: rejected ({:?})", reason);
-                let resp =
-                    "That doesn't seem like something worth remembering. Try being more specific."
-                        .to_string();
-                // Record to session but don't write to memory
-                let mut session = self.sessions.get_or_create(session_key).await?;
-                let extra = HashMap::new();
-                session.add_message(
-                    "user".to_string(),
-                    format!("remember that {}", content),
-                    extra.clone(),
-                );
-                session.add_message("assistant".to_string(), resp.clone(), extra);
-                self.sessions.save(&session).await?;
-                return Ok(Some(resp));
+                "That doesn't seem like something worth remembering. Try being more specific."
+                    .to_string()
             }
             QualityVerdict::Reframed(reframed) => {
-                info!("remember fast path: reframed negative memory");
-                let resp = format!("Noted (reframed for accuracy): {}", reframed);
-                (reframed, resp)
+                // Read today's notes for dedup (use reframed text)
+                let today_notes = self.memory.read_today().unwrap_or_default();
+                if is_duplicate(&reframed, &today_notes) {
+                    info!("remember fast path: duplicate detected, skipping write");
+                    "I already have that noted.".to_string()
+                } else {
+                    self.memory.append_today(&format!("\n- {}\n", reframed))?;
+                    info!(
+                        "remember fast path: wrote {} chars to daily notes (reframed)",
+                        reframed.len()
+                    );
+                    format!("Noted (reframed for accuracy): {}", reframed)
+                }
             }
             QualityVerdict::Pass => {
-                let resp = format!("Noted! I'll remember: {}", content);
-                (content.to_string(), resp)
+                let today_notes = self.memory.read_today().unwrap_or_default();
+                if is_duplicate(content, &today_notes) {
+                    info!("remember fast path: duplicate detected, skipping write");
+                    "I already have that noted.".to_string()
+                } else {
+                    self.memory.append_today(&format!("\n- {}\n", content))?;
+                    info!(
+                        "remember fast path: wrote {} chars to daily notes",
+                        content.len()
+                    );
+                    format!("Noted! I'll remember: {}", content)
+                }
             }
         };
 
-        // Read today's notes for dedup
-        let today_notes = self.memory.read_today().unwrap_or_default();
-        if is_duplicate(&write_content, &today_notes) {
-            info!("remember fast path: duplicate detected, skipping write");
-            let mut session = self.sessions.get_or_create(session_key).await?;
-            let extra = HashMap::new();
-            session.add_message(
-                "user".to_string(),
-                format!("remember that {}", content),
-                extra.clone(),
-            );
-            session.add_message(
-                "assistant".to_string(),
-                "I already have that noted.".to_string(),
-                extra,
-            );
-            self.sessions.save(&session).await?;
-            return Ok(Some("I already have that noted.".to_string()));
-        }
-
-        // Write to daily notes
-        self.memory
-            .append_today(&format!("\n- {}\n", write_content))?;
-        info!(
-            "remember fast path: wrote {} chars to daily notes",
-            write_content.len()
-        );
-
-        // Record to session history
+        // Single session load + save for all branches
         let mut session = self.sessions.get_or_create(session_key).await?;
         let extra = HashMap::new();
         session.add_message(
@@ -2097,6 +2101,26 @@ impl AgentLoop {
     ) -> Result<String> {
         // Acquire processing lock to prevent concurrent processing
         let _lock = self.processing_lock.lock().await;
+
+        // Prompt injection preflight check
+        if let Some(ref guard) = self.prompt_guard {
+            let matches = guard.scan(content);
+            if !matches.is_empty() {
+                for m in &matches {
+                    warn!(
+                        "prompt injection detected in direct call ({:?}): {}",
+                        m.category, m.pattern_name
+                    );
+                }
+                if self.prompt_guard_config.should_block() {
+                    return Ok(
+                        "I can't process this message as it appears to contain prompt injection patterns."
+                            .to_string(),
+                    );
+                }
+            }
+        }
+
         let session = self.sessions.get_or_create(session_key).await?;
         let history = self.get_compacted_history(&session).await?;
 
