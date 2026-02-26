@@ -143,6 +143,10 @@ impl PromptGuard {
                     | '\u{2064}' // invisible plus
                     | '\u{FE00}'..='\u{FE0F}' // variation selectors
                     | '\u{0300}'..='\u{036F}' // combining diacritical marks
+                    | '\u{1AB0}'..='\u{1AFF}' // combining diacritical marks extended
+                    | '\u{1DC0}'..='\u{1DFF}' // combining diacritical marks supplement
+                    | '\u{20D0}'..='\u{20FF}' // combining diacritical marks for symbols
+                    | '\u{FE20}'..='\u{FE2F}' // combining half marks
                     | '\u{202A}'..='\u{202E}' // bidi control (LRE, RLE, PDF, LRO, RLO)
                     | '\u{2066}'..='\u{2069}' // bidi isolates (LRI, RLI, FSI, PDI)
                     | '\u{E0100}'..='\u{E01EF}' // variation selectors supplement

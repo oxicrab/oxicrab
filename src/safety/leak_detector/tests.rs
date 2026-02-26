@@ -271,3 +271,46 @@ fn test_aws_key_detected() {
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].name, "aws_access_key");
 }
+
+#[test]
+fn test_detect_slack_app_token() {
+    let detector = LeakDetector::new();
+    let text = "App token: xapp-1-A0B1C2D3E4-1234567890-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let matches = detector.scan(text);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "slack_app_token");
+}
+
+#[test]
+fn test_detect_github_fine_grained_pat() {
+    let detector = LeakDetector::new();
+    let text = "Token: github_pat_1234567890ABCDEFGHIJKL_0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789ABCDEF012";
+    let matches = detector.scan(text);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "github_fine_grained_pat");
+}
+
+#[test]
+fn test_scan_includes_known_secrets() {
+    let mut detector = LeakDetector::new();
+    let secret = "my-super-secret-api-key-12345";
+    detector.add_known_secrets(&[("test_secret", secret)]);
+    let matches = detector.scan(secret);
+    assert!(
+        !matches.is_empty(),
+        "scan() should include known secret matches"
+    );
+    assert_eq!(matches[0].name, "known_secret");
+}
+
+#[test]
+fn test_discord_not_detected_without_dots() {
+    let detector = LeakDetector::new();
+    // Text without any dots should not trigger Discord pattern
+    let text = "ABCDEFGHIJKLMNOPQRSTUVWxABCDEfABCDEFGHIJKLMNOPQRSTUVWXYZa";
+    let matches = detector.scan(text);
+    assert!(
+        matches.is_empty(),
+        "Discord pattern should not match text without dots"
+    );
+}
