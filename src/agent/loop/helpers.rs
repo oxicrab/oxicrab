@@ -222,11 +222,31 @@ pub fn is_false_no_tools_claim(text: &str) -> bool {
 /// Returns `true` if the text mentions 3+ tool names, suggesting hallucinated tool results.
 /// When the LLM lists tool names with "results" but never actually called them, this catches
 /// the pattern that the action-claim regex might miss.
+///
+/// Uses word-boundary-aware matching to avoid false positives from tool names
+/// that are common English words (e.g. "exec" in "execute", "read" in "reading").
 pub fn mentions_multiple_tools(text: &str, tool_names: &[String]) -> bool {
     let text_lower = text.to_lowercase();
     let count = tool_names
         .iter()
-        .filter(|name| text_lower.contains(name.as_str()))
+        .filter(|name| {
+            let name_lower = name.to_lowercase();
+            // Find all occurrences and check word boundaries
+            let mut start = 0;
+            while let Some(pos) = text_lower[start..].find(&name_lower) {
+                let abs_pos = start + pos;
+                let end_pos = abs_pos + name_lower.len();
+                let before_ok =
+                    abs_pos == 0 || !text_lower.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
+                let after_ok = end_pos >= text_lower.len()
+                    || !text_lower.as_bytes()[end_pos].is_ascii_alphanumeric();
+                if before_ok && after_ok {
+                    return true;
+                }
+                start = abs_pos + 1;
+            }
+            false
+        })
         .count();
     count >= TOOL_MENTION_HALLUCINATION_THRESHOLD
 }

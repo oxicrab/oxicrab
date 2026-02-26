@@ -265,6 +265,29 @@ enum TextAction {
     Return,
 }
 
+/// Tracks how many corrections each hallucination detection layer has sent,
+/// preventing infinite correction loops while allowing each layer its own budget.
+struct CorrectionState {
+    /// Layer 0 (false no-tools claim) correction count. Capped at 2 —
+    /// if the LLM insists it has no tools after 2 corrections, give up.
+    layer0_count: u8,
+    /// Whether Layers 1 or 2 have fired. These only fire once — a second
+    /// hallucination after correction is accepted as the LLM's final answer.
+    layers12_fired: bool,
+}
+
+impl CorrectionState {
+    fn new() -> Self {
+        Self {
+            layer0_count: 0,
+            layers12_fired: false,
+        }
+    }
+}
+
+/// Maximum corrections for Layer 0 (false no-tools claims).
+const MAX_LAYER0_CORRECTIONS: u8 = 2;
+
 pub struct AgentLoop {
     inbound_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<InboundMessage>>>,
     provider: Arc<dyn LLMProvider>,
@@ -822,34 +845,7 @@ impl AgentLoop {
         };
         debug!("Built {} messages, starting agent loop", messages.len());
 
-        let regex_intent = intent::classify_action_intent(&content);
-        let (semantic_result, semantic_score) = if regex_intent {
-            (None, None)
-        } else {
-            self.memory
-                .embedding_service()
-                .and_then(|svc| intent::classify_action_intent_semantic(&content, svc))
-                .map_or((None, None), |(result, score)| (Some(result), Some(score)))
-        };
-        let user_action_intent = regex_intent || semantic_result.unwrap_or(false);
-
-        // Record intent classification metrics
-        let intent_method = if regex_intent {
-            "regex"
-        } else if semantic_result == Some(true) {
-            "semantic"
-        } else {
-            "none"
-        };
-        if let Err(e) = self.memory.db().record_intent_event(
-            "classification",
-            Some(intent_method),
-            semantic_score,
-            None,
-            &content,
-        ) {
-            debug!("failed to record intent metric: {}", e);
-        }
+        let user_action_intent = self.classify_and_record_intent(&content);
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
         let (final_content, input_tokens, tools_used, collected_media, loop_discourse) = self
@@ -1017,7 +1013,7 @@ impl AgentLoop {
         let effective_max_iterations = overrides.max_iterations.unwrap_or(self.max_iterations);
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut any_tools_called = false;
-        let mut correction_sent = false;
+        let mut correction_state = CorrectionState::new();
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
@@ -1220,7 +1216,7 @@ impl AgentLoop {
                     &mut messages,
                     response.reasoning_content.as_deref(),
                     any_tools_called,
-                    &mut correction_sent,
+                    &mut correction_state,
                     &tool_names,
                     user_has_action_intent,
                     Some(&self.memory.db()),
@@ -1471,6 +1467,40 @@ impl AgentLoop {
         }
     }
 
+    /// Classify user message intent and record the metric to the database.
+    /// Returns `true` if the message has action intent (should trigger tool use).
+    fn classify_and_record_intent(&self, content: &str) -> bool {
+        let regex_intent = intent::classify_action_intent(content);
+        let (semantic_result, semantic_score) = if regex_intent {
+            (None, None)
+        } else {
+            self.memory
+                .embedding_service()
+                .and_then(|svc| intent::classify_action_intent_semantic(content, svc))
+                .map_or((None, None), |(result, score)| (Some(result), Some(score)))
+        };
+        let user_action_intent = regex_intent || semantic_result.unwrap_or(false);
+
+        let intent_method = if regex_intent {
+            "regex"
+        } else if semantic_result == Some(true) {
+            "semantic"
+        } else {
+            "none"
+        };
+        if let Err(e) = self.memory.db().record_intent_event(
+            "classification",
+            Some(intent_method),
+            semantic_score,
+            None,
+            content,
+        ) {
+            debug!("failed to record intent metric: {}", e);
+        }
+
+        user_action_intent
+    }
+
     /// Handle a text-only LLM response: false no-tools correction or
     /// hallucination detection. Returns [`TextAction::Continue`] if a
     /// correction was injected, or [`TextAction::Return`] if the response is final.
@@ -1485,17 +1515,30 @@ impl AgentLoop {
         messages: &mut Vec<Message>,
         reasoning_content: Option<&str>,
         any_tools_called: bool,
-        correction_sent: &mut bool,
+        state: &mut CorrectionState,
         tool_names: &[String],
         user_has_action_intent: bool,
         db: Option<&MemoryDB>,
     ) -> TextAction {
-        // Detect false "no tools" claims and retry with correction.
-        // This always fires — the LLM is factually wrong about not having tools.
+        // Layer 0: Detect false "no tools" claims and retry with correction.
+        // The LLM is factually wrong about not having tools — correct up to
+        // MAX_LAYER0_CORRECTIONS times before giving up.
         if !tool_names.is_empty() && is_false_no_tools_claim(content) {
+            if state.layer0_count >= MAX_LAYER0_CORRECTIONS {
+                // Budget exhausted — the LLM is stuck claiming no tools despite
+                // corrections. Return as-is rather than letting later layers
+                // catch the same issue and loop further.
+                warn!(
+                    "False no-tools claim persists after {} corrections, giving up",
+                    MAX_LAYER0_CORRECTIONS
+                );
+                return TextAction::Return;
+            }
             warn!(
-                "False no-tools claim detected: LLM claims tools unavailable but {} tools are registered",
-                tool_names.len()
+                "False no-tools claim detected: LLM claims tools unavailable but {} tools are registered (correction {}/{})",
+                tool_names.len(),
+                state.layer0_count + 1,
+                MAX_LAYER0_CORRECTIONS
             );
             if let Some(db) = db
                 && let Err(e) = db.record_intent_event(
@@ -1516,7 +1559,7 @@ impl AgentLoop {
                  Call the appropriate tool now. Do NOT apologize or reference this correction.]",
                 tool_list
             )));
-            *correction_sent = true;
+            state.layer0_count += 1;
             return TextAction::Continue;
         }
 
@@ -1525,7 +1568,7 @@ impl AgentLoop {
         // it's likely summarizing subagent results or genuinely conversational.
         // Without this guard, the LLM loops: hallucinate → correct → hallucinate
         // → correct → ... until max_iterations.
-        if *correction_sent {
+        if state.layers12_fired {
             return TextAction::Return;
         }
 
@@ -1553,7 +1596,7 @@ impl AgentLoop {
                  knowledge of it. Just call the tool and respond normally.]"
                     .to_string(),
             ));
-            *correction_sent = true;
+            state.layers12_fired = true;
             return TextAction::Continue;
         }
 
@@ -1588,7 +1631,7 @@ impl AgentLoop {
                  this correction — the user has no knowledge of it.]"
                     .to_string(),
             ));
-            *correction_sent = true;
+            state.layers12_fired = true;
             return TextAction::Continue;
         }
 
@@ -2056,33 +2099,7 @@ impl AgentLoop {
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
         let exec_ctx = Self::build_execution_context(channel, chat_id, None);
-        let regex_intent = intent::classify_action_intent(content);
-        let (semantic_result, semantic_score) = if regex_intent {
-            (None, None)
-        } else {
-            self.memory
-                .embedding_service()
-                .and_then(|svc| intent::classify_action_intent_semantic(content, svc))
-                .map_or((None, None), |(result, score)| (Some(result), Some(score)))
-        };
-        let user_action_intent = regex_intent || semantic_result.unwrap_or(false);
-
-        let intent_method = if regex_intent {
-            "regex"
-        } else if semantic_result == Some(true) {
-            "semantic"
-        } else {
-            "none"
-        };
-        if let Err(e) = self.memory.db().record_intent_event(
-            "classification",
-            Some(intent_method),
-            semantic_score,
-            None,
-            content,
-        ) {
-            debug!("failed to record intent metric: {}", e);
-        }
+        let user_action_intent = self.classify_and_record_intent(content);
 
         let (response, _, tools_used, _collected_media, _discourse) = self
             .run_agent_loop_with_overrides(
