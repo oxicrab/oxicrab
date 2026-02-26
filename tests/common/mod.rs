@@ -2,7 +2,7 @@
 #![allow(unused)]
 
 use async_trait::async_trait;
-use oxicrab::agent::{AgentLoop, AgentLoopConfig};
+use oxicrab::agent::{AgentLoop, AgentLoopConfig, ToolConfigs};
 use oxicrab::bus::MessageBus;
 use oxicrab::config::{
     CognitiveConfig, CompactionConfig, ExfiltrationGuardConfig, PromptGuardConfig, SandboxConfig,
@@ -189,16 +189,16 @@ pub async fn create_test_agent_with(
         outbound_tx,
     );
     if let Some(v) = overrides.allowed_commands {
-        config.allowed_commands = v;
+        config.tool_configs.allowed_commands = v;
     }
     if let Some(v) = overrides.exec_timeout {
-        config.exec_timeout = v;
+        config.tool_configs.exec_timeout = v;
     }
     if let Some(v) = overrides.compaction_config {
         config.compaction_config = v;
     }
     if let Some(v) = overrides.restrict_to_workspace {
-        config.restrict_to_workspace = v;
+        config.tool_configs.restrict_to_workspace = v;
     }
     if let Some(v) = overrides.max_iterations {
         config.max_iterations = v;
@@ -213,7 +213,7 @@ pub async fn create_test_agent_with(
         config.prompt_guard_config = v;
     }
     if let Some(v) = overrides.sandbox_config {
-        config.sandbox_config = v;
+        config.tool_configs.sandbox_config = v;
     }
 
     AgentLoop::new(config)

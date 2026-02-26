@@ -58,6 +58,29 @@ pub struct AgentRunOverrides {
     pub max_iterations: Option<usize>,
 }
 
+/// Tool-specific configurations bundled together. These fields are only used
+/// to construct [`ToolBuildContext`] during [`AgentLoop::new`] — grouping them
+/// reduces `AgentLoopConfig` field count and makes adding new tools cheaper
+/// (only touch this struct + `from_config` + `ToolBuildContext`).
+pub struct ToolConfigs {
+    pub brave_api_key: Option<String>,
+    pub web_search_config: Option<crate::config::WebSearchConfig>,
+    pub exec_timeout: u64,
+    pub restrict_to_workspace: bool,
+    pub allowed_commands: Vec<String>,
+    pub sandbox_config: crate::config::SandboxConfig,
+    pub channels_config: Option<crate::config::ChannelsConfig>,
+    pub google_config: Option<crate::config::GoogleConfig>,
+    pub github_config: Option<crate::config::GitHubConfig>,
+    pub weather_config: Option<crate::config::WeatherConfig>,
+    pub todoist_config: Option<crate::config::TodoistConfig>,
+    pub media_config: Option<crate::config::MediaConfig>,
+    pub obsidian_config: Option<crate::config::ObsidianConfig>,
+    pub browser_config: Option<crate::config::BrowserConfig>,
+    pub image_gen_config: Option<crate::config::ImageGenConfig>,
+    pub mcp_config: Option<crate::config::McpConfig>,
+}
+
 /// Configuration for creating an [`AgentLoop`] instance.
 pub struct AgentLoopConfig {
     pub bus: Arc<Mutex<MessageBus>>,
@@ -65,20 +88,9 @@ pub struct AgentLoopConfig {
     pub workspace: PathBuf,
     pub model: Option<String>,
     pub max_iterations: usize,
-    pub brave_api_key: Option<String>,
-    pub web_search_config: Option<crate::config::WebSearchConfig>,
-    pub exec_timeout: u64,
-    pub restrict_to_workspace: bool,
-    pub allowed_commands: Vec<String>,
     pub compaction_config: crate::config::CompactionConfig,
     pub outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     pub cron_service: Option<Arc<CronService>>,
-    pub google_config: Option<crate::config::GoogleConfig>,
-    pub github_config: Option<crate::config::GitHubConfig>,
-    pub weather_config: Option<crate::config::WeatherConfig>,
-    pub todoist_config: Option<crate::config::TodoistConfig>,
-    pub media_config: Option<crate::config::MediaConfig>,
-    pub obsidian_config: Option<crate::config::ObsidianConfig>,
     /// Temperature for response generation (default 0.7)
     pub temperature: f32,
     /// Temperature for tool-calling iterations (default 0.0 for determinism)
@@ -89,8 +101,6 @@ pub struct AgentLoopConfig {
     pub max_tokens: u32,
     /// Sender for typing indicator events (channel, `chat_id`)
     pub typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
-    /// Channel configurations for multi-channel cron target resolution
-    pub channels_config: Option<crate::config::ChannelsConfig>,
     /// Memory indexer interval in seconds (default 300)
     pub memory_indexer_interval: u64,
     /// Media file TTL in days for cleanup (default 7)
@@ -101,12 +111,6 @@ pub struct AgentLoopConfig {
     pub voice_config: Option<crate::config::VoiceConfig>,
     /// Memory configuration (archive/purge days)
     pub memory_config: Option<crate::config::MemoryConfig>,
-    /// Browser tool configuration
-    pub browser_config: Option<crate::config::BrowserConfig>,
-    /// Image generation tool configuration
-    pub image_gen_config: Option<crate::config::ImageGenConfig>,
-    /// MCP (Model Context Protocol) server configuration
-    pub mcp_config: Option<crate::config::McpConfig>,
     /// Cost guard configuration for budget and rate limiting
     pub cost_guard_config: crate::config::CostGuardConfig,
     /// Cognitive routines configuration for checkpoint pressure signals
@@ -115,10 +119,10 @@ pub struct AgentLoopConfig {
     pub exfiltration_guard: crate::config::ExfiltrationGuardConfig,
     /// Prompt injection detection configuration
     pub prompt_guard_config: crate::config::PromptGuardConfig,
-    /// Landlock sandbox configuration for shell commands
-    pub sandbox_config: crate::config::SandboxConfig,
     /// External context providers that inject dynamic content into the system prompt
     pub context_providers: Vec<crate::config::ContextProviderConfig>,
+    /// Tool-specific configurations (forwarded to [`ToolBuildContext`])
+    pub tool_configs: ToolConfigs,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -156,40 +160,42 @@ impl AgentLoopConfig {
             workspace: config.workspace_path(),
             model: params.model,
             max_iterations: config.agents.defaults.max_tool_iterations,
-            brave_api_key: Some(config.tools.web.search.api_key.clone()),
-            web_search_config: Some(config.tools.web.search.clone()),
-            exec_timeout: config.tools.exec.timeout,
-            restrict_to_workspace: config.tools.restrict_to_workspace,
-            allowed_commands: config.tools.exec.allowed_commands.clone(),
             compaction_config: config.agents.defaults.compaction.clone(),
             outbound_tx: params.outbound_tx,
             cron_service: params.cron_service,
-            google_config: Some(config.tools.google.clone()),
-            github_config: Some(config.tools.github.clone()),
-            weather_config: Some(config.tools.weather.clone()),
-            todoist_config: Some(config.tools.todoist.clone()),
-            media_config: Some(config.tools.media.clone()),
-            obsidian_config: Some(config.tools.obsidian.clone()),
             temperature: config.agents.defaults.temperature,
             tool_temperature: TOOL_TEMPERATURE,
             session_ttl_days: config.agents.defaults.session_ttl_days,
             max_tokens: config.agents.defaults.max_tokens,
             typing_tx: params.typing_tx,
-            channels_config: params.channels_config,
             memory_indexer_interval: config.agents.defaults.memory_indexer_interval,
             media_ttl_days: config.agents.defaults.media_ttl_days,
             max_concurrent_subagents: config.agents.defaults.max_concurrent_subagents,
             voice_config: Some(config.voice.clone()),
             memory_config: Some(config.agents.defaults.memory.clone()),
-            browser_config: Some(config.tools.browser.clone()),
-            image_gen_config: Some(image_gen),
-            mcp_config: Some(config.tools.mcp.clone()),
             cost_guard_config: config.agents.defaults.cost_guard.clone(),
             cognitive_config: config.agents.defaults.cognitive.clone(),
             exfiltration_guard: config.tools.exfiltration_guard.clone(),
             prompt_guard_config: config.agents.defaults.prompt_guard.clone(),
-            sandbox_config: config.tools.exec.sandbox.clone(),
             context_providers: config.agents.defaults.context_providers.clone(),
+            tool_configs: ToolConfigs {
+                brave_api_key: Some(config.tools.web.search.api_key.clone()),
+                web_search_config: Some(config.tools.web.search.clone()),
+                exec_timeout: config.tools.exec.timeout,
+                restrict_to_workspace: config.tools.restrict_to_workspace,
+                allowed_commands: config.tools.exec.allowed_commands.clone(),
+                sandbox_config: config.tools.exec.sandbox.clone(),
+                channels_config: params.channels_config,
+                google_config: Some(config.tools.google.clone()),
+                github_config: Some(config.tools.github.clone()),
+                weather_config: Some(config.tools.weather.clone()),
+                todoist_config: Some(config.tools.todoist.clone()),
+                media_config: Some(config.tools.media.clone()),
+                obsidian_config: Some(config.tools.obsidian.clone()),
+                browser_config: Some(config.tools.browser.clone()),
+                image_gen_config: Some(image_gen),
+                mcp_config: Some(config.tools.mcp.clone()),
+            },
         }
     }
 
@@ -209,11 +215,6 @@ impl AgentLoopConfig {
             workspace,
             model: Some("mock-model".to_string()),
             max_iterations: 10,
-            brave_api_key: None,
-            web_search_config: None,
-            exec_timeout: 30,
-            restrict_to_workspace: true,
-            allowed_commands: vec![],
             compaction_config: crate::config::CompactionConfig {
                 enabled: false,
                 threshold_tokens: 40000,
@@ -225,35 +226,42 @@ impl AgentLoopConfig {
             },
             outbound_tx,
             cron_service: None,
-            google_config: None,
-            github_config: None,
-            weather_config: None,
-            todoist_config: None,
-            media_config: None,
-            obsidian_config: None,
             temperature: 0.7,
             tool_temperature: 0.0,
             session_ttl_days: 0,
             max_tokens: 8192,
             typing_tx: None,
-            channels_config: None,
             memory_indexer_interval: 300,
             media_ttl_days: 0,
             max_concurrent_subagents: 5,
             voice_config: None,
             memory_config: None,
-            browser_config: None,
-            image_gen_config: None,
-            mcp_config: None,
             cost_guard_config: crate::config::CostGuardConfig::default(),
             cognitive_config: crate::config::CognitiveConfig::default(),
             exfiltration_guard: crate::config::ExfiltrationGuardConfig::default(),
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
-            sandbox_config: crate::config::SandboxConfig {
-                enabled: false,
-                ..crate::config::SandboxConfig::default()
-            },
             context_providers: vec![],
+            tool_configs: ToolConfigs {
+                brave_api_key: None,
+                web_search_config: None,
+                exec_timeout: 30,
+                restrict_to_workspace: true,
+                allowed_commands: vec![],
+                sandbox_config: crate::config::SandboxConfig {
+                    enabled: false,
+                    ..crate::config::SandboxConfig::default()
+                },
+                channels_config: None,
+                google_config: None,
+                github_config: None,
+                weather_config: None,
+                todoist_config: None,
+                media_config: None,
+                obsidian_config: None,
+                browser_config: None,
+                image_gen_config: None,
+                mcp_config: None,
+            },
         }
     }
 }
@@ -347,40 +355,25 @@ impl AgentLoop {
             workspace,
             model,
             max_iterations,
-            brave_api_key,
-            web_search_config,
-            exec_timeout,
-            restrict_to_workspace,
-            allowed_commands,
             compaction_config,
             outbound_tx,
             cron_service,
-            google_config,
-            github_config,
-            weather_config,
-            todoist_config,
-            media_config,
-            obsidian_config,
             temperature,
             tool_temperature,
             session_ttl_days,
             max_tokens,
             typing_tx,
-            channels_config,
             memory_indexer_interval,
             media_ttl_days,
             max_concurrent_subagents,
             voice_config,
             memory_config,
-            browser_config,
-            image_gen_config,
-            mcp_config,
             cost_guard_config,
             cognitive_config,
             exfiltration_guard,
             prompt_guard_config,
-            sandbox_config,
             context_providers,
+            tool_configs,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -440,21 +433,21 @@ impl AgentLoop {
 
         let tool_ctx = ToolBuildContext {
             workspace: workspace.clone(),
-            restrict_to_workspace,
-            exec_timeout,
+            restrict_to_workspace: tool_configs.restrict_to_workspace,
+            exec_timeout: tool_configs.exec_timeout,
             outbound_tx: outbound_tx.clone(),
             bus: bus.clone(),
-            web_search_config,
+            web_search_config: tool_configs.web_search_config,
             cron_service: cron_service.clone(),
-            channels_config,
-            google_config,
-            github_config,
-            weather_config,
-            todoist_config,
-            media_config,
-            obsidian_config,
-            browser_config,
-            image_gen_config,
+            channels_config: tool_configs.channels_config,
+            google_config: tool_configs.google_config,
+            github_config: tool_configs.github_config,
+            weather_config: tool_configs.weather_config,
+            todoist_config: tool_configs.todoist_config,
+            media_config: tool_configs.media_config,
+            obsidian_config: tool_configs.obsidian_config,
+            browser_config: tool_configs.browser_config,
+            image_gen_config: tool_configs.image_gen_config,
             memory: memory.clone(),
             subagent_config: SubagentConfig {
                 provider: provider.clone(),
@@ -468,10 +461,10 @@ impl AgentLoop {
                 exfil_guard: exfiltration_guard.clone(),
                 main_tools: None, // set after register_all_tools()
             },
-            brave_api_key,
-            allowed_commands,
-            mcp_config,
-            sandbox_config,
+            brave_api_key: tool_configs.brave_api_key,
+            allowed_commands: tool_configs.allowed_commands,
+            mcp_config: tool_configs.mcp_config,
+            sandbox_config: tool_configs.sandbox_config,
             memory_db: Some(memory.db()),
         };
 
