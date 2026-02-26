@@ -923,12 +923,19 @@ impl AgentLoop {
                     {
                         Ok(facts) => {
                             if !facts.is_empty() {
-                                if let Err(e) = memory.append_to_section("Facts", &facts) {
-                                    warn!("Failed to save facts to daily note: {}", e);
+                                let filtered =
+                                    crate::agent::memory::quality::filter_lines(&facts);
+                                if filtered.trim().is_empty() {
+                                    debug!("fact extraction: all lines filtered by quality gates");
+                                } else if let Err(e) =
+                                    memory.append_to_section("Facts", &filtered)
+                                {
+                                    warn!("failed to save facts to daily note: {}", e);
                                 } else {
                                     debug!(
-                                        "Saved extracted facts to daily note ({} bytes)",
-                                        facts.len()
+                                        "saved extracted facts to daily note ({} bytes, {} filtered)",
+                                        filtered.len(),
+                                        facts.len() - filtered.len()
                                     );
                                 }
                             }
@@ -1448,7 +1455,17 @@ impl AgentLoop {
                     .map(|m| {
                         let mut map = std::collections::HashMap::new();
                         map.insert("role".to_string(), Value::String(m.role.clone()));
-                        map.insert("content".to_string(), Value::String(m.content.clone()));
+                        // Annotate content with tool names so the checkpoint
+                        // summary reflects tool usage in long agentic loops.
+                        let content = if let Some(ref tcs) = m.tool_calls
+                            && !tcs.is_empty()
+                        {
+                            let names: Vec<&str> = tcs.iter().map(|tc| tc.name.as_str()).collect();
+                            format!("{}\n[tools used: {}]", m.content, names.join(", "))
+                        } else {
+                            m.content.clone()
+                        };
+                        map.insert("content".to_string(), Value::String(content));
                         map
                     })
                     .collect();
@@ -1816,6 +1833,7 @@ impl AgentLoop {
                 .is_some_and(|c| c as usize >= old_msg_count);
 
             if !already_flushed {
+                let mut flushed_content = false;
                 match compactor.flush_to_memory(old_messages).await {
                     Ok(ref facts) if !facts.is_empty() => {
                         let filtered = crate::agent::memory::quality::filter_lines(facts);
@@ -1832,6 +1850,7 @@ impl AgentLoop {
                                 filtered.len(),
                                 facts.len() - filtered.len()
                             );
+                            flushed_content = true;
                         }
                     }
                     Err(e) => {
@@ -1839,19 +1858,21 @@ impl AgentLoop {
                     }
                     _ => {}
                 }
-                // Mark that we've flushed up to this message count.
-                // Reload the latest session to avoid overwriting concurrent changes.
-                match self.sessions.get_or_create(&session.key).await {
-                    Ok(mut latest) => {
-                        latest.metadata.insert(
-                            "pre_flush_msg_count".to_string(),
-                            Value::Number(serde_json::Number::from(old_msg_count as u64)),
-                        );
-                        if let Err(e) = self.sessions.save(&latest).await {
-                            warn!("failed to save pre-flush marker: {}", e);
+                // Only mark flushed when content was actually persisted, so a
+                // retry can attempt extraction again if nothing was saved.
+                if flushed_content {
+                    match self.sessions.get_or_create(&session.key).await {
+                        Ok(mut latest) => {
+                            latest.metadata.insert(
+                                "pre_flush_msg_count".to_string(),
+                                Value::Number(serde_json::Number::from(old_msg_count as u64)),
+                            );
+                            if let Err(e) = self.sessions.save(&latest).await {
+                                warn!("failed to save pre-flush marker: {}", e);
+                            }
                         }
+                        Err(e) => warn!("failed to reload session for pre-flush marker: {}", e),
                     }
-                    Err(e) => warn!("failed to reload session for pre-flush marker: {}", e),
                 }
             }
         }
@@ -1885,13 +1906,15 @@ impl AgentLoop {
                     // Cache summary locally so it survives save failures
                     *self.last_checkpoint.lock().await = Some(recovery_summary.clone());
 
-                    // Update session metadata with new summary.
-                    // Reload the latest session to avoid overwriting concurrent changes.
+                    // Persist the enriched summary so the next compaction cycle
+                    // builds incrementally on the same context the LLM actually saw
+                    // (including checkpoint/recovery annotations).
                     match self.sessions.get_or_create(&session.key).await {
                         Ok(mut latest) => {
-                            latest
-                                .metadata
-                                .insert("compaction_summary".to_string(), Value::String(summary));
+                            latest.metadata.insert(
+                                "compaction_summary".to_string(),
+                                Value::String(recovery_summary.clone()),
+                            );
                             if let Err(e) = self.sessions.save(&latest).await {
                                 warn!(
                                     "failed to persist compaction summary: {}, will retry next cycle",
@@ -1923,8 +1946,30 @@ impl AgentLoop {
                     Ok(result)
                 }
                 Err(e) => {
-                    warn!("Compaction failed: {}, returning recent messages only", e);
-                    Ok(recent_messages.to_vec())
+                    if previous_summary.is_empty() {
+                        // No previous summary — return full history (oversized but not lost)
+                        warn!(
+                            "compaction failed with no previous summary: {}, returning full history",
+                            e
+                        );
+                        Ok(full_history)
+                    } else {
+                        // Reuse the last successful summary rather than losing all context
+                        warn!("compaction failed: {}, falling back to previous summary", e);
+                        let mut result = vec![HashMap::from([
+                            ("role".to_string(), Value::String("system".to_string())),
+                            (
+                                "content".to_string(),
+                                Value::String(format!(
+                                    "[Previous conversation summary: {}]",
+                                    previous_summary
+                                )),
+                            ),
+                        ])];
+                        result.extend(recent_messages.iter().cloned());
+                        strip_orphaned_tool_messages(&mut result);
+                        Ok(result)
+                    }
                 }
             }
         } else {

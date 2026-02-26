@@ -28,17 +28,21 @@ pub fn estimate_tokens(text: &str) -> usize {
 pub fn estimate_messages_tokens(messages: &[HashMap<String, Value>]) -> usize {
     let mut total = 0;
     for m in messages {
-        if let Some(content) = m.get("content") {
-            if let Some(text) = content.as_str() {
-                total += estimate_tokens(text);
-            } else if let Some(arr) = content.as_array() {
-                for part in arr {
-                    if let Some(obj) = part.as_object()
-                        && obj.get("type") == Some(&Value::String("text".to_string()))
-                        && let Some(text) = obj.get("text").and_then(|v| v.as_str())
-                    {
-                        total += estimate_tokens(text);
-                    }
+        total += estimate_tokens(&extract_message_text(m.get("content")));
+        // Include tool call payloads (function names + arguments) which can be
+        // a significant portion of token count in tool-heavy conversations.
+        if let Some(tool_calls) = m.get("tool_calls").and_then(Value::as_array) {
+            for tc in tool_calls {
+                if let Some(name) = tc.get("name").and_then(Value::as_str) {
+                    total += estimate_tokens(name);
+                }
+                if let Some(args) = tc.get("arguments") {
+                    let args_str = if let Some(s) = args.as_str() {
+                        s.len()
+                    } else {
+                        args.to_string().len()
+                    };
+                    total += args_str / CHARS_PER_TOKEN_ESTIMATE;
                 }
             }
         }
