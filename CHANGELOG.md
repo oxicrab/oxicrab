@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.6] - 2026-02-26
+
+### Changed
+- **cron:** use humantime for duration formatting ([ac07187](https://github.com/oxicrab/oxicrab/commit/ac07187bd13601980bff0fba2a341b17baac24fa))
+- replace hand-rolled floor_char_boundary with stdlib ([ab1ee95](https://github.com/oxicrab/oxicrab/commit/ab1ee95f84b468046ad8209f87a57f4f3672d43f))
+- extract truncate_chars utility; consolidate GitHub API methods ([ec7962b](https://github.com/oxicrab/oxicrab/commit/ec7962b898e7a3b9b44a5b88a3759477c18906ee))
+- **tools:** reduce boilerplate with actions! macro and helpers ([1e55ca1](https://github.com/oxicrab/oxicrab/commit/1e55ca16181ffee9a0016dd3f6736752acc0cd3b))
+- extract inline tests to directory modules (13 files) ([fe8758c](https://github.com/oxicrab/oxicrab/commit/fe8758ca5dcad54e6ee704c0bdad7b2290ca0238))
+- **agent-loop:** extract ToolConfigs from AgentLoopConfig ([02cf2cd](https://github.com/oxicrab/oxicrab/commit/02cf2cdb3c7cc293796f25612833e28cdd6759e8))
+- **agent-loop:** replace correction bool with CorrectionState struct ([812f6ad](https://github.com/oxicrab/oxicrab/commit/812f6ad71af31f07c043be7054adc3912318cd5e))
+
+
+### Fixed
+- **cron:** avoid deadlock when run/dlq_replay called from agent turn ([a76017a](https://github.com/oxicrab/oxicrab/commit/a76017a6fe3052a239bb537c154d1d732c315b4e))
+- **cron:** O(1) interval catch-up; fix session lock coordination ([8005c04](https://github.com/oxicrab/oxicrab/commit/8005c047bf0797dda9a59c62664bae43c3ffc82e))
+- address 3 issues from config and utils deep review ([8b0e5ef](https://github.com/oxicrab/oxicrab/commit/8b0e5ef9d48950d6d420f9120047ca45a75614b8))
+- **tools:** address 4 issues from deep review ([645460e](https://github.com/oxicrab/oxicrab/commit/645460ebf366ad72ff93614c01e30f83031f19f8))
+- **gateway:** address 4 issues from deep review ([c9c822c](https://github.com/oxicrab/oxicrab/commit/c9c822c16ae322d8a3445f1e36a780f8ada76291))
+- **channels:** address 7 issues from deep review ([83a8ffc](https://github.com/oxicrab/oxicrab/commit/83a8ffc56a7b7ed7e75cb47be5cff6235226db86))
+- **safety:** address 5 issues from deep review ([6f12cde](https://github.com/oxicrab/oxicrab/commit/6f12cdedd8756a32e31aeda6f4c1fd77c0940072))
+- **providers:** address 8 issues from deep review ([54219c5](https://github.com/oxicrab/oxicrab/commit/54219c5ca2307b6aeb3df599fbce63115f2e4d00))
+- **memory-db:** address 8 issues from deep review ([1d42cff](https://github.com/oxicrab/oxicrab/commit/1d42cffb2d61e9d8173e735701974c98aac4f7a6))
+- **compaction:** address 7 issues from deep review ([8863ca0](https://github.com/oxicrab/oxicrab/commit/8863ca0f8284d9ff966f55bcec730a42dc7b2e44))
+- **agent-loop:** address seven review findings across the agent loop ([fb86f08](https://github.com/oxicrab/oxicrab/commit/fb86f08554bea3c67e38f0912a4f95e0f532f31a))
+- **agent-loop:** five hallucination detection improvements ([8eb7304](https://github.com/oxicrab/oxicrab/commit/8eb7304c3cf190ce04475bb08f703135e4eb0b5a))
+- **agent-loop:** prevent infinite hallucination correction loop ([f4fd204](https://github.com/oxicrab/oxicrab/commit/f4fd204968520814e46c3f2c292503b3deddaca8))
+- **weather:** change subagent access from ReadOnly to Full ([3266174](https://github.com/oxicrab/oxicrab/commit/3266174dde1fa9926cc402262e33372a7957984a))
+- **subagent:** populate prompt with tool metadata to prevent exec misuse ([0846fb8](https://github.com/oxicrab/oxicrab/commit/0846fb8ee33eaf7464b6a3a21c4f782d1e6d950e))
+
+
+### Maintenance
+- remove dead code (LOGO constant, unused cache_len test helper) ([512fe87](https://github.com/oxicrab/oxicrab/commit/512fe876f9aba9ea97a7fd26a58a7968ea97eec5))
+
 ## [0.11.5] - 2026-02-25
 
 ### Added
