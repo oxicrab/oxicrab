@@ -548,22 +548,25 @@ impl Tool for CronTool {
             "run" => {
                 let job_id = params["job_id"]
                     .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'job_id' parameter for run"))?;
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'job_id' parameter for run"))?
+                    .to_string();
 
-                match self.cron_service.run_job(job_id, true).await? {
-                    Some(Some(result)) => Ok(ToolResult::new(format!(
-                        "Job {} completed. Result:\n{}",
-                        job_id, result
-                    ))),
-                    Some(None) => Ok(ToolResult::new(format!(
-                        "Job {} completed (no output)",
-                        job_id
-                    ))),
-                    None => Ok(ToolResult::error(format!(
-                        "Job {} not found or no callback configured",
-                        job_id
-                    ))),
-                }
+                // Spawn job execution on a separate task to avoid deadlock.
+                // The agent loop holds `processing_lock` during tool execution,
+                // and the cron callback calls `process_direct()` which re-acquires
+                // the same lock — awaiting inline would deadlock.
+                let cron = self.cron_service.clone();
+                let job_id_clone = job_id.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = cron.run_job(&job_id_clone, true).await {
+                        tracing::error!("cron run job {} failed: {}", job_id_clone, e);
+                    }
+                });
+
+                Ok(ToolResult::new(format!(
+                    "Job {} triggered (running in background)",
+                    job_id
+                )))
             }
             "dlq_list" => {
                 let Some(ref db) = self.memory_db else {
@@ -613,32 +616,22 @@ impl Tool for CronTool {
                     return Ok(ToolResult::error(format!("DLQ entry {} not found", dlq_id)));
                 };
 
-                // Parse payload to get the job_id and try to re-run it
-                let job_id = &entry.job_id;
+                // Spawn replay on a separate task to avoid deadlock (same
+                // reason as the "run" action — processing_lock re-entrancy).
+                let job_id = entry.job_id.clone();
                 db.increment_dlq_retry(dlq_id)?;
-                match self.cron_service.run_job(job_id, true).await? {
-                    Some(Some(result)) => {
-                        db.update_dlq_status(dlq_id, "replayed")?;
-                        Ok(ToolResult::new(format!(
-                            "Replayed DLQ entry {} (job {}). Result:\n{}",
-                            dlq_id, job_id, result
-                        )))
+                let cron = self.cron_service.clone();
+                let job_id_clone = job_id.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = cron.run_job(&job_id_clone, true).await {
+                        tracing::error!("cron dlq_replay job {} failed: {}", job_id_clone, e);
                     }
-                    Some(None) => {
-                        db.update_dlq_status(dlq_id, "replayed")?;
-                        Ok(ToolResult::new(format!(
-                            "Replayed DLQ entry {} (job {}) — no output",
-                            dlq_id, job_id
-                        )))
-                    }
-                    None => {
-                        db.update_dlq_status(dlq_id, "failed_replay")?;
-                        Ok(ToolResult::error(format!(
-                            "Job {} not found or no callback configured. DLQ entry marked as failed_replay.",
-                            job_id
-                        )))
-                    }
-                }
+                });
+
+                Ok(ToolResult::new(format!(
+                    "DLQ entry {} replay triggered (job {}, running in background)",
+                    dlq_id, job_id
+                )))
             }
             "dlq_clear" => {
                 let Some(ref db) = self.memory_db else {
