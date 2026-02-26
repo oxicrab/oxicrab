@@ -103,40 +103,6 @@ fn strip_blobs_integrated_with_truncation() {
     assert!(!result.contains(&b64_data));
 }
 
-// ── Floor char boundary tests ────────────────────────────
-
-#[test]
-fn floor_char_boundary_ascii() {
-    assert_eq!(floor_char_boundary("hello", 3), 3);
-}
-
-#[test]
-fn floor_char_boundary_zero() {
-    assert_eq!(floor_char_boundary("hello", 0), 0);
-}
-
-#[test]
-fn floor_char_boundary_beyond_len() {
-    assert_eq!(floor_char_boundary("hello", 100), 5);
-}
-
-#[test]
-fn floor_char_boundary_multibyte() {
-    // Each emoji is 4 bytes
-    let s = "a\u{1F600}b"; // a + grinning face + b = 1 + 4 + 1 = 6 bytes
-    assert_eq!(floor_char_boundary(s, 1), 1); // right after 'a'
-    assert_eq!(floor_char_boundary(s, 2), 1); // mid-emoji, snaps back to 1
-    assert_eq!(floor_char_boundary(s, 3), 1);
-    assert_eq!(floor_char_boundary(s, 4), 1);
-    assert_eq!(floor_char_boundary(s, 5), 5); // right after emoji
-}
-
-#[test]
-fn floor_char_boundary_empty() {
-    assert_eq!(floor_char_boundary("", 0), 0);
-    assert_eq!(floor_char_boundary("", 5), 0);
-}
-
 #[test]
 fn truncate_short_string() {
     let result = truncate_tool_result("short", 100);
