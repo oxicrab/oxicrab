@@ -43,4 +43,3 @@ pub mod fuzz_api {
 }
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const LOGO: &str = "🤖";
