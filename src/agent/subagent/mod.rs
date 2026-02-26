@@ -111,14 +111,7 @@ impl SubagentManager {
         context: Option<String>,
     ) -> Result<String> {
         let task_id = Uuid::new_v4().to_string()[..8].to_string();
-        let display_label = label.unwrap_or_else(|| {
-            if task.chars().count() > 30 {
-                let truncated: String = task.chars().take(30).collect();
-                format!("{}...", truncated)
-            } else {
-                task.clone()
-            }
-        });
+        let display_label = label.unwrap_or_else(|| crate::utils::truncate_chars(&task, 30, "..."));
         let display_label_clone = display_label.clone();
         let task_id_clone = task_id.clone();
 

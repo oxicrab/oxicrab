@@ -87,5 +87,20 @@ pub fn get_workspace_path(workspace: &str) -> PathBuf {
     PathBuf::from(workspace)
 }
 
+/// Truncate a string to at most `max_chars` characters, appending `suffix`
+/// (e.g. `"..."`) if truncated. Returns the original string (owned) if short enough.
+/// Safe for multi-byte UTF-8.
+pub fn truncate_chars(s: &str, max_chars: usize, suffix: &str) -> String {
+    // Fast path: ASCII-only strings where len == char count
+    if s.len() <= max_chars {
+        return s.to_string();
+    }
+    // Find the byte index of the max_chars-th character
+    match s.char_indices().nth(max_chars) {
+        Some((byte_idx, _)) => format!("{}{}", &s[..byte_idx], suffix),
+        None => s.to_string(), // fewer chars than max_chars
+    }
+}
+
 #[cfg(test)]
 mod tests;

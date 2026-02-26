@@ -433,14 +433,7 @@ impl Tool for CronTool {
 
                 let job = CronJob {
                     id: uuid::Uuid::new_v4().simple().to_string()[..12].to_string(),
-                    name: {
-                        let truncated: String = message.chars().take(30).collect();
-                        if message.chars().count() > 30 {
-                            format!("{}...", truncated)
-                        } else {
-                            message.clone()
-                        }
-                    },
+                    name: crate::utils::truncate_chars(&message, 30, "..."),
                     enabled: true,
                     schedule,
                     payload: CronPayload {

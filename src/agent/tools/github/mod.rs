@@ -77,19 +77,17 @@ impl GitHubTool {
         msg.to_string()
     }
 
-    async fn api_get(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
-        let resp = self
-            .client
-            .get(format!("{}{}", self.base_url, path))
-            .query(query)
-            .header("Authorization", format!("Bearer {}", self.token))
+    fn github_headers(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        req.header("Authorization", format!("Bearer {}", self.token))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "oxicrab")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
+    }
 
+    /// Send a request, check rate limits, and parse the JSON response.
+    async fn api_send(&self, req: reqwest::RequestBuilder) -> Result<Value> {
+        let resp = req.send().await?;
         let status = resp.status();
         Self::check_rate_limit(&resp);
         if status.as_u16() == 429 {
@@ -97,51 +95,36 @@ impl GitHubTool {
         }
         let body: Value = resp.json().await?;
         if !status.is_success() {
-            let msg = Self::sanitize_api_error(&body);
-            anyhow::bail!("GitHub API {}: {}", status, msg);
+            anyhow::bail!("GitHub API {}: {}", status, Self::sanitize_api_error(&body));
         }
         Ok(body)
     }
 
-    async fn api_post(&self, path: &str, body: &Value) -> Result<Value> {
-        let resp = self
-            .client
-            .post(format!("{}{}", self.base_url, path))
-            .json(body)
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "oxicrab")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
+    async fn api_get(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
+        let req = self.github_headers(
+            self.client
+                .get(format!("{}{}", self.base_url, path))
+                .query(query),
+        );
+        self.api_send(req).await
+    }
 
-        let status = resp.status();
-        Self::check_rate_limit(&resp);
-        if status.as_u16() == 429 {
-            anyhow::bail!("GitHub API rate limit exceeded, try again later");
-        }
-        let result: Value = resp.json().await?;
-        if !status.is_success() {
-            let msg = Self::sanitize_api_error(&result);
-            anyhow::bail!("GitHub API {}: {}", status, msg);
-        }
-        Ok(result)
+    async fn api_post(&self, path: &str, body: &Value) -> Result<Value> {
+        let req = self.github_headers(
+            self.client
+                .post(format!("{}{}", self.base_url, path))
+                .json(body),
+        );
+        self.api_send(req).await
     }
 
     async fn api_post_no_content(&self, path: &str, body: &Value) -> Result<()> {
-        let resp = self
-            .client
-            .post(format!("{}{}", self.base_url, path))
-            .json(body)
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "oxicrab")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
-
+        let req = self.github_headers(
+            self.client
+                .post(format!("{}{}", self.base_url, path))
+                .json(body),
+        );
+        let resp = req.send().await?;
         let status = resp.status();
         Self::check_rate_limit(&resp);
         if !status.is_success() {
@@ -320,14 +303,6 @@ impl GitHubTool {
 
         let status_str = if merged { "merged" } else { state };
 
-        // Truncate body
-        let body_preview: String = body.chars().take(500).collect();
-        let body_truncated = if body.chars().count() > 500 {
-            format!("{}...", body_preview)
-        } else {
-            body_preview
-        };
-
         Ok(format!(
             "PR #{} — {} ({})\nBy: {} | {} → {} | {}\n+{} −{} in {} files\n\n{}",
             number,
@@ -340,7 +315,7 @@ impl GitHubTool {
             additions,
             deletions,
             changed_files,
-            body_truncated
+            crate::utils::truncate_chars(body, 500, "...")
         ))
     }
 
@@ -376,17 +351,17 @@ impl GitHubTool {
             format!("\nAssignees: {}", assignees.join(", "))
         };
 
-        // Truncate body
-        let body_preview: String = body.chars().take(500).collect();
-        let body_truncated = if body.chars().count() > 500 {
-            format!("{}...", body_preview)
-        } else {
-            body_preview
-        };
-
         Ok(format!(
             "Issue #{} — {} ({})\nBy: {} | {} comments{}{}\n{}\n\n{}",
-            number, title, state, user, comments, label_str, assignee_str, url, body_truncated
+            number,
+            title,
+            state,
+            user,
+            comments,
+            label_str,
+            assignee_str,
+            url,
+            crate::utils::truncate_chars(body, 500, "...")
         ))
     }
 

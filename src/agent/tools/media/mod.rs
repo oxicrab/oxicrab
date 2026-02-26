@@ -560,17 +560,8 @@ impl Tool for MediaTool {
 
 // --- Formatting functions (extracted for testability) ---
 
-/// Truncate an overview string to 500 chars at a safe boundary.
 fn truncate_overview(overview: &str) -> String {
-    if overview.len() <= 500 {
-        return overview.to_string();
-    }
-    let end = overview
-        .char_indices()
-        .take_while(|(idx, _)| *idx <= 500)
-        .last()
-        .map_or(500, |(idx, _)| idx);
-    format!("{}...", &overview[..end])
+    crate::utils::truncate_chars(overview, 500, "...")
 }
 
 fn format_movie_search_results(results: &[Value]) -> String {

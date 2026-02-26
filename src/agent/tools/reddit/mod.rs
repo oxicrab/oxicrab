@@ -100,15 +100,13 @@ impl RedditTool {
                 let author = d["author"].as_str().unwrap_or("[deleted]");
                 let url = d["url"].as_str().unwrap_or("");
                 let selftext = d["selftext"].as_str().unwrap_or("");
-                let preview: String = if selftext.is_empty() {
+                let preview = if selftext.is_empty() {
                     String::new()
                 } else {
-                    let truncated: String = selftext.chars().take(150).collect();
-                    if selftext.chars().count() > 150 {
-                        format!("\n   {}...", truncated)
-                    } else {
-                        format!("\n   {}", truncated)
-                    }
+                    format!(
+                        "\n   {}",
+                        crate::utils::truncate_chars(selftext, 150, "...")
+                    )
                 };
 
                 format!(
