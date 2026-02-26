@@ -275,8 +275,8 @@ fn test_parse_response_malformed_tool_arguments() {
         "usage": {}
     });
     let resp = OpenAIProvider::parse_response(&json).unwrap();
-    // Should fall back to empty object
-    assert_eq!(resp.tool_calls[0].arguments, json!({}));
+    // Malformed arguments should cause the tool call to be skipped entirely
+    assert!(resp.tool_calls.is_empty());
 }
 
 #[test]

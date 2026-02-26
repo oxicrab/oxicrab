@@ -100,21 +100,20 @@ impl OpenAIProvider {
         if let Some(tool_calls_array) = message["tool_calls"].as_array() {
             for tc in tool_calls_array {
                 if let Some(function) = tc["function"].as_object() {
-                    let arguments = function["arguments"]
-                        .as_str()
-                        .and_then(|s| {
-                            serde_json::from_str(s)
-                                .map_err(|e| {
-                                    warn!(
-                                        "failed to parse tool call arguments for '{}': {}",
-                                        function["name"].as_str().unwrap_or("unknown"),
-                                        e
-                                    );
+                    let arguments = match function["arguments"].as_str() {
+                        Some(s) => match serde_json::from_str(s) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                warn!(
+                                    "skipping tool call '{}': failed to parse arguments: {}",
+                                    function["name"].as_str().unwrap_or("unknown"),
                                     e
-                                })
-                                .ok()
-                        })
-                        .unwrap_or_else(|| json!({}));
+                                );
+                                continue;
+                            }
+                        },
+                        None => json!({}),
+                    };
 
                     tool_calls.push(ToolCallRequest {
                         id: tc["id"].as_str().unwrap_or("").to_string(),

@@ -71,7 +71,7 @@ impl GeminiProvider {
                     tool_calls.push(ToolCallRequest {
                         id,
                         name,
-                        arguments: fc["args"].clone(),
+                        arguments: fc.get("args").cloned().unwrap_or(json!({})),
                     });
                 }
             }
@@ -110,6 +110,18 @@ impl LLMProvider for GeminiProvider {
         let mut system_parts: Vec<String> = Vec::new();
         let mut gemini_contents: Vec<Value> = Vec::new();
 
+        // Build tool_call_id → tool_name mapping from conversation history.
+        // Gemini's functionResponse requires the function name (not call ID).
+        let mut tool_id_to_name: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for msg in &req.messages {
+            if let Some(ref tool_calls) = msg.tool_calls {
+                for tc in tool_calls {
+                    tool_id_to_name.insert(tc.id.clone(), tc.name.clone());
+                }
+            }
+        }
+
         for msg in req.messages {
             if msg.role == "system" {
                 system_parts.push(msg.content);
@@ -118,7 +130,11 @@ impl LLMProvider for GeminiProvider {
 
             if msg.role == "tool" {
                 // Gemini expects tool results as functionResponse parts
-                let tool_name = msg.tool_call_id.as_deref().unwrap_or("unknown");
+                let tool_name = msg
+                    .tool_call_id
+                    .as_deref()
+                    .and_then(|id| tool_id_to_name.get(id))
+                    .map_or("unknown", String::as_str);
                 let response_value: Value = serde_json::from_str(&msg.content)
                     .unwrap_or_else(|_| json!({"result": msg.content}));
                 gemini_contents.push(json!({

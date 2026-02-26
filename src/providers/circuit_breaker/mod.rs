@@ -206,8 +206,12 @@ impl LLMProvider for CircuitBreakerProvider {
                 Ok(response)
             }
             Err(e) => {
-                let error_str = e.to_string();
-                let transient = Self::is_transient(&error_str);
+                // Use typed error downcasting when available for precise classification,
+                // falling back to string matching for untyped errors.
+                let transient = e.downcast_ref::<crate::errors::OxicrabError>().map_or_else(
+                    || Self::is_transient(&e.to_string()),
+                    crate::errors::OxicrabError::is_retryable,
+                );
                 self.record_failure(transient).await;
                 Err(e)
             }
