@@ -523,6 +523,13 @@ impl Config {
             }
         }
 
+        // Include webhook HMAC secrets
+        for wh in self.gateway.webhooks.values() {
+            if !wh.secret.is_empty() {
+                secrets.push(("webhook_secret", wh.secret.as_str()));
+            }
+        }
+
         // Include custom header values from all providers (may contain auth tokens)
         let provider_configs = [
             &self.providers.anthropic,
