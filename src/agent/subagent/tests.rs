@@ -106,7 +106,12 @@ fn make_manager(provider: Arc<dyn LLMProvider>, max_concurrent: usize) -> Subage
 
 #[test]
 fn test_prompt_without_context() {
-    let prompt = build_subagent_prompt("Do the thing", Path::new("/workspace"), None);
+    let tools = make_test_main_registry();
+    let registry = super::build_subagent_tools(&make_inner_with_tools(
+        crate::config::ExfiltrationGuardConfig::default(),
+        tools,
+    ));
+    let prompt = build_subagent_prompt("Do the thing", Path::new("/workspace"), None, &registry);
     assert!(prompt.contains("## Your Task\nDo the thing"));
     assert!(!prompt.contains("Conversation Context"));
     assert!(prompt.contains("/workspace"));
@@ -114,10 +119,16 @@ fn test_prompt_without_context() {
 
 #[test]
 fn test_prompt_with_context() {
+    let tools = make_test_main_registry();
+    let registry = super::build_subagent_tools(&make_inner_with_tools(
+        crate::config::ExfiltrationGuardConfig::default(),
+        tools,
+    ));
     let prompt = build_subagent_prompt(
         "Research X",
         Path::new("/workspace"),
         Some("User asked about library Y for parsing JSON."),
+        &registry,
     );
     assert!(prompt.contains("## Conversation Context"));
     assert!(prompt.contains("library Y for parsing JSON"));
@@ -127,11 +138,45 @@ fn test_prompt_with_context() {
 #[test]
 fn test_prompt_context_truncated_at_2000_chars() {
     let long_context: String = "x".repeat(3000);
-    let prompt = build_subagent_prompt("task", Path::new("/ws"), Some(&long_context));
+    let registry = crate::agent::tools::ToolRegistry::new();
+    let prompt = build_subagent_prompt("task", Path::new("/ws"), Some(&long_context), &registry);
     // The context section should contain exactly MAX_CONTEXT_CHARS of 'x'
     let ctx_start = prompt.find("(for reference):\n").unwrap() + "(for reference):\n".len();
     let ctx_end = prompt[ctx_start..].find('\n').unwrap();
     assert_eq!(ctx_end, MAX_CONTEXT_CHARS);
+}
+
+#[test]
+fn test_prompt_lists_tools_from_metadata() {
+    let tools = make_test_main_registry();
+    let registry = super::build_subagent_tools(&make_inner_with_tools(
+        crate::config::ExfiltrationGuardConfig::default(),
+        tools,
+    ));
+    let prompt = build_subagent_prompt("Do stuff", Path::new("/ws"), None, &registry);
+    assert!(prompt.contains("## Available Tools"));
+    // Tool names should appear
+    assert!(
+        prompt.contains("**github**"),
+        "github tool should be listed"
+    );
+    assert!(
+        prompt.contains("**read_file**"),
+        "read_file tool should be listed"
+    );
+    assert!(
+        prompt.contains("**web_fetch**"),
+        "web_fetch tool should be listed"
+    );
+    // GitHub read-only actions should appear
+    assert!(
+        prompt.contains("list_prs"),
+        "github read-only actions should be listed"
+    );
+    assert!(
+        !prompt.contains("create_issue"),
+        "github mutating actions should NOT be listed"
+    );
 }
 
 // --- Capacity tests ---

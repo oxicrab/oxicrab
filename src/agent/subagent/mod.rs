@@ -388,7 +388,7 @@ async fn run_subagent_inner(
     }
 
     // Build messages
-    let system_prompt = build_subagent_prompt(task, &config.workspace, context);
+    let system_prompt = build_subagent_prompt(task, &config.workspace, context, &tools);
     let mut messages = vec![Message::system(system_prompt), Message::user(task)];
 
     // Run agent loop
@@ -646,7 +646,12 @@ async fn announce_result(
     );
 }
 
-fn build_subagent_prompt(task: &str, workspace: &std::path::Path, context: Option<&str>) -> String {
+fn build_subagent_prompt(
+    task: &str,
+    workspace: &std::path::Path,
+    context: Option<&str>,
+    tools: &ToolRegistry,
+) -> String {
     let context_section = if let Some(ctx) = context {
         // Cap context to avoid bloating subagent token usage
         let trimmed: String = ctx.chars().take(MAX_CONTEXT_CHARS).collect();
@@ -658,6 +663,43 @@ fn build_subagent_prompt(task: &str, workspace: &std::path::Path, context: Optio
         String::new()
     };
 
+    // Build tool inventory from registry metadata.
+    // For action-based tools, extract available actions from the parameters
+    // schema (already filtered by ReadOnlyToolWrapper for subagent tools).
+    let mut tool_entries: Vec<(String, String)> = tools
+        .iter()
+        .map(|(_, tool)| {
+            let name = tool.name().to_string();
+            let desc = tool.description().to_string();
+            let params = tool.parameters();
+
+            // Extract action enum from schema if present
+            let actions_suffix = params
+                .get("properties")
+                .and_then(|p| p.get("action"))
+                .and_then(|a| a.get("enum"))
+                .and_then(|e| e.as_array())
+                .map(|arr| {
+                    let names: Vec<&str> = arr.iter().filter_map(|v| v.as_str()).collect();
+                    if names.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" [actions: {}]", names.join(", "))
+                    }
+                })
+                .unwrap_or_default();
+
+            (name, format!("{}{}", desc, actions_suffix))
+        })
+        .collect();
+    tool_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let tool_list = tool_entries
+        .iter()
+        .map(|(name, desc)| format!("- **{}**: {}", name, desc))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     format!(
         r"# Subagent
 
@@ -667,16 +709,16 @@ You are a subagent spawned by the main agent to complete a specific task.
 {}
 {}
 ## Rules
-1. Stay focused - complete only the assigned task, nothing else
+1. Stay focused — complete only the assigned task, nothing else
 2. Your final response will be reported back to the main agent
 3. Do not initiate conversations or take on side tasks
 4. Be concise but informative in your findings
 
-## What You Can Do
-- Read and write files in the workspace
-- Execute shell commands
-- Search the web and fetch web pages
-- Complete the task thoroughly
+## Available Tools
+Call these tools directly by name. Do NOT use `exec` to shell out when a purpose-built tool exists.
+{}
+
+Only use `exec` for tasks that no other tool can accomplish (e.g. git commands, running scripts).
 
 ## What You Cannot Do
 - Send messages directly to users
@@ -689,6 +731,7 @@ Your workspace is at: {}
 When you have completed the task, provide a clear summary of your findings or actions.",
         task,
         context_section,
+        tool_list,
         workspace.display()
     )
 }
