@@ -340,12 +340,23 @@ fn register_memory_search(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
 }
 
 /// Check whether a tool name is safe for community-trust MCP servers.
+/// Uses word-boundary matching (camelCase → segments) to avoid substring
+/// false positives like "breadcrumb" containing "read".
 fn is_community_safe(tool_name: &str) -> bool {
     const SAFE_KEYWORDS: &[&str] = &[
         "read", "list", "get", "search", "find", "query", "fetch", "view", "show", "count",
     ];
-    let name_lower = tool_name.to_lowercase();
-    SAFE_KEYWORDS.iter().any(|kw| name_lower.contains(kw))
+    // Normalize camelCase to snake_case, then check word segments
+    let mut normalized = String::with_capacity(tool_name.len() + 10);
+    for (i, ch) in tool_name.char_indices() {
+        if ch.is_ascii_uppercase() && i > 0 {
+            normalized.push('_');
+        }
+        normalized.push(ch.to_ascii_lowercase());
+    }
+    normalized
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|seg| SAFE_KEYWORDS.contains(&seg))
 }
 
 async fn create_mcp(ctx: &ToolBuildContext) -> Option<(Vec<Arc<dyn Tool>>, McpManager)> {
@@ -402,18 +413,25 @@ mod tests {
 
     #[test]
     fn test_community_safe_keyword_matching() {
-        // Read-only tool names should pass
+        // Read-only tool names should pass (snake_case, camelCase, PascalCase)
         assert!(is_community_safe("list_users"));
         assert!(is_community_safe("get_document"));
         assert!(is_community_safe("search_records"));
         assert!(is_community_safe("ReadConfig"));
         assert!(is_community_safe("fetchData"));
+        assert!(is_community_safe("showStatus"));
+        assert!(is_community_safe("count-items"));
 
         // Mutating tool names should be rejected
         assert!(!is_community_safe("delete_users"));
         assert!(!is_community_safe("create_record"));
         assert!(!is_community_safe("execute_command"));
         assert!(!is_community_safe("send_email"));
+
+        // Substring false positives must be rejected (word-boundary check)
+        assert!(!is_community_safe("breadcrumb")); // contains "read" substring
+        assert!(!is_community_safe("overwrite")); // contains "view" substring
+        assert!(!is_community_safe("altogether")); // contains "get" substring
     }
 
     #[test]

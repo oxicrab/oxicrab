@@ -12,6 +12,15 @@ use tracing::warn;
 
 const GITHUB_API: &str = "https://api.github.com";
 
+/// Validate a GitHub owner or repo name: alphanumeric, hyphens, dots, underscores only.
+fn is_valid_github_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 100
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.' || b == b'_')
+}
+
 pub struct GitHubTool {
     token: String,
     base_url: String,
@@ -138,10 +147,10 @@ impl GitHubTool {
         Self::check_rate_limit(&resp);
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
-            let msg = serde_json::from_str::<Value>(&text)
-                .ok()
-                .and_then(|v| v["message"].as_str().map(String::from))
-                .unwrap_or_else(|| "Unknown error".to_string());
+            let msg = serde_json::from_str::<Value>(&text).map_or_else(
+                |_| "Unknown error".to_string(),
+                |v| Self::sanitize_api_error(&v),
+            );
             anyhow::bail!("GitHub API {}: {}", status, msg);
         }
         Ok(())
@@ -806,10 +815,10 @@ impl Tool for GitHubTool {
                     return Ok(ToolResult::error("missing 'repo' parameter".to_string()));
                 };
 
-                // Validate owner/repo
-                if owner.contains('/') || repo.contains('/') {
+                // Validate owner/repo — only alphanumeric, hyphens, dots, underscores
+                if !is_valid_github_name(owner) || !is_valid_github_name(repo) {
                     return Ok(ToolResult::error(
-                        "owner and repo must not contain '/'".to_string(),
+                        "owner and repo must contain only alphanumeric characters, hyphens, dots, or underscores".to_string(),
                     ));
                 }
 
