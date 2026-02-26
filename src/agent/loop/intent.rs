@@ -190,12 +190,18 @@ pub fn classify_action_intent(text: &str) -> bool {
 /// When the LLM asks for more information before acting, that's not a
 /// hallucination — it's appropriate behavior, especially for under-specified
 /// requests.
+///
+/// However, responses that contain action claims (e.g. "I've completed the
+/// task, should I do anything else?") are NOT treated as clarification even
+/// if they end with `?` — the action claim is the dominant signal.
 pub fn is_clarification_question(text: &str) -> bool {
     let trimmed = text.trim();
 
-    // Short responses ending with ? are likely clarification questions
+    // Short responses ending with ? are likely clarification questions,
+    // UNLESS the text also contains action claims — those are hallucinations
+    // with a trailing question, not legitimate clarifications.
     if trimmed.ends_with('?') && trimmed.len() < 200 {
-        return true;
+        return !super::helpers::contains_action_claims(trimmed);
     }
 
     // Explicit clarification patterns
@@ -304,6 +310,10 @@ mod tests {
             "I've scheduled the job for 4pm.",
             // Long responses with ? aren't simple clarification
             &format!("{}?", "a".repeat(250)),
+            // Action claims with trailing ? should NOT escape as clarification
+            "I've completed the task, should I do anything else?",
+            "I've updated the config. Need anything else?",
+            "I've saved the changes. Want me to continue?",
         ];
         for text in cases {
             assert!(

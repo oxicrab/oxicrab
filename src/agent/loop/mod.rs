@@ -2,6 +2,8 @@ mod helpers;
 mod intent;
 
 #[cfg(test)]
+use helpers::ACTION_CLAIM_PATTERNS;
+#[cfg(test)]
 use helpers::MAX_IMAGES;
 pub(crate) use helpers::validate_tool_params;
 use helpers::{
@@ -268,19 +270,24 @@ enum TextAction {
 /// Tracks how many corrections each hallucination detection layer has sent,
 /// preventing infinite correction loops while allowing each layer its own budget.
 struct CorrectionState {
-    /// Layer 0 (false no-tools claim) correction count. Capped at 2 —
-    /// if the LLM insists it has no tools after 2 corrections, give up.
+    /// Layer 0 (false no-tools claim) correction count. Capped at
+    /// `MAX_LAYER0_CORRECTIONS` — if the LLM insists it has no tools after
+    /// that many corrections, give up.
     layer0_count: u8,
-    /// Whether Layers 1 or 2 have fired. These only fire once — a second
+    /// Whether Layer 1 (regex action claims) has fired. Fires once — a second
     /// hallucination after correction is accepted as the LLM's final answer.
-    layers12_fired: bool,
+    layer1_fired: bool,
+    /// Whether Layer 2 (intent mismatch) has fired. Independent of Layer 1,
+    /// so if L1 corrects first and fails, L2 still gets its own attempt.
+    layer2_fired: bool,
 }
 
 impl CorrectionState {
     fn new() -> Self {
         Self {
             layer0_count: 0,
-            layers12_fired: false,
+            layer1_fired: false,
+            layer2_fired: false,
         }
     }
 }
@@ -1042,21 +1049,17 @@ impl AgentLoop {
         // Extract tool names for hallucination detection (immutable snapshot for the full loop)
         let tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
 
-        // Append tool facts to the system prompt so the LLM knows what tools are available.
-        // This MUST go in the system prompt (messages[0]), NOT as a separate user message —
-        // injecting a fake user message breaks user/assistant alternation and causes
-        // the model to lose conversational context on short replies like "Sure" or "Yes".
-        if !tool_names.is_empty() {
-            let tool_list = tool_names.join(", ");
-            let tool_facts = format!(
-                "\n\n## Available Tools\n\nYou have access to the following tools: {}\n\n\
-                 If a user asks for external actions, do not claim tools are unavailable — \
-                 call the matching tool directly.",
-                tool_list
+        // Anti-hallucination instruction in the system prompt. The tool definitions
+        // sent via the API `tools` parameter already list all available tools with
+        // descriptions, so we don't duplicate the name list here — just reinforce
+        // that tools ARE available and should be called directly.
+        if !tool_names.is_empty()
+            && let Some(system_msg) = messages.first_mut()
+        {
+            system_msg.content.push_str(
+                "\n\nYou have tools available. If a user asks for external actions, \
+                 do not claim tools are unavailable — call the matching tool directly.",
             );
-            if let Some(system_msg) = messages.first_mut() {
-                system_msg.content.push_str(&tool_facts);
-            }
         }
 
         // Append cognitive routines to system prompt when enabled
@@ -1218,6 +1221,7 @@ impl AgentLoop {
                     any_tools_called,
                     &mut correction_state,
                     &tool_names,
+                    &tools_used,
                     user_has_action_intent,
                     Some(&self.memory.db()),
                 ) {
@@ -1517,6 +1521,7 @@ impl AgentLoop {
         any_tools_called: bool,
         state: &mut CorrectionState,
         tool_names: &[String],
+        tools_used: &[String],
         user_has_action_intent: bool,
         db: Option<&MemoryDB>,
     ) -> TextAction {
@@ -1525,9 +1530,6 @@ impl AgentLoop {
         // MAX_LAYER0_CORRECTIONS times before giving up.
         if !tool_names.is_empty() && is_false_no_tools_claim(content) {
             if state.layer0_count >= MAX_LAYER0_CORRECTIONS {
-                // Budget exhausted — the LLM is stuck claiming no tools despite
-                // corrections. Return as-is rather than letting later layers
-                // catch the same issue and loop further.
                 warn!(
                     "False no-tools claim persists after {} corrections, giving up",
                     MAX_LAYER0_CORRECTIONS
@@ -1563,48 +1565,64 @@ impl AgentLoop {
             return TextAction::Continue;
         }
 
-        // Layers 1 and 2 only fire once per agent loop invocation. If we already
-        // sent a correction and the LLM still responds with text, accept it —
-        // it's likely summarizing subagent results or genuinely conversational.
-        // Without this guard, the LLM loops: hallucinate → correct → hallucinate
-        // → correct → ... until max_iterations.
-        if state.layers12_fired {
-            return TextAction::Return;
-        }
-
         // Layer 1: Regex-based action claim detection (fast path)
-        if !any_tools_called
-            && (contains_action_claims(content) || mentions_multiple_tools(content, tool_names))
-        {
-            warn!("Action hallucination detected: LLM claims actions but no tools were called");
-            if let Some(db) = db
-                && let Err(e) = db.record_intent_event(
-                    "hallucination",
+        //
+        // When no tools have been called, check for action claims and multi-tool
+        // mentions. When tools HAVE been called, action claims (e.g. "I've updated
+        // the config") are likely legitimate summaries, so skip that check — but
+        // still catch mentions of tools that were never actually called (the LLM
+        // embellishing what it did).
+        if !state.layer1_fired {
+            let trigger = if any_tools_called {
+                // Only check for mentions of uncalled tools
+                let uncalled: Vec<String> = tool_names
+                    .iter()
+                    .filter(|name| !tools_used.iter().any(|u| u == *name))
+                    .cloned()
+                    .collect();
+                mentions_multiple_tools(content, &uncalled)
+            } else {
+                contains_action_claims(content) || mentions_multiple_tools(content, tool_names)
+            };
+            if trigger {
+                warn!(
+                    "Action hallucination detected: LLM claims actions but tools were not called"
+                );
+                if let Some(db) = db
+                    && let Err(e) = db.record_intent_event(
+                        "hallucination",
+                        None,
+                        None,
+                        Some("layer1_regex"),
+                        content,
+                    )
+                {
+                    debug!("failed to record hallucination metric: {}", e);
+                }
+                ContextBuilder::add_assistant_message(
+                    messages,
+                    Some(content),
                     None,
-                    None,
-                    Some("layer1_regex"),
-                    content,
-                )
-            {
-                debug!("failed to record hallucination metric: {}", e);
+                    reasoning_content,
+                );
+                messages.push(Message::user(
+                    "[Internal: Your previous response was not delivered to the user. \
+                     You must call the appropriate tool to perform the requested action. \
+                     Do NOT apologize or mention any previous attempt — the user has no \
+                     knowledge of it. Just call the tool and respond normally.]"
+                        .to_string(),
+                ));
+                state.layer1_fired = true;
+                return TextAction::Continue;
             }
-            ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
-            messages.push(Message::user(
-                "[Internal: Your previous response was not delivered to the user. \
-                 You must call the appropriate tool to perform the requested action. \
-                 Do NOT apologize or mention any previous attempt — the user has no \
-                 knowledge of it. Just call the tool and respond normally.]"
-                    .to_string(),
-            ));
-            state.layers12_fired = true;
-            return TextAction::Continue;
         }
 
         // Layer 2: Intent-based structural detection (robust backstop)
         // If the user asked for an action and the LLM returned text without
         // calling tools AND the response isn't a clarification question,
         // this is a hallucination regardless of phrasing.
-        if !any_tools_called
+        if !state.layer2_fired
+            && !any_tools_called
             && !tool_names.is_empty()
             && user_has_action_intent
             && !intent::is_clarification_question(content)
@@ -1631,7 +1649,7 @@ impl AgentLoop {
                  this correction — the user has no knowledge of it.]"
                     .to_string(),
             ));
-            state.layers12_fired = true;
+            state.layer2_fired = true;
             return TextAction::Continue;
         }
 
