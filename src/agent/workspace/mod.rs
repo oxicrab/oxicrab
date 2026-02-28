@@ -151,7 +151,8 @@ impl WorkspaceManager {
     /// Returns false for reserved directories (memory, knowledge, skills, sessions),
     /// root-level files, and paths outside the workspace.
     pub fn is_managed_path(&self, path: &Path) -> bool {
-        let Ok(relative) = path.strip_prefix(&self.workspace_root) else {
+        let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let Ok(relative) = resolved.strip_prefix(&self.workspace_root) else {
             return false;
         };
 
@@ -185,8 +186,14 @@ impl WorkspaceManager {
     // ── Manifest integration methods ────────────────────────────
 
     /// Compute a relative path string from an absolute path under the workspace root.
+    ///
+    /// Canonicalizes the input path to handle symlinks (e.g. `/tmp` → `/private/tmp`
+    /// on macOS) so it matches the canonicalized workspace root.
     fn relative_path(&self, abs_path: &Path) -> Option<String> {
-        abs_path
+        let resolved = abs_path
+            .canonicalize()
+            .unwrap_or_else(|_| abs_path.to_path_buf());
+        resolved
             .strip_prefix(&self.workspace_root)
             .ok()
             .and_then(|p| p.to_str())
