@@ -1,9 +1,11 @@
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::agent::workspace::WorkspaceManager;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tracing::warn;
 
 /// Maximum file size that `read_file` will load (10 MB).
@@ -150,6 +152,7 @@ async fn backup_file(file_path: &Path, backup_dir: &Path) {
 pub struct ReadFileTool {
     allowed_roots: Option<Vec<PathBuf>>,
     workspace: Option<PathBuf>,
+    workspace_manager: Option<Arc<WorkspaceManager>>,
 }
 
 impl ReadFileTool {
@@ -157,7 +160,15 @@ impl ReadFileTool {
         Self {
             allowed_roots,
             workspace,
+            workspace_manager: None,
         }
+    }
+
+    /// Set the workspace manager for `accessed_at` tracking.
+    #[must_use]
+    pub fn with_workspace_manager(mut self, mgr: Arc<WorkspaceManager>) -> Self {
+        self.workspace_manager = Some(mgr);
+        self
     }
 }
 
@@ -213,7 +224,7 @@ impl Tool for ReadFileTool {
         let ws = self.workspace.as_deref();
 
         // When allowed_roots is set, use cap-std for TOCTOU-safe confined reads
-        if let Some(ref roots) = self.allowed_roots {
+        let result = if let Some(ref roots) = self.allowed_roots {
             let (dir, relative) = match open_confined(&expanded, roots) {
                 Ok(v) => v,
                 Err(e) => return Ok(ToolResult::error(sanitize_err(&e.to_string(), ws))),
@@ -222,7 +233,7 @@ impl Tool for ReadFileTool {
             // All operations below use the confined Dir handle (openat)
             let path_str_owned = path_str.to_string();
             let ws_owned = ws.map(Path::to_path_buf);
-            return tokio::task::spawn_blocking(move || {
+            tokio::task::spawn_blocking(move || {
                 let ws_ref = ws_owned.as_deref();
                 // For root-relative access (e.g. open_confined returns "" for the root itself)
                 let target = if relative.as_os_str().is_empty() {
@@ -257,41 +268,52 @@ impl Tool for ReadFileTool {
                     ))),
                 }
             })
-            .await?;
+            .await?
+        } else {
+            // Unrestricted mode: use direct tokio::fs operations
+            if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
+                return Ok(ToolResult::error(sanitize_err(&err.to_string(), ws)));
+            }
+
+            match tokio::fs::metadata(&expanded).await {
+                Ok(meta) if meta.is_dir() => {
+                    return Ok(ToolResult::error(format!(
+                        "not a file (path is a directory): {}. Use list_dir to list directory contents, or read_file with a file path",
+                        path_str
+                    )));
+                }
+                Ok(meta) if meta.len() > MAX_READ_BYTES => {
+                    return Ok(ToolResult::error(format!(
+                        "file too large ({} bytes, max {}). Use shell tool to read partial content",
+                        meta.len(),
+                        MAX_READ_BYTES
+                    )));
+                }
+                Err(_) => {
+                    return Ok(ToolResult::error(format!("file not found: {}", path_str)));
+                }
+                _ => {}
+            }
+
+            match tokio::fs::read_to_string(&expanded).await {
+                Ok(content) => Ok(ToolResult::new(content)),
+                Err(e) => Ok(ToolResult::error(sanitize_err(
+                    &format!("error reading file: {}", e),
+                    ws,
+                ))),
+            }
+        };
+
+        // Track accessed_at for managed workspace files (fire-and-forget)
+        if let Ok(ref r) = result
+            && !r.is_error
+            && let Some(ref mgr) = self.workspace_manager
+            && mgr.is_managed_path(&expanded)
+        {
+            let _ = mgr.touch_file(&expanded);
         }
 
-        // Unrestricted mode: use direct tokio::fs operations
-        if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
-            return Ok(ToolResult::error(sanitize_err(&err.to_string(), ws)));
-        }
-
-        match tokio::fs::metadata(&expanded).await {
-            Ok(meta) if meta.is_dir() => {
-                return Ok(ToolResult::error(format!(
-                    "not a file (path is a directory): {}. Use list_dir to list directory contents, or read_file with a file path",
-                    path_str
-                )));
-            }
-            Ok(meta) if meta.len() > MAX_READ_BYTES => {
-                return Ok(ToolResult::error(format!(
-                    "file too large ({} bytes, max {}). Use shell tool to read partial content",
-                    meta.len(),
-                    MAX_READ_BYTES
-                )));
-            }
-            Err(_) => {
-                return Ok(ToolResult::error(format!("file not found: {}", path_str)));
-            }
-            _ => {}
-        }
-
-        match tokio::fs::read_to_string(&expanded).await {
-            Ok(content) => Ok(ToolResult::new(content)),
-            Err(e) => Ok(ToolResult::error(sanitize_err(
-                &format!("error reading file: {}", e),
-                ws,
-            ))),
-        }
+        result
     }
 }
 
@@ -299,6 +321,7 @@ pub struct WriteFileTool {
     allowed_roots: Option<Vec<PathBuf>>,
     backup_dir: Option<PathBuf>,
     workspace: Option<PathBuf>,
+    workspace_manager: Option<Arc<WorkspaceManager>>,
 }
 
 impl WriteFileTool {
@@ -311,7 +334,15 @@ impl WriteFileTool {
             allowed_roots,
             backup_dir,
             workspace,
+            workspace_manager: None,
         }
+    }
+
+    /// Set the workspace manager for manifest registration.
+    #[must_use]
+    pub fn with_workspace_manager(mut self, mgr: Arc<WorkspaceManager>) -> Self {
+        self.workspace_manager = Some(mgr);
+        self
     }
 }
 
@@ -370,7 +401,7 @@ impl Tool for WriteFileTool {
         let ws = self.workspace.as_deref();
 
         // Confined write when allowed_roots is set
-        if let Some(ref roots) = self.allowed_roots {
+        let result = if let Some(ref roots) = self.allowed_roots {
             let (dir, relative) = match open_confined(&expanded, roots) {
                 Ok(v) => v,
                 Err(e) => return Ok(ToolResult::error(sanitize_err(&e.to_string(), ws))),
@@ -383,7 +414,7 @@ impl Tool for WriteFileTool {
             let content_owned = content.to_string();
             let path_str_owned = path_str.to_string();
             let ws_owned = ws.map(Path::to_path_buf);
-            return tokio::task::spawn_blocking(move || {
+            tokio::task::spawn_blocking(move || {
                 let ws_ref = ws_owned.as_deref();
                 // Create parent dirs within the confined root
                 if let Some(parent) = relative.parent()
@@ -401,29 +432,41 @@ impl Tool for WriteFileTool {
                     ))),
                 }
             })
-            .await?;
+            .await?
+        } else {
+            // Unrestricted mode
+            if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
+                return Ok(ToolResult::error(sanitize_err(&err.to_string(), ws)));
+            }
+
+            if let Some(ref backup_dir) = self.backup_dir {
+                backup_file(&expanded, backup_dir).await;
+            }
+
+            if let Some(parent) = expanded.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+
+            match tokio::fs::write(&expanded, content).await {
+                Ok(()) => Ok(ToolResult::new(format!("File written: {}", path_str))),
+                Err(e) => Ok(ToolResult::error(sanitize_err(
+                    &format!("error writing file: {}", e),
+                    ws,
+                ))),
+            }
+        };
+
+        // Register in workspace manifest for managed files (fire-and-forget)
+        if let Ok(ref r) = result
+            && !r.is_error
+            && let Some(ref mgr) = self.workspace_manager
+            && mgr.is_managed_path(&expanded)
+            && let Err(e) = mgr.register_file(&expanded, Some("write_file"), None)
+        {
+            warn!("failed to register workspace file: {e}");
         }
 
-        // Unrestricted mode
-        if let Err(err) = check_path_allowed(&expanded, self.allowed_roots.as_ref()) {
-            return Ok(ToolResult::error(sanitize_err(&err.to_string(), ws)));
-        }
-
-        if let Some(ref backup_dir) = self.backup_dir {
-            backup_file(&expanded, backup_dir).await;
-        }
-
-        if let Some(parent) = expanded.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-
-        match tokio::fs::write(&expanded, content).await {
-            Ok(()) => Ok(ToolResult::new(format!("File written: {}", path_str))),
-            Err(e) => Ok(ToolResult::error(sanitize_err(
-                &format!("error writing file: {}", e),
-                ws,
-            ))),
-        }
+        result
     }
 }
 

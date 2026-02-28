@@ -110,16 +110,21 @@ fn register_filesystem(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
 
     let backup_dir = dirs::home_dir().map(|h| h.join(".oxicrab/backups"));
     let workspace = Some(ctx.workspace.clone());
+    let ws_mgr = ctx.workspace_manager.clone();
 
-    registry.register(Arc::new(ReadFileTool::new(
-        allowed_roots.clone(),
-        workspace.clone(),
-    )));
-    registry.register(Arc::new(WriteFileTool::new(
-        allowed_roots.clone(),
-        backup_dir.clone(),
-        workspace.clone(),
-    )));
+    let mut read_tool = ReadFileTool::new(allowed_roots.clone(), workspace.clone());
+    if let Some(ref mgr) = ws_mgr {
+        read_tool = read_tool.with_workspace_manager(mgr.clone());
+    }
+    registry.register(Arc::new(read_tool));
+
+    let mut write_tool =
+        WriteFileTool::new(allowed_roots.clone(), backup_dir.clone(), workspace.clone());
+    if let Some(ref mgr) = ws_mgr {
+        write_tool = write_tool.with_workspace_manager(mgr.clone());
+    }
+    registry.register(Arc::new(write_tool));
+
     registry.register(Arc::new(EditFileTool::new(
         allowed_roots.clone(),
         backup_dir,
