@@ -61,7 +61,7 @@ qr2term = { version = "0.3", optional = true }
 qrcode = { version = "0.14", optional = true }
 regex = "1.12"
 reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "stream", "rustls", "charset", "http2", "query", "form"] }
-rmcp = { version = "0.16", features = ["client", "transport-child-process"] }
+rmcp = { version = "0.17", features = ["client", "transport-child-process"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 scraper = "0.25"
 serde = { version = "1.0", features = ["derive"] }
