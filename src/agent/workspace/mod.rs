@@ -11,7 +11,8 @@ mod tests;
 const RESERVED_DIRS: &[&str] = &["memory", "knowledge", "skills", "sessions"];
 
 /// File categories for workspace organization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum FileCategory {
     Code,
     Documents,
@@ -45,8 +46,14 @@ impl FileCategory {
     }
 }
 
+impl std::fmt::Display for FileCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 impl FromStr for FileCategory {
-    type Err = ();
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -56,7 +63,7 @@ impl FromStr for FileCategory {
             "images" => Ok(FileCategory::Images),
             "downloads" => Ok(FileCategory::Downloads),
             "temp" => Ok(FileCategory::Temp),
-            _ => Err(()),
+            _ => Err(format!("unknown file category: {s}")),
         }
     }
 }
@@ -118,13 +125,16 @@ impl WorkspaceManager {
     /// Path format: `{workspace}/{category}/{YYYY-MM-DD}/{filename}`
     ///
     /// If `category_hint` is provided, it overrides the inferred category.
+    /// Path traversal components are stripped — only the final filename component is used.
     pub fn resolve_path(&self, filename: &str, category_hint: Option<FileCategory>) -> PathBuf {
-        let category = category_hint.unwrap_or_else(|| infer_category(Path::new(filename)));
+        let path = Path::new(filename);
+        let sanitized = path.file_name().unwrap_or(path.as_os_str());
+        let category = category_hint.unwrap_or_else(|| infer_category(path));
         let date = Utc::now().format("%Y-%m-%d").to_string();
         self.workspace_root
             .join(category.as_str())
             .join(&date)
-            .join(filename)
+            .join(sanitized)
     }
 
     /// Returns true if the given path is inside a managed category directory.
@@ -136,13 +146,22 @@ impl WorkspaceManager {
             return false;
         };
 
-        let first_component = match relative.components().next() {
+        // Reject path traversal attempts
+        if relative
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return false;
+        }
+
+        let mut comps = relative.components();
+        let first_component = match comps.next() {
             Some(std::path::Component::Normal(name)) => name.to_str().unwrap_or(""),
             _ => return false,
         };
 
         // Must have more than just the first component (not a root-level file)
-        if relative.components().count() < 2 {
+        if comps.next().is_none() {
             return false;
         }
 

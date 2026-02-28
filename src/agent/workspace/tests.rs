@@ -32,9 +32,18 @@ fn test_category_from_str() {
 
 #[test]
 fn test_category_from_str_unknown() {
-    assert!(FileCategory::from_str("unknown").is_err());
-    assert!(FileCategory::from_str("").is_err());
-    assert!(FileCategory::from_str("Code").is_err());
+    assert_eq!(
+        FileCategory::from_str("unknown"),
+        Err("unknown file category: unknown".to_string())
+    );
+    assert_eq!(
+        FileCategory::from_str(""),
+        Err("unknown file category: ".to_string())
+    );
+    assert_eq!(
+        FileCategory::from_str("Code"),
+        Err("unknown file category: Code".to_string())
+    );
 }
 
 #[test]
@@ -330,4 +339,33 @@ fn test_resolve_path_filename_with_dots() {
     let today = Utc::now().format("%Y-%m-%d").to_string();
     let expected = PathBuf::from(format!("/tmp/ws/downloads/{today}/my.backup.tar.gz"));
     assert_eq!(path, expected);
+}
+
+#[test]
+fn test_resolve_path_rejects_traversal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mgr = WorkspaceManager::new(tmp.path().to_path_buf(), None);
+    let resolved = mgr.resolve_path("../../../etc/passwd", None);
+    // Should extract just "passwd", not allow traversal
+    assert!(resolved.starts_with(tmp.path()));
+    assert!(resolved.to_string_lossy().contains("passwd"));
+    assert!(!resolved.to_string_lossy().contains(".."));
+}
+
+#[test]
+fn test_is_managed_path_rejects_traversal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mgr = WorkspaceManager::new(tmp.path().to_path_buf(), None);
+    assert!(!mgr.is_managed_path(&tmp.path().join("code/../../etc/passwd")));
+    assert!(!mgr.is_managed_path(&tmp.path().join("code/../memory/MEMORY.md")));
+}
+
+#[test]
+fn test_category_display() {
+    assert_eq!(FileCategory::Code.to_string(), "code");
+    assert_eq!(FileCategory::Documents.to_string(), "documents");
+    assert_eq!(FileCategory::Data.to_string(), "data");
+    assert_eq!(FileCategory::Images.to_string(), "images");
+    assert_eq!(FileCategory::Downloads.to_string(), "downloads");
+    assert_eq!(FileCategory::Temp.to_string(), "temp");
 }
