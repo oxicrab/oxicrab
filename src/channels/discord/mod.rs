@@ -706,8 +706,9 @@ impl BaseChannel for DiscordChannel {
             match serenity::builder::CreateAttachment::path(file_path).await {
                 Ok(attachment) => {
                     let builder = CreateMessage::new().add_file(attachment);
-                    if let Err(e) = target_channel_id.send_message(&http, builder).await {
-                        warn!("discord: failed to send attachment {}: {}", path, e);
+                    match target_channel_id.send_message(&http, builder).await {
+                        Ok(_) => info!("discord: sent attachment '{}'", path),
+                        Err(e) => warn!("discord: failed to send attachment {}: {}", path, e),
                     }
                 }
                 Err(e) => {

@@ -408,19 +408,23 @@ impl BaseChannel for TelegramChannel {
             let is_image = matches!(ext, "png" | "jpg" | "jpeg" | "gif" | "webp");
 
             if is_image {
-                if let Err(e) = self
+                match self
                     .bot
                     .send_photo(ChatId(chat_id), teloxide::types::InputFile::file(file_path))
                     .await
                 {
-                    warn!("telegram: failed to send photo {}: {}", path, e);
+                    Ok(_) => info!("telegram: sent photo '{}'", path),
+                    Err(e) => warn!("telegram: failed to send photo {}: {}", path, e),
                 }
-            } else if let Err(e) = self
-                .bot
-                .send_document(ChatId(chat_id), teloxide::types::InputFile::file(file_path))
-                .await
-            {
-                warn!("telegram: failed to send document {}: {}", path, e);
+            } else {
+                match self
+                    .bot
+                    .send_document(ChatId(chat_id), teloxide::types::InputFile::file(file_path))
+                    .await
+                {
+                    Ok(_) => info!("telegram: sent document '{}'", path),
+                    Err(e) => warn!("telegram: failed to send document {}: {}", path, e),
+                }
             }
         }
 

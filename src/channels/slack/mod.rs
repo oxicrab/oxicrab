@@ -166,6 +166,7 @@ impl SlackChannel {
             ));
         }
 
+        info!("slack: uploaded file '{}' to {}", filename, channel_id);
         Ok(())
     }
 
