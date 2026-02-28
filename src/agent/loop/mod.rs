@@ -420,7 +420,12 @@ impl AgentLoop {
 
         let sessions: Arc<dyn SessionStore> = Arc::new(session_mgr);
         let memory = Arc::new(if let Some(ref mem_cfg) = memory_config {
-            MemoryStore::with_config(&workspace, memory_indexer_interval, mem_cfg)?
+            MemoryStore::with_config(
+                &workspace,
+                memory_indexer_interval,
+                mem_cfg,
+                tool_configs.workspace_ttl.to_map(),
+            )?
         } else {
             MemoryStore::with_indexer_interval(&workspace, memory_indexer_interval)?
         });
