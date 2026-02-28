@@ -1,6 +1,6 @@
 ---
 title: Tool Reference - oxicrab
-description: Complete reference for all 23 built-in tools in oxicrab, including setup instructions for configurable tools.
+description: Complete reference for all 24 built-in tools in oxicrab, including setup instructions for configurable tools.
 active: tools
 max_width: 820px
 ---
@@ -37,7 +37,7 @@ max_width: 820px
 </style>
 <div class="page-header">
   <h1>Tool Reference</h1>
-  <p>23 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, and result caching.</p>
+  <p>24 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, and result caching.</p>
 </div>
 
 <div class="content">
@@ -61,6 +61,7 @@ max_width: 820px
         <li><a href="#subagent_control">subagent_control</a></li>
         <li><a href="#cron">cron</a></li>
         <li><a href="#memory_search">memory_search</a></li>
+        <li><a href="#workspace">workspace</a></li>
       </ul>
     </div>
     <div class="toc-group">
@@ -255,6 +256,30 @@ max_width: 820px
   }
 }</code></pre>
     <p>Set <code>embeddingsEnabled: true</code> for hybrid vector+keyword search. The embeddings model is downloaded automatically on first use.</p>
+  </div>
+
+  <div id="workspace" class="tool-section">
+    <h2>workspace <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Manage workspace files: list, search, organize, and clean up files in the workspace. Tracks files in a SQLite manifest with category, creation time, and access time for lifecycle management.</p>
+
+    <h3>Actions</h3>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th><th>Subagent</th></tr></thead>
+      <tbody>
+        <tr><td>list</td><td>List tracked workspace files, optionally filtered by category</td><td>&#x2713;</td></tr>
+        <tr><td>search</td><td>Search workspace files by filename pattern</td><td>&#x2713;</td></tr>
+        <tr><td>info</td><td>Get detailed info about a specific tracked file</td><td>&#x2713;</td></tr>
+        <tr><td>tree</td><td>Show workspace directory tree</td><td>&#x2713;</td></tr>
+        <tr><td>move</td><td>Move a file to a different workspace category</td><td>&mdash;</td></tr>
+        <tr><td>delete</td><td>Delete a tracked workspace file</td><td>&mdash;</td></tr>
+        <tr><td>tag</td><td>Add or update tags on a tracked file</td><td>&mdash;</td></tr>
+        <tr><td>cleanup</td><td>Run workspace cleanup to remove expired files based on TTL config</td><td>&mdash;</td></tr>
+      </tbody>
+    </table>
+
+    <h3>File Organization</h3>
+    <p>Files written via <code>write_file</code> to workspace category directories (<code>code/</code>, <code>documents/</code>, <code>data/</code>, <code>images/</code>, <code>downloads/</code>, <code>temp/</code>) are automatically tracked in the manifest. Categories are inferred from file extensions. Files are organized into date-based subdirectories (<code>{category}/{YYYY-MM-DD}/{filename}</code>).</p>
+    <p>Reserved directories (<code>memory/</code>, <code>knowledge/</code>, <code>skills/</code>, <code>sessions/</code>) are not managed by the workspace tool. TTL-based expiration is configured via <a href="config.html#agent-defaults"><code>agents.defaults.workspaceTtl</code></a>.</p>
   </div>
 
   <!-- ============ CONFIGURABLE TOOLS ============ -->

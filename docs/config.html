@@ -464,6 +464,19 @@
             <tr><td>localModel</td><td>string?</td><td>null</td><td>Fallback model for cloud failures (see <a href="#local-model-fallback">Local Model Fallback</a>)</td></tr>
         </table>
 
+        <h3>Workspace TTL</h3>
+        <p>Config path: <code>agents.defaults.workspaceTtl</code></p>
+        <p>Per-category time-to-live (in days) for workspace files tracked by the workspace manager. Files older than their category's TTL are removed during the hygiene cycle. A <code>null</code> value means files in that category never expire.</p>
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>temp</td><td>u32?</td><td>7</td><td>Temporary files</td></tr>
+            <tr><td>downloads</td><td>u32?</td><td>30</td><td>Downloaded files</td></tr>
+            <tr><td>images</td><td>u32?</td><td>90</td><td>Image files</td></tr>
+            <tr><td>code</td><td>u32?</td><td>null</td><td>Code files (never expire by default)</td></tr>
+            <tr><td>documents</td><td>u32?</td><td>null</td><td>Document files (never expire by default)</td></tr>
+            <tr><td>data</td><td>u32?</td><td>null</td><td>Data files (never expire by default)</td></tr>
+        </table>
+
         <h3>Compaction</h3>
         <p>Config path: <code>agents.defaults.compaction</code></p>
         <p>After compaction builds the final message list, orphaned tool messages are automatically cleaned up. Tool result messages (<code>role="tool"</code>) whose <code>tool_call_id</code> has no matching assistant <code>tool_use</code> block are removed to prevent API errors with providers that enforce strict tool pairing (e.g. Anthropic).</p>

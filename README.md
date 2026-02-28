@@ -17,7 +17,7 @@ This is largely a personal toy with features I want or care about. For example, 
 - **Multi-channel**: Telegram, Discord (slash commands, embeds, buttons), Slack, WhatsApp, Twilio SMS/MMS
 - **LLM providers**: Anthropic (Claude), OpenAI, Google (Gemini), plus 8 OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, etc.), with OAuth and local model fallback
 - **Prompt caching**: Automatic Anthropic `cache_control` injection for up to 90% input token cost reduction
-- **23 built-in tools**: Filesystem, shell, web, HTTP, browser, image generation, Google Workspace, GitHub, scheduling, memory, media, and more
+- **24 built-in tools**: Filesystem, shell, web, HTTP, browser, image generation, Google Workspace, GitHub, scheduling, memory, media, and more
 - **MCP support**: Connect external tool servers via the Model Context Protocol
 - **Subagents**: Background task execution with concurrency limiting and context injection
 - **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode, multi-channel targeting
@@ -141,9 +141,9 @@ Access control: `allowFrom` (pre-authorized senders), `dmPolicy` (`"allowlist"`,
 
 > **Full tool reference:** [oxicrab.github.io/oxicrab/tools.html](https://oxicrab.github.io/oxicrab/tools.html)
 
-23 built-in tools with timeout protection, panic isolation, result caching, and truncation middleware.
+24 built-in tools with timeout protection, panic isolation, result caching, and truncation middleware.
 
-**Core**: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`, `tmux`, `web_search`, `web_fetch`, `http`, `spawn`, `subagent_control`, `cron`, `memory_search`, `reddit`
+**Core**: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`, `tmux`, `web_search`, `web_fetch`, `http`, `spawn`, `subagent_control`, `cron`, `memory_search`, `reddit`, `workspace`
 
 **Configurable**: `google_mail`, `google_calendar`, `github`, `weather`, `todoist`, `media`, `obsidian`, `browser`, `image_gen`
 
