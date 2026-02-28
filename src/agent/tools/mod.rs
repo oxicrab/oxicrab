@@ -23,6 +23,7 @@ pub mod tmux;
 pub mod todoist;
 pub mod weather;
 pub mod web;
+pub mod workspace_tool;
 
 pub use base::{
     ActionDescriptor, ExecutionContext, SubagentAccess, Tool, ToolCapabilities, ToolMiddleware,
