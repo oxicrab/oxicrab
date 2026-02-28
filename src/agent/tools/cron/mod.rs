@@ -70,9 +70,9 @@ impl CronTool {
     /// `Err(ToolResult)` for user-facing validation errors.
     fn parse_schedule(params: &Value) -> std::result::Result<CronSchedule, ToolResult> {
         if let Some(every_secs) = params["every_seconds"].as_u64() {
-            if every_secs == 0 || every_secs > 31_536_000 {
+            if !(60..=31_536_000).contains(&every_secs) {
                 return Err(ToolResult::error(
-                    "every_seconds must be between 1 and 31536000 (1 year)".to_string(),
+                    "every_seconds must be between 60 and 31536000 (1 year)".to_string(),
                 ));
             }
             Ok(CronSchedule::Every {
