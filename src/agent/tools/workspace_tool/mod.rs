@@ -275,6 +275,34 @@ impl WorkspaceTool {
         Ok(format!("Tagged '{}' with: {}", path_str, tags))
     }
 
+    fn action_send(&self, params: &Value) -> Result<String> {
+        let path_str = params["path"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'path' parameter"))?;
+
+        let abs_path = self.resolve_tool_path(path_str);
+
+        if !abs_path.exists() {
+            anyhow::bail!("file not found: {}", path_str);
+        }
+        if !self.manager.is_managed_path(&abs_path) {
+            anyhow::bail!("path is not a managed workspace file: {}", path_str);
+        }
+
+        let filename = abs_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(path_str);
+
+        // Return in "saved to: /path" format so extract_media_paths() picks it up
+        // and the agent loop attaches it to OutboundMessage.media
+        Ok(format!(
+            "Sending file: {}\nsaved to: {}",
+            filename,
+            abs_path.display()
+        ))
+    }
+
     fn action_cleanup(&self) -> Result<String> {
         let ttl_map = self.workspace_ttl.to_map();
         let removed = self.manager.cleanup_expired(&ttl_map)?;
@@ -299,7 +327,7 @@ impl Tool for WorkspaceTool {
     }
 
     fn description(&self) -> &'static str {
-        "Manage workspace files: list, search, organize, and clean up files in the workspace."
+        "Manage workspace files: list, search, organize, clean up, and send files to the current conversation channel."
     }
 
     fn version(&self) -> ToolVersion {
@@ -346,6 +374,10 @@ impl Tool for WorkspaceTool {
                     name: "cleanup",
                     read_only: false,
                 },
+                ActionDescriptor {
+                    name: "send",
+                    read_only: false,
+                },
             ],
         }
     }
@@ -356,7 +388,7 @@ impl Tool for WorkspaceTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list", "search", "info", "tree", "move", "delete", "tag", "cleanup"],
+                    "enum": ["list", "search", "info", "tree", "move", "delete", "tag", "cleanup", "send"],
                     "description": "The workspace management action to perform"
                 },
                 "category": {
@@ -370,7 +402,7 @@ impl Tool for WorkspaceTool {
                 },
                 "path": {
                     "type": "string",
-                    "description": "File path (for info, move, delete, tag)"
+                    "description": "File path (for info, move, delete, tag, send)"
                 },
                 "date": {
                     "type": "string",
@@ -399,6 +431,7 @@ impl Tool for WorkspaceTool {
             "delete" => self.action_delete(&params),
             "tag" => self.action_tag(&params),
             "cleanup" => self.action_cleanup(),
+            "send" => self.action_send(&params),
             _ => return Ok(ToolResult::error(format!("unknown action: '{}'", action))),
         };
 

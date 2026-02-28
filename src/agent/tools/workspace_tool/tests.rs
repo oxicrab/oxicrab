@@ -31,7 +31,7 @@ fn test_workspace_tool_name_and_capabilities() {
     assert!(caps.built_in);
     assert!(!caps.network_outbound);
     assert_eq!(caps.subagent_access, SubagentAccess::ReadOnly);
-    assert_eq!(caps.actions.len(), 8);
+    assert_eq!(caps.actions.len(), 9);
 
     // Verify read-only flags
     let action_map: std::collections::HashMap<&str, bool> =
@@ -45,6 +45,7 @@ fn test_workspace_tool_name_and_capabilities() {
     assert_eq!(action_map.get("delete"), Some(&false));
     assert_eq!(action_map.get("tag"), Some(&false));
     assert_eq!(action_map.get("cleanup"), Some(&false));
+    assert_eq!(action_map.get("send"), Some(&false));
 }
 
 #[tokio::test]
@@ -231,6 +232,43 @@ async fn test_workspace_tool_cleanup_action() {
     assert!(result.content.contains("Cleanup complete"));
     assert!(result.content.contains("1 expired file(s) removed"));
     assert!(!file.exists());
+}
+
+#[tokio::test]
+async fn test_workspace_tool_send_action() {
+    let (tmp, tool) = test_tool();
+    let ctx = test_ctx();
+
+    // Create and register a file
+    let file = tmp.path().join("data/2026-02-28/report.csv");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "a,b,c\n1,2,3").unwrap();
+    tool.manager
+        .register_file(&file, Some("write_file"), None)
+        .unwrap();
+
+    let params = serde_json::json!({ "action": "send", "path": "data/2026-02-28/report.csv" });
+    let result = tool.execute(params, &ctx).await.unwrap();
+
+    assert!(!result.is_error, "send failed: {}", result.content);
+    assert!(
+        result.content.contains("saved to: "),
+        "should contain 'saved to:' pattern for extract_media_paths: {}",
+        result.content
+    );
+    assert!(result.content.contains("report.csv"));
+}
+
+#[tokio::test]
+async fn test_workspace_tool_send_nonexistent_file() {
+    let (_tmp, tool) = test_tool();
+    let ctx = test_ctx();
+
+    let params = serde_json::json!({ "action": "send", "path": "code/2026-02-28/nope.py" });
+    let result = tool.execute(params, &ctx).await.unwrap();
+
+    assert!(result.is_error);
+    assert!(result.content.contains("file not found"));
 }
 
 #[tokio::test]
