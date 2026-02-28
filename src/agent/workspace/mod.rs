@@ -204,6 +204,10 @@ impl WorkspaceManager {
         };
 
         let Some(rel) = self.relative_path(abs_path) else {
+            warn!(
+                "register_file: path is outside workspace: {}",
+                abs_path.display()
+            );
             return Ok(());
         };
 
@@ -252,6 +256,12 @@ impl WorkspaceManager {
 
     /// Remove a file from disk and from the manifest.
     pub fn remove_file(&self, abs_path: &Path) -> Result<()> {
+        if !self.is_managed_path(abs_path) {
+            anyhow::bail!(
+                "path is not a managed workspace file: {}",
+                abs_path.display()
+            );
+        }
         std::fs::remove_file(abs_path)?;
 
         let Some(db) = &self.db else {
@@ -269,6 +279,12 @@ impl WorkspaceManager {
     /// The file keeps its date subdirectory (if any) and filename.
     /// Returns the new absolute path.
     pub fn move_file(&self, abs_path: &Path, new_category: FileCategory) -> Result<PathBuf> {
+        if !self.is_managed_path(abs_path) {
+            anyhow::bail!(
+                "path is not a managed workspace file: {}",
+                abs_path.display()
+            );
+        }
         let old_rel = self
             .relative_path(abs_path)
             .ok_or_else(|| anyhow::anyhow!("path is not under workspace root"))?;
@@ -340,10 +356,8 @@ impl WorkspaceManager {
             let expired = db.list_expired_workspace_files(category, *days as u32)?;
             for entry in &expired {
                 let abs = self.workspace_root.join(&entry.path);
-                if abs.exists()
-                    && let Err(e) = std::fs::remove_file(&abs)
-                {
-                    warn!("failed to remove expired file {}: {e}", abs.display());
+                if abs.exists() && std::fs::remove_file(&abs).is_err() {
+                    warn!("failed to remove expired file: {}", abs.display());
                     continue;
                 }
                 db.unregister_workspace_file(&entry.path)?;
@@ -389,6 +403,7 @@ impl WorkspaceManager {
             }
 
             for entry in WalkDir::new(&cat_dir)
+                .max_depth(4)
                 .into_iter()
                 .filter_map(Result::ok)
                 .filter(|e| e.file_type().is_file())

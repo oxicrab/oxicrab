@@ -574,3 +574,26 @@ fn test_operations_without_db_are_graceful() {
     assert_eq!(mgr.cleanup_expired(&HashMap::new()).unwrap(), 0);
     assert_eq!(mgr.sync_manifest().unwrap(), (0, 0));
 }
+
+#[test]
+fn test_tag_and_search_with_db() {
+    let (_dir, mgr) = test_manager();
+    let root = mgr.workspace_root().to_path_buf();
+
+    // Create and register a file
+    let file = root.join("code/2026-02-27/tagged.py");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "content").unwrap();
+    mgr.register_file(&file, None, None).unwrap();
+
+    // Tag it
+    mgr.tag_file(&file, "important,review").unwrap();
+
+    // Search by name
+    let results = mgr.search_files("tagged").unwrap();
+    assert_eq!(results.len(), 1);
+
+    // List with tag filter
+    let results = mgr.list_files(None, None, Some("important")).unwrap();
+    assert_eq!(results.len(), 1);
+}
