@@ -39,6 +39,8 @@ pub struct ToolBuildContext {
     pub subagent_config: SubagentConfig,
     pub mcp_config: Option<config::McpConfig>,
     pub memory_db: Option<Arc<MemoryDB>>,
+    pub workspace_manager: Option<Arc<crate::agent::workspace::WorkspaceManager>>,
+    pub workspace_ttl: config::WorkspaceTtlConfig,
 }
 
 /// Register all tools into the registry using decentralized per-module `register()` functions.
@@ -64,6 +66,7 @@ pub async fn register_all_tools(
     register_http(&mut tools);
     register_reddit(&mut tools);
     register_memory_search(&mut tools, ctx);
+    register_workspace(&mut tools, ctx);
 
     // Slow async registrations — run in parallel
     let (google_tools, mcp_result) = tokio::join!(create_google_tools(ctx), create_mcp(ctx),);
@@ -337,6 +340,18 @@ fn register_memory_search(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::memory_search::MemorySearchTool;
 
     registry.register(Arc::new(MemorySearchTool::new(ctx.memory.clone())));
+}
+
+fn register_workspace(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    use crate::agent::tools::workspace_tool::WorkspaceTool;
+
+    if let Some(ref mgr) = ctx.workspace_manager {
+        registry.register(Arc::new(WorkspaceTool::new(
+            mgr.clone(),
+            ctx.workspace_ttl.clone(),
+        )));
+        info!("Workspace tool registered");
+    }
 }
 
 /// Check whether a tool name is safe for community-trust MCP servers.

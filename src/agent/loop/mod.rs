@@ -79,6 +79,7 @@ pub struct ToolConfigs {
     pub browser_config: Option<crate::config::BrowserConfig>,
     pub image_gen_config: Option<crate::config::ImageGenConfig>,
     pub mcp_config: Option<crate::config::McpConfig>,
+    pub workspace_ttl: crate::config::WorkspaceTtlConfig,
 }
 
 /// Configuration for creating an [`AgentLoop`] instance.
@@ -195,6 +196,7 @@ impl AgentLoopConfig {
                 browser_config: Some(config.tools.browser.clone()),
                 image_gen_config: Some(image_gen),
                 mcp_config: Some(config.tools.mcp.clone()),
+                workspace_ttl: config.agents.defaults.workspace_ttl.clone(),
             },
         }
     }
@@ -261,6 +263,7 @@ impl AgentLoopConfig {
                 browser_config: None,
                 image_gen_config: None,
                 mcp_config: None,
+                workspace_ttl: crate::config::WorkspaceTtlConfig::default(),
             },
         }
     }
@@ -431,6 +434,11 @@ impl AgentLoop {
         );
         let cost_guard = Some(Arc::new(CostGuard::with_db(cost_guard_config, memory.db())));
 
+        let workspace_manager = Some(Arc::new(crate::agent::workspace::WorkspaceManager::new(
+            workspace.clone(),
+            Some(memory.db()),
+        )));
+
         let tool_ctx = ToolBuildContext {
             workspace: workspace.clone(),
             restrict_to_workspace: tool_configs.restrict_to_workspace,
@@ -466,6 +474,8 @@ impl AgentLoop {
             mcp_config: tool_configs.mcp_config,
             sandbox_config: tool_configs.sandbox_config,
             memory_db: Some(memory.db()),
+            workspace_manager,
+            workspace_ttl: tool_configs.workspace_ttl,
         };
 
         let (tools, subagents, mcp_manager) =
