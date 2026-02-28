@@ -843,6 +843,30 @@ fn json_diff(path: &str, expected: &serde_json::Value, actual: &serde_json::Valu
     diffs
 }
 
+// -----------------------------------------------------------------------
+// WorkspaceTtlConfig defaults + to_map
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_workspace_ttl_defaults() {
+    let ttl = WorkspaceTtlConfig::default();
+    assert_eq!(ttl.temp, Some(7));
+    assert_eq!(ttl.downloads, Some(30));
+    assert_eq!(ttl.images, Some(90));
+    assert_eq!(ttl.code, None);
+    assert_eq!(ttl.documents, None);
+    assert_eq!(ttl.data, None);
+}
+
+#[test]
+fn test_workspace_ttl_to_map() {
+    let ttl = WorkspaceTtlConfig::default();
+    let map = ttl.to_map();
+    assert_eq!(map.len(), 6);
+    assert_eq!(map["temp"], Some(7));
+    assert_eq!(map["code"], None);
+}
+
 #[test]
 fn test_config_example_is_up_to_date() {
     let expected = generate_example_config();

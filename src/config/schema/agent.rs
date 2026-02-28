@@ -310,6 +310,72 @@ fn default_media_ttl_days() -> u32 {
     7
 }
 
+// Serde default functions must match the field type (`Option<u64>`).
+#[allow(clippy::unnecessary_wraps)]
+fn default_ttl_temp() -> Option<u64> {
+    Some(7)
+}
+#[allow(clippy::unnecessary_wraps)]
+fn default_ttl_downloads() -> Option<u64> {
+    Some(30)
+}
+#[allow(clippy::unnecessary_wraps)]
+fn default_ttl_images() -> Option<u64> {
+    Some(90)
+}
+
+/// Per-category TTL defaults for workspace file expiration.
+///
+/// Each field is `Option<u64>` where `Some(days)` means files expire after
+/// that many days, and `None` means files never expire.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceTtlConfig {
+    /// Days before temp files expire (default: 7). Null = never.
+    #[serde(default = "default_ttl_temp")]
+    pub temp: Option<u64>,
+    /// Days before downloads expire (default: 30). Null = never.
+    #[serde(default = "default_ttl_downloads")]
+    pub downloads: Option<u64>,
+    /// Days before images expire (default: 90). Null = never.
+    #[serde(default = "default_ttl_images")]
+    pub images: Option<u64>,
+    /// Days before code files expire. Null = never (default).
+    #[serde(default)]
+    pub code: Option<u64>,
+    /// Days before document files expire. Null = never (default).
+    #[serde(default)]
+    pub documents: Option<u64>,
+    /// Days before data files expire. Null = never (default).
+    #[serde(default)]
+    pub data: Option<u64>,
+}
+
+impl Default for WorkspaceTtlConfig {
+    fn default() -> Self {
+        Self {
+            temp: default_ttl_temp(),
+            downloads: default_ttl_downloads(),
+            images: default_ttl_images(),
+            code: None,
+            documents: None,
+            data: None,
+        }
+    }
+}
+
+impl WorkspaceTtlConfig {
+    pub fn to_map(&self) -> std::collections::HashMap<String, Option<u64>> {
+        let mut map = std::collections::HashMap::new();
+        map.insert("temp".into(), self.temp);
+        map.insert("downloads".into(), self.downloads);
+        map.insert("images".into(), self.images);
+        map.insert("code".into(), self.code);
+        map.insert("documents".into(), self.documents);
+        map.insert("data".into(), self.data);
+        map
+    }
+}
+
 fn default_max_concurrent_subagents() -> usize {
     5
 }
@@ -384,6 +450,8 @@ pub struct AgentDefaults {
     pub prompt_guard: PromptGuardConfig,
     #[serde(default, rename = "contextProviders")]
     pub context_providers: Vec<ContextProviderConfig>,
+    #[serde(default, rename = "workspaceTtl")]
+    pub workspace_ttl: WorkspaceTtlConfig,
 }
 
 impl Default for AgentDefaults {
@@ -407,6 +475,7 @@ impl Default for AgentDefaults {
             cognitive: CognitiveConfig::default(),
             prompt_guard: PromptGuardConfig::default(),
             context_providers: vec![],
+            workspace_ttl: WorkspaceTtlConfig::default(),
         }
     }
 }
