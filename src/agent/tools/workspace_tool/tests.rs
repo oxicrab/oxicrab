@@ -260,6 +260,28 @@ async fn test_workspace_tool_send_action() {
 }
 
 #[tokio::test]
+async fn test_workspace_tool_send_from_memory_dir() {
+    let (tmp, tool) = test_tool();
+    let ctx = test_ctx();
+
+    // Create a file in the memory/ directory (reserved, not a managed category)
+    let file = tmp.path().join("memory/report.md");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "# Report\nContent here").unwrap();
+
+    let params = serde_json::json!({ "action": "send", "path": "memory/report.md" });
+    let result = tool.execute(params, &ctx).await.unwrap();
+
+    assert!(
+        !result.is_error,
+        "send from memory/ should work: {}",
+        result.content
+    );
+    assert!(result.content.contains("saved to: "));
+    assert!(result.content.contains("report.md"));
+}
+
+#[tokio::test]
 async fn test_workspace_tool_send_nonexistent_file() {
     let (_tmp, tool) = test_tool();
     let ctx = test_ctx();

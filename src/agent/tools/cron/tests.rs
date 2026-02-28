@@ -3,6 +3,7 @@ use crate::agent::tools::Tool;
 use crate::config::{
     ChannelsConfig, DiscordConfig, SlackConfig, TelegramConfig, TwilioConfig, WhatsAppConfig,
 };
+use serde_json::json;
 
 fn make_test_channels_config() -> ChannelsConfig {
     ChannelsConfig {
@@ -206,4 +207,35 @@ fn test_cron_actions_match_schema() {
             action
         );
     }
+}
+
+#[test]
+fn test_every_seconds_rejects_sub_minute() {
+    // 1 second should be rejected
+    let result = CronTool::parse_schedule(&json!({"every_seconds": 1}));
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.content.contains("between 60"));
+
+    // 59 seconds should be rejected
+    let result = CronTool::parse_schedule(&json!({"every_seconds": 59}));
+    assert!(result.is_err());
+
+    // 60 seconds should be accepted
+    let result = CronTool::parse_schedule(&json!({"every_seconds": 60}));
+    assert!(result.is_ok());
+
+    // 0 should be rejected
+    let result = CronTool::parse_schedule(&json!({"every_seconds": 0}));
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_every_seconds_rejects_over_one_year() {
+    let result = CronTool::parse_schedule(&json!({"every_seconds": 31_536_001}));
+    assert!(result.is_err());
+
+    // Exactly one year should be accepted
+    let result = CronTool::parse_schedule(&json!({"every_seconds": 31_536_000}));
+    assert!(result.is_ok());
 }

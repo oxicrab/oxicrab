@@ -285,8 +285,11 @@ impl WorkspaceTool {
         if !abs_path.exists() {
             anyhow::bail!("file not found: {}", path_str);
         }
-        if !self.manager.is_managed_path(&abs_path) {
-            anyhow::bail!("path is not a managed workspace file: {}", path_str);
+        // Allow sending any file under the workspace root (including memory/, knowledge/).
+        // Unlike delete/move, sending doesn't modify the file so the guard is relaxed.
+        let resolved = abs_path.canonicalize().unwrap_or_else(|_| abs_path.clone());
+        if !resolved.starts_with(self.manager.workspace_root()) {
+            anyhow::bail!("path is outside the workspace: {}", path_str);
         }
 
         let filename = abs_path
