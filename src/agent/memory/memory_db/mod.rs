@@ -1475,7 +1475,7 @@ impl MemoryDB {
 
     // ── Workspace file manifest methods ──────────────────────────
 
-    /// Register a workspace file in the manifest (INSERT OR REPLACE).
+    /// Register a workspace file in the manifest (upsert).
     #[allow(clippy::too_many_arguments)]
     pub fn register_workspace_file(
         &self,
@@ -1488,12 +1488,15 @@ impl MemoryDB {
     ) -> Result<()> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         conn.execute(
-            "INSERT OR REPLACE INTO workspace_files
-             (path, category, original_name, size_bytes, source_tool, session_key, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, COALESCE(
-                 (SELECT created_at FROM workspace_files WHERE path = ?1),
-                 datetime('now')
-             ))",
+            "INSERT INTO workspace_files
+               (path, category, original_name, size_bytes, source_tool, session_key, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))
+             ON CONFLICT(path) DO UPDATE SET
+               category = excluded.category,
+               original_name = excluded.original_name,
+               size_bytes = excluded.size_bytes,
+               source_tool = excluded.source_tool,
+               session_key = excluded.session_key",
             params![
                 path,
                 category,
@@ -1507,6 +1510,7 @@ impl MemoryDB {
     }
 
     /// Register a workspace file with an explicit `created_at` timestamp (for testing).
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn register_workspace_file_with_date(
         &self,
@@ -1520,9 +1524,16 @@ impl MemoryDB {
     ) -> Result<()> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         conn.execute(
-            "INSERT OR REPLACE INTO workspace_files
-             (path, category, original_name, size_bytes, source_tool, session_key, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO workspace_files
+               (path, category, original_name, size_bytes, source_tool, session_key, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(path) DO UPDATE SET
+               category = excluded.category,
+               original_name = excluded.original_name,
+               size_bytes = excluded.size_bytes,
+               source_tool = excluded.source_tool,
+               session_key = excluded.session_key,
+               created_at = excluded.created_at",
             params![
                 path,
                 category,
@@ -1567,8 +1578,12 @@ impl MemoryDB {
             param_values.push(Box::new(format!("{d}%")));
         }
         if let Some(t) = tag {
-            let _ = write!(sql, " AND tags LIKE ?{}", param_values.len() + 1);
-            param_values.push(Box::new(format!("%{t}%")));
+            let _ = write!(
+                sql,
+                " AND (',' || tags || ',' LIKE '%,' || ?{} || ',%')",
+                param_values.len() + 1
+            );
+            param_values.push(Box::new(t.to_string()));
         }
         sql.push_str(" ORDER BY created_at DESC");
 

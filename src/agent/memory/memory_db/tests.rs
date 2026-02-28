@@ -796,6 +796,16 @@ fn test_workspace_file_update_tags() {
         .list_workspace_files(None, None, Some("archived"))
         .unwrap();
     assert!(files.is_empty());
+
+    // Substring false positive: "port" should NOT match "important"
+    let files = db.list_workspace_files(None, None, Some("port")).unwrap();
+    assert!(files.is_empty());
+
+    // Exact tag match for "project-x" should work
+    let files = db
+        .list_workspace_files(None, None, Some("project-x"))
+        .unwrap();
+    assert_eq!(files.len(), 1);
 }
 
 #[test]
@@ -872,6 +882,17 @@ fn test_workspace_file_register_upsert() {
     )
     .unwrap();
 
+    // Set tags and touch the file before the second register
+    db.set_workspace_file_tags("workspace/images/photo.png", "important,review")
+        .unwrap();
+    db.touch_workspace_file("workspace/images/photo.png")
+        .unwrap();
+
+    let before = db.list_workspace_files(None, None, None).unwrap();
+    let original_id = before[0].id;
+    assert_eq!(before[0].tags, "important,review");
+    assert!(before[0].accessed_at.is_some());
+
     // Register again with different size — should update, not duplicate
     db.register_workspace_file(
         "workspace/images/photo.png",
@@ -888,4 +909,9 @@ fn test_workspace_file_register_upsert() {
     assert_eq!(files[0].size_bytes, 2000);
     assert_eq!(files[0].original_name.as_deref(), Some("photo_v2.png"));
     assert_eq!(files[0].source_tool.as_deref(), Some("tool_b"));
+
+    // Verify tags, accessed_at, and id are preserved across upsert
+    assert_eq!(files[0].id, original_id);
+    assert_eq!(files[0].tags, "important,review");
+    assert!(files[0].accessed_at.is_some());
 }
