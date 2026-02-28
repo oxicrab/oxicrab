@@ -2,6 +2,53 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.7] - 2026-02-28
+
+### Added
+- **channels:** log successful media uploads across all channels ([0e4287e](https://github.com/oxicrab/oxicrab/commit/0e4287e62484ff916a5ec157e1759b1ccad6330c))
+- **workspace:** add send action to workspace tool for file delivery ([d87a1d6](https://github.com/oxicrab/oxicrab/commit/d87a1d6168f39fdcf6c1b0235bf9689e44000ad8))
+- **workspace:** integrate workspace file cleanup into hygiene cycle ([af8ee0a](https://github.com/oxicrab/oxicrab/commit/af8ee0ae4df942ee73456eb26fd5e71a0b75d306))
+- **workspace:** integrate WriteFileTool and ReadFileTool with workspace manifest ([7e9f1a0](https://github.com/oxicrab/oxicrab/commit/7e9f1a0e53cb16de23975cf574513803d1dd675b))
+- **workspace:** wire WorkspaceManager through ToolBuildContext and register workspace tool ([12a53b2](https://github.com/oxicrab/oxicrab/commit/12a53b2a95bd57e751a3cf74ad150f829a7d8484))
+- **workspace:** add workspace action-based tool with 8 actions ([f06d083](https://github.com/oxicrab/oxicrab/commit/f06d083bbe34f6d5eb6d7e9765ea5ed31e886d22))
+- **workspace:** add WorkspaceTtlConfig to agent defaults ([a3216fa](https://github.com/oxicrab/oxicrab/commit/a3216fa5a79c7103b2e196ee4dfd67101f9a2364))
+- **workspace:** add manifest integration methods to WorkspaceManager ([32b6777](https://github.com/oxicrab/oxicrab/commit/32b67771fd03663633250411409531d36366c382))
+- **workspace:** add workspace_files manifest table and CRUD methods to MemoryDB ([451e8b7](https://github.com/oxicrab/oxicrab/commit/451e8b7d35c400717c0ed2c1bfe9f8386de1eea9))
+- **workspace:** add WorkspaceManager with category inference and path resolution ([90221d1](https://github.com/oxicrab/oxicrab/commit/90221d1f55f670776e666f7c3580d244e469ab36))
+
+
+### CI/CD
+- bump actions/download-artifact from 7 to 8 ([e9658c1](https://github.com/oxicrab/oxicrab/commit/e9658c1fa9506a89bbe032b6c961cf1634eacc1d))
+- bump actions/upload-artifact from 6 to 7 ([19468b3](https://github.com/oxicrab/oxicrab/commit/19468b3b4e0a02ec46103701c340f6f7066bbfc3))
+
+
+### Dependencies
+- bump rmcp from 0.16.0 to 0.17.0 ([dbefc53](https://github.com/oxicrab/oxicrab/commit/dbefc53f9e2629acbae7028d7c19630c5bcbb70d))
+- bump chrono from 0.4.43 to 0.4.44 ([944f359](https://github.com/oxicrab/oxicrab/commit/944f3593201883b05606cb0b8dfec1956d824995))
+
+
+### Documentation
+- **plans:** Removed design docs for tool metadata ([5dcb27a](https://github.com/oxicrab/oxicrab/commit/5dcb27a363221a4cc6c7758aea4595307dc2de7a))
+- add workspace manager notes to CLAUDE.md ([b1a2fd0](https://github.com/oxicrab/oxicrab/commit/b1a2fd052d0ca0fc64989c1b9f5ae8ae3fadb08d))
+- add workspace tool and workspaceTtl config documentation ([abb4774](https://github.com/oxicrab/oxicrab/commit/abb47748e1fdd9066efccd20549c089002d2e5f2))
+- add workspace manager implementation plan ([786784b](https://github.com/oxicrab/oxicrab/commit/786784b7d0745d10dbb92c8bac02f2e1a822c98f))
+- add workspace manager design document ([ceb2f26](https://github.com/oxicrab/oxicrab/commit/ceb2f260cb009ba21f8a8fb52807f477bc7650ed))
+
+
+### Fixed
+- **workspace:** allow sending any workspace file, not just managed categories ([118e5dd](https://github.com/oxicrab/oxicrab/commit/118e5dd8a60cd19f07ba76967c9453ae9224b86b))
+- **cron:** enforce 60-second minimum for every_seconds interval ([a6eb6ca](https://github.com/oxicrab/oxicrab/commit/a6eb6ca2c8f4b6c3e4a328fa37a8b156b6d86682))
+- **workspace:** use canonical workspace_root in traversal test assertion ([646a464](https://github.com/oxicrab/oxicrab/commit/646a4646d5056ea66f91a83fb8a533da250ebd04))
+- **workspace:** canonicalize input paths for macOS symlink compatibility ([e9cf0d6](https://github.com/oxicrab/oxicrab/commit/e9cf0d6a1dab82df4d6c8556399c9592a7de0737))
+- **workspace:** canonicalize workspace root for consistent path matching ([dc86f73](https://github.com/oxicrab/oxicrab/commit/dc86f739aa7ea7d484e326ad94ed340cf16166ee))
+- **workspace:** add path validation guards and improve cleanup clarity ([932b8af](https://github.com/oxicrab/oxicrab/commit/932b8afb0a3daa72c390359f465d0b92f0752a14))
+- **workspace:** use ON CONFLICT upsert and fix tag search false positives ([7a2cebf](https://github.com/oxicrab/oxicrab/commit/7a2cebfa1f5bf8cdb82e71a47913934fe00efd07))
+- **workspace:** sanitize path traversal and add Display/Serialize to FileCategory ([cc37709](https://github.com/oxicrab/oxicrab/commit/cc3770967539b5a10cd123fa8e70409561b28be7))
+
+
+### Testing
+- add workspace management integration tests ([b349d60](https://github.com/oxicrab/oxicrab/commit/b349d600845c3aa62810bcf56badd301b4c479a4))
+
 ## [0.11.6] - 2026-02-26
 
 ### Changed
