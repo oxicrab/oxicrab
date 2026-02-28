@@ -349,7 +349,8 @@ fn test_resolve_path_rejects_traversal() {
     let mgr = WorkspaceManager::new(tmp.path().to_path_buf(), None);
     let resolved = mgr.resolve_path("../../../etc/passwd", None);
     // Should extract just "passwd", not allow traversal
-    assert!(resolved.starts_with(tmp.path()));
+    // Use mgr.workspace_root() (canonical) rather than tmp.path() (may have symlinks)
+    assert!(resolved.starts_with(mgr.workspace_root()));
     assert!(resolved.to_string_lossy().contains("passwd"));
     assert!(!resolved.to_string_lossy().contains(".."));
 }
