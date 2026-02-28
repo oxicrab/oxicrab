@@ -111,7 +111,11 @@ pub struct WorkspaceManager {
 
 impl WorkspaceManager {
     /// Creates a new `WorkspaceManager`.
+    ///
+    /// The workspace root is canonicalized to ensure consistent path matching
+    /// with `tokio::fs::canonicalize()` used by filesystem tools.
     pub fn new(workspace_root: PathBuf, db: Option<Arc<MemoryDB>>) -> Self {
+        let workspace_root = workspace_root.canonicalize().unwrap_or(workspace_root);
         Self { workspace_root, db }
     }
 
