@@ -59,6 +59,14 @@
         "firmThreshold": 20,
         "urgentThreshold": 30,
         "recentToolsWindow": 10
+      },
+      "workspaceTtl": {
+        "temp": 7,
+        "downloads": 30,
+        "images": 90,
+        "code": null,
+        "documents": null,
+        "data": null
       }
     }
   },

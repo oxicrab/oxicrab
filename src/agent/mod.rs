@@ -10,6 +10,7 @@ pub mod skills;
 pub mod subagent;
 pub mod tools;
 pub mod truncation;
+pub mod workspace;
 
 pub use agent_loop::{
     AgentLoop, AgentLoopConfig, AgentLoopRuntimeParams, AgentRunOverrides, ToolConfigs,

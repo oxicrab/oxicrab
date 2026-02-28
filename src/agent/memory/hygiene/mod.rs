@@ -169,6 +169,37 @@ pub fn cleanup_orphaned_entries(db: &MemoryDB, memory_dir: &Path) -> Result<u32>
     Ok(count)
 }
 
+/// Clean up workspace files that have exceeded their category TTL.
+pub fn cleanup_workspace_files<S: ::std::hash::BuildHasher>(
+    db: &MemoryDB,
+    workspace_root: &Path,
+    ttl_map: &std::collections::HashMap<String, Option<u64>, S>,
+) -> Result<u32> {
+    let mut total_removed = 0;
+    for (category, ttl) in ttl_map {
+        let Some(days) = ttl else { continue };
+        let expired = db.list_expired_workspace_files(category, *days as u32)?;
+        for entry in expired {
+            let abs_path = workspace_root.join(&entry.path);
+            if abs_path.exists()
+                && let Err(e) = std::fs::remove_file(&abs_path)
+            {
+                warn!(
+                    "failed to remove expired workspace file {}: {e}",
+                    abs_path.display()
+                );
+                continue;
+            }
+            db.unregister_workspace_file(&entry.path)?;
+            total_removed += 1;
+        }
+    }
+    if total_removed > 0 {
+        info!("cleaned up {} expired workspace files", total_removed);
+    }
+    Ok(total_removed)
+}
+
 /// Run all hygiene tasks.
 pub fn run_hygiene(db: &MemoryDB, memory_dir: &Path, archive_days: u32, purge_days: u32) {
     if let Err(e) = archive_old_notes(memory_dir, archive_days, Some(db)) {

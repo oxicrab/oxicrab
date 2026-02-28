@@ -40,6 +40,7 @@ impl MemoryStore {
         workspace: impl AsRef<Path>,
         indexer_interval_secs: u64,
         memory_config: &MemoryConfig,
+        workspace_ttl: std::collections::HashMap<String, Option<u64>>,
     ) -> Result<Self> {
         let workspace = workspace.as_ref();
         let memory_dir = workspace.join("memory");
@@ -93,6 +94,7 @@ impl MemoryStore {
             memory_config.archive_after_days,
             memory_config.purge_after_days,
             embedding_service.clone(),
+            workspace_ttl,
         ));
 
         Ok(Self {
@@ -496,7 +498,9 @@ mod tests {
         config.rrf_k = 42;
         config.hybrid_weight = 0.3;
 
-        let store = MemoryStore::with_config(tmp.path(), 0, &config).unwrap();
+        let store =
+            MemoryStore::with_config(tmp.path(), 0, &config, std::collections::HashMap::new())
+                .unwrap();
         assert_eq!(store.fusion_strategy, crate::config::FusionStrategy::Rrf);
         assert_eq!(store.rrf_k, 42);
         assert!((store.hybrid_weight - 0.3).abs() < f32::EPSILON);

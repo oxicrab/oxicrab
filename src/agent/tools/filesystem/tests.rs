@@ -564,3 +564,132 @@ fn test_list_dir_capabilities() {
     assert_eq!(caps.subagent_access, SubagentAccess::Full);
     assert!(caps.actions.is_empty());
 }
+
+// --- workspace integration ---
+
+#[tokio::test]
+async fn test_write_file_registers_in_manifest() {
+    use crate::agent::memory::memory_db::MemoryDB;
+    use crate::agent::workspace::WorkspaceManager;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let db = Arc::new(MemoryDB::new(tmp.path().join("memory/memory.sqlite3")).unwrap());
+    let mgr = Arc::new(WorkspaceManager::new(tmp.path().to_path_buf(), Some(db)));
+
+    // Target a file in a managed category directory
+    let target = tmp.path().join("code/2026-02-27/test.py");
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+
+    let tool = WriteFileTool::new(None, None, Some(tmp.path().to_path_buf()))
+        .with_workspace_manager(mgr.clone());
+
+    let result = tool
+        .execute(
+            serde_json::json!({"path": target.to_str().unwrap(), "content": "print('hi')"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error, "write failed: {}", result.content);
+
+    // File should be in manifest
+    let files = mgr.list_files(None, None, None).unwrap();
+    assert_eq!(files.len(), 1);
+    assert!(files[0].path.contains("test.py"));
+    assert_eq!(files[0].source_tool.as_deref(), Some("write_file"));
+}
+
+#[tokio::test]
+async fn test_write_file_outside_workspace_no_registration() {
+    use crate::agent::memory::memory_db::MemoryDB;
+    use crate::agent::workspace::WorkspaceManager;
+
+    let ws_tmp = tempfile::tempdir().unwrap();
+    let file_tmp = tempfile::tempdir().unwrap();
+    let db = Arc::new(MemoryDB::new(ws_tmp.path().join("memory/memory.sqlite3")).unwrap());
+    let mgr = Arc::new(WorkspaceManager::new(ws_tmp.path().to_path_buf(), Some(db)));
+
+    let target = file_tmp.path().join("outside.txt");
+
+    let tool = WriteFileTool::new(None, None, None).with_workspace_manager(mgr.clone());
+
+    let result = tool
+        .execute(
+            serde_json::json!({"path": target.to_str().unwrap(), "content": "data"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+
+    // No manifest entries since file is outside workspace
+    let files = mgr.list_files(None, None, None).unwrap();
+    assert!(files.is_empty());
+}
+
+#[tokio::test]
+async fn test_read_file_updates_accessed_at() {
+    use crate::agent::memory::memory_db::MemoryDB;
+    use crate::agent::workspace::WorkspaceManager;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let db = Arc::new(MemoryDB::new(tmp.path().join("memory/memory.sqlite3")).unwrap());
+    let mgr = Arc::new(WorkspaceManager::new(tmp.path().to_path_buf(), Some(db)));
+
+    let file = tmp.path().join("code/2026-02-27/test.py");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(&file, "print('hi')").unwrap();
+    mgr.register_file(&file, Some("write_file"), None).unwrap();
+
+    // Verify accessed_at is initially None
+    let files = mgr.list_files(None, None, None).unwrap();
+    assert_eq!(files.len(), 1);
+    assert!(files[0].accessed_at.is_none());
+
+    let tool =
+        ReadFileTool::new(None, Some(tmp.path().to_path_buf())).with_workspace_manager(mgr.clone());
+
+    let result = tool
+        .execute(
+            serde_json::json!({"path": file.to_str().unwrap()}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error, "read failed: {}", result.content);
+    assert_eq!(result.content, "print('hi')");
+
+    // accessed_at should be set now
+    let files = mgr.list_files(None, None, None).unwrap();
+    assert_eq!(files.len(), 1);
+    assert!(files[0].accessed_at.is_some());
+}
+
+#[tokio::test]
+async fn test_read_file_no_touch_for_unmanaged_path() {
+    use crate::agent::memory::memory_db::MemoryDB;
+    use crate::agent::workspace::WorkspaceManager;
+
+    let ws_tmp = tempfile::tempdir().unwrap();
+    let file_tmp = tempfile::tempdir().unwrap();
+    let db = Arc::new(MemoryDB::new(ws_tmp.path().join("memory/memory.sqlite3")).unwrap());
+    let mgr = Arc::new(WorkspaceManager::new(ws_tmp.path().to_path_buf(), Some(db)));
+
+    let file = file_tmp.path().join("outside.txt");
+    fs::write(&file, "content").unwrap();
+
+    let tool = ReadFileTool::new(None, None).with_workspace_manager(mgr.clone());
+
+    let result = tool
+        .execute(
+            serde_json::json!({"path": file.to_str().unwrap()}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+
+    // No manifest entries since file is outside workspace
+    let files = mgr.list_files(None, None, None).unwrap();
+    assert!(files.is_empty());
+}

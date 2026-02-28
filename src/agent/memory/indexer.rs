@@ -21,6 +21,7 @@ pub struct MemoryIndexer {
     purge_after_days: u32,
     embedding_service: Option<Arc<LazyEmbeddingService>>,
     indexing_in_progress: Arc<std::sync::atomic::AtomicBool>,
+    workspace_ttl: std::collections::HashMap<String, Option<u64>>,
 }
 
 impl MemoryIndexer {
@@ -36,6 +37,7 @@ impl MemoryIndexer {
             purge_after_days: 90,
             embedding_service: None,
             indexing_in_progress: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            workspace_ttl: std::collections::HashMap::new(),
         }
     }
 
@@ -57,9 +59,11 @@ impl MemoryIndexer {
             purge_after_days,
             embedding_service: None,
             indexing_in_progress: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            workspace_ttl: std::collections::HashMap::new(),
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn with_full_config(
         db: Arc<MemoryDB>,
         memory_dir: PathBuf,
@@ -68,6 +72,7 @@ impl MemoryIndexer {
         archive_after_days: u32,
         purge_after_days: u32,
         embedding_service: Option<Arc<LazyEmbeddingService>>,
+        workspace_ttl: std::collections::HashMap<String, Option<u64>>,
     ) -> Self {
         Self {
             db,
@@ -80,6 +85,7 @@ impl MemoryIndexer {
             purge_after_days,
             embedding_service,
             indexing_in_progress: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            workspace_ttl,
         }
     }
 
@@ -101,6 +107,7 @@ impl MemoryIndexer {
         let archive_days = self.archive_after_days;
         let purge_days = self.purge_after_days;
         let embedding_service = self.embedding_service.clone();
+        let workspace_ttl = self.workspace_ttl.clone();
 
         // Initial indexing now runs inside the spawn (non-blocking)
         tokio::spawn(async move {
@@ -146,7 +153,7 @@ impl MemoryIndexer {
                 .await;
 
                 // Run hygiene after indexing
-                Self::run_hygiene(&db, &memory_dir, archive_days, purge_days).await;
+                Self::run_hygiene(&db, &memory_dir, archive_days, purge_days, &workspace_ttl).await;
 
                 last_index = std::time::Instant::now();
                 *last_index_time.lock().await = Some(last_index);
@@ -335,13 +342,20 @@ impl MemoryIndexer {
     }
 
     /// Run memory hygiene (archive/purge/cleanup) in a blocking task.
-    async fn run_hygiene(db: &MemoryDB, memory_dir: &Path, archive_days: u32, purge_days: u32) {
-        if archive_days == 0 && purge_days == 0 {
+    async fn run_hygiene(
+        db: &MemoryDB,
+        memory_dir: &Path,
+        archive_days: u32,
+        purge_days: u32,
+        workspace_ttl: &std::collections::HashMap<String, Option<u64>>,
+    ) {
+        if archive_days == 0 && purge_days == 0 && workspace_ttl.is_empty() {
             return;
         }
         match tokio::task::spawn_blocking({
             let db = db.clone();
             let memory_dir = memory_dir.to_path_buf();
+            let workspace_ttl = workspace_ttl.clone();
             move || {
                 crate::agent::memory::hygiene::run_hygiene(
                     &db,
@@ -349,6 +363,17 @@ impl MemoryIndexer {
                     archive_days,
                     purge_days,
                 );
+                // Workspace root is the parent of the memory directory
+                if !workspace_ttl.is_empty()
+                    && let Some(workspace_root) = memory_dir.parent()
+                    && let Err(e) = crate::agent::memory::hygiene::cleanup_workspace_files(
+                        &db,
+                        workspace_root,
+                        &workspace_ttl,
+                    )
+                {
+                    warn!("workspace file cleanup failed: {e}");
+                }
             }
         })
         .await

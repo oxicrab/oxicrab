@@ -657,3 +657,261 @@ fn test_recency_decay_preserves_relevance_ordering() {
         recent_score
     );
 }
+
+// ── Workspace file manifest tests ─────────────────────────
+
+#[test]
+fn test_workspace_file_register_and_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    db.register_workspace_file(
+        "workspace/images/screenshot.png",
+        "images",
+        Some("screenshot.png"),
+        12345,
+        Some("image_gen"),
+        Some("session-abc"),
+    )
+    .unwrap();
+
+    let files = db.list_workspace_files(Some("images"), None, None).unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, "workspace/images/screenshot.png");
+    assert_eq!(files[0].category, "images");
+    assert_eq!(files[0].original_name.as_deref(), Some("screenshot.png"));
+    assert_eq!(files[0].size_bytes, 12345);
+    assert_eq!(files[0].source_tool.as_deref(), Some("image_gen"));
+    assert_eq!(files[0].session_key.as_deref(), Some("session-abc"));
+    assert!(!files[0].created_at.is_empty());
+
+    // Listing a different category returns nothing
+    let empty = db
+        .list_workspace_files(Some("documents"), None, None)
+        .unwrap();
+    assert!(empty.is_empty());
+}
+
+#[test]
+fn test_workspace_file_search_by_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    db.register_workspace_file(
+        "workspace/images/photo.png",
+        "images",
+        Some("vacation_photo.png"),
+        1000,
+        None,
+        None,
+    )
+    .unwrap();
+    db.register_workspace_file(
+        "workspace/documents/report.pdf",
+        "documents",
+        Some("quarterly_report.pdf"),
+        5000,
+        None,
+        None,
+    )
+    .unwrap();
+
+    // Search by partial original name
+    let results = db.search_workspace_files("vacation").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].path, "workspace/images/photo.png");
+
+    // Search by partial path
+    let results = db.search_workspace_files("documents").unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].path, "workspace/documents/report.pdf");
+
+    // Search matching nothing
+    let results = db.search_workspace_files("nonexistent").unwrap();
+    assert!(results.is_empty());
+}
+
+#[test]
+fn test_workspace_file_unregister() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    db.register_workspace_file("workspace/tmp/file.txt", "tmp", None, 100, None, None)
+        .unwrap();
+
+    let files = db.list_workspace_files(None, None, None).unwrap();
+    assert_eq!(files.len(), 1);
+
+    db.unregister_workspace_file("workspace/tmp/file.txt")
+        .unwrap();
+
+    let files = db.list_workspace_files(None, None, None).unwrap();
+    assert!(files.is_empty());
+}
+
+#[test]
+fn test_workspace_file_update_accessed_at() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    db.register_workspace_file("workspace/data/file.csv", "data", None, 500, None, None)
+        .unwrap();
+
+    let files = db.list_workspace_files(None, None, None).unwrap();
+    assert!(files[0].accessed_at.is_none());
+
+    db.touch_workspace_file("workspace/data/file.csv").unwrap();
+
+    let files = db.list_workspace_files(None, None, None).unwrap();
+    assert!(files[0].accessed_at.is_some());
+}
+
+#[test]
+fn test_workspace_file_update_tags() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    db.register_workspace_file(
+        "workspace/images/chart.png",
+        "images",
+        None,
+        2000,
+        None,
+        None,
+    )
+    .unwrap();
+
+    db.set_workspace_file_tags("workspace/images/chart.png", "important,project-x")
+        .unwrap();
+
+    // List with tag filter
+    let files = db
+        .list_workspace_files(None, None, Some("important"))
+        .unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].tags, "important,project-x");
+
+    // Tag filter that doesn't match
+    let files = db
+        .list_workspace_files(None, None, Some("archived"))
+        .unwrap();
+    assert!(files.is_empty());
+
+    // Substring false positive: "port" should NOT match "important"
+    let files = db.list_workspace_files(None, None, Some("port")).unwrap();
+    assert!(files.is_empty());
+
+    // Exact tag match for "project-x" should work
+    let files = db
+        .list_workspace_files(None, None, Some("project-x"))
+        .unwrap();
+    assert_eq!(files.len(), 1);
+}
+
+#[test]
+fn test_workspace_file_list_expired() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    // Register with an old date (60 days ago)
+    db.register_workspace_file_with_date(
+        "workspace/tmp/old_file.txt",
+        "tmp",
+        None,
+        100,
+        None,
+        None,
+        "2020-01-01 00:00:00",
+    )
+    .unwrap();
+
+    // Register a recent file
+    db.register_workspace_file("workspace/tmp/new_file.txt", "tmp", None, 200, None, None)
+        .unwrap();
+
+    // TTL of 30 days — the old file should be expired
+    let expired = db.list_expired_workspace_files("tmp", 30).unwrap();
+    assert_eq!(expired.len(), 1);
+    assert_eq!(expired[0].path, "workspace/tmp/old_file.txt");
+
+    // Different category should return nothing
+    let expired = db.list_expired_workspace_files("images", 30).unwrap();
+    assert!(expired.is_empty());
+}
+
+#[test]
+fn test_workspace_file_move() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    db.register_workspace_file("workspace/tmp/draft.txt", "tmp", None, 300, None, None)
+        .unwrap();
+
+    db.move_workspace_file(
+        "workspace/tmp/draft.txt",
+        "workspace/documents/final.txt",
+        "documents",
+    )
+    .unwrap();
+
+    // Old path should be gone
+    let results = db.search_workspace_files("draft.txt").unwrap();
+    assert!(results.is_empty());
+
+    // New path should exist with updated category
+    let files = db
+        .list_workspace_files(Some("documents"), None, None)
+        .unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, "workspace/documents/final.txt");
+    assert_eq!(files[0].category, "documents");
+}
+
+#[test]
+fn test_workspace_file_register_upsert() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    db.register_workspace_file(
+        "workspace/images/photo.png",
+        "images",
+        Some("photo.png"),
+        1000,
+        Some("tool_a"),
+        None,
+    )
+    .unwrap();
+
+    // Set tags and touch the file before the second register
+    db.set_workspace_file_tags("workspace/images/photo.png", "important,review")
+        .unwrap();
+    db.touch_workspace_file("workspace/images/photo.png")
+        .unwrap();
+
+    let before = db.list_workspace_files(None, None, None).unwrap();
+    let original_id = before[0].id;
+    assert_eq!(before[0].tags, "important,review");
+    assert!(before[0].accessed_at.is_some());
+
+    // Register again with different size — should update, not duplicate
+    db.register_workspace_file(
+        "workspace/images/photo.png",
+        "images",
+        Some("photo_v2.png"),
+        2000,
+        Some("tool_b"),
+        None,
+    )
+    .unwrap();
+
+    let files = db.list_workspace_files(None, None, None).unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].size_bytes, 2000);
+    assert_eq!(files[0].original_name.as_deref(), Some("photo_v2.png"));
+    assert_eq!(files[0].source_tool.as_deref(), Some("tool_b"));
+
+    // Verify tags, accessed_at, and id are preserved across upsert
+    assert_eq!(files[0].id, original_id);
+    assert_eq!(files[0].tags, "important,review");
+    assert!(files[0].accessed_at.is_some());
+}

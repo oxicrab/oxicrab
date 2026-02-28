@@ -39,6 +39,8 @@ pub struct ToolBuildContext {
     pub subagent_config: SubagentConfig,
     pub mcp_config: Option<config::McpConfig>,
     pub memory_db: Option<Arc<MemoryDB>>,
+    pub workspace_manager: Option<Arc<crate::agent::workspace::WorkspaceManager>>,
+    pub workspace_ttl: config::WorkspaceTtlConfig,
 }
 
 /// Register all tools into the registry using decentralized per-module `register()` functions.
@@ -64,6 +66,7 @@ pub async fn register_all_tools(
     register_http(&mut tools);
     register_reddit(&mut tools);
     register_memory_search(&mut tools, ctx);
+    register_workspace(&mut tools, ctx);
 
     // Slow async registrations — run in parallel
     let (google_tools, mcp_result) = tokio::join!(create_google_tools(ctx), create_mcp(ctx),);
@@ -107,16 +110,21 @@ fn register_filesystem(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
 
     let backup_dir = dirs::home_dir().map(|h| h.join(".oxicrab/backups"));
     let workspace = Some(ctx.workspace.clone());
+    let ws_mgr = ctx.workspace_manager.clone();
 
-    registry.register(Arc::new(ReadFileTool::new(
-        allowed_roots.clone(),
-        workspace.clone(),
-    )));
-    registry.register(Arc::new(WriteFileTool::new(
-        allowed_roots.clone(),
-        backup_dir.clone(),
-        workspace.clone(),
-    )));
+    let mut read_tool = ReadFileTool::new(allowed_roots.clone(), workspace.clone());
+    if let Some(ref mgr) = ws_mgr {
+        read_tool = read_tool.with_workspace_manager(mgr.clone());
+    }
+    registry.register(Arc::new(read_tool));
+
+    let mut write_tool =
+        WriteFileTool::new(allowed_roots.clone(), backup_dir.clone(), workspace.clone());
+    if let Some(ref mgr) = ws_mgr {
+        write_tool = write_tool.with_workspace_manager(mgr.clone());
+    }
+    registry.register(Arc::new(write_tool));
+
     registry.register(Arc::new(EditFileTool::new(
         allowed_roots.clone(),
         backup_dir,
@@ -337,6 +345,18 @@ fn register_memory_search(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::memory_search::MemorySearchTool;
 
     registry.register(Arc::new(MemorySearchTool::new(ctx.memory.clone())));
+}
+
+fn register_workspace(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    use crate::agent::tools::workspace_tool::WorkspaceTool;
+
+    if let Some(ref mgr) = ctx.workspace_manager {
+        registry.register(Arc::new(WorkspaceTool::new(
+            mgr.clone(),
+            ctx.workspace_ttl.clone(),
+        )));
+        info!("Workspace tool registered");
+    }
 }
 
 /// Check whether a tool name is safe for community-trust MCP servers.
