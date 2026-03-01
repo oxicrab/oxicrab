@@ -2176,20 +2176,20 @@ impl AgentLoop {
         let _lock = self.processing_lock.lock().await;
 
         // Inbound secret scanning for direct calls (cron, subagents)
-        let content = {
+        let redacted_content: Option<String> = {
             let matches = self.leak_detector.scan(content);
             if matches.is_empty() {
-                content.to_string()
+                None
             } else {
                 let names: Vec<&str> = matches.iter().map(|m| m.name).collect();
                 warn!(
                     "secret detected in direct call to {}/{}: {:?} — redacting",
                     channel, chat_id, names
                 );
-                self.leak_detector.redact(content)
+                Some(self.leak_detector.redact(content))
             }
         };
-        let content = content.as_str();
+        let content = redacted_content.as_deref().unwrap_or(content);
 
         // Prompt injection preflight check
         if let Some(ref guard) = self.prompt_guard {
