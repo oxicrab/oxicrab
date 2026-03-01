@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write  # Required for Sigstore keyless signing via cosign
 
 env:
   CARGO_TERM_COLOR: always
@@ -209,7 +210,11 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
       - name: Build and push
+        id: docker-build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -219,6 +224,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
+
+      - name: Sign container image
+        env:
+          DIGEST: ${{ steps.docker-build.outputs.digest }}
+        run: cosign sign --yes "ghcr.io/${{ github.repository }}@${DIGEST}"
 
   release:
     name: GitHub Release
@@ -231,12 +241,26 @@ jobs:
           path: artifacts
           pattern: "*-*"
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
       - name: Collect release assets
         run: |
           mkdir -p release-assets
           find artifacts -type f \( -name "*.tar.gz" -o -name "*.sha256" -o -name "*.deb" -o -name "*.rpm" -o -name "*.dmg" \) -exec cp {} release-assets/ \;
           cd release-assets
           cat *.sha256 > checksums-sha256.txt
+
+      - name: Sign release artifacts
+        run: |
+          set -euo pipefail
+          for artifact in release-assets/*; do
+            if [ -f "$artifact" ]; then
+              cosign sign-blob --yes \
+                --bundle "${artifact}.bundle" \
+                "$artifact"
+            fi
+          done
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

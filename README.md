@@ -53,6 +53,25 @@ docker pull ghcr.io/oxicrab/oxicrab:latest
 docker run -v ~/.oxicrab:/home/oxicrab/.oxicrab ghcr.io/oxicrab/oxicrab
 ```
 
+### Verifying downloads
+
+All release artifacts are signed with [Sigstore cosign](https://docs.sigstore.dev/). Each artifact has a corresponding `.bundle` file containing the signature, certificate, and Rekor transparency log entry.
+
+```bash
+# Verify a binary archive
+cosign verify-blob \
+  --bundle oxicrab-0.11.7-linux-x86_64.tar.gz.bundle \
+  --certificate-identity-regexp "https://github.com/oxicrab/oxicrab/.github/workflows/release.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  oxicrab-0.11.7-linux-x86_64.tar.gz
+
+# Verify the Docker image
+cosign verify \
+  --certificate-identity-regexp "https://github.com/oxicrab/oxicrab/.github/workflows/release.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/oxicrab/oxicrab:latest
+```
+
 ## Building
 
 Each channel is a Cargo feature flag for slim builds:

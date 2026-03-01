@@ -28,6 +28,7 @@ max_width: 820px
   <div class="toc">
     <div class="toc-title">Options</div>
     <ul>
+      <li><a href="#verify">Verifying Downloads</a></li>
       <li><a href="#packages">Native Packages (DEB / RPM / DMG)</a></li>
       <li><a href="#source">Building from Source</a></li>
       <li><a href="#docker">Docker</a></li>
@@ -35,6 +36,39 @@ max_width: 820px
       <li><a href="#systemd">systemd (Linux)</a></li>
       <li><a href="#launchd">launchd (macOS)</a></li>
     </ul>
+  </div>
+
+  <!-- VERIFYING DOWNLOADS -->
+  <div id="verify" class="deploy-section">
+    <h2>Verifying Downloads</h2>
+    <p>All release artifacts (binaries, packages, checksums) and Docker images are signed with <a href="https://docs.sigstore.dev/" style="color: var(--accent); text-decoration: none;">Sigstore cosign</a> using keyless OIDC signing. Each artifact has a <code>.bundle</code> file containing the signature, certificate, and Rekor transparency log entry. No GPG keys to manage &mdash; signing identity is cryptographically tied to the GitHub Actions release workflow.</p>
+
+    <h3>Verify a release artifact</h3>
+    <pre><code># Install cosign: https://docs.sigstore.dev/cosign/system_config/installation/
+# Download the artifact and its .bundle file, then verify:
+cosign verify-blob \
+  --bundle oxicrab-0.11.7-linux-x86_64.tar.gz.bundle \
+  --certificate-identity-regexp "https://github.com/oxicrab/oxicrab/.github/workflows/release.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  oxicrab-0.11.7-linux-x86_64.tar.gz</code></pre>
+
+    <h3>Verify the Docker image</h3>
+    <pre><code>cosign verify \
+  --certificate-identity-regexp "https://github.com/oxicrab/oxicrab/.github/workflows/release.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/oxicrab/oxicrab:latest</code></pre>
+
+    <h3>Verify checksums, then binary</h3>
+    <p>For an extra layer of assurance, verify the signed checksums file first, then check your binary against it:</p>
+    <pre><code># 1. Verify the checksums file's signature
+cosign verify-blob \
+  --bundle checksums-sha256.txt.bundle \
+  --certificate-identity-regexp "https://github.com/oxicrab/oxicrab/.github/workflows/release.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  checksums-sha256.txt
+
+# 2. Verify your binary against the signed checksums
+grep "oxicrab-0.11.7-linux-x86_64.tar.gz$" checksums-sha256.txt | sha256sum --check --strict</code></pre>
   </div>
 
   <!-- NATIVE PACKAGES -->
