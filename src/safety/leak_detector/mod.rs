@@ -17,7 +17,7 @@ struct KnownSecretPattern {
     regex: Regex,
 }
 
-/// Detects and redacts leaked secrets in outbound text.
+/// Detects and redacts leaked secrets in text (inbound and outbound).
 ///
 /// Uses a two-phase approach for plaintext pattern scanning:
 /// 1. **Aho-Corasick automaton** — single-pass scan for literal prefixes

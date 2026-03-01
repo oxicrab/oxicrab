@@ -28,6 +28,7 @@ use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
 use crate::cron::event_matcher::EventMatcher;
 use crate::cron::service::CronService;
 use crate::providers::base::{LLMProvider, Message, ToolCallRequest};
+use crate::safety::LeakDetector;
 use crate::session::{Session, SessionManager, SessionStore};
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
@@ -346,6 +347,8 @@ pub struct AgentLoop {
     /// Prompt injection detection guard
     prompt_guard: Option<crate::safety::prompt_guard::PromptGuard>,
     prompt_guard_config: crate::config::PromptGuardConfig,
+    /// Inbound secret leak detector — scans user messages before they reach the LLM
+    leak_detector: LeakDetector,
     /// MCP manager kept alive for graceful child process shutdown
     _mcp_manager: Option<crate::agent::tools::mcp::McpManager>,
 }
@@ -578,6 +581,7 @@ impl AgentLoop {
                 None
             },
             prompt_guard_config,
+            leak_detector: LeakDetector::new(),
             _mcp_manager: mcp_manager,
         })
     }
@@ -760,6 +764,22 @@ impl AgentLoop {
             transcribe_audio_tags(&msg.content, svc).await
         } else {
             strip_audio_tags(&msg.content)
+        };
+
+        // Inbound secret scanning: redact secrets before they reach the LLM or
+        // get persisted in session history / memory.
+        let msg_content = {
+            let matches = self.leak_detector.scan(&msg_content);
+            if matches.is_empty() {
+                msg_content
+            } else {
+                let names: Vec<&str> = matches.iter().map(|m| m.name).collect();
+                warn!(
+                    "secret detected in inbound message from {}:{}: {:?} — redacting",
+                    msg.channel, msg.sender_id, names
+                );
+                self.leak_detector.redact(&msg_content)
+            }
         };
 
         // Prompt injection preflight check
@@ -2154,6 +2174,22 @@ impl AgentLoop {
     ) -> Result<String> {
         // Acquire processing lock to prevent concurrent processing
         let _lock = self.processing_lock.lock().await;
+
+        // Inbound secret scanning for direct calls (cron, subagents)
+        let redacted_content: Option<String> = {
+            let matches = self.leak_detector.scan(content);
+            if matches.is_empty() {
+                None
+            } else {
+                let names: Vec<&str> = matches.iter().map(|m| m.name).collect();
+                warn!(
+                    "secret detected in direct call to {}/{}: {:?} — redacting",
+                    channel, chat_id, names
+                );
+                Some(self.leak_detector.redact(content))
+            }
+        };
+        let content = redacted_content.as_deref().unwrap_or(content);
 
         // Prompt injection preflight check
         if let Some(ref guard) = self.prompt_guard {
