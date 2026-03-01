@@ -65,7 +65,7 @@ CI treats clippy warnings as errors. No custom rustfmt/clippy config — uses de
 
 ## Releasing
 
-Tag-based releases via `scripts/release.sh`. Pushing a `v*` tag triggers `.github/workflows/release.yml` which builds multi-platform binaries (Linux x86_64, Linux ARM64, macOS ARM64), pushes a Docker image to GHCR, generates a changelog with git-cliff, and creates a GitHub Release.
+Tag-based releases via `scripts/release.sh`. Pushing a `v*` tag triggers `.github/workflows/release.yml` which builds multi-platform binaries (Linux x86_64, Linux ARM64, macOS ARM64), pushes a Docker image to GHCR, generates a changelog with git-cliff, signs all artifacts with Sigstore cosign, and creates a GitHub Release. Cosign uses keyless OIDC signing (no static keys) — the `id-token: write` permission enables GitHub Actions to mint OIDC tokens for Sigstore's Fulcio CA. Release artifacts get `.bundle` files (signature + certificate + Rekor transparency log entry). Docker images are signed by digest. Users verify with `cosign verify-blob --bundle <file>.bundle --certificate-identity-regexp` or `cosign verify` for container images.
 
 ```bash
 # Bump and tag (does not push)

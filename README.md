@@ -29,7 +29,7 @@ This is largely a personal toy with features I want or care about. For example, 
 - **HTTP gateway**: REST API (`POST /api/chat`, `GET /api/health`) and named webhook receivers with HMAC-SHA256 validation, template formatting, and multi-channel delivery
 - **JSON mode**: Per-request structured output (JSON object and JSON schema) across all providers
 - **PDF/document support**: Native PDF document support in Anthropic, OpenAI, and Gemini providers
-- **Security**: Default-deny allowlists, DM pairing, leak detection, DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement
+- **Security**: Default-deny allowlists, DM pairing, leak detection, DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement, Sigstore cosign artifact signing
 
 ## Installation
 
@@ -51,6 +51,25 @@ Download from [GitHub Releases](https://github.com/oxicrab/oxicrab/releases/late
 ```bash
 docker pull ghcr.io/oxicrab/oxicrab:latest
 docker run -v ~/.oxicrab:/home/oxicrab/.oxicrab ghcr.io/oxicrab/oxicrab
+```
+
+### Verifying downloads
+
+All release artifacts are signed with [Sigstore cosign](https://docs.sigstore.dev/). Each artifact has a corresponding `.bundle` file containing the signature, certificate, and Rekor transparency log entry.
+
+```bash
+# Verify a binary archive
+cosign verify-blob \
+  --bundle oxicrab-0.11.7-linux-x86_64.tar.gz.bundle \
+  --certificate-identity-regexp "https://github.com/oxicrab/oxicrab/.github/workflows/release.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  oxicrab-0.11.7-linux-x86_64.tar.gz
+
+# Verify the Docker image
+cosign verify \
+  --certificate-identity-regexp "https://github.com/oxicrab/oxicrab/.github/workflows/release.yml@refs/tags/v.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/oxicrab/oxicrab:latest
 ```
 
 ## Building
