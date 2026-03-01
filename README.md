@@ -29,7 +29,7 @@ This is largely a personal toy with features I want or care about. For example, 
 - **HTTP gateway**: REST API (`POST /api/chat`, `GET /api/health`) and named webhook receivers with HMAC-SHA256 validation, template formatting, and multi-channel delivery
 - **JSON mode**: Per-request structured output (JSON object and JSON schema) across all providers
 - **PDF/document support**: Native PDF document support in Anthropic, OpenAI, and Gemini providers
-- **Security**: Default-deny allowlists, DM pairing, leak detection, DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement, Sigstore cosign artifact signing
+- **Security**: Default-deny allowlists, DM pairing, bidirectional leak detection (inbound + outbound), DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement
 
 ## Installation
 
