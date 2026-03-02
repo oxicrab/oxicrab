@@ -234,6 +234,7 @@ impl Config {
         self.validate_gateway()?;
         self.validate_tools()?;
         self.validate_channels()?;
+        self.validate_model_routing()?;
         Ok(())
     }
 
@@ -509,6 +510,38 @@ impl Config {
         Ok(())
     }
 
+    fn validate_model_routing(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+        let routing = &self.agents.defaults.model_routing;
+
+        for (rule_name, tier_name) in &routing.rules {
+            if !routing.tiers.contains_key(tier_name) {
+                return Err(OxicrabError::Config(format!(
+                    "modelRouting.rules.{} references unknown tier '{}' — \
+                     add it to modelRouting.tiers",
+                    rule_name, tier_name
+                )));
+            }
+        }
+        for (name, model_str) in &routing.tiers {
+            if model_str.is_empty() {
+                return Err(OxicrabError::Config(format!(
+                    "modelRouting.tiers.{} must not be empty",
+                    name
+                )));
+            }
+        }
+        for (i, fb) in routing.fallbacks.iter().enumerate() {
+            if fb.is_empty() {
+                return Err(OxicrabError::Config(format!(
+                    "modelRouting.fallbacks[{}] must not be empty",
+                    i
+                )));
+            }
+        }
+        Ok(())
+    }
+
     pub fn get_api_key(&self, model: Option<&str>) -> Option<&str> {
         let model = model.unwrap_or(&self.agents.defaults.model);
         self.providers.get_api_key(model)
@@ -593,6 +626,28 @@ impl Config {
         }
 
         secrets
+    }
+
+    /// Create providers for all configured model routing tiers.
+    pub fn create_routed_providers(
+        &self,
+    ) -> anyhow::Result<Option<crate::config::routing::ResolvedRouting>> {
+        use crate::providers::strategy::ProviderFactory;
+
+        let routing = &self.agents.defaults.model_routing;
+        if routing.tiers.is_empty() {
+            return Ok(None);
+        }
+        let factory = ProviderFactory::new(self);
+        let mut tiers = std::collections::HashMap::new();
+        for (name, model_str) in &routing.tiers {
+            let provider = factory.create_provider(model_str)?;
+            tiers.insert(name.clone(), (provider, model_str.clone()));
+        }
+        Ok(Some(crate::config::routing::ResolvedRouting::new(
+            tiers,
+            routing.rules.clone(),
+        )))
     }
 
     /// Create an LLM provider instance based on configuration.

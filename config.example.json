@@ -66,6 +66,11 @@
         "code": null,
         "documents": null,
         "data": null
+      },
+      "modelRouting": {
+        "tiers": {},
+        "fallbacks": [],
+        "rules": {}
       }
     }
   },

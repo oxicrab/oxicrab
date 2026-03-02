@@ -51,12 +51,14 @@ const RECOVERY_CONTEXT_MAX_CHARS: usize = 200;
 /// Per-invocation overrides for the agent loop. Allows callers (e.g. the daemon
 /// heartbeat) to use a different model or iteration cap without constructing a
 /// separate `AgentLoop`.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct AgentRunOverrides {
     /// Override the model used for LLM calls.
     pub model: Option<String>,
     /// Override the maximum number of iterations.
     pub max_iterations: Option<usize>,
+    /// Override the LLM provider for cross-provider routing.
+    pub provider: Option<Arc<dyn LLMProvider>>,
 }
 
 /// Tool-specific configurations bundled together. These fields are only used
@@ -1171,8 +1173,8 @@ impl AgentLoop {
                 ));
             }
 
-            let response = self
-                .provider
+            let effective_provider = overrides.provider.as_ref().unwrap_or(&self.provider);
+            let response = effective_provider
                 .chat_with_retry(
                     crate::providers::base::ChatRequest {
                         messages: messages.clone(),

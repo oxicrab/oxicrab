@@ -917,6 +917,7 @@ fn setup_heartbeat(config: &Config, agent: &Arc<AgentLoop>) -> Arc<HeartbeatServ
     let daemon_overrides = Arc::new(crate::agent::AgentRunOverrides {
         model: daemon_cfg.execution_model.clone(),
         max_iterations: Some(daemon_cfg.max_iterations),
+        ..Default::default()
     });
 
     if daemon_cfg.execution_model.is_some() {

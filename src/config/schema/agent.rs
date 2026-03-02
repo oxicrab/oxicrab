@@ -401,6 +401,24 @@ fn default_max_tool_iterations() -> usize {
     20
 }
 
+/// Config-driven model routing: different models for different task types.
+///
+/// Each tier is a full `provider/model` string (e.g. `"openrouter/google/gemini-3-flash"`).
+/// Rules map task types to tier names. When absent, single-model behavior is preserved.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelRoutingConfig {
+    /// Named model tiers. Values are `provider/model` strings.
+    #[serde(default)]
+    pub tiers: std::collections::HashMap<String, String>,
+    /// Ordered fallback chain of `provider/model` strings.
+    #[serde(default)]
+    pub fallbacks: Vec<String>,
+    /// Maps task types to tier names.
+    /// Known types: "conversation", "cron", "daemon", "subagent", "compaction".
+    #[serde(default)]
+    pub rules: std::collections::HashMap<String, String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentDefaults {
     #[serde(default = "default_workspace")]
@@ -449,6 +467,8 @@ pub struct AgentDefaults {
     pub context_providers: Vec<ContextProviderConfig>,
     #[serde(default, rename = "workspaceTtl")]
     pub workspace_ttl: WorkspaceTtlConfig,
+    #[serde(default, rename = "modelRouting")]
+    pub model_routing: ModelRoutingConfig,
 }
 
 impl Default for AgentDefaults {
@@ -473,6 +493,7 @@ impl Default for AgentDefaults {
             prompt_guard: PromptGuardConfig::default(),
             context_providers: vec![],
             workspace_ttl: WorkspaceTtlConfig::default(),
+            model_routing: ModelRoutingConfig::default(),
         }
     }
 }
