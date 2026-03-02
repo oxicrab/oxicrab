@@ -29,7 +29,6 @@
         "enabled": true,
         "interval": 300,
         "executionModel": null,
-        "executionProvider": null,
         "strategyFile": "HEARTBEAT.md",
         "maxIterations": 25
       },
