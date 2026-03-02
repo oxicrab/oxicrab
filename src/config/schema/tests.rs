@@ -332,6 +332,15 @@ fn test_prompt_guided_tools_prefix_notation() {
 }
 
 #[test]
+fn test_prompt_guided_tools_prefix_overrides_explicit_provider() {
+    let mut config = Config::default();
+    config.agents.defaults.provider = Some("anthropic".to_string());
+    config.providers.ollama.prompt_guided_tools = true;
+    // Even with explicit provider set to anthropic, ollama/ prefix should win
+    assert!(config.should_use_prompt_guided_tools("ollama/llama3"));
+}
+
+#[test]
 fn test_prompt_guided_tools_known_model_returns_false() {
     let config = Config::default();
     // claude-sonnet is inferred as anthropic, which never uses prompt-guided tools

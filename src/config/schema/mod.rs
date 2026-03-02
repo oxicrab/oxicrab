@@ -101,6 +101,10 @@ pub struct RateLimitConfig {
     pub requests_per_second: u32,
     #[serde(default = "default_burst")]
     pub burst: u32,
+    /// Trust X-Forwarded-For header for client IP extraction.
+    /// Only enable when running behind a reverse proxy (nginx, Cloudflare, etc.).
+    #[serde(default, rename = "trustProxy")]
+    pub trust_proxy: bool,
 }
 
 impl Default for RateLimitConfig {
@@ -109,6 +113,7 @@ impl Default for RateLimitConfig {
             enabled: false,
             requests_per_second: default_rps(),
             burst: default_burst(),
+            trust_proxy: false,
         }
     }
 }
@@ -683,7 +688,11 @@ impl Config {
         let factory = ProviderFactory::new(self);
         let mut tiers = std::collections::HashMap::new();
         for (name, model_str) in &routing.tiers {
-            let provider = factory.create_provider(model_str)?;
+            let mut provider = factory.create_provider(model_str)?;
+            if self.should_use_prompt_guided_tools(model_str) {
+                provider =
+                    crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(provider);
+            }
             tiers.insert(name.clone(), (provider, model_str.clone()));
         }
         Ok(Some(crate::config::routing::ResolvedRouting::new(
@@ -708,7 +717,16 @@ impl Config {
         // Build fallback chain from modelRouting.fallbacks (takes precedence over localModel)
         let routing = &self.agents.defaults.model_routing;
         if !routing.fallbacks.is_empty() {
-            let primary = factory.create_provider(model)?;
+            if self.agents.defaults.local_model.is_some() {
+                warn!(
+                    "both modelRouting.fallbacks and localModel are set — \
+                     fallbacks takes precedence; localModel will be ignored"
+                );
+            }
+            let mut primary = factory.create_provider(model)?;
+            if self.should_use_prompt_guided_tools(model) {
+                primary = crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(primary);
+            }
             let primary_model = model.to_string();
             let mut chain = vec![(primary, primary_model)];
             for fb_model in &routing.fallbacks {
@@ -720,14 +738,9 @@ impl Config {
                 }
                 chain.push((fb_provider, fb_model.clone()));
             }
-            let provider: std::sync::Arc<dyn crate::providers::base::LLMProvider> =
-                std::sync::Arc::new(crate::providers::fallback::FallbackProvider::new(chain));
-            if self.should_use_prompt_guided_tools(model) {
-                return Ok(
-                    crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(provider),
-                );
-            }
-            return Ok(provider);
+            return Ok(std::sync::Arc::new(
+                crate::providers::fallback::FallbackProvider::new(chain),
+            ));
         }
 
         if let Some(ref local_model) = self.agents.defaults.local_model
@@ -761,9 +774,11 @@ impl Config {
     fn should_use_prompt_guided_tools(&self, model: &str) -> bool {
         use crate::providers::strategy::{infer_provider_from_model, parse_model_ref};
 
-        // Check explicit provider field first
-        if let Some(ref provider) = self.agents.defaults.provider {
-            let normalized = normalize_provider(provider);
+        // Check prefix notation FIRST — it's a per-model override that takes
+        // priority over the global provider setting.
+        let model_ref = parse_model_ref(model);
+        if let Some(prefix_provider) = model_ref.provider {
+            let normalized = normalize_provider(prefix_provider);
             return match normalized.as_ref() {
                 "ollama" => self.providers.ollama.prompt_guided_tools,
                 "vllm" => self.providers.vllm.prompt_guided_tools,
@@ -771,10 +786,9 @@ impl Config {
             };
         }
 
-        // Check prefix notation
-        let model_ref = parse_model_ref(model);
-        if let Some(prefix_provider) = model_ref.provider {
-            let normalized = normalize_provider(prefix_provider);
+        // Check explicit provider field
+        if let Some(ref provider) = self.agents.defaults.provider {
+            let normalized = normalize_provider(provider);
             return match normalized.as_ref() {
                 "ollama" => self.providers.ollama.prompt_guided_tools,
                 "vllm" => self.providers.vllm.prompt_guided_tools,
