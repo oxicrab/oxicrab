@@ -477,6 +477,52 @@ max_width: 820px
                               │ Fallback  │ │ as-is  │
                               │ Chain     │ │        │
                               └──────────┘ └────────┘</code></pre>
+
+        <h3>Complexity-Aware Routing</h3>
+        <p>When enabled, each inbound user message is scored across 7 dimensions (sub-millisecond, zero API calls) and routed to the cheapest capable model tier. This can reduce token spend by 50&ndash;80% for workloads dominated by simple messages.</p>
+        <p>Config path: <code>agents.defaults.modelRouting.complexity</code></p>
+        <pre><code>{
+  "agents": {
+    "defaults": {
+      "modelRouting": {
+        "tiers": {
+          "lightweight": "openrouter/google/gemini-3-flash",
+          "standard": "anthropic/claude-sonnet-4-5",
+          "heavy": "anthropic/claude-opus-4-5"
+        },
+        "complexity": {
+          "enabled": true,
+          "thresholds": { "lightStandard": 0.3, "standardHeavy": 0.65 },
+          "tierMapping": { "light": "lightweight", "medium": "standard", "heavy": "heavy" },
+          "weights": {
+            "messageLength": 0.10,
+            "reasoningKeywords": 0.30,
+            "technicalVocabulary": 0.15,
+            "questionComplexity": 0.15,
+            "codePresence": 0.10,
+            "instructionComplexity": 0.15,
+            "conversationalSimplicity": -0.20
+          }
+        }
+      }
+    }
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable complexity-based per-message routing</td></tr>
+            <tr><td>thresholds.lightStandard</td><td>float</td><td>0.3</td><td>Score below this &rarr; light tier</td></tr>
+            <tr><td>thresholds.standardHeavy</td><td>float</td><td>0.65</td><td>Score at or above this &rarr; heavy tier</td></tr>
+            <tr><td>tierMapping.light</td><td>string</td><td>"lightweight"</td><td>Tier name for low-complexity messages</td></tr>
+            <tr><td>tierMapping.medium</td><td>string</td><td>"standard"</td><td>Tier name for medium-complexity messages</td></tr>
+            <tr><td>tierMapping.heavy</td><td>string</td><td>"heavy"</td><td>Tier name for high-complexity messages</td></tr>
+            <tr><td>weights.*</td><td>float</td><td>varies</td><td>Per-dimension scoring weights (negative for conversationalSimplicity to push greeting/filler scores down)</td></tr>
+        </table>
+
+        <p><strong>Scoring dimensions:</strong> message length (sigmoid), reasoning keywords (AC automaton, saturates at 3), technical vocabulary (AC automaton, saturates at 5), question complexity (regex: simple/comparative/analytical/multi-part), code presence (fences, inline, patterns), instruction complexity (sequential markers + imperative verbs), conversational simplicity (greeting/filler detection, negative weight).</p>
+        <p><strong>Force overrides:</strong> 2+ reasoning keywords &rarr; heavy. Pure greeting/filler &rarr; lightweight. &gt;50KB message &rarr; heavy.</p>
+        <p><strong>Tier names must reference defined tiers</strong> in <code>modelRouting.tiers</code> when tiers are configured. Validation fails at startup if a referenced tier is missing.</p>
     </div>
 
     <!-- COST GUARD -->

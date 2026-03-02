@@ -1,3 +1,4 @@
+mod complexity;
 mod helpers;
 mod intent;
 
@@ -132,6 +133,9 @@ pub struct AgentLoopConfig {
     /// When `Some`, allows task-specific provider overrides for daemon, cron,
     /// subagent, and compaction.
     pub routing: Option<Arc<crate::config::routing::ResolvedRouting>>,
+    /// Complexity-aware routing config. When enabled, each inbound message is
+    /// scored and routed to the cheapest capable model tier.
+    pub complexity_routing: crate::config::ComplexityRoutingConfig,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -210,6 +214,7 @@ impl AgentLoopConfig {
                 workspace_ttl: config.agents.defaults.workspace_ttl.clone(),
             },
             routing,
+            complexity_routing: config.agents.defaults.model_routing.complexity.clone(),
         }
     }
 
@@ -277,6 +282,7 @@ impl AgentLoopConfig {
                 workspace_ttl: crate::config::WorkspaceTtlConfig::default(),
             },
             routing: None,
+            complexity_routing: crate::config::ComplexityRoutingConfig::default(),
         }
     }
 }
@@ -364,6 +370,8 @@ pub struct AgentLoop {
     _mcp_manager: Option<crate::agent::tools::mcp::McpManager>,
     /// Pre-resolved model routing for task-specific provider selection
     routing: Option<Arc<crate::config::routing::ResolvedRouting>>,
+    /// Complexity scorer for per-message model routing (None when disabled)
+    complexity_scorer: Option<complexity::ComplexityScorer>,
 }
 
 impl AgentLoop {
@@ -394,6 +402,7 @@ impl AgentLoop {
             context_providers,
             tool_configs,
             routing,
+            complexity_routing,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -579,6 +588,13 @@ impl AgentLoop {
             None
         };
 
+        let complexity_scorer = if complexity_routing.enabled {
+            info!("complexity-aware message routing enabled");
+            Some(complexity::ComplexityScorer::new(&complexity_routing))
+        } else {
+            None
+        };
+
         Ok(Self {
             inbound_rx,
             provider,
@@ -623,6 +639,7 @@ impl AgentLoop {
             leak_detector: LeakDetector::new(),
             _mcp_manager: mcp_manager,
             routing,
+            complexity_scorer,
         })
     }
 
@@ -947,6 +964,22 @@ impl AgentLoop {
 
         let user_action_intent = self.classify_and_record_intent(&content);
 
+        // Complexity-aware routing: score the message and resolve a tier override
+        let complexity_overrides = if let Some(ref scorer) = self.complexity_scorer {
+            let score = scorer.score(&content);
+            let tier_name = scorer.resolve_tier(&score);
+            debug!(
+                "complexity score={:.3} tier={} forced={:?}",
+                score.composite, tier_name, score.forced
+            );
+            self.routing
+                .as_ref()
+                .map(|r| r.resolve_tier_direct(tier_name))
+                .filter(|o| o.provider.is_some())
+        } else {
+            None
+        };
+
         // Extract optional response_format from inbound message metadata (set by
         // the gateway HTTP API when callers request structured JSON output).
         let response_format = msg
@@ -954,13 +987,17 @@ impl AgentLoop {
             .get("response_format")
             .and_then(crate::gateway::response_format_from_json);
 
-        let overrides = if response_format.is_some() {
-            AgentRunOverrides {
-                response_format,
+        let overrides = match (complexity_overrides, response_format) {
+            (Some(cx), Some(rf)) => AgentRunOverrides {
+                response_format: Some(rf),
+                ..cx
+            },
+            (Some(cx), None) => cx,
+            (None, Some(rf)) => AgentRunOverrides {
+                response_format: Some(rf),
                 ..AgentRunOverrides::default()
-            }
-        } else {
-            AgentRunOverrides::default()
+            },
+            (None, None) => AgentRunOverrides::default(),
         };
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));

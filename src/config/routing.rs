@@ -32,6 +32,20 @@ impl ResolvedRouting {
         AgentRunOverrides::default()
     }
 
+    /// Resolve overrides by tier name directly (bypasses the rules map).
+    /// Used by complexity-aware routing which already knows the tier name.
+    pub fn resolve_tier_direct(&self, tier_name: &str) -> AgentRunOverrides {
+        if let Some((provider, model)) = self.tiers.get(tier_name) {
+            return AgentRunOverrides {
+                model: Some(model.clone()),
+                provider: Some(provider.clone()),
+                max_iterations: None,
+                response_format: None,
+            };
+        }
+        AgentRunOverrides::default()
+    }
+
     /// Number of configured tiers.
     pub fn tier_count(&self) -> usize {
         self.tiers.len()
