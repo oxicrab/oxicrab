@@ -219,6 +219,8 @@ static IMPERATIVE_VERB_RE: LazyLock<Regex> = LazyLock::new(|| {
 // ---------------------------------------------------------------------------
 
 const REASONING_FORCE_THRESHOLD: usize = 2;
+/// Byte length (not character count) — multi-byte UTF-8 content hits this sooner.
+/// Consistent with D1 scoring which also uses byte length.
 const LENGTH_FORCE_THRESHOLD: usize = 50_000;
 
 impl ComplexityScorer {

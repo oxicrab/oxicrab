@@ -592,11 +592,13 @@ impl AgentLoop {
             if routing.is_none() {
                 warn!(
                     "complexity routing enabled but no modelRouting.tiers configured \
-                     — complexity scores will have no effect"
+                     — disabling complexity scoring"
                 );
+                None
+            } else {
+                info!("complexity-aware message routing enabled");
+                Some(complexity::ComplexityScorer::new(&complexity_routing))
             }
-            info!("complexity-aware message routing enabled");
-            Some(complexity::ComplexityScorer::new(&complexity_routing))
         } else {
             None
         };

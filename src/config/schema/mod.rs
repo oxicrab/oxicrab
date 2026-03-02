@@ -597,11 +597,42 @@ impl Config {
                         .to_string(),
                 ));
             }
+
+            // Thresholds must be finite and in [0.0, 1.0]
+            for (name, val) in [
+                ("lightStandard", cx.thresholds.light_standard),
+                ("standardHeavy", cx.thresholds.standard_heavy),
+            ] {
+                if !val.is_finite() || !(0.0..=1.0).contains(&val) {
+                    return Err(OxicrabError::Config(format!(
+                        "modelRouting.complexity.thresholds.{name} must be finite and in [0.0, 1.0], got {val}"
+                    )));
+                }
+            }
             if cx.thresholds.light_standard >= cx.thresholds.standard_heavy {
                 return Err(OxicrabError::Config(
                     "modelRouting.complexity.thresholds: lightStandard must be less than standardHeavy".to_string(),
                 ));
             }
+
+            // Weights must be finite
+            let w = &cx.weights;
+            for (name, val) in [
+                ("messageLength", w.message_length),
+                ("reasoningKeywords", w.reasoning_keywords),
+                ("technicalVocabulary", w.technical_vocabulary),
+                ("questionComplexity", w.question_complexity),
+                ("codePresence", w.code_presence),
+                ("instructionComplexity", w.instruction_complexity),
+                ("conversationalSimplicity", w.conversational_simplicity),
+            ] {
+                if !val.is_finite() {
+                    return Err(OxicrabError::Config(format!(
+                        "modelRouting.complexity.weights.{name} must be finite, got {val}"
+                    )));
+                }
+            }
+
             for (label, tier_name) in [
                 ("light", &cx.tier_mapping.light),
                 ("medium", &cx.tier_mapping.medium),
