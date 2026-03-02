@@ -59,6 +59,8 @@ pub struct AgentRunOverrides {
     pub max_iterations: Option<usize>,
     /// Override the LLM provider for cross-provider routing.
     pub provider: Option<Arc<dyn LLMProvider>>,
+    /// Request structured output format from the LLM (JSON mode or JSON schema).
+    pub response_format: Option<crate::providers::base::ResponseFormat>,
 }
 
 /// Tool-specific configurations bundled together. These fields are only used
@@ -66,7 +68,6 @@ pub struct AgentRunOverrides {
 /// reduces `AgentLoopConfig` field count and makes adding new tools cheaper
 /// (only touch this struct + `from_config` + `ToolBuildContext`).
 pub struct ToolConfigs {
-    pub brave_api_key: Option<String>,
     pub web_search_config: Option<crate::config::WebSearchConfig>,
     pub exec_timeout: u64,
     pub restrict_to_workspace: bool,
@@ -191,7 +192,6 @@ impl AgentLoopConfig {
             prompt_guard_config: config.agents.defaults.prompt_guard.clone(),
             context_providers: config.agents.defaults.context_providers.clone(),
             tool_configs: ToolConfigs {
-                brave_api_key: Some(config.tools.web.search.api_key.clone()),
                 web_search_config: Some(config.tools.web.search.clone()),
                 exec_timeout: config.tools.exec.timeout,
                 restrict_to_workspace: config.tools.restrict_to_workspace,
@@ -256,7 +256,6 @@ impl AgentLoopConfig {
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
             context_providers: vec![],
             tool_configs: ToolConfigs {
-                brave_api_key: None,
                 web_search_config: None,
                 exec_timeout: 30,
                 restrict_to_workspace: true,
@@ -504,7 +503,6 @@ impl AgentLoop {
                     main_tools: None, // set after register_all_tools()
                 }
             },
-            brave_api_key: tool_configs.brave_api_key,
             allowed_commands: tool_configs.allowed_commands,
             mcp_config: tool_configs.mcp_config,
             sandbox_config: tool_configs.sandbox_config,
@@ -949,9 +947,31 @@ impl AgentLoop {
 
         let user_action_intent = self.classify_and_record_intent(&content);
 
+        // Extract optional response_format from inbound message metadata (set by
+        // the gateway HTTP API when callers request structured JSON output).
+        let response_format = msg
+            .metadata
+            .get("response_format")
+            .and_then(crate::gateway::response_format_from_json);
+
+        let overrides = if response_format.is_some() {
+            AgentRunOverrides {
+                response_format,
+                ..AgentRunOverrides::default()
+            }
+        } else {
+            AgentRunOverrides::default()
+        };
+
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
         let (final_content, input_tokens, tools_used, collected_media, loop_discourse) = self
-            .run_agent_loop(messages, typing_ctx, &exec_ctx, user_action_intent)
+            .run_agent_loop_with_overrides(
+                messages,
+                typing_ctx,
+                &exec_ctx,
+                &overrides,
+                user_action_intent,
+            )
             .await?;
 
         // Merge loop-extracted entities into the session's discourse register
@@ -1235,7 +1255,7 @@ impl AgentLoop {
                         max_tokens: self.max_tokens,
                         temperature: current_temp,
                         tool_choice,
-                        response_format: None,
+                        response_format: overrides.response_format.clone(),
                     },
                     Some(crate::providers::base::RetryConfig::default()),
                 )

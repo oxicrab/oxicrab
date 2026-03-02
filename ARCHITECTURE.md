@@ -14,25 +14,24 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 
 ## Key Abstractions (3 traits + middleware)
 
-- **`Tool`** (`src/agent/tools/base.rs`): `name()`, `description()`, `parameters()` (JSON Schema), `execute(Value, &ExecutionContext) → ToolResult`. Optional: `cacheable()`.
-- **`ToolMiddleware`** (`src/agent/tools/base.rs`): `before_execute()` (can short-circuit), `after_execute()` (can modify result). Built-in: `CacheMiddleware`, `TruncationMiddleware`, `LoggingMiddleware`.
-- **`ExecutionContext`** (`src/agent/tools/base.rs`): Passed to every `execute()` call. Fields: `channel`, `chat_id`, `context_summary`, `metadata` (channel-specific metadata from the originating inbound message, e.g. Slack `ts` for threading).
+- **`Tool`** (`src/agent/tools/base/mod.rs`): `name()`, `description()`, `version()`, `parameters()` (JSON Schema), `capabilities()`, `execute(Value, &ExecutionContext) → ToolResult`. Optional: `cacheable()`, `requires_approval()`, `execution_timeout()`.
+- **`ToolMiddleware`** (`src/agent/tools/base/mod.rs`): `before_execute()` (can short-circuit), `after_execute()` (can modify result). Built-in: `CacheMiddleware`, `TruncationMiddleware`, `LoggingMiddleware`.
+- **`ExecutionContext`** (`src/agent/tools/base/mod.rs`): Passed to every `execute()` call. Fields: `channel`, `chat_id`, `context_summary`, `metadata` (channel-specific metadata from the originating inbound message, e.g. Slack `ts` for threading).
 - **`BaseChannel`** (`src/channels/base.rs`): `start()`, `stop()`, `send()`. Optional: `send_typing()`, `send_and_get_id()`, `edit_message()`, `delete_message()`. Discord supports slash commands, button component interactions, embeds, and interaction webhook followups — metadata keys `discord_interaction_token`/`discord_application_id` route responses through webhook API instead of channel messages.
 - **`LLMProvider`** (`src/providers/base.rs`): `chat(ChatRequest) → LLMResponse`, `default_model()`, `warmup()`. Has default `chat_with_retry()` with exponential backoff. `warmup()` pre-warms HTTP connections on startup (default no-op, implemented for Anthropic/OpenAI/Gemini).
 
 ## Provider Selection
 
-`ProviderFactory` in `src/providers/strategy.rs` uses 3-tier resolution to pick a provider:
+`ProviderFactory` in `src/providers/strategy/mod.rs` uses 2-tier resolution to pick a provider:
 
-1. **Explicit provider** — `agents.defaults.provider` config field or `--provider` CLI flag.
-2. **Prefix notation** — `provider/model` syntax (e.g. `groq/llama-3.1-70b`). Only recognized prefixes (anthropic, openai, gemini, openrouter, deepseek, groq, moonshot, zhipu, dashscope, vllm, ollama) are split; unknown prefixes like `meta-llama/` are left intact.
-3. **Model-name inference** — `starts_with` patterns: `claude-*` → Anthropic, `gpt-*`/`o1`/`o3`/`o4` → OpenAI, `gemini*` → Gemini, `deepseek*` → DeepSeek.
+1. **Prefix notation** — `provider/model` syntax (e.g. `groq/llama-3.1-70b`). Only recognized prefixes (anthropic, openai, gemini, openrouter, deepseek, groq, moonshot, zhipu, dashscope, vllm, ollama) are split; unknown prefixes like `meta-llama/` are left intact.
+2. **Model-name inference** — `starts_with` patterns: `claude-*` → Anthropic, `gpt-*`/`o1`/`o3`/`o4` → OpenAI, `gemini*` → Gemini, `deepseek*` → DeepSeek.
 
 For the `anthropic` provider, OAuth is tried first (Claude CLI → OpenClaw → credentials file), falling back to API key. For `openai`/`gemini`, the API key is used directly. All providers support `apiBase` (custom base URL) and `headers` (custom HTTP headers) in their config — first-party providers use `with_config()` constructors, OpenAI-compat providers use `OpenAIProvider::with_config_and_headers()`. When neither is set, the simpler `new()` constructor is used with hardcoded defaults. `promptGuidedTools` is a `LocalProviderConfig`-only field (ollama/vllm) — when true, `PromptGuidedToolsProvider::wrap()` is applied, injecting tool definitions into the system prompt and parsing `<tool_call>` XML blocks from text responses.
 
 ## Model Routing
 
-Model routing allows different task types to use different providers and models. `ModelRoutingConfig` (in `src/config/schema/agent.rs`) maps task types (`conversation`, `cron`, `daemon`, `subagent`, `compaction`) to named tiers, each a `provider/model` string. At startup, `Config::create_routed_providers()` pre-creates providers for each tier. `AgentLoop::resolve_overrides(task_type)` returns `AgentRunOverrides` with both the provider and model for that task. The `FallbackProvider` supports chains of N providers -- tried in order on error or malformed tool calls. When `modelRouting` is absent, behavior is unchanged (the default model and provider are used for all tasks).
+Model routing allows different task types to use different providers and models. `ModelRoutingConfig` (in `src/config/schema/agent.rs`) maps task types (`conversation`, `cron`, `daemon`, `subagent`, `compaction`) to named tiers, each a `provider/model` string. At startup, `Config::create_routed_providers()` pre-creates providers for each tier. `AgentLoop::resolve_overrides(task_type)` returns `AgentRunOverrides` with both the provider and model for that task. The `FallbackProvider` supports chains of N providers (built from `modelRouting.fallbacks`) -- tried in order on error or malformed tool calls. When `modelRouting` is absent, behavior is unchanged (the default model and provider are used for all tasks).
 
 ## Prompt Caching (Anthropic)
 
@@ -44,17 +43,17 @@ This enables the Anthropic prompt cache (5-minute TTL), reducing input token cos
 
 ## Tool System
 
-- **`ToolRegistry`** (`src/agent/tools/registry.rs`): Central execution engine. Runs middleware pipeline: `before_execute` → `execute_with_guards` (timeout + panic isolation via `tokio::task::spawn`) → `after_execute`. Stored as `Arc<ToolRegistry>` (immutable after construction).
+- **`ToolRegistry`** (`src/agent/tools/registry/mod.rs`): Central execution engine. Runs middleware pipeline: `before_execute` → `execute_with_guards` (timeout + panic isolation via `tokio::task::spawn`) → `after_execute`. Stored as `Arc<ToolRegistry>` (immutable after construction).
 - **`ToolBuildContext`** (`src/agent/tools/setup.rs`): Aggregates all config needed for tool construction. `register_all_tools()` calls per-module registration functions.
 - **MCP** (`src/agent/tools/mcp/`): `McpManager` connects to external MCP servers via child processes (`rmcp` crate). `McpProxyTool` wraps each discovered tool as `impl Tool`. Config under `tools.mcp.servers`. Each server has a `sandbox` field (`SandboxConfig`) for Landlock kernel-level sandboxing of the child process (enabled by default). `McpManager::new()` takes a workspace path; `McpProxyTool` sanitizes error messages via `path_sanitize`.
 
 ## Agent Loop (`src/agent/loop/mod.rs`)
 
-`AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. First iteration forces `tool_choice="any"` to prevent text-only hallucinations. A system prompt constraint ("call tools directly, never send preliminary text without a tool call") replaces the old tools nudge mechanism. Hallucination detection runs on final text responses. Responses flow through the loop's return value (no message tool); the caller sends them exactly once. At 70% of `max_iterations`, a system message prompts the LLM to begin wrapping up. Post-compaction recovery instructions include the last user message and most recent checkpoint. Periodic checkpoints (configurable via `CompactionConfig.checkpoint`) snapshot conversation state every N iterations for recovery after compaction.
+`AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. All iterations use `tool_choice=None` (auto). Safety against text-only hallucinations comes from `handle_text_response()` which detects false action claims and false no-tools claims. Hallucination detection runs on final text responses. Responses flow through the loop's return value (no message tool); the caller sends them exactly once. At 70% of `max_iterations`, a system message prompts the LLM to begin wrapping up. Post-compaction recovery instructions include the last user message and most recent checkpoint. Periodic checkpoints (configurable via `CompactionConfig.checkpoint`) snapshot conversation state every N iterations for recovery after compaction.
 
 ### Reasoning Content (Thinking Models)
 
-`reasoning_content` (thinking/chain-of-thought output from extended thinking models like Claude 3.5 Sonnet, DeepSeek-R1) is preserved across the full message lifecycle: LLM response → `Message.reasoning_content` field → `ContextBuilder::add_assistant_message()` → Anthropic `convert_messages()` emits `{"type": "thinking"}` content blocks → session history restores from `reasoning_content` key. The OpenAI provider parses DeepSeek-R1's `reasoning_content` response field.
+`reasoning_content` (thinking/chain-of-thought output from extended thinking models like Claude Opus 4, DeepSeek-R1) is preserved across the full message lifecycle: LLM response → `Message.reasoning_content` field → `ContextBuilder::add_assistant_message()` → Anthropic `convert_messages()` emits `{"type": "thinking"}` content blocks → session history restores from `reasoning_content` key. The OpenAI provider parses DeepSeek-R1's `reasoning_content` response field.
 
 ### Group Chat Memory Isolation
 
@@ -92,7 +91,7 @@ channel-telegram = ["dep:teloxide"]
 channel-discord = ["dep:serenity"]
 channel-slack = ["dep:tokio-tungstenite"]
 channel-whatsapp = ["dep:whatsapp-rust", ...]
-channel-twilio = ["dep:axum", "dep:hmac", "dep:sha1"]
+channel-twilio = ["dep:sha1"]
 keyring-store = ["dep:keyring"]
 ```
 
@@ -104,7 +103,7 @@ Channels are conditionally compiled via `#[cfg(feature = "channel-*")]` in `src/
 
 ## Config
 
-JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in JSON, snake_case in Rust (serde `rename` attrs). Schema in `src/config/schema.rs` — 15 structs have custom `Debug` impls (via `redact_debug!` macro) that redact secrets. Validated on startup via `config.validate()`. Notable config fields: `providers.*.headers` (custom HTTP headers for OpenAI-compatible providers), `agents.defaults.compaction.checkpoint` (`CheckpointConfig` with `enabled` and `intervalIterations`), `tools.exfiltrationGuard` (`ExfiltrationGuardConfig` with `enabled` and `allowTools`), `tools.exec.sandbox` (`SandboxConfig` with `enabled`, `additionalReadPaths`, `additionalWritePaths`, `blockNetwork`), `agents.defaults.promptGuard` (`PromptGuardConfig` with `enabled` and `action`).
+JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in JSON, snake_case in Rust (serde `rename` attrs). Schema in `src/config/schema/mod.rs` — 15 structs have custom `Debug` impls (via `redact_debug!` macro) that redact secrets. Validated on startup via `config.validate()`. Notable config fields: `providers.*.headers` (custom HTTP headers for OpenAI-compatible providers), `agents.defaults.compaction.checkpoint` (`CheckpointConfig` with `enabled` and `intervalIterations`), `tools.exfiltrationGuard` (`ExfiltrationGuardConfig` with `enabled` and `allowTools`), `tools.exec.sandbox` (`SandboxConfig` with `enabled`, `additionalReadPaths`, `additionalWritePaths`, `blockNetwork`), `agents.defaults.promptGuard` (`PromptGuardConfig` with `enabled` and `action`).
 
 ## Error Handling
 
@@ -112,9 +111,9 @@ JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in 
 
 ## CostGuard (`src/agent/cost_guard/mod.rs`)
 
-Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowed()` blocks if daily budget exceeded or hourly rate limit hit. `record_llm_call()` takes cache token params (`cache_creation_input_tokens`, `cache_read_input_tokens`) for Anthropic prompt caching — cache reads billed at 10% of input rate, cache creation at 125%. Embedded `pricing_data.json` covers 34 models; config overrides via `agents.defaults.costGuard.modelCosts`. Daily budget resets at midnight UTC. AtomicBool fast-path skips mutex when budget already exceeded. Config fields (all optional): `dailyBudgetCents` (u64), `maxActionsPerHour` (u64), `modelCosts` (HashMap of prefix → {input_per_million, output_per_million}).
+Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowed()` blocks if daily budget exceeded or hourly rate limit hit. `record_llm_call()` takes cache token params (`cache_creation_input_tokens`, `cache_read_input_tokens`) for Anthropic prompt caching — cache reads billed at 10% of input rate, cache creation at 125%. Embedded `pricing_data.json` covers 40 models; config overrides via `agents.defaults.costGuard.modelCosts`. Daily budget resets at midnight UTC. AtomicBool fast-path skips mutex when budget already exceeded. Config fields (all optional): `dailyBudgetCents` (u64), `maxActionsPerHour` (u64), `modelCosts` (HashMap of prefix → {input_per_million, output_per_million}).
 
-## Circuit Breaker (`src/providers/circuit_breaker.rs`)
+## Circuit Breaker (`src/providers/circuit_breaker/mod.rs`)
 
 `CircuitBreakerProvider::wrap(inner, config)` returns `Arc<dyn LLMProvider>` wrapping the inner provider. Three states: Closed (passes through), Open (rejects immediately after `failure_threshold` consecutive transient failures), HalfOpen (allows `half_open_probes` test requests after `recovery_timeout_secs`). Transient errors: 429, 5xx, timeout, connection refused/reset. Non-transient errors (auth, invalid key, permission, context length) do **not** trip the breaker. Config under `providers.circuitBreaker`: `enabled` (default false), `failureThreshold` (default 5), `recoveryTimeoutSecs` (default 60), `halfOpenProbes` (default 2).
 
@@ -124,7 +123,7 @@ Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowe
 
 ## Cron System (`src/cron/`)
 
-`CronService` manages scheduled and event-triggered jobs. Supports 4 schedule types: `At` (one-shot), `Every` (interval), `Cron` (5-field expression), `Event` (regex match on inbound messages). Jobs are persisted to `cron_store.json`. `CronPayload` specifies execution semantics: `kind` ("agent_turn" or "echo"), `message`, `targets` (channel + recipient), `agent_echo`, and `origin_metadata` (channel-specific metadata from the originating message, propagated to outbound messages so responses land in the correct thread/context). `EventMatcher` checks inbound messages against event-triggered jobs with regex matching, channel filtering, cooldown enforcement, expiry, and max_runs. The cron tool supports actions: add, list, remove, run.
+`CronService` manages scheduled and event-triggered jobs. Supports 4 schedule types: `At` (one-shot), `Every` (interval), `Cron` (5-field expression), `Event` (regex match on inbound messages). Jobs are persisted to `cron/jobs.json`. `CronPayload` specifies execution semantics: `kind` ("agent_turn" or "echo"), `message`, `targets` (channel + recipient), `agent_echo`, and `origin_metadata` (channel-specific metadata from the originating message, propagated to outbound messages so responses land in the correct thread/context). `EventMatcher` checks inbound messages against event-triggered jobs with regex matching, channel filtering, cooldown enforcement, expiry, and max_runs. The cron tool supports actions: add, list, remove, run.
 
 ## Doctor (`src/cli/doctor.rs`)
 
@@ -138,7 +137,7 @@ Unified credential management via `define_credentials!` macro. Adding a new cred
 - **`apply_credential_helper()`**: Fetches secrets from external processes (1Password, Bitwarden, custom scripts)
 - **`apply_keyring_overrides()`** (behind `keyring-store` feature): Loads from OS keychain
 - **`detect_source()`**: Identifies where a credential came from (env/keyring/config/helper/empty)
-- **`CredentialHelperConfig`** in `src/config/schema.rs`: `command`, `args`, `format` (json/1password/bitwarden/line)
+- **`CredentialHelperConfig`** in `src/config/schema/mod.rs`: `command`, `args`, `format` (json/1password/bitwarden/line)
 
 ## Security Hardening
 
@@ -148,7 +147,7 @@ Unified credential management via `define_credentials!` macro. Adding a new cred
 - **DM pairing** (`src/pairing/mod.rs`): `PairingStore` provides file-backed per-channel allowlists at `~/.oxicrab/pairing/`. 8-char human-friendly codes with 15-min TTL. Per-client lockout tracking (`HashMap<String, Vec<u64>>`) prevents brute-force code guessing with bounded map (1000 clients max). CLI: `oxicrab pairing list|approve|revoke`.
 - **Leak detection** (`src/safety/leak_detector/mod.rs`): `LeakDetector` scans messages for API key patterns (Anthropic, OpenAI, Slack, GitHub, Groq, Telegram, Discord, Google, Stripe, SendGrid — 14 pattern types). Three-encoding scanning: plaintext patterns, base64-decoded candidates (20+ chars), and hex-decoded candidates (40+ chars). `add_known_secrets()` registers actual config secret values for exact-match detection across all three encodings. `Config::collect_secrets()` gathers all non-empty API keys and tokens; `setup_message_bus()` passes them to the leak detector at startup via `add_known_secrets()`. Bidirectional scanning: **inbound** scanning in `AgentLoop` (`process_message_unlocked()` and `process_direct_with_overrides()`) redacts secrets before they reach the LLM or get persisted in session history; **outbound** scanning in `MessageBus::publish_outbound()` redacts before sending to channels.
 - **DNS rebinding defense** (`src/utils/url_security/mod.rs`): `validate_and_resolve()` resolves DNS and returns `ResolvedUrl` with pinned `SocketAddr`s. Callers (http, web_fetch tools) build one-shot reqwest clients with `.resolve()` to pin DNS, preventing TOCTOU rebinding attacks where DNS returns a different IP between validation and fetch. Blocked ranges: RFC 1918 private, loopback, link-local, multicast, documentation (`2001:db8::/32`), 6to4 (`2002::/16`), NAT64 (`64:ff9b::/96`), CGNAT/shared (`100.64.0.0/10`), Teredo tunneling (`2001:0000::/32`), and IPv4-mapped IPv6.
-- **Tool capability metadata** (`src/agent/tools/base.rs`): Every tool declares `ToolCapabilities` via a `capabilities()` trait method: `built_in` (true for oxicrab tools, false for MCP), `network_outbound` (true if tool makes external network requests), `subagent_access` (`Full`/`ReadOnly`/`Denied`), and `actions` (vec of `ActionDescriptor` with `name` and `read_only` flag for action-based tools). Defaults are deny-by-default: `built_in: false`, `network_outbound: false`, `subagent_access: Denied`, `actions: []`. Used by the exfiltration guard, subagent tool builder, and MCP shadow protection.
+- **Tool capability metadata** (`src/agent/tools/base/mod.rs`): Every tool declares `ToolCapabilities` via a `capabilities()` trait method: `built_in` (true for oxicrab tools, false for MCP), `network_outbound` (true if tool makes external network requests), `subagent_access` (`Full`/`ReadOnly`/`Denied`), and `actions` (vec of `ActionDescriptor` with `name` and `read_only` flag for action-based tools). Defaults are deny-by-default: `built_in: false`, `network_outbound: false`, `subagent_access: Denied`, `actions: []`. Used by the exfiltration guard, subagent tool builder, and MCP shadow protection.
 - **Subagent tool access** (`src/agent/subagent/mod.rs`): `build_subagent_tools()` iterates the main agent's tool registry and checks each tool's `SubagentAccess`. `Full` tools are passed through directly, `ReadOnly` tools are wrapped in `ReadOnlyToolWrapper` (schema filtering hides mutating actions, execution-time rejection blocks attempts), `Denied` tools are excluded. Network-outbound tools are additionally blocked when the exfiltration guard is enabled unless allow-listed.
 - **Exfiltration guard** (`src/config/schema/tools.rs`): `ExfiltrationGuardConfig` with `enabled` (default false) and `allowTools` (default: empty). When enabled, tools with `network_outbound` capability are filtered from `tools_defs` before sending to the LLM, AND blocked at dispatch time in `execute_tool_call()`. Use `allowTools` to selectively re-enable specific network tools. Config under `tools.exfiltrationGuard`.
 - **Prompt injection detection** (`src/safety/prompt_guard/mod.rs`): `PromptGuard` with regex patterns across 4 categories: role switching, instruction override, secret extraction, jailbreak. Scans user messages in `process_message_unlocked()` (configurable: warn or block) and tool output in `run_agent_loop()` (warn only). Config under `agents.defaults.promptGuard` with `enabled` (default false) and `action` ("warn" or "block").
@@ -170,4 +169,4 @@ Unified credential management via `define_credentials!` macro. Adding a new cred
 
 ## CLI Commands
 
-`oxicrab gateway` — full multi-channel daemon. `oxicrab agent -m "message"` — single-turn CLI. `oxicrab onboard` — first-time setup. `oxicrab cron` — manage cron jobs. `oxicrab auth` — OAuth flows. `oxicrab channels` — channel status and WhatsApp login. `oxicrab credentials` — manage credentials (set/get/delete/list/import via OS keychain). `oxicrab status` — quick setup overview. `oxicrab doctor` — system diagnostics. `oxicrab pairing` — manage DM pairing for sender authentication (list/approve/revoke).
+`oxicrab gateway` — full multi-channel daemon. `oxicrab agent -m "message"` — single-turn CLI. `oxicrab onboard` — first-time setup. `oxicrab cron` — manage cron jobs. `oxicrab auth` — OAuth flows. `oxicrab channels` — channel status and WhatsApp login. `oxicrab credentials` — manage credentials (set/get/delete/list/import via OS keychain). `oxicrab status` — quick setup overview. `oxicrab doctor` — system diagnostics. `oxicrab pairing` — manage DM pairing for sender authentication (list/approve/revoke). `oxicrab stats` — cost and search metrics. `oxicrab completion` — shell completion scripts.

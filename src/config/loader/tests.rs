@@ -82,22 +82,6 @@ fn test_save_and_load_roundtrip() {
 }
 
 #[test]
-fn test_load_config_with_local_model() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.json");
-    std::fs::write(
-        &path,
-        r#"{"agents": {"defaults": {"localModel": "ollama/qwen3-coder:30b"}}}"#,
-    )
-    .unwrap();
-    let config = load_config(Some(&path)).unwrap();
-    assert_eq!(
-        config.agents.defaults.local_model.as_deref(),
-        Some("ollama/qwen3-coder:30b")
-    );
-}
-
-#[test]
 fn test_example_config_loads_and_validates() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config.example.json");
     let config = load_config(Some(&path)).expect("config.example.json should load");

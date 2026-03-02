@@ -26,7 +26,7 @@ This is largely a personal toy with features I want or care about. For example, 
 - **Group chat isolation**: Personal memory (MEMORY.md, daily notes) automatically excluded from group chat contexts; knowledge shared across all contexts
 - **Session management**: Persistent sessions with automatic compaction and context summarization
 - **Voice transcription**: Local whisper.cpp with cloud API fallback
-- **CostGuard**: Daily budget cap and hourly rate limiting with embedded pricing for 50+ models
+- **CostGuard**: Daily budget cap and hourly rate limiting with embedded pricing for 40 models
 - **HTTP gateway**: REST API (`POST /api/chat`, `GET /api/health`) and named webhook receivers with HMAC-SHA256 validation, template formatting, and multi-channel delivery
 - **Rate limiting**: Per-IP token bucket on gateway endpoints
 - **JSON mode**: Per-request structured output (JSON object and JSON schema) across all providers

@@ -153,7 +153,7 @@
         <p>oxicrab uses a 2-tier resolution strategy to determine which LLM provider handles a model:</p>
         <ol>
             <li><strong>Prefix notation</strong> &mdash; <code>"model": "groq/llama-3.1-70b"</code> (provider before <code>/</code>, stripped before API call)</li>
-            <li><strong>Auto-detection</strong> &mdash; Known model name prefixes: <code>claude-*</code> &rarr; Anthropic, <code>gpt-*</code>/<code>o1</code>/<code>o3</code> &rarr; OpenAI, <code>gemini-*</code> &rarr; Gemini, <code>deepseek-*</code> &rarr; DeepSeek</li>
+            <li><strong>Auto-detection</strong> &mdash; Known model name prefixes: <code>claude-*</code> &rarr; Anthropic, <code>gpt-*</code>/<code>o1</code>/<code>o3</code>/<code>o4</code> &rarr; OpenAI, <code>gemini-*</code> &rarr; Gemini, <code>deepseek-*</code> &rarr; DeepSeek</li>
         </ol>
 
         <h3 id="routing-examples">Routing Resolution Table</h3>
@@ -212,7 +212,7 @@
             <tr><th>Provider</th><th>Default Base URL</th><th>API Key Required</th></tr>
             <tr><td>Anthropic</td><td>https://api.anthropic.com/v1/messages</td><td>Yes (or OAuth)</td></tr>
             <tr><td>OpenAI</td><td>https://api.openai.com/v1/chat/completions</td><td>Yes</td></tr>
-            <tr><td>Gemini</td><td>https://generativelanguage.googleapis.com/v1beta</td><td>Yes</td></tr>
+            <tr><td>Gemini</td><td>https://generativelanguage.googleapis.com/v1</td><td>Yes</td></tr>
             <tr><td>OpenRouter</td><td>https://openrouter.ai/api/v1/chat/completions</td><td>Yes</td></tr>
             <tr><td>DeepSeek</td><td>https://api.deepseek.com/v1/chat/completions</td><td>Yes</td></tr>
             <tr><td>Groq</td><td>https://api.groq.com/openai/v1/chat/completions</td><td>Yes</td></tr>
@@ -243,7 +243,7 @@
             <li>Rewrites conversation history so tool results work without native tool support</li>
         </ul>
 
-        <p>This works with both direct local models and the <a href="#local-model-fallback">local model fallback</a> configuration. Currently supported for Ollama and vLLM providers.</p>
+        <p>This works with both direct local models and <code>modelRouting.fallbacks</code> for fallback chains. Currently supported for Ollama and vLLM providers.</p>
 
         <p>To override the default endpoint, set <code>apiBase</code> on the provider:</p>
         <pre><code>{
@@ -270,25 +270,8 @@
 }</code></pre>
         <p>Headers are merged into every chat and warmup request alongside the standard <code>Authorization</code> and <code>Content-Type</code> headers.</p>
 
-        <h3 id="local-model-fallback">Local Model Fallback</h3>
-        <p>Configure a local model (e.g. Ollama) as a fallback. The cloud model remains primary &mdash; the local model is only used if the cloud provider fails or returns malformed tool calls:</p>
-        <pre><code>{
-  "agents": {
-    "defaults": {
-      "model": "claude-sonnet-4-5-20250929",
-      "localModel": "ollama/qwen3-coder:30b"
-    }
-  },
-  "providers": {
-    "anthropic": {
-      "apiKey": "sk-ant-api03-..."
-    }
-  }
-}</code></pre>
-        <p>When <code>localModel</code> is set, each LLM call tries the cloud model first. If it returns an error (network failure, rate limit) or malformed tool calls (empty name, non-object arguments), the request is automatically retried against the local model.</p>
-
         <h3 id="oauth-models">OAuth Models</h3>
-        <p>Anthropic OAuth is attempted when the provider resolves to <code>anthropic</code> &mdash; via <code>anthropic/</code> prefix, <code>"provider": "anthropic"</code>, or auto-detection of <code>claude-*</code> models:</p>
+        <p>Anthropic OAuth is attempted when the provider resolves to <code>anthropic</code> &mdash; via <code>anthropic/</code> prefix or auto-detection of <code>claude-*</code> models:</p>
         <ul class="plain">
             <li><strong>anthropic/claude-opus-4-5</strong></li>
             <li><strong>anthropic/claude-opus-4-6</strong></li>
@@ -447,7 +430,6 @@
             <tr><td>memoryIndexerInterval</td><td>u64</td><td>300</td><td>Seconds between memory indexer runs</td></tr>
             <tr><td>mediaTtlDays</td><td>u32</td><td>7</td><td>Days before cached media files are cleaned up</td></tr>
             <tr><td>maxConcurrentSubagents</td><td>usize</td><td>5</td><td>Max simultaneous background subagents</td></tr>
-            <tr><td>localModel</td><td>string?</td><td>null</td><td>Fallback model for cloud failures (see <a href="#local-model-fallback">Local Model Fallback</a>)</td></tr>
         </table>
 
         <h3>Workspace TTL</h3>
@@ -546,7 +528,7 @@
             <tr><td>fallbacks</td><td>string[]</td><td>[]</td><td>Ordered fallback chain of <code>provider/model</code> strings. Primary provider tries first, then each fallback in order. Fallbacks apply to the primary (conversation) provider only &mdash; individually routed tier providers (used for daemon, cron, subagent, compaction) do not get automatic fallback wrapping.</td></tr>
             <tr><td>rules</td><td>object</td><td>{}</td><td>Maps task types to tier names. Known types: <code>conversation</code>, <code>cron</code>, <code>daemon</code>, <code>subagent</code>, <code>compaction</code>. The <code>conversation</code> type is reserved &mdash; conversation messages always use the primary provider/model (built from <code>agents.defaults.model</code>). Routing rules for other task types override only their specific call sites.</td></tr>
         </table>
-        <p>Tiers are resolved at startup via <code>Config::create_routed_providers()</code>. The <code>fallbacks</code> chain builds a <code>FallbackProvider</code> &mdash; tried in order on error or malformed tool calls. The <code>localModel</code> field still works as a simple two-provider fallback when <code>modelRouting</code> is not configured.</p>
+        <p>Tiers are resolved at startup via <code>Config::create_routed_providers()</code>. The <code>fallbacks</code> chain builds a <code>FallbackProvider</code> &mdash; tried in order on error or malformed tool calls.</p>
 
         <p><strong>Precedence:</strong> When both <code>daemon.executionModel</code> and <code>modelRouting.rules.daemon</code> are configured, model routing takes precedence. The <code>executionModel</code> is used only when no routing rule matches the daemon task type. The same precedence applies to <code>compaction.model</code> and other task-specific config fields.</p>
 
@@ -631,7 +613,7 @@
             <li><strong>outputPerMillion</strong> &mdash; cost in dollars per million output tokens</li>
         </ul>
 
-        <p>Embedded pricing data covers 50+ models. Config overrides take precedence for any model name prefix match.</p>
+        <p>Embedded pricing data covers 40 models. Config overrides take precedence for any model name prefix match.</p>
 
         <h3>Prompt Cache-Aware Pricing</h3>
         <p>For Anthropic providers, prompt caching tokens are priced differently:</p>
@@ -901,6 +883,7 @@
             <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable per-IP rate limiting</td></tr>
             <tr><td>requestsPerSecond</td><td>u32</td><td>10</td><td>Sustained request rate per IP</td></tr>
             <tr><td>burst</td><td>u32</td><td>20</td><td>Maximum burst capacity per IP</td></tr>
+            <tr><td>trustProxy</td><td>bool</td><td>false</td><td>Trust <code>X-Forwarded-For</code> header for client IP extraction. Enable only when running behind a reverse proxy.</td></tr>
         </table>
         <p>When a client exceeds the rate limit, the gateway returns HTTP 429 with a <code>Retry-After</code> header indicating when to retry.</p>
 
