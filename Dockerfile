@@ -31,6 +31,7 @@ FROM debian:trixie-slim
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    curl \
     ffmpeg \
     libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
@@ -41,6 +42,9 @@ RUN useradd -m -s /bin/bash oxicrab
 # Copy binary from builder
 COPY --from=builder /build/target/release/oxicrab /usr/local/bin/oxicrab
 
+COPY scripts/healthcheck.sh /usr/local/bin/healthcheck.sh
+RUN chmod +x /usr/local/bin/healthcheck.sh
+
 # Create data directory
 RUN mkdir -p /home/oxicrab/.oxicrab && chown -R oxicrab:oxicrab /home/oxicrab/.oxicrab
 
@@ -50,12 +54,12 @@ WORKDIR /home/oxicrab
 # Config and data volume
 VOLUME ["/home/oxicrab/.oxicrab"]
 
-# Gateway port (for Twilio webhooks)
-EXPOSE 8080
+# Gateway port
+EXPOSE 18790
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-  CMD pgrep oxicrab || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD /usr/local/bin/healthcheck.sh
 
 ENTRYPOINT ["oxicrab"]
 CMD ["gateway"]

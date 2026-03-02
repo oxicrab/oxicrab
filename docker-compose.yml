@@ -1,0 +1,16 @@
+services:
+  oxicrab:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ${OXICRAB_HOME:-./data}:/home/oxicrab/.oxicrab
+    ports:
+      - "${OXICRAB_PORT:-18790}:18790"
+    environment:
+      - OXICRAB_PORT=18790
+    healthcheck:
+      test: ["/usr/local/bin/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
