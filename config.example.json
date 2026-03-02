@@ -29,7 +29,6 @@
         "enabled": true,
         "interval": 300,
         "executionModel": null,
-        "executionProvider": null,
         "strategyFile": "HEARTBEAT.md",
         "maxIterations": 25
       },
@@ -123,8 +122,7 @@
   "providers": {
     "anthropic": {
       "apiKey": "sk-ant-your-anthropic-key",
-      "apiBase": null,
-      "promptGuidedTools": false
+      "apiBase": null
     },
     "anthropicOAuth": {
       "enabled": false,
@@ -136,43 +134,35 @@
     },
     "openai": {
       "apiKey": "",
-      "apiBase": null,
-      "promptGuidedTools": false
+      "apiBase": null
     },
     "gemini": {
       "apiKey": "",
-      "apiBase": null,
-      "promptGuidedTools": false
+      "apiBase": null
     },
     "openrouter": {
       "apiKey": "",
-      "apiBase": null,
-      "promptGuidedTools": false
+      "apiBase": null
     },
     "deepseek": {
       "apiKey": "",
-      "apiBase": null,
-      "promptGuidedTools": false
+      "apiBase": null
     },
     "groq": {
       "apiKey": "",
-      "apiBase": null,
-      "promptGuidedTools": false
+      "apiBase": null
     },
     "moonshot": {
       "apiKey": "",
-      "apiBase": null,
-      "promptGuidedTools": false
+      "apiBase": null
     },
     "zhipu": {
       "apiKey": "",
-      "apiBase": null,
-      "promptGuidedTools": false
+      "apiBase": null
     },
     "dashscope": {
       "apiKey": "",
-      "apiBase": null,
-      "promptGuidedTools": false
+      "apiBase": null
     },
     "vllm": {
       "apiKey": "",

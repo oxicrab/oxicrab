@@ -672,6 +672,24 @@ fn test_fusion_strategy_default_and_serde() {
 }
 
 // -----------------------------------------------------------------------
+// LocalProviderConfig: promptGuidedTools only on ollama/vllm
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_local_provider_config_has_prompt_guided_tools() {
+    let json = r#"{
+        "providers": {
+            "ollama": { "apiKey": "", "promptGuidedTools": true },
+            "vllm": { "promptGuidedTools": false },
+            "anthropic": { "apiKey": "sk-test" }
+        }
+    }"#;
+    let config: Config = serde_json::from_str(json).unwrap();
+    assert!(config.providers.ollama.prompt_guided_tools);
+    assert!(!config.providers.vllm.prompt_guided_tools);
+}
+
+// -----------------------------------------------------------------------
 // config.example.json auto-generation
 // -----------------------------------------------------------------------
 

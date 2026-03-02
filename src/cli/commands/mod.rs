@@ -925,13 +925,6 @@ fn setup_heartbeat(config: &Config, agent: &Arc<AgentLoop>) -> Arc<HeartbeatServ
             daemon_cfg.execution_model.as_deref().unwrap_or("(none)")
         );
     }
-    if daemon_cfg.execution_provider.is_some() {
-        warn!(
-            "daemon executionProvider is not yet supported and will be ignored; \
-             the default provider will be used"
-        );
-    }
-
     let agent_for_heartbeat = agent.clone();
     let heartbeat = HeartbeatService::new(
         config.workspace_path(),

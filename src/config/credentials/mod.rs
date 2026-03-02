@@ -54,8 +54,8 @@ define_credentials! {
     "moonshot-api-key",        "OXICRAB_MOONSHOT_API_KEY"        => providers.moonshot.api_key;
     "zhipu-api-key",           "OXICRAB_ZHIPU_API_KEY"           => providers.zhipu.api_key;
     "dashscope-api-key",       "OXICRAB_DASHSCOPE_API_KEY"       => providers.dashscope.api_key;
-    "vllm-api-key",            "OXICRAB_VLLM_API_KEY"            => providers.vllm.api_key;
-    "ollama-api-key",          "OXICRAB_OLLAMA_API_KEY"          => providers.ollama.api_key;
+    "vllm-api-key",            "OXICRAB_VLLM_API_KEY"            => providers.vllm.base.api_key;
+    "ollama-api-key",          "OXICRAB_OLLAMA_API_KEY"          => providers.ollama.base.api_key;
     // OAuth tokens
     "anthropic-oauth-access",  "OXICRAB_ANTHROPIC_OAUTH_ACCESS"  => providers.anthropic_oauth.access_token;
     "anthropic-oauth-refresh", "OXICRAB_ANTHROPIC_OAUTH_REFRESH" => providers.anthropic_oauth.refresh_token;

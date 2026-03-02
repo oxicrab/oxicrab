@@ -71,8 +71,6 @@ pub struct DaemonConfig {
     pub interval: u64,
     #[serde(default, rename = "executionModel")]
     pub execution_model: Option<String>,
-    #[serde(default, rename = "executionProvider")]
-    pub execution_provider: Option<String>,
     #[serde(default = "default_strategy_file", rename = "strategyFile")]
     pub strategy_file: String,
     #[serde(default = "default_max_iterations", rename = "maxIterations")]
@@ -85,7 +83,6 @@ impl Default for DaemonConfig {
             enabled: true,
             interval: default_interval(),
             execution_model: None,
-            execution_provider: None,
             strategy_file: default_strategy_file(),
             max_iterations: default_max_iterations(),
         }

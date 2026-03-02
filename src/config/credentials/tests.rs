@@ -250,8 +250,8 @@ fn test_get_credential_value_all_providers() {
     config.providers.moonshot.api_key = "g".to_string();
     config.providers.zhipu.api_key = "h".to_string();
     config.providers.dashscope.api_key = "i".to_string();
-    config.providers.vllm.api_key = "j".to_string();
-    config.providers.ollama.api_key = "k".to_string();
+    config.providers.vllm.base.api_key = "j".to_string();
+    config.providers.ollama.base.api_key = "k".to_string();
 
     assert_eq!(
         get_credential_value(&config, "anthropic-api-key"),
@@ -302,8 +302,8 @@ fn test_apply_env_overrides_all_new_provider_vars() {
 
     assert_eq!(config.providers.zhipu.api_key, "zhipu-key");
     assert_eq!(config.providers.dashscope.api_key, "dash-key");
-    assert_eq!(config.providers.vllm.api_key, "vllm-key");
-    assert_eq!(config.providers.ollama.api_key, "ollama-key");
+    assert_eq!(config.providers.vllm.base.api_key, "vllm-key");
+    assert_eq!(config.providers.ollama.base.api_key, "ollama-key");
 
     unsafe { std::env::remove_var("OXICRAB_ZHIPU_API_KEY") };
     unsafe { std::env::remove_var("OXICRAB_DASHSCOPE_API_KEY") };
