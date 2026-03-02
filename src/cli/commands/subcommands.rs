@@ -573,7 +573,7 @@ pub(super) fn status_command() -> Result<()> {
         let has_anthropic = !config.providers.anthropic.api_key.is_empty();
         let has_openai = !config.providers.openai.api_key.is_empty();
         let has_gemini = !config.providers.gemini.api_key.is_empty();
-        let has_vllm = config.providers.vllm.api_base.is_some();
+        let has_vllm = config.providers.vllm.base.api_base.is_some();
 
         println!(
             "OpenRouter API: {}",
@@ -596,7 +596,7 @@ pub(super) fn status_command() -> Result<()> {
             if has_gemini { "\u{2713}" } else { "not set" }
         );
         if has_vllm {
-            if let Some(api_base) = config.providers.vllm.api_base.as_ref() {
+            if let Some(api_base) = config.providers.vllm.base.api_base.as_ref() {
                 println!("vLLM/Local: \u{2713} {}", api_base);
             } else {
                 println!("vLLM/Local: not set");

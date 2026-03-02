@@ -113,11 +113,11 @@ fn check_provider_keys() -> CheckResult {
             if !config.providers.groq.api_key.is_empty() {
                 providers.push("groq");
             }
-            if config.providers.vllm.api_base.is_some() {
+            if config.providers.vllm.base.api_base.is_some() {
                 providers.push("vllm");
             }
-            if !config.providers.ollama.api_key.is_empty()
-                || config.providers.ollama.api_base.is_some()
+            if !config.providers.ollama.base.api_key.is_empty()
+                || config.providers.ollama.base.api_base.is_some()
             {
                 providers.push("ollama");
             }

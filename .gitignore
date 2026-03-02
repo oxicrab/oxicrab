@@ -10,6 +10,7 @@ target/
 *.swo
 *~
 .claude
+docs/plans
 
 # OS
 .DS_Store

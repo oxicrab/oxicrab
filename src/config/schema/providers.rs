@@ -12,11 +12,6 @@ pub struct ProviderConfig {
     /// Custom HTTP headers injected into every request to this provider.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub headers: std::collections::HashMap<String, String>,
-    /// Enable prompt-guided tool calling for local models that don't support
-    /// native function calling. Injects tool definitions into the system prompt
-    /// and parses `<tool_call>` XML blocks from text responses.
-    #[serde(default, rename = "promptGuidedTools")]
-    pub prompt_guided_tools: bool,
 }
 
 impl std::fmt::Debug for ProviderConfig {
@@ -33,6 +28,42 @@ impl std::fmt::Debug for ProviderConfig {
                 },
             )
             .field("api_base", &self.api_base)
+            .field("headers", &redacted_headers)
+            .finish()
+    }
+}
+
+/// Extended provider config for local inference servers (ollama, vllm)
+/// that may need prompt-guided tool calling.
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct LocalProviderConfig {
+    #[serde(flatten)]
+    pub base: ProviderConfig,
+    /// Enable prompt-guided tool calling for local models that don't support
+    /// native function calling. Injects tool definitions into the system prompt
+    /// and parses `<tool_call>` XML blocks from text responses.
+    #[serde(default, rename = "promptGuidedTools")]
+    pub prompt_guided_tools: bool,
+}
+
+impl std::fmt::Debug for LocalProviderConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let redacted_headers: std::collections::HashMap<&String, &str> = self
+            .base
+            .headers
+            .keys()
+            .map(|k| (k, "[REDACTED]"))
+            .collect();
+        f.debug_struct("LocalProviderConfig")
+            .field(
+                "api_key",
+                &if self.base.api_key.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("api_base", &self.base.api_base)
             .field("headers", &redacted_headers)
             .field("prompt_guided_tools", &self.prompt_guided_tools)
             .finish()
@@ -135,13 +166,13 @@ pub struct ProvidersConfig {
     #[serde(default)]
     pub dashscope: ProviderConfig,
     #[serde(default)]
-    pub vllm: ProviderConfig,
+    pub vllm: LocalProviderConfig,
     #[serde(default)]
     pub gemini: ProviderConfig,
     #[serde(default)]
     pub moonshot: ProviderConfig,
     #[serde(default)]
-    pub ollama: ProviderConfig,
+    pub ollama: LocalProviderConfig,
     #[serde(default, rename = "circuitBreaker")]
     pub circuit_breaker: CircuitBreakerConfig,
 }
@@ -183,8 +214,8 @@ impl ProvidersConfig {
             "moonshot" => &self.moonshot,
             "zhipu" => &self.zhipu,
             "dashscope" => &self.dashscope,
-            "vllm" => &self.vllm,
-            "ollama" => &self.ollama,
+            "vllm" => &self.vllm.base,
+            "ollama" => &self.ollama.base,
             _ => return None,
         };
         if config.api_key.is_empty() {

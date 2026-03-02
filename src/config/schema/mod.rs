@@ -549,8 +549,8 @@ impl Config {
             ("todoist_token", &self.tools.todoist.token),
             ("obsidian_api_key", &self.tools.obsidian.api_key),
             ("web_search_api_key", &self.tools.web.search.api_key),
-            ("vllm_api_key", &self.providers.vllm.api_key),
-            ("ollama_api_key", &self.providers.ollama.api_key),
+            ("vllm_api_key", &self.providers.vllm.base.api_key),
+            ("ollama_api_key", &self.providers.ollama.base.api_key),
             ("google_client_secret", &self.tools.google.client_secret),
             ("radarr_api_key", &self.tools.media.radarr.api_key),
             ("sonarr_api_key", &self.tools.media.sonarr.api_key),
@@ -579,10 +579,10 @@ impl Config {
             &self.providers.groq,
             &self.providers.zhipu,
             &self.providers.dashscope,
-            &self.providers.vllm,
+            &self.providers.vllm.base,
             &self.providers.gemini,
             &self.providers.moonshot,
-            &self.providers.ollama,
+            &self.providers.ollama.base,
         ];
         for cfg in provider_configs {
             for value in cfg.headers.values() {

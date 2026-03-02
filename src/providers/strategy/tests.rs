@@ -180,7 +180,8 @@ fn test_ollama_routing_no_api_key() {
 #[test]
 fn test_ollama_custom_api_base() {
     let mut config = ProvidersConfig::default();
-    config.ollama.api_base = Some("http://192.168.1.100:11434/v1/chat/completions".to_string());
+    config.ollama.base.api_base =
+        Some("http://192.168.1.100:11434/v1/chat/completions".to_string());
     let factory = factory_with_config(&config);
     let provider = factory.create_provider("ollama/qwen3-coder:30b").unwrap();
     assert_eq!(provider.default_model(), "qwen3-coder:30b");

@@ -324,8 +324,8 @@ impl ProviderFactory {
             "moonshot" => Some(&self.providers_config.moonshot),
             "zhipu" => Some(&self.providers_config.zhipu),
             "dashscope" => Some(&self.providers_config.dashscope),
-            "vllm" => Some(&self.providers_config.vllm),
-            "ollama" => Some(&self.providers_config.ollama),
+            "vllm" => Some(&self.providers_config.vllm.base),
+            "ollama" => Some(&self.providers_config.ollama.base),
             _ => None,
         }
     }
