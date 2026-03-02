@@ -10,7 +10,6 @@
       "memoryIndexerInterval": 300,
       "mediaTtlDays": 7,
       "maxConcurrentSubagents": 5,
-      "localModel": null,
       "contextProviders": [],
       "compaction": {
         "enabled": true,

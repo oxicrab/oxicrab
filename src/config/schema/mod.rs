@@ -714,15 +714,9 @@ impl Config {
         let model = model.unwrap_or(&self.agents.defaults.model);
         let factory = ProviderFactory::new(self);
 
-        // Build fallback chain from modelRouting.fallbacks (takes precedence over localModel)
+        // Build fallback chain from modelRouting.fallbacks
         let routing = &self.agents.defaults.model_routing;
         if !routing.fallbacks.is_empty() {
-            if self.agents.defaults.local_model.is_some() {
-                warn!(
-                    "both modelRouting.fallbacks and localModel are set — \
-                     fallbacks takes precedence; localModel will be ignored"
-                );
-            }
             let mut primary = factory.create_provider(model)?;
             if self.should_use_prompt_guided_tools(model) {
                 primary = crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(primary);
@@ -740,24 +734,6 @@ impl Config {
             }
             return Ok(std::sync::Arc::new(
                 crate::providers::fallback::FallbackProvider::new(chain),
-            ));
-        }
-
-        if let Some(ref local_model) = self.agents.defaults.local_model
-            && !local_model.is_empty()
-        {
-            let cloud = factory.create_provider(model)?;
-            let mut local = factory.create_provider(local_model)?;
-            if self.should_use_prompt_guided_tools(local_model) {
-                local = crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(local);
-            }
-            return Ok(std::sync::Arc::new(
-                crate::providers::fallback::FallbackProvider::pair(
-                    cloud,
-                    local,
-                    model.to_string(),
-                    local_model.clone(),
-                ),
             ));
         }
 

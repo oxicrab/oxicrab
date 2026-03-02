@@ -449,8 +449,6 @@ pub struct AgentDefaults {
         rename = "maxConcurrentSubagents"
     )]
     pub max_concurrent_subagents: usize,
-    #[serde(default, rename = "localModel")]
-    pub local_model: Option<String>,
     #[serde(default)]
     pub memory: MemoryConfig,
     #[serde(default, rename = "costGuard")]
@@ -481,7 +479,6 @@ impl Default for AgentDefaults {
             memory_indexer_interval: default_memory_indexer_interval(),
             media_ttl_days: default_media_ttl_days(),
             max_concurrent_subagents: default_max_concurrent_subagents(),
-            local_model: None,
             memory: MemoryConfig::default(),
             cost_guard: CostGuardConfig::default(),
             cognitive: CognitiveConfig::default(),

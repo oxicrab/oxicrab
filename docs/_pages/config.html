@@ -172,23 +172,6 @@ max_width: 820px
 }</code></pre>
         <p>Headers are merged into every chat and warmup request alongside the standard <code>Authorization</code> and <code>Content-Type</code> headers.</p>
 
-        <h3 id="local-model-fallback">Local Model Fallback</h3>
-        <p>Configure a local model (e.g. Ollama) as a fallback. The cloud model remains primary &mdash; the local model is only used if the cloud provider fails or returns malformed tool calls:</p>
-        <pre><code>{
-  "agents": {
-    "defaults": {
-      "model": "claude-sonnet-4-5-20250929",
-      "localModel": "ollama/qwen3-coder:30b"
-    }
-  },
-  "providers": {
-    "anthropic": {
-      "apiKey": "sk-ant-api03-..."
-    }
-  }
-}</code></pre>
-        <p>When <code>localModel</code> is set, each LLM call tries the cloud model first. If it returns an error (network failure, rate limit) or malformed tool calls (empty name, non-object arguments), the request is automatically retried against the local model.</p>
-
         <h3 id="oauth-models">OAuth Models</h3>
         <p>Anthropic OAuth is attempted when the provider resolves to <code>anthropic</code> &mdash; via <code>anthropic/</code> prefix, <code>"provider": "anthropic"</code>, or auto-detection of <code>claude-*</code> models:</p>
         <ul class="plain">
@@ -349,7 +332,6 @@ max_width: 820px
             <tr><td>memoryIndexerInterval</td><td>u64</td><td>300</td><td>Seconds between memory indexer runs</td></tr>
             <tr><td>mediaTtlDays</td><td>u32</td><td>7</td><td>Days before cached media files are cleaned up</td></tr>
             <tr><td>maxConcurrentSubagents</td><td>usize</td><td>5</td><td>Max simultaneous background subagents</td></tr>
-            <tr><td>localModel</td><td>string?</td><td>null</td><td>Fallback model for cloud failures (see <a href="#local-model-fallback">Local Model Fallback</a>)</td></tr>
         </table>
 
         <h3>Workspace TTL</h3>
@@ -448,7 +430,7 @@ max_width: 820px
             <tr><td>fallbacks</td><td>string[]</td><td>[]</td><td>Ordered fallback chain of <code>provider/model</code> strings. Primary provider tries first, then each fallback in order. Fallbacks apply to the primary (conversation) provider only &mdash; individually routed tier providers (used for daemon, cron, subagent, compaction) do not get automatic fallback wrapping.</td></tr>
             <tr><td>rules</td><td>object</td><td>{}</td><td>Maps task types to tier names. Known types: <code>conversation</code>, <code>cron</code>, <code>daemon</code>, <code>subagent</code>, <code>compaction</code>. The <code>conversation</code> type is reserved &mdash; conversation messages always use the primary provider/model (built from <code>agents.defaults.model</code>). Routing rules for other task types override only their specific call sites.</td></tr>
         </table>
-        <p>Tiers are resolved at startup via <code>Config::create_routed_providers()</code>. The <code>fallbacks</code> chain builds a <code>FallbackProvider</code> &mdash; tried in order on error or malformed tool calls. The <code>localModel</code> field still works as a simple two-provider fallback when <code>modelRouting</code> is not configured.</p>
+        <p>Tiers are resolved at startup via <code>Config::create_routed_providers()</code>. The <code>fallbacks</code> chain builds a <code>FallbackProvider</code> &mdash; tried in order on error or malformed tool calls.</p>
 
         <p><strong>Precedence:</strong> When both <code>daemon.executionModel</code> and <code>modelRouting.rules.daemon</code> are configured, model routing takes precedence. The <code>executionModel</code> is used only when no routing rule matches the daemon task type. The same precedence applies to <code>compaction.model</code> and other task-specific config fields.</p>
 
