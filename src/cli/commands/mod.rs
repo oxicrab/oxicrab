@@ -533,6 +533,11 @@ async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> 
         } else {
             None
         };
+        let api_key = if config.gateway.api_key.is_empty() {
+            None
+        } else {
+            Some(config.gateway.api_key.clone())
+        };
         let (_http_task, state) = crate::gateway::start(
             &config.gateway.host,
             config.gateway.port,
@@ -540,6 +545,7 @@ async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> 
             Some(outbound_tx.clone()),
             config.gateway.webhooks.clone(),
             a2a_config,
+            api_key,
         )
         .await?;
         Some(state)
@@ -597,6 +603,11 @@ async fn gateway_echo() -> Result<()> {
 
     // Start HTTP API server if enabled
     let http_state = if config.gateway.enabled {
+        let api_key = if config.gateway.api_key.is_empty() {
+            None
+        } else {
+            Some(config.gateway.api_key.clone())
+        };
         let (http_task, state) = crate::gateway::start(
             &config.gateway.host,
             config.gateway.port,
@@ -604,6 +615,7 @@ async fn gateway_echo() -> Result<()> {
             Some(outbound_tx.clone()),
             config.gateway.webhooks.clone(),
             None, // A2A not available in echo mode
+            api_key,
         )
         .await?;
         drop(http_task);

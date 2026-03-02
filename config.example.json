@@ -195,6 +195,7 @@
     "enabled": true,
     "host": "0.0.0.0",
     "port": 18790,
+    "apiKey": "",
     "webhooks": {},
     "a2a": {
       "enabled": false,
