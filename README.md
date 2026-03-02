@@ -16,6 +16,7 @@ This is largely a personal toy with features I want or care about. For example, 
 
 - **Multi-channel**: Telegram, Discord (slash commands, embeds, buttons), Slack, WhatsApp, Twilio SMS/MMS
 - **LLM providers**: Anthropic (Claude), OpenAI, Google (Gemini), plus 8 OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, etc.), with OAuth and local model fallback
+- **Model routing**: Per-task provider/model assignment with N-way fallback chains
 - **Prompt caching**: Automatic Anthropic `cache_control` injection for up to 90% input token cost reduction
 - **24 built-in tools**: Filesystem, shell, web, HTTP, browser, image generation, Google Workspace, GitHub, scheduling, memory, media, and more
 - **MCP support**: Connect external tool servers via the Model Context Protocol
@@ -27,6 +28,7 @@ This is largely a personal toy with features I want or care about. For example, 
 - **Voice transcription**: Local whisper.cpp with cloud API fallback
 - **CostGuard**: Daily budget cap and hourly rate limiting with embedded pricing for 50+ models
 - **HTTP gateway**: REST API (`POST /api/chat`, `GET /api/health`) and named webhook receivers with HMAC-SHA256 validation, template formatting, and multi-channel delivery
+- **Rate limiting**: Per-IP token bucket on gateway endpoints
 - **JSON mode**: Per-request structured output (JSON object and JSON schema) across all providers
 - **PDF/document support**: Native PDF document support in Anthropic, OpenAI, and Gemini providers
 - **Security**: Default-deny allowlists, DM pairing, bidirectional leak detection (inbound + outbound), DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement
