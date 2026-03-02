@@ -299,3 +299,50 @@ fn test_provider_alias_claude() {
     let provider = factory.create_provider("my-model").unwrap();
     assert_eq!(provider.default_model(), "my-model");
 }
+
+#[test]
+fn test_anthropic_custom_api_base() {
+    let mut config = ProvidersConfig::default();
+    config.anthropic.api_key = "sk-ant-test".to_string();
+    config.anthropic.api_base = Some("https://my-proxy.example.com/v1/messages".to_string());
+    let factory = factory_with_config(&config);
+    let provider = factory
+        .create_provider("claude-sonnet-4-5-20250929")
+        .unwrap();
+    assert_eq!(provider.default_model(), "claude-sonnet-4-5-20250929");
+}
+
+#[test]
+fn test_openai_custom_api_base() {
+    let mut config = ProvidersConfig::default();
+    config.openai.api_key = "sk-openai-test".to_string();
+    config.openai.api_base = Some("https://my-proxy.example.com/v1/chat/completions".to_string());
+    let factory = factory_with_config(&config);
+    let provider = factory.create_provider("gpt-4o").unwrap();
+    assert_eq!(provider.default_model(), "gpt-4o");
+}
+
+#[test]
+fn test_gemini_custom_api_base() {
+    let mut config = ProvidersConfig::default();
+    config.gemini.api_key = "gm-test".to_string();
+    config.gemini.api_base = Some("https://my-proxy.example.com/v1".to_string());
+    let factory = factory_with_config(&config);
+    let provider = factory.create_provider("gemini-pro").unwrap();
+    assert_eq!(provider.default_model(), "gemini-pro");
+}
+
+#[test]
+fn test_anthropic_custom_headers() {
+    let mut config = ProvidersConfig::default();
+    config.anthropic.api_key = "sk-ant-test".to_string();
+    config
+        .anthropic
+        .headers
+        .insert("X-Custom".to_string(), "value".to_string());
+    let factory = factory_with_config(&config);
+    let provider = factory
+        .create_provider("claude-sonnet-4-5-20250929")
+        .unwrap();
+    assert_eq!(provider.default_model(), "claude-sonnet-4-5-20250929");
+}

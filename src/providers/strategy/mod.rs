@@ -6,6 +6,13 @@ use anyhow::Result;
 use std::sync::Arc;
 use tracing::info;
 
+/// Default API URL for first-party `Anthropic` provider.
+const API_URL_ANTHROPIC: &str = "https://api.anthropic.com/v1/messages";
+/// Default API URL for first-party `OpenAI` provider.
+const API_URL_OPENAI: &str = "https://api.openai.com/v1/chat/completions";
+/// Default base URL for first-party `Gemini` provider.
+const BASE_URL_GEMINI: &str = "https://generativelanguage.googleapis.com/v1";
+
 /// Default base URLs for OpenAI-compatible providers.
 const OPENAI_COMPAT_URLS: &[(&str, &str)] = &[
     (
@@ -158,11 +165,21 @@ impl ProviderFactory {
                 if let Some(oauth) = self.try_anthropic_oauth(model)? {
                     return Ok(oauth);
                 }
-                if !self.providers_config.anthropic.api_key.is_empty() {
+                let cfg = &self.providers_config.anthropic;
+                if !cfg.api_key.is_empty() {
                     info!("using Anthropic API key provider for model: {}", model);
-                    return Ok(Arc::new(AnthropicProvider::new(
-                        self.providers_config.anthropic.api_key.clone(),
+                    if cfg.headers.is_empty() && cfg.api_base.is_none() {
+                        return Ok(Arc::new(AnthropicProvider::new(
+                            cfg.api_key.clone(),
+                            Some(model.to_string()),
+                        )));
+                    }
+                    let base_url = cfg.api_base.as_deref().unwrap_or(API_URL_ANTHROPIC);
+                    return Ok(Arc::new(AnthropicProvider::with_config(
+                        cfg.api_key.clone(),
                         Some(model.to_string()),
+                        base_url.to_string(),
+                        cfg.headers.clone(),
                     )));
                 }
                 anyhow::bail!(
@@ -175,21 +192,42 @@ impl ProviderFactory {
                 )
             }
             "openai" => {
-                if !self.providers_config.openai.api_key.is_empty() {
+                let cfg = &self.providers_config.openai;
+                if !cfg.api_key.is_empty() {
                     info!("using OpenAI provider for model: {}", model);
-                    return Ok(Arc::new(OpenAIProvider::new(
-                        self.providers_config.openai.api_key.clone(),
-                        Some(model.to_string()),
+                    if cfg.headers.is_empty() && cfg.api_base.is_none() {
+                        return Ok(Arc::new(OpenAIProvider::new(
+                            cfg.api_key.clone(),
+                            Some(model.to_string()),
+                        )));
+                    }
+                    let base_url = cfg.api_base.as_deref().unwrap_or(API_URL_OPENAI);
+                    return Ok(Arc::new(OpenAIProvider::with_config_and_headers(
+                        cfg.api_key.clone(),
+                        model.to_string(),
+                        base_url.to_string(),
+                        "OpenAI".to_string(),
+                        cfg.headers.clone(),
                     )));
                 }
                 anyhow::bail!("no OpenAI API key configured for model: {model}")
             }
             "gemini" => {
-                if !self.providers_config.gemini.api_key.is_empty() {
+                let cfg = &self.providers_config.gemini;
+                if !cfg.api_key.is_empty() {
                     info!("using Gemini provider for model: {}", model);
-                    return Ok(Arc::new(GeminiProvider::new(
-                        self.providers_config.gemini.api_key.clone(),
+                    if cfg.headers.is_empty() && cfg.api_base.is_none() {
+                        return Ok(Arc::new(GeminiProvider::new(
+                            cfg.api_key.clone(),
+                            Some(model.to_string()),
+                        )));
+                    }
+                    let base_url = cfg.api_base.as_deref().unwrap_or(BASE_URL_GEMINI);
+                    return Ok(Arc::new(GeminiProvider::with_config(
+                        cfg.api_key.clone(),
                         Some(model.to_string()),
+                        base_url.to_string(),
+                        cfg.headers.clone(),
                     )));
                 }
                 anyhow::bail!("no Gemini API key configured for model: {model}")

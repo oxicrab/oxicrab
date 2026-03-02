@@ -17,6 +17,7 @@ pub struct AnthropicProvider {
     base_url: String,
     client: Client,
     metrics: std::sync::Arc<std::sync::Mutex<ProviderMetrics>>,
+    custom_headers: std::collections::HashMap<String, String>,
 }
 
 impl AnthropicProvider {
@@ -28,6 +29,24 @@ impl AnthropicProvider {
             base_url: API_URL.to_string(),
             client: provider_http_client(),
             metrics: std::sync::Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),
+            custom_headers: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn with_config(
+        api_key: String,
+        default_model: Option<String>,
+        base_url: String,
+        custom_headers: std::collections::HashMap<String, String>,
+    ) -> Self {
+        Self {
+            api_key,
+            default_model: default_model
+                .unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
+            base_url,
+            client: provider_http_client(),
+            metrics: std::sync::Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),
+            custom_headers,
         }
     }
 
@@ -45,6 +64,7 @@ impl AnthropicProvider {
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             metrics: std::sync::Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),
+            custom_headers: std::collections::HashMap::new(),
         }
     }
 }
@@ -99,11 +119,15 @@ impl LLMProvider for AnthropicProvider {
             payload["tool_choice"] = json!({"type": choice});
         }
 
-        let resp = self
+        let mut req_builder = self
             .client
             .post(&self.base_url)
             .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
+            .header("anthropic-version", "2023-06-01");
+        for (k, v) in &self.custom_headers {
+            req_builder = req_builder.header(k.as_str(), v.as_str());
+        }
+        let resp = req_builder
             .json(&payload)
             .timeout(Duration::from_secs(PROVIDER_REQUEST_TIMEOUT_SECS))
             .send()
@@ -158,16 +182,17 @@ impl LLMProvider for AnthropicProvider {
             "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 1,
         });
-        let result = self
+        let mut req_builder = self
             .client
             .post(&self.base_url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
-            .timeout(Duration::from_secs(15))
-            .json(&payload)
-            .send()
-            .await;
+            .timeout(Duration::from_secs(15));
+        for (k, v) in &self.custom_headers {
+            req_builder = req_builder.header(k.as_str(), v.as_str());
+        }
+        let result = req_builder.json(&payload).send().await;
         match result {
             Ok(resp) if !resp.status().is_success() => {
                 tracing::warn!("anthropic warmup got HTTP {} (non-fatal)", resp.status());
