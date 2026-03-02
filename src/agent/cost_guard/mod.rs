@@ -43,7 +43,7 @@ pub struct CostGuard {
 }
 
 impl CostGuard {
-    pub fn new(config: CostGuardConfig) -> Self {
+    fn new(config: CostGuardConfig) -> Self {
         let mut pricing_lookup = Vec::new();
 
         // Config overrides take priority

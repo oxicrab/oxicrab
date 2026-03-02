@@ -35,6 +35,35 @@ use crate::config::schema::{WebhookConfig, WebhookTarget};
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// Serialize a provider-level `ResponseFormat` to a JSON value for metadata transport.
+fn response_format_to_json(rf: &crate::providers::base::ResponseFormat) -> serde_json::Value {
+    match rf {
+        crate::providers::base::ResponseFormat::JsonObject => {
+            serde_json::Value::String("json".to_string())
+        }
+        crate::providers::base::ResponseFormat::JsonSchema { name, schema } => {
+            serde_json::json!({ "name": name, "schema": schema })
+        }
+    }
+}
+
+/// Deserialize a provider-level `ResponseFormat` from a metadata JSON value.
+pub(crate) fn response_format_from_json(
+    v: &serde_json::Value,
+) -> Option<crate::providers::base::ResponseFormat> {
+    match v {
+        serde_json::Value::String(s) if s == "json" => {
+            Some(crate::providers::base::ResponseFormat::JsonObject)
+        }
+        serde_json::Value::Object(map) => {
+            let name = map.get("name")?.as_str()?.to_string();
+            let schema = map.get("schema")?.clone();
+            Some(crate::providers::base::ResponseFormat::JsonSchema { name, schema })
+        }
+        _ => None,
+    }
+}
+
 /// Max webhook payload size: 1 MB.
 const WEBHOOK_MAX_BODY: usize = 1_048_576;
 
@@ -61,6 +90,49 @@ pub struct ChatRequest {
     /// Optional session ID for conversation continuity.
     /// If omitted, each request gets a unique session.
     pub session_id: Option<String>,
+    /// Request structured JSON output from the LLM.
+    ///
+    /// Accepts:
+    /// - `"json"` — request unstructured JSON output
+    /// - `{"name": "...", "schema": {...}}` — request output matching a JSON schema
+    ///
+    /// When omitted, the LLM responds in its default format (prose).
+    #[serde(default, rename = "responseFormat")]
+    pub response_format: Option<GatewayResponseFormat>,
+}
+
+/// Gateway-level response format specification, parsed from the HTTP request body.
+///
+/// Converted to the provider-level [`ResponseFormat`](crate::providers::base::ResponseFormat)
+/// before being passed to the agent loop.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum GatewayResponseFormat {
+    /// Simple string: `"json"` for unstructured JSON output.
+    Simple(String),
+    /// JSON schema: `{"name": "...", "schema": {...}}` for structured output.
+    Schema {
+        name: String,
+        schema: serde_json::Value,
+    },
+}
+
+impl GatewayResponseFormat {
+    /// Convert to the provider-level response format enum.
+    fn into_response_format(self) -> crate::providers::base::ResponseFormat {
+        match self {
+            GatewayResponseFormat::Simple(s) if s == "json" => {
+                crate::providers::base::ResponseFormat::JsonObject
+            }
+            GatewayResponseFormat::Simple(_) => {
+                // Unrecognized string — fall back to JsonObject
+                crate::providers::base::ResponseFormat::JsonObject
+            }
+            GatewayResponseFormat::Schema { name, schema } => {
+                crate::providers::base::ResponseFormat::JsonSchema { name, schema }
+            }
+        }
+    }
 }
 
 /// Response body for POST /api/chat.
@@ -265,6 +337,12 @@ async fn chat_handler(
         pending.insert(request_id.clone(), tx);
     }
 
+    // Convert gateway response format to provider-level enum and serialize
+    // into metadata so the agent loop can extract it.
+    let response_format_value = body
+        .response_format
+        .map(GatewayResponseFormat::into_response_format);
+
     // Publish inbound message to the agent
     let msg = InboundMessage {
         channel: "http".to_string(),
@@ -279,6 +357,9 @@ async fn chat_handler(
                 "session_id".to_string(),
                 serde_json::Value::String(session_id.clone()),
             );
+            if let Some(ref rf) = response_format_value {
+                meta.insert("response_format".to_string(), response_format_to_json(rf));
+            }
             meta
         },
     };

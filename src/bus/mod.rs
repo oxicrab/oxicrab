@@ -1,4 +1,3 @@
-pub mod channel_type;
 pub mod events;
 pub mod queue;
 

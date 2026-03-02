@@ -23,7 +23,6 @@ pub struct ToolBuildContext {
     pub sandbox_config: config::SandboxConfig,
     pub outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     pub bus: Arc<Mutex<MessageBus>>,
-    pub brave_api_key: Option<String>,
     pub web_search_config: Option<config::WebSearchConfig>,
     pub cron_service: Option<Arc<CronService>>,
     pub channels_config: Option<config::ChannelsConfig>,
@@ -152,7 +151,7 @@ fn register_web(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     if let Some(ref ws_cfg) = ctx.web_search_config {
         registry.register(Arc::new(WebSearchTool::from_config(ws_cfg)));
     } else {
-        registry.register(Arc::new(WebSearchTool::new(ctx.brave_api_key.clone(), 5)));
+        registry.register(Arc::new(WebSearchTool::new(None, 5)));
     }
     if let Ok(fetch) = WebFetchTool::new(50000) {
         registry.register(Arc::new(fetch));

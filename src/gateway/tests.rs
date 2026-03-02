@@ -749,3 +749,201 @@ async fn test_chat_handler_inbound_send_fails() {
     let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
+
+#[test]
+fn test_gateway_response_format_deserialize_json_string() {
+    let body: ChatRequest =
+        serde_json::from_str(r#"{"message":"hi","responseFormat":"json"}"#).unwrap();
+    assert!(body.response_format.is_some());
+    match body.response_format.unwrap() {
+        GatewayResponseFormat::Simple(s) => assert_eq!(s, "json"),
+        GatewayResponseFormat::Schema { .. } => panic!("expected Simple variant"),
+    }
+}
+
+#[test]
+fn test_gateway_response_format_deserialize_schema_object() {
+    let body: ChatRequest = serde_json::from_str(
+        r#"{"message":"hi","responseFormat":{"name":"test","schema":{"type":"object"}}}"#,
+    )
+    .unwrap();
+    assert!(body.response_format.is_some());
+    match body.response_format.unwrap() {
+        GatewayResponseFormat::Schema { name, schema } => {
+            assert_eq!(name, "test");
+            assert_eq!(schema, serde_json::json!({"type": "object"}));
+        }
+        GatewayResponseFormat::Simple(_) => panic!("expected Schema variant"),
+    }
+}
+
+#[test]
+fn test_gateway_response_format_deserialize_absent() {
+    let body: ChatRequest = serde_json::from_str(r#"{"message":"hi"}"#).unwrap();
+    assert!(body.response_format.is_none());
+}
+
+#[test]
+fn test_response_format_json_roundtrip_json_object() {
+    use crate::providers::base::ResponseFormat;
+    let rf = ResponseFormat::JsonObject;
+    let json = response_format_to_json(&rf);
+    assert_eq!(json, serde_json::Value::String("json".to_string()));
+    let parsed = response_format_from_json(&json).unwrap();
+    match parsed {
+        ResponseFormat::JsonObject => {}
+        ResponseFormat::JsonSchema { .. } => panic!("expected JsonObject"),
+    }
+}
+
+#[test]
+fn test_response_format_json_roundtrip_json_schema() {
+    use crate::providers::base::ResponseFormat;
+    let rf = ResponseFormat::JsonSchema {
+        name: "my_schema".to_string(),
+        schema: serde_json::json!({"type": "object", "properties": {"x": {"type": "number"}}}),
+    };
+    let json = response_format_to_json(&rf);
+    let parsed = response_format_from_json(&json).unwrap();
+    match parsed {
+        ResponseFormat::JsonSchema { name, schema } => {
+            assert_eq!(name, "my_schema");
+            assert_eq!(
+                schema,
+                serde_json::json!({"type": "object", "properties": {"x": {"type": "number"}}})
+            );
+        }
+        ResponseFormat::JsonObject => panic!("expected JsonSchema"),
+    }
+}
+
+#[test]
+fn test_response_format_from_json_invalid() {
+    assert!(response_format_from_json(&serde_json::Value::Null).is_none());
+    assert!(response_format_from_json(&serde_json::Value::String("xml".to_string())).is_none());
+    assert!(response_format_from_json(&serde_json::json!(42)).is_none());
+}
+
+#[test]
+fn test_gateway_response_format_into_response_format() {
+    use crate::providers::base::ResponseFormat;
+
+    // "json" -> JsonObject
+    let grf = GatewayResponseFormat::Simple("json".to_string());
+    match grf.into_response_format() {
+        ResponseFormat::JsonObject => {}
+        ResponseFormat::JsonSchema { .. } => panic!("expected JsonObject"),
+    }
+
+    // Unknown string -> fallback to JsonObject
+    let grf = GatewayResponseFormat::Simple("xml".to_string());
+    match grf.into_response_format() {
+        ResponseFormat::JsonObject => {}
+        ResponseFormat::JsonSchema { .. } => panic!("expected JsonObject fallback"),
+    }
+
+    // Schema variant
+    let grf = GatewayResponseFormat::Schema {
+        name: "test".to_string(),
+        schema: serde_json::json!({"type": "string"}),
+    };
+    match grf.into_response_format() {
+        ResponseFormat::JsonSchema { name, schema } => {
+            assert_eq!(name, "test");
+            assert_eq!(schema, serde_json::json!({"type": "string"}));
+        }
+        ResponseFormat::JsonObject => panic!("expected JsonSchema"),
+    }
+}
+
+#[tokio::test]
+async fn test_chat_handler_with_response_format_metadata() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
+    let state = HttpApiState {
+        inbound_tx: Arc::new(inbound_tx),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(HashMap::new()),
+        outbound_tx: None,
+    };
+    let pending = state.pending.clone();
+    let app = build_router(state, None, None, None);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from(
+            r#"{"message":"list items","responseFormat":"json"}"#,
+        ))
+        .unwrap();
+
+    let handle = tokio::spawn(async move { app.oneshot(req).await.unwrap() });
+
+    let msg = inbound_rx.recv().await.unwrap();
+    assert_eq!(msg.content, "list items");
+    // Verify response_format was serialized into metadata
+    let rf_meta = msg.metadata.get("response_format").unwrap();
+    assert_eq!(rf_meta, &serde_json::Value::String("json".to_string()));
+
+    // Complete the request to avoid timeout
+    let request_id = msg.chat_id.clone();
+    let tx = pending.lock().unwrap().remove(&request_id).unwrap();
+    tx.send(OutboundMessage {
+        channel: "http".to_string(),
+        chat_id: request_id,
+        content: r#"{"items":[]}"#.to_string(),
+        reply_to: None,
+        media: vec![],
+        metadata: HashMap::new(),
+    })
+    .unwrap();
+
+    let resp = handle.await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_chat_handler_without_response_format_no_metadata() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let (inbound_tx, mut inbound_rx) = mpsc::channel(16);
+    let state = HttpApiState {
+        inbound_tx: Arc::new(inbound_tx),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(HashMap::new()),
+        outbound_tx: None,
+    };
+    let pending = state.pending.clone();
+    let app = build_router(state, None, None, None);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from(r#"{"message":"hello"}"#))
+        .unwrap();
+
+    let handle = tokio::spawn(async move { app.oneshot(req).await.unwrap() });
+
+    let msg = inbound_rx.recv().await.unwrap();
+    assert!(!msg.metadata.contains_key("response_format"));
+
+    let request_id = msg.chat_id.clone();
+    let tx = pending.lock().unwrap().remove(&request_id).unwrap();
+    tx.send(OutboundMessage {
+        channel: "http".to_string(),
+        chat_id: request_id,
+        content: "world".to_string(),
+        reply_to: None,
+        media: vec![],
+        metadata: HashMap::new(),
+    })
+    .unwrap();
+
+    let resp = handle.await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}

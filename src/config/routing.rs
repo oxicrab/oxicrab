@@ -26,14 +26,10 @@ impl ResolvedRouting {
                 model: Some(model.clone()),
                 provider: Some(provider.clone()),
                 max_iterations: None,
+                response_format: None,
             };
         }
         AgentRunOverrides::default()
-    }
-
-    /// Get a tier's provider and model by name.
-    pub fn get_tier(&self, tier_name: &str) -> Option<&(Arc<dyn LLMProvider>, String)> {
-        self.tiers.get(tier_name)
     }
 
     /// Number of configured tiers.
