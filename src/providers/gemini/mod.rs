@@ -49,6 +49,13 @@ impl GeminiProvider {
             .and_then(|arr| arr.first())
             .context("No candidates in Gemini response")?;
 
+        // Detect safety-filtered or blocked responses
+        if let Some(reason) = candidate["finishReason"].as_str()
+            && matches!(reason, "SAFETY" | "BLOCKED" | "RECITATION")
+        {
+            anyhow::bail!("Gemini response blocked (finishReason: {})", reason);
+        }
+
         let content = candidate["content"]["parts"].as_array().and_then(|parts| {
             let texts: Vec<String> = parts
                 .iter()
@@ -192,8 +199,24 @@ impl LLMProvider for GeminiProvider {
             }));
         }
 
+        // Merge consecutive messages with the same role (Gemini requires alternation)
+        let mut merged: Vec<Value> = Vec::with_capacity(gemini_contents.len());
+        for entry in gemini_contents {
+            if let Some(last) = merged.last_mut()
+                && last["role"] == entry["role"]
+            {
+                if let (Some(last_parts), Some(new_parts)) =
+                    (last["parts"].as_array_mut(), entry["parts"].as_array())
+                {
+                    last_parts.extend(new_parts.iter().cloned());
+                }
+            } else {
+                merged.push(entry);
+            }
+        }
+
         let mut payload = json!({
-            "contents": gemini_contents,
+            "contents": merged,
             "generationConfig": {
                 "maxOutputTokens": req.max_tokens,
                 "temperature": req.temperature,

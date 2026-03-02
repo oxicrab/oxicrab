@@ -247,6 +247,14 @@ impl MemoryDB {
             )",
             [],
         )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_search_hits_source ON memory_search_hits(source_key)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_search_hits_log_id ON memory_search_hits(access_log_id)",
+            [],
+        )?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS llm_cost_log (
@@ -1663,11 +1671,20 @@ impl MemoryDB {
     /// Search workspace files by path or original name.
     pub fn search_workspace_files(&self, query: &str) -> Result<Vec<WorkspaceFileEntry>> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        let pattern = format!("%{query}%");
+        let escaped: String = query
+            .chars()
+            .flat_map(|c| match c {
+                '\\' => vec!['\\', '\\'],
+                '%' => vec!['\\', '%'],
+                '_' => vec!['\\', '_'],
+                other => vec![other],
+            })
+            .collect();
+        let pattern = format!("%{escaped}%");
         let mut stmt = conn.prepare(
             "SELECT id, path, category, original_name, size_bytes, source_tool, tags, created_at, accessed_at, session_key
              FROM workspace_files
-             WHERE path LIKE ?1 OR original_name LIKE ?1
+             WHERE path LIKE ?1 ESCAPE '\\' OR original_name LIKE ?1 ESCAPE '\\'
              ORDER BY created_at DESC",
         )?;
         let rows = stmt

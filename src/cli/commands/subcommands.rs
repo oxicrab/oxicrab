@@ -145,6 +145,9 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
             };
 
             let schedule = if let Some(every_sec) = every {
+                if !(60..=31_536_000).contains(&every_sec) {
+                    anyhow::bail!("--every must be between 60 and 31536000 seconds");
+                }
                 CronSchedule::Every {
                     every_ms: Some(every_sec.saturating_mul(1000).min(i64::MAX as u64) as i64),
                 }
@@ -244,6 +247,9 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
             use crate::cron::types::CronTarget;
 
             let schedule = if let Some(every_sec) = every {
+                if !(60..=31_536_000).contains(&every_sec) {
+                    anyhow::bail!("--every must be between 60 and 31536000 seconds");
+                }
                 Some(CronSchedule::Every {
                     every_ms: Some(every_sec.saturating_mul(1000).min(i64::MAX as u64) as i64),
                 })

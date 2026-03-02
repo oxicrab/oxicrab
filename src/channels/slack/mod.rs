@@ -803,24 +803,28 @@ async fn handle_slack_event(
         }
     }
 
-    match check_dm_access(user_id, allow_from, "slack", dm_policy) {
-        DmCheckResult::Allowed => {}
-        DmCheckResult::PairingRequired { code } => {
-            let reply = format_pairing_reply("slack", user_id, &code);
-            // Post pairing reply to channel
-            let _ = client
-                .post("https://slack.com/api/chat.postMessage")
-                .form(&[
-                    ("token", bot_token),
-                    ("channel", channel_id),
-                    ("text", &reply),
-                ])
-                .send()
-                .await;
-            return Ok(());
-        }
-        DmCheckResult::Denied => {
-            return Ok(());
+    // Skip DM access check for group/channel messages (non-DM channels don't start with 'D')
+    let is_dm = channel_id.starts_with('D');
+    if is_dm {
+        match check_dm_access(user_id, allow_from, "slack", dm_policy) {
+            DmCheckResult::Allowed => {}
+            DmCheckResult::PairingRequired { code } => {
+                let reply = format_pairing_reply("slack", user_id, &code);
+                // Post pairing reply to DM channel
+                let _ = client
+                    .post("https://slack.com/api/chat.postMessage")
+                    .form(&[
+                        ("token", bot_token),
+                        ("channel", channel_id),
+                        ("text", &reply),
+                    ])
+                    .send()
+                    .await;
+                return Ok(());
+            }
+            DmCheckResult::Denied => {
+                return Ok(());
+            }
         }
     }
 

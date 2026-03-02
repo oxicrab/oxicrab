@@ -8,6 +8,23 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, warn};
 
+/// Find a `## Section` header that is on its own line (not a prefix of another header).
+/// Prevents `"## Fact"` from matching `"## FactSheet"`.
+fn find_section_header(text: &str, header: &str) -> Option<usize> {
+    let mut search_from = 0;
+    while let Some(pos) = text[search_from..].find(header) {
+        let abs = search_from + pos;
+        let at_start = abs == 0 || text.as_bytes()[abs - 1] == b'\n';
+        let end = abs + header.len();
+        let at_end = end >= text.len() || matches!(text.as_bytes()[end], b'\n' | b'\r');
+        if at_start && at_end {
+            return Some(abs);
+        }
+        search_from = abs + header.len();
+    }
+    None
+}
+
 /// Check if a source key is a daily note file (e.g. "2026-02-22.md").
 fn is_daily_note_key(key: &str) -> bool {
     key.len() == 13
@@ -404,7 +421,8 @@ impl MemoryStore {
         };
 
         let header = format!("## {}", section);
-        if let Some(section_start) = text.find(&header) {
+        // Find header on its own line (prevent "## Fact" matching "## FactSheet")
+        if let Some(section_start) = find_section_header(&text, &header) {
             // Find the end of this section (next ## header or end of file)
             let after_header = section_start + header.len();
             let insert_pos = text[after_header..]
@@ -442,7 +460,7 @@ impl MemoryStore {
             return Ok(String::new());
         }
         let header = format!("## {}", section);
-        if let Some(start) = today_content.find(&header) {
+        if let Some(start) = find_section_header(&today_content, &header) {
             let after_header = start + header.len();
             // Skip past the header line
             let content_start = today_content[after_header..]

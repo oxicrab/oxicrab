@@ -213,7 +213,7 @@ async fn test_custom_headers_sent() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/auth"))
-        .and(header("Authorization", "Bearer token123"))
+        .and(header("X-Api-Key", "key123"))
         .and(header("X-Custom", "myvalue"))
         .respond_with(ResponseTemplate::new(200).set_body_string("authed"))
         .mount(&server)
@@ -224,7 +224,7 @@ async fn test_custom_headers_sent() {
         .send_request(&serde_json::json!({
             "url": format!("{}/auth", server.uri()),
             "headers": {
-                "Authorization": "Bearer token123",
+                "X-Api-Key": "key123",
                 "X-Custom": "myvalue"
             }
         }))

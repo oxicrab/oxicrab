@@ -971,7 +971,7 @@ impl AgentLoop {
                                     debug!(
                                         "saved extracted facts to daily note ({} bytes, {} filtered)",
                                         filtered.len(),
-                                        facts.len() - filtered.len()
+                                        facts.len().saturating_sub(filtered.len())
                                     );
                                 }
                             }
@@ -1884,7 +1884,7 @@ impl AgentLoop {
                             debug!(
                                 "pre-compaction flush: saved {} bytes to daily notes ({} filtered)",
                                 filtered.len(),
-                                facts.len() - filtered.len()
+                                facts.len().saturating_sub(filtered.len())
                             );
                             flushed_content = true;
                         }
@@ -1941,11 +1941,11 @@ impl AgentLoop {
 
                     // Cap enriched summary to prevent unbounded growth across compaction cycles
                     if recovery_summary.len() > 2000 {
-                        recovery_summary.truncate(2000);
-                        // Ensure we don't split a UTF-8 char
-                        while !recovery_summary.is_char_boundary(recovery_summary.len()) {
-                            recovery_summary.pop();
+                        let mut pos = 2000;
+                        while pos > 0 && !recovery_summary.is_char_boundary(pos) {
+                            pos -= 1;
                         }
+                        recovery_summary.truncate(pos);
                     }
                     // Cache summary locally so it survives save failures
                     *self.last_checkpoint.lock().await = Some(recovery_summary.clone());
@@ -2052,7 +2052,17 @@ impl AgentLoop {
         };
 
         let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
-        let exec_ctx = Self::build_execution_context(&origin_channel, &origin_chat_id, None);
+        let context_summary = session
+            .metadata
+            .get("compaction_summary")
+            .and_then(|v| v.as_str())
+            .map(std::string::ToString::to_string);
+        let exec_ctx = Self::build_execution_context_with_metadata(
+            &origin_channel,
+            &origin_chat_id,
+            context_summary,
+            msg.metadata.clone(),
+        );
         let user_action_intent = self.classify_and_record_intent(&msg.content);
         let (final_content, _, tools_used, collected_media, _discourse) = self
             .run_agent_loop(messages, typing_ctx, &exec_ctx, user_action_intent)
@@ -2087,7 +2097,7 @@ impl AgentLoop {
             content: final_content,
             reply_to: None,
             media: collected_media,
-            metadata: HashMap::new(),
+            metadata: msg.metadata,
         }))
     }
 

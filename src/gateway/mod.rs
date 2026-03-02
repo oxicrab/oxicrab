@@ -88,6 +88,7 @@ fn build_router(state: HttpApiState, a2a_state: Option<a2a::A2aState>) -> Router
             .route("/.well-known/agent.json", get(a2a::agent_card_handler))
             .route("/a2a/tasks", post(a2a::create_task_handler))
             .route("/a2a/tasks/{id}", get(a2a::get_task_handler))
+            .layer(DefaultBodyLimit::max(MAX_MESSAGE_SIZE + 1024))
             .with_state(a2a);
         router = router.merge(a2a_router);
     }

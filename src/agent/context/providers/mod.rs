@@ -88,7 +88,9 @@ impl ContextProviderRunner {
         .await
         {
             Ok(Ok(output)) if output.status.success() => {
-                let mut result = String::from_utf8_lossy(&output.stdout).to_string();
+                const MAX_PROVIDER_OUTPUT: usize = 100_000; // 100KB
+                let stdout = &output.stdout[..output.stdout.len().min(MAX_PROVIDER_OUTPUT)];
+                let mut result = String::from_utf8_lossy(stdout).to_string();
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 if !stderr.trim().is_empty() {
                     result.push_str("\n[stderr] ");

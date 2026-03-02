@@ -69,7 +69,7 @@ fn test_utf8_two_byte_chars() {
 #[test]
 fn test_empty_message() {
     let result = split_message("", 100);
-    assert_eq!(result, vec![""]);
+    assert!(result.is_empty());
 }
 
 #[test]

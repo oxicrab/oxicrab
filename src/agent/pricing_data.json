@@ -1,6 +1,18 @@
 [
   {
     "match": "starts_with",
+    "pattern": "claude-opus-4-5",
+    "input_mtok": 5.0,
+    "output_mtok": 25.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "claude-opus-4-6",
+    "input_mtok": 5.0,
+    "output_mtok": 25.0
+  },
+  {
+    "match": "starts_with",
     "pattern": "claude-opus-4.5",
     "input_mtok": 5.0,
     "output_mtok": 25.0
@@ -22,6 +34,12 @@
     "pattern": "claude-sonnet-4",
     "input_mtok": 3.0,
     "output_mtok": 15.0
+  },
+  {
+    "match": "starts_with",
+    "pattern": "claude-haiku-4-5",
+    "input_mtok": 1.0,
+    "output_mtok": 5.0
   },
   {
     "match": "starts_with",

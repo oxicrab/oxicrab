@@ -41,30 +41,33 @@ impl Handler {
     ) {
         let sender_id = cmd.user.id.to_string();
 
-        match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
-            DmCheckResult::Allowed => {}
-            DmCheckResult::PairingRequired { code } => {
-                let reply = format_pairing_reply("discord", &sender_id, &code);
-                let response = CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content(reply)
-                        .ephemeral(true),
-                );
-                if let Err(e) = cmd.create_response(&ctx.http, response).await {
-                    warn!("Failed to send pairing response: {}", e);
+        // Skip DM access check for guild (server) interactions
+        if cmd.guild_id.is_none() {
+            match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
+                DmCheckResult::Allowed => {}
+                DmCheckResult::PairingRequired { code } => {
+                    let reply = format_pairing_reply("discord", &sender_id, &code);
+                    let response = CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content(reply)
+                            .ephemeral(true),
+                    );
+                    if let Err(e) = cmd.create_response(&ctx.http, response).await {
+                        warn!("Failed to send pairing response: {}", e);
+                    }
+                    return;
                 }
-                return;
-            }
-            DmCheckResult::Denied => {
-                let response = CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content("You are not authorized to use this bot.")
-                        .ephemeral(true),
-                );
-                if let Err(e) = cmd.create_response(&ctx.http, response).await {
-                    warn!("Failed to send unauthorized response: {}", e);
+                DmCheckResult::Denied => {
+                    let response = CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("You are not authorized to use this bot.")
+                            .ephemeral(true),
+                    );
+                    if let Err(e) = cmd.create_response(&ctx.http, response).await {
+                        warn!("Failed to send unauthorized response: {}", e);
+                    }
+                    return;
                 }
-                return;
             }
         }
 
@@ -126,30 +129,33 @@ impl Handler {
     ) {
         let sender_id = comp.user.id.to_string();
 
-        match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
-            DmCheckResult::Allowed => {}
-            DmCheckResult::PairingRequired { code } => {
-                let reply = format_pairing_reply("discord", &sender_id, &code);
-                let response = CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content(reply)
-                        .ephemeral(true),
-                );
-                if let Err(e) = comp.create_response(&ctx.http, response).await {
-                    warn!("Failed to send pairing response: {}", e);
+        // Skip DM access check for guild (server) interactions
+        if comp.guild_id.is_none() {
+            match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
+                DmCheckResult::Allowed => {}
+                DmCheckResult::PairingRequired { code } => {
+                    let reply = format_pairing_reply("discord", &sender_id, &code);
+                    let response = CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content(reply)
+                            .ephemeral(true),
+                    );
+                    if let Err(e) = comp.create_response(&ctx.http, response).await {
+                        warn!("Failed to send pairing response: {}", e);
+                    }
+                    return;
                 }
-                return;
-            }
-            DmCheckResult::Denied => {
-                let response = CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content("You are not authorized to use this bot.")
-                        .ephemeral(true),
-                );
-                if let Err(e) = comp.create_response(&ctx.http, response).await {
-                    warn!("Failed to send unauthorized response: {}", e);
+                DmCheckResult::Denied => {
+                    let response = CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("You are not authorized to use this bot.")
+                            .ephemeral(true),
+                    );
+                    if let Err(e) = comp.create_response(&ctx.http, response).await {
+                        warn!("Failed to send unauthorized response: {}", e);
+                    }
+                    return;
                 }
-                return;
             }
         }
 
