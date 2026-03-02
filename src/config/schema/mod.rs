@@ -717,6 +717,12 @@ impl Config {
         // Build fallback chain from modelRouting.fallbacks (takes precedence over localModel)
         let routing = &self.agents.defaults.model_routing;
         if !routing.fallbacks.is_empty() {
+            if self.agents.defaults.local_model.is_some() {
+                warn!(
+                    "both modelRouting.fallbacks and localModel are set — \
+                     fallbacks takes precedence; localModel will be ignored"
+                );
+            }
             let mut primary = factory.create_provider(model)?;
             if self.should_use_prompt_guided_tools(model) {
                 primary = crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(primary);

@@ -936,11 +936,21 @@ fn setup_heartbeat(config: &Config, agent: &Arc<AgentLoop>) -> Arc<HeartbeatServ
     let daemon_overrides = {
         let routed = agent.resolve_overrides("daemon");
         if routed.provider.is_some() {
+            info!(
+                "daemon using routed model: {}",
+                routed.model.as_deref().unwrap_or("(provider default)")
+            );
             Arc::new(crate::agent::AgentRunOverrides {
                 max_iterations: Some(daemon_cfg.max_iterations),
                 ..routed
             })
         } else {
+            if daemon_cfg.execution_model.is_some() {
+                info!(
+                    "daemon will use model override: {}",
+                    daemon_cfg.execution_model.as_deref().unwrap_or("(none)")
+                );
+            }
             Arc::new(crate::agent::AgentRunOverrides {
                 model: daemon_cfg.execution_model.clone(),
                 max_iterations: Some(daemon_cfg.max_iterations),
@@ -948,13 +958,6 @@ fn setup_heartbeat(config: &Config, agent: &Arc<AgentLoop>) -> Arc<HeartbeatServ
             })
         }
     };
-
-    if daemon_cfg.execution_model.is_some() {
-        info!(
-            "daemon will use model override: {}",
-            daemon_cfg.execution_model.as_deref().unwrap_or("(none)")
-        );
-    }
     let agent_for_heartbeat = agent.clone();
     let heartbeat = HeartbeatService::new(
         config.workspace_path(),
