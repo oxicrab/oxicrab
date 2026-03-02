@@ -333,6 +333,17 @@ fn test_gemini_custom_api_base() {
 }
 
 #[test]
+fn test_openrouter_nested_model_path() {
+    let mut config = ProvidersConfig::default();
+    config.openrouter.api_key = "or-test".to_string();
+    let factory = factory_with_config(&config);
+    let provider = factory
+        .create_provider("openrouter/google/gemini-3-flash-preview")
+        .unwrap();
+    assert_eq!(provider.default_model(), "google/gemini-3-flash-preview");
+}
+
+#[test]
 fn test_anthropic_custom_headers() {
     let mut config = ProvidersConfig::default();
     config.anthropic.api_key = "sk-ant-test".to_string();

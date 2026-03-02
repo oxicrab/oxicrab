@@ -885,6 +885,93 @@ fn test_workspace_ttl_to_map() {
     assert_eq!(map["code"], None);
 }
 
+// -----------------------------------------------------------------------
+// ModelRoutingConfig
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_model_routing_config_deserializes() {
+    let json = r#"{
+        "agents": {
+            "defaults": {
+                "modelRouting": {
+                    "tiers": {
+                        "primary": "anthropic/claude-sonnet-4-5",
+                        "lightweight": "openrouter/google/gemini-3-flash"
+                    },
+                    "fallbacks": ["minimax/minimax-m2.5"],
+                    "rules": {
+                        "cron": "lightweight",
+                        "daemon": "lightweight",
+                        "conversation": "primary"
+                    }
+                }
+            }
+        }
+    }"#;
+    let config: Config = serde_json::from_str(json).unwrap();
+    let routing = &config.agents.defaults.model_routing;
+    assert_eq!(routing.tiers.len(), 2);
+    assert_eq!(routing.tiers["primary"], "anthropic/claude-sonnet-4-5");
+    assert_eq!(routing.rules["cron"], "lightweight");
+    assert_eq!(routing.fallbacks, vec!["minimax/minimax-m2.5"]);
+}
+
+#[test]
+fn test_model_routing_default_is_empty() {
+    let config = Config::default();
+    assert!(config.agents.defaults.model_routing.tiers.is_empty());
+    assert!(config.agents.defaults.model_routing.rules.is_empty());
+    assert!(config.agents.defaults.model_routing.fallbacks.is_empty());
+}
+
+#[test]
+fn test_model_routing_invalid_rule_references_unknown_tier() {
+    let json = r#"{
+        "agents": {
+            "defaults": {
+                "modelRouting": {
+                    "tiers": { "primary": "anthropic/claude-sonnet-4-5" },
+                    "rules": { "cron": "nonexistent" }
+                }
+            }
+        }
+    }"#;
+    let config: Config = serde_json::from_str(json).unwrap();
+    let err = config.validate().unwrap_err();
+    assert!(err.to_string().contains("nonexistent"), "error: {}", err);
+}
+
+#[test]
+fn test_model_routing_invalid_empty_tier_value() {
+    let json = r#"{
+        "agents": {
+            "defaults": {
+                "modelRouting": {
+                    "tiers": { "primary": "" }
+                }
+            }
+        }
+    }"#;
+    let config: Config = serde_json::from_str(json).unwrap();
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_model_routing_invalid_empty_fallback() {
+    let json = r#"{
+        "agents": {
+            "defaults": {
+                "modelRouting": {
+                    "fallbacks": ["good/model", ""]
+                }
+            }
+        }
+    }"#;
+    let config: Config = serde_json::from_str(json).unwrap();
+    assert!(config.validate().is_err());
+}
+
 #[test]
 fn test_config_example_is_up_to_date() {
     let expected = generate_example_config();
@@ -903,4 +990,32 @@ fn test_config_example_is_up_to_date() {
          Differences:\n{}",
         diffs.join("\n")
     );
+}
+
+// -----------------------------------------------------------------------
+// RateLimitConfig
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_rate_limit_config_defaults() {
+    let config = Config::default();
+    assert!(!config.gateway.rate_limit.enabled);
+    assert_eq!(config.gateway.rate_limit.requests_per_second, 10);
+    assert_eq!(config.gateway.rate_limit.burst, 20);
+}
+
+#[test]
+fn test_rate_limit_invalid_zero_rps() {
+    let mut config = Config::default();
+    config.gateway.rate_limit.enabled = true;
+    config.gateway.rate_limit.requests_per_second = 0;
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_rate_limit_invalid_zero_burst() {
+    let mut config = Config::default();
+    config.gateway.rate_limit.enabled = true;
+    config.gateway.rate_limit.burst = 0;
+    assert!(config.validate().is_err());
 }

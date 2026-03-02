@@ -431,6 +431,38 @@ max_width: 820px
         <p>When embeddings are enabled, the system prompt context injection automatically uses hybrid search (combined keyword + vector similarity) instead of keyword-only search. Missing embeddings are back-filled automatically during indexing.</p>
 
         <p><strong>Utility-based archiving:</strong> Notes between <code>archiveAfterDays / 2</code> and <code>archiveAfterDays</code> are archived early if they have zero search hits. Notes that are frequently retrieved are kept longer. Use <code>oxicrab stats search</code> to see hit counts.</p>
+
+        <h3>Model Routing</h3>
+        <p>Config path: <code>agents.defaults.modelRouting</code></p>
+        <p>Route different task types to different providers and models. Each tier is a <code>provider/model</code> string, and rules map task types to tier names. When <code>modelRouting</code> is absent, the default model is used for all tasks.</p>
+        <pre><code>{
+  "agents": {
+    "defaults": {
+      "modelRouting": {
+        "tiers": {
+          "primary": "anthropic/claude-sonnet-4-5",
+          "lightweight": "openrouter/google/gemini-3-flash"
+        },
+        "fallbacks": ["minimax/minimax-m2.5"],
+        "rules": {
+          "cron": "lightweight",
+          "daemon": "lightweight",
+          "subagent": "lightweight",
+          "compaction": "primary",
+          "conversation": "primary"
+        }
+      }
+    }
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>tiers</td><td>object</td><td>{}</td><td>Named model tiers. Values are <code>provider/model</code> strings (e.g. <code>"anthropic/claude-sonnet-4-5"</code>)</td></tr>
+            <tr><td>fallbacks</td><td>string[]</td><td>[]</td><td>Ordered fallback chain of <code>provider/model</code> strings. Primary provider tries first, then each fallback in order.</td></tr>
+            <tr><td>rules</td><td>object</td><td>{}</td><td>Maps task types to tier names. Known types: <code>conversation</code>, <code>cron</code>, <code>daemon</code>, <code>subagent</code>, <code>compaction</code></td></tr>
+        </table>
+        <p>Tiers are resolved at startup via <code>Config::create_routed_providers()</code>. The <code>fallbacks</code> chain builds a <code>FallbackProvider</code> &mdash; tried in order on error or malformed tool calls. The <code>localModel</code> field still works as a simple two-provider fallback when <code>modelRouting</code> is not configured.</p>
     </div>
 
     <!-- COST GUARD -->
@@ -689,6 +721,7 @@ max_width: 820px
             <tr><td>apiKey</td><td>string</td><td>""</td><td>API key for authenticating <code>/api/chat</code> and A2A task endpoints. Requests must include <code>Authorization: Bearer &lt;key&gt;</code> or <code>X-API-Key: &lt;key&gt;</code>. When empty and host is non-loopback, a startup warning is emitted. Health, webhooks (HMAC), and A2A discovery are always public.</td></tr>
             <tr><td>webhooks</td><td>object</td><td>{}</td><td>Named webhook receivers (see below)</td></tr>
             <tr><td>a2a</td><td>object</td><td>{}</td><td>Agent-to-Agent protocol configuration (see below)</td></tr>
+            <tr><td>rateLimit</td><td>object</td><td>{}</td><td>Per-IP rate limiting configuration (see below)</td></tr>
         </table>
 
         <h3>HTTP API Endpoints</h3>
@@ -720,6 +753,26 @@ max_width: 820px
             <tr><td>agentDescription</td><td>string</td><td>"AI assistant powered by oxicrab"</td><td>Agent description in the AgentCard</td></tr>
         </table>
         <p>Tasks are processed through the same agent loop as chat messages. The task lifecycle: <strong>submitted</strong> &rarr; <strong>working</strong> &rarr; <strong>completed</strong> (or <strong>failed</strong>). Poll <code>GET /a2a/tasks/{id}</code> to check status.</p>
+
+        <h3>Rate Limiting</h3>
+        <p>Config path: <code>gateway.rateLimit</code></p>
+        <p>Per-IP rate limiting for all gateway endpoints. Uses a token bucket algorithm with configurable sustained rate and burst capacity.</p>
+        <pre><code>{
+  "gateway": {
+    "rateLimit": {
+      "enabled": true,
+      "requestsPerSecond": 10,
+      "burst": 20
+    }
+  }
+}</code></pre>
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable per-IP rate limiting</td></tr>
+            <tr><td>requestsPerSecond</td><td>u32</td><td>10</td><td>Sustained request rate per IP</td></tr>
+            <tr><td>burst</td><td>u32</td><td>20</td><td>Maximum burst capacity per IP</td></tr>
+        </table>
+        <p>When a client exceeds the rate limit, the gateway returns HTTP 429 with a <code>Retry-After</code> header indicating when to retry.</p>
 
         <h3>Webhook Configuration</h3>
         <p>Each entry in <code>webhooks</code> creates a receiver at <code>POST /api/webhook/{name}</code>. Payloads are validated with HMAC-SHA256 signature verification (constant-time comparison).</p>

@@ -7,6 +7,7 @@ pub mod a2a;
 /// Integrates with the existing `MessageBus` for inbound/outbound routing.
 use std::collections::HashMap;
 use std::hash::BuildHasher;
+use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -18,6 +19,7 @@ use axum::middleware::{self, Next};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use governor::{DefaultKeyedRateLimiter, Quota};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -107,12 +109,41 @@ async fn api_key_auth(
     }
 }
 
+/// Per-IP rate limiting middleware using governor.
+async fn rate_limit_middleware(
+    State(limiter): State<Arc<DefaultKeyedRateLimiter<String>>>,
+    request: Request,
+    next: Next,
+) -> axum::response::Response {
+    let ip = request
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map_or_else(|| "unknown".to_string(), |s| s.trim().to_string());
+
+    if limiter.check_key(&ip).is_ok() {
+        return next.run(request).await;
+    }
+
+    warn!("rate limit exceeded for {}", ip);
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [("retry-after", "1")],
+        Json(ErrorResponse {
+            error: "rate limit exceeded".to_string(),
+        }),
+    )
+        .into_response()
+}
+
 /// Build the HTTP API router.
 #[allow(clippy::needless_pass_by_value)] // api_key is Arc-cloned into middleware layers
 fn build_router(
     state: HttpApiState,
     a2a_state: Option<a2a::A2aState>,
     api_key: Option<Arc<String>>,
+    rate_limiter: Option<Arc<DefaultKeyedRateLimiter<String>>>,
 ) -> Router {
     // Routes that require auth when an API key is configured
     let mut authed_routes = Router::new()
@@ -155,6 +186,13 @@ fn build_router(
             .layer(DefaultBodyLimit::max(MAX_MESSAGE_SIZE + 1024));
 
         router = router.merge(a2a_router);
+    }
+
+    if let Some(limiter) = rate_limiter {
+        router = router.layer(middleware::from_fn_with_state(
+            limiter,
+            rate_limit_middleware,
+        ));
     }
 
     router
@@ -506,6 +544,7 @@ async fn deliver_to_targets(
 
 /// Start the HTTP API server. Returns a join handle and the shared state
 /// (needed by the outbound router to deliver responses).
+#[allow(clippy::too_many_arguments)]
 pub async fn start<S: BuildHasher>(
     host: &str,
     port: u16,
@@ -514,6 +553,7 @@ pub async fn start<S: BuildHasher>(
     webhooks: HashMap<String, WebhookConfig, S>,
     a2a_config: Option<crate::config::A2aConfig>,
     api_key: Option<String>,
+    rate_limit: &crate::config::schema::RateLimitConfig,
 ) -> Result<(tokio::task::JoinHandle<()>, HttpApiState)> {
     let webhook_map: HashMap<String, WebhookConfig> = webhooks.into_iter().collect();
     let active: Vec<_> = webhook_map
@@ -558,7 +598,20 @@ pub async fn start<S: BuildHasher>(
     if key.is_some() {
         info!("HTTP API authentication enabled (Bearer / X-API-Key)");
     }
-    let app = build_router(state.clone(), a2a_state, key);
+    let rate_limiter = if rate_limit.enabled {
+        let rps =
+            NonZeroU32::new(rate_limit.requests_per_second).unwrap_or(NonZeroU32::new(10).unwrap());
+        let burst = NonZeroU32::new(rate_limit.burst).unwrap_or(NonZeroU32::new(20).unwrap());
+        let quota = Quota::per_second(rps).allow_burst(burst);
+        info!(
+            "rate limiting enabled: {} req/s, burst {}",
+            rate_limit.requests_per_second, rate_limit.burst
+        );
+        Some(Arc::new(governor::RateLimiter::keyed(quota)))
+    } else {
+        None
+    };
+    let app = build_router(state.clone(), a2a_state, key, rate_limiter);
     let addr = format!("{}:{}", host, port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("HTTP API listening on {}", addr);

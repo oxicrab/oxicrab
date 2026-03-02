@@ -546,6 +546,7 @@ async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> 
             config.gateway.webhooks.clone(),
             a2a_config,
             api_key,
+            &config.gateway.rate_limit,
         )
         .await?;
         Some(state)
@@ -616,6 +617,7 @@ async fn gateway_echo() -> Result<()> {
             config.gateway.webhooks.clone(),
             None, // A2A not available in echo mode
             api_key,
+            &config.gateway.rate_limit,
         )
         .await?;
         drop(http_task);
@@ -779,6 +781,20 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
         "  - Compaction enabled: {}",
         config.agents.defaults.compaction.enabled
     );
+
+    // Create model routing providers if configured
+    let routing = match config.create_routed_providers() {
+        Ok(Some(r)) => {
+            info!("model routing active with {} tier(s)", r.tier_count());
+            Some(Arc::new(r))
+        }
+        Ok(None) => None,
+        Err(e) => {
+            warn!("failed to create routed providers, routing disabled: {}", e);
+            None
+        }
+    };
+
     let agent = Arc::new(
         AgentLoop::new(crate::agent::AgentLoopConfig::from_config(
             config,
@@ -791,6 +807,7 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
                 typing_tx: params.typing_tx,
                 channels_config: params.channels_config,
             },
+            routing,
         ))
         .await?,
     );
@@ -869,12 +886,14 @@ async fn cron_job_execute(
         .first()
         .map_or(("cli", "direct"), |t| (t.channel.as_str(), t.to.as_str()));
 
+    let cron_overrides = agent.resolve_overrides("cron");
     let response = agent
-        .process_direct(
+        .process_direct_with_overrides(
             &job.payload.message,
             &format!("cron:{}", job.id),
             ctx_channel,
             ctx_chat_id,
+            &cron_overrides,
         )
         .await?;
 
@@ -912,12 +931,23 @@ fn setup_heartbeat(config: &Config, agent: &Arc<AgentLoop>) -> Arc<HeartbeatServ
         config.agents.defaults.daemon.strategy_file
     );
 
-    // Build daemon-specific overrides from config
+    // Build daemon-specific overrides: prefer model routing, fall back to config
     let daemon_cfg = &config.agents.defaults.daemon;
-    let daemon_overrides = Arc::new(crate::agent::AgentRunOverrides {
-        model: daemon_cfg.execution_model.clone(),
-        max_iterations: Some(daemon_cfg.max_iterations),
-    });
+    let daemon_overrides = {
+        let routed = agent.resolve_overrides("daemon");
+        if routed.provider.is_some() {
+            Arc::new(crate::agent::AgentRunOverrides {
+                max_iterations: Some(daemon_cfg.max_iterations),
+                ..routed
+            })
+        } else {
+            Arc::new(crate::agent::AgentRunOverrides {
+                model: daemon_cfg.execution_model.clone(),
+                max_iterations: Some(daemon_cfg.max_iterations),
+                ..Default::default()
+            })
+        }
+    };
 
     if daemon_cfg.execution_model.is_some() {
         info!(

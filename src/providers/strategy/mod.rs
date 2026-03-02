@@ -99,9 +99,6 @@ pub fn infer_provider_from_model(model: &str) -> Option<&'static str> {
     if m.starts_with("deepseek") {
         return Some("deepseek");
     }
-    if m.starts_with("openrouter/") {
-        return Some("openrouter");
-    }
     None
 }
 

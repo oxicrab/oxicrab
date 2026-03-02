@@ -51,12 +51,14 @@ const RECOVERY_CONTEXT_MAX_CHARS: usize = 200;
 /// Per-invocation overrides for the agent loop. Allows callers (e.g. the daemon
 /// heartbeat) to use a different model or iteration cap without constructing a
 /// separate `AgentLoop`.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct AgentRunOverrides {
     /// Override the model used for LLM calls.
     pub model: Option<String>,
     /// Override the maximum number of iterations.
     pub max_iterations: Option<usize>,
+    /// Override the LLM provider for cross-provider routing.
+    pub provider: Option<Arc<dyn LLMProvider>>,
 }
 
 /// Tool-specific configurations bundled together. These fields are only used
@@ -125,6 +127,10 @@ pub struct AgentLoopConfig {
     pub context_providers: Vec<crate::config::ContextProviderConfig>,
     /// Tool-specific configurations (forwarded to [`ToolBuildContext`])
     pub tool_configs: ToolConfigs,
+    /// Pre-resolved model routing (maps task types to providers/models).
+    /// When `Some`, allows task-specific provider overrides for daemon, cron,
+    /// subagent, and compaction.
+    pub routing: Option<Arc<crate::config::routing::ResolvedRouting>>,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -145,7 +151,11 @@ pub struct AgentLoopRuntimeParams {
 impl AgentLoopConfig {
     /// Build an `AgentLoopConfig` from the application [`Config`](crate::config::Config)
     /// and runtime parameters that vary per invocation.
-    pub fn from_config(config: &crate::config::Config, params: AgentLoopRuntimeParams) -> Self {
+    pub fn from_config(
+        config: &crate::config::Config,
+        params: AgentLoopRuntimeParams,
+        routing: Option<Arc<crate::config::routing::ResolvedRouting>>,
+    ) -> Self {
         let mut image_gen = config.tools.image_gen.clone();
         if image_gen.enabled {
             if !config.providers.openai.api_key.is_empty() {
@@ -199,6 +209,7 @@ impl AgentLoopConfig {
                 mcp_config: Some(config.tools.mcp.clone()),
                 workspace_ttl: config.agents.defaults.workspace_ttl.clone(),
             },
+            routing,
         }
     }
 
@@ -266,6 +277,7 @@ impl AgentLoopConfig {
                 mcp_config: None,
                 workspace_ttl: crate::config::WorkspaceTtlConfig::default(),
             },
+            routing: None,
         }
     }
 }
@@ -351,6 +363,8 @@ pub struct AgentLoop {
     leak_detector: LeakDetector,
     /// MCP manager kept alive for graceful child process shutdown
     _mcp_manager: Option<crate::agent::tools::mcp::McpManager>,
+    /// Pre-resolved model routing for task-specific provider selection
+    routing: Option<Arc<crate::config::routing::ResolvedRouting>>,
 }
 
 impl AgentLoop {
@@ -380,6 +394,7 @@ impl AgentLoop {
             prompt_guard_config,
             context_providers,
             tool_configs,
+            routing,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -465,17 +480,29 @@ impl AgentLoop {
             browser_config: tool_configs.browser_config,
             image_gen_config: tool_configs.image_gen_config,
             memory: memory.clone(),
-            subagent_config: SubagentConfig {
-                provider: provider.clone(),
-                workspace: workspace.clone(),
-                model: Some(model.clone()),
-                max_tokens,
-                tool_temperature,
-                max_concurrent: max_concurrent_subagents,
-                cost_guard: cost_guard.clone(),
-                prompt_guard_config: prompt_guard_config.clone(),
-                exfil_guard: exfiltration_guard.clone(),
-                main_tools: None, // set after register_all_tools()
+            subagent_config: {
+                let (sa_provider, sa_model) = if let Some(ref r) = routing {
+                    let o = r.resolve_overrides("subagent");
+                    if let Some(p) = o.provider {
+                        (p, o.model.or_else(|| Some(model.clone())))
+                    } else {
+                        (provider.clone(), Some(model.clone()))
+                    }
+                } else {
+                    (provider.clone(), Some(model.clone()))
+                };
+                SubagentConfig {
+                    provider: sa_provider,
+                    workspace: workspace.clone(),
+                    model: sa_model,
+                    max_tokens,
+                    tool_temperature,
+                    max_concurrent: max_concurrent_subagents,
+                    cost_guard: cost_guard.clone(),
+                    prompt_guard_config: prompt_guard_config.clone(),
+                    exfil_guard: exfiltration_guard.clone(),
+                    main_tools: None, // set after register_all_tools()
+                }
             },
             brave_api_key: tool_configs.brave_api_key,
             allowed_commands: tool_configs.allowed_commands,
@@ -501,10 +528,23 @@ impl AgentLoop {
             });
 
         let compactor = if compaction_config.enabled {
-            Some(Arc::new(MessageCompactor::new(
-                provider.clone() as Arc<dyn LLMProvider>,
-                compaction_config.model.clone(),
-            )))
+            let (comp_provider, comp_model) = if let Some(ref r) = routing {
+                let o = r.resolve_overrides("compaction");
+                if let Some(p) = o.provider {
+                    (p, o.model)
+                } else {
+                    (
+                        provider.clone() as Arc<dyn LLMProvider>,
+                        compaction_config.model.clone(),
+                    )
+                }
+            } else {
+                (
+                    provider.clone() as Arc<dyn LLMProvider>,
+                    compaction_config.model.clone(),
+                )
+            };
+            Some(Arc::new(MessageCompactor::new(comp_provider, comp_model)))
         } else {
             None
         };
@@ -584,6 +624,7 @@ impl AgentLoop {
             prompt_guard_config,
             leak_detector: LeakDetector::new(),
             _mcp_manager: mcp_manager,
+            routing,
         })
     }
 
@@ -653,6 +694,19 @@ impl AgentLoop {
 
     pub fn memory_db(&self) -> Arc<crate::agent::memory::memory_db::MemoryDB> {
         self.memory.db()
+    }
+
+    /// Resolve per-task overrides from the model routing configuration.
+    /// Returns default overrides when routing is not configured or the task
+    /// type has no matching rule.
+    pub fn resolve_overrides(&self, task_type: &str) -> AgentRunOverrides {
+        if let Some(ref routing) = self.routing {
+            let resolved = routing.resolve_overrides(task_type);
+            if resolved.provider.is_some() {
+                return resolved;
+            }
+        }
+        AgentRunOverrides::default()
     }
 
     pub async fn stop(&self) {
@@ -1171,8 +1225,8 @@ impl AgentLoop {
                 ));
             }
 
-            let response = self
-                .provider
+            let effective_provider = overrides.provider.as_ref().unwrap_or(&self.provider);
+            let response = effective_provider
                 .chat_with_retry(
                     crate::providers::base::ChatRequest {
                         messages: messages.clone(),

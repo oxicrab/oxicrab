@@ -85,6 +85,34 @@ fn default_port() -> u16 {
     18790
 }
 
+fn default_rps() -> u32 {
+    10
+}
+
+fn default_burst() -> u32 {
+    20
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_rps", rename = "requestsPerSecond")]
+    pub requests_per_second: u32,
+    #[serde(default = "default_burst")]
+    pub burst: u32,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            requests_per_second: default_rps(),
+            burst: default_burst(),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
     #[serde(default = "default_true")]
@@ -103,6 +131,8 @@ pub struct GatewayConfig {
     pub webhooks: HashMap<String, WebhookConfig>,
     #[serde(default)]
     pub a2a: A2aConfig,
+    #[serde(default, rename = "rateLimit")]
+    pub rate_limit: RateLimitConfig,
 }
 
 impl std::fmt::Debug for GatewayConfig {
@@ -121,6 +151,7 @@ impl std::fmt::Debug for GatewayConfig {
             )
             .field("webhooks", &self.webhooks)
             .field("a2a", &self.a2a)
+            .field("rate_limit", &self.rate_limit)
             .finish()
     }
 }
@@ -134,6 +165,7 @@ impl Default for GatewayConfig {
             api_key: String::new(),
             webhooks: HashMap::new(),
             a2a: A2aConfig::default(),
+            rate_limit: RateLimitConfig::default(),
         }
     }
 }
@@ -234,6 +266,7 @@ impl Config {
         self.validate_gateway()?;
         self.validate_tools()?;
         self.validate_channels()?;
+        self.validate_model_routing()?;
         Ok(())
     }
 
@@ -390,6 +423,16 @@ impl Config {
                 self.gateway.host
             );
         }
+        if self.gateway.rate_limit.enabled && self.gateway.rate_limit.requests_per_second == 0 {
+            return Err(OxicrabError::Config(
+                "gateway.rateLimit.requestsPerSecond must be > 0 when enabled".into(),
+            ));
+        }
+        if self.gateway.rate_limit.enabled && self.gateway.rate_limit.burst == 0 {
+            return Err(OxicrabError::Config(
+                "gateway.rateLimit.burst must be > 0 when enabled".into(),
+            ));
+        }
         Ok(())
     }
 
@@ -509,6 +552,38 @@ impl Config {
         Ok(())
     }
 
+    fn validate_model_routing(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+        let routing = &self.agents.defaults.model_routing;
+
+        for (rule_name, tier_name) in &routing.rules {
+            if !routing.tiers.contains_key(tier_name) {
+                return Err(OxicrabError::Config(format!(
+                    "modelRouting.rules.{} references unknown tier '{}' — \
+                     add it to modelRouting.tiers",
+                    rule_name, tier_name
+                )));
+            }
+        }
+        for (name, model_str) in &routing.tiers {
+            if model_str.is_empty() {
+                return Err(OxicrabError::Config(format!(
+                    "modelRouting.tiers.{} must not be empty",
+                    name
+                )));
+            }
+        }
+        for (i, fb) in routing.fallbacks.iter().enumerate() {
+            if fb.is_empty() {
+                return Err(OxicrabError::Config(format!(
+                    "modelRouting.fallbacks[{}] must not be empty",
+                    i
+                )));
+            }
+        }
+        Ok(())
+    }
+
     pub fn get_api_key(&self, model: Option<&str>) -> Option<&str> {
         let model = model.unwrap_or(&self.agents.defaults.model);
         self.providers.get_api_key(model)
@@ -595,6 +670,28 @@ impl Config {
         secrets
     }
 
+    /// Create providers for all configured model routing tiers.
+    pub fn create_routed_providers(
+        &self,
+    ) -> anyhow::Result<Option<crate::config::routing::ResolvedRouting>> {
+        use crate::providers::strategy::ProviderFactory;
+
+        let routing = &self.agents.defaults.model_routing;
+        if routing.tiers.is_empty() {
+            return Ok(None);
+        }
+        let factory = ProviderFactory::new(self);
+        let mut tiers = std::collections::HashMap::new();
+        for (name, model_str) in &routing.tiers {
+            let provider = factory.create_provider(model_str)?;
+            tiers.insert(name.clone(), (provider, model_str.clone()));
+        }
+        Ok(Some(crate::config::routing::ResolvedRouting::new(
+            tiers,
+            routing.rules.clone(),
+        )))
+    }
+
     /// Create an LLM provider instance based on configuration.
     ///
     /// Uses a 3-tier resolution strategy: explicit provider field → prefix
@@ -608,6 +705,31 @@ impl Config {
         let model = model.unwrap_or(&self.agents.defaults.model);
         let factory = ProviderFactory::new(self);
 
+        // Build fallback chain from modelRouting.fallbacks (takes precedence over localModel)
+        let routing = &self.agents.defaults.model_routing;
+        if !routing.fallbacks.is_empty() {
+            let primary = factory.create_provider(model)?;
+            let primary_model = model.to_string();
+            let mut chain = vec![(primary, primary_model)];
+            for fb_model in &routing.fallbacks {
+                let mut fb_provider = factory.create_provider(fb_model)?;
+                if self.should_use_prompt_guided_tools(fb_model) {
+                    fb_provider = crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(
+                        fb_provider,
+                    );
+                }
+                chain.push((fb_provider, fb_model.clone()));
+            }
+            let provider: std::sync::Arc<dyn crate::providers::base::LLMProvider> =
+                std::sync::Arc::new(crate::providers::fallback::FallbackProvider::new(chain));
+            if self.should_use_prompt_guided_tools(model) {
+                return Ok(
+                    crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(provider),
+                );
+            }
+            return Ok(provider);
+        }
+
         if let Some(ref local_model) = self.agents.defaults.local_model
             && !local_model.is_empty()
         {
@@ -617,7 +739,7 @@ impl Config {
                 local = crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(local);
             }
             return Ok(std::sync::Arc::new(
-                crate::providers::fallback::FallbackProvider::new(
+                crate::providers::fallback::FallbackProvider::pair(
                     cloud,
                     local,
                     model.to_string(),
