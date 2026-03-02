@@ -55,7 +55,7 @@ max_width: 820px
         <p>oxicrab uses a 2-tier resolution strategy to determine which LLM provider handles a model:</p>
         <ol>
             <li><strong>Prefix notation</strong> &mdash; <code>"model": "groq/llama-3.1-70b"</code> (provider before <code>/</code>, stripped before API call)</li>
-            <li><strong>Auto-detection</strong> &mdash; Known model name prefixes: <code>claude-*</code> &rarr; Anthropic, <code>gpt-*</code>/<code>o1</code>/<code>o3</code> &rarr; OpenAI, <code>gemini-*</code> &rarr; Gemini, <code>deepseek-*</code> &rarr; DeepSeek</li>
+            <li><strong>Auto-detection</strong> &mdash; Known model name prefixes: <code>claude-*</code> &rarr; Anthropic, <code>gpt-*</code>/<code>o1</code>/<code>o3</code>/<code>o4</code> &rarr; OpenAI, <code>gemini-*</code> &rarr; Gemini, <code>deepseek-*</code> &rarr; DeepSeek</li>
         </ol>
 
         <h3 id="routing-examples">Routing Resolution Table</h3>
@@ -114,7 +114,7 @@ max_width: 820px
             <tr><th>Provider</th><th>Default Base URL</th><th>API Key Required</th></tr>
             <tr><td>Anthropic</td><td>https://api.anthropic.com/v1/messages</td><td>Yes (or OAuth)</td></tr>
             <tr><td>OpenAI</td><td>https://api.openai.com/v1/chat/completions</td><td>Yes</td></tr>
-            <tr><td>Gemini</td><td>https://generativelanguage.googleapis.com/v1beta</td><td>Yes</td></tr>
+            <tr><td>Gemini</td><td>https://generativelanguage.googleapis.com/v1</td><td>Yes</td></tr>
             <tr><td>OpenRouter</td><td>https://openrouter.ai/api/v1/chat/completions</td><td>Yes</td></tr>
             <tr><td>DeepSeek</td><td>https://api.deepseek.com/v1/chat/completions</td><td>Yes</td></tr>
             <tr><td>Groq</td><td>https://api.groq.com/openai/v1/chat/completions</td><td>Yes</td></tr>
@@ -145,7 +145,7 @@ max_width: 820px
             <li>Rewrites conversation history so tool results work without native tool support</li>
         </ul>
 
-        <p>This works with both direct local models and the <a href="#local-model-fallback">local model fallback</a> configuration. Currently supported for Ollama and vLLM providers.</p>
+        <p>This works with both direct local models and <code>modelRouting.fallbacks</code> for fallback chains. Currently supported for Ollama and vLLM providers.</p>
 
         <p>To override the default endpoint, set <code>apiBase</code> on the provider:</p>
         <pre><code>{
@@ -173,7 +173,7 @@ max_width: 820px
         <p>Headers are merged into every chat and warmup request alongside the standard <code>Authorization</code> and <code>Content-Type</code> headers.</p>
 
         <h3 id="oauth-models">OAuth Models</h3>
-        <p>Anthropic OAuth is attempted when the provider resolves to <code>anthropic</code> &mdash; via <code>anthropic/</code> prefix, <code>"provider": "anthropic"</code>, or auto-detection of <code>claude-*</code> models:</p>
+        <p>Anthropic OAuth is attempted when the provider resolves to <code>anthropic</code> &mdash; via <code>anthropic/</code> prefix or auto-detection of <code>claude-*</code> models:</p>
         <ul class="plain">
             <li><strong>anthropic/claude-opus-4-5</strong></li>
             <li><strong>anthropic/claude-opus-4-6</strong></li>
@@ -515,7 +515,7 @@ max_width: 820px
             <li><strong>outputPerMillion</strong> &mdash; cost in dollars per million output tokens</li>
         </ul>
 
-        <p>Embedded pricing data covers 50+ models. Config overrides take precedence for any model name prefix match.</p>
+        <p>Embedded pricing data covers 40 models. Config overrides take precedence for any model name prefix match.</p>
 
         <h3>Prompt Cache-Aware Pricing</h3>
         <p>For Anthropic providers, prompt caching tokens are priced differently:</p>
@@ -785,6 +785,7 @@ max_width: 820px
             <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable per-IP rate limiting</td></tr>
             <tr><td>requestsPerSecond</td><td>u32</td><td>10</td><td>Sustained request rate per IP</td></tr>
             <tr><td>burst</td><td>u32</td><td>20</td><td>Maximum burst capacity per IP</td></tr>
+            <tr><td>trustProxy</td><td>bool</td><td>false</td><td>Trust <code>X-Forwarded-For</code> header for client IP extraction. Enable only when running behind a reverse proxy.</td></tr>
         </table>
         <p>When a client exceeds the rate limit, the gateway returns HTTP 429 with a <code>Retry-After</code> header indicating when to retry.</p>
 
