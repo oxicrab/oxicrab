@@ -17,6 +17,10 @@ fn is_daily_note_key(key: &str) -> bool {
         && key.as_bytes()[4] == b'-'
         && key.as_bytes()[7] == b'-'
         && key[..4].bytes().all(|b| b.is_ascii_digit())
+        && key.as_bytes()[5].is_ascii_digit()
+        && key.as_bytes()[6].is_ascii_digit()
+        && key.as_bytes()[8].is_ascii_digit()
+        && key.as_bytes()[9].is_ascii_digit()
 }
 
 pub struct MemoryStore {
@@ -272,16 +276,18 @@ impl MemoryStore {
             if is_group {
                 exclude.insert("MEMORY.md".to_string());
             }
+            let fetch_limit = if is_group { 16 } else { 8 };
+            let result_limit = 8;
             let hits = if self.has_embeddings() {
-                match self.hybrid_search(query, 8, Some(&exclude)) {
+                match self.hybrid_search(query, fetch_limit, Some(&exclude)) {
                     Ok(h) => h,
                     Err(e) => {
                         warn!("hybrid search failed, falling back to keyword: {}", e);
-                        self.db.search(query, 8, Some(&exclude))?
+                        self.db.search(query, fetch_limit, Some(&exclude))?
                     }
                 }
             } else {
-                self.db.search(query, 8, Some(&exclude))?
+                self.db.search(query, fetch_limit, Some(&exclude))?
             };
             for hit in hits {
                 // In group mode, skip hits from daily notes (YYYY-MM-DD.md pattern)
@@ -289,6 +295,9 @@ impl MemoryStore {
                     continue;
                 }
                 chunks.push(format!("**{}**: {}", hit.source_key, hit.content));
+                if chunks.len() >= result_limit {
+                    break;
+                }
             }
         }
 

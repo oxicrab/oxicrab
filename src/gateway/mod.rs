@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -80,6 +80,7 @@ fn build_router(state: HttpApiState, a2a_state: Option<a2a::A2aState>) -> Router
         .route("/api/chat", post(chat_handler))
         .route("/api/health", get(health_handler))
         .route("/api/webhook/{name}", post(webhook_handler))
+        .layer(DefaultBodyLimit::max(WEBHOOK_MAX_BODY))
         .with_state(state);
 
     if let Some(a2a) = a2a_state {
@@ -219,21 +220,48 @@ pub(crate) fn validate_webhook_signature(secret: &str, signature: &str, body: &[
 /// Apply a template string, substituting `{{key}}` with JSON payload values.
 /// `{{body}}` is replaced with the raw body string.
 ///
-/// JSON keys are expanded first, then `{{body}}` last, so that attacker-controlled
-/// body text cannot introduce secondary `{{key}}` expansions.
+/// Uses a single-pass approach: splits the template on `{{...}}` boundaries
+/// and looks up each placeholder, so replacement values are never re-scanned
+/// for further `{{key}}` patterns.
 fn apply_template(template: &str, body_str: &str, json: Option<&serde_json::Value>) -> String {
-    let mut result = template.to_string();
-    if let Some(serde_json::Value::Object(map)) = json {
-        for (key, value) in map {
-            let placeholder = format!("{{{{{}}}}}", key);
-            let replacement = match value {
-                serde_json::Value::String(s) => s.clone(),
-                other => other.to_string(),
-            };
-            result = result.replace(&placeholder, &replacement);
+    let map = match json {
+        Some(serde_json::Value::Object(m)) => Some(m),
+        _ => None,
+    };
+
+    let mut result = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        result.push_str(&rest[..start]);
+        let after_open = &rest[start + 2..];
+        if let Some(end) = after_open.find("}}") {
+            let key = &after_open[..end];
+            if key == "body" {
+                result.push_str(body_str);
+            } else if let Some(m) = map {
+                if let Some(value) = m.get(key) {
+                    match value {
+                        serde_json::Value::String(s) => result.push_str(s),
+                        other => result.push_str(&other.to_string()),
+                    }
+                } else {
+                    result.push_str("{{");
+                    result.push_str(key);
+                    result.push_str("}}");
+                }
+            } else {
+                result.push_str("{{");
+                result.push_str(key);
+                result.push_str("}}");
+            }
+            rest = &after_open[end + 2..];
+        } else {
+            result.push_str("{{");
+            rest = after_open;
         }
     }
-    result.replace("{{body}}", body_str)
+    result.push_str(rest);
+    result
 }
 
 /// POST /api/webhook/{name} — receive a webhook from an external service.

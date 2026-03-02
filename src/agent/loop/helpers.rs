@@ -269,7 +269,11 @@ pub fn mentions_multiple_tools(text: &str, tool_names: &[String]) -> bool {
                 if before_ok && after_ok {
                     return true;
                 }
-                start = abs_pos + 1;
+                start = abs_pos
+                    + text_lower[abs_pos..]
+                        .chars()
+                        .next()
+                        .map_or(1, char::len_utf8);
             }
             false
         })

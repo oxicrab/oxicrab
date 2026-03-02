@@ -115,6 +115,9 @@ impl ObsidianApiClient {
 
     /// Read a file's content from the vault.
     pub async fn read_file(&self, path: &str) -> Result<String> {
+        if path.contains("..") {
+            anyhow::bail!("path traversal not allowed");
+        }
         let encoded = urlencoding::encode(path);
         let url = format!("{}/vault/{}", self.base_url, encoded);
         let resp = self
@@ -136,6 +139,9 @@ impl ObsidianApiClient {
 
     /// Create or overwrite a file in the vault.
     pub async fn write_file(&self, path: &str, content: &str) -> Result<()> {
+        if path.contains("..") {
+            anyhow::bail!("path traversal not allowed");
+        }
         let encoded = urlencoding::encode(path);
         let url = format!("{}/vault/{}", self.base_url, encoded);
         let resp = self
@@ -158,6 +164,9 @@ impl ObsidianApiClient {
 
     /// Append content to a file in the vault.
     pub async fn append_file(&self, path: &str, content: &str) -> Result<()> {
+        if path.contains("..") {
+            anyhow::bail!("path traversal not allowed");
+        }
         let encoded = urlencoding::encode(path);
         let url = format!("{}/vault/{}", self.base_url, encoded);
         let resp = self

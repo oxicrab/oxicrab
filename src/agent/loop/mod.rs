@@ -509,33 +509,38 @@ impl AgentLoop {
             None
         };
 
-        // Build event matcher from cron jobs (if any event-triggered jobs exist)
-        let event_matcher = if let Some(ref cron_svc) = cron_service {
-            match cron_svc.load_store(false).await {
-                Ok(store) => {
-                    let matcher = EventMatcher::from_jobs(&store.jobs);
-                    if matcher.is_empty() {
-                        None
-                    } else {
-                        info!(
-                            "Event matcher initialized with {} event-triggered job(s)",
-                            store
-                                .jobs
-                                .iter()
-                                .filter(|j| matches!(
-                                    j.schedule,
-                                    crate::cron::types::CronSchedule::Event { .. }
-                                ))
-                                .count()
-                        );
-                        Some(std::sync::Mutex::new(matcher))
+        // Build event matcher from cron jobs. Always create the matcher when
+        // cron_service exists so that new event-triggered jobs added after
+        // startup can be picked up by the periodic rebuild.
+        let event_matcher = if cron_service.is_some() {
+            let matcher = if let Some(ref cron_svc) = cron_service {
+                match cron_svc.load_store(false).await {
+                    Ok(store) => {
+                        let m = EventMatcher::from_jobs(&store.jobs);
+                        if !m.is_empty() {
+                            info!(
+                                "Event matcher initialized with {} event-triggered job(s)",
+                                store
+                                    .jobs
+                                    .iter()
+                                    .filter(|j| matches!(
+                                        j.schedule,
+                                        crate::cron::types::CronSchedule::Event { .. }
+                                    ))
+                                    .count()
+                            );
+                        }
+                        m
+                    }
+                    Err(e) => {
+                        warn!("Failed to load cron store for event matcher: {}", e);
+                        EventMatcher::from_jobs(&[])
                     }
                 }
-                Err(e) => {
-                    warn!("Failed to load cron store for event matcher: {}", e);
-                    None
-                }
-            }
+            } else {
+                EventMatcher::from_jobs(&[])
+            };
+            Some(std::sync::Mutex::new(matcher))
         } else {
             None
         };
@@ -1938,6 +1943,14 @@ impl AgentLoop {
                         );
                     }
 
+                    // Cap enriched summary to prevent unbounded growth across compaction cycles
+                    if recovery_summary.len() > 2000 {
+                        recovery_summary.truncate(2000);
+                        // Ensure we don't split a UTF-8 char
+                        while !recovery_summary.is_char_boundary(recovery_summary.len()) {
+                            recovery_summary.pop();
+                        }
+                    }
                     // Cache summary locally so it survives save failures
                     *self.last_checkpoint.lock().await = Some(recovery_summary.clone());
 

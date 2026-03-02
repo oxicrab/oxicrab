@@ -110,7 +110,8 @@ fn test_prompt_without_context() {
     let registry = super::build_subagent_tools(&make_inner_with_tools(
         crate::config::ExfiltrationGuardConfig::default(),
         tools,
-    ));
+    ))
+    .unwrap();
     let prompt = build_subagent_prompt("Do the thing", Path::new("/workspace"), None, &registry);
     assert!(prompt.contains("## Your Task\nDo the thing"));
     assert!(!prompt.contains("Conversation Context"));
@@ -123,7 +124,8 @@ fn test_prompt_with_context() {
     let registry = super::build_subagent_tools(&make_inner_with_tools(
         crate::config::ExfiltrationGuardConfig::default(),
         tools,
-    ));
+    ))
+    .unwrap();
     let prompt = build_subagent_prompt(
         "Research X",
         Path::new("/workspace"),
@@ -152,7 +154,8 @@ fn test_prompt_lists_tools_from_metadata() {
     let registry = super::build_subagent_tools(&make_inner_with_tools(
         crate::config::ExfiltrationGuardConfig::default(),
         tools,
-    ));
+    ))
+    .unwrap();
     let prompt = build_subagent_prompt("Do stuff", Path::new("/ws"), None, &registry);
     assert!(prompt.contains("## Available Tools"));
     // Tool names should appear
@@ -544,7 +547,7 @@ fn make_test_main_registry() -> Arc<crate::agent::tools::ToolRegistry> {
 fn test_subagent_tools_capability_based() {
     let main = make_test_main_registry();
     let config = make_inner_with_tools(crate::config::ExfiltrationGuardConfig::default(), main);
-    let tools = super::build_subagent_tools(&config);
+    let tools = super::build_subagent_tools(&config).unwrap();
     let names = tools.tool_names();
 
     // Full access tools: read_file, write_file, list_dir, exec, web_search, web_fetch
@@ -570,7 +573,7 @@ fn test_subagent_tools_capability_based() {
 fn test_subagent_tools_denied_tools_excluded() {
     let main = make_test_main_registry();
     let config = make_inner_with_tools(crate::config::ExfiltrationGuardConfig::default(), main);
-    let tools = super::build_subagent_tools(&config);
+    let tools = super::build_subagent_tools(&config).unwrap();
 
     // Denied tools should NOT appear
     assert!(tools.get("edit_file").is_none(), "edit_file is Denied");
@@ -580,7 +583,7 @@ fn test_subagent_tools_denied_tools_excluded() {
 fn test_subagent_github_is_read_only() {
     let main = make_test_main_registry();
     let config = make_inner_with_tools(crate::config::ExfiltrationGuardConfig::default(), main);
-    let tools = super::build_subagent_tools(&config);
+    let tools = super::build_subagent_tools(&config).unwrap();
 
     let github = tools
         .get("github")
@@ -615,7 +618,7 @@ fn test_subagent_tools_exfil_blocks_all_network() {
         allow_tools: vec![],
     };
     let config = make_inner_with_tools(guard, main);
-    let tools = super::build_subagent_tools(&config);
+    let tools = super::build_subagent_tools(&config).unwrap();
     let names = tools.tool_names();
 
     assert!(!names.contains(&"web_search".to_string()));
@@ -635,7 +638,7 @@ fn test_subagent_tools_exfil_allows_specific_tool() {
         allow_tools: vec!["web_search".to_string()],
     };
     let config = make_inner_with_tools(guard, main);
-    let tools = super::build_subagent_tools(&config);
+    let tools = super::build_subagent_tools(&config).unwrap();
     let names = tools.tool_names();
 
     assert!(

@@ -1,6 +1,6 @@
 //! URL validation to prevent SSRF attacks.
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 /// Validated URL with pinned DNS resolution.
 ///
@@ -84,6 +84,12 @@ fn check_ip_allowed(ip: IpAddr) -> Result<(), String> {
             {
                 return Err(format!("Blocked: requests to {} are not allowed", v4));
             }
+            // CGNAT / shared address space (RFC 6598) - used by cloud providers internally
+            let cgnat_start = Ipv4Addr::new(100, 64, 0, 0);
+            let cgnat_end = Ipv4Addr::new(100, 127, 255, 255);
+            if v4 >= cgnat_start && v4 <= cgnat_end {
+                return Err(format!("Blocked: requests to {} are not allowed", v4));
+            }
         }
         IpAddr::V6(v6) => {
             if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
@@ -104,6 +110,10 @@ fn check_ip_allowed(ip: IpAddr) -> Result<(), String> {
             }
             // 2001:db8::/32 documentation
             if segments[0] == 0x2001 && segments[1] == 0x0db8 {
+                return Err(format!("Blocked: requests to {} are not allowed", v6));
+            }
+            // Teredo tunneling (can embed arbitrary IPv4 addresses)
+            if segments[0] == 0x2001 && segments[1] == 0x0000 {
                 return Err(format!("Blocked: requests to {} are not allowed", v6));
             }
             // 2002::/16 6to4 tunneling (can embed arbitrary IPv4)

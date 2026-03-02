@@ -240,6 +240,7 @@ impl Tool for GoogleMailTool {
                 let body = params["body"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'body' parameter"))?;
+                let body = body.replace('\r', "");
 
                 let endpoint = format!(
                     "users/me/messages/{}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Message-ID",

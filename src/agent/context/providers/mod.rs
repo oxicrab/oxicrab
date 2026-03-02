@@ -78,10 +78,10 @@ impl ContextProviderRunner {
             }
         }
 
-        // Execute command
+        // Execute command with scrubbed environment
         let output = match tokio::time::timeout(
             Duration::from_secs(provider.timeout),
-            tokio::process::Command::new(&provider.command)
+            crate::utils::subprocess::scrubbed_command(&provider.command)
                 .args(&provider.args)
                 .output(),
         )

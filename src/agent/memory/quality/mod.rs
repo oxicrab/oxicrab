@@ -184,7 +184,7 @@ pub fn filter_lines(content: &str) -> String {
         match check_quality(check_text) {
             QualityVerdict::Pass => output.push(line.to_string()),
             QualityVerdict::Reframed(reframed) => {
-                let indent = line.len() - trimmed.len();
+                let indent = line.len() - line.trim_start().len();
                 output.push(format!("{}{}{}", &line[..indent], prefix, reframed));
             }
             QualityVerdict::Reject(_) => {

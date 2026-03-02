@@ -84,7 +84,7 @@ impl MessageBus {
         self.outbound_rx.take()
     }
 
-    pub async fn publish_inbound(&mut self, msg: InboundMessage) -> Result<()> {
+    pub async fn publish_inbound(&mut self, mut msg: InboundMessage) -> Result<()> {
         // Validate content size to prevent OOM from oversized messages
         if msg.content.len() > MAX_INBOUND_CONTENT_LEN {
             warn!(
@@ -92,6 +92,11 @@ impl MessageBus {
                 msg.content.len(),
                 MAX_INBOUND_CONTENT_LEN
             );
+            let mut truncate_pos = MAX_INBOUND_CONTENT_LEN;
+            while truncate_pos > 0 && !msg.content.is_char_boundary(truncate_pos) {
+                truncate_pos -= 1;
+            }
+            msg.content.truncate(truncate_pos);
         }
 
         let now = Instant::now();

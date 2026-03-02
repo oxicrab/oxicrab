@@ -50,13 +50,15 @@ impl GeminiProvider {
             .context("No candidates in Gemini response")?;
 
         let content = candidate["content"]["parts"].as_array().and_then(|parts| {
-            parts.iter().find_map(|p| {
-                if p["text"].is_string() {
-                    p["text"].as_str().map(std::string::ToString::to_string)
-                } else {
-                    None
-                }
-            })
+            let texts: Vec<String> = parts
+                .iter()
+                .filter_map(|p| p["text"].as_str().map(std::string::ToString::to_string))
+                .collect();
+            if texts.is_empty() {
+                None
+            } else {
+                Some(texts.join("\n\n"))
+            }
         });
 
         let mut tool_calls = Vec::new();
@@ -154,7 +156,10 @@ impl LLMProvider for GeminiProvider {
                 _ => "user",
             };
 
-            let mut parts = vec![json!({"text": msg.content})];
+            let mut parts = Vec::new();
+            if !msg.content.is_empty() {
+                parts.push(json!({"text": msg.content}));
+            }
             if msg.role == "user" {
                 for img in &msg.images {
                     parts.push(json!({
@@ -164,6 +169,21 @@ impl LLMProvider for GeminiProvider {
                         }
                     }));
                 }
+            }
+            if msg.role == "assistant"
+                && let Some(ref tool_calls) = msg.tool_calls
+            {
+                for tc in tool_calls {
+                    parts.push(json!({
+                        "functionCall": {
+                            "name": tc.name,
+                            "args": tc.arguments
+                        }
+                    }));
+                }
+            }
+            if parts.is_empty() {
+                parts.push(json!({"text": ""}));
             }
 
             gemini_contents.push(json!({

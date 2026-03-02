@@ -210,17 +210,21 @@ impl EventHandler for Handler {
 
         let sender_id = msg.author.id.to_string();
 
-        match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
-            DmCheckResult::Allowed => {}
-            DmCheckResult::PairingRequired { code } => {
-                let reply = format_pairing_reply("discord", &sender_id, &code);
-                if let Err(e) = msg.reply(&ctx.http, &reply).await {
-                    warn!("Failed to send pairing reply: {}", e);
+        // Skip DM access check for group/server messages
+        let is_group = msg.guild_id.is_some();
+        if !is_group {
+            match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
+                DmCheckResult::Allowed => {}
+                DmCheckResult::PairingRequired { code } => {
+                    let reply = format_pairing_reply("discord", &sender_id, &code);
+                    if let Err(e) = msg.reply(&ctx.http, &reply).await {
+                        warn!("Failed to send pairing reply: {}", e);
+                    }
+                    return;
                 }
-                return;
-            }
-            DmCheckResult::Denied => {
-                return;
+                DmCheckResult::Denied => {
+                    return;
+                }
             }
         }
 
@@ -299,8 +303,6 @@ impl EventHandler for Handler {
         }
 
         let mut metadata = HashMap::new();
-        // guild_id is present for server channels (groups), absent for DMs
-        let is_group = msg.guild_id.is_some();
         metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
         let inbound_msg = InboundMessage {
             channel: "discord".to_string(),

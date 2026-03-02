@@ -214,7 +214,7 @@ impl ExecTool {
             }
 
             // Check path-like tokens in the command for workspace escape
-            if let Some(err) = Self::check_paths_in_workspace(command, workspace) {
+            if let Some(err) = Self::check_paths_in_workspace(command, workspace, cwd) {
                 return Some(err);
             }
         }
@@ -222,28 +222,43 @@ impl ExecTool {
         None
     }
 
-    /// Extract absolute path tokens from a command and verify they resolve
-    /// inside the workspace. Returns an error message if any path escapes.
-    fn check_paths_in_workspace(command: &str, workspace: &Path) -> Option<String> {
+    /// Extract path tokens from a command and verify they resolve inside the
+    /// workspace. Checks both absolute paths and relative paths containing `..`.
+    fn check_paths_in_workspace(
+        command: &str,
+        workspace: &Path,
+        working_dir: &Path,
+    ) -> Option<String> {
         // Use shlex for proper shell-aware tokenization (handles quoting/escaping)
         let tokens = shlex::split(command).unwrap_or_default();
         for cleaned in &tokens {
-            if !cleaned.starts_with('/') || cleaned == "/" {
-                continue;
-            }
-            let path = Path::new(cleaned);
-            // Use canonicalize if the path exists (resolves symlinks).
-            // For non-existent paths, use lexical normalization to prevent
-            // symlink-based workspace escapes (canonicalize fails on non-existent
-            // paths, returning the raw path which could contain `..` components).
-            let resolved = path
-                .canonicalize()
-                .unwrap_or_else(|_| lexical_normalize(path));
-            if !resolved.starts_with(workspace) {
-                return Some(format!(
-                    "path '{}' is outside the workspace",
-                    crate::utils::path_sanitize::sanitize_path(Path::new(cleaned), Some(workspace))
-                ));
+            if cleaned.starts_with('/') && cleaned != "/" {
+                let path = Path::new(cleaned);
+                // Use canonicalize if the path exists (resolves symlinks).
+                // For non-existent paths, use lexical normalization to prevent
+                // symlink-based workspace escapes (canonicalize fails on non-existent
+                // paths, returning the raw path which could contain `..` components).
+                let resolved = path
+                    .canonicalize()
+                    .unwrap_or_else(|_| lexical_normalize(path));
+                if !resolved.starts_with(workspace) {
+                    return Some(format!(
+                        "path '{}' is outside the workspace",
+                        crate::utils::path_sanitize::sanitize_path(
+                            Path::new(cleaned),
+                            Some(workspace),
+                        )
+                    ));
+                }
+            } else if cleaned.contains("..") {
+                // Check for relative path traversal
+                let resolved = working_dir.join(cleaned);
+                let canonical = resolved
+                    .canonicalize()
+                    .unwrap_or_else(|_| lexical_normalize(&resolved));
+                if !canonical.starts_with(workspace) {
+                    return Some(format!("path '{}' resolves outside workspace", cleaned));
+                }
             }
         }
         None
