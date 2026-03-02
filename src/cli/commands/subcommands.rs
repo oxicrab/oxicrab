@@ -9,15 +9,8 @@ use tokio::sync::Mutex;
 
 use crate::config::load_config;
 
-pub(super) async fn agent(
-    message: Option<String>,
-    session: String,
-    provider: Option<String>,
-) -> Result<()> {
-    let mut config = load_config(None)?;
-    if let Some(ref p) = provider {
-        config.agents.defaults.provider = Some(p.clone());
-    }
+pub(super) async fn agent(message: Option<String>, session: String) -> Result<()> {
+    let config = load_config(None)?;
     config.validate()?;
 
     let provider = config.create_provider(None)?;

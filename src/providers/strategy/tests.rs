@@ -142,15 +142,6 @@ fn factory_with_config(providers: &ProvidersConfig) -> ProviderFactory {
     ProviderFactory {
         providers_config: providers.clone(),
         oauth_config: providers.anthropic_oauth.clone(),
-        explicit_provider: None,
-    }
-}
-
-fn factory_with_explicit(providers: &ProvidersConfig, explicit: &str) -> ProviderFactory {
-    ProviderFactory {
-        providers_config: providers.clone(),
-        oauth_config: providers.anthropic_oauth.clone(),
-        explicit_provider: Some(explicit.to_string()),
     }
 }
 
@@ -199,26 +190,6 @@ fn test_deepseek_no_api_key_errors() {
     let factory = factory_with_config(&ProvidersConfig::default());
     let result = factory.create_provider("deepseek-chat");
     assert!(result.is_err());
-}
-
-#[test]
-fn test_model_prefix_overrides_explicit_provider() {
-    let mut config = ProvidersConfig::default();
-    config.groq.api_key = "gsk-test".to_string();
-    // Model has groq/ prefix, explicit provider says anthropic.
-    // Prefix is a per-model override and should win.
-    let factory = factory_with_explicit(&config, "anthropic");
-    let provider = factory.create_provider("groq/some-model").unwrap();
-    assert_eq!(provider.default_model(), "some-model");
-}
-
-#[test]
-fn test_explicit_provider_with_unprefixed_model() {
-    let mut config = ProvidersConfig::default();
-    config.anthropic.api_key = "sk-ant-test".to_string();
-    let factory = factory_with_explicit(&config, "anthropic");
-    let provider = factory.create_provider("my-custom-fine-tune").unwrap();
-    assert_eq!(provider.default_model(), "my-custom-fine-tune");
 }
 
 #[test]
@@ -282,22 +253,6 @@ fn test_get_provider_config_all_known() {
         );
     }
     assert!(factory.get_provider_config("nonexistent").is_none());
-}
-
-#[test]
-fn test_meta_llama_with_explicit_ollama() {
-    let factory = factory_with_explicit(&ProvidersConfig::default(), "ollama");
-    let provider = factory.create_provider("meta-llama/Llama-3.3-70B").unwrap();
-    assert_eq!(provider.default_model(), "meta-llama/Llama-3.3-70B");
-}
-
-#[test]
-fn test_provider_alias_claude() {
-    let mut config = ProvidersConfig::default();
-    config.anthropic.api_key = "sk-ant-test".to_string();
-    let factory = factory_with_explicit(&config, "claude");
-    let provider = factory.create_provider("my-model").unwrap();
-    assert_eq!(provider.default_model(), "my-model");
 }
 
 #[test]

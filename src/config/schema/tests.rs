@@ -316,27 +316,10 @@ fn test_collect_secrets_returns_non_empty_and_includes_custom_headers() {
 // -----------------------------------------------------------------------
 
 #[test]
-fn test_prompt_guided_tools_explicit_ollama_provider() {
-    let mut config = Config::default();
-    config.agents.defaults.provider = Some("ollama".to_string());
-    config.providers.ollama.prompt_guided_tools = true;
-    assert!(config.should_use_prompt_guided_tools("llama3"));
-}
-
-#[test]
 fn test_prompt_guided_tools_prefix_notation() {
     let mut config = Config::default();
     config.providers.ollama.prompt_guided_tools = true;
     // No explicit provider set; prefix notation should be detected
-    assert!(config.should_use_prompt_guided_tools("ollama/llama3"));
-}
-
-#[test]
-fn test_prompt_guided_tools_prefix_overrides_explicit_provider() {
-    let mut config = Config::default();
-    config.agents.defaults.provider = Some("anthropic".to_string());
-    config.providers.ollama.prompt_guided_tools = true;
-    // Even with explicit provider set to anthropic, ollama/ prefix should win
     assert!(config.should_use_prompt_guided_tools("ollama/llama3"));
 }
 
