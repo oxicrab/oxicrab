@@ -177,8 +177,9 @@ impl BaseChannel for WhatsAppChannel {
                                     };
 
                                     // Check access based on dmPolicy — try phone number first, then chat_id
+                                    // Reuse the first result if it's Allowed or PairingRequired
                                     let access = check_dm_access(&phone_number, &config_allow, "whatsapp", &dm_policy);
-                                    let access = if matches!(access, DmCheckResult::Allowed) {
+                                    let access = if matches!(access, DmCheckResult::Allowed | DmCheckResult::PairingRequired { .. }) {
                                         access
                                     } else {
                                         check_dm_access(&chat_id, &config_allow, "whatsapp", &dm_policy)
@@ -286,10 +287,28 @@ impl BaseChannel for WhatsAppChannel {
                                     info!("WhatsApp message from sender={}, chat_id={}, content={}...",
                                         sender, chat_id, preview);
 
+                                    // Strip device ID from JID for consistent session keys
+                                    // e.g. "15037348571:20@s.whatsapp.net" -> "15037348571@s.whatsapp.net"
+                                    let session_chat_id = if sender.contains('@') {
+                                        let parts: Vec<&str> = sender.split('@').collect();
+                                        if parts.len() == 2 {
+                                            let user_part = if parts[0].contains(':') {
+                                                parts[0].split(':').next().unwrap_or(parts[0])
+                                            } else {
+                                                parts[0]
+                                            };
+                                            format!("{}@{}", user_part, parts[1])
+                                        } else {
+                                            sender.clone()
+                                        }
+                                    } else {
+                                        sender.clone()
+                                    };
+
                                     let inbound_msg = InboundMessage {
                                         channel: "whatsapp".to_string(),
                                         sender_id: chat_id.clone(),
-                                        chat_id: sender.clone(),
+                                        chat_id: session_chat_id,
                                         content,
                                         timestamp: Utc::now(),
                                         media: media_paths,

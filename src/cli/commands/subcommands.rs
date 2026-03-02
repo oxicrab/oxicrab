@@ -158,8 +158,14 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                 }
             } else if let Some(at_str) = at {
                 let dt = chrono::DateTime::parse_from_rfc3339(&at_str)
-                    .or_else(|_| chrono::DateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M:%S"))
-                    .context("Invalid date format. Use ISO 8601 or YYYY-MM-DD HH:MM:SS")?;
+                    .map(|d| d.to_utc())
+                    .or_else(|_| {
+                        chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M:%S")
+                            .map(|ndt| ndt.and_utc())
+                    })
+                    .context(
+                        "Invalid date format. Use ISO 8601 or YYYY-MM-DD HH:MM:SS (assumed UTC)",
+                    )?;
                 CronSchedule::At {
                     at_ms: Some(dt.timestamp_millis()),
                 }
@@ -249,8 +255,14 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                 })
             } else if let Some(at_str) = at {
                 let dt = chrono::DateTime::parse_from_rfc3339(&at_str)
-                    .or_else(|_| chrono::DateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M:%S"))
-                    .context("Invalid date format. Use ISO 8601 or YYYY-MM-DD HH:MM:SS")?;
+                    .map(|d| d.to_utc())
+                    .or_else(|_| {
+                        chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M:%S")
+                            .map(|ndt| ndt.and_utc())
+                    })
+                    .context(
+                        "Invalid date format. Use ISO 8601 or YYYY-MM-DD HH:MM:SS (assumed UTC)",
+                    )?;
                 Some(CronSchedule::At {
                     at_ms: Some(dt.timestamp_millis()),
                 })

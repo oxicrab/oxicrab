@@ -19,8 +19,7 @@ impl ActivityLog {
     /// Create a new activity log. Returns `None` if the log directory or file
     /// cannot be created (non-fatal — subagent proceeds without logging).
     pub fn new(task_id: &str) -> Option<Self> {
-        let home = dirs::home_dir()?;
-        let log_dir = home.join(".oxicrab/logs");
+        let log_dir = crate::utils::get_oxicrab_home().ok()?.join("logs");
         if let Err(e) = fs::create_dir_all(&log_dir) {
             warn!(
                 "failed to create subagent log directory {:?}: {}",

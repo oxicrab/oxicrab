@@ -273,31 +273,43 @@ impl EventHandler for Handler {
                 MAX_AUDIO_DOWNLOAD
             };
             match self.http_client.get(&attachment.url).send().await {
-                Ok(resp) => match resp.bytes().await {
-                    Ok(bytes) => {
-                        if bytes.len() > max_size {
-                            warn!(
-                                "Discord {} too large ({} bytes, max {}), skipping",
-                                tag,
-                                bytes.len(),
-                                max_size
-                            );
-                            continue;
-                        }
-                        let fp = file_path.clone();
-                        if let Err(e) =
-                            tokio::task::spawn_blocking(move || std::fs::write(&fp, &bytes))
-                                .await
-                                .unwrap_or_else(|e| Err(std::io::Error::other(e)))
-                        {
-                            warn!("Failed to write Discord media file: {}", e);
-                        }
-                        let path_str = file_path.to_string_lossy().to_string();
-                        media_paths.push(path_str.clone());
-                        content = format!("{}\n[{}: {}]", content, tag, path_str);
+                Ok(resp) => {
+                    // Pre-check Content-Length before downloading the full body
+                    if let Some(len) = resp.content_length()
+                        && len > max_size as u64
+                    {
+                        warn!(
+                            "Discord {} too large ({} bytes, max {}), skipping",
+                            tag, len, max_size
+                        );
+                        continue;
                     }
-                    Err(e) => warn!("Failed to download Discord attachment: {}", e),
-                },
+                    match resp.bytes().await {
+                        Ok(bytes) => {
+                            if bytes.len() > max_size {
+                                warn!(
+                                    "Discord {} too large ({} bytes, max {}), skipping",
+                                    tag,
+                                    bytes.len(),
+                                    max_size
+                                );
+                                continue;
+                            }
+                            let fp = file_path.clone();
+                            if let Err(e) =
+                                tokio::task::spawn_blocking(move || std::fs::write(&fp, &bytes))
+                                    .await
+                                    .unwrap_or_else(|e| Err(std::io::Error::other(e)))
+                            {
+                                warn!("Failed to write Discord media file: {}", e);
+                            }
+                            let path_str = file_path.to_string_lossy().to_string();
+                            media_paths.push(path_str.clone());
+                            content = format!("{}\n[{}: {}]", content, tag, path_str);
+                        }
+                        Err(e) => warn!("Failed to download Discord attachment: {}", e),
+                    }
+                }
                 Err(e) => warn!("Failed to download Discord attachment: {}", e),
             }
         }

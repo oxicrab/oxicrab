@@ -172,10 +172,14 @@ impl SlackChannel {
 
     async fn send_slack_api(&self, method: &str, params: &HashMap<&str, Value>) -> Result<Value> {
         let url = format!("https://slack.com/api/{}", method);
-        let mut form = params.clone();
-        form.insert("token", Value::String(self.config.bot_token.clone()));
 
-        let response = self.client.post(&url).form(&form).send().await?;
+        let response = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.config.bot_token))
+            .form(params)
+            .send()
+            .await?;
 
         let json: Value = response.json().await?;
         if json.get("ok").and_then(Value::as_bool) != Some(true) {
@@ -674,6 +678,17 @@ async fn download_slack_file(
                 "Slack file download failed: status={}, content-type={}",
                 status,
                 content_type
+            ));
+        }
+
+        // Pre-check Content-Length before downloading the full body
+        if let Some(len) = resp.content_length()
+            && len > MAX_AUDIO_DOWNLOAD as u64
+        {
+            return Err(anyhow::anyhow!(
+                "Slack file too large ({} bytes, max {})",
+                len,
+                MAX_AUDIO_DOWNLOAD
             ));
         }
 
