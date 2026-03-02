@@ -47,20 +47,22 @@ impl PromptGuard {
     pub fn new() -> Self {
         let pattern_defs: Vec<(InjectionCategory, &str, &str)> = vec![
             // Role switching
+            // (?is) = case-insensitive + dotall (`.` matches `\n`) to prevent
+            // multi-line bypass where attacker splits injection across lines.
             (
                 InjectionCategory::RoleSwitch,
                 "ignore_previous",
-                r"(?i)\b(?:ignore|disregard|forget)\b.{0,50}\b(?:previous|above|prior|all)\b.{0,50}\b(?:instructions?|prompts?|rules?|guidelines?)\b",
+                r"(?is)\b(?:ignore|disregard|forget)\b.{0,50}\b(?:previous|above|prior|all)\b.{0,50}\b(?:instructions?|prompts?|rules?|guidelines?)\b",
             ),
             (
                 InjectionCategory::RoleSwitch,
                 "you_are_now",
-                r"(?i)\byou are now\b.{0,50}\b(?:acting as|pretending|roleplaying|playing|a new)\b",
+                r"(?is)\byou are now\b.{0,50}\b(?:acting as|pretending|roleplaying|playing|a new)\b",
             ),
             (
                 InjectionCategory::RoleSwitch,
                 "new_persona",
-                r"(?i)\b(?:from now on|henceforth)\b.{0,50}\b(?:you are|act as|behave as|respond as)\b",
+                r"(?is)\b(?:from now on|henceforth)\b.{0,50}\b(?:you are|act as|behave as|respond as)\b",
             ),
             // Instruction override
             (
@@ -71,18 +73,18 @@ impl PromptGuard {
             (
                 InjectionCategory::InstructionOverride,
                 "override_system",
-                r"(?i)\b(?:override|replace|overwrite)\b.{0,50}\b(?:system|original|initial)\b.{0,50}\b(?:prompt|instructions?|rules?)\b",
+                r"(?is)\b(?:override|replace|overwrite)\b.{0,50}\b(?:system|original|initial)\b.{0,50}\b(?:prompt|instructions?|rules?)\b",
             ),
             // Secret extraction
             (
                 InjectionCategory::SecretExtraction,
                 "reveal_prompt",
-                r"(?i)\b(?:repeat|show|display|output|print|reveal|tell me)\b.{0,50}\b(?:your|the|its|system)\s+(?:system prompt|instructions?|initial prompt|rules|guidelines)\b",
+                r"(?is)\b(?:repeat|show|display|output|print|reveal|tell me)\b.{0,50}\b(?:your|the|its|system)\s+(?:system prompt|instructions?|initial prompt|rules|guidelines)\b",
             ),
             (
                 InjectionCategory::SecretExtraction,
                 "what_are_your",
-                r"(?i)\bwhat (?:are|is|were) your\b.{0,50}\b(?:instructions?|rules?|system prompt|guidelines)\b",
+                r"(?is)\bwhat (?:are|is|were) your\b.{0,50}\b(?:instructions?|rules?|system prompt|guidelines)\b",
             ),
             // Jailbreak patterns
             (

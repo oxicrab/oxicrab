@@ -1027,7 +1027,9 @@ impl AgentLoop {
         // (compaction saves a compaction_summary to session metadata)
         let mut session = self.sessions.get_or_create(&session_key).await?;
         let extra = HashMap::new();
-        session.add_message("user".to_string(), msg.content.clone(), extra.clone());
+        // Use the redacted content (msg_content), not the original (msg.content),
+        // so that secrets detected by inbound scanning are not persisted to disk.
+        session.add_message("user".to_string(), content.clone(), extra.clone());
         // Always save an assistant message to maintain user/assistant alternation.
         // Broken alternation causes the Anthropic provider to merge consecutive user
         // messages, which garbles conversation context for future turns.
@@ -1064,7 +1066,7 @@ impl AgentLoop {
         {
             let compactor = compactor.clone();
             let memory = self.memory.clone();
-            let user_msg = msg.content.clone();
+            let user_msg = content.clone();
             let assistant_msg = assistant_content.clone();
             let task_tracker = self.task_tracker.clone();
             let task_name = format!("fact_extraction_{}", chrono::Utc::now().timestamp());
@@ -2080,7 +2082,8 @@ impl AgentLoop {
                             );
                             if let Err(e) = self.sessions.save(&latest).await {
                                 warn!(
-                                    "failed to persist compaction summary: {}, will retry next cycle",
+                                    "failed to persist compaction summary: {} — next compaction \
+                                     may re-summarize the same messages",
                                     e
                                 );
                             }

@@ -780,10 +780,11 @@ async fn handle_slack_event(
             return Ok(());
         }
         seen.insert(msg_key.clone());
-        // Evict oldest entries when set grows too large (keep ~500 most recent).
-        // IndexSet preserves insertion order, so drain from the front.
-        if seen.len() > 1000 {
-            let drain_count = seen.len() - 500;
+        // Evict oldest entries when set grows too large (keep ~5000 most
+        // recent). Higher retain count reduces the replay window in burst
+        // scenarios where rapid eviction could allow reprocessing.
+        if seen.len() > 5500 {
+            let drain_count = seen.len() - 5000;
             seen.drain(..drain_count);
             debug!("Pruned Slack dedup set to {} entries", seen.len());
         }

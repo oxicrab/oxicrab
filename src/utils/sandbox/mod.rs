@@ -165,6 +165,27 @@ pub fn apply_to_command(
     Ok(())
 }
 
+/// Escape a path string for use inside an SBPL double-quoted string.
+/// Handles backslash, double-quote, and SBPL S-expression metacharacters
+/// (parentheses, semicolons) that could inject profile statements.
+#[cfg(target_os = "macos")]
+fn escape_sbpl_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            // SBPL metacharacters that must not appear unescaped in strings
+            '(' | ')' | ';' => {
+                out.push('\\');
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// Build a macOS Seatbelt (SBPL) profile string from sandbox rules.
 #[cfg(target_os = "macos")]
 fn build_seatbelt_profile(rules: &SandboxRules) -> String {
@@ -196,7 +217,7 @@ fn build_seatbelt_profile(rules: &SandboxRules) -> String {
 
     // Read-only paths from rules (includes /usr, /lib, /bin, /sbin, /etc)
     for path in &rules.read_only_paths {
-        let escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
+        let escaped = escape_sbpl_string(path);
         let _ = writeln!(p, "(allow file-read* (subpath \"{escaped}\"))");
     }
 
@@ -214,7 +235,7 @@ fn build_seatbelt_profile(rules: &SandboxRules) -> String {
 
     // Read-write paths from rules (includes workspace, /tmp, /var/tmp)
     for path in &rules.read_write_paths {
-        let escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
+        let escaped = escape_sbpl_string(path);
         let _ = writeln!(p, "(allow file-read* file-write* (subpath \"{escaped}\"))");
     }
 

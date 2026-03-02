@@ -163,7 +163,14 @@ async fn api_key_auth(
     let provided = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
+        .and_then(|v| {
+            // RFC 7235: token type is case-insensitive
+            if v.len() > 7 && v[..7].eq_ignore_ascii_case("bearer ") {
+                Some(&v[7..])
+            } else {
+                None
+            }
+        })
         .or_else(|| headers.get("x-api-key").and_then(|v| v.to_str().ok()));
 
     match provided {

@@ -698,6 +698,7 @@ impl Config {
             ("sonarr_api_key", &self.tools.media.sonarr.api_key),
             ("transcription_api_key", &self.voice.transcription.api_key),
             ("twilio_account_sid", &self.channels.twilio.account_sid),
+            ("gateway_api_key", &self.gateway.api_key),
         ];
         for &(name, value) in candidates {
             if !value.is_empty() {
