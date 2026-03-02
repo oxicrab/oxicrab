@@ -180,7 +180,7 @@ pub struct ProvidersConfig {
 impl ProvidersConfig {
     /// Get the API key for a given model by resolving the provider name.
     ///
-    /// Uses the same 3-tier resolution as `ProviderFactory`: explicit prefix,
+    /// Uses the same 2-tier resolution as `ProviderFactory`: prefix notation,
     /// model-name inference, then fallback to first available key.
     pub fn get_api_key(&self, model: &str) -> Option<&str> {
         use crate::providers::strategy::{infer_provider_from_model, parse_model_ref};

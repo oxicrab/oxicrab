@@ -103,18 +103,16 @@ pub fn infer_provider_from_model(model: &str) -> Option<&'static str> {
 }
 
 // ---------------------------------------------------------------------------
-// Provider factory — 3-tier resolution
+// Provider factory — 2-tier resolution
 // ---------------------------------------------------------------------------
 
-/// Provider factory using 3-tier resolution:
+/// Provider factory using 2-tier resolution:
 ///
-/// 1. **Explicit provider** — `agents.defaults.provider` in config or `--provider` CLI flag
-/// 2. **Prefix notation** — `provider/model` syntax (e.g. `groq/llama-3.1-70b`)
-/// 3. **Model-name inference** — known prefixes like `claude-*` → Anthropic
+/// 1. **Prefix notation** — `provider/model` syntax (e.g. `groq/llama-3.1-70b`)
+/// 2. **Model-name inference** — known prefixes like `claude-*` → Anthropic
 pub struct ProviderFactory {
     providers_config: ProvidersConfig,
     oauth_config: AnthropicOAuthConfig,
-    explicit_provider: Option<String>,
 }
 
 impl ProviderFactory {
@@ -122,26 +120,20 @@ impl ProviderFactory {
         Self {
             providers_config: config.providers.clone(),
             oauth_config: config.providers.anthropic_oauth.clone(),
-            explicit_provider: config.agents.defaults.provider.clone(),
         }
     }
 
     pub fn create_provider(&self, model: &str) -> Result<Arc<dyn LLMProvider>> {
         // Step 1: Parse model reference for prefix notation
         let model_ref = parse_model_ref(model);
-
-        // Step 2: Determine effective provider (prefix > explicit > inference)
-        // Model prefix (e.g. "ollama/qwen3") takes priority over the global
-        // explicit provider setting — the prefix is a per-model override.
-        let effective_provider = model_ref.provider.or(self.explicit_provider.as_deref());
         let bare_model = model_ref.model;
 
-        // Step 3: If we have an explicit/prefix provider, route directly
-        if let Some(provider_name) = effective_provider {
+        // Step 2: If prefix notation matched, route directly
+        if let Some(provider_name) = model_ref.provider {
             return self.create_for_provider(provider_name, bare_model);
         }
 
-        // Step 4: Convenience fallback — infer from model name patterns
+        // Step 3: Convenience fallback — infer from model name patterns
         if let Some(inferred) = infer_provider_from_model(bare_model) {
             return self.create_for_provider(inferred, bare_model);
         }

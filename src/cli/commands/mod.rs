@@ -35,9 +35,6 @@ enum Commands {
     Gateway {
         #[arg(long)]
         model: Option<String>,
-        /// Override the LLM provider (e.g. anthropic, openai, groq, ollama)
-        #[arg(long)]
-        provider: Option<String>,
         /// Echo mode: test channel connectivity without an LLM
         #[arg(long)]
         echo: bool,
@@ -48,9 +45,6 @@ enum Commands {
         message: Option<String>,
         #[arg(short, long, default_value = "cli:default")]
         session: String,
-        /// Override the LLM provider (e.g. anthropic, openai, groq, ollama)
-        #[arg(long)]
-        provider: Option<String>,
     },
     /// Manage cron jobs
     Cron {
@@ -259,23 +253,15 @@ pub async fn run() -> Result<()> {
         Commands::Onboard => {
             onboard()?;
         }
-        Commands::Gateway {
-            model,
-            provider,
-            echo,
-        } => {
+        Commands::Gateway { model, echo } => {
             if echo {
                 gateway_echo().await?;
             } else {
-                gateway(model, provider).await?;
+                gateway(model).await?;
             }
         }
-        Commands::Agent {
-            message,
-            session,
-            provider,
-        } => {
-            subcommands::agent(message, session, provider).await?;
+        Commands::Agent { message, session } => {
+            subcommands::agent(message, session).await?;
         }
         Commands::Cron { cmd } => {
             subcommands::cron_command(cmd).await?;
@@ -479,12 +465,9 @@ This file stores important information that should persist across sessions.
     Ok(())
 }
 
-async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> {
+async fn gateway(model: Option<String>) -> Result<()> {
     info!("Loading configuration...");
-    let mut config = load_config(None)?;
-    if let Some(ref p) = provider {
-        config.agents.defaults.provider = Some(p.clone());
-    }
+    let config = load_config(None)?;
     let effective_model = model.as_deref().unwrap_or(&config.agents.defaults.model);
     info!("Configuration loaded. Using model: {}", effective_model);
     debug!("Workspace: {:?}", config.workspace_path());

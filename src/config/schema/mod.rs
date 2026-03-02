@@ -703,8 +703,8 @@ impl Config {
 
     /// Create an LLM provider instance based on configuration.
     ///
-    /// Uses a 3-tier resolution strategy: explicit provider field → prefix
-    /// notation → model-name inference.
+    /// Uses a 2-tier resolution strategy: prefix notation → model-name
+    /// inference.
     pub fn create_provider(
         &self,
         model: Option<&str>,
@@ -779,16 +779,6 @@ impl Config {
         let model_ref = parse_model_ref(model);
         if let Some(prefix_provider) = model_ref.provider {
             let normalized = normalize_provider(prefix_provider);
-            return match normalized.as_ref() {
-                "ollama" => self.providers.ollama.prompt_guided_tools,
-                "vllm" => self.providers.vllm.prompt_guided_tools,
-                _ => false,
-            };
-        }
-
-        // Check explicit provider field
-        if let Some(ref provider) = self.agents.defaults.provider {
-            let normalized = normalize_provider(provider);
             return match normalized.as_ref() {
                 "ollama" => self.providers.ollama.prompt_guided_tools,
                 "vllm" => self.providers.vllm.prompt_guided_tools,

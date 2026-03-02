@@ -425,10 +425,6 @@ pub struct AgentDefaults {
     pub workspace: String,
     #[serde(default = "default_model")]
     pub model: String,
-    /// Explicit LLM provider override. When set, bypasses model-name inference.
-    /// Examples: "anthropic", "openai", "groq", "ollama"
-    #[serde(default)]
-    pub provider: Option<String>,
     #[serde(default = "default_max_tokens", rename = "maxTokens")]
     pub max_tokens: u32,
     #[serde(default = "default_temperature")]
@@ -476,7 +472,6 @@ impl Default for AgentDefaults {
         Self {
             workspace: default_workspace(),
             model: default_model(),
-            provider: None,
             max_tokens: default_max_tokens(),
             temperature: default_temperature(),
             max_tool_iterations: default_max_tool_iterations(),

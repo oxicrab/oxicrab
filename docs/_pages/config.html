@@ -52,23 +52,21 @@ max_width: 820px
     <!-- MODELS -->
     <div id="models" class="cfg-section">
         <h2>Model Routing</h2>
-        <p>oxicrab uses a 3-tier resolution strategy to determine which LLM provider handles a model:</p>
+        <p>oxicrab uses a 2-tier resolution strategy to determine which LLM provider handles a model:</p>
         <ol>
-            <li><strong>Explicit provider</strong> &mdash; <code>"provider": "anthropic"</code> in config or <code>--provider anthropic</code> on CLI</li>
             <li><strong>Prefix notation</strong> &mdash; <code>"model": "groq/llama-3.1-70b"</code> (provider before <code>/</code>, stripped before API call)</li>
             <li><strong>Auto-detection</strong> &mdash; Known model name prefixes: <code>claude-*</code> &rarr; Anthropic, <code>gpt-*</code>/<code>o1</code>/<code>o3</code> &rarr; OpenAI, <code>gemini-*</code> &rarr; Gemini, <code>deepseek-*</code> &rarr; DeepSeek</li>
         </ol>
 
         <h3 id="routing-examples">Routing Resolution Table</h3>
         <table class="cfg-table">
-            <tr><th>Model value</th><th>Provider field</th><th>Resolved provider</th><th>API model sent</th></tr>
-            <tr><td><code>claude-sonnet-4-5-20250929</code></td><td>(empty)</td><td>anthropic (auto)</td><td><code>claude-sonnet-4-5-20250929</code></td></tr>
-            <tr><td><code>anthropic/claude-opus-4-6</code></td><td>(empty)</td><td>anthropic (prefix)</td><td><code>claude-opus-4-6</code></td></tr>
-            <tr><td><code>groq/llama-3.1-70b</code></td><td>(empty)</td><td>groq (prefix)</td><td><code>llama-3.1-70b</code></td></tr>
-            <tr><td><code>ollama/qwen3-coder:30b</code></td><td>(empty)</td><td>ollama (prefix)</td><td><code>qwen3-coder:30b</code></td></tr>
-            <tr><td><code>my-fine-tune-v2</code></td><td><code>anthropic</code></td><td>anthropic (explicit)</td><td><code>my-fine-tune-v2</code></td></tr>
-            <tr><td><code>meta-llama/Llama-3.3-70B</code></td><td><code>ollama</code></td><td>ollama (explicit)</td><td><code>meta-llama/Llama-3.3-70B</code></td></tr>
-            <tr><td><code>deepseek-chat</code></td><td>(empty)</td><td>deepseek (auto)</td><td><code>deepseek-chat</code></td></tr>
+            <tr><th>Model value</th><th>Resolved provider</th><th>API model sent</th></tr>
+            <tr><td><code>claude-sonnet-4-5-20250929</code></td><td>anthropic (auto)</td><td><code>claude-sonnet-4-5-20250929</code></td></tr>
+            <tr><td><code>anthropic/claude-opus-4-6</code></td><td>anthropic (prefix)</td><td><code>claude-opus-4-6</code></td></tr>
+            <tr><td><code>groq/llama-3.1-70b</code></td><td>groq (prefix)</td><td><code>llama-3.1-70b</code></td></tr>
+            <tr><td><code>ollama/qwen3-coder:30b</code></td><td>ollama (prefix)</td><td><code>qwen3-coder:30b</code></td></tr>
+            <tr><td><code>ollama/meta-llama/Llama-3.3-70B</code></td><td>ollama (prefix)</td><td><code>meta-llama/Llama-3.3-70B</code></td></tr>
+            <tr><td><code>deepseek-chat</code></td><td>deepseek (auto)</td><td><code>deepseek-chat</code></td></tr>
         </table>
 
         <h3 id="api-key-models">API Key Models</h3>
@@ -97,20 +95,8 @@ max_width: 820px
 
         <p><strong>Prompt caching:</strong> Anthropic providers automatically use <code>cache_control</code> on system messages and tool definitions, enabling up to 90% input token cost reduction for repeated content (5-minute TTL).</p>
 
-        <h3 id="explicit-provider">Explicit Provider Override</h3>
-        <p>For custom or fine-tuned models whose names don't match a known pattern, set the <code>provider</code> field explicitly:</p>
-        <pre><code>{
-  "agents": {
-    "defaults": {
-      "model": "my-custom-fine-tune",
-      "provider": "anthropic"
-    }
-  }
-}</code></pre>
-        <p>This is also useful for models with slashes that aren't provider prefixes (e.g. <code>meta-llama/Llama-3.3-70B</code> with <code>"provider": "ollama"</code>). The <code>--provider</code> CLI flag provides the same override per-invocation.</p>
-
         <h3 id="supported-providers">Supported Providers</h3>
-        <p>The following providers are supported. Use prefix notation (e.g. <code>groq/llama-3.1-70b</code>) or the explicit <code>provider</code> field to route to them:</p>
+        <p>The following providers are supported. Use prefix notation (e.g. <code>groq/llama-3.1-70b</code>) to route to them:</p>
         <pre><code>{
   "agents": {
     "defaults": {
