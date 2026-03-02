@@ -196,6 +196,11 @@
       "enabled": false,
       "agentName": "",
       "agentDescription": ""
+    },
+    "rateLimit": {
+      "enabled": false,
+      "requestsPerSecond": 10,
+      "burst": 20
     }
   },
   "tools": {

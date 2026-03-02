@@ -85,6 +85,34 @@ fn default_port() -> u16 {
     18790
 }
 
+fn default_rps() -> u32 {
+    10
+}
+
+fn default_burst() -> u32 {
+    20
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_rps", rename = "requestsPerSecond")]
+    pub requests_per_second: u32,
+    #[serde(default = "default_burst")]
+    pub burst: u32,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            requests_per_second: default_rps(),
+            burst: default_burst(),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
     #[serde(default = "default_true")]
@@ -103,6 +131,8 @@ pub struct GatewayConfig {
     pub webhooks: HashMap<String, WebhookConfig>,
     #[serde(default)]
     pub a2a: A2aConfig,
+    #[serde(default, rename = "rateLimit")]
+    pub rate_limit: RateLimitConfig,
 }
 
 impl std::fmt::Debug for GatewayConfig {
@@ -121,6 +151,7 @@ impl std::fmt::Debug for GatewayConfig {
             )
             .field("webhooks", &self.webhooks)
             .field("a2a", &self.a2a)
+            .field("rate_limit", &self.rate_limit)
             .finish()
     }
 }
@@ -134,6 +165,7 @@ impl Default for GatewayConfig {
             api_key: String::new(),
             webhooks: HashMap::new(),
             a2a: A2aConfig::default(),
+            rate_limit: RateLimitConfig::default(),
         }
     }
 }
@@ -390,6 +422,16 @@ impl Config {
                  send commands to the agent. set gateway.apiKey to secure the endpoint",
                 self.gateway.host
             );
+        }
+        if self.gateway.rate_limit.enabled && self.gateway.rate_limit.requests_per_second == 0 {
+            return Err(OxicrabError::Config(
+                "gateway.rateLimit.requestsPerSecond must be > 0 when enabled".into(),
+            ));
+        }
+        if self.gateway.rate_limit.enabled && self.gateway.rate_limit.burst == 0 {
+            return Err(OxicrabError::Config(
+                "gateway.rateLimit.burst must be > 0 when enabled".into(),
+            ));
         }
         Ok(())
     }

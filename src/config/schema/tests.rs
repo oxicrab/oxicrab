@@ -991,3 +991,31 @@ fn test_config_example_is_up_to_date() {
         diffs.join("\n")
     );
 }
+
+// -----------------------------------------------------------------------
+// RateLimitConfig
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_rate_limit_config_defaults() {
+    let config = Config::default();
+    assert!(!config.gateway.rate_limit.enabled);
+    assert_eq!(config.gateway.rate_limit.requests_per_second, 10);
+    assert_eq!(config.gateway.rate_limit.burst, 20);
+}
+
+#[test]
+fn test_rate_limit_invalid_zero_rps() {
+    let mut config = Config::default();
+    config.gateway.rate_limit.enabled = true;
+    config.gateway.rate_limit.requests_per_second = 0;
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_rate_limit_invalid_zero_burst() {
+    let mut config = Config::default();
+    config.gateway.rate_limit.enabled = true;
+    config.gateway.rate_limit.burst = 0;
+    assert!(config.validate().is_err());
+}

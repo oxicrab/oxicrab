@@ -546,6 +546,7 @@ async fn gateway(model: Option<String>, provider: Option<String>) -> Result<()> 
             config.gateway.webhooks.clone(),
             a2a_config,
             api_key,
+            &config.gateway.rate_limit,
         )
         .await?;
         Some(state)
@@ -616,6 +617,7 @@ async fn gateway_echo() -> Result<()> {
             config.gateway.webhooks.clone(),
             None, // A2A not available in echo mode
             api_key,
+            &config.gateway.rate_limit,
         )
         .await?;
         drop(http_task);
