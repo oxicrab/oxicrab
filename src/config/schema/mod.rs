@@ -663,6 +663,31 @@ impl Config {
         let model = model.unwrap_or(&self.agents.defaults.model);
         let factory = ProviderFactory::new(self);
 
+        // Build fallback chain from modelRouting.fallbacks (takes precedence over localModel)
+        let routing = &self.agents.defaults.model_routing;
+        if !routing.fallbacks.is_empty() {
+            let primary = factory.create_provider(model)?;
+            let primary_model = model.to_string();
+            let mut chain = vec![(primary, primary_model)];
+            for fb_model in &routing.fallbacks {
+                let mut fb_provider = factory.create_provider(fb_model)?;
+                if self.should_use_prompt_guided_tools(fb_model) {
+                    fb_provider = crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(
+                        fb_provider,
+                    );
+                }
+                chain.push((fb_provider, fb_model.clone()));
+            }
+            let provider: std::sync::Arc<dyn crate::providers::base::LLMProvider> =
+                std::sync::Arc::new(crate::providers::fallback::FallbackProvider::new(chain));
+            if self.should_use_prompt_guided_tools(model) {
+                return Ok(
+                    crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(provider),
+                );
+            }
+            return Ok(provider);
+        }
+
         if let Some(ref local_model) = self.agents.defaults.local_model
             && !local_model.is_empty()
         {
