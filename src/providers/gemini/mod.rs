@@ -49,14 +49,23 @@ impl GeminiProvider {
             .and_then(|arr| arr.first())
             .context("No candidates in Gemini response")?;
 
+        // Detect safety-filtered or blocked responses
+        if let Some(reason) = candidate["finishReason"].as_str()
+            && matches!(reason, "SAFETY" | "BLOCKED" | "RECITATION")
+        {
+            anyhow::bail!("Gemini response blocked (finishReason: {})", reason);
+        }
+
         let content = candidate["content"]["parts"].as_array().and_then(|parts| {
-            parts.iter().find_map(|p| {
-                if p["text"].is_string() {
-                    p["text"].as_str().map(std::string::ToString::to_string)
-                } else {
-                    None
-                }
-            })
+            let texts: Vec<String> = parts
+                .iter()
+                .filter_map(|p| p["text"].as_str().map(std::string::ToString::to_string))
+                .collect();
+            if texts.is_empty() {
+                None
+            } else {
+                Some(texts.join("\n\n"))
+            }
         });
 
         let mut tool_calls = Vec::new();
@@ -154,7 +163,10 @@ impl LLMProvider for GeminiProvider {
                 _ => "user",
             };
 
-            let mut parts = vec![json!({"text": msg.content})];
+            let mut parts = Vec::new();
+            if !msg.content.is_empty() {
+                parts.push(json!({"text": msg.content}));
+            }
             if msg.role == "user" {
                 for img in &msg.images {
                     parts.push(json!({
@@ -165,6 +177,21 @@ impl LLMProvider for GeminiProvider {
                     }));
                 }
             }
+            if msg.role == "assistant"
+                && let Some(ref tool_calls) = msg.tool_calls
+            {
+                for tc in tool_calls {
+                    parts.push(json!({
+                        "functionCall": {
+                            "name": tc.name,
+                            "args": tc.arguments
+                        }
+                    }));
+                }
+            }
+            if parts.is_empty() {
+                parts.push(json!({"text": ""}));
+            }
 
             gemini_contents.push(json!({
                 "role": role,
@@ -172,8 +199,24 @@ impl LLMProvider for GeminiProvider {
             }));
         }
 
+        // Merge consecutive messages with the same role (Gemini requires alternation)
+        let mut merged: Vec<Value> = Vec::with_capacity(gemini_contents.len());
+        for entry in gemini_contents {
+            if let Some(last) = merged.last_mut()
+                && last["role"] == entry["role"]
+            {
+                if let (Some(last_parts), Some(new_parts)) =
+                    (last["parts"].as_array_mut(), entry["parts"].as_array())
+                {
+                    last_parts.extend(new_parts.iter().cloned());
+                }
+            } else {
+                merged.push(entry);
+            }
+        }
+
         let mut payload = json!({
-            "contents": gemini_contents,
+            "contents": merged,
             "generationConfig": {
                 "maxOutputTokens": req.max_tokens,
                 "temperature": req.temperature,

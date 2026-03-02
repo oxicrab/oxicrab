@@ -9,6 +9,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::sync::Arc;
 use teloxide::net::Download;
 use teloxide::prelude::*;
@@ -80,18 +81,21 @@ impl BaseChannel for TelegramChannel {
                                 .map(|u| u.id.to_string())
                                 .unwrap_or_default();
 
-                            // Check access based on dmPolicy
-                            match check_dm_access(&sender_id, &allow_list, "telegram", &dm_policy) {
-                                DmCheckResult::Allowed => {}
-                                DmCheckResult::PairingRequired { code } => {
-                                    let reply = format_pairing_reply("telegram", &sender_id, &code);
-                                    if let Err(e) = bot.send_message(msg.chat.id, reply).await {
-                                        warn!("Failed to send pairing reply: {}", e);
+                            // Skip DM access check for group messages
+                            let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
+                            if !is_group {
+                                match check_dm_access(&sender_id, &allow_list, "telegram", &dm_policy) {
+                                    DmCheckResult::Allowed => {}
+                                    DmCheckResult::PairingRequired { code } => {
+                                        let reply = format_pairing_reply("telegram", &sender_id, &code);
+                                        if let Err(e) = bot.send_message(msg.chat.id, reply).await {
+                                            warn!("Failed to send pairing reply: {}", e);
+                                        }
+                                        return Ok(());
                                     }
-                                    return Ok(());
-                                }
-                                DmCheckResult::Denied => {
-                                    return Ok(());
+                                    DmCheckResult::Denied => {
+                                        return Ok(());
+                                    }
                                 }
                             }
 
@@ -489,15 +493,37 @@ fn markdown_to_telegram_html(text: &str) -> String {
         return String::new();
     }
 
-    let mut html = text.to_string();
+    // Extract markdown links before HTML escaping so URLs don't get
+    // double-encoded (e.g. `&` -> `&amp;` inside href attributes).
+    let link_re = RegexPatterns::markdown_link();
+    let mut links: Vec<(String, String)> = Vec::new();
+    let placeholder_prefix = "\x00LINK";
+    let mut with_placeholders = String::new();
+    let mut last_end = 0;
+    for cap in link_re.captures_iter(text) {
+        let m = cap.get(0).unwrap();
+        with_placeholders.push_str(&text[last_end..m.start()]);
+        let display = cap.get(1).map_or("", |c| c.as_str());
+        let url = cap.get(2).map_or("", |c| c.as_str());
+        let idx = links.len();
+        links.push((display.to_string(), url.to_string()));
+        let _ = write!(with_placeholders, "{}{}\x00", placeholder_prefix, idx);
+        last_end = m.end();
+    }
+    with_placeholders.push_str(&text[last_end..]);
 
-    // Escape HTML
-    html = html_escape::encode_text(&html).to_string();
+    // Escape HTML on the text (with link placeholders, not real URLs)
+    let mut html = html_escape::encode_text(&with_placeholders).to_string();
 
-    // Convert markdown using shared regex patterns
-    html = RegexPatterns::markdown_link()
-        .replace_all(&html, r#"<a href="$2">$1</a>"#)
-        .to_string();
+    // Re-insert links with escaped display text but unescaped URLs in href
+    for (idx, (display, url)) in links.iter().enumerate() {
+        let placeholder = format!("{}{}\x00", placeholder_prefix, idx);
+        let escaped_display = html_escape::encode_text(display);
+        let link_html = format!(r#"<a href="{}">{}</a>"#, url, escaped_display);
+        html = html.replace(&placeholder, &link_html);
+    }
+
+    // Convert remaining markdown using shared regex patterns
     html = RegexPatterns::markdown_bold()
         .replace_all(&html, r"<b>$1</b>")
         .to_string();
@@ -600,8 +626,8 @@ mod tests {
     fn test_markdown_to_html_link_with_ampersand_in_url() {
         let input = "[search](https://example.com?a=1&b=2)";
         let output = markdown_to_telegram_html(input);
-        // URL should be escaped since HTML escaping runs first
-        assert!(output.contains("href=\"https://example.com?a=1&amp;b=2\""));
+        // URL should NOT be double-escaped -- links are extracted before HTML escaping
+        assert!(output.contains("href=\"https://example.com?a=1&b=2\""));
     }
 
     #[test]

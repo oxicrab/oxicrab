@@ -123,6 +123,9 @@ pub struct CronService {
     running: Arc<tokio::sync::Mutex<bool>>,
     task_tracker: Arc<TaskTracker>,
     last_mtime: Arc<Mutex<Option<SystemTime>>>,
+    /// Serializes disk writes to prevent TOCTOU between dropping the in-memory
+    /// store lock and completing the file write.
+    save_mutex: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl CronService {
@@ -134,6 +137,7 @@ impl CronService {
             running: Arc::new(tokio::sync::Mutex::new(false)),
             task_tracker: Arc::new(TaskTracker::new()),
             last_mtime: Arc::new(Mutex::new(None)),
+            save_mutex: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -185,9 +189,11 @@ impl CronService {
     }
 
     async fn save_store(&self) -> Result<()> {
+        // Acquire save_mutex first to serialize disk writes, preventing
+        // TOCTOU between dropping the in-memory store lock and completing
+        // the file write.
+        let _save_guard = self.save_mutex.lock().await;
         let store_guard = self.store.lock().await;
-        // Serialize while still holding the lock to avoid TOCTOU — another task
-        // could modify the in-memory store between drop and write.
         let content = match store_guard.as_ref() {
             Some(store) => serde_json::to_string_pretty(store)?,
             None => return Ok(()),

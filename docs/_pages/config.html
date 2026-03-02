@@ -669,6 +669,7 @@ max_width: 820px
     "enabled": true,
     "host": "127.0.0.1",
     "port": 18790,
+    "apiKey": "your-secret-api-key",
     "webhooks": {
       "github": {
         "enabled": true,
@@ -686,6 +687,7 @@ max_width: 820px
             <tr><td>enabled</td><td>bool</td><td>true</td><td>Enable or disable the HTTP gateway server</td></tr>
             <tr><td>host</td><td>string</td><td>127.0.0.1</td><td>Bind address for the gateway HTTP server</td></tr>
             <tr><td>port</td><td>u16</td><td>18790</td><td>Port for the gateway HTTP server</td></tr>
+            <tr><td>apiKey</td><td>string</td><td>""</td><td>API key for authenticating <code>/api/chat</code> and A2A task endpoints. Requests must include <code>Authorization: Bearer &lt;key&gt;</code> or <code>X-API-Key: &lt;key&gt;</code>. When empty and host is non-loopback, a startup warning is emitted. Health, webhooks (HMAC), and A2A discovery are always public.</td></tr>
             <tr><td>webhooks</td><td>object</td><td>{}</td><td>Named webhook receivers (see below)</td></tr>
             <tr><td>a2a</td><td>object</td><td>{}</td><td>Agent-to-Agent protocol configuration (see below)</td></tr>
         </table>

@@ -12,8 +12,9 @@ use std::time::Duration;
 
 use anyhow::Result;
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, Request, State};
 use axum::http::{HeaderMap, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -74,20 +75,85 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+/// API key authentication middleware.
+///
+/// Checks `Authorization: Bearer <key>` or `X-API-Key: <key>` headers.
+/// Returns 401 if the key is missing or incorrect.
+async fn api_key_auth(
+    State(expected): State<Arc<String>>,
+    headers: HeaderMap,
+    request: Request,
+    next: Next,
+) -> axum::response::Response {
+    let provided = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .or_else(|| headers.get("x-api-key").and_then(|v| v.to_str().ok()));
+
+    match provided {
+        Some(key) if key.as_bytes().ct_eq(expected.as_bytes()).into() => next.run(request).await,
+        _ => {
+            warn!("rejected unauthenticated request to {}", request.uri());
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "unauthorized — set Authorization: Bearer <apiKey> or X-API-Key header"
+                        .to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
 /// Build the HTTP API router.
-fn build_router(state: HttpApiState, a2a_state: Option<a2a::A2aState>) -> Router {
-    let mut router = Router::new()
+#[allow(clippy::needless_pass_by_value)] // api_key is Arc-cloned into middleware layers
+fn build_router(
+    state: HttpApiState,
+    a2a_state: Option<a2a::A2aState>,
+    api_key: Option<Arc<String>>,
+) -> Router {
+    // Routes that require auth when an API key is configured
+    let mut authed_routes = Router::new()
         .route("/api/chat", post(chat_handler))
+        .with_state(state.clone());
+
+    if let Some(ref key) = api_key {
+        authed_routes =
+            authed_routes.layer(middleware::from_fn_with_state(key.clone(), api_key_auth));
+    }
+
+    // Public routes (health, webhooks with their own HMAC auth)
+    let public_routes = Router::new()
         .route("/api/health", get(health_handler))
         .route("/api/webhook/{name}", post(webhook_handler))
         .with_state(state);
 
+    let mut router = authed_routes
+        .merge(public_routes)
+        .layer(DefaultBodyLimit::max(WEBHOOK_MAX_BODY));
+
     if let Some(a2a) = a2a_state {
-        let a2a_router = Router::new()
+        // A2A: agent card is public (discovery), task endpoints require auth
+        let public_a2a = Router::new()
             .route("/.well-known/agent.json", get(a2a::agent_card_handler))
+            .with_state(a2a.clone());
+
+        let mut authed_a2a = Router::new()
             .route("/a2a/tasks", post(a2a::create_task_handler))
             .route("/a2a/tasks/{id}", get(a2a::get_task_handler))
             .with_state(a2a);
+
+        if let Some(ref key) = api_key {
+            authed_a2a =
+                authed_a2a.layer(middleware::from_fn_with_state(key.clone(), api_key_auth));
+        }
+
+        let a2a_router = authed_a2a
+            .merge(public_a2a)
+            .layer(DefaultBodyLimit::max(MAX_MESSAGE_SIZE + 1024));
+
         router = router.merge(a2a_router);
     }
 
@@ -219,21 +285,48 @@ pub(crate) fn validate_webhook_signature(secret: &str, signature: &str, body: &[
 /// Apply a template string, substituting `{{key}}` with JSON payload values.
 /// `{{body}}` is replaced with the raw body string.
 ///
-/// JSON keys are expanded first, then `{{body}}` last, so that attacker-controlled
-/// body text cannot introduce secondary `{{key}}` expansions.
+/// Uses a single-pass approach: splits the template on `{{...}}` boundaries
+/// and looks up each placeholder, so replacement values are never re-scanned
+/// for further `{{key}}` patterns.
 fn apply_template(template: &str, body_str: &str, json: Option<&serde_json::Value>) -> String {
-    let mut result = template.to_string();
-    if let Some(serde_json::Value::Object(map)) = json {
-        for (key, value) in map {
-            let placeholder = format!("{{{{{}}}}}", key);
-            let replacement = match value {
-                serde_json::Value::String(s) => s.clone(),
-                other => other.to_string(),
-            };
-            result = result.replace(&placeholder, &replacement);
+    let map = match json {
+        Some(serde_json::Value::Object(m)) => Some(m),
+        _ => None,
+    };
+
+    let mut result = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        result.push_str(&rest[..start]);
+        let after_open = &rest[start + 2..];
+        if let Some(end) = after_open.find("}}") {
+            let key = &after_open[..end];
+            if key == "body" {
+                result.push_str(body_str);
+            } else if let Some(m) = map {
+                if let Some(value) = m.get(key) {
+                    match value {
+                        serde_json::Value::String(s) => result.push_str(s),
+                        other => result.push_str(&other.to_string()),
+                    }
+                } else {
+                    result.push_str("{{");
+                    result.push_str(key);
+                    result.push_str("}}");
+                }
+            } else {
+                result.push_str("{{");
+                result.push_str(key);
+                result.push_str("}}");
+            }
+            rest = &after_open[end + 2..];
+        } else {
+            result.push_str("{{");
+            rest = after_open;
         }
     }
-    result.replace("{{body}}", body_str)
+    result.push_str(rest);
+    result
 }
 
 /// POST /api/webhook/{name} — receive a webhook from an external service.
@@ -420,6 +513,7 @@ pub async fn start<S: BuildHasher>(
     outbound_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>,
     webhooks: HashMap<String, WebhookConfig, S>,
     a2a_config: Option<crate::config::A2aConfig>,
+    api_key: Option<String>,
 ) -> Result<(tokio::task::JoinHandle<()>, HttpApiState)> {
     let webhook_map: HashMap<String, WebhookConfig> = webhooks.into_iter().collect();
     let active: Vec<_> = webhook_map
@@ -460,7 +554,11 @@ pub async fn start<S: BuildHasher>(
         _ => None,
     };
 
-    let app = build_router(state.clone(), a2a_state);
+    let key = api_key.filter(|k| !k.is_empty()).map(Arc::new);
+    if key.is_some() {
+        info!("HTTP API authentication enabled (Bearer / X-API-Key)");
+    }
+    let app = build_router(state.clone(), a2a_state, key);
     let addr = format!("{}:{}", host, port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("HTTP API listening on {}", addr);

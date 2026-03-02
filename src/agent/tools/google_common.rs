@@ -39,14 +39,12 @@ impl GoogleApiClient {
             .send_request(&url, method, &token, body.as_ref())
             .await?;
 
-        // On 401, refresh token (if still invalid) and retry once
+        // On 401, force refresh (server rejected the token) and retry once
         if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-            info!("Google API returned 401, refreshing token and retrying");
+            info!("Google API returned 401, forcing token refresh and retrying");
             let new_token = {
                 let mut creds = self.credentials.lock().await;
-                if !creds.is_valid() {
-                    creds.refresh().await?;
-                }
+                creds.refresh().await?;
                 creds.get_access_token().to_string()
             };
             let retry_response = self

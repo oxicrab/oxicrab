@@ -247,6 +247,14 @@ impl MemoryDB {
             )",
             [],
         )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_search_hits_source ON memory_search_hits(source_key)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_search_hits_log_id ON memory_search_hits(access_log_id)",
+            [],
+        )?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS llm_cost_log (
@@ -416,31 +424,46 @@ impl MemoryDB {
             return Ok(()); // unchanged
         }
 
-        // Wipe old entries
-        conn.execute(
-            "DELETE FROM memory_entries WHERE source_key = ?",
-            [source_key],
-        )?;
-
-        for chunk in split_into_chunks(text) {
-            let hash = hash_text(&chunk);
+        // Wrap delete-insert-update in a transaction for atomicity
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let result = (|| -> Result<()> {
+            // Wipe old entries
             conn.execute(
-                "INSERT OR IGNORE INTO memory_entries
-                    (source_key, content, content_hash, created_at)
-                VALUES (?, ?, ?, ?)",
-                params![source_key, chunk, hash, now],
+                "DELETE FROM memory_entries WHERE source_key = ?",
+                [source_key],
             )?;
-        }
 
-        // Update source record
-        conn.execute(
-            "INSERT INTO memory_sources (source_key, mtime_ns, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(source_key)
-            DO UPDATE SET mtime_ns = excluded.mtime_ns,
-                          updated_at = excluded.updated_at",
-            params![source_key, mtime_ms, now],
-        )?;
+            for chunk in split_into_chunks(text) {
+                let hash = hash_text(&chunk);
+                conn.execute(
+                    "INSERT OR IGNORE INTO memory_entries
+                        (source_key, content, content_hash, created_at)
+                    VALUES (?, ?, ?, ?)",
+                    params![source_key, chunk, hash, now],
+                )?;
+            }
+
+            // Update source record
+            conn.execute(
+                "INSERT INTO memory_sources (source_key, mtime_ns, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(source_key)
+                DO UPDATE SET mtime_ns = excluded.mtime_ns,
+                              updated_at = excluded.updated_at",
+                params![source_key, mtime_ms, now],
+            )?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = conn.execute_batch("ROLLBACK");
+            return result;
+        }
+        conn.execute_batch("COMMIT")?;
+
+        // Invalidate embedding cache since entries changed
+        if let Ok(mut cache) = self.embedding_cache.lock() {
+            *cache = None;
+        }
 
         debug!("indexed {}", source_key);
         Ok(())
@@ -474,9 +497,16 @@ impl MemoryDB {
             return Ok(());
         }
 
-        for entry in std::fs::read_dir(knowledge_dir)? {
-            let entry = entry?;
+        let mut indexed_keys = std::collections::HashSet::new();
+
+        for entry in walkdir::WalkDir::new(knowledge_dir)
+            .into_iter()
+            .filter_map(std::result::Result::ok)
+        {
             let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
             let ext = path
                 .extension()
                 .and_then(|e| e.to_str())
@@ -485,14 +515,27 @@ impl MemoryDB {
             if !matches!(ext.as_str(), "md" | "txt" | "html") {
                 continue;
             }
-            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            let Some(rel) = path.strip_prefix(knowledge_dir).ok() else {
                 continue;
             };
-            let source_key = format!("knowledge:{}", name);
+            let Some(rel_str) = rel.to_str() else {
+                continue;
+            };
+            let source_key = format!("knowledge:{}", rel_str);
             if ext == "html" {
-                self.index_html_file(&source_key, &path)?;
+                self.index_html_file(&source_key, path)?;
             } else {
-                self.index_file(&source_key, &path)?;
+                self.index_file(&source_key, path)?;
+            }
+            indexed_keys.insert(source_key);
+        }
+
+        // Remove orphaned knowledge entries that no longer have files on disk
+        let all_keys = self.list_source_keys()?;
+        for key in all_keys {
+            if key.starts_with("knowledge:") && !indexed_keys.contains(&key) {
+                self.remove_source(&key)?;
+                debug!("removed orphaned knowledge entry: {}", key);
             }
         }
 
@@ -895,6 +938,10 @@ impl MemoryDB {
             "DELETE FROM memory_sources WHERE source_key = ?",
             [source_key],
         )?;
+        // Invalidate embedding cache since entries were removed
+        if let Ok(mut cache) = self.embedding_cache.lock() {
+            *cache = None;
+        }
         Ok(())
     }
 
@@ -1252,6 +1299,9 @@ impl MemoryDB {
     /// Purge search access logs older than `days`. Returns number of rows deleted.
     /// Also cleans up orphaned `memory_search_hits` referencing deleted logs.
     pub fn purge_old_search_logs(&self, days: u32) -> Result<usize> {
+        if days == 0 {
+            return Ok(0);
+        }
         let conn = self
             .conn
             .lock()
@@ -1340,14 +1390,22 @@ impl MemoryDB {
         }
 
         // Fallback: LIKE search
-        let like = format!(
-            "%{}%",
-            query_text.trim().chars().take(200).collect::<String>()
-        );
+        let escaped: String = query_text
+            .trim()
+            .chars()
+            .take(200)
+            .flat_map(|c| match c {
+                '%' => vec!['\\', '%'],
+                '_' => vec!['\\', '_'],
+                '\\' => vec!['\\', '\\'],
+                other => vec![other],
+            })
+            .collect();
+        let like = format!("%{}%", escaped);
         let mut stmt = conn.prepare(
             "SELECT source_key, content
             FROM memory_entries
-            WHERE content LIKE ?
+            WHERE content LIKE ? ESCAPE '\\'
             LIMIT ?",
         )?;
 
@@ -1613,11 +1671,20 @@ impl MemoryDB {
     /// Search workspace files by path or original name.
     pub fn search_workspace_files(&self, query: &str) -> Result<Vec<WorkspaceFileEntry>> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        let pattern = format!("%{query}%");
+        let escaped: String = query
+            .chars()
+            .flat_map(|c| match c {
+                '\\' => vec!['\\', '\\'],
+                '%' => vec!['\\', '%'],
+                '_' => vec!['\\', '_'],
+                other => vec![other],
+            })
+            .collect();
+        let pattern = format!("%{escaped}%");
         let mut stmt = conn.prepare(
             "SELECT id, path, category, original_name, size_bytes, source_tool, tags, created_at, accessed_at, session_key
              FROM workspace_files
-             WHERE path LIKE ?1 OR original_name LIKE ?1
+             WHERE path LIKE ?1 ESCAPE '\\' OR original_name LIKE ?1 ESCAPE '\\'
              ORDER BY created_at DESC",
         )?;
         let rows = stmt

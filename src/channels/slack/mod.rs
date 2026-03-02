@@ -172,10 +172,14 @@ impl SlackChannel {
 
     async fn send_slack_api(&self, method: &str, params: &HashMap<&str, Value>) -> Result<Value> {
         let url = format!("https://slack.com/api/{}", method);
-        let mut form = params.clone();
-        form.insert("token", Value::String(self.config.bot_token.clone()));
 
-        let response = self.client.post(&url).form(&form).send().await?;
+        let response = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.config.bot_token))
+            .form(params)
+            .send()
+            .await?;
 
         let json: Value = response.json().await?;
         if json.get("ok").and_then(Value::as_bool) != Some(true) {
@@ -677,6 +681,17 @@ async fn download_slack_file(
             ));
         }
 
+        // Pre-check Content-Length before downloading the full body
+        if let Some(len) = resp.content_length()
+            && len > MAX_AUDIO_DOWNLOAD as u64
+        {
+            return Err(anyhow::anyhow!(
+                "Slack file too large ({} bytes, max {})",
+                len,
+                MAX_AUDIO_DOWNLOAD
+            ));
+        }
+
         let bytes = resp.bytes().await?.to_vec();
         if bytes.is_empty() {
             return Err(anyhow::anyhow!("Slack file download returned empty body"));
@@ -788,24 +803,28 @@ async fn handle_slack_event(
         }
     }
 
-    match check_dm_access(user_id, allow_from, "slack", dm_policy) {
-        DmCheckResult::Allowed => {}
-        DmCheckResult::PairingRequired { code } => {
-            let reply = format_pairing_reply("slack", user_id, &code);
-            // Post pairing reply to channel
-            let _ = client
-                .post("https://slack.com/api/chat.postMessage")
-                .form(&[
-                    ("token", bot_token),
-                    ("channel", channel_id),
-                    ("text", &reply),
-                ])
-                .send()
-                .await;
-            return Ok(());
-        }
-        DmCheckResult::Denied => {
-            return Ok(());
+    // Skip DM access check for group/channel messages (non-DM channels don't start with 'D')
+    let is_dm = channel_id.starts_with('D');
+    if is_dm {
+        match check_dm_access(user_id, allow_from, "slack", dm_policy) {
+            DmCheckResult::Allowed => {}
+            DmCheckResult::PairingRequired { code } => {
+                let reply = format_pairing_reply("slack", user_id, &code);
+                // Post pairing reply to DM channel
+                let _ = client
+                    .post("https://slack.com/api/chat.postMessage")
+                    .form(&[
+                        ("token", bot_token),
+                        ("channel", channel_id),
+                        ("text", &reply),
+                    ])
+                    .send()
+                    .await;
+                return Ok(());
+            }
+            DmCheckResult::Denied => {
+                return Ok(());
+            }
         }
     }
 

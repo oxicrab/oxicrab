@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WhatsAppConfig {
+    #[serde(default)]
     pub enabled: bool,
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
@@ -21,6 +22,7 @@ impl Default for WhatsAppConfig {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TelegramConfig {
+    #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub token: String,
@@ -79,6 +81,7 @@ fn default_discord_commands() -> Vec<DiscordCommand> {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DiscordConfig {
+    #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub token: String,
@@ -113,6 +116,7 @@ redact_debug!(
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SlackConfig {
+    #[serde(default)]
     pub enabled: bool,
     #[serde(default, rename = "botToken")]
     pub bot_token: String,
@@ -182,6 +186,7 @@ fn default_dm_policy() -> DmPolicy {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TwilioConfig {
+    #[serde(default)]
     pub enabled: bool,
     #[serde(default, rename = "accountSid")]
     pub account_sid: String,

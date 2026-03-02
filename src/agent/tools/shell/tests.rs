@@ -233,14 +233,14 @@ fn test_blocklist_blocks_rm_long_options() {
 #[test]
 fn test_paths_inside_workspace_allowed() {
     let workspace = Path::new("/tmp");
-    let result = ExecTool::check_paths_in_workspace("cat /tmp/file.txt", workspace);
+    let result = ExecTool::check_paths_in_workspace("cat /tmp/file.txt", workspace, workspace);
     assert!(result.is_none());
 }
 
 #[test]
 fn test_paths_outside_workspace_blocked() {
     let workspace = Path::new("/tmp/workspace");
-    let result = ExecTool::check_paths_in_workspace("cat /etc/passwd", workspace);
+    let result = ExecTool::check_paths_in_workspace("cat /etc/passwd", workspace, workspace);
     assert!(result.is_some());
     assert!(result.unwrap().contains("outside the workspace"));
 }
@@ -248,7 +248,7 @@ fn test_paths_outside_workspace_blocked() {
 #[test]
 fn test_paths_relative_paths_ignored() {
     let workspace = Path::new("/tmp/workspace");
-    let result = ExecTool::check_paths_in_workspace("cat relative/path.txt", workspace);
+    let result = ExecTool::check_paths_in_workspace("cat relative/path.txt", workspace, workspace);
     assert!(result.is_none());
 }
 
@@ -256,14 +256,14 @@ fn test_paths_relative_paths_ignored() {
 fn test_paths_root_slash_ignored() {
     let workspace = Path::new("/tmp/workspace");
     // Single "/" should be skipped
-    let result = ExecTool::check_paths_in_workspace("ls /", workspace);
+    let result = ExecTool::check_paths_in_workspace("ls /", workspace, workspace);
     assert!(result.is_none());
 }
 
 #[test]
 fn test_paths_quoted_paths_stripped() {
     let workspace = Path::new("/tmp");
-    let result = ExecTool::check_paths_in_workspace("cat '/tmp/file.txt'", workspace);
+    let result = ExecTool::check_paths_in_workspace("cat '/tmp/file.txt'", workspace, workspace);
     assert!(result.is_none());
 }
 

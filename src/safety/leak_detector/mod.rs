@@ -101,12 +101,28 @@ impl LeakDetector {
                 r"\b[0-9]+:AA[A-Za-z0-9_\-]{33,}",
                 ":AA",
             ),
-            // Discord bot tokens — use "." as AC prefix since all Discord tokens
-            // contain dot separators between the three segments.
+            // Discord bot tokens — no distinctive prefix, so skip AC scanning
+            // and always run the regex.
             (
                 "discord_bot_token",
                 r"[A-Za-z0-9_\-]{24}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,200}",
-                ".",
+                "",
+            ),
+            // Google API keys
+            ("google_api_key", r"AIza[0-9A-Za-z_\-]{35}", "AIza"),
+            // Stripe secret keys
+            ("stripe_secret_key", r"sk_live_[0-9a-zA-Z]{24,}", "sk_live_"),
+            // Stripe publishable keys
+            (
+                "stripe_publishable_key",
+                r"pk_live_[0-9a-zA-Z]{24,}",
+                "pk_live_",
+            ),
+            // SendGrid API keys
+            (
+                "sendgrid_api_key",
+                r"SG\.[0-9A-Za-z_\-]{22}\.[0-9A-Za-z_\-]{43}",
+                "SG.",
             ),
         ];
 

@@ -19,6 +19,8 @@ pub enum ViolationKind {
     DangerousPipeTarget,
     /// `foo() { ... }` — defining functions
     FunctionDefinition,
+    /// Command could not be parsed by the shell analyzer
+    Unparseable,
 }
 
 /// A single structural security violation found in a shell command.
@@ -58,7 +60,10 @@ pub fn analyze_command(command: &str) -> Vec<AstViolation> {
 
     let mut parser = brush_parser::Parser::new(reader, &options, &source_info);
     let Ok(program) = parser.parse_program() else {
-        return vec![]; // Parse failure → fall through to regex
+        return vec![AstViolation {
+            kind: ViolationKind::Unparseable,
+            description: "command could not be parsed by shell analyzer".to_string(),
+        }];
     };
 
     let mut violations = Vec::new();

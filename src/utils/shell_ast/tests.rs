@@ -232,13 +232,15 @@ fn test_clean_cargo() {
 }
 
 #[test]
-fn test_unparseable_returns_empty() {
+fn test_unparseable_returns_violation() {
     // Malformed shell that brush-parser can't parse
     let violations = analyze_command("((( unterminated");
-    assert!(
-        violations.is_empty(),
-        "unparseable input should return empty (fall through to regex)"
+    assert_eq!(
+        violations.len(),
+        1,
+        "unparseable input should return one violation"
     );
+    assert_eq!(violations[0].kind, ViolationKind::Unparseable);
 }
 
 #[test]

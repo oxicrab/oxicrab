@@ -49,6 +49,9 @@ pub trait BaseChannel: Send + Sync {
     feature = "channel-twilio",
 ))]
 pub fn split_message(text: &str, limit: usize) -> Vec<String> {
+    if text.is_empty() {
+        return vec![];
+    }
     if text.len() <= limit {
         return vec![text.to_string()];
     }

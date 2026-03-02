@@ -85,7 +85,7 @@ fn default_port() -> u16 {
     18790
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -93,10 +93,36 @@ pub struct GatewayConfig {
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    /// API key for authenticating `/api/chat` and A2A endpoints.
+    /// When set, requests must include `Authorization: Bearer <key>` or
+    /// `X-API-Key: <key>`. Webhooks use their own HMAC auth and are exempt.
+    /// Health and `.well-known/agent.json` are always public.
+    #[serde(default, rename = "apiKey")]
+    pub api_key: String,
     #[serde(default)]
     pub webhooks: HashMap<String, WebhookConfig>,
     #[serde(default)]
     pub a2a: A2aConfig,
+}
+
+impl std::fmt::Debug for GatewayConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GatewayConfig")
+            .field("enabled", &self.enabled)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field(
+                "api_key",
+                &if self.api_key.is_empty() {
+                    "[empty]"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("webhooks", &self.webhooks)
+            .field("a2a", &self.a2a)
+            .finish()
+    }
 }
 
 impl Default for GatewayConfig {
@@ -105,6 +131,7 @@ impl Default for GatewayConfig {
             enabled: true,
             host: default_host(),
             port: default_port(),
+            api_key: String::new(),
             webhooks: HashMap::new(),
             a2a: A2aConfig::default(),
         }
@@ -348,6 +375,19 @@ impl Config {
             warn!(
                 "gateway.port {} is a privileged port (< 1024), may require elevated permissions",
                 self.gateway.port
+            );
+        }
+        // Warn when listening on non-loopback without auth
+        if self.gateway.enabled
+            && self.gateway.api_key.is_empty()
+            && self.gateway.host != "127.0.0.1"
+            && self.gateway.host != "localhost"
+            && self.gateway.host != "::1"
+        {
+            warn!(
+                "gateway listening on {} without authentication — any network client can \
+                 send commands to the agent. set gateway.apiKey to secure the endpoint",
+                self.gateway.host
             );
         }
         Ok(())

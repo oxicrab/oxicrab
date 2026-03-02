@@ -509,14 +509,14 @@ impl AgentLoop {
             None
         };
 
-        // Build event matcher from cron jobs (if any event-triggered jobs exist)
+        // Build event matcher from cron jobs. Always create the matcher when
+        // cron_service exists so that new event-triggered jobs added after
+        // startup can be picked up by the periodic rebuild.
         let event_matcher = if let Some(ref cron_svc) = cron_service {
-            match cron_svc.load_store(false).await {
+            let matcher = match cron_svc.load_store(false).await {
                 Ok(store) => {
-                    let matcher = EventMatcher::from_jobs(&store.jobs);
-                    if matcher.is_empty() {
-                        None
-                    } else {
+                    let m = EventMatcher::from_jobs(&store.jobs);
+                    if !m.is_empty() {
                         info!(
                             "Event matcher initialized with {} event-triggered job(s)",
                             store
@@ -528,14 +528,15 @@ impl AgentLoop {
                                 ))
                                 .count()
                         );
-                        Some(std::sync::Mutex::new(matcher))
                     }
+                    m
                 }
                 Err(e) => {
                     warn!("Failed to load cron store for event matcher: {}", e);
-                    None
+                    EventMatcher::from_jobs(&[])
                 }
-            }
+            };
+            Some(std::sync::Mutex::new(matcher))
         } else {
             None
         };
@@ -970,7 +971,7 @@ impl AgentLoop {
                                     debug!(
                                         "saved extracted facts to daily note ({} bytes, {} filtered)",
                                         filtered.len(),
-                                        facts.len() - filtered.len()
+                                        facts.len().saturating_sub(filtered.len())
                                     );
                                 }
                             }
@@ -1883,7 +1884,7 @@ impl AgentLoop {
                             debug!(
                                 "pre-compaction flush: saved {} bytes to daily notes ({} filtered)",
                                 filtered.len(),
-                                facts.len() - filtered.len()
+                                facts.len().saturating_sub(filtered.len())
                             );
                             flushed_content = true;
                         }
@@ -1938,6 +1939,14 @@ impl AgentLoop {
                         );
                     }
 
+                    // Cap enriched summary to prevent unbounded growth across compaction cycles
+                    if recovery_summary.len() > 2000 {
+                        let mut pos = 2000;
+                        while pos > 0 && !recovery_summary.is_char_boundary(pos) {
+                            pos -= 1;
+                        }
+                        recovery_summary.truncate(pos);
+                    }
                     // Cache summary locally so it survives save failures
                     *self.last_checkpoint.lock().await = Some(recovery_summary.clone());
 
@@ -2043,7 +2052,17 @@ impl AgentLoop {
         };
 
         let typing_ctx = Some((origin_channel.clone(), origin_chat_id.clone()));
-        let exec_ctx = Self::build_execution_context(&origin_channel, &origin_chat_id, None);
+        let context_summary = session
+            .metadata
+            .get("compaction_summary")
+            .and_then(|v| v.as_str())
+            .map(std::string::ToString::to_string);
+        let exec_ctx = Self::build_execution_context_with_metadata(
+            &origin_channel,
+            &origin_chat_id,
+            context_summary,
+            msg.metadata.clone(),
+        );
         let user_action_intent = self.classify_and_record_intent(&msg.content);
         let (final_content, _, tools_used, collected_media, _discourse) = self
             .run_agent_loop(messages, typing_ctx, &exec_ctx, user_action_intent)
@@ -2078,7 +2097,7 @@ impl AgentLoop {
             content: final_content,
             reply_to: None,
             media: collected_media,
-            metadata: HashMap::new(),
+            metadata: msg.metadata,
         }))
     }
 

@@ -41,30 +41,33 @@ impl Handler {
     ) {
         let sender_id = cmd.user.id.to_string();
 
-        match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
-            DmCheckResult::Allowed => {}
-            DmCheckResult::PairingRequired { code } => {
-                let reply = format_pairing_reply("discord", &sender_id, &code);
-                let response = CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content(reply)
-                        .ephemeral(true),
-                );
-                if let Err(e) = cmd.create_response(&ctx.http, response).await {
-                    warn!("Failed to send pairing response: {}", e);
+        // Skip DM access check for guild (server) interactions
+        if cmd.guild_id.is_none() {
+            match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
+                DmCheckResult::Allowed => {}
+                DmCheckResult::PairingRequired { code } => {
+                    let reply = format_pairing_reply("discord", &sender_id, &code);
+                    let response = CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content(reply)
+                            .ephemeral(true),
+                    );
+                    if let Err(e) = cmd.create_response(&ctx.http, response).await {
+                        warn!("Failed to send pairing response: {}", e);
+                    }
+                    return;
                 }
-                return;
-            }
-            DmCheckResult::Denied => {
-                let response = CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content("You are not authorized to use this bot.")
-                        .ephemeral(true),
-                );
-                if let Err(e) = cmd.create_response(&ctx.http, response).await {
-                    warn!("Failed to send unauthorized response: {}", e);
+                DmCheckResult::Denied => {
+                    let response = CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("You are not authorized to use this bot.")
+                            .ephemeral(true),
+                    );
+                    if let Err(e) = cmd.create_response(&ctx.http, response).await {
+                        warn!("Failed to send unauthorized response: {}", e);
+                    }
+                    return;
                 }
-                return;
             }
         }
 
@@ -126,30 +129,33 @@ impl Handler {
     ) {
         let sender_id = comp.user.id.to_string();
 
-        match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
-            DmCheckResult::Allowed => {}
-            DmCheckResult::PairingRequired { code } => {
-                let reply = format_pairing_reply("discord", &sender_id, &code);
-                let response = CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content(reply)
-                        .ephemeral(true),
-                );
-                if let Err(e) = comp.create_response(&ctx.http, response).await {
-                    warn!("Failed to send pairing response: {}", e);
+        // Skip DM access check for guild (server) interactions
+        if comp.guild_id.is_none() {
+            match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
+                DmCheckResult::Allowed => {}
+                DmCheckResult::PairingRequired { code } => {
+                    let reply = format_pairing_reply("discord", &sender_id, &code);
+                    let response = CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content(reply)
+                            .ephemeral(true),
+                    );
+                    if let Err(e) = comp.create_response(&ctx.http, response).await {
+                        warn!("Failed to send pairing response: {}", e);
+                    }
+                    return;
                 }
-                return;
-            }
-            DmCheckResult::Denied => {
-                let response = CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content("You are not authorized to use this bot.")
-                        .ephemeral(true),
-                );
-                if let Err(e) = comp.create_response(&ctx.http, response).await {
-                    warn!("Failed to send unauthorized response: {}", e);
+                DmCheckResult::Denied => {
+                    let response = CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("You are not authorized to use this bot.")
+                            .ephemeral(true),
+                    );
+                    if let Err(e) = comp.create_response(&ctx.http, response).await {
+                        warn!("Failed to send unauthorized response: {}", e);
+                    }
+                    return;
                 }
-                return;
             }
         }
 
@@ -210,17 +216,21 @@ impl EventHandler for Handler {
 
         let sender_id = msg.author.id.to_string();
 
-        match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
-            DmCheckResult::Allowed => {}
-            DmCheckResult::PairingRequired { code } => {
-                let reply = format_pairing_reply("discord", &sender_id, &code);
-                if let Err(e) = msg.reply(&ctx.http, &reply).await {
-                    warn!("Failed to send pairing reply: {}", e);
+        // Skip DM access check for group/server messages
+        let is_group = msg.guild_id.is_some();
+        if !is_group {
+            match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
+                DmCheckResult::Allowed => {}
+                DmCheckResult::PairingRequired { code } => {
+                    let reply = format_pairing_reply("discord", &sender_id, &code);
+                    if let Err(e) = msg.reply(&ctx.http, &reply).await {
+                        warn!("Failed to send pairing reply: {}", e);
+                    }
+                    return;
                 }
-                return;
-            }
-            DmCheckResult::Denied => {
-                return;
+                DmCheckResult::Denied => {
+                    return;
+                }
             }
         }
 
@@ -269,38 +279,48 @@ impl EventHandler for Handler {
                 MAX_AUDIO_DOWNLOAD
             };
             match self.http_client.get(&attachment.url).send().await {
-                Ok(resp) => match resp.bytes().await {
-                    Ok(bytes) => {
-                        if bytes.len() > max_size {
-                            warn!(
-                                "Discord {} too large ({} bytes, max {}), skipping",
-                                tag,
-                                bytes.len(),
-                                max_size
-                            );
-                            continue;
-                        }
-                        let fp = file_path.clone();
-                        if let Err(e) =
-                            tokio::task::spawn_blocking(move || std::fs::write(&fp, &bytes))
-                                .await
-                                .unwrap_or_else(|e| Err(std::io::Error::other(e)))
-                        {
-                            warn!("Failed to write Discord media file: {}", e);
-                        }
-                        let path_str = file_path.to_string_lossy().to_string();
-                        media_paths.push(path_str.clone());
-                        content = format!("{}\n[{}: {}]", content, tag, path_str);
+                Ok(resp) => {
+                    // Pre-check Content-Length before downloading the full body
+                    if let Some(len) = resp.content_length()
+                        && len > max_size as u64
+                    {
+                        warn!(
+                            "Discord {} too large ({} bytes, max {}), skipping",
+                            tag, len, max_size
+                        );
+                        continue;
                     }
-                    Err(e) => warn!("Failed to download Discord attachment: {}", e),
-                },
+                    match resp.bytes().await {
+                        Ok(bytes) => {
+                            if bytes.len() > max_size {
+                                warn!(
+                                    "Discord {} too large ({} bytes, max {}), skipping",
+                                    tag,
+                                    bytes.len(),
+                                    max_size
+                                );
+                                continue;
+                            }
+                            let fp = file_path.clone();
+                            if let Err(e) =
+                                tokio::task::spawn_blocking(move || std::fs::write(&fp, &bytes))
+                                    .await
+                                    .unwrap_or_else(|e| Err(std::io::Error::other(e)))
+                            {
+                                warn!("Failed to write Discord media file: {}", e);
+                            }
+                            let path_str = file_path.to_string_lossy().to_string();
+                            media_paths.push(path_str.clone());
+                            content = format!("{}\n[{}: {}]", content, tag, path_str);
+                        }
+                        Err(e) => warn!("Failed to download Discord attachment: {}", e),
+                    }
+                }
                 Err(e) => warn!("Failed to download Discord attachment: {}", e),
             }
         }
 
         let mut metadata = HashMap::new();
-        // guild_id is present for server channels (groups), absent for DMs
-        let is_group = msg.guild_id.is_some();
         metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
         let inbound_msg = InboundMessage {
             channel: "discord".to_string(),

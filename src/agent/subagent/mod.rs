@@ -292,14 +292,14 @@ async fn run_subagent(
 /// through (network-outbound tools respect the exfil block list), tools with
 /// `SubagentAccess::ReadOnly` are wrapped to expose only read-only actions,
 /// and `SubagentAccess::Denied` tools are excluded.
-fn build_subagent_tools(config: &SubagentInner) -> ToolRegistry {
+fn build_subagent_tools(config: &SubagentInner) -> Result<ToolRegistry> {
     use crate::agent::tools::base::SubagentAccess;
     use crate::agent::tools::read_only_wrapper::ReadOnlyToolWrapper;
 
     let main_tools = config
         .main_tools
         .get()
-        .expect("main_tools must be set before spawning subagents");
+        .ok_or_else(|| anyhow::anyhow!("main_tools must be set before spawning subagents"))?;
 
     let mut tools = ToolRegistry::new();
     for (name, tool) in main_tools.iter() {
@@ -322,7 +322,7 @@ fn build_subagent_tools(config: &SubagentInner) -> ToolRegistry {
             SubagentAccess::Denied => {}
         }
     }
-    tools
+    Ok(tools)
 }
 
 async fn run_subagent_inner(
@@ -343,7 +343,7 @@ async fn run_subagent_inner(
     }
 
     // Build tools from main registry capabilities
-    let tools = build_subagent_tools(config);
+    let tools = build_subagent_tools(config)?;
 
     // Log registered tools
     let registered_names = tools.tool_names();

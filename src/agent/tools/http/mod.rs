@@ -6,8 +6,21 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
+use tracing::warn;
 
 const MAX_RESPONSE_CHARS: usize = 50000;
+
+/// HTTP headers that must not be set by LLM-generated tool calls.
+const BLOCKED_HEADERS: &[&str] = &[
+    "host",
+    "authorization",
+    "cookie",
+    "set-cookie",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-real-ip",
+    "proxy-authorization",
+];
 const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 30;
 const MAX_HTTP_TIMEOUT_SECS: u64 = 120;
 
@@ -89,10 +102,14 @@ impl HttpTool {
 
         request = request.timeout(Duration::from_secs(timeout_secs));
 
-        // Apply custom headers
+        // Apply custom headers (block sensitive headers to prevent injection)
         if let Some(headers) = params["headers"].as_object() {
             for (key, val) in headers {
                 if let Some(v) = val.as_str() {
+                    if BLOCKED_HEADERS.contains(&key.to_lowercase().as_str()) {
+                        warn!("blocked sensitive header '{}' in http tool request", key);
+                        continue;
+                    }
                     request = request.header(key.as_str(), v);
                 }
             }

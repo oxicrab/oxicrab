@@ -37,12 +37,12 @@ pub fn estimate_messages_tokens(messages: &[HashMap<String, Value>]) -> usize {
                     total += estimate_tokens(name);
                 }
                 if let Some(args) = tc.get("arguments") {
-                    let args_str = if let Some(s) = args.as_str() {
-                        s.len()
+                    let args_tokens = if let Some(s) = args.as_str() {
+                        estimate_tokens(s)
                     } else {
-                        args.to_string().len()
+                        estimate_tokens(&args.to_string())
                     };
-                    total += args_str / CHARS_PER_TOKEN_ESTIMATE;
+                    total += args_tokens;
                 }
             }
         }

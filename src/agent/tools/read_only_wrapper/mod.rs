@@ -77,9 +77,12 @@ impl Tool for ReadOnlyToolWrapper {
     }
 
     async fn execute(&self, params: Value, ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
-        if let Some(action) = params.get("action").and_then(|a| a.as_str())
-            && !self.read_only_actions.contains(&action)
-        {
+        let Some(action) = params.get("action").and_then(|a| a.as_str()) else {
+            return Ok(ToolResult::error(
+                "action parameter is required".to_string(),
+            ));
+        };
+        if !self.read_only_actions.contains(&action) {
             return Ok(ToolResult::error(format!(
                 "action '{}' is not available in this context (read-only access)",
                 action
