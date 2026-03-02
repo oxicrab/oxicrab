@@ -679,11 +679,12 @@ impl Config {
     pub fn create_routed_providers(
         &self,
     ) -> anyhow::Result<Option<crate::config::routing::ResolvedRouting>> {
+        use crate::providers::strategy::ProviderFactory;
+
         let routing = &self.agents.defaults.model_routing;
         if routing.tiers.is_empty() {
             return Ok(None);
         }
-        use crate::providers::strategy::ProviderFactory;
         let factory = ProviderFactory::new(self);
         let mut tiers = std::collections::HashMap::new();
         for (name, model_str) in &routing.tiers {

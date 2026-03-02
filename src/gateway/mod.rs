@@ -110,27 +110,60 @@ async fn api_key_auth(
     }
 }
 
+/// Shared state for the rate limiting middleware.
+#[derive(Clone)]
+struct RateLimitState {
+    limiter: Arc<DefaultKeyedRateLimiter<String>>,
+    trust_proxy: bool,
+    /// Retry-After value derived from 1/rps (seconds), minimum 1.
+    retry_after_secs: u64,
+}
+
 /// Per-IP rate limiting middleware using governor.
+///
+/// Uses the actual socket peer address by default. Only falls back to
+/// X-Forwarded-For when `trust_proxy` is enabled (for reverse-proxy setups).
+/// Exempts `/api/health` from rate limiting.
 async fn rate_limit_middleware(
-    State(limiter): State<Arc<DefaultKeyedRateLimiter<String>>>,
+    State(state): State<RateLimitState>,
     request: Request,
     next: Next,
 ) -> axum::response::Response {
-    let ip = request
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .map_or_else(|| "unknown".to_string(), |s| s.trim().to_string());
-
-    if limiter.check_key(&ip).is_ok() {
+    // Skip rate limiting for health endpoint
+    if request.uri().path() == "/api/health" {
         return next.run(request).await;
     }
 
+    let connect_info = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .copied();
+    let socket_ip = connect_info.map(|ci| ci.0.ip().to_string());
+
+    let ip = if state.trust_proxy {
+        // Trust X-Forwarded-For when behind a reverse proxy
+        request
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(',').next())
+            .map(|s| s.trim().to_string())
+            .or(socket_ip)
+            .unwrap_or_else(|| "unknown".to_string())
+    } else {
+        // Default: use actual socket address (not spoofable)
+        socket_ip.unwrap_or_else(|| "unknown".to_string())
+    };
+
+    if state.limiter.check_key(&ip).is_ok() {
+        return next.run(request).await;
+    }
+
+    let retry_after = state.retry_after_secs.to_string();
     warn!("rate limit exceeded for {}", ip);
     (
         StatusCode::TOO_MANY_REQUESTS,
-        [("retry-after", "1")],
+        [("retry-after", retry_after.as_str())],
         Json(ErrorResponse {
             error: "rate limit exceeded".to_string(),
         }),
@@ -144,7 +177,7 @@ fn build_router(
     state: HttpApiState,
     a2a_state: Option<a2a::A2aState>,
     api_key: Option<Arc<String>>,
-    rate_limiter: Option<Arc<DefaultKeyedRateLimiter<String>>>,
+    rate_limiter: Option<RateLimitState>,
 ) -> Router {
     // Routes that require auth when an API key is configured
     let mut authed_routes = Router::new()
@@ -189,9 +222,9 @@ fn build_router(
         router = router.merge(a2a_router);
     }
 
-    if let Some(limiter) = rate_limiter {
+    if let Some(rl_state) = rate_limiter {
         router = router.layer(middleware::from_fn_with_state(
-            limiter,
+            rl_state,
             rate_limit_middleware,
         ));
     }
@@ -604,11 +637,23 @@ pub async fn start<S: BuildHasher>(
             NonZeroU32::new(rate_limit.requests_per_second).unwrap_or(NonZeroU32::new(10).unwrap());
         let burst = NonZeroU32::new(rate_limit.burst).unwrap_or(NonZeroU32::new(20).unwrap());
         let quota = Quota::per_second(rps).allow_burst(burst);
+        let retry_after_secs = (1.0 / f64::from(rps.get())).ceil() as u64;
+        let retry_after_secs = retry_after_secs.max(1);
         info!(
-            "rate limiting enabled: {} req/s, burst {}",
-            rate_limit.requests_per_second, rate_limit.burst
+            "rate limiting enabled: {} req/s, burst {}{}",
+            rps,
+            burst,
+            if rate_limit.trust_proxy {
+                " (trusting X-Forwarded-For)"
+            } else {
+                ""
+            }
         );
-        Some(Arc::new(governor::RateLimiter::keyed(quota)))
+        Some(RateLimitState {
+            limiter: Arc::new(governor::RateLimiter::keyed(quota)),
+            trust_proxy: rate_limit.trust_proxy,
+            retry_after_secs,
+        })
     } else {
         None
     };
@@ -618,7 +663,12 @@ pub async fn start<S: BuildHasher>(
     info!("HTTP API listening on {}", addr);
 
     let handle = tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app).await {
+        if let Err(e) = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        {
             error!("HTTP API server error: {}", e);
         }
     });
