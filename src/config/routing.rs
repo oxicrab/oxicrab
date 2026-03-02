@@ -35,4 +35,9 @@ impl ResolvedRouting {
     pub fn get_tier(&self, tier_name: &str) -> Option<&(Arc<dyn LLMProvider>, String)> {
         self.tiers.get(tier_name)
     }
+
+    /// Number of configured tiers.
+    pub fn tier_count(&self) -> usize {
+        self.tiers.len()
+    }
 }
