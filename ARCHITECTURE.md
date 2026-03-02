@@ -30,6 +30,10 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 
 For the `anthropic` provider, OAuth is tried first (Claude CLI → OpenClaw → credentials file), falling back to API key. For `openai`/`gemini`, the API key is used directly. All providers support `apiBase` (custom base URL) and `headers` (custom HTTP headers) in their config — first-party providers use `with_config()` constructors, OpenAI-compat providers use `OpenAIProvider::with_config_and_headers()`. When neither is set, the simpler `new()` constructor is used with hardcoded defaults. `promptGuidedTools` is a `LocalProviderConfig`-only field (ollama/vllm) — when true, `PromptGuidedToolsProvider::wrap()` is applied, injecting tool definitions into the system prompt and parsing `<tool_call>` XML blocks from text responses.
 
+## Model Routing
+
+Model routing allows different task types to use different providers and models. `ModelRoutingConfig` (in `src/config/schema/agent.rs`) maps task types (`conversation`, `cron`, `daemon`, `subagent`, `compaction`) to named tiers, each a `provider/model` string. At startup, `Config::create_routed_providers()` pre-creates providers for each tier. `AgentLoop::resolve_overrides(task_type)` returns `AgentRunOverrides` with both the provider and model for that task. The `FallbackProvider` supports chains of N providers -- tried in order on error or malformed tool calls. When `modelRouting` is absent, behavior is unchanged (the default model and provider are used for all tasks).
+
 ## Prompt Caching (Anthropic)
 
 Anthropic providers automatically apply `cache_control: {"type": "ephemeral"}` to:
