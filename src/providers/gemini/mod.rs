@@ -19,6 +19,7 @@ pub struct GeminiProvider {
     base_url: String,
     client: Client,
     metrics: std::sync::Arc<Mutex<ProviderMetrics>>,
+    custom_headers: std::collections::HashMap<String, String>,
 }
 
 impl GeminiProvider {
@@ -29,6 +30,23 @@ impl GeminiProvider {
             base_url: BASE_URL.to_string(),
             client: provider_http_client(),
             metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
+            custom_headers: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn with_config(
+        api_key: String,
+        default_model: Option<String>,
+        base_url: String,
+        custom_headers: std::collections::HashMap<String, String>,
+    ) -> Self {
+        Self {
+            api_key,
+            default_model: default_model.unwrap_or_else(|| "gemini-pro".to_string()),
+            base_url,
+            client: provider_http_client(),
+            metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
+            custom_headers,
         }
     }
 
@@ -40,6 +58,7 @@ impl GeminiProvider {
             base_url,
             client: provider_http_client(),
             metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
+            custom_headers: std::collections::HashMap::new(),
         }
     }
 
@@ -271,10 +290,14 @@ impl LLMProvider for GeminiProvider {
         let encoded_model = urlencoding::encode(model_name);
         let url = format!("{}/models/{}:generateContent", self.base_url, encoded_model);
 
-        let resp = self
+        let mut req_builder = self
             .client
             .post(&url)
-            .header("x-goog-api-key", &self.api_key)
+            .header("x-goog-api-key", &self.api_key);
+        for (k, v) in &self.custom_headers {
+            req_builder = req_builder.header(k.as_str(), v.as_str());
+        }
+        let resp = req_builder
             .json(&payload)
             .send()
             .await
@@ -323,15 +346,16 @@ impl LLMProvider for GeminiProvider {
             "contents": [{"parts": [{"text": "hi"}]}],
             "generationConfig": {"maxOutputTokens": 1}
         });
-        let result = self
+        let mut req_builder = self
             .client
             .post(&url)
             .header("x-goog-api-key", &self.api_key)
             .header("Content-Type", "application/json")
-            .timeout(Duration::from_secs(15))
-            .json(&payload)
-            .send()
-            .await;
+            .timeout(Duration::from_secs(15));
+        for (k, v) in &self.custom_headers {
+            req_builder = req_builder.header(k.as_str(), v.as_str());
+        }
+        let result = req_builder.json(&payload).send().await;
         match result {
             Ok(resp) if !resp.status().is_success() => {
                 warn!("gemini warmup got HTTP {} (non-fatal)", resp.status());
