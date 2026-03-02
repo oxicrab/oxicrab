@@ -16,7 +16,7 @@ This is largely a personal toy with features I want or care about. For example, 
 
 - **Multi-channel**: Telegram, Discord (slash commands, embeds, buttons), Slack, WhatsApp, Twilio SMS/MMS
 - **LLM providers**: Anthropic (Claude), OpenAI, Google (Gemini), plus 8 OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, etc.), with OAuth and local model fallback
-- **Model routing**: Per-task provider/model assignment with N-way fallback chains
+- **Model routing**: Per-task provider/model assignment with N-way fallback chains and complexity-aware per-message routing
 - **Prompt caching**: Automatic Anthropic `cache_control` injection for up to 90% input token cost reduction
 - **24 built-in tools**: Filesystem, shell, web, HTTP, browser, image generation, Google Workspace, GitHub, scheduling, memory, media, and more
 - **MCP support**: Connect external tool servers via the Model Context Protocol

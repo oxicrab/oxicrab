@@ -2,6 +2,7 @@ use crate::agent::AgentRunOverrides;
 use crate::providers::base::LLMProvider;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::warn;
 
 /// Resolved model routing: maps tier names to pre-created providers.
 pub struct ResolvedRouting {
@@ -29,6 +30,25 @@ impl ResolvedRouting {
                 response_format: None,
             };
         }
+        AgentRunOverrides::default()
+    }
+
+    /// Resolve overrides by tier name directly (bypasses the rules map).
+    /// Used by complexity-aware routing which already knows the tier name.
+    pub fn resolve_tier_direct(&self, tier_name: &str) -> AgentRunOverrides {
+        if let Some((provider, model)) = self.tiers.get(tier_name) {
+            return AgentRunOverrides {
+                model: Some(model.clone()),
+                provider: Some(provider.clone()),
+                max_iterations: None,
+                response_format: None,
+            };
+        }
+        warn!(
+            "complexity routing resolved tier '{}' but it is not in the tiers map — \
+             falling back to default provider",
+            tier_name
+        );
         AgentRunOverrides::default()
     }
 

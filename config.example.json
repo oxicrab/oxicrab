@@ -68,7 +68,28 @@
       "modelRouting": {
         "tiers": {},
         "fallbacks": [],
-        "rules": {}
+        "rules": {},
+        "complexity": {
+          "enabled": false,
+          "thresholds": {
+            "lightStandard": 0.3,
+            "standardHeavy": 0.65
+          },
+          "tierMapping": {
+            "light": "lightweight",
+            "medium": "standard",
+            "heavy": "heavy"
+          },
+          "weights": {
+            "messageLength": 0.1,
+            "reasoningKeywords": 0.3,
+            "technicalVocabulary": 0.15,
+            "questionComplexity": 0.15,
+            "codePresence": 0.1,
+            "instructionComplexity": 0.15,
+            "conversationalSimplicity": -0.2
+          }
+        }
       }
     }
   },

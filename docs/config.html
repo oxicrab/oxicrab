@@ -500,7 +500,20 @@
 
         <h3>Model Routing</h3>
         <p>Config path: <code>agents.defaults.modelRouting</code></p>
-        <p>Route different task types to different providers and models. Each tier is a <code>provider/model</code> string, and rules map task types to tier names. When <code>modelRouting</code> is absent, the default model is used for all tasks.</p>
+
+        <p>By default, oxicrab sends every LLM call &mdash; conversations, cron jobs, subagent tasks, compaction &mdash; to the same model configured in <code>agents.defaults.model</code>. Model routing lets you assign different models to different workloads so you can use a capable (expensive) model for conversations while routing background tasks to a cheap, fast model. This is the single biggest lever for controlling cost without sacrificing quality where it matters.</p>
+
+        <p>Routing has three layers, evaluated in order:</p>
+        <ol>
+            <li><strong>Complexity-aware routing</strong> (per-message) &mdash; scores each inbound user message and picks a model tier based on how complex the message is. A simple &ldquo;hi&rdquo; goes to a cheap model; a multi-step analysis request goes to the most capable one. Disabled by default.</li>
+            <li><strong>Task-type rules</strong> &mdash; maps internal task types (<code>cron</code>, <code>daemon</code>, <code>subagent</code>, <code>compaction</code>) to named tiers. For example, all cron jobs can use a lightweight model regardless of what the conversation model is.</li>
+            <li><strong>Fallback chain</strong> &mdash; if the primary provider fails (errors, rate limits, downtime), try the next provider in order. Applies to the conversation provider only.</li>
+        </ol>
+
+        <p>All three layers share a single pool of <strong>named tiers</strong>. A tier is just a name pointing to a <code>provider/model</code> string. Rules, complexity routing, and fallbacks all reference tiers by name.</p>
+
+        <h4>Tiers and Rules</h4>
+        <p>Define your tiers, then write rules that point task types at them:</p>
         <pre><code>{
   "agents": {
     "defaults": {
@@ -521,60 +534,115 @@
     }
   }
 }</code></pre>
+        <p>With this config: conversations and compaction use Claude Sonnet, while cron jobs, daemon heartbeats, and subagent calls use Gemini Flash. If Claude Sonnet fails, the fallback chain tries MiniMax.</p>
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
-            <tr><td>tiers</td><td>object</td><td>{}</td><td>Named model tiers. Values are <code>provider/model</code> strings (e.g. <code>"anthropic/claude-sonnet-4-5"</code>)</td></tr>
-            <tr><td>fallbacks</td><td>string[]</td><td>[]</td><td>Ordered fallback chain of <code>provider/model</code> strings. Primary provider tries first, then each fallback in order. Fallbacks apply to the primary (conversation) provider only &mdash; individually routed tier providers (used for daemon, cron, subagent, compaction) do not get automatic fallback wrapping.</td></tr>
-            <tr><td>rules</td><td>object</td><td>{}</td><td>Maps task types to tier names. Known types: <code>conversation</code>, <code>cron</code>, <code>daemon</code>, <code>subagent</code>, <code>compaction</code>. The <code>conversation</code> type is reserved &mdash; conversation messages always use the primary provider/model (built from <code>agents.defaults.model</code>). Routing rules for other task types override only their specific call sites.</td></tr>
+            <tr><td>tiers</td><td>object</td><td>{}</td><td>Named model tiers. Values are <code>provider/model</code> strings (e.g. <code>"anthropic/claude-sonnet-4-5"</code>). When empty, all tasks use the default model.</td></tr>
+            <tr><td>rules</td><td>object</td><td>{}</td><td>Maps task types to tier names. Known types: <code>conversation</code>, <code>cron</code>, <code>daemon</code>, <code>subagent</code>, <code>compaction</code>. Each rule name must reference a tier defined in <code>tiers</code>.</td></tr>
+            <tr><td>fallbacks</td><td>string[]</td><td>[]</td><td>Ordered fallback chain of <code>provider/model</code> strings. Tried in order when the primary conversation provider fails. Only applies to conversation &mdash; individually routed tiers (cron, daemon, etc.) do not get automatic fallback wrapping.</td></tr>
         </table>
-        <p>Tiers are resolved at startup via <code>Config::create_routed_providers()</code>. The <code>fallbacks</code> chain builds a <code>FallbackProvider</code> &mdash; tried in order on error or malformed tool calls.</p>
 
-        <p><strong>Precedence:</strong> When both <code>daemon.executionModel</code> and <code>modelRouting.rules.daemon</code> are configured, model routing takes precedence. The <code>executionModel</code> is used only when no routing rule matches the daemon task type. The same precedence applies to <code>compaction.model</code> and other task-specific config fields.</p>
+        <p><strong>Precedence:</strong> When both a legacy config field (e.g. <code>daemon.executionModel</code>, <code>compaction.model</code>) and a <code>modelRouting.rules</code> entry exist for the same task type, model routing wins. The legacy field is used only when no routing rule matches.</p>
+        <p>Tiers are resolved once at startup via <code>Config::create_routed_providers()</code>. Each tier gets its own provider instance with connection pooling.</p>
 
-        <h3>Model Resolution Flow</h3>
-        <pre><code>Model Resolution Flow:
+        <h4>Complexity-Aware Routing</h4>
+        <p>Task-type routing assigns models by <em>what kind of work</em> is being done. Complexity routing goes further: it assigns models by <em>how hard the user&rsquo;s message is</em>. A &ldquo;hi&rdquo; doesn&rsquo;t need the same model as &ldquo;analyze the trade-offs between X and Y step by step&rdquo;. Since conversation messages typically account for 80%+ of token spend, routing simple messages to a cheap model can cut costs dramatically.</p>
 
-  ┌─────────────────────────────────────────────────┐
-  │              Incoming Task                       │
-  │  (conversation, cron, daemon, subagent, etc.)    │
-  └────────────────────┬────────────────────────────┘
-                       │
-                       ▼
-            ┌─────────────────────┐
-            │ modelRouting.rules  │
-            │ has matching rule?  │
-            └──────┬──────┬──────┘
-                   │      │
-              yes  │      │  no
-                   ▼      ▼
-         ┌──────────┐  ┌──────────────────────┐
-         │ Use tier  │  │ Task-specific config? │
-         │ provider  │  │ (daemon.executionModel│
-         │ + model   │  │  compaction.model)    │
-         └──────────┘  └──────┬───────┬───────┘
-                              │       │
-                         yes  │       │  no
-                              ▼       ▼
-                    ┌──────────┐  ┌──────────────┐
-                    │ Use task  │  │ Use primary   │
-                    │ config    │  │ provider +    │
-                    │ override  │  │ model         │
-                    └──────────┘  └──────┬───────┘
-                                         │
-                                         ▼
-                                  ┌──────────────┐
-                                  │ fallbacks     │
-                                  │ configured?   │
-                                  └──┬────────┬──┘
-                                     │        │
-                                yes  │        │  no
-                                     ▼        ▼
-                              ┌──────────┐ ┌────────┐
-                              │ Wrap in   │ │ Use    │
-                              │ Fallback  │ │ as-is  │
-                              │ Chain     │ │        │
-                              └──────────┘ └────────┘</code></pre>
+        <p>The scorer runs entirely locally &mdash; no API calls, sub-millisecond latency. It evaluates 7 dimensions of each message, computes a weighted composite score (0.0&ndash;1.0), and maps it to a tier:</p>
+
+        <table class="cfg-table">
+            <tr><th>Dimension</th><th>Method</th><th>Default Weight</th></tr>
+            <tr><td>Message length</td><td>Sigmoid normalization (centered at 500 chars)</td><td>0.10</td></tr>
+            <tr><td>Reasoning keywords</td><td>Aho-Corasick scan for ~24 terms (&ldquo;analyze&rdquo;, &ldquo;step by step&rdquo;, &ldquo;trade-off&rdquo;, etc.); saturates at 3 hits</td><td>0.30</td></tr>
+            <tr><td>Technical vocabulary</td><td>Aho-Corasick scan for ~25 terms (&ldquo;algorithm&rdquo;, &ldquo;API&rdquo;, &ldquo;middleware&rdquo;, etc.); saturates at 5 hits</td><td>0.15</td></tr>
+            <tr><td>Question complexity</td><td>Regex: simple &rarr; 0.1, comparative &rarr; 0.5, analytical &rarr; 0.7, multi-part &rarr; 0.9</td><td>0.15</td></tr>
+            <tr><td>Code presence</td><td>Regex: code fences, inline code, code-like patterns</td><td>0.10</td></tr>
+            <tr><td>Instruction complexity</td><td>Regex: numbered lists, sequential markers, imperative verbs; saturates at 4 steps</td><td>0.15</td></tr>
+            <tr><td>Conversational simplicity</td><td>Greeting/filler detection (reuses quality gate patterns). <strong>Negative weight</strong> &mdash; pushes score down.</td><td>&minus;0.20</td></tr>
+        </table>
+
+        <p>The composite score is mapped to three tiers via configurable thresholds:</p>
+        <ul>
+            <li><code>score &lt; 0.30</code> &rarr; <strong>light</strong> (default tier name: <code>"lightweight"</code>)</li>
+            <li><code>0.30 &le; score &lt; 0.65</code> &rarr; <strong>medium</strong> (default: <code>"standard"</code>)</li>
+            <li><code>score &ge; 0.65</code> &rarr; <strong>heavy</strong> (default: <code>"heavy"</code>)</li>
+        </ul>
+
+        <p><strong>Force overrides</strong> bypass scoring: 2+ reasoning keywords &rarr; heavy. Pure greeting/filler &rarr; lightweight. Message &gt;50KB &rarr; heavy.</p>
+
+        <p>Complexity routing shares the same tier pool as task-type routing. The <code>tierMapping</code> names must match tiers defined in <code>modelRouting.tiers</code>.</p>
+
+        <p>Config path: <code>agents.defaults.modelRouting.complexity</code></p>
+        <pre><code>{
+  "modelRouting": {
+    "tiers": {
+      "lightweight": "openrouter/google/gemini-3-flash",
+      "standard": "anthropic/claude-sonnet-4-5",
+      "heavy": "anthropic/claude-opus-4-5"
+    },
+    "rules": {
+      "cron": "lightweight",
+      "daemon": "lightweight"
+    },
+    "complexity": {
+      "enabled": true,
+      "thresholds": { "lightStandard": 0.3, "standardHeavy": 0.65 },
+      "tierMapping": { "light": "lightweight", "medium": "standard", "heavy": "heavy" },
+      "weights": {
+        "messageLength": 0.10,
+        "reasoningKeywords": 0.30,
+        "technicalVocabulary": 0.15,
+        "questionComplexity": 0.15,
+        "codePresence": 0.10,
+        "instructionComplexity": 0.15,
+        "conversationalSimplicity": -0.20
+      }
+    }
+  }
+}</code></pre>
+        <p>With this config: &ldquo;hi&rdquo; goes to Gemini Flash, &ldquo;what is a mutex?&rdquo; goes to Claude Sonnet, and &ldquo;analyze the architecture trade-offs step by step&rdquo; goes to Claude Opus. Cron and daemon always use Gemini Flash regardless of message complexity.</p>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable complexity-based per-message routing</td></tr>
+            <tr><td>thresholds.lightStandard</td><td>float</td><td>0.3</td><td>Score below this &rarr; light tier</td></tr>
+            <tr><td>thresholds.standardHeavy</td><td>float</td><td>0.65</td><td>Score at or above this &rarr; heavy tier</td></tr>
+            <tr><td>tierMapping.light</td><td>string</td><td>"lightweight"</td><td>Tier name for low-complexity messages</td></tr>
+            <tr><td>tierMapping.medium</td><td>string</td><td>"standard"</td><td>Tier name for medium-complexity messages</td></tr>
+            <tr><td>tierMapping.heavy</td><td>string</td><td>"heavy"</td><td>Tier name for high-complexity messages</td></tr>
+            <tr><td>weights.*</td><td>float</td><td>varies</td><td>Per-dimension scoring weights. Adjust to tune how strongly each dimension influences the final score. Negative weight on conversationalSimplicity pushes greeting/filler messages toward the light tier.</td></tr>
+        </table>
+
+        <h4>How It All Fits Together</h4>
+        <pre><code>                  ┌──────────────────────┐
+                  │   Inbound Message    │
+                  └──────────┬───────────┘
+                             │
+                  ┌──────────▼───────────┐
+                  │ complexity.enabled?  │
+                  └───┬─────────────┬────┘
+                 yes  │             │  no
+                      ▼             │
+            ┌─────────────────┐     │
+            │ Score message   │     │
+            │ → pick tier     │     │
+            │ → resolve       │     │
+            │   provider      │     │
+            └────────┬────────┘     │
+                     │              │
+                     ▼              ▼
+            ┌──────────────────────────┐
+            │  Has provider override?  │
+            └───┬──────────────────┬───┘
+           yes  │                  │  no
+                ▼                  ▼
+       ┌──────────────┐  ┌─────────────────┐
+       │ Use resolved │  │ Task-type rules  │
+       │ complexity   │  │ or primary model │
+       │ provider     │  │ + fallbacks      │
+       └──────────────┘  └─────────────────┘</code></pre>
+        <p>Complexity routing runs first. If it produces a provider override (i.e. the resolved tier exists), that wins for this message. If complexity routing is disabled, not configured, or the tier doesn&rsquo;t resolve, the standard task-type routing and fallback chain apply as usual.</p>
     </div>
 
     <!-- COST GUARD -->

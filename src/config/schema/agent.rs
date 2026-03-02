@@ -417,6 +417,164 @@ pub struct ModelRoutingConfig {
     /// Known types: "conversation", "cron", "daemon", "subagent", "compaction".
     #[serde(default)]
     pub rules: std::collections::HashMap<String, String>,
+    /// Complexity-aware message routing: scores each inbound message and routes
+    /// to the cheapest capable model tier. Disabled by default.
+    #[serde(default)]
+    pub complexity: ComplexityRoutingConfig,
+}
+
+/// Complexity-aware routing configuration. When enabled, each inbound user
+/// message is scored across 7 dimensions (sub-millisecond, no API calls) and
+/// mapped to a model tier.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ComplexityRoutingConfig {
+    /// Enable complexity-based message routing (default false).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Score thresholds for tier boundaries.
+    #[serde(default)]
+    pub thresholds: ComplexityThresholds,
+    /// Maps score ranges to model routing tier names.
+    #[serde(default, rename = "tierMapping")]
+    pub tier_mapping: ComplexityTierMapping,
+    /// Per-dimension scoring weights.
+    #[serde(default)]
+    pub weights: ComplexityWeights,
+}
+
+/// Score boundaries between tiers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplexityThresholds {
+    /// Below this → light tier (default 0.3).
+    #[serde(default = "default_light_standard_threshold", rename = "lightStandard")]
+    pub light_standard: f64,
+    /// At or above this → heavy tier (default 0.65).
+    #[serde(default = "default_standard_heavy_threshold", rename = "standardHeavy")]
+    pub standard_heavy: f64,
+}
+
+fn default_light_standard_threshold() -> f64 {
+    0.3
+}
+
+fn default_standard_heavy_threshold() -> f64 {
+    0.65
+}
+
+impl Default for ComplexityThresholds {
+    fn default() -> Self {
+        Self {
+            light_standard: default_light_standard_threshold(),
+            standard_heavy: default_standard_heavy_threshold(),
+        }
+    }
+}
+
+/// Tier name mapping from score range to model routing tier name.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplexityTierMapping {
+    /// Tier name for low-complexity messages (default "lightweight").
+    #[serde(default = "default_light_tier")]
+    pub light: String,
+    /// Tier name for medium-complexity messages (default "standard").
+    #[serde(default = "default_medium_tier")]
+    pub medium: String,
+    /// Tier name for high-complexity messages (default "heavy").
+    #[serde(default = "default_heavy_tier")]
+    pub heavy: String,
+}
+
+fn default_light_tier() -> String {
+    "lightweight".to_string()
+}
+
+fn default_medium_tier() -> String {
+    "standard".to_string()
+}
+
+fn default_heavy_tier() -> String {
+    "heavy".to_string()
+}
+
+impl Default for ComplexityTierMapping {
+    fn default() -> Self {
+        Self {
+            light: default_light_tier(),
+            medium: default_medium_tier(),
+            heavy: default_heavy_tier(),
+        }
+    }
+}
+
+/// Per-dimension scoring weights. Negative weight on conversational simplicity
+/// pulls the score down for greetings/filler.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplexityWeights {
+    #[serde(default = "default_message_length_weight", rename = "messageLength")]
+    pub message_length: f64,
+    #[serde(
+        default = "default_reasoning_keywords_weight",
+        rename = "reasoningKeywords"
+    )]
+    pub reasoning_keywords: f64,
+    #[serde(
+        default = "default_technical_vocabulary_weight",
+        rename = "technicalVocabulary"
+    )]
+    pub technical_vocabulary: f64,
+    #[serde(
+        default = "default_question_complexity_weight",
+        rename = "questionComplexity"
+    )]
+    pub question_complexity: f64,
+    #[serde(default = "default_code_presence_weight", rename = "codePresence")]
+    pub code_presence: f64,
+    #[serde(
+        default = "default_instruction_complexity_weight",
+        rename = "instructionComplexity"
+    )]
+    pub instruction_complexity: f64,
+    #[serde(
+        default = "default_conversational_simplicity_weight",
+        rename = "conversationalSimplicity"
+    )]
+    pub conversational_simplicity: f64,
+}
+
+fn default_message_length_weight() -> f64 {
+    0.10
+}
+fn default_reasoning_keywords_weight() -> f64 {
+    0.30
+}
+fn default_technical_vocabulary_weight() -> f64 {
+    0.15
+}
+fn default_question_complexity_weight() -> f64 {
+    0.15
+}
+fn default_code_presence_weight() -> f64 {
+    0.10
+}
+fn default_instruction_complexity_weight() -> f64 {
+    0.15
+}
+fn default_conversational_simplicity_weight() -> f64 {
+    -0.20
+}
+
+impl Default for ComplexityWeights {
+    fn default() -> Self {
+        Self {
+            message_length: default_message_length_weight(),
+            reasoning_keywords: default_reasoning_keywords_weight(),
+            technical_vocabulary: default_technical_vocabulary_weight(),
+            question_complexity: default_question_complexity_weight(),
+            code_presence: default_code_presence_weight(),
+            instruction_complexity: default_instruction_complexity_weight(),
+            conversational_simplicity: default_conversational_simplicity_weight(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
