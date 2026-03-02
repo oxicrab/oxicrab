@@ -35,6 +35,7 @@ max_width: 820px
       <li><a href="#docker-compose">Docker Compose</a></li>
       <li><a href="#systemd">systemd (Linux)</a></li>
       <li><a href="#launchd">launchd (macOS)</a></li>
+      <li><a href="#vps">VPS Deployment</a></li>
     </ul>
   </div>
 
@@ -466,6 +467,70 @@ launchctl unload ~/Library/LaunchAgents/com.oxicrab.gateway.plist</code></pre>
     </ul>
 
     <div class="note"><strong>Log rotation:</strong> macOS doesn't rotate launch agent logs automatically. Add a newsyslog entry or use a cron job:<br><code>echo '/usr/local/var/log/oxicrab.log 644 7 1000 * J' | sudo tee -a /etc/newsyslog.conf</code><br>This keeps 7 rotated copies, rotating when the file exceeds 1 MB.</div>
+  </div>
+
+  <!-- VPS DEPLOYMENT -->
+  <div id="vps" class="deploy-section">
+    <h2>VPS Deployment</h2>
+    <p>Deploy oxicrab on a cloud VPS (Hetzner, DigitalOcean, Vultr, etc.) using Docker Compose. This section covers the initial setup, securing with Tailscale, and monitoring from a second VPS.</p>
+
+    <h3>VPS Quick Start</h3>
+    <p>Five commands to go from a fresh VPS to a running oxicrab instance:</p>
+    <pre><code>ssh root@your-vps
+curl -fsSL https://get.docker.com | sh
+git clone https://github.com/oxicrab/oxicrab.git &amp;&amp; cd oxicrab
+mkdir -p ./data &amp;&amp; cp config.example.json ./data/config.json
+docker compose up -d</code></pre>
+    <p>Edit <code>./data/config.json</code> with your API keys before starting. The <code>data</code> directory is bind-mounted into the container at <code>/home/oxicrab/.oxicrab</code>, so config, memory, and workspace files persist across restarts.</p>
+
+    <h3>docker-compose Configuration</h3>
+    <p>The repository includes a <code>docker-compose.yml</code> at the project root. Key configuration is controlled through environment variables:</p>
+    <ul class="plain">
+      <li><strong>OXICRAB_HOME</strong> &mdash; host directory mounted as the data volume (default: <code>./data</code>). Set this to use an absolute path, e.g. <code>OXICRAB_HOME=/opt/oxicrab/data docker compose up -d</code>.</li>
+      <li><strong>OXICRAB_PORT</strong> &mdash; host port mapped to the gateway (default: <code>18790</code>). The container always listens on port 18790 internally.</li>
+    </ul>
+    <p>The service uses <code>restart: unless-stopped</code>, so it survives reboots and only stays down if you explicitly stop it. The health check calls <code>/api/health</code> every 30 seconds and marks the container unhealthy after 3 consecutive failures.</p>
+    <pre><code># Custom data directory and port
+OXICRAB_HOME=/opt/oxicrab/data OXICRAB_PORT=9090 docker compose up -d
+
+# View health status
+docker compose ps
+
+# Rebuild after pulling updates
+git pull &amp;&amp; docker compose up -d --build</code></pre>
+
+    <h3>Securing with Tailscale</h3>
+    <p>Bind the gateway to your <a href="https://tailscale.com/">Tailscale</a> IP so it is only reachable over your private tailnet. This removes the need for public-facing ports or firewall rules.</p>
+    <pre><code># Install Tailscale on the VPS
+curl -fsSL https://tailscale.com/install.sh | sh
+tailscale up</code></pre>
+    <p>Once Tailscale is running, note your Tailscale IP (e.g. <code>100.x.x.x</code>) and configure the gateway to bind to it. Edit <code>./data/config.json</code>:</p>
+    <div class="config-label">config.json (gateway section)</div>
+    <pre><code>{
+  "gateway": {
+    "host": "100.x.x.x",
+    "apiKey": "your-secret-api-key"
+  }
+}</code></pre>
+    <p>With this configuration:</p>
+    <ul class="plain">
+      <li>The gateway only listens on the Tailscale interface &mdash; not reachable from the public internet.</li>
+      <li>The <code>apiKey</code> adds a second layer: requests must include <code>Authorization: Bearer your-secret-api-key</code> or <code>X-API-Key: your-secret-api-key</code>.</li>
+      <li>SSH access should also be restricted to the tailnet by configuring <a href="https://tailscale.com/kb/1077/secure-server-ubuntu-18-04/">Tailscale SSH</a> or firewall rules that only allow Tailscale IPs.</li>
+    </ul>
+    <div class="note"><strong>Note:</strong> The <code>/api/health</code> endpoint is always public (no auth required) so that monitoring tools can check it without credentials. Webhook endpoints (<code>/api/webhook/{name}</code>) use their own HMAC authentication.</div>
+
+    <h3>Dual-VPS Health Monitoring</h3>
+    <p>The <code>scripts/healthcheck.sh</code> script checks the <code>/api/health</code> endpoint and exits non-zero on failure. It is used by the Docker HEALTHCHECK directive, but can also be called remotely from a second VPS for cross-node monitoring.</p>
+    <p>On a second VPS (connected to the same Tailscale network), set up a cron watchdog that checks the primary and restarts it if unhealthy:</p>
+    <pre><code>*/5 * * * * curl -sf http://100.x.x.x:18790/api/health || ssh root@100.x.x.x 'cd /path/to/oxicrab &amp;&amp; docker compose restart'</code></pre>
+    <p>This cron job runs every 5 minutes. If the health endpoint does not return a success response, it SSHs into the primary VPS (over Tailscale) and restarts the container. For this to work:</p>
+    <ul class="plain">
+      <li>Both VPSes must be on the same Tailscale network.</li>
+      <li>SSH key authentication must be set up between the monitor and the primary (or use Tailscale SSH).</li>
+      <li>Replace <code>100.x.x.x</code> with the primary VPS's Tailscale IP and <code>/path/to/oxicrab</code> with the actual clone directory.</li>
+    </ul>
+    <div class="note warn"><strong>Warning:</strong> This is a basic watchdog. For production deployments, consider a proper monitoring stack (Prometheus, Uptime Kuma, etc.) with alerting so you are notified of failures, not just auto-restarted.</div>
   </div>
 
 </div>
