@@ -590,25 +590,29 @@ impl Config {
         // Validate complexity routing
         let cx = &routing.complexity;
         if cx.enabled {
+            if routing.tiers.is_empty() {
+                return Err(OxicrabError::Config(
+                    "modelRouting.complexity.enabled is true but modelRouting.tiers is empty \
+                     — define at least the tiers referenced by tierMapping"
+                        .to_string(),
+                ));
+            }
             if cx.thresholds.light_standard >= cx.thresholds.standard_heavy {
                 return Err(OxicrabError::Config(
                     "modelRouting.complexity.thresholds: lightStandard must be less than standardHeavy".to_string(),
                 ));
             }
-            // Tier mapping names must reference defined tiers (when tiers exist)
-            if !routing.tiers.is_empty() {
-                for (label, tier_name) in [
-                    ("light", &cx.tier_mapping.light),
-                    ("medium", &cx.tier_mapping.medium),
-                    ("heavy", &cx.tier_mapping.heavy),
-                ] {
-                    if !routing.tiers.contains_key(tier_name) {
-                        return Err(OxicrabError::Config(format!(
-                            "modelRouting.complexity.tierMapping.{} references unknown tier '{}' \
-                             — add it to modelRouting.tiers",
-                            label, tier_name
-                        )));
-                    }
+            for (label, tier_name) in [
+                ("light", &cx.tier_mapping.light),
+                ("medium", &cx.tier_mapping.medium),
+                ("heavy", &cx.tier_mapping.heavy),
+            ] {
+                if !routing.tiers.contains_key(tier_name) {
+                    return Err(OxicrabError::Config(format!(
+                        "modelRouting.complexity.tierMapping.{} references unknown tier '{}' \
+                         — add it to modelRouting.tiers",
+                        label, tier_name
+                    )));
                 }
             }
         }

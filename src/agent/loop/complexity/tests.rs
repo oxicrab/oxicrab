@@ -380,3 +380,29 @@ fn case_insensitive_keywords() {
         "keywords should be case-insensitive"
     );
 }
+
+#[test]
+fn filler_prefix_not_force_overridden() {
+    // "nah analyze this" starts with filler "nah" but is a substantive request.
+    // Must NOT be force-overridden to lightweight via conversational_simplicity.
+    let scorer = default_scorer();
+    let score = scorer.score("nah analyze this");
+    assert_ne!(
+        score.forced,
+        Some("conversational_simplicity"),
+        "filler-prefixed substantive message must not be force-overridden"
+    );
+}
+
+#[test]
+fn short_mixed_filler_not_force_overridden() {
+    let scorer = default_scorer();
+    for msg in ["ok implement auth", "yeah debug this", "sure deploy it"] {
+        let score = scorer.score(msg);
+        assert_ne!(
+            score.forced,
+            Some("conversational_simplicity"),
+            "'{msg}' should not be force-overridden as filler"
+        );
+    }
+}

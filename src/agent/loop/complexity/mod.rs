@@ -7,6 +7,7 @@ mod tests;
 
 use aho_corasick::AhoCorasick;
 use regex::Regex;
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use crate::config::schema::{ComplexityRoutingConfig, ComplexityWeights};
@@ -93,6 +94,72 @@ const TECHNICAL_VOCABULARY: &[&str] = &[
     "stack overflow",
     "race condition",
 ];
+
+// ---------------------------------------------------------------------------
+// Exact-match sets for greeting/filler force-override (avoids AC substring
+// false positives like "nah analyze" matching "nah" as filler)
+// ---------------------------------------------------------------------------
+
+static GREETING_SET: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    [
+        "hi",
+        "hello",
+        "hey",
+        "yo",
+        "sup",
+        "thanks",
+        "thank you",
+        "thx",
+        "ty",
+        "bye",
+        "goodbye",
+        "good morning",
+        "good evening",
+        "good night",
+        "good afternoon",
+        "gm",
+        "gn",
+    ]
+    .into_iter()
+    .collect()
+});
+
+static FILLER_SET: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    [
+        "ok",
+        "okay",
+        "sure",
+        "yes",
+        "no",
+        "yep",
+        "nope",
+        "yeah",
+        "nah",
+        "cool",
+        "nice",
+        "great",
+        "awesome",
+        "got it",
+        "understood",
+        "alright",
+        "right",
+        "fine",
+        "lol",
+        "haha",
+        "lmao",
+        "hmm",
+        "hm",
+        "ah",
+        "oh",
+        "uh",
+        "um",
+        "wow",
+        "k",
+        "kk",
+    ]
+    .into_iter()
+    .collect()
+});
 
 // ---------------------------------------------------------------------------
 // Regex patterns (compiled once via LazyLock)
@@ -260,7 +327,7 @@ impl ComplexityScorer {
             Some("reasoning_keywords")
         } else if content.len() > LENGTH_FORCE_THRESHOLD {
             Some("message_length")
-        } else if self.is_pure_greeting_or_filler(content) {
+        } else if is_pure_greeting_or_filler(content) {
             Some("conversational_simplicity")
         } else {
             None
@@ -314,7 +381,7 @@ impl ComplexityScorer {
     /// D7: Conversational simplicity — high score when message is a greeting
     /// or filler phrase (negative weight will push composite down).
     fn score_conversational_simplicity(&self, content: &str) -> f64 {
-        if self.is_pure_greeting_or_filler(content) {
+        if is_pure_greeting_or_filler(content) {
             return 1.0;
         }
         // Partial: count greeting/filler hits relative to word count
@@ -328,30 +395,6 @@ impl ComplexityScorer {
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
-
-    /// Check if the entire message (after trimming/normalizing) is a single
-    /// greeting or filler phrase.
-    fn is_pure_greeting_or_filler(&self, content: &str) -> bool {
-        let trimmed = content.trim();
-        if trimmed.is_empty() {
-            return true;
-        }
-        let normalized = trimmed
-            .to_lowercase()
-            .trim_end_matches(|c: char| c.is_ascii_punctuation())
-            .to_string();
-        if normalized.is_empty() {
-            return true;
-        }
-        // Must be short enough that the entire message is the greeting/filler
-        if normalized.split_whitespace().count() > 4 {
-            return false;
-        }
-        // Check if any greeting or filler pattern matches the full normalized text
-        let greeting_hits = count_ac_hits(&self.greeting_ac, &normalized);
-        let filler_hits = count_ac_hits(&self.filler_ac, &normalized);
-        greeting_hits > 0 || filler_hits > 0
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +456,25 @@ fn count_ac_hits(ac: &AhoCorasick, text: &str) -> usize {
         }
     }
     count
+}
+
+/// Check if the entire message (after trimming/normalizing) is a single
+/// greeting or filler phrase. Uses exact-match lookup against static word
+/// lists to avoid false positives from AC substring matching (e.g. "nah
+/// analyze this" must NOT be classified as filler).
+fn is_pure_greeting_or_filler(content: &str) -> bool {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    let normalized = trimmed
+        .to_lowercase()
+        .trim_end_matches(|c: char| c.is_ascii_punctuation())
+        .to_string();
+    if normalized.is_empty() {
+        return true;
+    }
+    GREETING_SET.contains(normalized.as_str()) || FILLER_SET.contains(normalized.as_str())
 }
 
 /// Standard sigmoid function: 1 / (1 + exp(-k*x))
