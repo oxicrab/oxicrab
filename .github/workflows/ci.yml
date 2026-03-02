@@ -241,23 +241,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake
 
-      - name: Clippy (SARIF)
+      - name: Clippy (SARIF + fail on warnings)
         run: >
-          cargo clippy --all-targets --all-features --message-format=json
+          cargo clippy --all-targets --all-features --message-format=json -- -D warnings
           | clippy-sarif
           | tee clippy-results.sarif
           | sarif-fmt
-        continue-on-error: true
 
       - name: Upload SARIF to Code Scanning
+        if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: clippy-results.sarif
           wait-for-processing: true
         continue-on-error: true
-
-      - name: Clippy (fail on warnings)
-        run: cargo clippy --all-targets --all-features -- -D warnings
 
   # ── Unit Tests ──────────────────────────────────────────────────────
   test-unit:
@@ -555,7 +552,7 @@ jobs:
   package-linux:
     name: Package (linux)
     runs-on: ubuntu-latest
-    needs: [changes]
+    needs: [changes, compile-release-linux]
     if: needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v6
@@ -565,23 +562,23 @@ jobs:
         with:
           toolchain: ${{ env.NIGHTLY_VERSION }}
 
-      - name: Cache cargo
-        uses: actions/cache@v5
+      - name: Restore release cache from compile-release-linux
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: cargo-package-linux-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-package-linux-${{ env.NIGHTLY_VERSION }}-
+          key: cargo-release-linux-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-release-linux-${{ env.NIGHTLY_VERSION }}-
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake
 
-      - name: Build release binary
+      - name: Build release binary (cache hit = no-op)
         run: cargo build --release --target x86_64-unknown-linux-gnu
         env:
           SOURCE_DATE_EPOCH: "1"
