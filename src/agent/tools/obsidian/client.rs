@@ -113,11 +113,20 @@ impl ObsidianApiClient {
         Ok(all_files)
     }
 
-    /// Read a file's content from the vault.
-    pub async fn read_file(&self, path: &str) -> Result<String> {
-        if path.contains("..") {
+    /// Reject paths that attempt directory traversal (literal, URL-encoded,
+    /// or as a path component).
+    fn validate_path(path: &str) -> Result<()> {
+        // Decode percent-encoded sequences before checking so %2e%2e is caught
+        let decoded = urlencoding::decode(path).unwrap_or(std::borrow::Cow::Borrowed(path));
+        if decoded.contains("..") {
             anyhow::bail!("path traversal not allowed");
         }
+        Ok(())
+    }
+
+    /// Read a file's content from the vault.
+    pub async fn read_file(&self, path: &str) -> Result<String> {
+        Self::validate_path(path)?;
         let encoded = urlencoding::encode(path);
         let url = format!("{}/vault/{}", self.base_url, encoded);
         let resp = self
@@ -139,9 +148,7 @@ impl ObsidianApiClient {
 
     /// Create or overwrite a file in the vault.
     pub async fn write_file(&self, path: &str, content: &str) -> Result<()> {
-        if path.contains("..") {
-            anyhow::bail!("path traversal not allowed");
-        }
+        Self::validate_path(path)?;
         let encoded = urlencoding::encode(path);
         let url = format!("{}/vault/{}", self.base_url, encoded);
         let resp = self
@@ -164,9 +171,7 @@ impl ObsidianApiClient {
 
     /// Append content to a file in the vault.
     pub async fn append_file(&self, path: &str, content: &str) -> Result<()> {
-        if path.contains("..") {
-            anyhow::bail!("path traversal not allowed");
-        }
+        Self::validate_path(path)?;
         let encoded = urlencoding::encode(path);
         let url = format!("{}/vault/{}", self.base_url, encoded);
         let resp = self

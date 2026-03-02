@@ -512,33 +512,29 @@ impl AgentLoop {
         // Build event matcher from cron jobs. Always create the matcher when
         // cron_service exists so that new event-triggered jobs added after
         // startup can be picked up by the periodic rebuild.
-        let event_matcher = if cron_service.is_some() {
-            let matcher = if let Some(ref cron_svc) = cron_service {
-                match cron_svc.load_store(false).await {
-                    Ok(store) => {
-                        let m = EventMatcher::from_jobs(&store.jobs);
-                        if !m.is_empty() {
-                            info!(
-                                "Event matcher initialized with {} event-triggered job(s)",
-                                store
-                                    .jobs
-                                    .iter()
-                                    .filter(|j| matches!(
-                                        j.schedule,
-                                        crate::cron::types::CronSchedule::Event { .. }
-                                    ))
-                                    .count()
-                            );
-                        }
-                        m
+        let event_matcher = if let Some(ref cron_svc) = cron_service {
+            let matcher = match cron_svc.load_store(false).await {
+                Ok(store) => {
+                    let m = EventMatcher::from_jobs(&store.jobs);
+                    if !m.is_empty() {
+                        info!(
+                            "Event matcher initialized with {} event-triggered job(s)",
+                            store
+                                .jobs
+                                .iter()
+                                .filter(|j| matches!(
+                                    j.schedule,
+                                    crate::cron::types::CronSchedule::Event { .. }
+                                ))
+                                .count()
+                        );
                     }
-                    Err(e) => {
-                        warn!("Failed to load cron store for event matcher: {}", e);
-                        EventMatcher::from_jobs(&[])
-                    }
+                    m
                 }
-            } else {
-                EventMatcher::from_jobs(&[])
+                Err(e) => {
+                    warn!("Failed to load cron store for event matcher: {}", e);
+                    EventMatcher::from_jobs(&[])
+                }
             };
             Some(std::sync::Mutex::new(matcher))
         } else {
