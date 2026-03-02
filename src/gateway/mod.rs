@@ -7,13 +7,14 @@ pub mod a2a;
 /// Integrates with the existing `MessageBus` for inbound/outbound routing.
 use std::collections::HashMap;
 use std::hash::BuildHasher;
+use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
 use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, Path, Request, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::IntoResponse;
