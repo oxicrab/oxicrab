@@ -617,7 +617,7 @@ impl Config {
                 local = crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(local);
             }
             return Ok(std::sync::Arc::new(
-                crate::providers::fallback::FallbackProvider::new(
+                crate::providers::fallback::FallbackProvider::pair(
                     cloud,
                     local,
                     model.to_string(),
