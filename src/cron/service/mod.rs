@@ -289,9 +289,14 @@ impl CronService {
                                 "recovered {} cron job(s) stuck in 'running' from prior crash",
                                 recovered
                             );
+                            // Persist recovery immediately so it's not lost
+                            drop(guard);
+                            if let Err(e) = service.save_store().await {
+                                warn!("failed to persist recovered job state: {}", e);
+                            }
+                        } else {
+                            drop(guard);
                         }
-                    }
-                    drop(guard);
                 }
 
                 let now = now_ms();
