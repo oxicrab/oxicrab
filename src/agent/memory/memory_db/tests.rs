@@ -961,3 +961,103 @@ fn test_record_complexity_event() {
         .unwrap();
     assert_eq!(tier, "heavy");
 }
+
+#[test]
+fn test_get_complexity_stats() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("memory.sqlite3");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    // Insert complexity events
+    db.record_complexity_event(
+        "req-1",
+        0.12,
+        "lightweight",
+        Some("haiku"),
+        None,
+        Some("telegram"),
+        "hey",
+    )
+    .unwrap();
+    db.record_complexity_event(
+        "req-2",
+        0.15,
+        "lightweight",
+        Some("haiku"),
+        Some("greeting"),
+        Some("whatsapp"),
+        "hi there",
+    )
+    .unwrap();
+    db.record_complexity_event(
+        "req-3",
+        0.45,
+        "standard",
+        Some("sonnet"),
+        None,
+        Some("telegram"),
+        "explain how async works",
+    )
+    .unwrap();
+    db.record_complexity_event(
+        "req-4",
+        0.82,
+        "heavy",
+        Some("opus"),
+        Some("reasoning_keywords"),
+        Some("discord"),
+        "analyze the tradeoffs",
+    )
+    .unwrap();
+    db.record_complexity_event(
+        "req-5",
+        0.71,
+        "heavy",
+        Some("opus"),
+        None,
+        Some("telegram"),
+        "compare event sourcing vs cqrs",
+    )
+    .unwrap();
+
+    // Insert correlated cost data
+    db.record_cost("haiku", 100, 50, 0, 0, 0.5, "main", Some("req-1"))
+        .unwrap();
+    db.record_cost("haiku", 120, 60, 0, 0, 0.6, "main", Some("req-2"))
+        .unwrap();
+    db.record_cost("sonnet", 500, 200, 0, 0, 3.0, "main", Some("req-3"))
+        .unwrap();
+    db.record_cost("opus", 800, 400, 0, 0, 15.0, "main", Some("req-4"))
+        .unwrap();
+    db.record_cost("opus", 700, 350, 0, 0, 12.0, "main", Some("req-5"))
+        .unwrap();
+
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let stats = db.get_complexity_stats(&today).unwrap();
+
+    assert_eq!(stats.total_scored, 5);
+    assert_eq!(stats.tier_counts.len(), 3);
+
+    let light = stats
+        .tier_counts
+        .iter()
+        .find(|t| t.tier == "lightweight")
+        .unwrap();
+    assert_eq!(light.count, 2);
+
+    let heavy = stats
+        .tier_counts
+        .iter()
+        .find(|t| t.tier == "heavy")
+        .unwrap();
+    assert_eq!(heavy.count, 2);
+    assert!(heavy.avg_score > 0.7);
+    assert!(heavy.total_cost_cents > 20.0);
+
+    // Force overrides: greeting + reasoning_keywords
+    assert_eq!(stats.force_counts.len(), 2);
+
+    // Recent events
+    let recent = db.get_recent_complexity_events("heavy", 5).unwrap();
+    assert_eq!(recent.len(), 2);
+}

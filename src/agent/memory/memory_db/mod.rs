@@ -15,7 +15,10 @@ mod workspace;
 pub use cost::CostSummaryRow;
 pub use dlq::DlqEntry;
 pub use search::MemoryHit;
-pub use stats::{IntentEvent, IntentStats, SearchStats};
+pub use stats::{
+    ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, IntentEvent,
+    IntentStats, SearchStats,
+};
 pub use workspace::WorkspaceFileEntry;
 
 use embeddings::CachedEmbedding;
