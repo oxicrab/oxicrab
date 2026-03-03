@@ -935,7 +935,7 @@ impl AgentLoop {
         };
         debug!("Built {} messages, starting agent loop", messages.len());
 
-        let user_action_intent = self.classify_and_record_intent(&content);
+        let user_action_intent = self.classify_and_record_intent(&content, None);
 
         // Complexity-aware routing: score the message and resolve a tier override
         let complexity_overrides = if let Some(ref scorer) = self.complexity_scorer {
@@ -1358,6 +1358,7 @@ impl AgentLoop {
                     &tools_used,
                     user_has_action_intent,
                     Some(&self.memory.db()),
+                    None,
                 ) {
                     TextAction::Continue => {}
                     TextAction::Return => {
@@ -1617,7 +1618,7 @@ impl AgentLoop {
 
     /// Classify user message intent and record the metric to the database.
     /// Returns `true` if the message has action intent (should trigger tool use).
-    fn classify_and_record_intent(&self, content: &str) -> bool {
+    fn classify_and_record_intent(&self, content: &str, request_id: Option<&str>) -> bool {
         let regex_intent = intent::classify_action_intent(content);
         let (semantic_result, semantic_score) = if regex_intent {
             (None, None)
@@ -1642,6 +1643,7 @@ impl AgentLoop {
             semantic_score,
             None,
             content,
+            request_id,
         ) {
             debug!("failed to record intent metric: {}", e);
         }
@@ -1776,7 +1778,7 @@ impl AgentLoop {
             context_summary,
             msg.metadata.clone(),
         );
-        let user_action_intent = self.classify_and_record_intent(&msg.content);
+        let user_action_intent = self.classify_and_record_intent(&msg.content, None);
         let (final_content, _, tools_used, collected_media, _discourse) = self
             .run_agent_loop(messages, typing_ctx, &exec_ctx, user_action_intent)
             .await?;
@@ -1962,7 +1964,7 @@ impl AgentLoop {
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
         let exec_ctx = Self::build_execution_context(channel, chat_id, None);
-        let user_action_intent = self.classify_and_record_intent(content);
+        let user_action_intent = self.classify_and_record_intent(content, None);
 
         let (response, _, tools_used, _collected_media, _discourse) = self
             .run_agent_loop_with_overrides(

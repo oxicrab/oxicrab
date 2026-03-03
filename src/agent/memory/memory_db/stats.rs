@@ -159,6 +159,7 @@ impl MemoryDB {
         semantic_score: Option<f32>,
         detection_layer: Option<&str>,
         message_preview: &str,
+        request_id: Option<&str>,
     ) -> Result<()> {
         let preview = &message_preview[..message_preview
             .char_indices()
@@ -170,14 +171,15 @@ impl MemoryDB {
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
         conn.execute(
             "INSERT INTO intent_metrics
-             (event_type, intent_method, semantic_score, detection_layer, message_preview)
-             VALUES (?, ?, ?, ?, ?)",
+             (event_type, intent_method, semantic_score, detection_layer, message_preview, request_id)
+             VALUES (?, ?, ?, ?, ?, ?)",
             params![
                 event_type,
                 intent_method,
                 semantic_score,
                 detection_layer,
                 preview,
+                request_id,
             ],
         )?;
         Ok(())

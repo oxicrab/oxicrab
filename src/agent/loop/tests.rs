@@ -907,6 +907,7 @@ fn test_conversational_reply_passes_through() {
             &[],
             false, // user message was conversational, not action intent
             None,
+            None,
         );
         assert!(
             matches!(result, TextAction::Return),
@@ -932,6 +933,7 @@ fn test_action_hallucination_caught_without_tool_forcing() {
         &tool_names,
         &[],
         true, // user requested an action
+        None,
         None,
     );
     assert!(
@@ -960,6 +962,7 @@ fn test_action_hallucination_not_repeated_after_l1_correction() {
         &[],
         false, // no action intent — L2 won't fire either
         None,
+        None,
     );
     assert!(
         matches!(result, TextAction::Return),
@@ -984,6 +987,7 @@ fn test_layer2_fires_after_layer1_exhausted() {
         &tool_names,
         &[],
         true, // user has action intent — L2 should fire
+        None,
         None,
     );
     assert!(
@@ -1011,6 +1015,7 @@ fn test_legitimate_tool_response_passes_through() {
         &tool_names,
         &tools_used,
         true, // user requested an action
+        None,
         None,
     );
     assert!(
@@ -1040,6 +1045,7 @@ fn test_false_no_tools_claim_fires_despite_layers() {
         &[],
         true, // user requested an action
         None,
+        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
@@ -1065,6 +1071,7 @@ fn test_false_no_tools_claim_capped_at_max_corrections() {
         &tool_names,
         &[],
         true,
+        None,
         None,
     );
     assert!(
@@ -1108,6 +1115,7 @@ fn test_text_after_tools_called_passes_action_claims() {
             &tools_used,
             true, // user requested an action
             None,
+            None,
         );
         assert!(
             matches!(result, TextAction::Return),
@@ -1146,6 +1154,7 @@ fn test_uncalled_tools_detected_after_some_tools_called() {
         &tools_used,
         true,
         None,
+        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
@@ -1170,6 +1179,7 @@ fn test_empty_tool_names_disables_false_no_tools_check() {
         &tool_names,
         &[],
         true, // user requested an action
+        None,
         None,
     );
     assert!(
@@ -1200,6 +1210,7 @@ fn test_mentions_multiple_tools_triggers_correction() {
         &tool_names,
         &[],
         true, // user requested an action
+        None,
         None,
     );
     assert!(
