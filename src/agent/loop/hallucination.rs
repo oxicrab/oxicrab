@@ -62,6 +62,7 @@ pub(super) fn handle_text_response(
     tools_used: &[String],
     user_has_action_intent: bool,
     db: Option<&MemoryDB>,
+    request_id: Option<&str>,
 ) -> TextAction {
     // Layer 0: Detect false "no tools" claims and retry with correction.
     // The LLM is factually wrong about not having tools — correct up to
@@ -87,6 +88,7 @@ pub(super) fn handle_text_response(
                 None,
                 Some("layer0_false_no_tools"),
                 content,
+                request_id,
             )
         {
             debug!("failed to record hallucination metric: {}", e);
@@ -131,6 +133,7 @@ pub(super) fn handle_text_response(
                     None,
                     Some("layer1_regex"),
                     content,
+                    request_id,
                 )
             {
                 debug!("failed to record hallucination metric: {}", e);
@@ -160,8 +163,14 @@ pub(super) fn handle_text_response(
     {
         warn!("Intent mismatch: user requested action but LLM returned text without calling tools");
         if let Some(db) = db
-            && let Err(e) =
-                db.record_intent_event("hallucination", None, None, Some("layer2_intent"), content)
+            && let Err(e) = db.record_intent_event(
+                "hallucination",
+                None,
+                None,
+                Some("layer2_intent"),
+                content,
+                request_id,
+            )
         {
             debug!("failed to record hallucination metric: {}", e);
         }

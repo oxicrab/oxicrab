@@ -15,7 +15,10 @@ mod workspace;
 pub use cost::CostSummaryRow;
 pub use dlq::DlqEntry;
 pub use search::MemoryHit;
-pub use stats::{IntentEvent, IntentStats, SearchStats};
+pub use stats::{
+    ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, IntentEvent,
+    IntentStats, SearchStats,
+};
 pub use workspace::WorkspaceFileEntry;
 
 use embeddings::CachedEmbedding;
@@ -265,6 +268,34 @@ impl MemoryDB {
             "CREATE INDEX IF NOT EXISTS idx_workspace_files_category ON workspace_files(category);
              CREATE INDEX IF NOT EXISTS idx_workspace_files_created ON workspace_files(created_at);",
         )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS complexity_routing_log (
+                id INTEGER PRIMARY KEY,
+                request_id TEXT NOT NULL,
+                timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+                composite_score REAL NOT NULL,
+                resolved_tier TEXT NOT NULL,
+                resolved_model TEXT,
+                forced TEXT,
+                channel TEXT,
+                message_preview TEXT
+            )",
+            [],
+        )?;
+
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_complexity_log_ts ON complexity_routing_log(timestamp);
+             CREATE INDEX IF NOT EXISTS idx_complexity_log_req ON complexity_routing_log(request_id);",
+        )?;
+
+        // Add request_id to existing tables (idempotent: ignore if column already exists)
+        for table in &["llm_cost_log", "intent_metrics", "memory_access_log"] {
+            let _ = conn.execute(
+                &format!("ALTER TABLE {} ADD COLUMN request_id TEXT", table),
+                [],
+            );
+        }
 
         // Try to create FTS5 virtual table
         if conn

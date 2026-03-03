@@ -30,6 +30,37 @@ pub struct IntentEvent {
     pub message_preview: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ComplexityTierStats {
+    pub tier: String,
+    pub count: u64,
+    pub avg_score: f64,
+    pub total_cost_cents: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ComplexityForceCount {
+    pub reason: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ComplexityEvent {
+    pub timestamp: String,
+    pub composite_score: f64,
+    pub resolved_tier: String,
+    pub resolved_model: Option<String>,
+    pub forced: Option<String>,
+    pub message_preview: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ComplexityStats {
+    pub total_scored: u64,
+    pub tier_counts: Vec<ComplexityTierStats>,
+    pub force_counts: Vec<ComplexityForceCount>,
+}
+
 impl MemoryDB {
     /// Log a search query and the source keys it returned.
     pub fn log_search(
@@ -38,15 +69,16 @@ impl MemoryDB {
         search_type: &str,
         results: &[MemoryHit],
         top_score: Option<f64>,
+        request_id: Option<&str>,
     ) -> Result<()> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
         conn.execute(
-            "INSERT INTO memory_access_log (query, search_type, result_count, top_score)
-             VALUES (?, ?, ?, ?)",
-            params![query, search_type, results.len() as i64, top_score],
+            "INSERT INTO memory_access_log (query, search_type, result_count, top_score, request_id)
+             VALUES (?, ?, ?, ?, ?)",
+            params![query, search_type, results.len() as i64, top_score, request_id],
         )?;
         let log_id = conn.last_insert_rowid();
         for hit in results {
@@ -159,6 +191,7 @@ impl MemoryDB {
         semantic_score: Option<f32>,
         detection_layer: Option<&str>,
         message_preview: &str,
+        request_id: Option<&str>,
     ) -> Result<()> {
         let preview = &message_preview[..message_preview
             .char_indices()
@@ -170,14 +203,15 @@ impl MemoryDB {
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
         conn.execute(
             "INSERT INTO intent_metrics
-             (event_type, intent_method, semantic_score, detection_layer, message_preview)
-             VALUES (?, ?, ?, ?, ?)",
+             (event_type, intent_method, semantic_score, detection_layer, message_preview, request_id)
+             VALUES (?, ?, ?, ?, ?, ?)",
             params![
                 event_type,
                 intent_method,
                 semantic_score,
                 detection_layer,
                 preview,
+                request_id,
             ],
         )?;
         Ok(())
@@ -298,6 +332,138 @@ impl MemoryDB {
             })?
             .collect();
         rows.map_err(|e| anyhow::anyhow!("failed to get recent hallucinations: {}", e))
+    }
+
+    /// Record a complexity routing decision for a message.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_complexity_event(
+        &self,
+        request_id: &str,
+        composite_score: f64,
+        resolved_tier: &str,
+        resolved_model: Option<&str>,
+        forced: Option<&str>,
+        channel: Option<&str>,
+        message_preview: &str,
+    ) -> Result<()> {
+        let preview = &message_preview[..message_preview
+            .char_indices()
+            .nth(80)
+            .map_or(message_preview.len(), |(i, _)| i)];
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        conn.execute(
+            "INSERT INTO complexity_routing_log
+             (request_id, composite_score, resolved_tier, resolved_model, forced, channel, message_preview)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![
+                request_id,
+                composite_score,
+                resolved_tier,
+                resolved_model,
+                forced,
+                channel,
+                preview,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Get complexity routing statistics for the given period.
+    pub fn get_complexity_stats(&self, since_date: &str) -> Result<ComplexityStats> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+
+        let total: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM complexity_routing_log WHERE DATE(timestamp) >= ?",
+                [since_date],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        // Per-tier stats with cost correlation via request_id JOIN
+        let mut stmt = conn.prepare(
+            "SELECT c.resolved_tier,
+                    COUNT(*) as cnt,
+                    AVG(c.composite_score) as avg_score,
+                    COALESCE(SUM(l.cost_cents), 0.0) as total_cost
+             FROM complexity_routing_log c
+             LEFT JOIN llm_cost_log l ON c.request_id = l.request_id
+             WHERE DATE(c.timestamp) >= ?
+             GROUP BY c.resolved_tier
+             ORDER BY cnt DESC",
+        )?;
+        let tier_counts: Vec<ComplexityTierStats> = stmt
+            .query_map([since_date], |row| {
+                Ok(ComplexityTierStats {
+                    tier: row.get(0)?,
+                    count: row.get::<_, i64>(1)? as u64,
+                    avg_score: row.get(2)?,
+                    total_cost_cents: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("tier stats query failed: {}", e))?;
+
+        // Force override counts
+        let mut stmt = conn.prepare(
+            "SELECT forced, COUNT(*) as cnt
+             FROM complexity_routing_log
+             WHERE forced IS NOT NULL AND DATE(timestamp) >= ?
+             GROUP BY forced
+             ORDER BY cnt DESC",
+        )?;
+        let force_counts: Vec<ComplexityForceCount> = stmt
+            .query_map([since_date], |row| {
+                Ok(ComplexityForceCount {
+                    reason: row.get(0)?,
+                    count: row.get::<_, i64>(1)? as u64,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("force counts query failed: {}", e))?;
+
+        Ok(ComplexityStats {
+            total_scored: total as u64,
+            tier_counts,
+            force_counts,
+        })
+    }
+
+    /// Get recent complexity routing events for a given tier.
+    pub fn get_recent_complexity_events(
+        &self,
+        tier: &str,
+        limit: usize,
+    ) -> Result<Vec<ComplexityEvent>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT timestamp, composite_score, resolved_tier, resolved_model, forced, message_preview
+             FROM complexity_routing_log
+             WHERE resolved_tier = ?
+             ORDER BY timestamp DESC LIMIT ?",
+        )?;
+        let rows: Result<Vec<_>, _> = stmt
+            .query_map(params![tier, limit as i64], |row| {
+                Ok(ComplexityEvent {
+                    timestamp: row.get(0)?,
+                    composite_score: row.get(1)?,
+                    resolved_tier: row.get(2)?,
+                    resolved_model: row.get(3)?,
+                    forced: row.get(4)?,
+                    message_preview: row.get(5)?,
+                })
+            })?
+            .collect();
+        rows.map_err(|e| anyhow::anyhow!("recent complexity events query failed: {}", e))
     }
 
     /// Purge search access logs older than `days`. Returns number of rows deleted.

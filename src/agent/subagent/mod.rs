@@ -428,6 +428,7 @@ async fn run_subagent_inner(
                 response.output_tokens,
                 response.cache_creation_input_tokens,
                 response.cache_read_input_tokens,
+                None,
             );
         }
 

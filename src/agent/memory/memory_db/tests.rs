@@ -300,9 +300,9 @@ fn test_cost_record_and_query() {
     let db_path = dir.path().join("test_memory.db");
     let db = MemoryDB::new(&db_path).unwrap();
 
-    db.record_cost("claude-sonnet-4", 1000, 500, 0, 0, 4.5, "main")
+    db.record_cost("claude-sonnet-4", 1000, 500, 0, 0, 4.5, "main", None)
         .unwrap();
-    db.record_cost("gpt-4o", 2000, 1000, 100, 200, 3.2, "subagent")
+    db.record_cost("gpt-4o", 2000, 1000, 100, 200, 3.2, "subagent", None)
         .unwrap();
 
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -316,11 +316,11 @@ fn test_cost_summary() {
     let db_path = dir.path().join("test_memory.db");
     let db = MemoryDB::new(&db_path).unwrap();
 
-    db.record_cost("claude-sonnet-4", 1000, 500, 0, 0, 4.5, "main")
+    db.record_cost("claude-sonnet-4", 1000, 500, 0, 0, 4.5, "main", None)
         .unwrap();
-    db.record_cost("claude-sonnet-4", 2000, 1000, 0, 0, 9.0, "main")
+    db.record_cost("claude-sonnet-4", 2000, 1000, 0, 0, 9.0, "main", None)
         .unwrap();
-    db.record_cost("gpt-4o", 500, 200, 0, 0, 1.0, "main")
+    db.record_cost("gpt-4o", 500, 200, 0, 0, 1.0, "main", None)
         .unwrap();
 
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -914,4 +914,150 @@ fn test_workspace_file_register_upsert() {
     assert_eq!(files[0].id, original_id);
     assert_eq!(files[0].tags, "important,review");
     assert!(files[0].accessed_at.is_some());
+}
+
+#[test]
+fn test_record_complexity_event() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("memory.sqlite3");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    db.record_complexity_event(
+        "req-test-001",
+        0.72,
+        "heavy",
+        Some("claude-opus-4-6"),
+        Some("reasoning_keywords"),
+        Some("telegram"),
+        "analyze the architectural tradeoffs of event sourcing",
+    )
+    .unwrap();
+
+    db.record_complexity_event(
+        "req-test-002",
+        0.15,
+        "lightweight",
+        Some("claude-haiku-4-5"),
+        None,
+        Some("whatsapp"),
+        "hey what's up",
+    )
+    .unwrap();
+
+    let conn = db.conn.lock().unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM complexity_routing_log", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 2);
+
+    let tier: String = conn
+        .query_row(
+            "SELECT resolved_tier FROM complexity_routing_log WHERE request_id = ?",
+            ["req-test-001"],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(tier, "heavy");
+}
+
+#[test]
+fn test_get_complexity_stats() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("memory.sqlite3");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    // Insert complexity events
+    db.record_complexity_event(
+        "req-1",
+        0.12,
+        "lightweight",
+        Some("haiku"),
+        None,
+        Some("telegram"),
+        "hey",
+    )
+    .unwrap();
+    db.record_complexity_event(
+        "req-2",
+        0.15,
+        "lightweight",
+        Some("haiku"),
+        Some("greeting"),
+        Some("whatsapp"),
+        "hi there",
+    )
+    .unwrap();
+    db.record_complexity_event(
+        "req-3",
+        0.45,
+        "standard",
+        Some("sonnet"),
+        None,
+        Some("telegram"),
+        "explain how async works",
+    )
+    .unwrap();
+    db.record_complexity_event(
+        "req-4",
+        0.82,
+        "heavy",
+        Some("opus"),
+        Some("reasoning_keywords"),
+        Some("discord"),
+        "analyze the tradeoffs",
+    )
+    .unwrap();
+    db.record_complexity_event(
+        "req-5",
+        0.71,
+        "heavy",
+        Some("opus"),
+        None,
+        Some("telegram"),
+        "compare event sourcing vs cqrs",
+    )
+    .unwrap();
+
+    // Insert correlated cost data
+    db.record_cost("haiku", 100, 50, 0, 0, 0.5, "main", Some("req-1"))
+        .unwrap();
+    db.record_cost("haiku", 120, 60, 0, 0, 0.6, "main", Some("req-2"))
+        .unwrap();
+    db.record_cost("sonnet", 500, 200, 0, 0, 3.0, "main", Some("req-3"))
+        .unwrap();
+    db.record_cost("opus", 800, 400, 0, 0, 15.0, "main", Some("req-4"))
+        .unwrap();
+    db.record_cost("opus", 700, 350, 0, 0, 12.0, "main", Some("req-5"))
+        .unwrap();
+
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let stats = db.get_complexity_stats(&today).unwrap();
+
+    assert_eq!(stats.total_scored, 5);
+    assert_eq!(stats.tier_counts.len(), 3);
+
+    let light = stats
+        .tier_counts
+        .iter()
+        .find(|t| t.tier == "lightweight")
+        .unwrap();
+    assert_eq!(light.count, 2);
+
+    let heavy = stats
+        .tier_counts
+        .iter()
+        .find(|t| t.tier == "heavy")
+        .unwrap();
+    assert_eq!(heavy.count, 2);
+    assert!(heavy.avg_score > 0.7);
+    assert!(heavy.total_cost_cents > 20.0);
+
+    // Force overrides: greeting + reasoning_keywords
+    assert_eq!(stats.force_counts.len(), 2);
+
+    // Recent events
+    let recent = db.get_recent_complexity_events("heavy", 5).unwrap();
+    assert_eq!(recent.len(), 2);
 }
