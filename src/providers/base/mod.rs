@@ -172,7 +172,7 @@ pub struct ChatRequest<'a> {
     pub tools: Option<Vec<ToolDefinition>>,
     pub model: Option<&'a str>,
     pub max_tokens: u32,
-    pub temperature: f32,
+    pub temperature: Option<f32>,
     /// Tool choice mode: "auto" (default), "any" (force tool use), or "none".
     pub tool_choice: Option<String>,
     /// Optional response format constraint (JSON mode, structured output).

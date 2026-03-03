@@ -30,7 +30,7 @@ pub struct SubagentConfig {
     pub workspace: PathBuf,
     pub model: Option<String>,
     pub max_tokens: u32,
-    pub tool_temperature: f32,
+    pub tool_temperature: Option<f32>,
     pub max_concurrent: usize,
     /// Shared cost guard for budget/rate enforcement across main agent and subagents.
     pub cost_guard: Option<Arc<CostGuard>>,
@@ -56,7 +56,7 @@ struct SubagentInner {
     workspace: PathBuf,
     model: String,
     max_tokens: u32,
-    tool_temperature: f32,
+    tool_temperature: Option<f32>,
     cost_guard: Option<Arc<CostGuard>>,
     prompt_guard: Option<PromptGuard>,
     prompt_guard_config: PromptGuardConfig,

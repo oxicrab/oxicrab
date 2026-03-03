@@ -172,6 +172,18 @@ max_width: 820px
 }</code></pre>
         <p>Headers are merged into every chat and warmup request alongside the standard <code>Authorization</code> and <code>Content-Type</code> headers.</p>
 
+        <h3 id="per-provider-temperature">Per-Provider Temperature</h3>
+        <p>Override the global <code>agents.defaults.temperature</code> for a specific provider. Useful for providers like Moonshot/Kimi that enforce their own temperature constraints:</p>
+        <pre><code>{
+  "providers": {
+    "moonshot": {
+      "apiKey": "sk-...",
+      "temperature": 0.6
+    }
+  }
+}</code></pre>
+        <p>Resolution order: <strong>per-provider</strong> &rarr; <strong>global</strong> &rarr; <strong>omit</strong> (API default). When temperature is <code>null</code> or absent at all levels, the field is omitted from the API payload, letting the provider use its own default.</p>
+
         <h3 id="oauth-models">OAuth Models</h3>
         <p>Anthropic OAuth is attempted when the provider resolves to <code>anthropic</code> &mdash; via <code>anthropic/</code> prefix or auto-detection of <code>claude-*</code> models:</p>
         <ul class="plain">
@@ -326,7 +338,7 @@ max_width: 820px
             <tr><td>workspace</td><td>string</td><td>~/.oxicrab/workspace</td><td>Path to workspace directory</td></tr>
             <tr><td>model</td><td>string</td><td>claude-sonnet-4-5-20250929</td><td>Default LLM model</td></tr>
             <tr><td>maxTokens</td><td>u32</td><td>8192</td><td>Max tokens per LLM response</td></tr>
-            <tr><td>temperature</td><td>f32</td><td>0.7</td><td>LLM sampling temperature (0.0&ndash;2.0)</td></tr>
+            <tr><td>temperature</td><td>f32?</td><td>0.7</td><td>LLM sampling temperature (0.0&ndash;2.0). Set to <code>null</code> to let the provider use its default. Can be overridden per-provider via <code>providers.&lt;name&gt;.temperature</code>.</td></tr>
             <tr><td>maxToolIterations</td><td>usize</td><td>20</td><td>Max agent loop iterations per turn</td></tr>
             <tr><td>sessionTtlDays</td><td>u32</td><td>30</td><td>Days before inactive sessions are pruned</td></tr>
             <tr><td>memoryIndexerInterval</td><td>u64</td><td>300</td><td>Seconds between memory indexer runs</td></tr>

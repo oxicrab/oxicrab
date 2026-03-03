@@ -12,6 +12,10 @@ pub struct ProviderConfig {
     /// Custom HTTP headers injected into every request to this provider.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub headers: std::collections::HashMap<String, String>,
+    /// Per-provider temperature override. When set, this takes priority over
+    /// the global `agents.defaults.temperature` for all requests to this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
 }
 
 impl std::fmt::Debug for ProviderConfig {
@@ -29,6 +33,7 @@ impl std::fmt::Debug for ProviderConfig {
             )
             .field("api_base", &self.api_base)
             .field("headers", &redacted_headers)
+            .field("temperature", &self.temperature)
             .finish()
     }
 }
@@ -223,6 +228,42 @@ impl ProvidersConfig {
         } else {
             Some(&config.api_key)
         }
+    }
+
+    /// Get the per-provider temperature override for a given model.
+    ///
+    /// Uses the same 2-tier resolution as `get_api_key`: prefix notation,
+    /// then model-name inference.
+    pub fn get_temperature_for_model(&self, model: &str) -> Option<f32> {
+        use crate::providers::strategy::{infer_provider_from_model, parse_model_ref};
+
+        let model_ref = parse_model_ref(model);
+        let provider_name = model_ref
+            .provider
+            .or_else(|| infer_provider_from_model(model_ref.model));
+
+        if let Some(name) = provider_name {
+            let normalized = normalize_provider(name);
+            let config = match normalized.as_ref() {
+                "anthropic" => Some(&self.anthropic),
+                "openai" => Some(&self.openai),
+                "gemini" => Some(&self.gemini),
+                "openrouter" => Some(&self.openrouter),
+                "deepseek" => Some(&self.deepseek),
+                "groq" => Some(&self.groq),
+                "moonshot" => Some(&self.moonshot),
+                "zhipu" => Some(&self.zhipu),
+                "dashscope" => Some(&self.dashscope),
+                "vllm" => Some(&self.vllm.base),
+                "ollama" => Some(&self.ollama.base),
+                _ => None,
+            };
+            if let Some(cfg) = config {
+                return cfg.temperature;
+            }
+        }
+
+        None
     }
 
     /// Return the first available API key across all providers.

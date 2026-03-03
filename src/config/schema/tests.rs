@@ -16,14 +16,14 @@ fn test_invalid_zero_max_tokens() {
 #[test]
 fn test_invalid_temperature_negative() {
     let mut config = Config::default();
-    config.agents.defaults.temperature = -1.0;
+    config.agents.defaults.temperature = Some(-1.0);
     assert!(config.validate().is_err());
 }
 
 #[test]
 fn test_invalid_temperature_too_high() {
     let mut config = Config::default();
-    config.agents.defaults.temperature = 3.0;
+    config.agents.defaults.temperature = Some(3.0);
     assert!(config.validate().is_err());
 }
 
@@ -66,14 +66,35 @@ fn test_invalid_memory_purge_before_archive() {
 #[test]
 fn test_invalid_nan_temperature() {
     let mut config = Config::default();
-    config.agents.defaults.temperature = f32::NAN;
+    config.agents.defaults.temperature = Some(f32::NAN);
     assert!(config.validate().is_err());
 }
 
 #[test]
 fn test_invalid_infinity_temperature() {
     let mut config = Config::default();
-    config.agents.defaults.temperature = f32::INFINITY;
+    config.agents.defaults.temperature = Some(f32::INFINITY);
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_none_temperature_valid() {
+    let mut config = Config::default();
+    config.agents.defaults.temperature = None;
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_per_provider_temperature_valid() {
+    let mut config = Config::default();
+    config.providers.moonshot.temperature = Some(0.6);
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_per_provider_temperature_invalid() {
+    let mut config = Config::default();
+    config.providers.moonshot.temperature = Some(3.0);
     assert!(config.validate().is_err());
 }
 

@@ -11,7 +11,7 @@ fn simple_chat_request(content: &str) -> ChatRequest<'_> {
         tools: None,
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     }
@@ -213,7 +213,7 @@ async fn test_system_message_as_system_instruction() {
         tools: None,
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     };
@@ -346,7 +346,7 @@ async fn test_chat_with_json_object_format() {
         tools: None,
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: Some(crate::providers::base::ResponseFormat::JsonObject),
     };

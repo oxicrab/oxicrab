@@ -98,8 +98,10 @@ impl LLMProvider for AnthropicProvider {
             "model": req.model.unwrap_or(&self.default_model),
             "messages": anthropic_messages,
             "max_tokens": req.max_tokens,
-            "temperature": req.temperature,
         });
+        if let Some(temp) = req.temperature {
+            payload["temperature"] = json!(temp);
+        }
 
         if let Some(system) = system {
             let system_with_hint = if let Some(hint) = json_mode_hint {

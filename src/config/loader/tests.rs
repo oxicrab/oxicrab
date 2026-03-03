@@ -81,9 +81,9 @@ fn test_save_and_load_roundtrip() {
         loaded.agents.defaults.max_tokens,
         config.agents.defaults.max_tokens
     );
-    assert!(
-        (loaded.agents.defaults.temperature - config.agents.defaults.temperature).abs()
-            < f32::EPSILON
+    assert_eq!(
+        loaded.agents.defaults.temperature,
+        config.agents.defaults.temperature
     );
 }
 

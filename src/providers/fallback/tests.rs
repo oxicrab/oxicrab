@@ -72,7 +72,7 @@ fn make_request() -> ChatRequest<'static> {
         tools: None,
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     }
@@ -239,7 +239,7 @@ async fn test_text_only_with_tools_available_not_rejected() {
         }]),
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None, // auto mode -- model can choose text
         response_format: None,
     };

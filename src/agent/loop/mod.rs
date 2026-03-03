@@ -99,10 +99,10 @@ pub struct AgentLoopConfig {
     pub compaction_config: crate::config::CompactionConfig,
     pub outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     pub cron_service: Option<Arc<CronService>>,
-    /// Temperature for response generation (default 0.7)
-    pub temperature: f32,
-    /// Temperature for tool-calling iterations (default 0.0 for determinism)
-    pub tool_temperature: f32,
+    /// Temperature for response generation (default Some(0.7), None = provider default)
+    pub temperature: Option<f32>,
+    /// Temperature for tool-calling iterations (default Some(0.0) for determinism)
+    pub tool_temperature: Option<f32>,
     /// Session TTL in days for cleanup (default 30)
     pub session_ttl_days: u32,
     /// Max tokens for LLM responses (default 8192)
@@ -138,7 +138,7 @@ pub struct AgentLoopConfig {
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
-const TOOL_TEMPERATURE: f32 = 0.0;
+const TOOL_TEMPERATURE: Option<f32> = Some(0.0);
 
 /// Runtime parameters for [`AgentLoopConfig::from_config`] that vary per
 /// invocation (as opposed to values read from the config file).
@@ -170,6 +170,17 @@ impl AgentLoopConfig {
             }
         }
 
+        // Resolve per-provider temperature before consuming params.model
+        let resolved_temperature = config
+            .providers
+            .get_temperature_for_model(
+                params
+                    .model
+                    .as_deref()
+                    .unwrap_or(&config.agents.defaults.model_routing.default),
+            )
+            .map_or(config.agents.defaults.temperature, Some);
+
         Self {
             bus: params.bus,
             provider: params.provider,
@@ -179,7 +190,7 @@ impl AgentLoopConfig {
             compaction_config: config.agents.defaults.compaction.clone(),
             outbound_tx: params.outbound_tx,
             cron_service: params.cron_service,
-            temperature: config.agents.defaults.temperature,
+            temperature: resolved_temperature,
             tool_temperature: TOOL_TEMPERATURE,
             session_ttl_days: config.agents.defaults.session_ttl_days,
             max_tokens: config.agents.defaults.max_tokens,
@@ -243,8 +254,8 @@ impl AgentLoopConfig {
             },
             outbound_tx,
             cron_service: None,
-            temperature: 0.7,
-            tool_temperature: 0.0,
+            temperature: Some(0.7),
+            tool_temperature: Some(0.0),
             session_ttl_days: 0,
             max_tokens: 8192,
             typing_tx: None,
@@ -305,8 +316,8 @@ pub struct AgentLoop {
     running: Arc<tokio::sync::Mutex<bool>>,
     outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     task_tracker: Arc<TaskTracker>,
-    temperature: f32,
-    tool_temperature: f32,
+    temperature: Option<f32>,
+    tool_temperature: Option<f32>,
     max_tokens: u32,
     typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     transcriber: Option<Arc<crate::utils::transcription::LazyTranscriptionService>>,

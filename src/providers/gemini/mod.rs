@@ -238,9 +238,11 @@ impl LLMProvider for GeminiProvider {
             "contents": merged,
             "generationConfig": {
                 "maxOutputTokens": req.max_tokens,
-                "temperature": req.temperature,
             },
         });
+        if let Some(temp) = req.temperature {
+            payload["generationConfig"]["temperature"] = json!(temp);
+        }
 
         if let Some(ref format) = req.response_format {
             match format {

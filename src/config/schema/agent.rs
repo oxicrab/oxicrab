@@ -393,8 +393,9 @@ fn default_max_tokens() -> u32 {
     8192
 }
 
-fn default_temperature() -> f32 {
-    0.7
+#[allow(clippy::unnecessary_wraps)]
+fn default_temperature() -> Option<f32> {
+    Some(0.7)
 }
 
 fn default_max_tool_iterations() -> usize {
@@ -575,7 +576,7 @@ pub struct AgentDefaults {
     #[serde(default = "default_max_tokens", rename = "maxTokens")]
     pub max_tokens: u32,
     #[serde(default = "default_temperature")]
-    pub temperature: f32,
+    pub temperature: Option<f32>,
     #[serde(default = "default_max_tool_iterations", rename = "maxToolIterations")]
     pub max_tool_iterations: usize,
     #[serde(default)]

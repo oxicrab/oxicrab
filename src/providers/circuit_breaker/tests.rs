@@ -69,7 +69,7 @@ fn make_request() -> ChatRequest<'static> {
         tools: None,
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     }

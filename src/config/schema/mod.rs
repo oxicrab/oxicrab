@@ -272,6 +272,7 @@ impl Config {
         self.validate_tools()?;
         self.validate_channels()?;
         self.validate_model_routing()?;
+        self.validate_provider_temperatures()?;
         Ok(())
     }
 
@@ -289,10 +290,8 @@ impl Config {
                 "agents.defaults.maxTokens is unreasonably large (> 1,000,000)".into(),
             ));
         }
-        if d.temperature.is_nan()
-            || d.temperature.is_infinite()
-            || d.temperature < 0.0
-            || d.temperature > 2.0
+        if let Some(t) = d.temperature
+            && (t.is_nan() || t.is_infinite() || !(0.0..=2.0).contains(&t))
         {
             return Err(OxicrabError::Config(
                 "agents.defaults.temperature must be a finite number between 0.0 and 2.0".into(),
@@ -644,6 +643,36 @@ impl Config {
                         }
                     }
                 }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_provider_temperatures(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+
+        let providers: &[(&str, &ProviderConfig)] = &[
+            ("anthropic", &self.providers.anthropic),
+            ("openai", &self.providers.openai),
+            ("gemini", &self.providers.gemini),
+            ("openrouter", &self.providers.openrouter),
+            ("deepseek", &self.providers.deepseek),
+            ("groq", &self.providers.groq),
+            ("moonshot", &self.providers.moonshot),
+            ("zhipu", &self.providers.zhipu),
+            ("dashscope", &self.providers.dashscope),
+            ("vllm", &self.providers.vllm.base),
+            ("ollama", &self.providers.ollama.base),
+        ];
+
+        for (name, cfg) in providers {
+            if let Some(t) = cfg.temperature
+                && (t.is_nan() || t.is_infinite() || !(0.0..=2.0).contains(&t))
+            {
+                return Err(OxicrabError::Config(format!(
+                    "providers.{name}.temperature must be a finite number between 0.0 and 2.0"
+                )));
             }
         }
 
