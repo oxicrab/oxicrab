@@ -405,10 +405,8 @@ impl CronService {
                 first_tick = false;
 
                 // Persist updated state so fired jobs don't re-trigger
-                if store_dirty {
-                    if let Err(e) = service.save_store().await {
-                        warn!("Failed to persist cron store after tick: {}", e);
-                    }
+                if store_dirty && let Err(e) = service.save_store().await {
+                    warn!("Failed to persist cron store after tick: {}", e);
                 }
 
                 // Spawn job tasks outside the lock
