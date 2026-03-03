@@ -93,6 +93,12 @@ impl LeakDetector {
             ),
             // AWS access key IDs
             ("aws_access_key", r"AKIA[0-9A-Z]{16}", "AKIA"),
+            // AWS secret access keys (context-anchored to reduce false positives)
+            (
+                "aws_secret_access_key",
+                r"(?i)aws[_\s]?secret[_\s]?access[_\s]?key[^A-Za-z0-9]{0,20}[A-Za-z0-9+/]{40}",
+                "aws",
+            ),
             // Groq API keys
             ("groq_api_key", r"gsk_[a-zA-Z0-9]{20,200}", "gsk_"),
             // Telegram bot tokens — prefix is ":AA" (digits before colon are variable)
@@ -101,11 +107,12 @@ impl LeakDetector {
                 r"\b[0-9]+:AA[A-Za-z0-9_\-]{33,}",
                 ":AA",
             ),
-            // Discord bot tokens — no distinctive prefix, so skip AC scanning
-            // and always run the regex.
+            // Discord bot tokens — word-boundary anchored to reduce false
+            // positives on JWTs and base64 content. No distinctive prefix, so
+            // skip AC scanning and always run the regex.
             (
                 "discord_bot_token",
-                r"[A-Za-z0-9_\-]{24}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,200}",
+                r"\b[A-Za-z0-9_\-]{24}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,200}\b",
                 "",
             ),
             // Google API keys

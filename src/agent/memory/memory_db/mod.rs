@@ -404,7 +404,7 @@ impl MemoryDB {
         let mtime_ms = Self::get_mtime_ms(path);
         let now = Utc::now().to_rfc3339();
 
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
@@ -424,41 +424,37 @@ impl MemoryDB {
             return Ok(()); // unchanged
         }
 
-        // Wrap delete-insert-update in a transaction for atomicity
-        conn.execute_batch("BEGIN IMMEDIATE")?;
-        let result = (|| -> Result<()> {
-            // Wipe old entries
-            conn.execute(
-                "DELETE FROM memory_entries WHERE source_key = ?",
-                [source_key],
-            )?;
+        // Wrap delete-insert-update in a transaction for atomicity.
+        // Uses rusqlite's Transaction API so the transaction auto-rolls-back
+        // on drop if not committed, preventing a stuck open transaction on
+        // COMMIT failure.
+        let tx = conn.transaction()?;
+        // Wipe old entries
+        tx.execute(
+            "DELETE FROM memory_entries WHERE source_key = ?",
+            [source_key],
+        )?;
 
-            for chunk in split_into_chunks(text) {
-                let hash = hash_text(&chunk);
-                conn.execute(
-                    "INSERT OR IGNORE INTO memory_entries
-                        (source_key, content, content_hash, created_at)
-                    VALUES (?, ?, ?, ?)",
-                    params![source_key, chunk, hash, now],
-                )?;
-            }
-
-            // Update source record
-            conn.execute(
-                "INSERT INTO memory_sources (source_key, mtime_ns, updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(source_key)
-                DO UPDATE SET mtime_ns = excluded.mtime_ns,
-                              updated_at = excluded.updated_at",
-                params![source_key, mtime_ms, now],
+        for chunk in split_into_chunks(text) {
+            let hash = hash_text(&chunk);
+            tx.execute(
+                "INSERT OR IGNORE INTO memory_entries
+                    (source_key, content, content_hash, created_at)
+                VALUES (?, ?, ?, ?)",
+                params![source_key, chunk, hash, now],
             )?;
-            Ok(())
-        })();
-        if result.is_err() {
-            let _ = conn.execute_batch("ROLLBACK");
-            return result;
         }
-        conn.execute_batch("COMMIT")?;
+
+        // Update source record
+        tx.execute(
+            "INSERT INTO memory_sources (source_key, mtime_ns, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(source_key)
+            DO UPDATE SET mtime_ns = excluded.mtime_ns,
+                          updated_at = excluded.updated_at",
+            params![source_key, mtime_ms, now],
+        )?;
+        tx.commit()?;
 
         // Invalidate embedding cache since entries changed
         if let Ok(mut cache) = self.embedding_cache.lock() {
@@ -919,25 +915,29 @@ impl MemoryDB {
 
     /// Remove a source and all its entries from the database.
     pub fn remove_source(&self, source_key: &str) -> Result<()> {
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        // Wrap all deletes in a transaction so a crash between them doesn't
+        // leave partial state (e.g. embeddings deleted but entries remaining).
+        let tx = conn.transaction()?;
         // Explicitly delete embeddings (CASCADE requires PRAGMA foreign_keys=ON
         // which may not have been set on older databases)
-        conn.execute(
+        tx.execute(
             "DELETE FROM memory_embeddings WHERE entry_id IN \
              (SELECT id FROM memory_entries WHERE source_key = ?)",
             [source_key],
         )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM memory_entries WHERE source_key = ?",
             [source_key],
         )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM memory_sources WHERE source_key = ?",
             [source_key],
         )?;
+        tx.commit()?;
         // Invalidate embedding cache since entries were removed
         if let Ok(mut cache) = self.embedding_cache.lock() {
             *cache = None;

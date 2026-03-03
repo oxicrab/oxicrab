@@ -271,6 +271,34 @@ impl CronService {
                     continue;
                 }
 
+                // On first tick, recover jobs stuck in "running" from a prior crash
+                if first_tick {
+                    let mut guard = service.store.lock().await;
+                    if let Some(store) = guard.as_mut() {
+                        let mut recovered = 0usize;
+                        for job in &mut store.jobs {
+                            if job.state.last_status.as_deref() == Some("running") {
+                                job.state.last_status = Some("interrupted".to_string());
+                                job.state.last_error =
+                                    Some("process restarted while job was running".to_string());
+                                recovered += 1;
+                            }
+                        }
+                        if recovered > 0 {
+                            warn!(
+                                "recovered {} cron job(s) stuck in 'running' from prior crash",
+                                recovered
+                            );
+                            // Persist recovery immediately so it's not lost
+                            drop(guard);
+                            if let Err(e) = service.save_store().await {
+                                warn!("failed to persist recovered job state: {}", e);
+                            }
+                        } else {
+                            drop(guard);
+                        }
+                }
+
                 let now = now_ms();
                 let mut next_run: Option<i64> = None;
                 let on_job_guard = service.on_job.lock().await;

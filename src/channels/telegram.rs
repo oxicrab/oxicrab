@@ -15,7 +15,7 @@ use teloxide::net::Download;
 use teloxide::prelude::*;
 use teloxide::types::{Message as TgMessage, MessageKind, Update};
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 pub struct TelegramChannel {
     config: TelegramConfig,
@@ -80,6 +80,13 @@ impl BaseChannel for TelegramChannel {
                                 .as_ref()
                                 .map(|u| u.id.to_string())
                                 .unwrap_or_default();
+
+                            // Skip messages with no sender (e.g. forwarded channel
+                            // posts) — they have no identity for access control.
+                            if sender_id.is_empty() {
+                                debug!("ignoring Telegram message with no sender (channel post)");
+                                return Ok(());
+                            }
 
                             // Skip DM access check for group messages
                             let is_group = msg.chat.is_group() || msg.chat.is_supergroup();

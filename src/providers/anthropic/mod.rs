@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::json;
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 
@@ -115,7 +115,13 @@ impl LLMProvider for AnthropicProvider {
 
         if let Some(tools) = req.tools {
             payload["tools"] = serde_json::Value::Array(anthropic_common::convert_tools(tools));
-            let choice = req.tool_choice.as_deref().unwrap_or("auto");
+            let choice = match req.tool_choice.as_deref().unwrap_or("auto") {
+                v @ ("auto" | "any" | "none") => v,
+                other => {
+                    warn!("unsupported tool_choice '{}', defaulting to 'auto'", other);
+                    "auto"
+                }
+            };
             payload["tool_choice"] = json!({"type": choice});
         }
 
