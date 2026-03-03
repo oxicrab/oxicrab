@@ -74,6 +74,9 @@ const MAX_MESSAGE_SIZE: usize = 1_048_576;
 /// This prevents uncontrolled allocation from user-provided schemas.
 const MAX_SCHEMA_SIZE: usize = 100 * 1024;
 
+/// Max length for response format schema names and simple format strings.
+const MAX_FORMAT_NAME_LEN: usize = 256;
+
 /// Timeout for waiting on agent response (2 minutes, matching provider timeout).
 const RESPONSE_TIMEOUT_SECS: u64 = 120;
 
@@ -364,23 +367,23 @@ async fn chat_handler(
                         })),
                     );
                 }
-                // Also check name length (reasonable limit: 256 chars)
-                if name.len() > 256 {
+                // Also check name length
+                if name.len() > MAX_FORMAT_NAME_LEN {
                     return (
                         StatusCode::BAD_REQUEST,
                         Json(serde_json::json!({
-                            "error": "response format schema name too long (max 256 characters)"
+                            "error": format!("response format schema name too long (max {} characters)", MAX_FORMAT_NAME_LEN)
                         })),
                     );
                 }
             }
             GatewayResponseFormat::Simple(s) => {
-                // Check simple string length (reasonable limit: 256 chars)
-                if s.len() > 256 {
+                // Check simple string length
+                if s.len() > MAX_FORMAT_NAME_LEN {
                     return (
                         StatusCode::BAD_REQUEST,
                         Json(serde_json::json!({
-                            "error": "response format value too long (max 256 characters)"
+                            "error": format!("response format value too long (max {} characters)", MAX_FORMAT_NAME_LEN)
                         })),
                     );
                 }
