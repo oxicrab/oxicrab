@@ -2,7 +2,7 @@ use crate::agent::AgentRunOverrides;
 use crate::providers::base::LLMProvider;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{debug, warn};
 
 /// Resolved model routing: maps tier names to pre-created providers.
 pub struct ResolvedRouting {
@@ -46,11 +46,16 @@ impl ResolvedRouting {
                 request_id: None,
             };
         }
-        warn!(
-            "complexity routing resolved tier '{}' but it is not in the tiers map — \
-             falling back to default provider",
-            tier_name
-        );
+        // "default" is the conventional name for "use the default model, no override"
+        if tier_name == "default" {
+            debug!("complexity routing resolved to default model (no tier override)");
+        } else {
+            warn!(
+                "complexity routing resolved tier '{}' but it is not in the tiers map — \
+                 falling back to default provider",
+                tier_name
+            );
+        }
         AgentRunOverrides::default()
     }
 
