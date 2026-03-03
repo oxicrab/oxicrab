@@ -915,3 +915,49 @@ fn test_workspace_file_register_upsert() {
     assert_eq!(files[0].tags, "important,review");
     assert!(files[0].accessed_at.is_some());
 }
+
+#[test]
+fn test_record_complexity_event() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("memory.sqlite3");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    db.record_complexity_event(
+        "req-test-001",
+        0.72,
+        "heavy",
+        Some("claude-opus-4-6"),
+        Some("reasoning_keywords"),
+        Some("telegram"),
+        "analyze the architectural tradeoffs of event sourcing",
+    )
+    .unwrap();
+
+    db.record_complexity_event(
+        "req-test-002",
+        0.15,
+        "lightweight",
+        Some("claude-haiku-4-5"),
+        None,
+        Some("whatsapp"),
+        "hey what's up",
+    )
+    .unwrap();
+
+    let conn = db.conn.lock().unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM complexity_routing_log", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 2);
+
+    let tier: String = conn
+        .query_row(
+            "SELECT resolved_tier FROM complexity_routing_log WHERE request_id = ?",
+            ["req-test-001"],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(tier, "heavy");
+}

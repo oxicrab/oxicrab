@@ -300,6 +300,43 @@ impl MemoryDB {
         rows.map_err(|e| anyhow::anyhow!("failed to get recent hallucinations: {}", e))
     }
 
+    /// Record a complexity routing decision for a message.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_complexity_event(
+        &self,
+        request_id: &str,
+        composite_score: f64,
+        resolved_tier: &str,
+        resolved_model: Option<&str>,
+        forced: Option<&str>,
+        channel: Option<&str>,
+        message_preview: &str,
+    ) -> Result<()> {
+        let preview = &message_preview[..message_preview
+            .char_indices()
+            .nth(80)
+            .map_or(message_preview.len(), |(i, _)| i)];
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+        conn.execute(
+            "INSERT INTO complexity_routing_log
+             (request_id, composite_score, resolved_tier, resolved_model, forced, channel, message_preview)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![
+                request_id,
+                composite_score,
+                resolved_tier,
+                resolved_model,
+                forced,
+                channel,
+                preview,
+            ],
+        )?;
+        Ok(())
+    }
+
     /// Purge search access logs older than `days`. Returns number of rows deleted.
     /// Also cleans up orphaned `memory_search_hits` referencing deleted logs.
     pub fn purge_old_search_logs(&self, days: u32) -> Result<usize> {
