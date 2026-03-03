@@ -133,11 +133,8 @@ pub struct AgentLoopConfig {
     pub tool_configs: ToolConfigs,
     /// Pre-resolved model routing (maps task types to providers/models).
     /// When `Some`, allows task-specific provider overrides for daemon, cron,
-    /// subagent, and compaction.
+    /// subagent, and compaction. Also carries chat complexity routing if configured.
     pub routing: Option<Arc<crate::config::routing::ResolvedRouting>>,
-    /// Complexity-aware routing config. When enabled, each inbound message is
-    /// scored and routed to the cheapest capable model tier.
-    pub complexity_routing: crate::config::ComplexityRoutingConfig,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -216,7 +213,6 @@ impl AgentLoopConfig {
                 workspace_ttl: config.agents.defaults.workspace_ttl.clone(),
             },
             routing,
-            complexity_routing: config.agents.defaults.model_routing.complexity.clone(),
         }
     }
 
@@ -284,7 +280,6 @@ impl AgentLoopConfig {
                 workspace_ttl: crate::config::WorkspaceTtlConfig::default(),
             },
             routing: None,
-            complexity_routing: crate::config::ComplexityRoutingConfig::default(),
         }
     }
 }
@@ -371,7 +366,6 @@ impl AgentLoop {
             context_providers,
             tool_configs,
             routing,
-            complexity_routing,
         } = config;
 
         // Extract receiver to avoid lock contention
@@ -557,17 +551,11 @@ impl AgentLoop {
             None
         };
 
-        let complexity_scorer = if complexity_routing.enabled {
-            if routing.is_none() {
-                warn!(
-                    "complexity routing enabled but no modelRouting.tiers configured \
-                     — disabling complexity scoring"
-                );
-                None
-            } else {
-                info!("complexity-aware message routing enabled");
-                Some(complexity::ComplexityScorer::new(&complexity_routing))
-            }
+        let complexity_scorer = if let Some(ref r) = routing
+            && r.has_chat_routing()
+        {
+            info!("complexity-aware message routing enabled");
+            Some(complexity::ComplexityScorer::new(r.chat_weights().unwrap()))
         } else {
             None
         };
@@ -943,29 +931,39 @@ impl AgentLoop {
 
         let user_action_intent = self.classify_and_record_intent(&content, Some(&request_id));
 
-        // Complexity-aware routing: score the message and resolve a tier override
-        let (complexity_score, complexity_tier_name) =
-            if let Some(ref scorer) = self.complexity_scorer {
-                let score = scorer.score(&content);
-                let tier = scorer.resolve_tier(&score).to_string();
-                debug!(
-                    "complexity score={:.3} tier={} forced={:?} request_id={}",
-                    score.composite, tier, score.forced, request_id
-                );
-                (Some(score), Some(tier))
+        // Complexity-aware routing: score the message and resolve a model override
+        let (complexity_score, complexity_band) = if let Some(ref scorer) = self.complexity_scorer {
+            let score = scorer.score(&content);
+            // Derive band name from thresholds for analytics
+            let band = if let Some(ref r) = self.routing
+                && let Some(thresholds) = r.chat_thresholds()
+            {
+                if score.composite >= thresholds.heavy {
+                    "heavy"
+                } else if score.composite >= thresholds.standard {
+                    "standard"
+                } else {
+                    "light"
+                }
             } else {
-                (None, None)
+                "light"
             };
-
-        // Resolve tier to provider overrides
-        let complexity_overrides = match &complexity_tier_name {
-            Some(tier) => self
-                .routing
-                .as_ref()
-                .map(|r| r.resolve_tier_direct(tier))
-                .filter(|o| o.provider.is_some()),
-            None => None,
+            debug!(
+                "complexity score={:.3} band={} forced={:?} request_id={}",
+                score.composite, band, score.forced, request_id
+            );
+            (Some(score), Some(band.to_string()))
+        } else {
+            (None, None)
         };
+
+        // Resolve complexity to provider overrides
+        let complexity_overrides = complexity_score.as_ref().and_then(|score| {
+            self.routing
+                .as_ref()
+                .and_then(|r| r.resolve_chat(score.composite))
+                .filter(|o| o.provider.is_some())
+        });
 
         // Extract optional response_format from inbound message metadata (set by
         // the gateway HTTP API when callers request structured JSON output).
@@ -996,11 +994,11 @@ impl AgentLoop {
         };
 
         // Record complexity event for analytics
-        if let (Some(score), Some(tier)) = (&complexity_score, &complexity_tier_name)
+        if let (Some(score), Some(band)) = (&complexity_score, &complexity_band)
             && let Err(e) = self.memory.db().record_complexity_event(
                 &request_id,
                 score.composite,
-                tier,
+                band,
                 overrides.model.as_deref(),
                 score.forced,
                 Some(&msg.channel),

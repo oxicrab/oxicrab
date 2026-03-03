@@ -1,28 +1,36 @@
 use crate::agent::AgentRunOverrides;
+use crate::config::schema::{ChatThresholds, ComplexityWeights};
 use crate::providers::base::LLMProvider;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::debug;
 
-/// Resolved model routing: maps tier names to pre-created providers.
+/// Pre-resolved chat complexity routing with providers ready to use.
+pub struct ResolvedChatRouting {
+    pub thresholds: ChatThresholds,
+    pub standard: (Arc<dyn LLMProvider>, String),
+    pub heavy: (Arc<dyn LLMProvider>, String),
+    pub weights: ComplexityWeights,
+}
+
+/// Resolved model routing: maps task types directly to pre-created providers.
 pub struct ResolvedRouting {
-    tiers: HashMap<String, (Arc<dyn LLMProvider>, String)>,
-    rules: HashMap<String, String>,
+    tasks: HashMap<String, (Arc<dyn LLMProvider>, String)>,
+    chat: Option<ResolvedChatRouting>,
 }
 
 impl ResolvedRouting {
     pub fn new(
-        tiers: HashMap<String, (Arc<dyn LLMProvider>, String)>,
-        rules: HashMap<String, String>,
+        tasks: HashMap<String, (Arc<dyn LLMProvider>, String)>,
+        chat: Option<ResolvedChatRouting>,
     ) -> Self {
-        Self { tiers, rules }
+        Self { tasks, chat }
     }
 
     /// Resolve overrides for a task type (e.g. "daemon", "cron", "subagent").
+    /// Direct task→provider lookup with no tier indirection.
     pub fn resolve_overrides(&self, task_type: &str) -> AgentRunOverrides {
-        if let Some(tier_name) = self.rules.get(task_type)
-            && let Some((provider, model)) = self.tiers.get(tier_name)
-        {
+        if let Some((provider, model)) = self.tasks.get(task_type) {
             return AgentRunOverrides {
                 model: Some(model.clone()),
                 provider: Some(provider.clone()),
@@ -34,33 +42,47 @@ impl ResolvedRouting {
         AgentRunOverrides::default()
     }
 
-    /// Resolve overrides by tier name directly (bypasses the rules map).
-    /// Used by complexity-aware routing which already knows the tier name.
-    pub fn resolve_tier_direct(&self, tier_name: &str) -> AgentRunOverrides {
-        if let Some((provider, model)) = self.tiers.get(tier_name) {
-            return AgentRunOverrides {
-                model: Some(model.clone()),
-                provider: Some(provider.clone()),
-                max_iterations: None,
-                response_format: None,
-                request_id: None,
-            };
-        }
-        // "default" is the conventional name for "use the default model, no override"
-        if tier_name == "default" {
-            debug!("complexity routing resolved to default model (no tier override)");
+    /// Resolve chat complexity routing: given a composite complexity score,
+    /// return overrides for the appropriate model tier.
+    /// Returns `None` if score is below the standard threshold (use default model).
+    pub fn resolve_chat(&self, composite: f64) -> Option<AgentRunOverrides> {
+        let chat = self.chat.as_ref()?;
+        let (provider, model) = if composite >= chat.thresholds.heavy {
+            debug!("chat complexity → heavy (score={composite:.3})");
+            &chat.heavy
+        } else if composite >= chat.thresholds.standard {
+            debug!("chat complexity → standard (score={composite:.3})");
+            &chat.standard
         } else {
-            warn!(
-                "complexity routing resolved tier '{}' but it is not in the tiers map — \
-                 falling back to default provider",
-                tier_name
-            );
-        }
-        AgentRunOverrides::default()
+            debug!("chat complexity → default (score={composite:.3})");
+            return None;
+        };
+        Some(AgentRunOverrides {
+            model: Some(model.clone()),
+            provider: Some(provider.clone()),
+            max_iterations: None,
+            response_format: None,
+            request_id: None,
+        })
     }
 
-    /// Number of configured tiers.
-    pub fn tier_count(&self) -> usize {
-        self.tiers.len()
+    /// Number of configured task overrides (includes chat if present).
+    pub fn task_count(&self) -> usize {
+        self.tasks.len() + usize::from(self.chat.is_some())
+    }
+
+    /// Whether chat complexity routing is configured.
+    pub fn has_chat_routing(&self) -> bool {
+        self.chat.is_some()
+    }
+
+    /// Get the complexity weights for chat routing (if configured).
+    pub fn chat_weights(&self) -> Option<&ComplexityWeights> {
+        self.chat.as_ref().map(|c| &c.weights)
+    }
+
+    /// Get the chat thresholds (if configured).
+    pub fn chat_thresholds(&self) -> Option<&ChatThresholds> {
+        self.chat.as_ref().map(|c| &c.thresholds)
     }
 }

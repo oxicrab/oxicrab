@@ -51,7 +51,10 @@ fn test_migrate_config_no_tools_key() {
 fn test_load_config_missing_file_returns_default() {
     let path = std::path::Path::new("/tmp/nonexistent_oxicrab_config_test.json");
     let config = load_config(Some(path)).unwrap();
-    assert_eq!(config.agents.defaults.model, "claude-sonnet-4-5-20250929");
+    assert_eq!(
+        config.agents.defaults.model_routing.default,
+        "claude-sonnet-4-5-20250929"
+    );
 }
 
 #[test]
@@ -70,7 +73,10 @@ fn test_save_and_load_roundtrip() {
     let config = Config::default();
     save_config(&config, Some(&path)).unwrap();
     let loaded = load_config(Some(&path)).unwrap();
-    assert_eq!(loaded.agents.defaults.model, config.agents.defaults.model);
+    assert_eq!(
+        loaded.agents.defaults.model_routing.default,
+        config.agents.defaults.model_routing.default
+    );
     assert_eq!(
         loaded.agents.defaults.max_tokens,
         config.agents.defaults.max_tokens
@@ -150,7 +156,10 @@ fn test_save_config_atomic_write() {
     // Verify file exists and can be loaded
     assert!(path.exists());
     let loaded = load_config(Some(&path)).unwrap();
-    assert_eq!(loaded.agents.defaults.model, config.agents.defaults.model);
+    assert_eq!(
+        loaded.agents.defaults.model_routing.default,
+        config.agents.defaults.model_routing.default
+    );
 
     // On unix, check permissions are 0600
     #[cfg(unix)]

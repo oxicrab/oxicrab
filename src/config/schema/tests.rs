@@ -887,15 +887,11 @@ fn test_model_routing_config_deserializes() {
         "agents": {
             "defaults": {
                 "modelRouting": {
-                    "tiers": {
-                        "primary": "anthropic/claude-sonnet-4-5",
-                        "lightweight": "openrouter/google/gemini-3-flash"
-                    },
-                    "fallbacks": ["minimax/minimax-m2.5"],
-                    "rules": {
-                        "cron": "lightweight",
-                        "daemon": "lightweight",
-                        "conversation": "primary"
+                    "default": "moonshot/kimi-k2.5",
+                    "fallbacks": ["anthropic/claude-sonnet-4-5-20250929"],
+                    "tasks": {
+                        "daemon": "anthropic/claude-haiku-4-5-20251001",
+                        "cron": "anthropic/claude-haiku-4-5-20251001"
                     }
                 }
             }
@@ -903,44 +899,67 @@ fn test_model_routing_config_deserializes() {
     }"#;
     let config: Config = serde_json::from_str(json).unwrap();
     let routing = &config.agents.defaults.model_routing;
-    assert_eq!(routing.tiers.len(), 2);
-    assert_eq!(routing.tiers["primary"], "anthropic/claude-sonnet-4-5");
-    assert_eq!(routing.rules["cron"], "lightweight");
-    assert_eq!(routing.fallbacks, vec!["minimax/minimax-m2.5"]);
+    assert_eq!(routing.default, "moonshot/kimi-k2.5");
+    assert_eq!(routing.tasks.len(), 2);
+    assert_eq!(
+        routing.fallbacks,
+        vec!["anthropic/claude-sonnet-4-5-20250929"]
+    );
+    config.validate().expect("should validate");
 }
 
 #[test]
-fn test_model_routing_default_is_empty() {
-    let config = Config::default();
-    assert!(config.agents.defaults.model_routing.tiers.is_empty());
-    assert!(config.agents.defaults.model_routing.rules.is_empty());
-    assert!(config.agents.defaults.model_routing.fallbacks.is_empty());
-}
-
-#[test]
-fn test_model_routing_invalid_rule_references_unknown_tier() {
+fn test_model_routing_chat_task_deserializes() {
     let json = r#"{
         "agents": {
             "defaults": {
                 "modelRouting": {
-                    "tiers": { "primary": "anthropic/claude-sonnet-4-5" },
-                    "rules": { "cron": "nonexistent" }
+                    "default": "moonshot/kimi-k2.5",
+                    "tasks": {
+                        "chat": {
+                            "thresholds": { "standard": 0.3, "heavy": 0.65 },
+                            "models": {
+                                "standard": "anthropic/claude-sonnet-4-5-20250929",
+                                "heavy": "anthropic/claude-opus-4-6"
+                            }
+                        }
+                    }
                 }
             }
         }
     }"#;
     let config: Config = serde_json::from_str(json).unwrap();
-    let err = config.validate().unwrap_err();
-    assert!(err.to_string().contains("nonexistent"), "error: {}", err);
+    let routing = &config.agents.defaults.model_routing;
+    match &routing.tasks["chat"] {
+        crate::config::TaskRouting::Chat(chat) => {
+            assert!((chat.thresholds.standard - 0.3).abs() < f64::EPSILON);
+            assert!((chat.thresholds.heavy - 0.65).abs() < f64::EPSILON);
+            assert_eq!(chat.models.standard, "anthropic/claude-sonnet-4-5-20250929");
+            assert_eq!(chat.models.heavy, "anthropic/claude-opus-4-6");
+        }
+        crate::config::TaskRouting::Model(_) => panic!("expected Chat variant"),
+    }
+    config.validate().expect("should validate");
 }
 
 #[test]
-fn test_model_routing_invalid_empty_tier_value() {
+fn test_model_routing_default_has_model() {
+    let config = Config::default();
+    assert_eq!(
+        config.agents.defaults.model_routing.default,
+        "claude-sonnet-4-5-20250929"
+    );
+    assert!(config.agents.defaults.model_routing.tasks.is_empty());
+    assert!(config.agents.defaults.model_routing.fallbacks.is_empty());
+}
+
+#[test]
+fn test_model_routing_invalid_empty_task_model() {
     let json = r#"{
         "agents": {
             "defaults": {
                 "modelRouting": {
-                    "tiers": { "primary": "" }
+                    "tasks": { "daemon": "" }
                 }
             }
         }
@@ -962,6 +981,62 @@ fn test_model_routing_invalid_empty_fallback() {
     }"#;
     let config: Config = serde_json::from_str(json).unwrap();
     assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_model_routing_chat_invalid_thresholds() {
+    let json = r#"{
+        "agents": {
+            "defaults": {
+                "modelRouting": {
+                    "tasks": {
+                        "chat": {
+                            "thresholds": { "standard": 0.8, "heavy": 0.3 },
+                            "models": {
+                                "standard": "model-a",
+                                "heavy": "model-b"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }"#;
+    let config: Config = serde_json::from_str(json).unwrap();
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.to_string().contains("standard must be less than heavy"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_model_routing_chat_only_on_chat_key() {
+    let json = r#"{
+        "agents": {
+            "defaults": {
+                "modelRouting": {
+                    "tasks": {
+                        "daemon": {
+                            "thresholds": { "standard": 0.3, "heavy": 0.65 },
+                            "models": {
+                                "standard": "model-a",
+                                "heavy": "model-b"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }"#;
+    let config: Config = serde_json::from_str(json).unwrap();
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.to_string().contains("only the 'chat' key supports"),
+        "error: {}",
+        err
+    );
 }
 
 #[test]

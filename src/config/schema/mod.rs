@@ -558,26 +558,17 @@ impl Config {
     }
 
     fn validate_model_routing(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::config::schema::agent::TaskRouting;
         use crate::errors::OxicrabError;
+
         let routing = &self.agents.defaults.model_routing;
 
-        for (rule_name, tier_name) in &routing.rules {
-            if !routing.tiers.contains_key(tier_name) {
-                return Err(OxicrabError::Config(format!(
-                    "modelRouting.rules.{} references unknown tier '{}' — \
-                     add it to modelRouting.tiers",
-                    rule_name, tier_name
-                )));
-            }
+        if routing.default.is_empty() {
+            return Err(OxicrabError::Config(
+                "modelRouting.default must not be empty".to_string(),
+            ));
         }
-        for (name, model_str) in &routing.tiers {
-            if model_str.is_empty() {
-                return Err(OxicrabError::Config(format!(
-                    "modelRouting.tiers.{} must not be empty",
-                    name
-                )));
-            }
-        }
+
         for (i, fb) in routing.fallbacks.iter().enumerate() {
             if fb.is_empty() {
                 return Err(OxicrabError::Config(format!(
@@ -587,63 +578,71 @@ impl Config {
             }
         }
 
-        // Validate complexity routing
-        let cx = &routing.complexity;
-        if cx.enabled {
-            if routing.tiers.is_empty() {
-                return Err(OxicrabError::Config(
-                    "modelRouting.complexity.enabled is true but modelRouting.tiers is empty \
-                     — define at least the tiers referenced by tierMapping"
-                        .to_string(),
-                ));
-            }
-
-            // Thresholds must be finite and in [0.0, 1.0]
-            for (name, val) in [
-                ("lightStandard", cx.thresholds.light_standard),
-                ("standardHeavy", cx.thresholds.standard_heavy),
-            ] {
-                if !val.is_finite() || !(0.0..=1.0).contains(&val) {
-                    return Err(OxicrabError::Config(format!(
-                        "modelRouting.complexity.thresholds.{name} must be finite and in [0.0, 1.0], got {val}"
-                    )));
+        for (task_name, task_routing) in &routing.tasks {
+            match task_routing {
+                TaskRouting::Model(model_str) => {
+                    if model_str.is_empty() {
+                        return Err(OxicrabError::Config(format!(
+                            "modelRouting.tasks.{task_name} model must not be empty"
+                        )));
+                    }
                 }
-            }
-            if cx.thresholds.light_standard >= cx.thresholds.standard_heavy {
-                return Err(OxicrabError::Config(
-                    "modelRouting.complexity.thresholds: lightStandard must be less than standardHeavy".to_string(),
-                ));
-            }
+                TaskRouting::Chat(chat_config) => {
+                    if task_name != "chat" {
+                        return Err(OxicrabError::Config(format!(
+                            "modelRouting.tasks.{task_name} uses chat routing object but \
+                             only the 'chat' key supports complexity escalation"
+                        )));
+                    }
 
-            // Weights must be finite
-            let w = &cx.weights;
-            for (name, val) in [
-                ("messageLength", w.message_length),
-                ("reasoningKeywords", w.reasoning_keywords),
-                ("technicalVocabulary", w.technical_vocabulary),
-                ("questionComplexity", w.question_complexity),
-                ("codePresence", w.code_presence),
-                ("instructionComplexity", w.instruction_complexity),
-                ("conversationalSimplicity", w.conversational_simplicity),
-            ] {
-                if !val.is_finite() {
-                    return Err(OxicrabError::Config(format!(
-                        "modelRouting.complexity.weights.{name} must be finite, got {val}"
-                    )));
-                }
-            }
+                    // Thresholds must be finite, in [0,1], and ordered
+                    for (name, val) in [
+                        ("standard", chat_config.thresholds.standard),
+                        ("heavy", chat_config.thresholds.heavy),
+                    ] {
+                        if !val.is_finite() || !(0.0..=1.0).contains(&val) {
+                            return Err(OxicrabError::Config(format!(
+                                "modelRouting.tasks.chat.thresholds.{name} must be finite \
+                                 and in [0.0, 1.0], got {val}"
+                            )));
+                        }
+                    }
+                    if chat_config.thresholds.standard >= chat_config.thresholds.heavy {
+                        return Err(OxicrabError::Config(
+                            "modelRouting.tasks.chat.thresholds: standard must be less than heavy"
+                                .to_string(),
+                        ));
+                    }
 
-            for (label, tier_name) in [
-                ("light", &cx.tier_mapping.light),
-                ("medium", &cx.tier_mapping.medium),
-                ("heavy", &cx.tier_mapping.heavy),
-            ] {
-                if !routing.tiers.contains_key(tier_name) {
-                    return Err(OxicrabError::Config(format!(
-                        "modelRouting.complexity.tierMapping.{} references unknown tier '{}' \
-                         — add it to modelRouting.tiers",
-                        label, tier_name
-                    )));
+                    // Models must be non-empty
+                    if chat_config.models.standard.is_empty() {
+                        return Err(OxicrabError::Config(
+                            "modelRouting.tasks.chat.models.standard must not be empty".to_string(),
+                        ));
+                    }
+                    if chat_config.models.heavy.is_empty() {
+                        return Err(OxicrabError::Config(
+                            "modelRouting.tasks.chat.models.heavy must not be empty".to_string(),
+                        ));
+                    }
+
+                    // Weights must be finite
+                    let w = &chat_config.weights;
+                    for (name, val) in [
+                        ("messageLength", w.message_length),
+                        ("reasoningKeywords", w.reasoning_keywords),
+                        ("technicalVocabulary", w.technical_vocabulary),
+                        ("questionComplexity", w.question_complexity),
+                        ("codePresence", w.code_presence),
+                        ("instructionComplexity", w.instruction_complexity),
+                        ("conversationalSimplicity", w.conversational_simplicity),
+                    ] {
+                        if !val.is_finite() {
+                            return Err(OxicrabError::Config(format!(
+                                "modelRouting.tasks.chat.weights.{name} must be finite, got {val}"
+                            )));
+                        }
+                    }
                 }
             }
         }
@@ -652,7 +651,7 @@ impl Config {
     }
 
     pub fn get_api_key(&self, model: Option<&str>) -> Option<&str> {
-        let model = model.unwrap_or(&self.agents.defaults.model);
+        let model = model.unwrap_or(&self.agents.defaults.model_routing.default);
         self.providers.get_api_key(model)
     }
 
@@ -738,29 +737,70 @@ impl Config {
         secrets
     }
 
-    /// Create providers for all configured model routing tiers.
+    /// Create providers for all configured model routing task overrides.
     pub fn create_routed_providers(
         &self,
     ) -> anyhow::Result<Option<crate::config::routing::ResolvedRouting>> {
+        use crate::config::routing::ResolvedChatRouting;
+        use crate::config::schema::agent::TaskRouting;
         use crate::providers::strategy::ProviderFactory;
 
         let routing = &self.agents.defaults.model_routing;
-        if routing.tiers.is_empty() {
+        if routing.tasks.is_empty() {
             return Ok(None);
         }
         let factory = ProviderFactory::new(self);
-        let mut tiers = std::collections::HashMap::new();
-        for (name, model_str) in &routing.tiers {
+
+        // Deduplicated provider cache: model_str → (provider, model)
+        let mut provider_cache: std::collections::HashMap<
+            String,
+            (
+                std::sync::Arc<dyn crate::providers::base::LLMProvider>,
+                String,
+            ),
+        > = std::collections::HashMap::new();
+
+        let mut get_or_create = |model_str: &str| -> anyhow::Result<(
+            std::sync::Arc<dyn crate::providers::base::LLMProvider>,
+            String,
+        )> {
+            if let Some(cached) = provider_cache.get(model_str) {
+                return Ok(cached.clone());
+            }
             let mut provider = factory.create_provider(model_str)?;
             if self.should_use_prompt_guided_tools(model_str) {
                 provider =
                     crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(provider);
             }
-            tiers.insert(name.clone(), (provider, model_str.clone()));
+            let entry = (provider, model_str.to_string());
+            provider_cache.insert(model_str.to_string(), entry.clone());
+            Ok(entry)
+        };
+
+        let mut tasks = std::collections::HashMap::new();
+        let mut chat = None;
+
+        for (task_name, task_routing) in &routing.tasks {
+            match task_routing {
+                TaskRouting::Model(model_str) => {
+                    let entry = get_or_create(model_str)?;
+                    tasks.insert(task_name.clone(), entry);
+                }
+                TaskRouting::Chat(chat_config) => {
+                    let standard = get_or_create(&chat_config.models.standard)?;
+                    let heavy = get_or_create(&chat_config.models.heavy)?;
+                    chat = Some(ResolvedChatRouting {
+                        thresholds: chat_config.thresholds.clone(),
+                        standard,
+                        heavy,
+                        weights: chat_config.weights.clone(),
+                    });
+                }
+            }
         }
+
         Ok(Some(crate::config::routing::ResolvedRouting::new(
-            tiers,
-            routing.rules.clone(),
+            tasks, chat,
         )))
     }
 
@@ -774,7 +814,7 @@ impl Config {
     ) -> anyhow::Result<std::sync::Arc<dyn crate::providers::base::LLMProvider>> {
         use crate::providers::strategy::ProviderFactory;
 
-        let model = model.unwrap_or(&self.agents.defaults.model);
+        let model = model.unwrap_or(&self.agents.defaults.model_routing.default);
         let factory = ProviderFactory::new(self);
 
         // Build fallback chain from modelRouting.fallbacks

@@ -559,7 +559,7 @@ pub(super) fn status_command() -> Result<()> {
     );
 
     if config_path.exists() {
-        println!("Model: {}", config.agents.defaults.model);
+        println!("Model: {}", config.agents.defaults.model_routing.default);
 
         // Check API keys
         let has_openrouter = !config.providers.openrouter.api_key.is_empty();
@@ -977,7 +977,7 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
             if stats.total_scored == 0 {
                 println!("No complexity routing data in the last {} days.", days);
                 println!(
-                    "Enable complexity routing: agents.defaults.modelRouting.complexity.enabled = true"
+                    "Enable complexity routing: add a 'chat' entry to modelRouting.tasks with thresholds and models"
                 );
                 return Ok(());
             }

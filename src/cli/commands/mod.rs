@@ -474,7 +474,9 @@ This file stores important information that should persist across sessions.
 async fn gateway(model: Option<String>) -> Result<()> {
     info!("Loading configuration...");
     let config = load_config(None)?;
-    let effective_model = model.as_deref().unwrap_or(&config.agents.defaults.model);
+    let effective_model = model
+        .as_deref()
+        .unwrap_or(&config.agents.defaults.model_routing.default);
     info!("Configuration loaded. Using model: {}", effective_model);
     debug!("Workspace: {:?}", config.workspace_path());
 
@@ -677,7 +679,7 @@ fn setup_provider(
     config: &Config,
     model: Option<&str>,
 ) -> Result<Arc<dyn crate::providers::base::LLMProvider>> {
-    let effective_model = model.unwrap_or(&config.agents.defaults.model);
+    let effective_model = model.unwrap_or(&config.agents.defaults.model_routing.default);
     info!("Creating LLM provider for model: {}", effective_model);
     let provider = config.create_provider(model)?;
     info!(
@@ -774,7 +776,7 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
     // Create model routing providers if configured
     let routing = match config.create_routed_providers() {
         Ok(Some(r)) => {
-            info!("model routing active with {} tier(s)", r.tier_count());
+            info!("model routing active with {} task(s)", r.task_count());
             Some(Arc::new(r))
         }
         Ok(None) => None,
