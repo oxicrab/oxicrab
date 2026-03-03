@@ -1,4 +1,6 @@
+mod compaction_history;
 mod complexity;
+mod hallucination;
 mod helpers;
 mod intent;
 
@@ -14,13 +16,10 @@ use helpers::{
 pub use helpers::{contains_action_claims, is_false_no_tools_claim, mentions_multiple_tools};
 
 use crate::agent::cognitive::CheckpointTracker;
-use crate::agent::compaction::{
-    MessageCompactor, estimate_messages_tokens, strip_orphaned_tool_messages,
-};
+use crate::agent::compaction::MessageCompactor;
 use crate::agent::context::ContextBuilder;
 use crate::agent::cost_guard::CostGuard;
 use crate::agent::memory::MemoryStore;
-use crate::agent::memory::memory_db::MemoryDB;
 use crate::agent::subagent::{SubagentConfig, SubagentManager};
 use crate::agent::tools::ToolRegistry;
 use crate::agent::tools::base::ExecutionContext;
@@ -30,12 +29,11 @@ use crate::cron::event_matcher::EventMatcher;
 use crate::cron::service::CronService;
 use crate::providers::base::{LLMProvider, Message, ToolCallRequest};
 use crate::safety::LeakDetector;
-use crate::session::{Session, SessionManager, SessionStore};
+use crate::session::{SessionManager, SessionStore};
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -287,42 +285,9 @@ impl AgentLoopConfig {
     }
 }
 
-/// Result of [`AgentLoop::handle_text_response`] — either continue the loop
-/// (a nudge/correction was injected) or return the final text to the caller.
-enum TextAction {
-    /// A nudge or correction was injected; the loop should `continue`.
-    Continue,
-    /// The response is final; the caller should return it.
-    Return,
-}
-
-/// Tracks how many corrections each hallucination detection layer has sent,
-/// preventing infinite correction loops while allowing each layer its own budget.
-struct CorrectionState {
-    /// Layer 0 (false no-tools claim) correction count. Capped at
-    /// `MAX_LAYER0_CORRECTIONS` — if the LLM insists it has no tools after
-    /// that many corrections, give up.
-    layer0_count: u8,
-    /// Whether Layer 1 (regex action claims) has fired. Fires once — a second
-    /// hallucination after correction is accepted as the LLM's final answer.
-    layer1_fired: bool,
-    /// Whether Layer 2 (intent mismatch) has fired. Independent of Layer 1,
-    /// so if L1 corrects first and fails, L2 still gets its own attempt.
-    layer2_fired: bool,
-}
-
-impl CorrectionState {
-    fn new() -> Self {
-        Self {
-            layer0_count: 0,
-            layer1_fired: false,
-            layer2_fired: false,
-        }
-    }
-}
-
-/// Maximum corrections for Layer 0 (false no-tools claims).
-const MAX_LAYER0_CORRECTIONS: u8 = 2;
+#[cfg(test)]
+use hallucination::MAX_LAYER0_CORRECTIONS;
+use hallucination::{CorrectionState, TextAction};
 
 pub struct AgentLoop {
     inbound_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<InboundMessage>>>,
@@ -1382,7 +1347,7 @@ impl AgentLoop {
                     discourse_register.register(text_entities);
                 }
 
-                match Self::handle_text_response(
+                match hallucination::handle_text_response(
                     &content,
                     &mut messages,
                     response.reasoning_content.as_deref(),
@@ -1687,153 +1652,6 @@ impl AgentLoop {
     /// hallucination detection. Returns [`TextAction::Continue`] if a
     /// correction was injected, or [`TextAction::Return`] if the response is final.
     ///
-    /// Detection is layered:
-    /// 1. False "no tools" claim detection (LLM says it has no tools)
-    /// 2. Regex-based action claim detection (fast-path for obvious hallucinations)
-    /// 3. Intent-based structural detection (backstop: user asked for action + no tools called)
-    #[allow(clippy::too_many_arguments)]
-    fn handle_text_response(
-        content: &str,
-        messages: &mut Vec<Message>,
-        reasoning_content: Option<&str>,
-        any_tools_called: bool,
-        state: &mut CorrectionState,
-        tool_names: &[String],
-        tools_used: &[String],
-        user_has_action_intent: bool,
-        db: Option<&MemoryDB>,
-    ) -> TextAction {
-        // Layer 0: Detect false "no tools" claims and retry with correction.
-        // The LLM is factually wrong about not having tools — correct up to
-        // MAX_LAYER0_CORRECTIONS times before giving up.
-        if !tool_names.is_empty() && is_false_no_tools_claim(content) {
-            if state.layer0_count >= MAX_LAYER0_CORRECTIONS {
-                warn!(
-                    "False no-tools claim persists after {} corrections, giving up",
-                    MAX_LAYER0_CORRECTIONS
-                );
-                return TextAction::Return;
-            }
-            warn!(
-                "False no-tools claim detected: LLM claims tools unavailable but {} tools are registered (correction {}/{})",
-                tool_names.len(),
-                state.layer0_count + 1,
-                MAX_LAYER0_CORRECTIONS
-            );
-            if let Some(db) = db
-                && let Err(e) = db.record_intent_event(
-                    "hallucination",
-                    None,
-                    None,
-                    Some("layer0_false_no_tools"),
-                    content,
-                )
-            {
-                debug!("failed to record hallucination metric: {}", e);
-            }
-            ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
-            let tool_list = tool_names.join(", ");
-            messages.push(Message::user(format!(
-                "[Internal: Your previous response was not delivered. \
-                 You DO have tools available: {}. \
-                 Call the appropriate tool now. Do NOT apologize or reference this correction.]",
-                tool_list
-            )));
-            state.layer0_count += 1;
-            return TextAction::Continue;
-        }
-
-        // Layer 1: Regex-based action claim detection (fast path)
-        //
-        // When no tools have been called, check for action claims and multi-tool
-        // mentions. When tools HAVE been called, action claims (e.g. "I've updated
-        // the config") are likely legitimate summaries, so skip that check — but
-        // still catch mentions of tools that were never actually called (the LLM
-        // embellishing what it did).
-        if !state.layer1_fired {
-            let trigger = if any_tools_called {
-                // Only check for mentions of uncalled tools
-                let uncalled: Vec<String> = tool_names
-                    .iter()
-                    .filter(|name| !tools_used.iter().any(|u| u == *name))
-                    .cloned()
-                    .collect();
-                mentions_multiple_tools(content, &uncalled)
-            } else {
-                contains_action_claims(content) || mentions_multiple_tools(content, tool_names)
-            };
-            if trigger {
-                warn!(
-                    "Action hallucination detected: LLM claims actions but tools were not called"
-                );
-                if let Some(db) = db
-                    && let Err(e) = db.record_intent_event(
-                        "hallucination",
-                        None,
-                        None,
-                        Some("layer1_regex"),
-                        content,
-                    )
-                {
-                    debug!("failed to record hallucination metric: {}", e);
-                }
-                ContextBuilder::add_assistant_message(
-                    messages,
-                    Some(content),
-                    None,
-                    reasoning_content,
-                );
-                messages.push(Message::user(
-                    "[Internal: Your previous response was not delivered to the user. \
-                     You must call the appropriate tool to perform the requested action. \
-                     Do NOT apologize or mention any previous attempt — the user has no \
-                     knowledge of it. Just call the tool and respond normally.]"
-                        .to_string(),
-                ));
-                state.layer1_fired = true;
-                return TextAction::Continue;
-            }
-        }
-
-        // Layer 2: Intent-based structural detection (robust backstop)
-        // If the user asked for an action and the LLM returned text without
-        // calling tools AND the response isn't a clarification question,
-        // this is a hallucination regardless of phrasing.
-        if !state.layer2_fired
-            && !any_tools_called
-            && !tool_names.is_empty()
-            && user_has_action_intent
-            && !intent::is_clarification_question(content)
-        {
-            warn!(
-                "Intent mismatch: user requested action but LLM returned text without calling tools"
-            );
-            if let Some(db) = db
-                && let Err(e) = db.record_intent_event(
-                    "hallucination",
-                    None,
-                    None,
-                    Some("layer2_intent"),
-                    content,
-                )
-            {
-                debug!("failed to record hallucination metric: {}", e);
-            }
-            ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
-            messages.push(Message::user(
-                "[Internal: Your previous response was not delivered to the user. \
-                 The user is requesting an action that requires a tool call. \
-                 Call the appropriate tool now. Do NOT apologize or reference \
-                 this correction — the user has no knowledge of it.]"
-                    .to_string(),
-            ));
-            state.layer2_fired = true;
-            return TextAction::Continue;
-        }
-
-        TextAction::Return
-    }
-
     /// Post-loop LLM call with no tools to force a text summary when the loop
     /// ended after tool calls without producing a final text response.
     async fn generate_post_loop_summary(
@@ -1911,235 +1729,6 @@ impl AgentLoop {
             chat_id: chat_id.to_string(),
             context_summary,
             metadata,
-        }
-    }
-
-    async fn get_compacted_history(
-        &self,
-        session: &Session,
-    ) -> Result<Vec<HashMap<String, Value>>> {
-        if self.compactor.is_none() || !self.compaction_config.enabled {
-            return Ok(session.get_history(DEFAULT_HISTORY_SIZE));
-        }
-
-        let full_history = session.get_full_history();
-        if full_history.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let keep_recent = self.compaction_config.keep_recent;
-        let threshold = u64::from(self.compaction_config.threshold_tokens);
-
-        // Prefer provider-reported input tokens (precise), fall back to heuristic
-        let token_est = session
-            .metadata
-            .get("last_input_tokens")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or_else(|| estimate_messages_tokens(&full_history) as u64);
-
-        if token_est < threshold {
-            return Ok(session.get_history(DEFAULT_HISTORY_SIZE));
-        }
-
-        if full_history.len() <= keep_recent {
-            return Ok(full_history);
-        }
-
-        let old_messages = &full_history[..full_history.len() - keep_recent];
-        let recent_messages = &full_history[full_history.len() - keep_recent..];
-
-        if old_messages.is_empty() {
-            return Ok(recent_messages.to_vec());
-        }
-
-        // Get existing summary from metadata
-        let previous_summary = session
-            .metadata
-            .get("compaction_summary")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        // Extract last user message for recovery context
-        let last_user_msg = full_history
-            .iter()
-            .rev()
-            .find(|m| m.get("role").and_then(Value::as_str) == Some("user"))
-            .and_then(|m| m.get("content").and_then(Value::as_str))
-            .unwrap_or("")
-            .to_string();
-
-        // Await any in-flight checkpoint task before reading
-        if let Some(handle) = self.checkpoint_handle.lock().await.take() {
-            let _ = handle.await;
-        }
-        // Get most recent checkpoint if available
-        let checkpoint = self.last_checkpoint.lock().await.clone();
-        let cognitive_crumb = self.cognitive_breadcrumb.lock().await.clone();
-
-        // Pre-compaction flush: extract important context before messages are lost
-        if self.compaction_config.pre_flush_enabled
-            && let Some(ref compactor) = self.compactor
-        {
-            // Check if we already flushed for this message count to avoid double-flush
-            let old_msg_count = old_messages.len();
-            let already_flushed = session
-                .metadata
-                .get("pre_flush_msg_count")
-                .and_then(serde_json::Value::as_u64)
-                .is_some_and(|c| c as usize >= old_msg_count);
-
-            if !already_flushed {
-                let mut flushed_content = false;
-                match compactor.flush_to_memory(old_messages).await {
-                    Ok(ref facts) if !facts.is_empty() => {
-                        let filtered = crate::agent::memory::quality::filter_lines(facts);
-                        if filtered.trim().is_empty() {
-                            debug!("pre-compaction flush: all facts filtered by quality gates");
-                        } else if let Err(e) = self
-                            .memory
-                            .append_to_section("Pre-compaction context", &filtered)
-                        {
-                            warn!("failed to write pre-compaction flush: {}", e);
-                        } else {
-                            debug!(
-                                "pre-compaction flush: saved {} bytes to daily notes ({} filtered)",
-                                filtered.len(),
-                                facts.len().saturating_sub(filtered.len())
-                            );
-                            flushed_content = true;
-                        }
-                    }
-                    Err(e) => {
-                        warn!("pre-compaction flush failed (non-fatal): {}", e);
-                    }
-                    _ => {}
-                }
-                // Only mark flushed when content was actually persisted, so a
-                // retry can attempt extraction again if nothing was saved.
-                if flushed_content {
-                    match self.sessions.get_or_create(&session.key).await {
-                        Ok(mut latest) => {
-                            latest.metadata.insert(
-                                "pre_flush_msg_count".to_string(),
-                                Value::Number(serde_json::Number::from(old_msg_count as u64)),
-                            );
-                            if let Err(e) = self.sessions.save(&latest).await {
-                                warn!("failed to save pre-flush marker: {}", e);
-                            }
-                        }
-                        Err(e) => warn!("failed to reload session for pre-flush marker: {}", e),
-                    }
-                }
-            }
-        }
-
-        // Compact old messages
-        if let Some(ref compactor) = self.compactor {
-            match compactor.compact(old_messages, &previous_summary).await {
-                Ok(summary) => {
-                    // Build recovery-enriched summary
-                    let mut recovery_summary = summary.clone();
-                    if let Some(ref cp) = checkpoint {
-                        let _ = write!(recovery_summary, "\n\n[Checkpoint] {}", cp);
-                    }
-                    if let Some(ref crumb) = cognitive_crumb {
-                        let _ = write!(recovery_summary, "\n\n{}", crumb);
-                    }
-                    if !last_user_msg.is_empty() {
-                        // Truncate last user message to avoid bloating the summary
-                        let truncated_msg: String = last_user_msg
-                            .chars()
-                            .take(RECOVERY_CONTEXT_MAX_CHARS)
-                            .collect();
-                        let _ = write!(
-                            recovery_summary,
-                            "\n\n[Recovery] The conversation was compacted. \
-                             Continue from where you left off. Last user request: {}",
-                            truncated_msg
-                        );
-                    }
-
-                    // Cap enriched summary to prevent unbounded growth across compaction cycles
-                    if recovery_summary.len() > 2000 {
-                        let mut pos = 2000;
-                        while pos > 0 && !recovery_summary.is_char_boundary(pos) {
-                            pos -= 1;
-                        }
-                        recovery_summary.truncate(pos);
-                    }
-                    // Cache summary locally so it survives save failures
-                    *self.last_checkpoint.lock().await = Some(recovery_summary.clone());
-
-                    // Persist the enriched summary so the next compaction cycle
-                    // builds incrementally on the same context the LLM actually saw
-                    // (including checkpoint/recovery annotations).
-                    match self.sessions.get_or_create(&session.key).await {
-                        Ok(mut latest) => {
-                            latest.metadata.insert(
-                                "compaction_summary".to_string(),
-                                Value::String(recovery_summary.clone()),
-                            );
-                            if let Err(e) = self.sessions.save(&latest).await {
-                                warn!(
-                                    "failed to persist compaction summary: {} — next compaction \
-                                     may re-summarize the same messages",
-                                    e
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            warn!("failed to reload session for compaction summary: {}", e);
-                        }
-                    }
-
-                    // Return recovery-enriched summary + recent messages
-                    let mut result = vec![HashMap::from([
-                        ("role".to_string(), Value::String("system".to_string())),
-                        (
-                            "content".to_string(),
-                            Value::String(format!(
-                                "[Previous conversation summary: {}]",
-                                recovery_summary
-                            )),
-                        ),
-                    ])];
-                    result.extend(recent_messages.iter().cloned());
-
-                    // Strip orphaned tool messages that lost their pair during compaction
-                    strip_orphaned_tool_messages(&mut result);
-
-                    Ok(result)
-                }
-                Err(e) => {
-                    if previous_summary.is_empty() {
-                        // No previous summary — return full history (oversized but not lost)
-                        warn!(
-                            "compaction failed with no previous summary: {}, returning full history",
-                            e
-                        );
-                        Ok(full_history)
-                    } else {
-                        // Reuse the last successful summary rather than losing all context
-                        warn!("compaction failed: {}, falling back to previous summary", e);
-                        let mut result = vec![HashMap::from([
-                            ("role".to_string(), Value::String("system".to_string())),
-                            (
-                                "content".to_string(),
-                                Value::String(format!(
-                                    "[Previous conversation summary: {}]",
-                                    previous_summary
-                                )),
-                            ),
-                        ])];
-                        result.extend(recent_messages.iter().cloned());
-                        strip_orphaned_tool_messages(&mut result);
-                        Ok(result)
-                    }
-                }
-            }
-        } else {
-            Ok(recent_messages.to_vec())
         }
     }
 

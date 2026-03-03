@@ -897,7 +897,7 @@ fn test_conversational_reply_passes_through() {
         "No, let's skip that.",
     ];
     for reply in cases {
-        let result = AgentLoop::handle_text_response(
+        let result = hallucination::handle_text_response(
             reply,
             &mut messages,
             None,
@@ -923,7 +923,7 @@ fn test_action_hallucination_caught_without_tool_forcing() {
     let mut messages = vec![];
     let mut state = CorrectionState::new();
 
-    let result = AgentLoop::handle_text_response(
+    let result = hallucination::handle_text_response(
         "I've updated the configuration file.",
         &mut messages,
         None,
@@ -950,7 +950,7 @@ fn test_action_hallucination_not_repeated_after_l1_correction() {
     let mut state = CorrectionState::new();
     state.layer1_fired = true; // L1 already corrected
 
-    let result = AgentLoop::handle_text_response(
+    let result = hallucination::handle_text_response(
         "I've written the new module.",
         &mut messages,
         None,
@@ -975,7 +975,7 @@ fn test_layer2_fires_after_layer1_exhausted() {
     let mut state = CorrectionState::new();
     state.layer1_fired = true; // L1 already corrected
 
-    let result = AgentLoop::handle_text_response(
+    let result = hallucination::handle_text_response(
         "Sure, I can help with that.",
         &mut messages,
         None,
@@ -1002,7 +1002,7 @@ fn test_legitimate_tool_response_passes_through() {
     let mut messages = vec![];
     let mut state = CorrectionState::new();
 
-    let result = AgentLoop::handle_text_response(
+    let result = hallucination::handle_text_response(
         "I've updated the configuration file.",
         &mut messages,
         None,
@@ -1030,7 +1030,7 @@ fn test_false_no_tools_claim_fires_despite_layers() {
     state.layer1_fired = true;
     state.layer2_fired = true;
 
-    let result = AgentLoop::handle_text_response(
+    let result = hallucination::handle_text_response(
         "I don't have access to tools to help with that.",
         &mut messages,
         None,
@@ -1056,7 +1056,7 @@ fn test_false_no_tools_claim_capped_at_max_corrections() {
     let mut state = CorrectionState::new();
     state.layer0_count = MAX_LAYER0_CORRECTIONS; // exhausted budget
 
-    let result = AgentLoop::handle_text_response(
+    let result = hallucination::handle_text_response(
         "I don't have access to tools to help with that.",
         &mut messages,
         None,
@@ -1098,7 +1098,7 @@ fn test_text_after_tools_called_passes_action_claims() {
         "All tests passed.",
     ];
     for claim in claims {
-        let result = AgentLoop::handle_text_response(
+        let result = hallucination::handle_text_response(
             claim,
             &mut messages,
             None,
@@ -1136,7 +1136,7 @@ fn test_uncalled_tools_detected_after_some_tools_called() {
     let mut messages = vec![];
     let mut state = CorrectionState::new();
 
-    let result = AgentLoop::handle_text_response(
+    let result = hallucination::handle_text_response(
         "I used web_search, weather, and cron to gather the information.",
         &mut messages,
         None,
@@ -1161,7 +1161,7 @@ fn test_empty_tool_names_disables_false_no_tools_check() {
     let mut messages = vec![];
     let mut state = CorrectionState::new();
 
-    let result = AgentLoop::handle_text_response(
+    let result = hallucination::handle_text_response(
         "I don't have access to tools.",
         &mut messages,
         None,
@@ -1191,7 +1191,7 @@ fn test_mentions_multiple_tools_triggers_correction() {
     let mut messages = vec![];
     let mut state = CorrectionState::new();
 
-    let result = AgentLoop::handle_text_response(
+    let result = hallucination::handle_text_response(
         "## Available Tools\n- web_search: Search the web\n- weather: Get weather\n- cron: Schedule jobs\n- exec: Run commands",
         &mut messages,
         None,
