@@ -2,6 +2,80 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0] - 2026-03-03
+
+### Added
+- **routing:** add complexity-aware message routing ([0efb87b](https://github.com/oxicrab/oxicrab/commit/0efb87be59c74ef75c073288ce72547779c00d46))
+- **gateway:** wire ResponseFormat through HTTP API to LLM providers ([b8f0bfd](https://github.com/oxicrab/oxicrab/commit/b8f0bfd5ad73f485f7d7a8f83c7457f28fd991e4))
+- **gateway:** add per-IP rate limiting via governor ([7225188](https://github.com/oxicrab/oxicrab/commit/722518837d6704631d4333ebe426e5545599674b))
+- **routing:** build fallback chain from modelRouting.fallbacks config ([65ae5f0](https://github.com/oxicrab/oxicrab/commit/65ae5f0b13ee073fdcb07d1d001e8dea57d6d624))
+- **routing:** wire model routing into daemon, cron, subagent, compaction ([79ba744](https://github.com/oxicrab/oxicrab/commit/79ba744a18e7dfadd0e704c814d481bbee2e9273))
+- **routing:** add ModelRoutingConfig, ResolvedRouting, and provider override ([cdfd0d4](https://github.com/oxicrab/oxicrab/commit/cdfd0d4548df4d2bf2698fb9d74d1287ebe7cad5))
+- **providers:** extend FallbackProvider to Vec-based chain ([448e3cf](https://github.com/oxicrab/oxicrab/commit/448e3cfccbeab630e9dab7b4d6f1b5742174980e))
+- **deploy:** add docker-compose.yml with health check and volume mount ([3118d10](https://github.com/oxicrab/oxicrab/commit/3118d10ae402c8308b169ca7e818cc9737f421bc))
+- **deploy:** add HTTP health check script ([1e45e22](https://github.com/oxicrab/oxicrab/commit/1e45e22ec6143a208a8a9474ee116ead31582ba2))
+- **gateway:** add API key authentication for chat and A2A endpoints ([9d5ae72](https://github.com/oxicrab/oxicrab/commit/9d5ae72c385a74724cb03dd4111fca61e5807486))
+- **leaks:** Incoming leak detection ([041af6a](https://github.com/oxicrab/oxicrab/commit/041af6aba1dc5c19ba1df1b865be000a77c8931a))
+
+
+### CI/CD
+- optimize clippy and package-linux cache usage ([08b0ef2](https://github.com/oxicrab/oxicrab/commit/08b0ef2ec411314c63a0ae8c6aa1a7fe2e4a01a5))
+
+
+### Changed
+- **loop:** extract hallucination and compaction_history submodules ([5b113fa](https://github.com/oxicrab/oxicrab/commit/5b113fa605a272cb3db2f0b07b16e7ba1981441c))
+- **memory_db:** extract stats, embeddings, search, indexing submodules ([8c2ecdc](https://github.com/oxicrab/oxicrab/commit/8c2ecdc8c2687f599417b2f67ea279776e7afe73))
+- **memory_db:** extract cost, dlq, workspace into submodules ([0a3ee26](https://github.com/oxicrab/oxicrab/commit/0a3ee26c4734a4b50e2a7593f89a6e8918b31382))
+- **gateway:** extract magic numbers to named constants ([b0516c6](https://github.com/oxicrab/oxicrab/commit/b0516c6609f961f239a3cec37299710a679b87ea))
+- Update src/cron/service/mod.rs ([506cc89](https://github.com/oxicrab/oxicrab/commit/506cc894d2512af5e3f6b68a9f2b0691166173d1))
+- **config:** remove localModel field in favor of modelRouting.fallbacks ([c98a39b](https://github.com/oxicrab/oxicrab/commit/c98a39b640df2ca6d8ea362e352d8cf076bea25a))
+- **config:** remove provider field and --provider CLI flag in favor of prefix notation ([f91230f](https://github.com/oxicrab/oxicrab/commit/f91230ffcedffc317bbb090c9f32b6bc29600d65))
+- **config:** move promptGuidedTools to LocalProviderConfig for ollama/vllm only ([0b5d693](https://github.com/oxicrab/oxicrab/commit/0b5d6937275342eabb48d04e999a030bb25a6696))
+
+
+### Documentation
+- rewrite model routing section with narrative explanation ([c421b05](https://github.com/oxicrab/oxicrab/commit/c421b0512c7dea389f71cb1bdf42c48b951a86be))
+- mention complexity routing in README model routing summary ([a610e5c](https://github.com/oxicrab/oxicrab/commit/a610e5cce582c8368ff1b937b4eb519a4003cc6b))
+- fix stale paths, counts, references, and missing fields across all docs ([77fcebd](https://github.com/oxicrab/oxicrab/commit/77fcebd23672a9773ee545724d0fa50eca388dd6))
+- clarify model routing scope, add resolution diagram, update README ([0dee19a](https://github.com/oxicrab/oxicrab/commit/0dee19a18a0b411f1ad8e86b9be0e952de709fc2))
+- add model routing, fallback chain, and rate limiting documentation ([26ce995](https://github.com/oxicrab/oxicrab/commit/26ce995b79b2bfa132273c1d54ad6b32c57c9034))
+- add VPS deployment guide with Tailscale and dual-VPS monitoring ([efb3411](https://github.com/oxicrab/oxicrab/commit/efb34114ddc879e8b8981572f812cdbf6a92138d))
+- update ARCHITECTURE.md for apiBase/headers and LocalProviderConfig changes ([87b6c73](https://github.com/oxicrab/oxicrab/commit/87b6c73e3e08b203ea27af3f8d45bbff16d34dfd))
+- add design for fixing dead config fields ([51135fa](https://github.com/oxicrab/oxicrab/commit/51135fa73fd26224509e9b366e46c20a49c46b78))
+- update CLAUDE.md and ARCHITECTURE.md for audit fixes ([137342f](https://github.com/oxicrab/oxicrab/commit/137342f76d72b197f5d20cee54d15a5958e9da56))
+- update claude and readme ([d07c5e5](https://github.com/oxicrab/oxicrab/commit/d07c5e5e822e315f5b39be168ea76992d6d3e54f))
+
+
+### Fixed
+- **clippy:** resolve collapsible-if and map-unwrap-or warnings ([ce636f5](https://github.com/oxicrab/oxicrab/commit/ce636f515fa3de534e86080a64e0d6f4cfd27dbd))
+- **sandbox:** log warning when workspace path canonicalization fails ([99a1a56](https://github.com/oxicrab/oxicrab/commit/99a1a56003bf369974d88ac8e5dd551ff5d0b9e3))
+- **gateway:** log warning on mutex poison recovery instead of silently continuing ([4fd4a58](https://github.com/oxicrab/oxicrab/commit/4fd4a58c5ea19506380d98174e9f29d785601619))
+- **security:** add 5s DNS resolution timeout to prevent DoS via slow nameservers ([da95d7a](https://github.com/oxicrab/oxicrab/commit/da95d7af916891808f71b702fd202f9a707983a1))
+- **cron:** add missing brace and split chained if-let in tick loop ([e2284ad](https://github.com/oxicrab/oxicrab/commit/e2284ad4d5c84213a2381d97bd3225a2f690a712))
+- fix: Fixed the CodeQL security alert about uncontrolled allocation size in ([e4c4236](https://github.com/oxicrab/oxicrab/commit/e4c4236008a38a0e0e84a795d90a178125c56b11))
+- address 15 findings from full codebase security and correctness review ([fb9ccf0](https://github.com/oxicrab/oxicrab/commit/fb9ccf09bc922702a51dcb81d80ff60f22463e2d))
+- **routing:** harden complexity scorer against invalid config and silent failures ([84dfa5b](https://github.com/oxicrab/oxicrab/commit/84dfa5bc52ac2c412d51e1147000a06897a63e67))
+- **routing:** address code review findings in complexity scorer ([ced7a7e](https://github.com/oxicrab/oxicrab/commit/ced7a7e192103ae7c97f35dfa5cab2d4b4724221))
+- **routing:** improve daemon model logging, warn on localModel+fallbacks conflict ([0223538](https://github.com/oxicrab/oxicrab/commit/0223538885eba47a247b6df62bd09a72935b3c65))
+- **gateway:** use socket addr for rate limiting, exempt health, dynamic Retry-After ([2c08a04](https://github.com/oxicrab/oxicrab/commit/2c08a04d6976d6869962f0ed62a0c4ada91ab415))
+- **routing:** correct prompt-guided tools wrapping for routed and fallback providers ([4fdc972](https://github.com/oxicrab/oxicrab/commit/4fdc9726884ca15771e5b8dd0075aa8ca6884c2a))
+- **providers:** add OpenRouter multi-slash test, remove dead infer branch ([745da93](https://github.com/oxicrab/oxicrab/commit/745da93f47879611926f8d0c141e2405845d4c15))
+- **deploy:** use HTTP health check, fix exposed port to 18790 ([2bb7d7a](https://github.com/oxicrab/oxicrab/commit/2bb7d7a5d9d675ff2e3cd5a2c76a6c5139938c5e))
+- **config:** remove promptGuidedTools from non-local provider configs ([9618191](https://github.com/oxicrab/oxicrab/commit/961819102b00631a92f6f7724e1d316a09d2ab59))
+- **config:** remove dead executionProvider field from DaemonConfig ([c191d95](https://github.com/oxicrab/oxicrab/commit/c191d951abdcc8830e9c5b4602de7a628f08b4d2))
+- **providers:** wire up apiBase and headers for OpenAI and Gemini providers ([4cced63](https://github.com/oxicrab/oxicrab/commit/4cced6323468d48d1d4d14edc4b8f7934afbc166))
+- **providers:** wire up apiBase and headers for Anthropic provider ([292563c](https://github.com/oxicrab/oxicrab/commit/292563c22a666b45cd52e049d4a26c77ea323438))
+- **obsidian:** use path component check instead of substring for traversal detection ([72c1db1](https://github.com/oxicrab/oxicrab/commit/72c1db187081f385604ccf85fe7677832c2a2740))
+- address round-2 audit findings (26 issues) ([b232e6f](https://github.com/oxicrab/oxicrab/commit/b232e6f551b978e5298885188d52b802bc804428))
+- harden obsidian path traversal and simplify event matcher init ([0e62879](https://github.com/oxicrab/oxicrab/commit/0e62879e2cd6464cace9bb03f5e7c39200999775))
+- address remaining audit issues (channels, CLI, tools) ([56c9007](https://github.com/oxicrab/oxicrab/commit/56c90074704f263604aaf19f59f2b87e145e57c7))
+- address 43 issues from full codebase audit ([4d101bc](https://github.com/oxicrab/oxicrab/commit/4d101bc7e3c6f1e40179c857d89c2f90f1db4ed4))
+- This keeps the original &str when no redaction is needed, avoiding the allocation. ([52ddd4b](https://github.com/oxicrab/oxicrab/commit/52ddd4b5a3d09752d91854c957fc66e18c4381dd))
+
+
+### Removed
+- Removed design docs ([d81a317](https://github.com/oxicrab/oxicrab/commit/d81a3172a2bb9929aaa45d30ac6ad1dbfc13e5e8))
+
 ## [0.11.7] - 2026-02-28
 
 ### Added
