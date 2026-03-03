@@ -1,5 +1,6 @@
 use crate::config::SandboxConfig;
 use std::path::Path;
+use tracing::warn;
 
 /// Resolved sandbox rules for a single shell command execution.
 pub struct SandboxRules {
@@ -29,9 +30,13 @@ impl SandboxRules {
 
         // Canonicalize workspace to resolve symlinks (e.g. /var → /private/var on macOS)
         // so sandbox rules match the real paths the kernel uses.
-        let workspace_resolved = workspace
-            .canonicalize()
-            .unwrap_or_else(|_| workspace.to_path_buf());
+        let workspace_resolved = workspace.canonicalize().unwrap_or_else(|e| {
+            warn!(
+                "failed to canonicalize workspace path {:?}: {} — using original path",
+                workspace, e
+            );
+            workspace.to_path_buf()
+        });
         let mut read_write = vec![
             workspace_resolved.to_string_lossy().to_string(),
             "/tmp".to_string(),
