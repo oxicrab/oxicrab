@@ -1,6 +1,7 @@
 //! URL validation to prevent SSRF attacks.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::time::Duration;
 
 /// Validated URL with pinned DNS resolution.
 ///
@@ -50,9 +51,13 @@ pub async fn validate_and_resolve(url_str: &str) -> Result<ResolvedUrl, String> 
         }
         url::Host::Domain(domain) => {
             let lookup_addr = format!("{}:{}", domain, port);
-            let resolved = tokio::net::lookup_host(&lookup_addr)
-                .await
-                .map_err(|_| format!("DNS resolution failed for domain: {}", domain))?;
+            let resolved = tokio::time::timeout(
+                Duration::from_secs(5),
+                tokio::net::lookup_host(&lookup_addr),
+            )
+            .await
+            .map_err(|_| format!("DNS resolution timed out for domain: {}", domain))?
+            .map_err(|_| format!("DNS resolution failed for domain: {}", domain))?;
             let addrs: Vec<SocketAddr> = resolved.collect();
             for addr in &addrs {
                 check_ip_allowed(addr.ip())?;
