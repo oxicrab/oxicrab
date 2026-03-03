@@ -38,15 +38,16 @@ impl MemoryDB {
         search_type: &str,
         results: &[MemoryHit],
         top_score: Option<f64>,
+        request_id: Option<&str>,
     ) -> Result<()> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
         conn.execute(
-            "INSERT INTO memory_access_log (query, search_type, result_count, top_score)
-             VALUES (?, ?, ?, ?)",
-            params![query, search_type, results.len() as i64, top_score],
+            "INSERT INTO memory_access_log (query, search_type, result_count, top_score, request_id)
+             VALUES (?, ?, ?, ?, ?)",
+            params![query, search_type, results.len() as i64, top_score, request_id],
         )?;
         let log_id = conn.last_insert_rowid();
         for hit in results {

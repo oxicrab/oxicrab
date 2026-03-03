@@ -236,7 +236,7 @@ impl MemoryDB {
             })
             .collect();
 
-        if let Err(e) = self.log_search(query_text, "hybrid", &hits, top_score) {
+        if let Err(e) = self.log_search(query_text, "hybrid", &hits, top_score, None) {
             debug!("failed to log hybrid search: {}", e);
         }
 
@@ -310,7 +310,7 @@ impl MemoryDB {
     ) -> Result<Vec<MemoryHit>> {
         let hits = self.search_inner(query_text, limit, exclude_sources)?;
         // Log search asynchronously (best-effort, don't fail the search)
-        if let Err(e) = self.log_search(query_text, "keyword", &hits, None) {
+        if let Err(e) = self.log_search(query_text, "keyword", &hits, None, None) {
             debug!("failed to log search: {}", e);
         }
         Ok(hits)
