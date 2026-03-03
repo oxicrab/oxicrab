@@ -985,13 +985,17 @@ async fn test_chat_handler_rejects_oversized_schema() {
         .method("POST")
         .uri("/api/chat")
         .header("Content-Type", "application/json")
-        .body(axum::body::Body::from(serde_json::to_string(&req_body).unwrap()))
+        .body(axum::body::Body::from(
+            serde_json::to_string(&req_body).unwrap(),
+        ))
         .unwrap();
 
     let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
 
-    let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
     assert!(body["error"].as_str().unwrap().contains("schema too large"));
 }
@@ -1022,13 +1026,22 @@ async fn test_chat_handler_rejects_oversized_schema_name() {
         .method("POST")
         .uri("/api/chat")
         .header("Content-Type", "application/json")
-        .body(axum::body::Body::from(serde_json::to_string(&req_body).unwrap()))
+        .body(axum::body::Body::from(
+            serde_json::to_string(&req_body).unwrap(),
+        ))
         .unwrap();
 
     let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
-    let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-    assert!(body["error"].as_str().unwrap().contains("schema name too long"));
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("schema name too long")
+    );
 }

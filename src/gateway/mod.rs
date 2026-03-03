@@ -355,9 +355,7 @@ async fn chat_handler(
         match rf {
             GatewayResponseFormat::Schema { name, schema } => {
                 // Check schema size by serializing to estimate memory usage
-                let schema_size = serde_json::to_string(schema)
-                    .map(|s| s.len())
-                    .unwrap_or(0);
+                let schema_size = serde_json::to_string(schema).map(|s| s.len()).unwrap_or(0);
                 if schema_size > MAX_SCHEMA_SIZE {
                     return (
                         StatusCode::PAYLOAD_TOO_LARGE,
@@ -389,7 +387,9 @@ async fn chat_handler(
             }
         }
         // Validation passed, now convert
-        body.response_format.take().map(GatewayResponseFormat::into_response_format)
+        body.response_format
+            .take()
+            .map(GatewayResponseFormat::into_response_format)
     } else {
         None
     };
