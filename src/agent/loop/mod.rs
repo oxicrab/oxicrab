@@ -38,6 +38,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 const EMPTY_RESPONSE_RETRIES: usize = 2;
 const WRAPUP_THRESHOLD_RATIO: f64 = 0.7;
@@ -60,6 +61,9 @@ pub struct AgentRunOverrides {
     pub provider: Option<Arc<dyn LLMProvider>>,
     /// Request structured output format from the LLM (JSON mode or JSON schema).
     pub response_format: Option<crate::providers::base::ResponseFormat>,
+    /// Correlation ID for tracing a single request across cost, intent, and
+    /// complexity records.
+    pub request_id: Option<String>,
 }
 
 /// Tool-specific configurations bundled together. These fields are only used
@@ -935,22 +939,32 @@ impl AgentLoop {
         };
         debug!("Built {} messages, starting agent loop", messages.len());
 
-        let user_action_intent = self.classify_and_record_intent(&content, None);
+        let request_id = format!("req-{}", Uuid::new_v4());
+
+        let user_action_intent = self.classify_and_record_intent(&content, Some(&request_id));
 
         // Complexity-aware routing: score the message and resolve a tier override
-        let complexity_overrides = if let Some(ref scorer) = self.complexity_scorer {
-            let score = scorer.score(&content);
-            let tier_name = scorer.resolve_tier(&score);
-            debug!(
-                "complexity score={:.3} tier={} forced={:?}",
-                score.composite, tier_name, score.forced
-            );
-            self.routing
+        let (complexity_score, complexity_tier_name) =
+            if let Some(ref scorer) = self.complexity_scorer {
+                let score = scorer.score(&content);
+                let tier = scorer.resolve_tier(&score).to_string();
+                debug!(
+                    "complexity score={:.3} tier={} forced={:?} request_id={}",
+                    score.composite, tier, score.forced, request_id
+                );
+                (Some(score), Some(tier))
+            } else {
+                (None, None)
+            };
+
+        // Resolve tier to provider overrides
+        let complexity_overrides = match &complexity_tier_name {
+            Some(tier) => self
+                .routing
                 .as_ref()
-                .map(|r| r.resolve_tier_direct(tier_name))
-                .filter(|o| o.provider.is_some())
-        } else {
-            None
+                .map(|r| r.resolve_tier_direct(tier))
+                .filter(|o| o.provider.is_some()),
+            None => None,
         };
 
         // Extract optional response_format from inbound message metadata (set by
@@ -963,15 +977,38 @@ impl AgentLoop {
         let overrides = match (complexity_overrides, response_format) {
             (Some(cx), Some(rf)) => AgentRunOverrides {
                 response_format: Some(rf),
+                request_id: Some(request_id.clone()),
                 ..cx
             },
-            (Some(cx), None) => cx,
+            (Some(cx), None) => AgentRunOverrides {
+                request_id: Some(request_id.clone()),
+                ..cx
+            },
             (None, Some(rf)) => AgentRunOverrides {
                 response_format: Some(rf),
+                request_id: Some(request_id.clone()),
                 ..AgentRunOverrides::default()
             },
-            (None, None) => AgentRunOverrides::default(),
+            (None, None) => AgentRunOverrides {
+                request_id: Some(request_id.clone()),
+                ..AgentRunOverrides::default()
+            },
         };
+
+        // Record complexity event for analytics
+        if let (Some(score), Some(tier)) = (&complexity_score, &complexity_tier_name)
+            && let Err(e) = self.memory.db().record_complexity_event(
+                &request_id,
+                score.composite,
+                tier,
+                overrides.model.as_deref(),
+                score.forced,
+                Some(&msg.channel),
+                &content,
+            )
+        {
+            debug!("failed to record complexity event: {}", e);
+        }
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
         let (final_content, input_tokens, tools_used, collected_media, loop_discourse) = self
@@ -1098,34 +1135,6 @@ impl AgentLoop {
                 metadata: msg.metadata,
             }))
         }
-    }
-
-    /// Returns `(final_content, input_tokens, tools_used, collected_media)`.
-    /// `input_tokens` is the provider-reported input token count from the most
-    /// recent LLM call (if available). `tools_used` lists all tool names invoked
-    /// during the loop (with duplicates). `collected_media` contains file paths
-    /// of media produced by tools (screenshots, downloaded images, etc.).
-    async fn run_agent_loop(
-        &self,
-        messages: Vec<Message>,
-        typing_context: Option<(String, String)>,
-        exec_ctx: &ExecutionContext,
-        user_has_action_intent: bool,
-    ) -> Result<(
-        Option<String>,
-        Option<u64>,
-        Vec<String>,
-        Vec<String>,
-        crate::agent::discourse::DiscourseRegister,
-    )> {
-        self.run_agent_loop_with_overrides(
-            messages,
-            typing_context,
-            exec_ctx,
-            &AgentRunOverrides::default(),
-            user_has_action_intent,
-        )
-        .await
     }
 
     /// Core agent loop implementation with per-invocation overrides.
@@ -1293,7 +1302,7 @@ impl AgentLoop {
                     response.output_tokens,
                     response.cache_creation_input_tokens,
                     response.cache_read_input_tokens,
-                    None,
+                    overrides.request_id.as_deref(),
                 );
             }
 
@@ -1358,7 +1367,7 @@ impl AgentLoop {
                     &tools_used,
                     user_has_action_intent,
                     Some(&self.memory.db()),
-                    None,
+                    overrides.request_id.as_deref(),
                 ) {
                     TextAction::Continue => {}
                     TextAction::Return => {
@@ -1394,7 +1403,11 @@ impl AgentLoop {
         // make one more LLM call with no tools to force a text summary.
         if any_tools_called
             && let Some(content) = self
-                .generate_post_loop_summary(&mut messages, effective_model)
+                .generate_post_loop_summary(
+                    &mut messages,
+                    effective_model,
+                    overrides.request_id.as_deref(),
+                )
                 .await?
         {
             return Ok((
@@ -1661,6 +1674,7 @@ impl AgentLoop {
         &self,
         messages: &mut Vec<Message>,
         effective_model: &str,
+        request_id: Option<&str>,
     ) -> Result<Option<String>> {
         // Cost guard pre-flight check for summary call
         if let Some(ref cg) = self.cost_guard
@@ -1697,7 +1711,7 @@ impl AgentLoop {
                         response.output_tokens,
                         response.cache_creation_input_tokens,
                         response.cache_read_input_tokens,
-                        None,
+                        request_id,
                     );
                 }
                 Ok(response.content)
@@ -1778,9 +1792,20 @@ impl AgentLoop {
             context_summary,
             msg.metadata.clone(),
         );
-        let user_action_intent = self.classify_and_record_intent(&msg.content, None);
+        let request_id = format!("req-{}", Uuid::new_v4());
+        let user_action_intent = self.classify_and_record_intent(&msg.content, Some(&request_id));
+        let system_overrides = AgentRunOverrides {
+            request_id: Some(request_id),
+            ..AgentRunOverrides::default()
+        };
         let (final_content, _, tools_used, collected_media, _discourse) = self
-            .run_agent_loop(messages, typing_ctx, &exec_ctx, user_action_intent)
+            .run_agent_loop_with_overrides(
+                messages,
+                typing_ctx,
+                &exec_ctx,
+                &system_overrides,
+                user_action_intent,
+            )
             .await?;
         let final_content =
             final_content.unwrap_or_else(|| "Background task completed.".to_string());
@@ -1964,14 +1989,24 @@ impl AgentLoop {
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
         let exec_ctx = Self::build_execution_context(channel, chat_id, None);
-        let user_action_intent = self.classify_and_record_intent(content, None);
+        let request_id = format!("req-{}", Uuid::new_v4());
+        let user_action_intent = self.classify_and_record_intent(content, Some(&request_id));
+
+        let effective_overrides = if overrides.request_id.is_some() {
+            overrides.clone()
+        } else {
+            AgentRunOverrides {
+                request_id: Some(request_id),
+                ..overrides.clone()
+            }
+        };
 
         let (response, _, tools_used, _collected_media, _discourse) = self
             .run_agent_loop_with_overrides(
                 messages,
                 typing_ctx,
                 &exec_ctx,
-                overrides,
+                &effective_overrides,
                 user_action_intent,
             )
             .await?;

@@ -28,6 +28,7 @@ impl ResolvedRouting {
                 provider: Some(provider.clone()),
                 max_iterations: None,
                 response_format: None,
+                request_id: None,
             };
         }
         AgentRunOverrides::default()
@@ -42,6 +43,7 @@ impl ResolvedRouting {
                 provider: Some(provider.clone()),
                 max_iterations: None,
                 response_format: None,
+                request_id: None,
             };
         }
         warn!(
