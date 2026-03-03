@@ -20,6 +20,7 @@ fn test_no_limits_always_allowed() {
         Some(50_000),
         None,
         None,
+        None,
     );
     assert!(guard.check_allowed().is_ok());
 }
@@ -41,6 +42,7 @@ fn test_daily_budget_exceeded() {
         "claude-sonnet-4-5-20250929",
         Some(10_000),
         Some(10_000),
+        None,
         None,
         None,
     );
@@ -80,9 +82,9 @@ fn test_hourly_rate_limit() {
     };
     let guard = CostGuard::new(config);
 
-    guard.record_llm_call("test-model", None, None, None, None);
-    guard.record_llm_call("test-model", None, None, None, None);
-    guard.record_llm_call("test-model", None, None, None, None);
+    guard.record_llm_call("test-model", None, None, None, None, None);
+    guard.record_llm_call("test-model", None, None, None, None, None);
+    guard.record_llm_call("test-model", None, None, None, None, None);
 
     let result = guard.check_allowed();
     assert!(result.is_err());
@@ -209,6 +211,7 @@ fn test_cost_tracked_without_budget_limits() {
         Some(100_000),
         None,
         None,
+        None,
     );
 
     // $3.00 input + $1.50 output = $4.50 = 450 cents
@@ -291,6 +294,7 @@ fn test_with_db_persists_costs() {
         Some(5_000),
         None,
         None,
+        None,
     );
 
     // Check that cost was persisted to the database
@@ -305,7 +309,7 @@ fn test_with_db_restores_daily_cost() {
     let db = std::sync::Arc::new(MemoryDB::new(dir.path().join("test.db")).unwrap());
 
     // Manually insert a cost record for today
-    db.record_cost("test-model", 1000, 500, 0, 0, 42.5, "main")
+    db.record_cost("test-model", 1000, 500, 0, 0, 42.5, "main", None)
         .unwrap();
 
     // Create a new CostGuard with the same db — should restore daily total
@@ -322,6 +326,6 @@ fn test_with_db_restores_daily_cost() {
 fn test_without_db_still_works() {
     // CostGuard::new (no db) should still function normally
     let guard = CostGuard::new(default_config());
-    guard.record_llm_call("test-model", Some(1000), Some(500), None, None);
+    guard.record_llm_call("test-model", Some(1000), Some(500), None, None, None);
     assert!(guard.check_allowed().is_ok());
 }

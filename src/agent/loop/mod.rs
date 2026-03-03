@@ -1293,6 +1293,7 @@ impl AgentLoop {
                     response.output_tokens,
                     response.cache_creation_input_tokens,
                     response.cache_read_input_tokens,
+                    None,
                 );
             }
 
@@ -1694,6 +1695,7 @@ impl AgentLoop {
                         response.output_tokens,
                         response.cache_creation_input_tokens,
                         response.cache_read_input_tokens,
+                        None,
                     );
                 }
                 Ok(response.content)

@@ -300,9 +300,9 @@ fn test_cost_record_and_query() {
     let db_path = dir.path().join("test_memory.db");
     let db = MemoryDB::new(&db_path).unwrap();
 
-    db.record_cost("claude-sonnet-4", 1000, 500, 0, 0, 4.5, "main")
+    db.record_cost("claude-sonnet-4", 1000, 500, 0, 0, 4.5, "main", None)
         .unwrap();
-    db.record_cost("gpt-4o", 2000, 1000, 100, 200, 3.2, "subagent")
+    db.record_cost("gpt-4o", 2000, 1000, 100, 200, 3.2, "subagent", None)
         .unwrap();
 
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -316,11 +316,11 @@ fn test_cost_summary() {
     let db_path = dir.path().join("test_memory.db");
     let db = MemoryDB::new(&db_path).unwrap();
 
-    db.record_cost("claude-sonnet-4", 1000, 500, 0, 0, 4.5, "main")
+    db.record_cost("claude-sonnet-4", 1000, 500, 0, 0, 4.5, "main", None)
         .unwrap();
-    db.record_cost("claude-sonnet-4", 2000, 1000, 0, 0, 9.0, "main")
+    db.record_cost("claude-sonnet-4", 2000, 1000, 0, 0, 9.0, "main", None)
         .unwrap();
-    db.record_cost("gpt-4o", 500, 200, 0, 0, 1.0, "main")
+    db.record_cost("gpt-4o", 500, 200, 0, 0, 1.0, "main", None)
         .unwrap();
 
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();

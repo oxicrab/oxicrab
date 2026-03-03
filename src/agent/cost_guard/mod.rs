@@ -198,6 +198,7 @@ impl CostGuard {
         output_tokens: Option<u64>,
         cache_creation_input_tokens: Option<u64>,
         cache_read_input_tokens: Option<u64>,
+        request_id: Option<&str>,
     ) {
         let cost_cents = self.estimate_cost_cents(
             model,
@@ -245,6 +246,7 @@ impl CostGuard {
                 cache_read_input_tokens.unwrap_or(0),
                 cost_cents,
                 "main",
+                request_id,
             )
         {
             warn!("failed to persist cost to db: {}", e);

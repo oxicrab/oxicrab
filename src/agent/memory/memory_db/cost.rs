@@ -24,6 +24,7 @@ impl MemoryDB {
         cache_read_tokens: u64,
         cost_cents: f64,
         caller: &str,
+        request_id: Option<&str>,
     ) -> Result<()> {
         let conn = self
             .conn
@@ -31,8 +32,8 @@ impl MemoryDB {
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
         conn.execute(
             "INSERT INTO llm_cost_log
-             (model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_cents, caller)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             (model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_cents, caller, request_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 model,
                 input_tokens as i64,
@@ -41,6 +42,7 @@ impl MemoryDB {
                 cache_read_tokens as i64,
                 cost_cents,
                 caller,
+                request_id,
             ],
         )?;
         Ok(())
