@@ -566,8 +566,10 @@ impl LLMProvider for AnthropicOAuthProvider {
             "model": model,
             "messages": anthropic_messages,
             "max_tokens": req.max_tokens,
-            "temperature": req.temperature,
         });
+        if let Some(temp) = req.temperature {
+            payload["temperature"] = json!(temp);
+        }
 
         if let Some(system) = system {
             let system_with_hint = if let Some(hint) = json_mode_hint {

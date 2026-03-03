@@ -9,7 +9,7 @@ fn simple_chat_request(content: &str) -> ChatRequest<'_> {
         tools: None,
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     }
@@ -154,7 +154,7 @@ async fn test_chat_with_system_message() {
         tools: None,
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     };

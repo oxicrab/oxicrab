@@ -20,7 +20,7 @@ pub struct RecordedCall {
     pub messages: Vec<Message>,
     pub model: Option<String>,
     pub tools: Option<Vec<ToolDefinition>>,
-    pub temperature: f32,
+    pub temperature: Option<f32>,
     pub max_tokens: u32,
     pub tool_choice: Option<String>,
 }

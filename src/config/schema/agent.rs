@@ -393,117 +393,109 @@ fn default_max_tokens() -> u32 {
     8192
 }
 
-fn default_temperature() -> f32 {
-    0.7
+#[allow(clippy::unnecessary_wraps)]
+fn default_temperature() -> Option<f32> {
+    Some(0.7)
 }
 
 fn default_max_tool_iterations() -> usize {
     20
 }
 
-/// Config-driven model routing: different models for different task types.
+/// Simplified model routing: `default` model, per-task overrides, fallback chain.
 ///
-/// Each tier is a full `provider/model` string (e.g. `"openrouter/google/gemini-3-flash"`).
-/// Rules map task types to tier names. When absent, single-model behavior is preserved.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// - `default`: base `provider/model` string used for all tasks unless overridden
+/// - `tasks`: maps task types to models (strings) or complex chat routing (object)
+/// - `fallbacks`: ordered `provider/model` chain for provider resilience
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelRoutingConfig {
-    /// Named model tiers. Values are `provider/model` strings.
-    #[serde(default)]
-    pub tiers: std::collections::HashMap<String, String>,
-    /// Ordered fallback chain of `provider/model` strings.
+    /// Base model used when no task-specific override matches.
+    #[serde(default = "default_model")]
+    pub default: String,
+    /// Ordered fallback chain of `provider/model` strings for resilience.
     #[serde(default)]
     pub fallbacks: Vec<String>,
-    /// Maps task types to tier names.
-    /// Known types: "conversation", "cron", "daemon", "subagent", "compaction".
+    /// Per-task model overrides. Simple tasks (daemon, cron, compaction, subagent)
+    /// use a plain model string. The `chat` key accepts an object with complexity
+    /// escalation thresholds.
     #[serde(default)]
-    pub rules: std::collections::HashMap<String, String>,
-    /// Complexity-aware message routing: scores each inbound message and routes
-    /// to the cheapest capable model tier. Disabled by default.
-    #[serde(default)]
-    pub complexity: ComplexityRoutingConfig,
+    pub tasks: std::collections::HashMap<String, TaskRouting>,
 }
 
-/// Complexity-aware routing configuration. When enabled, each inbound user
-/// message is scored across 7 dimensions (sub-millisecond, no API calls) and
-/// mapped to a model tier.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ComplexityRoutingConfig {
-    /// Enable complexity-based message routing (default false).
+impl Default for ModelRoutingConfig {
+    fn default() -> Self {
+        Self {
+            default: default_model(),
+            fallbacks: Vec::new(),
+            tasks: std::collections::HashMap::new(),
+        }
+    }
+}
+
+/// Per-task routing: either a simple model string or a chat routing config
+/// with complexity escalation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TaskRouting {
+    /// Simple model override: `"daemon": "anthropic/claude-haiku-4-5-20251001"`
+    Model(String),
+    /// Chat routing with complexity-based model escalation.
+    Chat(ChatRoutingConfig),
+}
+
+/// Chat routing with complexity-based model escalation.
+/// When complexity scoring crosses thresholds, the request is routed to a
+/// more capable (and typically more expensive) model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatRoutingConfig {
+    /// Score thresholds for model escalation.
     #[serde(default)]
-    pub enabled: bool,
-    /// Score thresholds for tier boundaries.
-    #[serde(default)]
-    pub thresholds: ComplexityThresholds,
-    /// Maps score ranges to model routing tier names.
-    #[serde(default, rename = "tierMapping")]
-    pub tier_mapping: ComplexityTierMapping,
-    /// Per-dimension scoring weights.
+    pub thresholds: ChatThresholds,
+    /// Models to use at each complexity tier above the default.
+    pub models: ChatModels,
+    /// Per-dimension scoring weights for the complexity scorer.
     #[serde(default)]
     pub weights: ComplexityWeights,
 }
 
-/// Score boundaries between tiers.
+/// Score thresholds for chat complexity escalation.
+/// Below `standard` → use the default model.
+/// Between `standard` and `heavy` → use `models.standard`.
+/// At or above `heavy` → use `models.heavy`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ComplexityThresholds {
-    /// Below this → light tier (default 0.3).
-    #[serde(default = "default_light_standard_threshold", rename = "lightStandard")]
-    pub light_standard: f64,
-    /// At or above this → heavy tier (default 0.65).
-    #[serde(default = "default_standard_heavy_threshold", rename = "standardHeavy")]
-    pub standard_heavy: f64,
+pub struct ChatThresholds {
+    /// Below this score → default model (default 0.3).
+    #[serde(default = "default_standard_threshold")]
+    pub standard: f64,
+    /// At or above this score → heavy model (default 0.65).
+    #[serde(default = "default_heavy_threshold")]
+    pub heavy: f64,
 }
 
-fn default_light_standard_threshold() -> f64 {
+fn default_standard_threshold() -> f64 {
     0.3
 }
 
-fn default_standard_heavy_threshold() -> f64 {
+fn default_heavy_threshold() -> f64 {
     0.65
 }
 
-impl Default for ComplexityThresholds {
+impl Default for ChatThresholds {
     fn default() -> Self {
         Self {
-            light_standard: default_light_standard_threshold(),
-            standard_heavy: default_standard_heavy_threshold(),
+            standard: default_standard_threshold(),
+            heavy: default_heavy_threshold(),
         }
     }
 }
 
-/// Tier name mapping from score range to model routing tier name.
+/// Models for chat complexity escalation tiers (above the default model).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ComplexityTierMapping {
-    /// Tier name for low-complexity messages (default "lightweight").
-    #[serde(default = "default_light_tier")]
-    pub light: String,
-    /// Tier name for medium-complexity messages (default "standard").
-    #[serde(default = "default_medium_tier")]
-    pub medium: String,
-    /// Tier name for high-complexity messages (default "heavy").
-    #[serde(default = "default_heavy_tier")]
+pub struct ChatModels {
+    /// Model used for medium-complexity messages.
+    pub standard: String,
+    /// Model used for high-complexity messages.
     pub heavy: String,
-}
-
-fn default_light_tier() -> String {
-    "lightweight".to_string()
-}
-
-fn default_medium_tier() -> String {
-    "standard".to_string()
-}
-
-fn default_heavy_tier() -> String {
-    "heavy".to_string()
-}
-
-impl Default for ComplexityTierMapping {
-    fn default() -> Self {
-        Self {
-            light: default_light_tier(),
-            medium: default_medium_tier(),
-            heavy: default_heavy_tier(),
-        }
-    }
 }
 
 /// Per-dimension scoring weights. Negative weight on conversational simplicity
@@ -581,12 +573,10 @@ impl Default for ComplexityWeights {
 pub struct AgentDefaults {
     #[serde(default = "default_workspace")]
     pub workspace: String,
-    #[serde(default = "default_model")]
-    pub model: String,
     #[serde(default = "default_max_tokens", rename = "maxTokens")]
     pub max_tokens: u32,
     #[serde(default = "default_temperature")]
-    pub temperature: f32,
+    pub temperature: Option<f32>,
     #[serde(default = "default_max_tool_iterations", rename = "maxToolIterations")]
     pub max_tool_iterations: usize,
     #[serde(default)]
@@ -627,7 +617,6 @@ impl Default for AgentDefaults {
     fn default() -> Self {
         Self {
             workspace: default_workspace(),
-            model: default_model(),
             max_tokens: default_max_tokens(),
             temperature: default_temperature(),
             max_tool_iterations: default_max_tool_iterations(),

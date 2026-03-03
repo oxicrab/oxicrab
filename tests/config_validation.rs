@@ -31,7 +31,7 @@ fn test_huge_max_tokens_rejected() {
 #[test]
 fn test_temperature_below_zero_rejected() {
     let mut config = default_config();
-    config.agents.defaults.temperature = -0.1;
+    config.agents.defaults.temperature = Some(-0.1);
     let err = config.validate().unwrap_err();
     assert!(err.to_string().contains("temperature"));
 }
@@ -39,7 +39,7 @@ fn test_temperature_below_zero_rejected() {
 #[test]
 fn test_temperature_above_two_rejected() {
     let mut config = default_config();
-    config.agents.defaults.temperature = 2.1;
+    config.agents.defaults.temperature = Some(2.1);
     let err = config.validate().unwrap_err();
     assert!(err.to_string().contains("temperature"));
 }

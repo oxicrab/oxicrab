@@ -10,7 +10,7 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
-use crate::config::schema::{ComplexityRoutingConfig, ComplexityWeights};
+use crate::config::schema::ComplexityWeights;
 
 /// Pre-built scoring engine constructed once at startup. Holds AC automata and
 /// config references so per-message scoring is allocation-free hot-path only.
@@ -20,11 +20,6 @@ pub struct ComplexityScorer {
     greeting_ac: AhoCorasick,
     filler_ac: AhoCorasick,
     weights: ComplexityWeights,
-    light_standard: f64,
-    standard_heavy: f64,
-    light_tier: String,
-    medium_tier: String,
-    heavy_tier: String,
 }
 
 /// Per-dimension breakdown for a single message.
@@ -224,7 +219,7 @@ const REASONING_FORCE_THRESHOLD: usize = 2;
 const LENGTH_FORCE_THRESHOLD: usize = 50_000;
 
 impl ComplexityScorer {
-    pub fn new(config: &ComplexityRoutingConfig) -> Self {
+    pub fn new(weights: &ComplexityWeights) -> Self {
         let reasoning_ac = AhoCorasick::builder()
             .ascii_case_insensitive(true)
             .build(REASONING_KEYWORDS)
@@ -304,12 +299,7 @@ impl ComplexityScorer {
             technical_ac,
             greeting_ac,
             filler_ac,
-            weights: config.weights.clone(),
-            light_standard: config.thresholds.light_standard,
-            standard_heavy: config.thresholds.standard_heavy,
-            light_tier: config.tier_mapping.light.clone(),
-            medium_tier: config.tier_mapping.medium.clone(),
-            heavy_tier: config.tier_mapping.heavy.clone(),
+            weights: weights.clone(),
         }
     }
 
@@ -351,17 +341,6 @@ impl ComplexityScorer {
         };
 
         ComplexityScore { composite, forced }
-    }
-
-    /// Map a composite score to the appropriate tier name.
-    pub fn resolve_tier<'a>(&'a self, score: &ComplexityScore) -> &'a str {
-        if score.composite < self.light_standard {
-            &self.light_tier
-        } else if score.composite >= self.standard_heavy {
-            &self.heavy_tier
-        } else {
-            &self.medium_tier
-        }
     }
 
     // -----------------------------------------------------------------------

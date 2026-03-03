@@ -14,9 +14,9 @@ const PRE_FLUSH_PROMPT: &str = "Review these conversation messages that are abou
 const COMPACTION_MAX_TOKENS: u32 = 2000;
 const EXTRACTION_MAX_TOKENS: u32 = 500;
 const PRE_FLUSH_MAX_TOKENS: u32 = 800;
-const COMPACTION_TEMPERATURE: f32 = 0.3;
-const EXTRACTION_TEMPERATURE: f32 = 0.0;
-const PRE_FLUSH_TEMPERATURE: f32 = 0.0;
+const COMPACTION_TEMPERATURE: Option<f32> = Some(0.3);
+const EXTRACTION_TEMPERATURE: Option<f32> = Some(0.0);
+const PRE_FLUSH_TEMPERATURE: Option<f32> = Some(0.0);
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
 
 pub fn estimate_tokens(text: &str) -> usize {

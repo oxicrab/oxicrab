@@ -169,7 +169,7 @@ fn rewrite_request_moves_tools_to_system_prompt() {
         tools: Some(tools),
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     };
@@ -192,7 +192,7 @@ fn rewrite_request_tool_result_to_user_message() {
         tools: Some(vec![web_search_tool()]),
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     };
@@ -221,7 +221,7 @@ fn rewrite_request_assistant_tool_calls_to_inline_text() {
         tools: Some(vec![web_search_tool()]),
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     };
@@ -241,7 +241,7 @@ fn rewrite_request_tool_choice_any_adds_force_instruction() {
         tools: Some(vec![web_search_tool()]),
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: Some("any".into()),
         response_format: None,
     };
@@ -284,7 +284,7 @@ async fn integration_text_tool_call_parsed() {
         tools: Some(vec![web_search_tool()]),
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     };
@@ -307,7 +307,7 @@ async fn passthrough_when_no_tools() {
         tools: None,
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     };

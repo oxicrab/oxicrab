@@ -26,7 +26,7 @@ fn make_tool() -> SubagentControlTool {
         workspace: PathBuf::from("/tmp"),
         model: None,
         max_tokens: 1024,
-        tool_temperature: 0.0,
+        tool_temperature: Some(0.0),
         max_concurrent: 2,
         cost_guard: None,
         prompt_guard_config: PromptGuardConfig::default(),

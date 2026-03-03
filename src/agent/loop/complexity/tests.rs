@@ -1,8 +1,8 @@
 use super::*;
-use crate::config::schema::ComplexityRoutingConfig;
+use crate::config::schema::ComplexityWeights;
 
 fn default_scorer() -> ComplexityScorer {
-    ComplexityScorer::new(&ComplexityRoutingConfig::default())
+    ComplexityScorer::new(&ComplexityWeights::default())
 }
 
 // ---------------------------------------------------------------------------
@@ -207,11 +207,11 @@ fn not_conversational() {
 }
 
 // ---------------------------------------------------------------------------
-// Composite scoring & tier mapping
+// Composite scoring & force overrides
 // ---------------------------------------------------------------------------
 
 #[test]
-fn greeting_routes_to_light_tier() {
+fn greeting_forces_zero_composite() {
     let scorer = default_scorer();
     let score = scorer.score("hi");
     assert_eq!(
@@ -224,11 +224,10 @@ fn greeting_routes_to_light_tier() {
         "greeting composite should be 0.0, got {}",
         score.composite
     );
-    assert_eq!(scorer.resolve_tier(&score), "lightweight");
 }
 
 #[test]
-fn complex_reasoning_routes_to_heavy_tier() {
+fn complex_reasoning_forces_max_composite() {
     let scorer = default_scorer();
     let score = scorer.score(
         "analyze the trade-offs between microservices and monoliths, then synthesize a recommendation step by step",
@@ -239,11 +238,10 @@ fn complex_reasoning_routes_to_heavy_tier() {
         "2+ reasoning keywords should force heavy"
     );
     assert!((0.99..=1.0).contains(&score.composite));
-    assert_eq!(scorer.resolve_tier(&score), "heavy");
 }
 
 #[test]
-fn very_long_message_routes_to_heavy() {
+fn very_long_message_forces_max_composite() {
     let scorer = default_scorer();
     let long_msg = "word ".repeat(15_000);
     let score = scorer.score(&long_msg);
@@ -252,79 +250,30 @@ fn very_long_message_routes_to_heavy() {
         Some("message_length"),
         ">50KB should force heavy"
     );
-    assert_eq!(scorer.resolve_tier(&score), "heavy");
+    assert!((0.99..=1.0).contains(&score.composite));
 }
 
 #[test]
-fn moderate_question_routes_to_standard_or_higher() {
+fn moderate_question_scores_moderate_composite() {
     let scorer = default_scorer();
-    // Analytical question + technical vocab + reasoning keywords → should be standard or heavy
     let score = scorer.score(
         "why does the authentication middleware reject valid tokens? analyze the architecture and explain the trade-offs",
     );
-    let tier = scorer.resolve_tier(&score);
+    // Should score moderate-to-high
     assert!(
-        tier == "standard" || tier == "heavy",
-        "moderate-to-high complexity should route to standard or heavy, got {} (composite={})",
-        tier,
+        score.composite > 0.3,
+        "moderate-to-high complexity should have composite > 0.3, got {}",
         score.composite
     );
 }
 
 #[test]
-fn simple_factual_routes_to_light_or_standard() {
+fn simple_factual_scores_low_composite() {
     let scorer = default_scorer();
     let score = scorer.score("what is rust?");
-    let tier = scorer.resolve_tier(&score);
     assert!(
-        tier == "lightweight" || tier == "standard",
-        "simple factual question should be light or standard, got {}",
-        tier
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Custom config
-// ---------------------------------------------------------------------------
-
-#[test]
-fn custom_tier_names() {
-    let config = ComplexityRoutingConfig {
-        enabled: true,
-        tier_mapping: crate::config::schema::ComplexityTierMapping {
-            light: "cheap".to_string(),
-            heavy: "expensive".to_string(),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let scorer = ComplexityScorer::new(&config);
-    let score = scorer.score("hi");
-    assert_eq!(scorer.resolve_tier(&score), "cheap");
-
-    let score = scorer.score("analyze the trade-offs and synthesize a plan step by step");
-    assert_eq!(scorer.resolve_tier(&score), "expensive");
-}
-
-#[test]
-fn custom_thresholds() {
-    let config = ComplexityRoutingConfig {
-        enabled: true,
-        thresholds: crate::config::schema::ComplexityThresholds {
-            light_standard: 0.1,
-            standard_heavy: 0.9,
-        },
-        ..Default::default()
-    };
-    let scorer = ComplexityScorer::new(&config);
-
-    // A message with moderate technical content should land in "standard" with these thresholds
-    let score = scorer
-        .score("explain how the database algorithm handles concurrent authentication requests");
-    let tier = scorer.resolve_tier(&score);
-    assert_eq!(
-        tier, "standard",
-        "with tight thresholds, moderate message should be standard (composite={})",
+        score.composite < 0.65,
+        "simple factual question should have composite < 0.65, got {}",
         score.composite
     );
 }
@@ -367,7 +316,11 @@ fn scoring_is_fast() {
 fn empty_message() {
     let scorer = default_scorer();
     let score = scorer.score("");
-    assert_eq!(scorer.resolve_tier(&score), "lightweight");
+    assert!(
+        score.composite < 0.3,
+        "empty message should have low composite, got {}",
+        score.composite
+    );
 }
 
 #[test]

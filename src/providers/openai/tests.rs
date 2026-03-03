@@ -11,7 +11,7 @@ fn simple_chat_request(content: &str) -> ChatRequest<'_> {
         tools: None,
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     }
@@ -329,7 +329,7 @@ async fn test_chat_with_json_object_format() {
         tools: None,
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: Some(crate::providers::base::ResponseFormat::JsonObject),
     };
@@ -369,7 +369,7 @@ async fn test_chat_with_json_schema_format() {
         tools: None,
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: Some(crate::providers::base::ResponseFormat::JsonSchema {
             name: "person".into(),
@@ -454,7 +454,7 @@ async fn test_chat_tool_choice_any_mapped_to_required() {
         }]),
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: Some("any".to_string()),
         response_format: None,
     };
@@ -490,7 +490,7 @@ async fn test_chat_with_image_in_message() {
         tools: None,
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     };
@@ -525,7 +525,7 @@ async fn test_chat_with_document_in_message() {
         tools: None,
         model: None,
         max_tokens: 1024,
-        temperature: 0.7,
+        temperature: Some(0.7),
         tool_choice: None,
         response_format: None,
     };

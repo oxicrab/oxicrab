@@ -357,7 +357,7 @@ oxicrab credentials delete anthropic-api-key</pre>
 
     <h3>stats complexity</h3>
     <div class="cmd-sig">oxicrab stats complexity [--days N]</div>
-    <p>Show complexity routing statistics: per-tier message distribution with percentages, average scores, correlated cost totals (via request_id JOIN with llm_cost_log), force override counts, and the 5 most recent heavy-tier routing examples. Requires <code>modelRouting.complexity.enabled = true</code> in config.</p>
+    <p>Show complexity routing statistics: per-band message distribution with percentages, average scores, correlated cost totals (via request_id JOIN with llm_cost_log), force override counts, and the 5 most recent heavy routing examples. Requires a <code>chat</code> entry in <code>modelRouting.tasks</code> with complexity escalation.</p>
     <table class="flag-table">
         <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
         <tr><td><code>--days, -d</code></td><td>7</td><td>Number of days to look back</td></tr>
