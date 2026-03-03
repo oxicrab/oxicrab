@@ -947,3 +947,88 @@ async fn test_chat_handler_without_response_format_no_metadata() {
     let resp = handle.await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn test_chat_handler_rejects_oversized_schema() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let (inbound_tx, _inbound_rx) = mpsc::channel(16);
+    let state = HttpApiState {
+        inbound_tx: Arc::new(inbound_tx),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(HashMap::new()),
+        outbound_tx: None,
+    };
+    let app = build_router(state, None, None, None);
+
+    // Create a schema that exceeds MAX_SCHEMA_SIZE (100 KB)
+    let large_schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "data": {
+                "type": "string",
+                "description": "x".repeat(101 * 1024) // 101 KB string
+            }
+        }
+    });
+
+    let req_body = serde_json::json!({
+        "message": "test",
+        "responseFormat": {
+            "name": "test",
+            "schema": large_schema
+        }
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from(serde_json::to_string(&req_body).unwrap()))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+    let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert!(body["error"].as_str().unwrap().contains("schema too large"));
+}
+
+#[tokio::test]
+async fn test_chat_handler_rejects_oversized_schema_name() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let (inbound_tx, _inbound_rx) = mpsc::channel(16);
+    let state = HttpApiState {
+        inbound_tx: Arc::new(inbound_tx),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(HashMap::new()),
+        outbound_tx: None,
+    };
+    let app = build_router(state, None, None, None);
+
+    let req_body = serde_json::json!({
+        "message": "test",
+        "responseFormat": {
+            "name": "x".repeat(257), // 257 chars, exceeds 256 limit
+            "schema": {"type": "string"}
+        }
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from(serde_json::to_string(&req_body).unwrap()))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert!(body["error"].as_str().unwrap().contains("schema name too long"));
+}

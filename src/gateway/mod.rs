@@ -70,6 +70,10 @@ const WEBHOOK_MAX_BODY: usize = 1_048_576;
 /// Max message size for chat API and A2A endpoints: 1 MB.
 const MAX_MESSAGE_SIZE: usize = 1_048_576;
 
+/// Max size for JSON schema in response format: 100 KB.
+/// This prevents uncontrolled allocation from user-provided schemas.
+const MAX_SCHEMA_SIZE: usize = 100 * 1024;
+
 /// Timeout for waiting on agent response (2 minutes, matching provider timeout).
 const RESPONSE_TIMEOUT_SECS: u64 = 120;
 
@@ -314,7 +318,7 @@ fn build_router(
 /// POST /api/chat — send a message and receive the agent's response.
 async fn chat_handler(
     State(state): State<HttpApiState>,
-    Json(body): Json<ChatRequest>,
+    Json(mut body): Json<ChatRequest>,
 ) -> impl IntoResponse {
     let session_id = body
         .session_id
@@ -346,9 +350,49 @@ async fn chat_handler(
 
     // Convert gateway response format to provider-level enum and serialize
     // into metadata so the agent loop can extract it.
-    let response_format_value = body
-        .response_format
-        .map(GatewayResponseFormat::into_response_format);
+    // Validate schema size to prevent uncontrolled allocation.
+    let response_format_value = if let Some(ref rf) = body.response_format {
+        match rf {
+            GatewayResponseFormat::Schema { name, schema } => {
+                // Check schema size by serializing to estimate memory usage
+                let schema_size = serde_json::to_string(schema)
+                    .map(|s| s.len())
+                    .unwrap_or(0);
+                if schema_size > MAX_SCHEMA_SIZE {
+                    return (
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        Json(serde_json::json!({
+                            "error": format!("response format schema too large (max {} bytes)", MAX_SCHEMA_SIZE)
+                        })),
+                    );
+                }
+                // Also check name length (reasonable limit: 256 chars)
+                if name.len() > 256 {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({
+                            "error": "response format schema name too long (max 256 characters)"
+                        })),
+                    );
+                }
+            }
+            GatewayResponseFormat::Simple(s) => {
+                // Check simple string length (reasonable limit: 256 chars)
+                if s.len() > 256 {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({
+                            "error": "response format value too long (max 256 characters)"
+                        })),
+                    );
+                }
+            }
+        }
+        // Validation passed, now convert
+        body.response_format.take().map(GatewayResponseFormat::into_response_format)
+    } else {
+        None
+    };
 
     // Publish inbound message to the agent
     let msg = InboundMessage {
