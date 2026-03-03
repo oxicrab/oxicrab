@@ -341,10 +341,10 @@ async fn chat_handler(
     // Create oneshot channel for the response
     let (tx, rx) = oneshot::channel();
     {
-        let mut pending = state
-            .pending
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut pending = state.pending.lock().unwrap_or_else(|poison| {
+            warn!("gateway pending map mutex was poisoned, recovering");
+            poison.into_inner()
+        });
         pending.insert(request_id.clone(), tx);
     }
 
@@ -417,10 +417,10 @@ async fn chat_handler(
 
     if let Err(e) = state.inbound_tx.send(msg).await {
         // Clean up pending entry
-        let mut pending = state
-            .pending
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut pending = state.pending.lock().unwrap_or_else(|poison| {
+            warn!("gateway pending map mutex was poisoned, recovering");
+            poison.into_inner()
+        });
         pending.remove(&request_id);
         error!("failed to publish HTTP API message: {}", e);
         return (
@@ -450,10 +450,10 @@ async fn chat_handler(
         }
         Err(_) => {
             // Timeout — clean up pending entry
-            let mut pending = state
-                .pending
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut pending = state.pending.lock().unwrap_or_else(|poison| {
+                warn!("gateway pending map mutex was poisoned, recovering");
+                poison.into_inner()
+            });
             pending.remove(&request_id);
             warn!("HTTP API request timed out: {}", request_id);
             (
@@ -594,10 +594,10 @@ async fn webhook_handler(
 
         let (tx, rx) = oneshot::channel();
         {
-            let mut pending = state
-                .pending
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut pending = state.pending.lock().unwrap_or_else(|poison| {
+                warn!("gateway pending map mutex was poisoned, recovering");
+                poison.into_inner()
+            });
             pending.insert(request_id.clone(), tx);
         }
 
@@ -619,10 +619,10 @@ async fn webhook_handler(
         };
 
         if let Err(e) = state.inbound_tx.send(inbound).await {
-            let mut pending = state
-                .pending
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut pending = state.pending.lock().unwrap_or_else(|poison| {
+                warn!("gateway pending map mutex was poisoned, recovering");
+                poison.into_inner()
+            });
             pending.remove(&request_id);
             error!("webhook {}: failed to publish inbound message: {}", name, e);
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
@@ -643,10 +643,10 @@ async fn webhook_handler(
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             }
             Err(_) => {
-                let mut pending = state
-                    .pending
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut pending = state.pending.lock().unwrap_or_else(|poison| {
+                    warn!("gateway pending map mutex was poisoned, recovering");
+                    poison.into_inner()
+                });
                 pending.remove(&request_id);
                 warn!("webhook {}: agent response timed out", name);
                 StatusCode::GATEWAY_TIMEOUT.into_response()
@@ -815,10 +815,10 @@ pub fn route_response(state: &HttpApiState, msg: OutboundMessage) -> bool {
         return false;
     }
 
-    let mut pending = state
-        .pending
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut pending = state.pending.lock().unwrap_or_else(|poison| {
+        warn!("gateway pending map mutex was poisoned, recovering");
+        poison.into_inner()
+    });
     if let Some(tx) = pending.remove(&msg.chat_id) {
         if tx.send(msg).is_err() {
             warn!("HTTP API client disconnected before receiving response");
