@@ -967,6 +967,66 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
                 }
             }
         }
+        StatsCommands::Complexity { days } => {
+            let since = (chrono::Utc::now().date_naive()
+                - chrono::Duration::days(i64::from(*days)))
+            .format("%Y-%m-%d")
+            .to_string();
+            let stats = db.get_complexity_stats(&since)?;
+
+            if stats.total_scored == 0 {
+                println!("No complexity routing data in the last {} days.", days);
+                println!(
+                    "Enable complexity routing: agents.defaults.modelRouting.complexity.enabled = true"
+                );
+                return Ok(());
+            }
+
+            println!("Complexity Routing (last {} days)", days);
+            println!("{}", "\u{2500}".repeat(55));
+            println!("Messages scored:    {}", stats.total_scored);
+            println!();
+
+            println!("Tier Distribution:");
+            for tier in &stats.tier_counts {
+                let pct = (tier.count as f64 / stats.total_scored as f64) * 100.0;
+                println!(
+                    "  {:<16} {:>4} ({:>5.1}%)  avg score: {:.2}   cost: {:.2} cents",
+                    format!("{}:", tier.tier),
+                    tier.count,
+                    pct,
+                    tier.avg_score,
+                    tier.total_cost_cents,
+                );
+            }
+
+            if !stats.force_counts.is_empty() {
+                println!();
+                println!("Force Overrides:");
+                for f in &stats.force_counts {
+                    println!("  {:<24} {}", format!("{}:", f.reason), f.count);
+                }
+            }
+
+            let recent = db.get_recent_complexity_events("heavy", 5)?;
+            if !recent.is_empty() {
+                println!();
+                println!("Recent Heavy Routing:");
+                for event in &recent {
+                    let model = event.resolved_model.as_deref().unwrap_or("unknown");
+                    let preview = event.message_preview.as_deref().unwrap_or("");
+                    let forced_tag = event
+                        .forced
+                        .as_ref()
+                        .map(|f| format!(" [forced:{}]", f))
+                        .unwrap_or_default();
+                    println!(
+                        "  [{}] score={:.2} model={}{} \"{:.60}\"",
+                        event.timestamp, event.composite_score, model, forced_tag, preview
+                    );
+                }
+            }
+        }
     }
 
     Ok(())
