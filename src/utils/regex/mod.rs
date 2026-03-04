@@ -90,6 +90,7 @@ impl RegexPatterns {
     }
 
     /// Fenced code blocks: ```lang\n...\n```
+    #[cfg(feature = "channel-telegram")]
     pub fn markdown_code_block() -> &'static Regex {
         static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"(?s)```(\w*)\n(.*?)```")
