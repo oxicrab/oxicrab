@@ -11,7 +11,7 @@ fn test_credential_names_count() {
 
 #[test]
 fn test_credential_env_vars_count() {
-    assert_eq!(CREDENTIAL_ENV_VARS.len(), 28);
+    assert_eq!(CREDENTIAL_ENV_VARS.len(), 29);
 }
 
 #[test]
