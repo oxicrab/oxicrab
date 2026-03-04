@@ -51,6 +51,7 @@ define_credentials! {
     "gemini-api-key",          "OXICRAB_GEMINI_API_KEY"          => providers.gemini.api_key;
     "deepseek-api-key",        "OXICRAB_DEEPSEEK_API_KEY"        => providers.deepseek.api_key;
     "groq-api-key",            "OXICRAB_GROQ_API_KEY"            => providers.groq.api_key;
+    "minimax-api-key",         "OXICRAB_MINIMAX_API_KEY"         => providers.minimax.api_key;
     "moonshot-api-key",        "OXICRAB_MOONSHOT_API_KEY"        => providers.moonshot.api_key;
     "zhipu-api-key",           "OXICRAB_ZHIPU_API_KEY"           => providers.zhipu.api_key;
     "dashscope-api-key",       "OXICRAB_DASHSCOPE_API_KEY"       => providers.dashscope.api_key;

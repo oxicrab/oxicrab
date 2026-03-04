@@ -697,6 +697,7 @@ fn credential_overlays() -> Vec<(&'static str, serde_json::Value)> {
         ("/providers/openrouter/apiKey", json!("")),
         ("/providers/deepseek/apiKey", json!("")),
         ("/providers/groq/apiKey", json!("")),
+        ("/providers/minimax/apiKey", json!("")),
         ("/providers/moonshot/apiKey", json!("")),
         ("/providers/zhipu/apiKey", json!("")),
         ("/providers/dashscope/apiKey", json!("")),

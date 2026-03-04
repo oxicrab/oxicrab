@@ -175,6 +175,8 @@ pub struct ProvidersConfig {
     #[serde(default)]
     pub gemini: ProviderConfig,
     #[serde(default)]
+    pub minimax: ProviderConfig,
+    #[serde(default)]
     pub moonshot: ProviderConfig,
     #[serde(default)]
     pub ollama: LocalProviderConfig,
@@ -216,6 +218,7 @@ impl ProvidersConfig {
             "openrouter" => &self.openrouter,
             "deepseek" => &self.deepseek,
             "groq" => &self.groq,
+            "minimax" => &self.minimax,
             "moonshot" => &self.moonshot,
             "zhipu" => &self.zhipu,
             "dashscope" => &self.dashscope,
@@ -251,6 +254,7 @@ impl ProvidersConfig {
                 "openrouter" => Some(&self.openrouter),
                 "deepseek" => Some(&self.deepseek),
                 "groq" => Some(&self.groq),
+                "minimax" => Some(&self.minimax),
                 "moonshot" => Some(&self.moonshot),
                 "zhipu" => Some(&self.zhipu),
                 "dashscope" => Some(&self.dashscope),
@@ -294,6 +298,7 @@ pub fn normalize_provider(provider: &str) -> Cow<'_, str> {
         "openrouter" => Cow::Borrowed("openrouter"),
         "deepseek" => Cow::Borrowed("deepseek"),
         "groq" => Cow::Borrowed("groq"),
+        "minimax" => Cow::Borrowed("minimax"),
         "moonshot" => Cow::Borrowed("moonshot"),
         "zhipu" => Cow::Borrowed("zhipu"),
         "dashscope" => Cow::Borrowed("dashscope"),

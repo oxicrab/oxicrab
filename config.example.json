@@ -152,6 +152,10 @@
       "apiKey": "",
       "apiBase": null
     },
+    "minimax": {
+      "apiKey": "",
+      "apiBase": null
+    },
     "moonshot": {
       "apiKey": "",
       "apiBase": null

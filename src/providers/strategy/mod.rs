@@ -21,6 +21,7 @@ const OPENAI_COMPAT_URLS: &[(&str, &str)] = &[
     ),
     ("deepseek", "https://api.deepseek.com/v1/chat/completions"),
     ("groq", "https://api.groq.com/openai/v1/chat/completions"),
+    ("minimax", "https://api.minimax.io/v1/chat/completions"),
     ("moonshot", "https://api.moonshot.ai/v1/chat/completions"),
     (
         "zhipu",
@@ -52,6 +53,7 @@ const KNOWN_PREFIXES: &[&str] = &[
     "openrouter",
     "deepseek",
     "groq",
+    "minimax",
     "moonshot",
     "zhipu",
     "dashscope",
@@ -348,6 +350,7 @@ impl ProviderFactory {
             "openrouter" => Some(&self.providers_config.openrouter),
             "deepseek" => Some(&self.providers_config.deepseek),
             "groq" => Some(&self.providers_config.groq),
+            "minimax" => Some(&self.providers_config.minimax),
             "moonshot" => Some(&self.providers_config.moonshot),
             "zhipu" => Some(&self.providers_config.zhipu),
             "dashscope" => Some(&self.providers_config.dashscope),

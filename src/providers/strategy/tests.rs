@@ -240,6 +240,7 @@ fn test_get_provider_config_all_known() {
         "openrouter",
         "deepseek",
         "groq",
+        "minimax",
         "moonshot",
         "zhipu",
         "dashscope",
