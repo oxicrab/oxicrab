@@ -150,16 +150,24 @@ impl AgentLoopConfig {
             }
         }
 
-        // Resolve per-provider temperature before consuming params.model
-        let resolved_temperature = config
-            .providers
-            .get_temperature_for_model(
-                params
-                    .model
-                    .as_deref()
-                    .unwrap_or(&config.agents.defaults.model_routing.default),
-            )
-            .map_or(config.agents.defaults.temperature, Some);
+        // Resolve per-provider temperature before consuming params.model.
+        // When a provider sets a per-provider temperature, use it for both
+        // normal and tool iterations — some models (e.g. kimi-k2.5) reject
+        // any temperature other than their configured value.
+        let per_provider_temp = config.providers.get_temperature_for_model(
+            params
+                .model
+                .as_deref()
+                .unwrap_or(&config.agents.defaults.model_routing.default),
+        );
+        let resolved_temperature =
+            per_provider_temp.map_or(config.agents.defaults.temperature, Some);
+        let resolved_tool_temperature = if per_provider_temp.is_some() {
+            // Per-provider override takes precedence over hardcoded 0.0
+            resolved_temperature
+        } else {
+            TOOL_TEMPERATURE
+        };
 
         Self {
             bus: params.bus,
@@ -171,7 +179,7 @@ impl AgentLoopConfig {
             outbound_tx: params.outbound_tx,
             cron_service: params.cron_service,
             temperature: resolved_temperature,
-            tool_temperature: TOOL_TEMPERATURE,
+            tool_temperature: resolved_tool_temperature,
             max_tokens: config.agents.defaults.max_tokens,
             typing_tx: params.typing_tx,
             max_concurrent_subagents: config.agents.defaults.max_concurrent_subagents,
