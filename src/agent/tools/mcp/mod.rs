@@ -100,9 +100,8 @@ impl McpManager {
         if sandbox.enabled {
             let rules = crate::utils::sandbox::SandboxRules::for_shell(workspace, sandbox);
             if let Err(e) = crate::utils::sandbox::apply_to_command(&mut cmd, &rules) {
-                warn!(
-                    "failed to apply sandbox to MCP server '{}': {}, continuing without",
-                    name, e
+                anyhow::bail!(
+                    "sandbox is required but failed to apply for MCP server '{name}': {e}"
                 );
             }
         }

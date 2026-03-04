@@ -4,6 +4,7 @@ use crate::agent::tools::ToolRegistry;
 use crate::bus::{InboundMessage, MessageBus};
 use crate::config::PromptGuardConfig;
 use crate::providers::base::{LLMProvider, Message};
+use crate::safety::leak_detector::LeakDetector;
 use crate::safety::prompt_guard::PromptGuard;
 use activity_log::ActivityLog;
 use anyhow::Result;
@@ -55,6 +56,7 @@ struct SubagentInner {
     tool_temperature: Option<f32>,
     prompt_guard: Option<PromptGuard>,
     prompt_guard_config: PromptGuardConfig,
+    leak_detector: LeakDetector,
     exfil_guard: crate::config::ExfiltrationGuardConfig,
     main_tools: std::sync::OnceLock<Arc<ToolRegistry>>,
 }
@@ -78,6 +80,7 @@ impl SubagentManager {
             tool_temperature: config.tool_temperature,
             prompt_guard,
             prompt_guard_config: config.prompt_guard_config,
+            leak_detector: LeakDetector::new(),
             exfil_guard: config.exfil_guard,
             main_tools: {
                 let lock = std::sync::OnceLock::new();
@@ -104,7 +107,7 @@ impl SubagentManager {
         silent: bool,
         context: Option<String>,
     ) -> Result<String> {
-        let task_id = Uuid::new_v4().to_string()[..8].to_string();
+        let task_id = Uuid::new_v4().to_string()[..12].to_string();
         let display_label = label.unwrap_or_else(|| crate::utils::truncate_chars(&task, 30, "..."));
         let display_label_clone = display_label.clone();
         let task_id_clone = task_id.clone();
@@ -308,6 +311,12 @@ fn build_subagent_tools(config: &SubagentInner) -> Result<ToolRegistry> {
                 tools.register(tool.clone());
             }
             SubagentAccess::ReadOnly => {
+                if caps.network_outbound
+                    && config.exfil_guard.enabled
+                    && !config.exfil_guard.allow_tools.contains(&name.to_string())
+                {
+                    continue;
+                }
                 if let Some(wrapped) = ReadOnlyToolWrapper::new(tool.clone()) {
                     tools.register(Arc::new(wrapped));
                 }
@@ -454,19 +463,30 @@ async fn run_subagent_inner(
             let results = futures_util::future::join_all(futs).await;
 
             // Add all tool results to messages in order
-            for ((tc, _), (result_str, is_error)) in tool_lookups.iter().zip(results.into_iter()) {
+            for ((tc, _), (mut result_str, is_error)) in
+                tool_lookups.iter().zip(results.into_iter())
+            {
                 // Log tool results
                 if let Some(ref mut l) = log {
                     l.log_tool_result(&tc.name, &result_str, is_error);
                 }
 
-                // Scan tool output for prompt injection (warn only, matching main loop)
+                // Redact secrets in tool output (matching main loop)
+                result_str = config.leak_detector.redact(&result_str);
+
+                // Scan tool output for prompt injection and block when configured
                 if let Some(ref guard) = config.prompt_guard {
                     let tool_matches = guard.scan(&result_str);
                     for m in &tool_matches {
                         warn!(
                             "Subagent [{}] prompt injection in tool '{}' output ({:?}): {}",
                             task_id, tc.name, m.category, m.pattern_name
+                        );
+                    }
+                    if !tool_matches.is_empty() && config.prompt_guard_config.should_block() {
+                        result_str = format!(
+                            "[tool output redacted: prompt injection detected in '{}']",
+                            tc.name
                         );
                     }
                 }

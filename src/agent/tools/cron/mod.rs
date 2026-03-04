@@ -86,6 +86,14 @@ impl CronTool {
                 .as_str()
                 .map(std::string::ToString::to_string)
                 .or_else(crate::cron::service::detect_system_timezone);
+            // Validate timezone upfront instead of silently falling back to UTC at runtime
+            if let Some(ref tz_str) = tz
+                && tz_str.parse::<chrono_tz::Tz>().is_err()
+            {
+                return Err(ToolResult::error(format!(
+                    "invalid timezone '{tz_str}'. Use IANA format (e.g. 'America/New_York')"
+                )));
+            }
             Ok(CronSchedule::Cron {
                 expr: Some(cron_expr.to_string()),
                 tz,
@@ -370,7 +378,8 @@ impl Tool for CronTool {
 
                 let message = params["message"]
                     .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'message' parameter for add"))?
+                    .filter(|s| !s.trim().is_empty())
+                    .ok_or_else(|| anyhow::anyhow!("Missing or empty 'message' parameter for add"))?
                     .to_string();
 
                 let channel = ctx.channel.clone();
@@ -611,6 +620,7 @@ impl Tool for CronTool {
                 // reason as the "run" action — processing_lock re-entrancy).
                 let job_id = entry.job_id.clone();
                 db.increment_dlq_retry(dlq_id)?;
+                db.update_dlq_status(dlq_id, "replayed")?;
                 let cron = self.cron_service.clone();
                 let job_id_clone = job_id.clone();
                 tokio::spawn(async move {

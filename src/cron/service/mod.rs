@@ -648,6 +648,9 @@ impl CronService {
                     for j in &mut store.jobs {
                         if j.id == job_id {
                             j.state.last_run_at_ms = Some(now);
+                            // Persist last_fired_at_ms so event cooldowns survive
+                            // the periodic EventMatcher rebuild (every 60s)
+                            j.state.last_fired_at_ms = Some(now);
                             j.state.last_status = Some(status);
                             j.state.last_error = error_msg;
                             j.state.run_count = j.state.run_count.saturating_add(1);

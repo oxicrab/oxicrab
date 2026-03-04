@@ -497,6 +497,7 @@ impl Tool for EditFileTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
+            subagent_access: SubagentAccess::Full,
             ..Default::default()
         }
     }
@@ -560,6 +561,21 @@ impl Tool for EditFileTool {
             let ws_owned = ws.map(Path::to_path_buf);
             return tokio::task::spawn_blocking(move || {
                 let ws_ref = ws_owned.as_deref();
+                match dir.metadata(&relative) {
+                    Ok(meta) if meta.len() > MAX_READ_BYTES => {
+                        return Ok(ToolResult::error(format!(
+                            "file too large for edit ({} bytes, max {})",
+                            meta.len(),
+                            MAX_READ_BYTES
+                        )));
+                    }
+                    Err(_) => {
+                        return Ok(ToolResult::error(format!(
+                            "file not found: {path_str_owned}"
+                        )));
+                    }
+                    _ => {}
+                }
                 let Ok(content) = dir.read_to_string(&relative) else {
                     return Ok(ToolResult::error(format!(
                         "file not found: {path_str_owned}"
@@ -598,8 +614,18 @@ impl Tool for EditFileTool {
             return Ok(ToolResult::error(sanitize_err(&err.to_string(), ws)));
         }
 
-        if tokio::fs::metadata(&expanded).await.is_err() {
-            return Ok(ToolResult::error(format!("file not found: {path_str}")));
+        match tokio::fs::metadata(&expanded).await {
+            Ok(meta) if meta.len() > MAX_READ_BYTES => {
+                return Ok(ToolResult::error(format!(
+                    "file too large for edit ({} bytes, max {})",
+                    meta.len(),
+                    MAX_READ_BYTES
+                )));
+            }
+            Err(_) => {
+                return Ok(ToolResult::error(format!("file not found: {path_str}")));
+            }
+            _ => {}
         }
 
         match tokio::fs::read_to_string(&expanded).await {

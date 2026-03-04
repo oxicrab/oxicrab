@@ -14,8 +14,7 @@ use tracing::{debug, warn};
 pub struct McpProxyTool {
     peer: Peer<RoleClient>,
     tool_name: String,
-    /// Leaked string so we can return `&'static str` from `description()`.
-    tool_description: &'static str,
+    tool_description: String,
     input_schema: Value,
     workspace: Option<PathBuf>,
 }
@@ -29,13 +28,10 @@ impl McpProxyTool {
         input_schema: Value,
         workspace: Option<PathBuf>,
     ) -> Self {
-        // Leak the description so we can return &'static str.
-        // This is fine because tools are registered once and live for the process lifetime.
-        let tool_description: &'static str = Box::leak(description.into_boxed_str());
         Self {
             peer,
             tool_name,
-            tool_description,
+            tool_description: description,
             input_schema,
             workspace,
         }
@@ -48,8 +44,8 @@ impl Tool for McpProxyTool {
         &self.tool_name
     }
 
-    fn description(&self) -> &'static str {
-        self.tool_description
+    fn description(&self) -> &str {
+        &self.tool_description
     }
 
     fn parameters(&self) -> Value {

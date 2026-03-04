@@ -125,17 +125,14 @@ impl WorkspaceTool {
             .ok()
             .and_then(|p| p.to_str());
 
-        let entry = entries
-            .iter()
-            .find(|e| {
-                // Match by relative path or by absolute path ending
-                if let Some(r) = rel {
-                    e.path == r
-                } else {
-                    e.path.ends_with(search_term)
-                }
-            })
-            .or_else(|| entries.first());
+        let entry = entries.iter().find(|e| {
+            // Match by relative path or by absolute path ending
+            if let Some(r) = rel {
+                e.path == r
+            } else {
+                e.path.ends_with(search_term)
+            }
+        });
 
         let Some(entry) = entry else {
             return Ok(format!("No file found matching '{path_str}'"));

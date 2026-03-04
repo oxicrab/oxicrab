@@ -478,6 +478,7 @@ fn make_inner_with_tools(
         tool_temperature: Some(0.0),
         prompt_guard: None,
         prompt_guard_config: crate::config::PromptGuardConfig::default(),
+        leak_detector: crate::safety::leak_detector::LeakDetector::new(),
         exfil_guard,
         main_tools: lock,
     }
@@ -546,8 +547,11 @@ fn test_subagent_tools_denied_tools_excluded() {
     let config = make_inner_with_tools(crate::config::ExfiltrationGuardConfig::default(), main);
     let tools = super::build_subagent_tools(&config).unwrap();
 
-    // Denied tools should NOT appear
-    assert!(tools.get("edit_file").is_none(), "edit_file is Denied");
+    // edit_file is now Full (was Denied), so it should appear
+    assert!(
+        tools.get("edit_file").is_some(),
+        "edit_file should be available"
+    );
 }
 
 #[test]
@@ -594,10 +598,11 @@ fn test_subagent_tools_exfil_blocks_all_network() {
 
     assert!(!names.contains(&"web_search".to_string()));
     assert!(!names.contains(&"web_fetch".to_string()));
-    // But filesystem, exec, and read-only domain tools should remain
+    // ReadOnly network tools are also blocked by exfil guard
+    assert!(!names.contains(&"github".to_string()));
+    // But non-network tools should remain
     assert!(names.contains(&"read_file".to_string()));
     assert!(names.contains(&"exec".to_string()));
-    assert!(names.contains(&"github".to_string()));
 }
 
 #[test]
