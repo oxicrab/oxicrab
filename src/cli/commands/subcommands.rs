@@ -955,7 +955,7 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
                 println!("Recent Hallucinations:");
                 for event in &recent {
                     let layer = event.detection_layer.as_deref().unwrap_or("unknown");
-                    let preview = event.message_preview.as_deref().unwrap_or("");
+                    let preview = event.message_preview.as_deref().unwrap_or_default();
                     println!("  [{}] {}: {:.60}", event.timestamp, layer, preview);
                 }
             }
@@ -1007,7 +1007,7 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
                 println!("Recent Heavy Routing:");
                 for event in &recent {
                     let model = event.resolved_model.as_deref().unwrap_or("unknown");
-                    let preview = event.message_preview.as_deref().unwrap_or("");
+                    let preview = event.message_preview.as_deref().unwrap_or_default();
                     let forced_tag = event
                         .forced
                         .as_ref()

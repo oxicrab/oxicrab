@@ -146,7 +146,11 @@ impl McpManager {
             match mcp_tools_result {
                 Ok(mcp_tools) => {
                     for mcp_tool in mcp_tools {
-                        let description = mcp_tool.description.as_deref().unwrap_or("").to_string();
+                        let description = mcp_tool
+                            .description
+                            .as_deref()
+                            .unwrap_or_default()
+                            .to_string();
 
                         // Convert the input_schema Arc<Map> to a Value
                         let input_schema =

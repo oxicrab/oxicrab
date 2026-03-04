@@ -274,7 +274,7 @@ fn check_external_command(name: &str, args: &[&str]) -> CheckResult {
         Ok(output) => {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                let version = stdout.lines().next().unwrap_or("").trim().to_string();
+                let version = stdout.lines().next().unwrap_or_default().trim().to_string();
                 CheckResult::Pass(version)
             } else {
                 CheckResult::Fail("command failed".to_string())

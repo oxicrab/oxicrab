@@ -163,7 +163,7 @@ impl GitHubTool {
             .filter(|i| i.get("pull_request").is_none()) // Exclude PRs
             .map(|i| {
                 let number = i["number"].as_u64().unwrap_or(0);
-                let title = i["title"].as_str().unwrap_or("");
+                let title = i["title"].as_str().unwrap_or_default();
                 let user = i["user"]["login"].as_str().unwrap_or("?");
                 let labels: Vec<&str> = i["labels"]
                     .as_array()
@@ -209,7 +209,7 @@ impl GitHubTool {
             .await?;
 
         let number = result["number"].as_u64().unwrap_or(0);
-        let url = result["html_url"].as_str().unwrap_or("");
+        let url = result["html_url"].as_str().unwrap_or_default();
         Ok(format!("Created issue #{}: {}", number, url))
     }
 
@@ -237,14 +237,14 @@ impl GitHubTool {
             .iter()
             .map(|pr| {
                 let number = pr["number"].as_u64().unwrap_or(0);
-                let title = pr["title"].as_str().unwrap_or("");
+                let title = pr["title"].as_str().unwrap_or_default();
                 let user = pr["user"]["login"].as_str().unwrap_or("?");
-                let draft = if pr["draft"].as_bool().unwrap_or(false) {
+                let draft = if pr["draft"].as_bool().unwrap_or_default() {
                     " (draft)"
                 } else {
                     ""
                 };
-                let mergeable_state = pr["mergeable_state"].as_str().unwrap_or("");
+                let mergeable_state = pr["mergeable_state"].as_str().unwrap_or_default();
                 let state_str = if mergeable_state.is_empty() {
                     String::new()
                 } else {
@@ -269,11 +269,11 @@ impl GitHubTool {
             .api_get(&format!("/repos/{}/{}/pulls/{}", owner, repo, number), &[])
             .await?;
 
-        let title = pr["title"].as_str().unwrap_or("");
-        let state = pr["state"].as_str().unwrap_or("");
+        let title = pr["title"].as_str().unwrap_or_default();
+        let state = pr["state"].as_str().unwrap_or_default();
         let user = pr["user"]["login"].as_str().unwrap_or("?");
         let body = pr["body"].as_str().unwrap_or("(no description)");
-        let merged = pr["merged"].as_bool().unwrap_or(false);
+        let merged = pr["merged"].as_bool().unwrap_or_default();
         let additions = pr["additions"].as_u64().unwrap_or(0);
         let deletions = pr["deletions"].as_u64().unwrap_or(0);
         let changed_files = pr["changed_files"].as_u64().unwrap_or(0);
@@ -281,7 +281,7 @@ impl GitHubTool {
         let base = pr["base"]["ref"].as_str().unwrap_or("?");
 
         // Fetch checks status
-        let sha = pr["head"]["sha"].as_str().unwrap_or("");
+        let sha = pr["head"]["sha"].as_str().unwrap_or_default();
         let checks_str = if sha.is_empty() {
             "CI: unknown".to_string()
         } else {
@@ -324,12 +324,12 @@ impl GitHubTool {
             .api_get(&format!("/repos/{}/{}/issues/{}", owner, repo, number), &[])
             .await?;
 
-        let title = issue["title"].as_str().unwrap_or("");
-        let state = issue["state"].as_str().unwrap_or("");
+        let title = issue["title"].as_str().unwrap_or_default();
+        let state = issue["state"].as_str().unwrap_or_default();
         let user = issue["user"]["login"].as_str().unwrap_or("?");
         let body = issue["body"].as_str().unwrap_or("(no description)");
         let comments = issue["comments"].as_u64().unwrap_or(0);
-        let url = issue["html_url"].as_str().unwrap_or("");
+        let url = issue["html_url"].as_str().unwrap_or_default();
 
         let labels: Vec<&str> = issue["labels"]
             .as_array()
@@ -387,7 +387,7 @@ impl GitHubTool {
                 let deletions = f["deletions"].as_u64().unwrap_or(0);
                 let patch: String = f["patch"]
                     .as_str()
-                    .unwrap_or("")
+                    .unwrap_or_default()
                     .chars()
                     .take(200)
                     .collect();
@@ -432,7 +432,7 @@ impl GitHubTool {
             .await?;
 
         let review_id = result["id"].as_u64().unwrap_or(0);
-        let state = result["state"].as_str().unwrap_or("");
+        let state = result["state"].as_str().unwrap_or_default();
         Ok(format!(
             "Created review #{} on PR #{}: {}",
             review_id, number, state
@@ -484,8 +484,8 @@ impl GitHubTool {
         }
 
         // Handle file content
-        let encoding = json["encoding"].as_str().unwrap_or("");
-        let content_b64 = json["content"].as_str().unwrap_or("");
+        let encoding = json["encoding"].as_str().unwrap_or_default();
+        let content_b64 = json["content"].as_str().unwrap_or_default();
         let name = json["name"].as_str().unwrap_or(file_path);
         let size = json["size"].as_u64().unwrap_or(0);
 
@@ -576,7 +576,7 @@ impl GitHubTool {
                 let conclusion = r["conclusion"].as_str().unwrap_or("pending");
                 let branch = r["head_branch"].as_str().unwrap_or("?");
                 let created = r["created_at"].as_str().unwrap_or("?");
-                let url = r["html_url"].as_str().unwrap_or("");
+                let url = r["html_url"].as_str().unwrap_or_default();
                 format!(
                     "#{} {} — {} ({}) on {} [{}]\n  {}",
                     id, name, status, conclusion, branch, created, url
@@ -607,9 +607,9 @@ impl GitHubTool {
             .iter()
             .map(|n| {
                 let reason = n["reason"].as_str().unwrap_or("?");
-                let title = n["subject"]["title"].as_str().unwrap_or("");
-                let kind = n["subject"]["type"].as_str().unwrap_or("");
-                let repo = n["repository"]["full_name"].as_str().unwrap_or("");
+                let title = n["subject"]["title"].as_str().unwrap_or_default();
+                let kind = n["subject"]["type"].as_str().unwrap_or_default();
+                let repo = n["repository"]["full_name"].as_str().unwrap_or_default();
                 format!("[{}] {} — {} ({})", reason, title, repo, kind)
             })
             .collect();
@@ -837,7 +837,7 @@ impl Tool for GitHubTool {
                                 event
                             )));
                         }
-                        let body = params["body"].as_str().unwrap_or("");
+                        let body = params["body"].as_str().unwrap_or_default();
                         self.create_pr_review(owner, repo, number, event, body)
                             .await
                     }

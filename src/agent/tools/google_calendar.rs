@@ -162,7 +162,7 @@ impl Tool for GoogleCalendarTool {
                         .or_else(|| ev["end"]["date"].as_str())
                         .unwrap_or("?");
                     let summary = ev["summary"].as_str().unwrap_or("(no title)");
-                    let location = ev["location"].as_str().unwrap_or("");
+                    let location = ev["location"].as_str().unwrap_or_default();
                     let loc_str = if location.is_empty() {
                         String::new()
                     } else {
@@ -219,7 +219,7 @@ impl Tool for GoogleCalendarTool {
                     .ok_or_else(|| anyhow::anyhow!("Missing 'start' parameter"))?;
 
                 let tz = params["timezone"].as_str().unwrap_or("UTC");
-                let all_day = params["all_day"].as_bool().unwrap_or(false);
+                let all_day = params["all_day"].as_bool().unwrap_or_default();
 
                 let mut body = serde_json::json!({
                     "summary": summary
@@ -279,7 +279,7 @@ impl Tool for GoogleCalendarTool {
                     "Event created: {} (ID: {})\nLink: {}",
                     ev["summary"].as_str().unwrap_or("?"),
                     ev["id"].as_str().unwrap_or("?"),
-                    ev["htmlLink"].as_str().unwrap_or("")
+                    ev["htmlLink"].as_str().unwrap_or_default()
                 )))
             }
             "update_event" => {
@@ -306,14 +306,14 @@ impl Tool for GoogleCalendarTool {
                     ev["location"] = Value::String(l.to_string());
                 }
                 if let Some(s) = params["start"].as_str() {
-                    if params["all_day"].as_bool().unwrap_or(false) {
+                    if params["all_day"].as_bool().unwrap_or_default() {
                         ev["start"] = serde_json::json!({"date": &s[..10.min(s.len())]});
                     } else {
                         ev["start"] = serde_json::json!({"dateTime": s, "timeZone": tz});
                     }
                 }
                 if let Some(e) = params["end"].as_str() {
-                    if params["all_day"].as_bool().unwrap_or(false) {
+                    if params["all_day"].as_bool().unwrap_or_default() {
                         ev["end"] = serde_json::json!({"date": &e[..10.min(e.len())]});
                     } else {
                         ev["end"] = serde_json::json!({"dateTime": e, "timeZone": tz});
@@ -358,7 +358,7 @@ impl Tool for GoogleCalendarTool {
                 }
                 let mut lines = vec!["Your calendars:\n".to_string()];
                 for cal in cals {
-                    let primary = if cal["primary"].as_bool().unwrap_or(false) {
+                    let primary = if cal["primary"].as_bool().unwrap_or_default() {
                         " (primary)"
                     } else {
                         ""
@@ -443,7 +443,7 @@ fn format_event_detail(ev: &Value) -> String {
             "Summary: {}",
             ev["summary"].as_str().unwrap_or("(no title)")
         ),
-        format!("ID: {}", ev["id"].as_str().unwrap_or("")),
+        format!("ID: {}", ev["id"].as_str().unwrap_or_default()),
         format!("Start: {}", start),
         format!("End: {}", end),
     ];

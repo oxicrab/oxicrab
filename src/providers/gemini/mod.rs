@@ -92,7 +92,7 @@ impl GeminiProvider {
             for part in parts {
                 // Gemini returns singular `functionCall` per part (not plural array)
                 if let Some(fc) = part.get("functionCall") {
-                    let name = fc["name"].as_str().unwrap_or("").to_string();
+                    let name = fc["name"].as_str().unwrap_or_default().to_string();
                     // Generate a unique ID per tool call to avoid collisions
                     // when the same function is called multiple times
                     let id = format!("gemini_{}", &uuid::Uuid::new_v4().to_string()[..12]);

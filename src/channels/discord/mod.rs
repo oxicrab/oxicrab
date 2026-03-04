@@ -238,7 +238,7 @@ impl EventHandler for Handler {
         let mut media_paths = Vec::new();
         let mut content = msg.content.clone();
         for attachment in &msg.attachments {
-            let content_type = attachment.content_type.as_deref().unwrap_or("");
+            let content_type = attachment.content_type.as_deref().unwrap_or_default();
             let is_image = content_type.starts_with("image/");
             let is_audio = content_type.starts_with("audio/");
             if !is_image && !is_audio {
@@ -444,7 +444,7 @@ fn parse_embeds_from_metadata(metadata: &HashMap<String, serde_json::Value>) -> 
                 for f in fields {
                     let name = f["name"].as_str().unwrap_or("—");
                     let value = f["value"].as_str().unwrap_or("—");
-                    let inline = f["inline"].as_bool().unwrap_or(false);
+                    let inline = f["inline"].as_bool().unwrap_or_default();
                     embed = embed.field(name, value, inline);
                 }
             }
@@ -482,7 +482,7 @@ fn parse_components_from_metadata(
                     let custom_id = b["custom_id"].as_str()?;
                     let label = b["label"].as_str().unwrap_or(custom_id);
                     let style = parse_button_style(b["style"].as_str().unwrap_or("secondary"));
-                    let disabled = b["disabled"].as_bool().unwrap_or(false);
+                    let disabled = b["disabled"].as_bool().unwrap_or_default();
                     Some(
                         CreateButton::new(custom_id)
                             .label(label)
@@ -892,7 +892,7 @@ impl DiscordChannel {
                                         "danger" => 4,
                                         _ => 2,
                                     };
-                                    let disabled = b["disabled"].as_bool().unwrap_or(false);
+                                    let disabled = b["disabled"].as_bool().unwrap_or_default();
                                     Some(serde_json::json!({
                                         "type": 2,
                                         "custom_id": custom_id,
@@ -945,7 +945,7 @@ impl DiscordChannel {
                                     "danger" => 4,
                                     _ => 2,
                                 };
-                                let disabled = b["disabled"].as_bool().unwrap_or(false);
+                                let disabled = b["disabled"].as_bool().unwrap_or_default();
                                 Some(serde_json::json!({
                                     "type": 2,
                                     "custom_id": custom_id,

@@ -151,7 +151,7 @@ impl MemoryDB {
                 [],
                 |row| row.get(0),
             )
-            .unwrap_or(0.0);
+            .unwrap_or_default();
         Ok(SearchStats {
             total_searches: total_searches as u64,
             total_hits: total_hits as u64,
@@ -287,7 +287,7 @@ impl MemoryDB {
                 [since_date],
                 |row| row.get(0),
             )
-            .unwrap_or(0.0);
+            .unwrap_or_default();
 
         let avg_semantic_non_action: f64 = conn
             .query_row(
@@ -296,7 +296,7 @@ impl MemoryDB {
                 [since_date],
                 |row| row.get(0),
             )
-            .unwrap_or(0.0);
+            .unwrap_or_default();
 
         Ok(IntentStats {
             total_classified: total as u64,

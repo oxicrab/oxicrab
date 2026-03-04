@@ -127,7 +127,7 @@ impl TodoistTool {
             .iter()
             .map(|t| {
                 let id = t["id"].as_str().unwrap_or("?");
-                let content = t["content"].as_str().unwrap_or("");
+                let content = t["content"].as_str().unwrap_or_default();
                 let priority = t["priority"].as_u64().unwrap_or(1);
                 let due = t["due"]["string"].as_str().unwrap_or("no due date");
                 let labels: Vec<&str> = t["labels"]
@@ -248,9 +248,9 @@ impl TodoistTool {
             .iter()
             .map(|p| {
                 let id = p["id"].as_str().unwrap_or("?");
-                let name = p["name"].as_str().unwrap_or("");
-                let color = p["color"].as_str().unwrap_or("");
-                let is_fav = p["is_favorite"].as_bool().unwrap_or(false);
+                let name = p["name"].as_str().unwrap_or_default();
+                let color = p["color"].as_str().unwrap_or_default();
+                let is_fav = p["is_favorite"].as_bool().unwrap_or_default();
                 let fav_str = if is_fav { " *" } else { "" };
                 format!("- ({}) {}{} [{}]", id, name, fav_str, color)
             })
@@ -290,8 +290,8 @@ impl TodoistTool {
         })?;
 
         let id = t["id"].as_str().unwrap_or("?");
-        let content = t["content"].as_str().unwrap_or("");
-        let description = t["description"].as_str().unwrap_or("");
+        let content = t["content"].as_str().unwrap_or_default();
+        let description = t["description"].as_str().unwrap_or_default();
         let priority = t["priority"].as_u64().unwrap_or(1);
         let due = t["due"]["string"].as_str().unwrap_or("no due date");
         let labels: Vec<&str> = t["labels"]
@@ -299,7 +299,7 @@ impl TodoistTool {
             .map(|a| a.iter().filter_map(|l| l.as_str()).collect())
             .unwrap_or_default();
         let project_id = t["project_id"].as_str().unwrap_or("?");
-        let is_completed = t["is_completed"].as_bool().unwrap_or(false);
+        let is_completed = t["is_completed"].as_bool().unwrap_or_default();
         let url = format!("https://app.todoist.com/app/task/{}", id);
 
         let label_str = if labels.is_empty() {
@@ -439,7 +439,7 @@ impl TodoistTool {
             .iter()
             .map(|c| {
                 let id = c["id"].as_str().unwrap_or("?");
-                let content = c["content"].as_str().unwrap_or("");
+                let content = c["content"].as_str().unwrap_or_default();
                 let posted = c["posted_at"].as_str().unwrap_or("?");
                 format!("- ({}) [{}] {}", id, posted, content)
             })

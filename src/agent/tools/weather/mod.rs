@@ -48,15 +48,15 @@ impl WeatherTool {
             anyhow::bail!("OpenWeatherMap: {}", msg);
         }
 
-        let temp = json["main"]["temp"].as_f64().unwrap_or(0.0);
-        let feels_like = json["main"]["feels_like"].as_f64().unwrap_or(0.0);
+        let temp = json["main"]["temp"].as_f64().unwrap_or_default();
+        let feels_like = json["main"]["feels_like"].as_f64().unwrap_or_default();
         let humidity = json["main"]["humidity"].as_u64().unwrap_or(0);
         let description = json["weather"][0]["description"]
             .as_str()
             .unwrap_or("unknown");
-        let wind_speed = json["wind"]["speed"].as_f64().unwrap_or(0.0);
+        let wind_speed = json["wind"]["speed"].as_f64().unwrap_or_default();
         let city = json["name"].as_str().unwrap_or(location);
-        let country = json["sys"]["country"].as_str().unwrap_or("");
+        let country = json["sys"]["country"].as_str().unwrap_or_default();
 
         let unit_label = match units {
             "imperial" => "°F",
@@ -102,7 +102,7 @@ impl WeatherTool {
         }
 
         let city = json["city"]["name"].as_str().unwrap_or(location);
-        let country = json["city"]["country"].as_str().unwrap_or("");
+        let country = json["city"]["country"].as_str().unwrap_or_default();
         let list = json["list"]
             .as_array()
             .map(Vec::as_slice)
@@ -118,9 +118,9 @@ impl WeatherTool {
             .iter()
             .map(|entry| {
                 let dt_txt = entry["dt_txt"].as_str().unwrap_or("?");
-                let temp = entry["main"]["temp"].as_f64().unwrap_or(0.0);
+                let temp = entry["main"]["temp"].as_f64().unwrap_or_default();
                 let desc = entry["weather"][0]["description"].as_str().unwrap_or("?");
-                let pop = entry["pop"].as_f64().unwrap_or(0.0) * 100.0;
+                let pop = entry["pop"].as_f64().unwrap_or_default() * 100.0;
                 format!(
                     "{}: {:.0}{} {} (rain: {:.0}%)",
                     dt_txt, temp, unit_label, desc, pop

@@ -124,7 +124,7 @@ impl HttpTool {
                 if !has_content_type {
                     request = request.header("Content-Type", "text/plain");
                 }
-                request = request.body(params["body"].as_str().unwrap_or("").to_string());
+                request = request.body(params["body"].as_str().unwrap_or_default().to_string());
             } else {
                 request = request.json(&params["body"]);
             }
@@ -149,7 +149,7 @@ impl HttpTool {
                     .headers()
                     .get("content-type")
                     .and_then(|h| h.to_str().ok())
-                    .unwrap_or("")
+                    .unwrap_or_default()
                     .to_string();
 
                 let header_str = if headers.is_empty() {

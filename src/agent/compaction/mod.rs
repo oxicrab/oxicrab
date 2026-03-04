@@ -223,7 +223,7 @@ impl MessageCompactor {
         let formatted: Vec<String> = messages
             .iter()
             .map(|m| {
-                let role = m.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                let role = m.get("role").and_then(|v| v.as_str()).unwrap_or_default();
                 let content = extract_message_text(m.get("content"));
                 format!("{}: {}", role, content)
             })
@@ -275,7 +275,7 @@ impl MessageCompactor {
         let formatted: Vec<String> = messages
             .iter()
             .map(|m| {
-                let role = m.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                let role = m.get("role").and_then(|v| v.as_str()).unwrap_or_default();
                 let content = extract_message_text(m.get("content"));
                 format!("{}: {}", role, content)
             })

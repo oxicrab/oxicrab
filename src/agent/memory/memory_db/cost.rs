@@ -61,7 +61,7 @@ impl MemoryDB {
                 [&pattern],
                 |row| row.get(0),
             )
-            .unwrap_or(0.0);
+            .unwrap_or_default();
         Ok(total)
     }
 

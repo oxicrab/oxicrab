@@ -98,8 +98,8 @@ impl RedditTool {
                 let score = d["score"].as_i64().unwrap_or(0);
                 let comments = d["num_comments"].as_i64().unwrap_or(0);
                 let author = d["author"].as_str().unwrap_or("[deleted]");
-                let url = d["url"].as_str().unwrap_or("");
-                let selftext = d["selftext"].as_str().unwrap_or("");
+                let url = d["url"].as_str().unwrap_or_default();
+                let selftext = d["selftext"].as_str().unwrap_or_default();
                 let preview = if selftext.is_empty() {
                     String::new()
                 } else {
@@ -161,7 +161,7 @@ impl RedditTool {
                 let score = d["score"].as_i64().unwrap_or(0);
                 let comments = d["num_comments"].as_i64().unwrap_or(0);
                 let author = d["author"].as_str().unwrap_or("[deleted]");
-                let url = d["url"].as_str().unwrap_or("");
+                let url = d["url"].as_str().unwrap_or_default();
 
                 format!(
                     "{}. {} (score: {}, comments: {}, by u/{})\n   {}",

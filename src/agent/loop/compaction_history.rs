@@ -52,7 +52,7 @@ impl AgentLoop {
             .metadata
             .get("compaction_summary")
             .and_then(|v| v.as_str())
-            .unwrap_or("")
+            .unwrap_or_default()
             .to_string();
 
         // Extract last user message for recovery context
@@ -61,7 +61,7 @@ impl AgentLoop {
             .rev()
             .find(|m| m.get("role").and_then(Value::as_str) == Some("user"))
             .and_then(|m| m.get("content").and_then(Value::as_str))
-            .unwrap_or("")
+            .unwrap_or_default()
             .to_string();
 
         // Await any in-flight checkpoint task before reading

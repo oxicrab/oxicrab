@@ -193,7 +193,7 @@ impl TranscriptionService {
             .json()
             .await
             .context("failed to parse whisper API response")?;
-        let text = body["text"].as_str().unwrap_or("").trim().to_string();
+        let text = body["text"].as_str().unwrap_or_default().trim().to_string();
 
         if text.is_empty() {
             warn!("whisper API returned empty transcription");

@@ -149,7 +149,7 @@ impl Tool for GoogleMailTool {
                                 Some((name.to_string(), value.to_string()))
                             })
                             .collect();
-                    let snippet = msg["snippet"].as_str().unwrap_or("");
+                    let snippet = msg["snippet"].as_str().unwrap_or_default();
 
                     lines.push(format!(
                         "- ID: {}\n  From: {}\n  Subject: {}\n  Date: {}\n  Snippet: {}",
@@ -258,7 +258,7 @@ impl Tool for GoogleMailTool {
                             Some((name.to_string(), value.to_string()))
                         })
                         .collect();
-                let thread_id = original["threadId"].as_str().unwrap_or("");
+                let thread_id = original["threadId"].as_str().unwrap_or_default();
 
                 let empty_str = String::new();
                 let reply_to = headers
@@ -303,7 +303,7 @@ impl Tool for GoogleMailTool {
                 }
                 let mut lines = vec!["Gmail Labels:\n".to_string()];
                 let mut sorted_labels: Vec<&Value> = labels.iter().collect();
-                sorted_labels.sort_by_key(|l| l["name"].as_str().unwrap_or(""));
+                sorted_labels.sort_by_key(|l| l["name"].as_str().unwrap_or_default());
                 for lbl in sorted_labels {
                     lines.push(format!(
                         "- {} (ID: {})",

@@ -293,7 +293,10 @@ pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
             warn!("Media file not found: {}", path);
             continue;
         }
-        let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let ext = file_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or_default();
         let media_type = match ext {
             "jpg" | "jpeg" => "image/jpeg",
             "png" => "image/png",

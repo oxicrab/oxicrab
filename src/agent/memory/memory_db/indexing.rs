@@ -133,7 +133,7 @@ impl MemoryDB {
             let ext = path
                 .extension()
                 .and_then(|e| e.to_str())
-                .unwrap_or("")
+                .unwrap_or_default()
                 .to_lowercase();
             if !matches!(ext.as_str(), "md" | "txt" | "html") {
                 continue;

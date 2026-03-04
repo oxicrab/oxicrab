@@ -196,7 +196,7 @@ impl MediaTool {
             .map(|(i, m)| {
                 let title = m["title"].as_str().unwrap_or("?");
                 let year = m["year"].as_i64().unwrap_or(0);
-                let has_file = m["hasFile"].as_bool().unwrap_or(false);
+                let has_file = m["hasFile"].as_bool().unwrap_or_default();
                 let status = if has_file { "Downloaded" } else { "Missing" };
                 format!("{}. {} ({}) — {}", i + 1, title, year, status)
             })
@@ -650,11 +650,11 @@ fn format_movie_detail(movie: &Value) -> String {
     let title = movie["title"].as_str().unwrap_or("?");
     let year = movie["year"].as_i64().unwrap_or(0);
     let status = movie["status"].as_str().unwrap_or("unknown");
-    let has_file = movie["hasFile"].as_bool().unwrap_or(false);
+    let has_file = movie["hasFile"].as_bool().unwrap_or_default();
     let path = movie["path"].as_str().unwrap_or("?");
     let size = movie["sizeOnDisk"].as_i64().unwrap_or(0);
     let size_gb = size as f64 / 1_073_741_824.0;
-    let overview = movie["overview"].as_str().unwrap_or("");
+    let overview = movie["overview"].as_str().unwrap_or_default();
     let radarr_id = movie["id"].as_i64().unwrap_or(0);
     let tmdb_id = movie["tmdbId"].as_i64().unwrap_or(0);
     let file_status = if has_file {
@@ -679,7 +679,7 @@ fn format_series_detail(series: &Value) -> String {
     let total = series["statistics"]["episodeCount"].as_i64().unwrap_or(0);
     let size = series["statistics"]["sizeOnDisk"].as_i64().unwrap_or(0);
     let size_gb = size as f64 / 1_073_741_824.0;
-    let overview = series["overview"].as_str().unwrap_or("");
+    let overview = series["overview"].as_str().unwrap_or_default();
     let sonarr_id = series["id"].as_i64().unwrap_or(0);
     let tvdb_id = series["tvdbId"].as_i64().unwrap_or(0);
     let seasons = series["statistics"]["seasonCount"].as_i64().unwrap_or(0);

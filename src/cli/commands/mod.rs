@@ -1051,7 +1051,7 @@ fn start_channels_loop(
                     .metadata
                     .get("status")
                     .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false);
+                    .unwrap_or_default();
                 let key = (msg.channel.clone(), msg.chat_id.clone());
 
                 if is_status {

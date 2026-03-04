@@ -435,7 +435,10 @@ impl AnthropicOAuthProvider {
                     let cache_path = oxicrab_oauth_cache_path();
                     if cred_type == "oauth" {
                         if let Some(access) = cred.get("access").and_then(Value::as_str) {
-                            let refresh = cred.get("refresh").and_then(Value::as_str).unwrap_or("");
+                            let refresh = cred
+                                .get("refresh")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default();
                             let expires = cred.get("expires").and_then(Value::as_i64).unwrap_or(0);
 
                             return Ok(Some(Self::new(
@@ -490,7 +493,7 @@ impl AnthropicOAuthProvider {
             let refresh = oauth
                 .get("refreshToken")
                 .and_then(Value::as_str)
-                .unwrap_or("");
+                .unwrap_or_default();
             let expires = oauth.get("expiresAt").and_then(Value::as_i64).unwrap_or(0);
 
             // Use oxicrab's own cache path for refreshed tokens so we

@@ -116,8 +116,8 @@ impl OpenAIProvider {
                     };
 
                     tool_calls.push(ToolCallRequest {
-                        id: tc["id"].as_str().unwrap_or("").to_string(),
-                        name: function["name"].as_str().unwrap_or("").to_string(),
+                        id: tc["id"].as_str().unwrap_or_default().to_string(),
+                        name: function["name"].as_str().unwrap_or_default().to_string(),
                         arguments,
                     });
                 }

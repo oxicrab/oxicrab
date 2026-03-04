@@ -881,7 +881,7 @@ impl AgentLoop {
                 let ext = std::path::Path::new(p)
                     .extension()
                     .and_then(|e| e.to_str())
-                    .unwrap_or("");
+                    .unwrap_or_default();
                 !audio_extensions.contains(&ext)
             })
             .cloned()
@@ -914,7 +914,7 @@ impl AgentLoop {
             .metadata
             .get("is_group")
             .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
+            .unwrap_or_default();
         // Load discourse entity register from session for reference resolution
         let mut discourse_register =
             crate::agent::discourse::DiscourseRegister::from_session_metadata(&session.metadata);
@@ -1649,7 +1649,7 @@ impl AgentLoop {
                 .and_then(|svc| intent::classify_action_intent_semantic(content, svc))
                 .map_or((None, None), |(result, score)| (Some(result), Some(score)))
         };
-        let user_action_intent = regex_intent || semantic_result.unwrap_or(false);
+        let user_action_intent = regex_intent || semantic_result.unwrap_or_default();
 
         let intent_method = if regex_intent {
             "regex"

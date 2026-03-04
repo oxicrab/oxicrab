@@ -90,7 +90,7 @@ impl WebSearchTool {
                         .select(&title_sel)
                         .next()
                         .and_then(|e| e.value().attr("href"))
-                        .unwrap_or("");
+                        .unwrap_or_default();
                     let snippet = result
                         .select(&snippet_sel)
                         .next()
@@ -204,8 +204,8 @@ impl Tool for WebSearchTool {
 
                 let mut lines = vec![format!("Results for: {}\n", query)];
                 for (i, item) in results.iter().take(count).enumerate() {
-                    let title = item["title"].as_str().unwrap_or("");
-                    let url = item["url"].as_str().unwrap_or("");
+                    let title = item["title"].as_str().unwrap_or_default();
+                    let url = item["url"].as_str().unwrap_or_default();
                     lines.push(format!("{}. {}\n   {}", i + 1, title, url));
                     if let Some(desc) = item["description"].as_str() {
                         lines.push(format!("   {}", desc));
@@ -269,7 +269,7 @@ impl WebFetchTool {
                     .headers()
                     .get("content-type")
                     .and_then(|h| h.to_str().ok())
-                    .unwrap_or("")
+                    .unwrap_or_default()
                     .to_string();
 
                 // Handle binary content (images, etc.) — save to disk

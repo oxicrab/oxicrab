@@ -301,7 +301,7 @@ impl SkillsLoader {
                 if meta
                     .get("always")
                     .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false)
+                    .unwrap_or_default()
                 {
                     Some(name.clone())
                 } else {

@@ -109,7 +109,7 @@ impl BaseChannel for TelegramChannel {
                             // Handle photos
                             if let Some(photos) = msg.photo()
                                 && let Some(photo) = photos.last() {
-                                    let text = msg.caption().unwrap_or("").to_string();
+                                    let text = msg.caption().unwrap_or_default().to_string();
                                     let mut media_paths = Vec::new();
                                     let mut content = text.clone();
 
@@ -176,7 +176,7 @@ impl BaseChannel for TelegramChannel {
 
                             // Handle voice messages
                             if let Some(voice) = msg.voice() {
-                                let text = msg.caption().unwrap_or("").to_string();
+                                let text = msg.caption().unwrap_or_default().to_string();
                                 let mut media_paths = Vec::new();
                                 let mut content = text;
 
@@ -242,7 +242,7 @@ impl BaseChannel for TelegramChannel {
 
                             // Handle documents
                             if let Some(doc) = msg.document() {
-                                let text = msg.caption().unwrap_or("").to_string();
+                                let text = msg.caption().unwrap_or_default().to_string();
                                 let mut media_paths = Vec::new();
                                 let mut content = text;
 
@@ -415,7 +415,10 @@ impl BaseChannel for TelegramChannel {
                 warn!("telegram: media file not found: {}", path);
                 continue;
             }
-            let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let ext = file_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or_default();
             let is_image = matches!(ext, "png" | "jpg" | "jpeg" | "gif" | "webp");
 
             if is_image {

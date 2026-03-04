@@ -108,11 +108,11 @@ impl ToolRegistry {
                 crate::providers::base::ToolDefinition {
                     name: schema["function"]["name"]
                         .as_str()
-                        .unwrap_or("")
+                        .unwrap_or_default()
                         .to_string(),
                     description: schema["function"]["description"]
                         .as_str()
-                        .unwrap_or("")
+                        .unwrap_or_default()
                         .to_string(),
                     parameters: schema["function"]["parameters"].clone(),
                 }

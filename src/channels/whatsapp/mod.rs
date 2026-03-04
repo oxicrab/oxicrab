@@ -254,7 +254,7 @@ impl BaseChannel for WhatsAppChannel {
                                             MediaKind::Document(d, m) => (d, m, "document", "document"),
                                             MediaKind::Video(d, m) => (d, m, "video", "video"),
                                         };
-                                        content = msg.get_caption().unwrap_or("").to_string();
+                                        content = msg.get_caption().unwrap_or_default().to_string();
                                         match download_whatsapp_media(&client, downloadable, mimetype, &info.id, media_type).await {
                                             Ok(path) => {
                                                 media_paths.push(path.clone());

@@ -21,7 +21,7 @@ impl ObsidianApiClient {
                 Some(url::Host::Domain(d)) => Some(d == "localhost"),
                 None => None,
             })
-            .unwrap_or(false);
+            .unwrap_or_default();
         if !is_localhost {
             warn!(
                 "obsidian API URL is not localhost — TLS certificate validation will be enforced"

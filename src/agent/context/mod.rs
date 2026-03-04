@@ -410,7 +410,7 @@ impl ContextBuilder {
         reasoning_content: Option<&str>,
     ) {
         let msg = crate::providers::base::Message::assistant_with_thinking(
-            content.unwrap_or(""),
+            content.unwrap_or_default(),
             tool_calls,
             reasoning_content.map(String::from),
         );

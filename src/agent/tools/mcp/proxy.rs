@@ -97,7 +97,7 @@ impl Tool for McpProxyTool {
             }
         };
 
-        let is_error = result.is_error.unwrap_or(false);
+        let is_error = result.is_error.unwrap_or_default();
 
         // Convert MCP content blocks to a string result.
         // Content is Annotated<RawContent>, which Derefs to RawContent.

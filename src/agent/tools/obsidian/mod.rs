@@ -165,7 +165,7 @@ impl Tool for ObsidianTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let action = params["action"].as_str().unwrap_or("");
+        let action = params["action"].as_str().unwrap_or_default();
 
         match action {
             "read" => {

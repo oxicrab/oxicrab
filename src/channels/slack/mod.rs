@@ -226,7 +226,10 @@ impl BaseChannel for SlackChannel {
                     .get("user")
                     .and_then(Value::as_str)
                     .unwrap_or("unknown");
-                let user_id = auth.get("user_id").and_then(Value::as_str).unwrap_or("");
+                let user_id = auth
+                    .get("user_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
                 info!("Slack bot connected as {} (ID: {})", user, user_id);
             }
             Err(e) => {
@@ -389,8 +392,10 @@ impl BaseChannel for SlackChannel {
                             match msg {
                                 Ok(Message::Text(text)) => {
                                     if let Ok(event) = serde_json::from_str::<Value>(&text) {
-                                        let event_type =
-                                            event.get("type").and_then(Value::as_str).unwrap_or("");
+                                        let event_type = event
+                                            .get("type")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or_default();
 
                                         // Handle hello message
                                         if event_type == "hello" {
@@ -404,7 +409,7 @@ impl BaseChannel for SlackChannel {
                                             && let Some(envelope_id) = event.get("envelope_id")
                                         {
                                             let envelope_id_str =
-                                                envelope_id.as_str().unwrap_or("");
+                                                envelope_id.as_str().unwrap_or_default();
                                             let ack_msg = serde_json::json!({
                                                 "envelope_id": envelope_id_str,
                                                 "payload": {}
@@ -431,7 +436,7 @@ impl BaseChannel for SlackChannel {
                                             let inner_event_type = event_data
                                                 .get("type")
                                                 .and_then(Value::as_str)
-                                                .unwrap_or("");
+                                                .unwrap_or_default();
 
                                             match inner_event_type {
                                                 "message" | "app_mention" => {
@@ -751,12 +756,18 @@ async fn handle_slack_event(
         return Ok(());
     }
 
-    let user_id = event.get("user").and_then(Value::as_str).unwrap_or("");
-    let channel_id = event.get("channel").and_then(Value::as_str).unwrap_or("");
+    let user_id = event
+        .get("user")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let channel_id = event
+        .get("channel")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let mut text = event
         .get("text")
         .and_then(Value::as_str)
-        .unwrap_or("")
+        .unwrap_or_default()
         .to_string();
 
     if user_id.is_empty() || channel_id.is_empty() {
