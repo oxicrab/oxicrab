@@ -185,7 +185,7 @@ impl PromptGuidedToolsProvider {
 
     /// Rewrite a chat request: move tool definitions into the system prompt,
     /// clear native `tools`/`tool_choice`, and convert tool-related messages.
-    fn rewrite_request(req: ChatRequest<'_>) -> ChatRequest<'_> {
+    fn rewrite_request(req: ChatRequest) -> ChatRequest {
         let tools = match &req.tools {
             Some(t) if !t.is_empty() => t,
             _ => return req,
@@ -291,7 +291,7 @@ impl PromptGuidedToolsProvider {
         ChatRequest {
             messages,
             tools: None,
-            model: req.model,
+            model: req.model.clone(),
             max_tokens: req.max_tokens,
             temperature: req.temperature,
             tool_choice: None,
@@ -302,7 +302,7 @@ impl PromptGuidedToolsProvider {
 
 #[async_trait]
 impl LLMProvider for PromptGuidedToolsProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
         let has_tools = req.tools.as_ref().is_some_and(|t| !t.is_empty());
 
         if !has_tools {

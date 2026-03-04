@@ -152,11 +152,11 @@ impl OpenAIProvider {
 
 #[async_trait]
 impl LLMProvider for OpenAIProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+    async fn chat(&self, req: ChatRequest) -> Result<LLMResponse> {
         debug!(
             "{} chat: model={}",
             self.provider_name,
-            req.model.unwrap_or(&self.default_model)
+            req.model.as_deref().unwrap_or(&self.default_model)
         );
         let openai_messages: Vec<Value> = req
             .messages
@@ -227,7 +227,7 @@ impl LLMProvider for OpenAIProvider {
             .collect();
 
         let mut payload = json!({
-            "model": req.model.unwrap_or(&self.default_model),
+            "model": req.model.as_deref().unwrap_or(&self.default_model),
             "messages": openai_messages,
             "max_tokens": req.max_tokens,
         });

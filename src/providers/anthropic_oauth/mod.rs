@@ -532,8 +532,8 @@ impl AnthropicOAuthProvider {
 
 #[async_trait]
 impl LLMProvider for AnthropicOAuthProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
-        let model = req.model.map_or(self.default_model.as_str(), |m| {
+    async fn chat(&self, req: ChatRequest) -> Result<LLMResponse> {
+        let model = req.model.as_deref().map(|m| {
             // Strip provider prefix (e.g. "anthropic/claude-opus-4-6" -> "claude-opus-4-6")
             if m.contains('/') {
                 m.split_once('/').map_or(m, |x| x.1)
@@ -541,6 +541,7 @@ impl LLMProvider for AnthropicOAuthProvider {
                 m
             }
         });
+        let model = model.unwrap_or(self.default_model.as_str());
 
         let token = self.ensure_valid_token().await?;
 

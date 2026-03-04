@@ -26,7 +26,7 @@ impl MockProvider {
 
 #[async_trait]
 impl LLMProvider for MockProvider {
-    async fn chat(&self, _req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
         match &self.response {
             Ok(r) => Ok(r.clone()),
             Err(e) => Err(anyhow::anyhow!("{}", e)),
@@ -56,15 +56,12 @@ fn tool_response(name: &str, args: serde_json::Value) -> LLMResponse {
     }
 }
 
-fn make_request() -> ChatRequest<'static> {
+fn make_request() -> ChatRequest {
     ChatRequest {
         messages: vec![],
-        tools: None,
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     }
 }
 
@@ -217,11 +214,9 @@ async fn test_text_only_with_tools_available_not_rejected() {
             description: "Search the web".to_string(),
             parameters: json!({"type": "object"}),
         }]),
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None, // auto mode -- model can choose text
-        response_format: None,
+        ..Default::default()
     };
 
     let result = provider.chat(req).await.unwrap();

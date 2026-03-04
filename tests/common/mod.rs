@@ -43,13 +43,13 @@ impl MockLLMProvider {
 
 #[async_trait]
 impl LLMProvider for MockLLMProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
         self.calls
             .lock()
             .expect("lock recorded calls")
             .push(RecordedCall {
                 messages: req.messages,
-                model: req.model.map(|s| s.to_string()),
+                model: req.model,
                 tools: req.tools,
                 temperature: req.temperature,
                 max_tokens: req.max_tokens,
@@ -121,7 +121,7 @@ impl ToolCapturingProvider {
 
 #[async_trait]
 impl LLMProvider for ToolCapturingProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
         self.tool_defs
             .lock()
             .expect("lock tool defs")
@@ -220,13 +220,13 @@ impl FailingMockProvider {
 
 #[async_trait]
 impl LLMProvider for FailingMockProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
         self.calls
             .lock()
             .expect("lock recorded calls")
             .push(RecordedCall {
                 messages: req.messages,
-                model: req.model.map(|s| s.to_string()),
+                model: req.model,
                 tools: req.tools,
                 temperature: req.temperature,
                 max_tokens: req.max_tokens,

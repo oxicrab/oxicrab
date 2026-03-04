@@ -245,12 +245,10 @@ impl MessageCompactor {
             .provider
             .chat(ChatRequest {
                 messages: llm_messages,
-                tools: None,
-                model: self.model.as_deref(),
+                model: self.model.clone(),
                 max_tokens: COMPACTION_MAX_TOKENS,
                 temperature: COMPACTION_TEMPERATURE,
-                tool_choice: None,
-                response_format: None,
+                ..Default::default()
             })
             .await?;
 
@@ -292,12 +290,10 @@ impl MessageCompactor {
             .provider
             .chat(ChatRequest {
                 messages: llm_messages,
-                tools: None,
-                model: self.model.as_deref(),
+                model: self.model.clone(),
                 max_tokens: PRE_FLUSH_MAX_TOKENS,
                 temperature: PRE_FLUSH_TEMPERATURE,
-                tool_choice: None,
-                response_format: None,
+                ..Default::default()
             })
             .await?;
 
@@ -334,12 +330,10 @@ impl MessageCompactor {
             .provider
             .chat(ChatRequest {
                 messages: llm_messages,
-                tools: None,
-                model: self.model.as_deref(),
+                model: self.model.clone(),
                 max_tokens: EXTRACTION_MAX_TOKENS,
                 temperature: EXTRACTION_TEMPERATURE,
-                tool_choice: None,
-                response_format: None,
+                ..Default::default()
             })
             .await?;
 

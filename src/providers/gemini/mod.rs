@@ -127,10 +127,10 @@ impl GeminiProvider {
 
 #[async_trait]
 impl LLMProvider for GeminiProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+    async fn chat(&self, req: ChatRequest) -> Result<LLMResponse> {
         debug!(
             "gemini chat: model={}",
-            req.model.unwrap_or(&self.default_model)
+            req.model.as_deref().unwrap_or(&self.default_model)
         );
         // Separate system messages for systemInstruction; rest go into contents
         let mut system_parts: Vec<String> = Vec::new();
@@ -285,7 +285,7 @@ impl LLMProvider for GeminiProvider {
             }
         }
 
-        let model_name = req.model.unwrap_or(&self.default_model);
+        let model_name = req.model.as_deref().unwrap_or(&self.default_model);
         // URL-encode model name to prevent path injection
         let encoded_model = urlencoding::encode(model_name);
         let url = format!("{}/models/{}:generateContent", self.base_url, encoded_model);

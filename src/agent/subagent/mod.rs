@@ -412,11 +412,10 @@ async fn run_subagent_inner(
             .chat(crate::providers::base::ChatRequest {
                 messages: messages.clone(),
                 tools: Some(tools.get_tool_definitions()),
-                model: Some(&config.model),
+                model: Some(config.model.clone()),
                 max_tokens: config.max_tokens,
                 temperature: config.tool_temperature,
-                tool_choice: None,
-                response_format: None,
+                ..Default::default()
             })
             .await?;
 

@@ -45,7 +45,7 @@ struct NoopProvider;
 
 #[async_trait]
 impl LLMProvider for NoopProvider {
-    async fn chat(&self, _req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
         Ok(LLMResponse {
             content: Some("ok".into()),
             ..Default::default()

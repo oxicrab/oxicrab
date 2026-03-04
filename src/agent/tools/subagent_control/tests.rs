@@ -11,7 +11,7 @@ struct DummyProvider;
 
 #[async_trait::async_trait]
 impl LLMProvider for DummyProvider {
-    async fn chat(&self, _req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
         unreachable!()
     }
     fn default_model(&self) -> &'static str {

@@ -1281,7 +1281,7 @@ impl AgentLoop {
                     crate::providers::base::ChatRequest {
                         messages: messages.clone(),
                         tools: Some(tools_defs.clone()),
-                        model: Some(effective_model),
+                        model: Some(effective_model.to_string()),
                         max_tokens: self.max_tokens,
                         temperature: current_temp,
                         tool_choice,
@@ -1703,12 +1703,10 @@ impl AgentLoop {
             .chat_with_retry(
                 crate::providers::base::ChatRequest {
                     messages: messages.clone(),
-                    tools: None,
-                    model: Some(effective_model),
+                    model: Some(effective_model.to_string()),
                     max_tokens: self.max_tokens,
                     temperature: self.temperature,
-                    tool_choice: None,
-                    response_format: None,
+                    ..Default::default()
                 },
                 Some(crate::providers::base::RetryConfig::default()),
             )

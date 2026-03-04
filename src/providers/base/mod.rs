@@ -170,11 +170,11 @@ pub enum ResponseFormat {
 }
 
 /// Parameters for a chat request to an LLM provider.
-#[derive(Debug, Clone)]
-pub struct ChatRequest<'a> {
+#[derive(Debug, Clone, Default)]
+pub struct ChatRequest {
     pub messages: Vec<Message>,
     pub tools: Option<Vec<ToolDefinition>>,
-    pub model: Option<&'a str>,
+    pub model: Option<String>,
     pub max_tokens: u32,
     pub temperature: Option<f32>,
     /// Tool choice mode: "auto" (default), "any" (force tool use), or "none".
@@ -185,7 +185,7 @@ pub struct ChatRequest<'a> {
 
 #[async_trait]
 pub trait LLMProvider: Send + Sync {
-    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse>;
+    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse>;
 
     fn default_model(&self) -> &str;
 
@@ -204,7 +204,7 @@ pub trait LLMProvider: Send + Sync {
     /// Chat with automatic retry on transient errors.
     async fn chat_with_retry(
         &self,
-        req: ChatRequest<'_>,
+        req: ChatRequest,
         retry_config: Option<RetryConfig>,
     ) -> anyhow::Result<LLMResponse> {
         let config = retry_config.unwrap_or_default();
@@ -229,7 +229,7 @@ pub trait LLMProvider: Send + Sync {
             let chat_req = ChatRequest {
                 messages: messages.clone(),
                 tools: tools.clone(),
-                model: req.model,
+                model: req.model.clone(),
                 max_tokens: req.max_tokens,
                 temperature: req.temperature,
                 tool_choice: req.tool_choice.clone(),
