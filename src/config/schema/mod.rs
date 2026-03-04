@@ -583,8 +583,7 @@ impl Config {
         for (i, fb) in routing.fallbacks.iter().enumerate() {
             if fb.is_empty() {
                 return Err(OxicrabError::Config(format!(
-                    "modelRouting.fallbacks[{}] must not be empty",
-                    i
+                    "modelRouting.fallbacks[{i}] must not be empty"
                 )));
             }
         }

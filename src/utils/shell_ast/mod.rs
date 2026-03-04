@@ -187,7 +187,7 @@ fn walk_simple_command(
     if matches!(basename, "eval" | "source" | ".") {
         violations.push(AstViolation {
             kind: ViolationKind::EvalLike,
-            description: format!("'{}' executes arbitrary code", basename),
+            description: format!("'{basename}' executes arbitrary code"),
         });
     }
 
@@ -195,7 +195,7 @@ fn walk_simple_command(
     if is_pipe_target && DANGEROUS_PIPE_TARGETS.contains(&basename) {
         violations.push(AstViolation {
             kind: ViolationKind::DangerousPipeTarget,
-            description: format!("piping into '{}' allows arbitrary code execution", basename),
+            description: format!("piping into '{basename}' allows arbitrary code execution"),
         });
     }
 
@@ -258,8 +258,7 @@ fn check_interpreter_inline_exec(
                 violations.push(AstViolation {
                     kind: ViolationKind::InterpreterInlineExec,
                     description: format!(
-                        "'{}' with '{}' flag allows inline code execution",
-                        basename, word
+                        "'{basename}' with '{word}' flag allows inline code execution"
                     ),
                 });
                 return;
@@ -331,7 +330,7 @@ fn check_io_redirect(redir: &ast::IoRedirect, violations: &mut Vec<AstViolation>
                 if path.starts_with(prefix) {
                     violations.push(AstViolation {
                         kind: ViolationKind::DangerousRedirection,
-                        description: format!("writing to device '{}' can destroy data", path),
+                        description: format!("writing to device '{path}' can destroy data"),
                     });
                     return;
                 }

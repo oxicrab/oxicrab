@@ -72,7 +72,7 @@ impl GeminiProvider {
         if let Some(reason) = candidate["finishReason"].as_str()
             && matches!(reason, "SAFETY" | "BLOCKED" | "RECITATION")
         {
-            anyhow::bail!("Gemini response blocked (finishReason: {})", reason);
+            anyhow::bail!("Gemini response blocked (finishReason: {reason})");
         }
 
         let content = candidate["content"]["parts"].as_array().and_then(|parts| {

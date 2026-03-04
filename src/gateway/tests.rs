@@ -331,8 +331,7 @@ async fn test_webhook_alternative_signature_headers() {
         assert_eq!(
             resp.status(),
             StatusCode::OK,
-            "header {} should be accepted",
-            header_name
+            "header {header_name} should be accepted"
         );
     }
 }

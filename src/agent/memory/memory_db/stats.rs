@@ -74,7 +74,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         conn.execute(
             "INSERT INTO memory_access_log (query, search_type, result_count, top_score, request_id)
              VALUES (?, ?, ?, ?, ?)",
@@ -95,7 +95,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM memory_search_hits WHERE source_key = ?",
@@ -111,7 +111,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT e.id, e.source_key, e.content FROM memory_entries e
              LEFT JOIN memory_embeddings em ON e.id = em.entry_id
@@ -126,7 +126,7 @@ impl MemoryDB {
                 ))
             })?
             .collect();
-        rows.map_err(|e| anyhow::anyhow!("failed to get entries missing embeddings: {}", e))
+        rows.map_err(|e| anyhow::anyhow!("failed to get entries missing embeddings: {e}"))
     }
 
     /// Get search log stats: total searches, total hits, unique queries.
@@ -134,7 +134,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let total_searches: i64 = conn
             .query_row("SELECT COUNT(*) FROM memory_access_log", [], |row| {
                 row.get(0)
@@ -164,7 +164,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT source_key, COUNT(*) as hits FROM memory_search_hits
              GROUP BY source_key ORDER BY hits DESC LIMIT ?",
@@ -174,7 +174,7 @@ impl MemoryDB {
                 Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64))
             })?
             .collect();
-        rows.map_err(|e| anyhow::anyhow!("failed to get top sources: {}", e))
+        rows.map_err(|e| anyhow::anyhow!("failed to get top sources: {e}"))
     }
 
     /// Record an intent classification or hallucination detection event.
@@ -200,7 +200,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         conn.execute(
             "INSERT INTO intent_metrics
              (event_type, intent_method, semantic_score, detection_layer, message_preview, request_id)
@@ -222,7 +222,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
 
         let total: i64 = conn
             .query_row(
@@ -316,7 +316,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT timestamp, detection_layer, message_preview
              FROM intent_metrics WHERE event_type = 'hallucination'
@@ -331,7 +331,7 @@ impl MemoryDB {
                 })
             })?
             .collect();
-        rows.map_err(|e| anyhow::anyhow!("failed to get recent hallucinations: {}", e))
+        rows.map_err(|e| anyhow::anyhow!("failed to get recent hallucinations: {e}"))
     }
 
     /// Record a complexity routing decision for a message.
@@ -353,7 +353,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         conn.execute(
             "INSERT INTO complexity_routing_log
              (request_id, composite_score, resolved_tier, resolved_model, forced, channel, message_preview)
@@ -376,7 +376,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
 
         let total: i64 = conn
             .query_row(
@@ -408,7 +408,7 @@ impl MemoryDB {
                 })
             })?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow::anyhow!("tier stats query failed: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("tier stats query failed: {e}"))?;
 
         // Force override counts
         let mut stmt = conn.prepare(
@@ -426,7 +426,7 @@ impl MemoryDB {
                 })
             })?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow::anyhow!("force counts query failed: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("force counts query failed: {e}"))?;
 
         Ok(ComplexityStats {
             total_scored: total as u64,
@@ -444,7 +444,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT timestamp, composite_score, resolved_tier, resolved_model, forced, message_preview
              FROM complexity_routing_log
@@ -463,7 +463,7 @@ impl MemoryDB {
                 })
             })?
             .collect();
-        rows.map_err(|e| anyhow::anyhow!("recent complexity events query failed: {}", e))
+        rows.map_err(|e| anyhow::anyhow!("recent complexity events query failed: {e}"))
     }
 
     /// Purge search access logs older than `days`. Returns number of rows deleted.
@@ -475,7 +475,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
         let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
         // Delete orphaned hits first (FK has no CASCADE)

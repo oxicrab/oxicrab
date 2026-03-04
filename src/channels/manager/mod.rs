@@ -170,10 +170,7 @@ impl ChannelManager {
                 },
                 Err(e) => {
                     error!("channel start task panicked: {}", e);
-                    failed = Some((
-                        "unknown".to_string(),
-                        anyhow::anyhow!("task panicked: {}", e),
-                    ));
+                    failed = Some(("unknown".to_string(), anyhow::anyhow!("task panicked: {e}")));
                     // Continue awaiting remaining handles
                 }
             }
@@ -187,7 +184,7 @@ impl ChannelManager {
                 }
             }
             self.channels = started;
-            return Err(anyhow::anyhow!("failed to start channel {}: {}", name, e));
+            return Err(anyhow::anyhow!("failed to start channel {name}: {e}"));
         }
 
         self.channels = started;

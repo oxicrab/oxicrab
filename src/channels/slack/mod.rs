@@ -100,10 +100,7 @@ impl SlackChannel {
                 .and_then(Value::as_str)
                 .unwrap_or("unknown");
             warn!("slack: files.getUploadURLExternal failed: {}", error);
-            return Err(anyhow::anyhow!(
-                "Slack file upload step 1 failed: {}",
-                error
-            ));
+            return Err(anyhow::anyhow!("Slack file upload step 1 failed: {error}"));
         }
 
         let upload_url = step1_json
@@ -133,9 +130,7 @@ impl SlackChannel {
                 status, body
             );
             return Err(anyhow::anyhow!(
-                "Slack file upload POST failed: {} — {}",
-                status,
-                body
+                "Slack file upload POST failed: {status} — {body}"
             ));
         }
 
@@ -160,10 +155,7 @@ impl SlackChannel {
                 .and_then(Value::as_str)
                 .unwrap_or("unknown");
             warn!("slack: files.completeUploadExternal failed: {}", error);
-            return Err(anyhow::anyhow!(
-                "Slack file upload step 3 failed: {}",
-                error
-            ));
+            return Err(anyhow::anyhow!("Slack file upload step 3 failed: {error}"));
         }
 
         info!("slack: uploaded file '{}' to {}", filename, channel_id);
@@ -171,7 +163,7 @@ impl SlackChannel {
     }
 
     async fn send_slack_api(&self, method: &str, params: &HashMap<&str, Value>) -> Result<Value> {
-        let url = format!("https://slack.com/api/{}", method);
+        let url = format!("https://slack.com/api/{method}");
 
         let response = self
             .client
@@ -187,7 +179,7 @@ impl SlackChannel {
                 .get("error")
                 .and_then(Value::as_str)
                 .unwrap_or("unknown");
-            return Err(anyhow::anyhow!("Slack API error: {}", error));
+            return Err(anyhow::anyhow!("Slack API error: {error}"));
         }
         Ok(json)
     }
@@ -234,7 +226,7 @@ impl BaseChannel for SlackChannel {
             }
             Err(e) => {
                 error!("Slack auth_test failed: {}", e);
-                return Err(anyhow::anyhow!("Slack auth_test failed: {}", e));
+                return Err(anyhow::anyhow!("Slack auth_test failed: {e}"));
             }
         }
 
@@ -293,7 +285,7 @@ impl BaseChannel for SlackChannel {
                 // Get WebSocket URL from Slack API
                 let response = match ws_client
                     .post("https://slack.com/api/apps.connections.open")
-                    .header("Authorization", format!("Bearer {}", app_token))
+                    .header("Authorization", format!("Bearer {app_token}"))
                     .send()
                     .await
                 {
@@ -554,7 +546,7 @@ impl BaseChannel for SlackChannel {
 
             if let Err(e) = self.send_slack_api("chat.postMessage", &params).await {
                 error!("Error sending Slack message: {}", e);
-                return Err(anyhow::anyhow!("Slack send error: {}", e));
+                return Err(anyhow::anyhow!("Slack send error: {e}"));
             }
         }
 
@@ -637,10 +629,9 @@ async fn download_slack_file(
     for hop in 0..max_redirects {
         if !seen_urls.insert(url.clone()) {
             return Err(anyhow::anyhow!(
-                "Slack file download redirect loop detected at: {}. \
+                "Slack file download redirect loop detected at: {url}. \
                  This usually means the bot token is missing the 'files:read' scope. \
-                 Add it in your Slack app's OAuth settings and reinstall.",
-                url
+                 Add it in your Slack app's OAuth settings and reinstall."
             ));
         }
 
@@ -649,7 +640,7 @@ async fn download_slack_file(
         // token leakage to third-party CDNs.
         let mut req = no_redirect_client.get(&url);
         if hop == 0 || is_slack_domain(&url) {
-            req = req.header("Authorization", format!("Bearer {}", bot_token));
+            req = req.header("Authorization", format!("Bearer {bot_token}"));
         }
         let resp = req.send().await?;
 
@@ -680,9 +671,7 @@ async fn download_slack_file(
 
         if !status.is_success() {
             return Err(anyhow::anyhow!(
-                "Slack file download failed: status={}, content-type={}",
-                status,
-                content_type
+                "Slack file download failed: status={status}, content-type={content_type}"
             ));
         }
 
@@ -691,9 +680,7 @@ async fn download_slack_file(
             && len > MAX_AUDIO_DOWNLOAD as u64
         {
             return Err(anyhow::anyhow!(
-                "Slack file too large ({} bytes, max {})",
-                len,
-                MAX_AUDIO_DOWNLOAD
+                "Slack file too large ({len} bytes, max {MAX_AUDIO_DOWNLOAD})"
             ));
         }
 
@@ -705,8 +692,7 @@ async fn download_slack_file(
     }
 
     Err(anyhow::anyhow!(
-        "Slack file download exceeded {} redirects",
-        max_redirects
+        "Slack file download exceeded {max_redirects} redirects"
     ))
 }
 
@@ -724,7 +710,7 @@ fn resolve_slack_redirect(location: &str) -> String {
                 // Construct direct URL: scheme + host + redir path
                 let host = url.host_str().unwrap_or("files.slack.com");
                 let scheme = url.scheme();
-                let direct = format!("{}://{}{}", scheme, host, value);
+                let direct = format!("{scheme}://{host}{value}");
                 return direct;
             }
         }
@@ -785,7 +771,7 @@ async fn handle_slack_event(
     // Deduplicate messages
     if let Some(ts) = event.get("ts").and_then(Value::as_str) {
         let mut seen = seen_messages.lock().await;
-        let msg_key = format!("{}:{}:{}", channel_id, user_id, ts);
+        let msg_key = format!("{channel_id}:{user_id}:{ts}");
         if seen.contains(&msg_key) {
             debug!("Ignoring duplicate Slack message: {}", msg_key);
             return Ok(());
@@ -869,7 +855,7 @@ async fn handle_slack_event(
                 .and_then(|u| u.get("name"))
                 .and_then(|n| n.as_str())
         {
-            enriched = format!("{}|{}", user_id, name);
+            enriched = format!("{user_id}|{name}");
         }
         {
             let mut cache = user_cache.lock().await;
@@ -909,7 +895,7 @@ async fn handle_slack_event(
                             warn!("Failed to create media directory");
                             continue;
                         };
-                        let file_path = media_dir.join(format!("slack_{}{}", file_id, ext));
+                        let file_path = media_dir.join(format!("slack_{file_id}{ext}"));
 
                         // Download with manual redirect following.
                         // Slack redirects through multiple hops (files.slack.com
@@ -937,7 +923,7 @@ async fn handle_slack_event(
                                     }
                                     let path_str = file_path.to_string_lossy().to_string();
                                     media_paths.push(path_str.clone());
-                                    content_parts.push(format!("[image: {}]", path_str));
+                                    content_parts.push(format!("[image: {path_str}]"));
                                 } else {
                                     warn!(
                                         "Slack file doesn't look like an image (first bytes: {:02x?}, {} bytes)",
@@ -966,7 +952,7 @@ async fn handle_slack_event(
                             warn!("Failed to create media directory");
                             continue;
                         };
-                        let file_path = media_dir.join(format!("slack_{}{}", file_id, ext));
+                        let file_path = media_dir.join(format!("slack_{file_id}{ext}"));
 
                         match download_slack_file(client, bot_token, file_url).await {
                             Ok(bytes) => {
@@ -990,7 +976,7 @@ async fn handle_slack_event(
                                 }
                                 let path_str = file_path.to_string_lossy().to_string();
                                 media_paths.push(path_str.clone());
-                                content_parts.push(format!("[audio: {}]", path_str));
+                                content_parts.push(format!("[audio: {path_str}]"));
                             }
                             Err(e) => warn!("Failed to download Slack audio file: {}", e),
                         }
@@ -1000,7 +986,7 @@ async fn handle_slack_event(
                         .get("name")
                         .and_then(Value::as_str)
                         .unwrap_or("unknown");
-                    content_parts.push(format!("[file: {}]", file_name));
+                    content_parts.push(format!("[file: {file_name}]"));
                 }
             }
         }
@@ -1055,7 +1041,7 @@ async fn handle_slack_event(
     inbound_tx
         .send(inbound_msg)
         .await
-        .map_err(|e| anyhow::anyhow!("Send error: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Send error: {e}"))?;
     Ok(())
 }
 

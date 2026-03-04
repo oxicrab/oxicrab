@@ -66,7 +66,7 @@ async fn test_missing_required_params() {
             .execute(params.clone(), &ExecutionContext::default())
             .await
             .unwrap();
-        assert!(result.is_error, "expected error for {:?}", params);
+        assert!(result.is_error, "expected error for {params:?}");
         assert!(
             result.content.contains(expected),
             "expected '{}' in error for {:?}, got: {}",
@@ -153,15 +153,13 @@ fn test_browser_actions_match_schema() {
     for action in &schema_actions {
         assert!(
             cap_actions.contains(action),
-            "action '{}' in schema but not in capabilities()",
-            action
+            "action '{action}' in schema but not in capabilities()"
         );
     }
     for action in &cap_actions {
         assert!(
             schema_actions.contains(action),
-            "action '{}' in capabilities() but not in schema",
-            action
+            "action '{action}' in capabilities() but not in schema"
         );
     }
 }

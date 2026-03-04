@@ -57,7 +57,7 @@ impl MediaTool {
         let json: Value = resp.json().await?;
         if !status.is_success() {
             let msg = json["message"].as_str().unwrap_or("unknown API error");
-            anyhow::bail!("{} API error ({}): {}", service, status, msg);
+            anyhow::bail!("{service} API error ({status}): {msg}");
         }
         Ok(json)
     }
@@ -78,7 +78,7 @@ impl MediaTool {
                 .as_str()
                 .or_else(|| json[0]["errorMessage"].as_str())
                 .unwrap_or("unknown API error");
-            anyhow::bail!("{} API error ({}): {}", service, status, msg);
+            anyhow::bail!("{service} API error ({status}): {msg}");
         }
         Ok(json)
     }
@@ -88,7 +88,7 @@ impl MediaTool {
     async fn search_movie(&self, query: &str) -> Result<String> {
         let encoded = urlencoding::encode(query);
         let results = self
-            .api_get("radarr", &format!("/api/v3/movie/lookup?term={}", encoded))
+            .api_get("radarr", &format!("/api/v3/movie/lookup?term={encoded}"))
             .await?;
         let arr = results.as_array().map_or(&[][..], Vec::as_slice);
         Ok(format_movie_search_results(arr))
@@ -107,7 +107,7 @@ impl MediaTool {
         let lookup = self
             .api_get(
                 "radarr",
-                &format!("/api/v3/movie/lookup/tmdb?tmdbId={}", tmdb_id),
+                &format!("/api/v3/movie/lookup/tmdb?tmdbId={tmdb_id}"),
             )
             .await?;
 
@@ -155,14 +155,13 @@ impl MediaTool {
         let result = self.api_post("radarr", "/api/v3/movie", body).await?;
         let id = result["id"].as_i64().unwrap_or(0);
         Ok(format!(
-            "Added: {} ({}) — Radarr ID: {}\nSearching for downloads...",
-            title, year, id
+            "Added: {title} ({year}) — Radarr ID: {id}\nSearching for downloads..."
         ))
     }
 
     async fn get_movie(&self, id: i64) -> Result<String> {
         let movie = self
-            .api_get("radarr", &format!("/api/v3/movie/{}", id))
+            .api_get("radarr", &format!("/api/v3/movie/{id}"))
             .await?;
         Ok(format_movie_detail(&movie))
     }
@@ -219,7 +218,7 @@ impl MediaTool {
     async fn search_series(&self, query: &str) -> Result<String> {
         let encoded = urlencoding::encode(query);
         let results = self
-            .api_get("sonarr", &format!("/api/v3/series/lookup?term={}", encoded))
+            .api_get("sonarr", &format!("/api/v3/series/lookup?term={encoded}"))
             .await?;
         let arr = results.as_array().map_or(&[][..], Vec::as_slice);
         Ok(format_series_search_results(arr))
@@ -240,13 +239,13 @@ impl MediaTool {
         let lookup_results = self
             .api_get(
                 "sonarr",
-                &format!("/api/v3/series/lookup?term=tvdb:{}", encoded),
+                &format!("/api/v3/series/lookup?term=tvdb:{encoded}"),
             )
             .await?;
         let lookup = lookup_results
             .as_array()
             .and_then(|a| a.first())
-            .ok_or_else(|| anyhow::anyhow!("Series not found for TVDB ID {}", tvdb_id))?;
+            .ok_or_else(|| anyhow::anyhow!("Series not found for TVDB ID {tvdb_id}"))?;
 
         let title = lookup["title"].as_str().unwrap_or("Unknown");
         let year = lookup["year"].as_i64().unwrap_or(0);
@@ -294,14 +293,13 @@ impl MediaTool {
         let result = self.api_post("sonarr", "/api/v3/series", body).await?;
         let id = result["id"].as_i64().unwrap_or(0);
         Ok(format!(
-            "Added: {} ({}) — Sonarr ID: {}\nSearching for missing episodes...",
-            title, year, id
+            "Added: {title} ({year}) — Sonarr ID: {id}\nSearching for missing episodes..."
         ))
     }
 
     async fn get_series(&self, id: i64) -> Result<String> {
         let series = self
-            .api_get("sonarr", &format!("/api/v3/series/{}", id))
+            .api_get("sonarr", &format!("/api/v3/series/{id}"))
             .await?;
         Ok(format_series_detail(&series))
     }
@@ -364,7 +362,7 @@ impl MediaTool {
 
     async fn profiles(&self, service: &str) -> Result<String> {
         if service != "radarr" && service != "sonarr" {
-            anyhow::bail!("Unknown service '{}'. Use 'radarr' or 'sonarr'.", service);
+            anyhow::bail!("Unknown service '{service}'. Use 'radarr' or 'sonarr'.");
         }
         let profiles = self.api_get(service, "/api/v3/qualityprofile").await?;
         let arr = profiles.as_array().map_or(&[][..], Vec::as_slice);
@@ -373,7 +371,7 @@ impl MediaTool {
 
     async fn root_folders(&self, service: &str) -> Result<String> {
         if service != "radarr" && service != "sonarr" {
-            anyhow::bail!("Unknown service '{}'. Use 'radarr' or 'sonarr'.", service);
+            anyhow::bail!("Unknown service '{service}'. Use 'radarr' or 'sonarr'.");
         }
         let folders = self.api_get(service, "/api/v3/rootfolder").await?;
         let arr = folders.as_array().map_or(&[][..], Vec::as_slice);
@@ -551,7 +549,7 @@ impl Tool for MediaTool {
                 };
                 self.root_folders(service).await
             }
-            _ => return Ok(ToolResult::error(format!("unknown action: {}", action))),
+            _ => return Ok(ToolResult::error(format!("unknown action: {action}"))),
         };
 
         Ok(ToolResult::from_result(result, "media"))
@@ -584,7 +582,7 @@ fn format_search_results(
         } else {
             "movies"
         };
-        return format!("No {} found.", label);
+        return format!("No {label} found.");
     }
 
     let entries: Vec<String> = results
@@ -658,13 +656,12 @@ fn format_movie_detail(movie: &Value) -> String {
     let radarr_id = movie["id"].as_i64().unwrap_or(0);
     let tmdb_id = movie["tmdbId"].as_i64().unwrap_or(0);
     let file_status = if has_file {
-        format!("Downloaded ({:.1} GB)", size_gb)
+        format!("Downloaded ({size_gb:.1} GB)")
     } else {
         "Missing".to_string()
     };
     format!(
-        "{} ({})\nRadarr ID: {} | TMDB: {}\nStatus: {} | File: {}\nPath: {}\n\n{}",
-        title, year, radarr_id, tmdb_id, status, file_status, path, overview
+        "{title} ({year})\nRadarr ID: {radarr_id} | TMDB: {tmdb_id}\nStatus: {status} | File: {file_status}\nPath: {path}\n\n{overview}"
     )
 }
 
@@ -703,7 +700,7 @@ fn format_series_detail(series: &Value) -> String {
 
 fn format_quality_profiles(profiles: &[Value], service: &str) -> String {
     if profiles.is_empty() {
-        return format!("No quality profiles found in {}.", service);
+        return format!("No quality profiles found in {service}.");
     }
 
     let entries: Vec<String> = profiles
@@ -711,7 +708,7 @@ fn format_quality_profiles(profiles: &[Value], service: &str) -> String {
         .map(|p| {
             let id = p["id"].as_i64().unwrap_or(0);
             let name = p["name"].as_str().unwrap_or("?");
-            format!("  ID: {} — {}", id, name)
+            format!("  ID: {id} — {name}")
         })
         .collect();
 
@@ -720,7 +717,7 @@ fn format_quality_profiles(profiles: &[Value], service: &str) -> String {
 
 fn format_root_folders(folders: &[Value], service: &str) -> String {
     if folders.is_empty() {
-        return format!("No root folders found in {}.", service);
+        return format!("No root folders found in {service}.");
     }
 
     let entries: Vec<String> = folders
@@ -730,7 +727,7 @@ fn format_root_folders(folders: &[Value], service: &str) -> String {
             let path = f["path"].as_str().unwrap_or("?");
             let free = f["freeSpace"].as_i64().unwrap_or(0);
             let free_gb = free as f64 / 1_073_741_824.0;
-            format!("  ID: {} — {} ({:.1} GB free)", id, path, free_gb)
+            format!("  ID: {id} — {path} ({free_gb:.1} GB free)")
         })
         .collect();
 

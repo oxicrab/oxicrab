@@ -55,7 +55,7 @@ fn is_sender_paired(channel: &str, sender: &str) -> bool {
         return false;
     };
     let pairing_dir = home.join("pairing");
-    let path = pairing_dir.join(format!("{}-allowlist.json", channel));
+    let path = pairing_dir.join(format!("{channel}-allowlist.json"));
 
     // Acquire shared lock for consistent reads (writers hold exclusive lock).
     // The lock is held via _lock until the end of this function scope.
@@ -168,10 +168,9 @@ pub fn check_dm_access(
 pub fn format_pairing_reply(channel: &str, sender_id: &str, code: &str) -> String {
     format!(
         "Access not configured. To use this bot, ask the owner to approve:\n\
-         Your ID: {}\n\
-         Pairing code: {}\n\
-         Approve with: oxicrab pairing approve {} {}",
-        sender_id, code, channel, code
+         Your ID: {sender_id}\n\
+         Pairing code: {code}\n\
+         Approve with: oxicrab pairing approve {channel} {code}"
     )
 }
 

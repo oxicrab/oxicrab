@@ -34,7 +34,7 @@ impl MemoryDB {
         let mut conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
 
         // Check if unchanged
         let existing: Option<i64> = conn
@@ -144,7 +144,7 @@ impl MemoryDB {
             let Some(rel_str) = rel.to_str() else {
                 continue;
             };
-            let source_key = format!("knowledge:{}", rel_str);
+            let source_key = format!("knowledge:{rel_str}");
             if ext == "html" {
                 self.index_html_file(&source_key, path)?;
             } else {

@@ -161,7 +161,7 @@ impl CronSchedule {
                 let tz_str = tz.as_deref().unwrap_or("UTC");
                 expr.as_deref().map_or_else(
                     || "cron (no expression)".to_string(),
-                    |e| format!("cron '{}' ({})", e, tz_str),
+                    |e| format!("cron '{e}' ({tz_str})"),
                 )
             }
             CronSchedule::Event { pattern, channel } => {

@@ -112,7 +112,7 @@ async fn test_outbound_leak_detection_redacts() {
     let secret = "sk-secret-1234567890";
     bus.add_known_secrets(&[("api_key", secret)]);
 
-    let msg = make_outbound("ch", "dest", &format!("the key is {}", secret));
+    let msg = make_outbound("ch", "dest", &format!("the key is {secret}"));
     bus.publish_outbound(msg).await.unwrap();
 
     let received = rx.try_recv().unwrap();

@@ -52,7 +52,7 @@ fn test_action_claims_positive() {
         "All done! Everything is configured.",
     ];
     for text in cases {
-        assert!(contains_action_claims(text), "should match: {}", text);
+        assert!(contains_action_claims(text), "should match: {text}");
     }
 }
 
@@ -70,7 +70,7 @@ fn test_action_claims_negative() {
         "Created tasks can be viewed in the dashboard.",
     ];
     for text in cases {
-        assert!(!contains_action_claims(text), "should NOT match: {}", text);
+        assert!(!contains_action_claims(text), "should NOT match: {text}");
     }
 }
 
@@ -93,9 +93,9 @@ fn test_action_claim_pattern_fragments_each_match() {
     );
     for (i, text) in representatives.iter().enumerate() {
         let pattern = ACTION_CLAIM_PATTERNS[i];
-        let re = Regex::new(&format!("(?i){}", pattern))
-            .unwrap_or_else(|_| panic!("fragment {} is invalid regex", i));
-        assert!(re.is_match(text), "fragment {} should match: {}", i, text);
+        let re = Regex::new(&format!("(?i){pattern}"))
+            .unwrap_or_else(|_| panic!("fragment {i} is invalid regex"));
+        assert!(re.is_match(text), "fragment {i} should match: {text}");
     }
 }
 
@@ -166,14 +166,14 @@ fn test_false_no_tools_claims() {
         "No tools are available to me.",
     ];
     for text in positives {
-        assert!(is_false_no_tools_claim(text), "should match: {}", text);
+        assert!(is_false_no_tools_claim(text), "should match: {text}");
     }
     let negatives = [
         "Here's how to use the tools in this project.",
         "I'll use the exec tool to run that command.",
     ];
     for text in negatives {
-        assert!(!is_false_no_tools_claim(text), "should NOT match: {}", text);
+        assert!(!is_false_no_tools_claim(text), "should NOT match: {text}");
     }
 }
 
@@ -747,7 +747,7 @@ fn test_load_and_encode_images_multiple_formats() {
         .iter()
         .map(|ext| {
             tmp.path()
-                .join(format!("test.{}", ext))
+                .join(format!("test.{ext}"))
                 .to_string_lossy()
                 .to_string()
         })
@@ -804,7 +804,7 @@ fn test_load_and_encode_images_max_limit() {
     let tmp = tempfile::TempDir::new().unwrap();
     let mut paths = Vec::new();
     for i in 0..8 {
-        let path = tmp.path().join(format!("img{}.png", i));
+        let path = tmp.path().join(format!("img{i}.png"));
         std::fs::write(&path, PNG_MAGIC).unwrap();
         paths.push(path.to_string_lossy().to_string());
     }
@@ -911,8 +911,7 @@ fn test_conversational_reply_passes_through() {
         );
         assert!(
             matches!(result, TextAction::Return),
-            "conversational reply '{}' should pass through",
-            reply
+            "conversational reply '{reply}' should pass through"
         );
     }
 }
@@ -1119,8 +1118,7 @@ fn test_text_after_tools_called_passes_action_claims() {
         );
         assert!(
             matches!(result, TextAction::Return),
-            "claim '{}' should pass through after tools were called",
-            claim
+            "claim '{claim}' should pass through after tools were called"
         );
         assert!(
             !state.layer1_fired,
@@ -1238,10 +1236,8 @@ fn test_extract_media_paths_json_media_path() {
     // Create a temp file so the path exists
     let tmp = tempfile::NamedTempFile::new().unwrap();
     let path = tmp.path().to_string_lossy().to_string();
-    let json = format!(
-        r#"{{"url":"https://example.com/img.png","mediaPath":"{}","mediaSize":1234}}"#,
-        path
-    );
+    let json =
+        format!(r#"{{"url":"https://example.com/img.png","mediaPath":"{path}","mediaSize":1234}}"#);
     let paths = extract_media_paths(&json);
     assert_eq!(paths, vec![path]);
 }
@@ -1250,7 +1246,7 @@ fn test_extract_media_paths_json_media_path() {
 fn test_extract_media_paths_saved_to_pattern() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     let path = tmp.path().to_string_lossy().to_string();
-    let text = format!("Screenshot saved to: {}\nSize: 12345 bytes", path);
+    let text = format!("Screenshot saved to: {path}\nSize: 12345 bytes");
     let paths = extract_media_paths(&text);
     assert_eq!(paths, vec![path]);
 }
@@ -1273,7 +1269,7 @@ fn test_extract_media_paths_deduplicates() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     let path = tmp.path().to_string_lossy().to_string();
     // Both JSON and text pattern point to same file
-    let text = format!(r#"{{"mediaPath":"{}"}}"#, path);
+    let text = format!(r#"{{"mediaPath":"{path}"}}"#);
     // Only returns once despite being findable via JSON parse
     let paths = extract_media_paths(&text);
     assert_eq!(paths.len(), 1);

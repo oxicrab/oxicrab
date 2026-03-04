@@ -135,7 +135,7 @@ impl ToolRegistry {
         let tool = self
             .tools
             .get(name)
-            .ok_or_else(|| anyhow::anyhow!("Tool '{}' not found", name))?
+            .ok_or_else(|| anyhow::anyhow!("Tool '{name}' not found"))?
             .clone();
 
         // Phase 1: before_execute middleware chain
@@ -185,8 +185,7 @@ impl ToolRegistry {
             Ok(Err(_)) => {
                 warn!("Tool '{}' timed out after {}s", tool_name, timeout_secs);
                 Ok(ToolResult::error(format!(
-                    "Tool '{}' timed out after {}s",
-                    tool_name, timeout_secs
+                    "Tool '{tool_name}' timed out after {timeout_secs}s"
                 )))
             }
             Err(join_err) => {
@@ -201,11 +200,10 @@ impl ToolRegistry {
                         .unwrap_or("unknown cause");
                     error!("Tool '{}' panicked: {}", tool_name, panic_msg);
                     Ok(ToolResult::error(format!(
-                        "Tool '{}' crashed: {}",
-                        tool_name, panic_msg
+                        "Tool '{tool_name}' crashed: {panic_msg}"
                     )))
                 } else {
-                    Err(anyhow::anyhow!("Tool '{}' was cancelled", tool_name))
+                    Err(anyhow::anyhow!("Tool '{tool_name}' was cancelled"))
                 }
             }
         }

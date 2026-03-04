@@ -70,13 +70,13 @@ impl RedditTool {
 
         let status = resp.status();
         if status.as_u16() == 404 {
-            anyhow::bail!("Subreddit r/{} not found", subreddit);
+            anyhow::bail!("Subreddit r/{subreddit} not found");
         }
         if status.as_u16() == 403 {
-            anyhow::bail!("Subreddit r/{} is private or quarantined", subreddit);
+            anyhow::bail!("Subreddit r/{subreddit} is private or quarantined");
         }
         if !status.is_success() {
-            anyhow::bail!("Reddit API error: HTTP {}", status);
+            anyhow::bail!("Reddit API error: HTTP {status}");
         }
 
         let json: Value = resp.json().await?;
@@ -86,7 +86,7 @@ impl RedditTool {
             .unwrap_or_default();
 
         if posts.is_empty() {
-            return Ok(format!("No posts found in r/{}.", subreddit));
+            return Ok(format!("No posts found in r/{subreddit}."));
         }
 
         let lines: Vec<String> = posts
@@ -139,7 +139,7 @@ impl RedditTool {
 
         let status = resp.status();
         if !status.is_success() {
-            anyhow::bail!("Reddit search error: HTTP {}", status);
+            anyhow::bail!("Reddit search error: HTTP {status}");
         }
 
         let json: Value = resp.json().await?;
@@ -149,7 +149,7 @@ impl RedditTool {
             .unwrap_or_default();
 
         if posts.is_empty() {
-            return Ok(format!("No results for '{}' in r/{}.", query, subreddit));
+            return Ok(format!("No results for '{query}' in r/{subreddit}."));
         }
 
         let lines: Vec<String> = posts
@@ -281,12 +281,12 @@ impl Tool for RedditTool {
                 };
                 self.search(subreddit, query, limit).await
             }
-            _ => return Ok(ToolResult::error(format!("unknown action: {}", action))),
+            _ => return Ok(ToolResult::error(format!("unknown action: {action}"))),
         };
 
         match result {
             Ok(content) => Ok(ToolResult::new(content)),
-            Err(e) => Ok(ToolResult::error(format!("Reddit error: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("Reddit error: {e}"))),
         }
     }
 }

@@ -32,10 +32,7 @@ pub fn save_media_file(bytes: &[u8], prefix: &str, extension: &str) -> Result<St
     // Validate image magic bytes for known image extensions
     let image_exts = ["png", "jpg", "jpeg", "gif", "webp"];
     if image_exts.contains(&extension) && !is_image_magic_bytes(bytes) {
-        bail!(
-            "data does not match expected image format for .{}",
-            extension
-        );
+        bail!("data does not match expected image format for .{extension}");
     }
 
     let media_dir = media_dir()?;

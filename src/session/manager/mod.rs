@@ -120,7 +120,7 @@ impl SessionManager {
 
     fn get_session_path(&self, key: &str) -> PathBuf {
         let safe_key = safe_filename(&key.replace(':', "_"));
-        self.sessions_dir.join(format!("{}.jsonl", safe_key))
+        self.sessions_dir.join(format!("{safe_key}.jsonl"))
     }
 
     pub async fn get_or_create(&self, key: &str) -> Result<Session> {
@@ -139,7 +139,7 @@ impl SessionManager {
         let path = self.get_session_path(key);
         let loaded = tokio::task::spawn_blocking(move || Self::load_from_path(&path))
             .await
-            .map_err(|e| anyhow::anyhow!("session load task failed: {}", e))??;
+            .map_err(|e| anyhow::anyhow!("session load task failed: {e}"))??;
         let session = if let Some(s) = loaded {
             debug!("session loaded from disk: {}", key);
             s

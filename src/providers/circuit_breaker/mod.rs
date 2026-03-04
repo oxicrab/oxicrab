@@ -18,7 +18,7 @@ impl std::fmt::Display for CircuitState {
         match self {
             Self::Closed => write!(f, "Closed"),
             Self::Open { .. } => write!(f, "Open"),
-            Self::HalfOpen { successes } => write!(f, "HalfOpen({})", successes),
+            Self::HalfOpen { successes } => write!(f, "HalfOpen({successes})"),
         }
     }
 }

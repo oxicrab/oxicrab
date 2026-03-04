@@ -90,7 +90,7 @@ fn test_check_file_permissions_insecure() {
 fn test_check_result_debug_impl() {
     // Ensure Debug is implemented and doesn't panic
     let pass = CheckResult::Pass("ok".to_string());
-    let _ = format!("{:?}", pass);
+    let _ = format!("{pass:?}");
 }
 
 #[test]

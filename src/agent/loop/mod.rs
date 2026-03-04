@@ -1234,8 +1234,7 @@ impl AgentLoop {
             // Inject wrap-up hint when approaching iteration limit
             if iteration == wrapup_threshold && any_tools_called {
                 messages.push(Message::system(format!(
-                    "You have used {} of {} iterations. Begin wrapping up — summarize progress and deliver results.",
-                    iteration, effective_max_iterations
+                    "You have used {iteration} of {effective_max_iterations} iterations. Begin wrapping up — summarize progress and deliver results."
                 )));
             }
 
@@ -1767,7 +1766,7 @@ impl AgentLoop {
             ("cli".to_string(), msg.chat_id.clone())
         };
 
-        let session_key = format!("{}:{}", origin_channel, origin_chat_id);
+        let session_key = format!("{origin_channel}:{origin_chat_id}");
         let session = self.sessions.get_or_create(&session_key).await?;
 
         let history = self.get_compacted_history(&session).await?;
@@ -1873,12 +1872,12 @@ impl AgentLoop {
                     info!("remember fast path: duplicate detected, skipping write");
                     "I already have that noted.".to_string()
                 } else {
-                    self.memory.append_today(&format!("\n- {}\n", reframed))?;
+                    self.memory.append_today(&format!("\n- {reframed}\n"))?;
                     info!(
                         "remember fast path: wrote {} chars to daily notes (reframed)",
                         reframed.len()
                     );
-                    format!("Noted (reframed for accuracy): {}", reframed)
+                    format!("Noted (reframed for accuracy): {reframed}")
                 }
             }
             QualityVerdict::Pass => {
@@ -1887,12 +1886,12 @@ impl AgentLoop {
                     info!("remember fast path: duplicate detected, skipping write");
                     "I already have that noted.".to_string()
                 } else {
-                    self.memory.append_today(&format!("\n- {}\n", content))?;
+                    self.memory.append_today(&format!("\n- {content}\n"))?;
                     info!(
                         "remember fast path: wrote {} chars to daily notes",
                         content.len()
                     );
-                    format!("Noted! I'll remember: {}", content)
+                    format!("Noted! I'll remember: {content}")
                 }
             }
         };
@@ -1902,7 +1901,7 @@ impl AgentLoop {
         let extra = HashMap::new();
         session.add_message(
             "user".to_string(),
-            format!("remember that {}", content),
+            format!("remember that {content}"),
             extra.clone(),
         );
         session.add_message("assistant".to_string(), response.clone(), extra);

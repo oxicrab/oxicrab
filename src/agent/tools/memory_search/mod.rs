@@ -88,7 +88,7 @@ impl Tool for MemorySearchTool {
                     Ok(ToolResult::new(context))
                 }
             }
-            Err(e) => Ok(ToolResult::error(format!("memory search error: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("memory search error: {e}"))),
         }
     }
 }

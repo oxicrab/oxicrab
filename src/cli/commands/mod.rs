@@ -439,7 +439,7 @@ Notes and configuration details for tools.
         let file_path = workspace.join(filename);
         if !file_path.exists() {
             std::fs::write(&file_path, content)?;
-            println!("  Created {}", filename);
+            println!("  Created {filename}");
         }
     }
 

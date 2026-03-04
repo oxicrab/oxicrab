@@ -29,7 +29,7 @@ impl LLMProvider for MockProvider {
     async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
         match &self.response {
             Ok(r) => Ok(r.clone()),
-            Err(e) => Err(anyhow::anyhow!("{}", e)),
+            Err(e) => Err(anyhow::anyhow!("{e}")),
         }
     }
 

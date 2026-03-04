@@ -225,7 +225,7 @@ impl MessageCompactor {
             .map(|m| {
                 let role = m.get("role").and_then(|v| v.as_str()).unwrap_or_default();
                 let content = extract_message_text(m.get("content"));
-                format!("{}: {}", role, content)
+                format!("{role}: {content}")
             })
             .collect();
 
@@ -277,7 +277,7 @@ impl MessageCompactor {
             .map(|m| {
                 let role = m.get("role").and_then(|v| v.as_str()).unwrap_or_default();
                 let content = extract_message_text(m.get("content"));
-                format!("{}: {}", role, content)
+                format!("{role}: {content}")
             })
             .collect();
 

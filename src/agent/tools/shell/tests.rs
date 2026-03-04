@@ -193,8 +193,7 @@ fn test_blocklist_blocks_command_substitution() {
     let msg = result.unwrap();
     assert!(
         msg.contains("structural analysis") || msg.contains("security policy"),
-        "expected block message, got: {}",
-        msg
+        "expected block message, got: {msg}"
     );
 }
 
@@ -207,8 +206,7 @@ fn test_blocklist_blocks_backtick_substitution() {
     let msg = result.unwrap();
     assert!(
         msg.contains("structural analysis") || msg.contains("security policy"),
-        "expected block message, got: {}",
-        msg
+        "expected block message, got: {msg}"
     );
 }
 

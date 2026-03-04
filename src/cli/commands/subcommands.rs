@@ -41,7 +41,7 @@ pub(super) async fn agent(message: Option<String>, session: String) -> Result<()
         let response = agent
             .process_direct(&msg, &session, "cli", "direct")
             .await?;
-        println!("\u{1f916} {}", response);
+        println!("\u{1f916} {response}");
     } else {
         interactive_repl(&agent, &session).await?;
     }
@@ -69,7 +69,7 @@ async fn interactive_repl(agent: &AgentLoop, session: &str) -> Result<()> {
         let response = agent
             .process_direct(input, session, "cli", "direct")
             .await?;
-        println!("\n\u{1f916} {}\n", response);
+        println!("\n\u{1f916} {response}\n");
     }
 }
 
@@ -204,7 +204,7 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                 println!("Removed cron job: {} ({})", job.name, job.id);
             }
             None => {
-                println!("Cron job {} not found.", id);
+                println!("Cron job {id} not found.");
             }
         },
         CronCommands::Enable { id, disable } => match cron.enable_job(&id, !disable).await? {
@@ -213,7 +213,7 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                 println!("Job {} ({}) {}", job.name, job.id, status);
             }
             None => {
-                println!("Cron job {} not found.", id);
+                println!("Cron job {id} not found.");
             }
         },
         CronCommands::Edit {
@@ -311,7 +311,7 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                     println!("Updated job: {} ({})", job.name, job.id);
                 }
                 None => {
-                    println!("Cron job {} not found.", id);
+                    println!("Cron job {id} not found.");
                 }
             }
         }
@@ -319,11 +319,11 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
             Some(result) => {
                 println!("Job executed successfully.");
                 if let Some(output) = result {
-                    println!("{}", output);
+                    println!("{output}");
                 }
             }
             None => {
-                println!("Failed to run job {} (not found or disabled)", id);
+                println!("Failed to run job {id} (not found or disabled)");
             }
         },
     }
@@ -583,7 +583,7 @@ pub(super) fn status_command() -> Result<()> {
         );
         if has_vllm {
             if let Some(api_base) = config.providers.vllm.base.api_base.as_ref() {
-                println!("vLLM/Local: \u{2713} {}", api_base);
+                println!("vLLM/Local: \u{2713} {api_base}");
             } else {
                 println!("vLLM/Local: not set");
             }
@@ -602,7 +602,7 @@ pub(super) fn status_command() -> Result<()> {
             (false, true) => format!("\u{2713} cloud only ({})", config.voice.transcription.model),
             (false, false) => "not configured".to_string(),
         };
-        println!("Voice transcription: {}", voice_status);
+        println!("Voice transcription: {voice_status}");
 
         // Google status
         let gcfg = &config.tools.google;
@@ -622,7 +622,7 @@ pub(super) fn status_command() -> Result<()> {
             } else {
                 "not authenticated (run: oxicrab auth google)"
             };
-            println!("Google: {}", status_str);
+            println!("Google: {status_str}");
         } else {
             println!("Google: disabled");
         }
@@ -663,19 +663,19 @@ pub(super) fn pairing_command(cmd: PairingCommands) -> Result<()> {
             let mut store = crate::pairing::PairingStore::new()?;
             match store.approve(&code)? {
                 Some((channel, sender_id)) => {
-                    println!("Approved: {}:{}", channel, sender_id);
+                    println!("Approved: {channel}:{sender_id}");
                 }
                 None => {
-                    println!("Invalid or expired code: {}", code);
+                    println!("Invalid or expired code: {code}");
                 }
             }
         }
         PairingCommands::Revoke { channel, sender_id } => {
             let mut store = crate::pairing::PairingStore::new()?;
             if store.revoke(&channel, &sender_id)? {
-                println!("Revoked: {}:{}", channel, sender_id);
+                println!("Revoked: {channel}:{sender_id}");
             } else {
-                println!("Sender not found: {}:{}", channel, sender_id);
+                println!("Sender not found: {channel}:{sender_id}");
             }
         }
     }
@@ -768,7 +768,7 @@ pub(super) fn credentials_command(cmd: CredentialCommands) -> Result<()> {
 
             for &name in CREDENTIAL_NAMES {
                 let source = detect_source(name, &config);
-                println!("{:<30} {}", name, source);
+                println!("{name:<30} {source}");
             }
 
             println!(
@@ -863,7 +863,7 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
             let summary = db.get_cost_summary(&since)?;
 
             if summary.is_empty() {
-                println!("No cost data in the last {} days.", days);
+                println!("No cost data in the last {days} days.");
                 return Ok(());
             }
 
@@ -909,7 +909,7 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
             if !top.is_empty() {
                 println!("\nTop Sources by Hit Count:");
                 for (key, count) in &top {
-                    println!("  {:<30} {} hits", key, count);
+                    println!("  {key:<30} {count} hits");
                 }
             }
         }
@@ -920,10 +920,7 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
             .to_string();
             let stats = db.get_intent_stats(&since)?;
 
-            println!(
-                "Intent Classification & Hallucination Detection (last {} days)",
-                days
-            );
+            println!("Intent Classification & Hallucination Detection (last {days} days)");
             println!("{}", "\u{2500}".repeat(55));
             println!();
             println!("Classification:");
@@ -968,14 +965,14 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
             let stats = db.get_complexity_stats(&since)?;
 
             if stats.total_scored == 0 {
-                println!("No complexity routing data in the last {} days.", days);
+                println!("No complexity routing data in the last {days} days.");
                 println!(
                     "Enable complexity routing: add a 'chat' entry to modelRouting.tasks with thresholds and models"
                 );
                 return Ok(());
             }
 
-            println!("Complexity Routing (last {} days)", days);
+            println!("Complexity Routing (last {days} days)");
             println!("{}", "\u{2500}".repeat(55));
             println!("Messages scored:    {}", stats.total_scored);
             println!();
@@ -1011,7 +1008,7 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
                     let forced_tag = event
                         .forced
                         .as_ref()
-                        .map(|f| format!(" [forced:{}]", f))
+                        .map(|f| format!(" [forced:{f}]"))
                         .unwrap_or_default();
                     println!(
                         "  [{}] score={:.2} model={}{} \"{:.60}\"",
@@ -1069,25 +1066,25 @@ async fn whatsapp_login() -> Result<()> {
                                 .quiet_zone(false)
                                 .module_dimensions(1, 1)
                                 .build();
-                            println!("{}", string);
+                            println!("{string}");
                         }
                         Err(e) => {
-                            eprintln!("Failed to generate QR code: {}. Raw code: {}", e, code);
-                            println!("Raw QR code data: {}", code);
+                            eprintln!("Failed to generate QR code: {e}. Raw code: {code}");
+                            println!("Raw QR code data: {code}");
                         }
                     }
                 }
                 Event::PairingCode { code, timeout } => {
-                    println!("\n\u{1f916} WhatsApp Pairing Code: {}", code);
+                    println!("\n\u{1f916} WhatsApp Pairing Code: {code}");
                     println!("Enter this code on your phone.");
-                    println!("Code expires in: {:?}\n", timeout);
+                    println!("Code expires in: {timeout:?}\n");
                 }
                 Event::PairSuccess(_pair_success) => {
                     println!("\n\u{2705} WhatsApp connected successfully!");
                     println!("You can now close this window. The session is saved.\n");
                 }
                 Event::PairError(pair_error) => {
-                    eprintln!("\n\u{274c} WhatsApp pairing failed: {:?}", pair_error);
+                    eprintln!("\n\u{274c} WhatsApp pairing failed: {pair_error:?}");
                 }
                 Event::Connected(_connected) => {
                     println!("\n\u{2705} WhatsApp connected!\n");
@@ -1118,7 +1115,7 @@ async fn whatsapp_login() -> Result<()> {
             }
         }
         Err(e) => {
-            anyhow::bail!("Failed to start WhatsApp bot: {}", e);
+            anyhow::bail!("Failed to start WhatsApp bot: {e}");
         }
     }
 

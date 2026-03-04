@@ -185,7 +185,7 @@ impl LeakDetector {
             let escaped = regex::escape(value);
             if let Ok(regex) = Regex::new(&escaped) {
                 self.known_secrets.push(KnownSecretPattern {
-                    name: format!("{}_raw", name),
+                    name: format!("{name}_raw"),
                     regex,
                 });
             }
@@ -197,7 +197,7 @@ impl LeakDetector {
                 let b64_escaped = regex::escape(b64);
                 if let Ok(regex) = Regex::new(&b64_escaped) {
                     self.known_secrets.push(KnownSecretPattern {
-                        name: format!("{}_{}", name, suffix),
+                        name: format!("{name}_{suffix}"),
                         regex,
                     });
                 }
@@ -205,9 +205,9 @@ impl LeakDetector {
             let hex_str = hex::encode(value.as_bytes());
             let hex_escaped = regex::escape(&hex_str);
             // Match both lowercase and uppercase hex
-            if let Ok(regex) = Regex::new(&format!("(?i){}", hex_escaped)) {
+            if let Ok(regex) = Regex::new(&format!("(?i){hex_escaped}")) {
                 self.known_secrets.push(KnownSecretPattern {
-                    name: format!("{}_hex", name),
+                    name: format!("{name}_hex"),
                     regex,
                 });
             }

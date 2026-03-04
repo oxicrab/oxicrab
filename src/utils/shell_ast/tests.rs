@@ -186,8 +186,7 @@ fn test_clean_ls() {
     let violations = analyze_command("ls -la");
     assert!(
         violations.is_empty(),
-        "ls -la should be clean: {:?}",
-        violations
+        "ls -la should be clean: {violations:?}"
     );
 }
 
@@ -196,8 +195,7 @@ fn test_clean_pipe() {
     let violations = analyze_command("cat file | grep foo | sort");
     assert!(
         violations.is_empty(),
-        "safe pipe should be clean: {:?}",
-        violations
+        "safe pipe should be clean: {violations:?}"
     );
 }
 
@@ -206,8 +204,7 @@ fn test_clean_git() {
     let violations = analyze_command("git log --oneline");
     assert!(
         violations.is_empty(),
-        "git log should be clean: {:?}",
-        violations
+        "git log should be clean: {violations:?}"
     );
 }
 
@@ -216,8 +213,7 @@ fn test_clean_redirect_to_file() {
     let violations = analyze_command("echo hello > /tmp/output.txt");
     assert!(
         violations.is_empty(),
-        "redirect to normal file should be clean: {:?}",
-        violations
+        "redirect to normal file should be clean: {violations:?}"
     );
 }
 
@@ -226,8 +222,7 @@ fn test_clean_cargo() {
     let violations = analyze_command("cargo test --lib");
     assert!(
         violations.is_empty(),
-        "cargo test should be clean: {:?}",
-        violations
+        "cargo test should be clean: {violations:?}"
     );
 }
 
@@ -249,8 +244,7 @@ fn test_safe_pipe_to_grep() {
     let violations = analyze_command("cat file | grep pattern");
     assert!(
         violations.is_empty(),
-        "piping to grep should be safe: {:?}",
-        violations
+        "piping to grep should be safe: {violations:?}"
     );
 }
 
@@ -259,8 +253,7 @@ fn test_chain_clean() {
     let violations = analyze_command("mkdir -p dir && cd dir && ls");
     assert!(
         violations.is_empty(),
-        "simple chain should be clean: {:?}",
-        violations
+        "simple chain should be clean: {violations:?}"
     );
 }
 

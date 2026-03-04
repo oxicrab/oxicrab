@@ -40,8 +40,7 @@ fn reject_greetings_exact() {
             assert_eq!(
                 result,
                 QualityVerdict::Reject(RejectReason::Greeting),
-                "greeting '{}' should be rejected",
-                greeting
+                "greeting '{greeting}' should be rejected"
             );
         }
     }
@@ -114,7 +113,7 @@ fn reframe_negative_memory() {
             assert!(s.contains("tool calls were broken"));
             assert!(s.contains("verify current state"));
         }
-        other => panic!("expected Reframed, got {:?}", other),
+        other => panic!("expected Reframed, got {other:?}"),
     }
 }
 
@@ -125,7 +124,7 @@ fn reframe_api_failure() {
         QualityVerdict::Reframed(s) => {
             assert!(s.contains("API kept failing"));
         }
-        other => panic!("expected Reframed, got {:?}", other),
+        other => panic!("expected Reframed, got {other:?}"),
     }
 }
 
@@ -136,7 +135,7 @@ fn reframe_crash() {
         QualityVerdict::Reframed(s) => {
             assert!(s.contains("database crashed"));
         }
-        other => panic!("expected Reframed, got {:?}", other),
+        other => panic!("expected Reframed, got {other:?}"),
     }
 }
 

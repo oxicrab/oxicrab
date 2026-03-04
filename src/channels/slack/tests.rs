@@ -27,7 +27,7 @@ fn test_resolve_slack_redirect() {
     ];
     for (input, expected) in cases {
         let result = resolve_slack_redirect(input);
-        assert_eq!(result, expected, "failed for input: {}", input);
+        assert_eq!(result, expected, "failed for input: {input}");
     }
     // Also verify scheme preservation
     let http_result = resolve_slack_redirect(
@@ -257,8 +257,7 @@ async fn test_download_slack_file_redirect_loop_detection() {
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("redirect loop"),
-        "Expected redirect loop error, got: {}",
-        err
+        "Expected redirect loop error, got: {err}"
     );
 }
 
@@ -281,8 +280,7 @@ async fn test_download_slack_file_redirect_loop_mentions_files_read() {
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("files:read"),
-        "Error should mention missing files:read scope, got: {}",
-        err
+        "Error should mention missing files:read scope, got: {err}"
     );
 }
 
@@ -294,7 +292,7 @@ async fn test_download_slack_file_exceeds_max_redirects() {
     // No .expect() — some hops may not be reached before the limit.
     for i in 0..6 {
         Mock::given(method("GET"))
-            .and(path(format!("/hop{}", i)))
+            .and(path(format!("/hop{i}")))
             .respond_with(
                 ResponseTemplate::new(302)
                     .insert_header("Location", format!("{}/hop{}", server.uri(), i + 1)),

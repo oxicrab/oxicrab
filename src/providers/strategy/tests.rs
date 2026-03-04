@@ -248,8 +248,7 @@ fn test_get_provider_config_all_known() {
     ] {
         assert!(
             factory.get_provider_config(keyword).is_some(),
-            "missing config for {}",
-            keyword
+            "missing config for {keyword}"
         );
     }
     assert!(factory.get_provider_config("nonexistent").is_none());

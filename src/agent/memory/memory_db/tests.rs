@@ -85,7 +85,7 @@ fn test_fts_query_case_insensitive() {
 
 #[test]
 fn test_fts_query_max_terms() {
-    let terms: Vec<String> = (0..30).map(|i| format!("word{}", i)).collect();
+    let terms: Vec<String> = (0..30).map(|i| format!("word{i}")).collect();
     let q = fts_query(&terms.join(" "));
     let count = q.split(" OR ").count();
     assert!(count <= MAX_FTS_TERMS);
@@ -307,7 +307,7 @@ fn test_cost_record_and_query() {
 
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let daily = db.get_daily_cost(&today).unwrap();
-    assert!((daily - 7.7).abs() < 0.01, "expected 7.7, got {}", daily);
+    assert!((daily - 7.7).abs() < 0.01, "expected 7.7, got {daily}");
 }
 
 #[test]
@@ -652,9 +652,7 @@ fn test_recency_decay_preserves_relevance_ordering() {
     let recent_score = 0.2 * recency_decay(1.0, 90); // 0.2 * ~1.0 = ~0.2
     assert!(
         old_score > recent_score,
-        "highly relevant old entry ({}) should still beat low-relevance recent entry ({})",
-        old_score,
-        recent_score
+        "highly relevant old entry ({old_score}) should still beat low-relevance recent entry ({recent_score})"
     );
 }
 

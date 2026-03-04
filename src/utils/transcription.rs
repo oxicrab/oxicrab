@@ -186,7 +186,7 @@ impl TranscriptionService {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            bail!("whisper API returned {}: {}", status, body);
+            bail!("whisper API returned {status}: {body}");
         }
 
         let body: serde_json::Value = response

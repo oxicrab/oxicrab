@@ -113,7 +113,7 @@ impl MessageBus {
                 self.rate_limit,
                 self.rate_window.as_secs_f64()
             );
-            return Err(anyhow::anyhow!("Rate limit exceeded for {}", key));
+            return Err(anyhow::anyhow!("Rate limit exceeded for {key}"));
         }
 
         timestamps.push(now);
@@ -159,7 +159,7 @@ impl MessageBus {
                 self.outbound_rate_limit,
                 self.rate_window.as_secs_f64()
             );
-            return Err(anyhow::anyhow!("Outbound rate limit exceeded for {}", key));
+            return Err(anyhow::anyhow!("Outbound rate limit exceeded for {key}"));
         }
         timestamps.push(now);
 

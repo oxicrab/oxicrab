@@ -61,15 +61,12 @@ impl Tool for SubagentControlTool {
             "list" => {
                 let tasks = self.manager.list_running().await;
                 let (running, max, available) = self.manager.capacity().await;
-                let capacity_line = format!(
-                    "Capacity: {}/{} running, {} slots available",
-                    running, max, available
-                );
+                let capacity_line =
+                    format!("Capacity: {running}/{max} running, {available} slots available");
 
                 if tasks.is_empty() {
                     return Ok(ToolResult::new(format!(
-                        "No running subagents.\n{}",
-                        capacity_line
+                        "No running subagents.\n{capacity_line}"
                     )));
                 }
                 let lines: Vec<String> = tasks
@@ -91,7 +88,7 @@ impl Tool for SubagentControlTool {
                         } else {
                             "running"
                         };
-                        format!("- [{}] {}", id, status)
+                        format!("- [{id}] {status}")
                     })
                     .collect();
                 Ok(ToolResult::new(format!(
@@ -108,13 +105,11 @@ impl Tool for SubagentControlTool {
                 let cancelled = self.manager.cancel(task_id).await;
                 if cancelled {
                     Ok(ToolResult::new(format!(
-                        "Subagent {} cancelled successfully.",
-                        task_id
+                        "Subagent {task_id} cancelled successfully."
                     )))
                 } else {
                     Ok(ToolResult::error(format!(
-                        "subagent {} not found or already finished",
-                        task_id
+                        "subagent {task_id} not found or already finished"
                     )))
                 }
             }

@@ -142,7 +142,7 @@ impl BaseChannel for TelegramChannel {
                                                 } else {
                                                     let path_str = file_path.to_string_lossy().to_string();
                                                     media_paths.push(path_str.clone());
-                                                    content = format!("{}\n[image: {}]", content, path_str);
+                                                    content = format!("{content}\n[image: {path_str}]");
                                                 }
                                             }
                                         }
@@ -208,7 +208,7 @@ impl BaseChannel for TelegramChannel {
                                             } else {
                                                 let path_str = file_path.to_string_lossy().to_string();
                                                 media_paths.push(path_str.clone());
-                                                content = format!("{}\n[audio: {}]", content, path_str);
+                                                content = format!("{content}\n[audio: {path_str}]");
                                             }
                                         }
                                     }
@@ -293,7 +293,7 @@ impl BaseChannel for TelegramChannel {
                                                 let tag = if is_image { "image" } else { "document" };
                                                 media_paths.push(path_str.clone());
                                                 content =
-                                                    format!("{}\n[{}: {}]", content, tag, path_str);
+                                                    format!("{content}\n[{tag}: {path_str}]");
                                             }
                                         }
                                     }
@@ -394,7 +394,7 @@ impl BaseChannel for TelegramChannel {
     async fn send_typing(&self, chat_id: &str) -> Result<()> {
         let chat_id = chat_id
             .parse::<i64>()
-            .map_err(|e| anyhow::anyhow!("Invalid Telegram chat_id: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Invalid Telegram chat_id: {e}"))?;
         self.bot
             .send_chat_action(ChatId(chat_id), teloxide::types::ChatAction::Typing)
             .await?;
@@ -517,7 +517,7 @@ fn markdown_to_telegram_html(text: &str) -> String {
         let url = cap.get(2).map_or("", |c| c.as_str());
         let idx = links.len();
         links.push((display.to_string(), url.to_string()));
-        let _ = write!(with_placeholders, "{}{}\x00", placeholder_prefix, idx);
+        let _ = write!(with_placeholders, "{placeholder_prefix}{idx}\x00");
         last_end = m.end();
     }
     with_placeholders.push_str(&text[last_end..]);
@@ -527,9 +527,9 @@ fn markdown_to_telegram_html(text: &str) -> String {
 
     // Re-insert links with escaped display text but unescaped URLs in href
     for (idx, (display, url)) in links.iter().enumerate() {
-        let placeholder = format!("{}{}\x00", placeholder_prefix, idx);
+        let placeholder = format!("{placeholder_prefix}{idx}\x00");
         let escaped_display = html_escape::encode_text(display);
-        let link_html = format!(r#"<a href="{}">{}</a>"#, url, escaped_display);
+        let link_html = format!(r#"<a href="{url}">{escaped_display}</a>"#);
         html = html.replace(&placeholder, &link_html);
     }
 

@@ -27,8 +27,7 @@ impl EmbeddingService {
             "BAAI/bge-base-en-v1.5" => EmbeddingModel::BGEBaseENV15,
             _ => {
                 anyhow::bail!(
-                    "unsupported embedding model '{}'; use BAAI/bge-small-en-v1.5 or BAAI/bge-base-en-v1.5",
-                    model_name
+                    "unsupported embedding model '{model_name}'; use BAAI/bge-small-en-v1.5 or BAAI/bge-base-en-v1.5"
                 );
             }
         };

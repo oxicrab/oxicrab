@@ -62,7 +62,7 @@ pub(crate) fn validate_tool_params(
             if let Some(field_name) = field.as_str()
                 && (params.get(field_name).is_none() || params[field_name].is_null())
             {
-                errors.push(format!("missing required parameter '{}'", field_name));
+                errors.push(format!("missing required parameter '{field_name}'"));
             }
         }
     }
@@ -162,9 +162,8 @@ pub(super) async fn execute_tool_call(
         warn!("blocked untrusted MCP tool: {}", tc_name);
         return (
             format!(
-                "Error: tool '{}' is from an untrusted MCP server and requires approval. \
-                 Change the server's trust level to \"local\" in config to allow execution.",
-                tc_name
+                "Error: tool '{tc_name}' is from an untrusted MCP server and requires approval. \
+                 Change the server's trust level to \"local\" in config to allow execution."
             ),
             true,
         );
@@ -184,7 +183,7 @@ pub(super) async fn execute_tool_call(
         Err(e) => {
             warn!("Tool '{}' failed: {}", tc_name, e);
             let msg = crate::utils::path_sanitize::sanitize_error_message(
-                &format!("Tool execution failed: {}", e),
+                &format!("Tool execution failed: {e}"),
                 workspace,
             );
             (msg, true)
@@ -224,7 +223,7 @@ pub(super) const ACTION_CLAIM_PATTERNS: &[&str] = &[
 /// Built from composable `ACTION_CLAIM_PATTERNS` fragments.
 static ACTION_CLAIM_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
     let combined = ACTION_CLAIM_PATTERNS.join("|");
-    Regex::new(&format!("(?i)(?:{})", combined)).expect("Invalid action claim regex")
+    Regex::new(&format!("(?i)(?:{combined})")).expect("Invalid action claim regex")
 });
 
 /// Returns `true` if the text contains phrases claiming actions were performed.
@@ -423,7 +422,7 @@ pub(super) async fn transcribe_audio_tags(
             match transcriber.transcribe(path).await {
                 Ok(text) if !text.is_empty() => {
                     info!("transcribed audio: {} -> {} chars", path_str, text.len());
-                    let _ = write!(result, "[Voice message: \"{}\"]", text);
+                    let _ = write!(result, "[Voice message: \"{text}\"]");
                 }
                 Ok(_) => {
                     warn!("empty transcription for {}", path_str);

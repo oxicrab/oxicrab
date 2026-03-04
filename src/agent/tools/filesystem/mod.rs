@@ -114,7 +114,7 @@ async fn backup_file(file_path: &Path, backup_dir: &Path) {
         return;
     }
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let backup_name = format!("{}.{}", filename, timestamp);
+    let backup_name = format!("{filename}.{timestamp}");
     let backup_path = backup_dir.join(&backup_name);
     if let Err(e) = tokio::fs::copy(file_path, &backup_path).await {
         warn!(
@@ -127,7 +127,7 @@ async fn backup_file(file_path: &Path, backup_dir: &Path) {
     }
 
     // Prune old backups: list all files matching "{filename}.*", sort, remove oldest
-    let prefix = format!("{}.", filename);
+    let prefix = format!("{filename}.");
     let mut backups: Vec<PathBuf> = Vec::new();
     if let Ok(mut rd) = tokio::fs::read_dir(backup_dir).await {
         while let Ok(Some(entry)) = rd.next_entry().await {
@@ -242,14 +242,12 @@ impl Tool for ReadFileTool {
                 };
                 let Ok(meta) = dir.metadata(&target) else {
                     return Ok(ToolResult::error(format!(
-                        "file not found: {}",
-                        path_str_owned
+                        "file not found: {path_str_owned}"
                     )));
                 };
                 if meta.is_dir() {
                     return Ok(ToolResult::error(format!(
-                        "not a file (path is a directory): {}. Use list_dir to list directory contents, or read_file with a file path",
-                        path_str_owned
+                        "not a file (path is a directory): {path_str_owned}. Use list_dir to list directory contents, or read_file with a file path"
                     )));
                 }
                 if meta.len() > MAX_READ_BYTES {
@@ -262,7 +260,7 @@ impl Tool for ReadFileTool {
                 match dir.read_to_string(&target) {
                     Ok(content) => Ok(ToolResult::new(content)),
                     Err(e) => Ok(ToolResult::error(sanitize_err(
-                        &format!("error reading file: {}", e),
+                        &format!("error reading file: {e}"),
                         ws_ref,
                     ))),
                 }
@@ -277,8 +275,7 @@ impl Tool for ReadFileTool {
             match tokio::fs::metadata(&expanded).await {
                 Ok(meta) if meta.is_dir() => {
                     return Ok(ToolResult::error(format!(
-                        "not a file (path is a directory): {}. Use list_dir to list directory contents, or read_file with a file path",
-                        path_str
+                        "not a file (path is a directory): {path_str}. Use list_dir to list directory contents, or read_file with a file path"
                     )));
                 }
                 Ok(meta) if meta.len() > MAX_READ_BYTES => {
@@ -289,7 +286,7 @@ impl Tool for ReadFileTool {
                     )));
                 }
                 Err(_) => {
-                    return Ok(ToolResult::error(format!("file not found: {}", path_str)));
+                    return Ok(ToolResult::error(format!("file not found: {path_str}")));
                 }
                 _ => {}
             }
@@ -297,7 +294,7 @@ impl Tool for ReadFileTool {
             match tokio::fs::read_to_string(&expanded).await {
                 Ok(content) => Ok(ToolResult::new(content)),
                 Err(e) => Ok(ToolResult::error(sanitize_err(
-                    &format!("error reading file: {}", e),
+                    &format!("error reading file: {e}"),
                     ws,
                 ))),
             }
@@ -418,14 +415,13 @@ impl Tool for WriteFileTool {
                 if let Some(parent) = relative.parent()
                     && !parent.as_os_str().is_empty()
                 {
-                    dir.create_dir_all(parent).map_err(|e| {
-                        anyhow::anyhow!("failed to create parent directories: {}", e)
-                    })?;
+                    dir.create_dir_all(parent)
+                        .map_err(|e| anyhow::anyhow!("failed to create parent directories: {e}"))?;
                 }
                 match dir.write(&relative, &content_owned) {
-                    Ok(()) => Ok(ToolResult::new(format!("File written: {}", path_str_owned))),
+                    Ok(()) => Ok(ToolResult::new(format!("File written: {path_str_owned}"))),
                     Err(e) => Ok(ToolResult::error(sanitize_err(
-                        &format!("error writing file: {}", e),
+                        &format!("error writing file: {e}"),
                         ws_ref,
                     ))),
                 }
@@ -446,9 +442,9 @@ impl Tool for WriteFileTool {
             }
 
             match tokio::fs::write(&expanded, content).await {
-                Ok(()) => Ok(ToolResult::new(format!("File written: {}", path_str))),
+                Ok(()) => Ok(ToolResult::new(format!("File written: {path_str}"))),
                 Err(e) => Ok(ToolResult::error(sanitize_err(
-                    &format!("error writing file: {}", e),
+                    &format!("error writing file: {e}"),
                     ws,
                 ))),
             }
@@ -566,8 +562,7 @@ impl Tool for EditFileTool {
                 let ws_ref = ws_owned.as_deref();
                 let Ok(content) = dir.read_to_string(&relative) else {
                     return Ok(ToolResult::error(format!(
-                        "file not found: {}",
-                        path_str_owned
+                        "file not found: {path_str_owned}"
                     )));
                 };
 
@@ -580,19 +575,17 @@ impl Tool for EditFileTool {
                 let count = content.matches(&*old_text_owned).count();
                 if count > 1 {
                     return Ok(ToolResult::error(format!(
-                        "old_text appears {} times. Please provide more context to make it unique",
-                        count
+                        "old_text appears {count} times. Please provide more context to make it unique"
                     )));
                 }
 
                 let new_content = content.replacen(&*old_text_owned, &new_text_owned, 1);
                 match dir.write(&relative, &new_content) {
                     Ok(()) => Ok(ToolResult::new(format!(
-                        "Successfully edited {}",
-                        path_str_owned
+                        "Successfully edited {path_str_owned}"
                     ))),
                     Err(e) => Ok(ToolResult::error(sanitize_err(
-                        &format!("error writing file: {}", e),
+                        &format!("error writing file: {e}"),
                         ws_ref,
                     ))),
                 }
@@ -606,7 +599,7 @@ impl Tool for EditFileTool {
         }
 
         if tokio::fs::metadata(&expanded).await.is_err() {
-            return Ok(ToolResult::error(format!("file not found: {}", path_str)));
+            return Ok(ToolResult::error(format!("file not found: {path_str}")));
         }
 
         match tokio::fs::read_to_string(&expanded).await {
@@ -620,8 +613,7 @@ impl Tool for EditFileTool {
                 let count = content.matches(old_text).count();
                 if count > 1 {
                     return Ok(ToolResult::error(format!(
-                        "old_text appears {} times. Please provide more context to make it unique",
-                        count
+                        "old_text appears {count} times. Please provide more context to make it unique"
                     )));
                 }
 
@@ -631,15 +623,15 @@ impl Tool for EditFileTool {
 
                 let new_content = content.replacen(old_text, new_text, 1);
                 match tokio::fs::write(&expanded, new_content).await {
-                    Ok(()) => Ok(ToolResult::new(format!("Successfully edited {}", path_str))),
+                    Ok(()) => Ok(ToolResult::new(format!("Successfully edited {path_str}"))),
                     Err(e) => Ok(ToolResult::error(sanitize_err(
-                        &format!("error writing file: {}", e),
+                        &format!("error writing file: {e}"),
                         ws,
                     ))),
                 }
             }
             Err(e) => Ok(ToolResult::error(sanitize_err(
-                &format!("error reading file: {}", e),
+                &format!("error reading file: {e}"),
                 ws,
             ))),
         }
@@ -724,14 +716,12 @@ impl Tool for ListDirTool {
                 };
                 let Ok(meta) = dir.metadata(&target) else {
                     return Ok(ToolResult::error(format!(
-                        "directory not found: {}",
-                        path_str_owned
+                        "directory not found: {path_str_owned}"
                     )));
                 };
                 if !meta.is_dir() {
                     return Ok(ToolResult::error(format!(
-                        "not a directory: {}",
-                        path_str_owned
+                        "not a directory: {path_str_owned}"
                     )));
                 }
                 let Ok(subdir) = dir.open_dir(&target) else {
@@ -750,7 +740,7 @@ impl Tool for ListDirTool {
                         Ok(ToolResult::new(entries.join("\n")))
                     }
                     Err(e) => Ok(ToolResult::error(sanitize_err(
-                        &format!("error reading directory: {}", e),
+                        &format!("error reading directory: {e}"),
                         ws_ref,
                     ))),
                 }
@@ -766,12 +756,11 @@ impl Tool for ListDirTool {
         match tokio::fs::metadata(&expanded).await {
             Err(_) => {
                 return Ok(ToolResult::error(format!(
-                    "directory not found: {}",
-                    path_str
+                    "directory not found: {path_str}"
                 )));
             }
             Ok(meta) if !meta.is_dir() => {
-                return Ok(ToolResult::error(format!("not a directory: {}", path_str)));
+                return Ok(ToolResult::error(format!("not a directory: {path_str}")));
             }
             _ => {}
         }
@@ -788,7 +777,7 @@ impl Tool for ListDirTool {
                 Ok(ToolResult::new(entries.join("\n")))
             }
             Err(e) => Ok(ToolResult::error(sanitize_err(
-                &format!("error reading directory: {}", e),
+                &format!("error reading directory: {e}"),
                 ws,
             ))),
         }

@@ -204,7 +204,7 @@ impl BaseChannel for WhatsAppChannel {
                                                     chat_id.clone()
                                                 }
                                             } else {
-                                                format!("{}@s.whatsapp.net", chat_id)
+                                                format!("{chat_id}@s.whatsapp.net")
                                             };
                                             if let Ok(jid) = whatsapp_rust::Jid::from_str(&jid_str) {
                                                 let text_message = whatsapp_rust::waproto::whatsapp::Message {
@@ -259,15 +259,15 @@ impl BaseChannel for WhatsAppChannel {
                                             Ok(path) => {
                                                 media_paths.push(path.clone());
                                                 if content.is_empty() {
-                                                    content = format!("[{}: {}]", tag, path);
+                                                    content = format!("[{tag}: {path}]");
                                                 } else {
-                                                    content = format!("{}\n[{}: {}]", content, tag, path);
+                                                    content = format!("{content}\n[{tag}: {path}]");
                                                 }
                                             }
                                             Err(e) => {
                                                 warn!("failed to download WhatsApp {} media: {}", media_type, e);
                                                 if content.is_empty() {
-                                                    content = format!("[{} - download failed]", tag);
+                                                    content = format!("[{tag} - download failed]");
                                                 }
                                             }
                                         }
@@ -346,15 +346,15 @@ impl BaseChannel for WhatsAppChannel {
                                                     let lines: Vec<&str> = string.lines().collect();
                                                     let max_lines = 25;
                                                     for line in lines.iter().take(max_lines.min(lines.len())) {
-                                                        println!("{}", line);
+                                                        println!("{line}");
                                                     }
                                                     if lines.len() > max_lines {
-                                                        println!("\n(QR code truncated to {} lines)", max_lines);
+                                                        println!("\n(QR code truncated to {max_lines} lines)");
                                                     }
                                                 }
                                                 Err(e2) => {
                                                     warn!("Failed to generate QR code: {}. Raw code: {}", e2, code);
-                                                    println!("Raw QR code data: {}", code);
+                                                    println!("Raw QR code data: {code}");
                                                 }
                                             }
                                             println!("\nScan with WhatsApp: Settings > Linked Devices > Link a Device");
@@ -363,7 +363,7 @@ impl BaseChannel for WhatsAppChannel {
                                     info!("WhatsApp QR code displayed");
                                 }
                                 whatsapp_rust::types::events::Event::PairingCode { code, .. } => {
-                                    println!("\n🤖 WhatsApp Pairing Code: {}\nEnter this code on your phone.\n", code);
+                                    println!("\n🤖 WhatsApp Pairing Code: {code}\nEnter this code on your phone.\n");
                                     info!("WhatsApp pairing code: {}", code);
                                 }
                                 whatsapp_rust::types::events::Event::PairSuccess(_pair_success) => {
@@ -455,7 +455,7 @@ impl BaseChannel for WhatsAppChannel {
                     chat_id.to_string()
                 }
             } else {
-                format!("{}@s.whatsapp.net", chat_id)
+                format!("{chat_id}@s.whatsapp.net")
             };
 
             if let Ok(jid) = whatsapp_rust::Jid::from_str(&jid_str) {
@@ -571,7 +571,7 @@ async fn send_whatsapp_message(
             } else {
                 user_part
             };
-            format!("{}@{}", user_without_device, domain_part)
+            format!("{user_without_device}@{domain_part}")
         } else {
             msg.chat_id.clone()
         }
@@ -586,7 +586,7 @@ async fn send_whatsapp_message(
 
     // Parse chat_id as JID (whatsapp-rust re-exports Jid)
     let jid = whatsapp_rust::Jid::from_str(&chat_id_str)
-        .map_err(|e| anyhow::anyhow!("Invalid WhatsApp chat_id '{}': {}", chat_id_str, e))?;
+        .map_err(|e| anyhow::anyhow!("Invalid WhatsApp chat_id '{chat_id_str}': {e}"))?;
 
     // Split long messages using UTF-8 safe splitting
     let chunks = crate::channels::base::split_message(&msg.content, 4096);
@@ -611,7 +611,7 @@ async fn send_whatsapp_message(
             }
             Err(e) => {
                 error!("WhatsApp send to {} failed: {}", jid, e);
-                return Err(anyhow::anyhow!("WhatsApp send error: {}", e));
+                return Err(anyhow::anyhow!("WhatsApp send error: {e}"));
             }
         }
     }

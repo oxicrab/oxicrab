@@ -115,8 +115,8 @@ impl McpManager {
         let transport = TokioChildProcess::new(cmd)?;
         let client = tokio::time::timeout(std::time::Duration::from_secs(30), ().serve(transport))
             .await
-            .map_err(|_| anyhow::anyhow!("MCP handshake timed out for server '{}' (30s)", name))?
-            .map_err(|e| anyhow::anyhow!("MCP handshake failed for server '{}': {}", name, e))?;
+            .map_err(|_| anyhow::anyhow!("MCP handshake timed out for server '{name}' (30s)"))?
+            .map_err(|e| anyhow::anyhow!("MCP handshake failed for server '{name}': {e}"))?;
 
         Ok(RunningMcpServer {
             client,

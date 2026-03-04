@@ -3,8 +3,6 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::must_use_candidate)]
-// Style preference — keeping format!("{}", x) over format!("{x}") for readability with complex exprs
-#![allow(clippy::uninlined_format_args)]
 // Intentional casts throughout LLM/API integration code (token counts, timestamps, sizes)
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_sign_loss)]

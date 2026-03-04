@@ -167,7 +167,7 @@ impl Handler {
         }
 
         let custom_id = comp.data.custom_id.clone();
-        let content = format!("[button:{}]", custom_id);
+        let content = format!("[button:{custom_id}]");
 
         let mut metadata = HashMap::new();
         metadata.insert(
@@ -311,7 +311,7 @@ impl EventHandler for Handler {
                             }
                             let path_str = file_path.to_string_lossy().to_string();
                             media_paths.push(path_str.clone());
-                            content = format!("{}\n[{}: {}]", content, tag, path_str);
+                            content = format!("{content}\n[{tag}: {path_str}]");
                         }
                         Err(e) => warn!("Failed to download Discord attachment: {}", e),
                     }
@@ -518,7 +518,7 @@ async fn send_interaction_followup(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Discord webhook followup failed ({}): {}", status, body);
+        anyhow::bail!("Discord webhook followup failed ({status}): {body}");
     }
     Ok(())
 }
@@ -663,7 +663,7 @@ impl BaseChannel for DiscordChannel {
     async fn send_typing(&self, chat_id: &str) -> Result<()> {
         let channel_id = chat_id
             .parse::<u64>()
-            .map_err(|e| anyhow::anyhow!("Invalid Discord channel_id: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Invalid Discord channel_id: {e}"))?;
         let channel_id_typed = serenity::model::id::ChannelId::new(channel_id);
         channel_id_typed
             .broadcast_typing(&self.serenity_http)
@@ -756,12 +756,12 @@ impl BaseChannel for DiscordChannel {
                 target_channel_id
                     .send_message(&http, builder)
                     .await
-                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?;
             } else {
                 target_channel_id
                     .say(&http, chunk)
                     .await
-                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?;
             }
         }
 
@@ -777,7 +777,7 @@ impl BaseChannel for DiscordChannel {
             target_channel_id
                 .send_message(&http, builder)
                 .await
-                .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?;
         }
 
         Ok(())
@@ -795,7 +795,7 @@ impl BaseChannel for DiscordChannel {
             let sent = target
                 .say(&self.serenity_http, chunk)
                 .await
-                .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?;
             last_id = Some(sent.id.to_string());
         }
         Ok(last_id)
@@ -813,7 +813,7 @@ impl BaseChannel for DiscordChannel {
                 builder,
             )
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to edit Discord message: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to edit Discord message: {e}"))?;
         Ok(())
     }
 
@@ -827,7 +827,7 @@ impl BaseChannel for DiscordChannel {
                 serenity::model::id::MessageId::new(msg_id),
             )
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to delete Discord message: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to delete Discord message: {e}"))?;
         Ok(())
     }
 }

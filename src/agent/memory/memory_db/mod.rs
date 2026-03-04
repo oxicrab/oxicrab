@@ -134,7 +134,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
 
         // Column named mtime_ns for backwards compat (actually stores milliseconds)
         conn.execute(
@@ -292,7 +292,7 @@ impl MemoryDB {
         // Add request_id to existing tables (idempotent: ignore if column already exists)
         for table in &["llm_cost_log", "intent_metrics", "memory_access_log"] {
             let _ = conn.execute(
-                &format!("ALTER TABLE {} ADD COLUMN request_id TEXT", table),
+                &format!("ALTER TABLE {table} ADD COLUMN request_id TEXT"),
                 [],
             );
         }

@@ -38,7 +38,7 @@ impl LLMProvider for MockProvider {
         if let Some(response) = responses.pop() {
             match response {
                 Ok(r) => Ok(r),
-                Err(e) => Err(anyhow::anyhow!("{}", e)),
+                Err(e) => Err(anyhow::anyhow!("{e}")),
             }
         } else {
             Ok(Self::ok_response())

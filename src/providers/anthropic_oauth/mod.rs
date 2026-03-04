@@ -225,7 +225,7 @@ impl AnthropicOAuthProvider {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("OAuth token refresh failed (HTTP {}): {}", status, body);
+            anyhow::bail!("OAuth token refresh failed (HTTP {status}): {body}");
         }
 
         let data: Value = resp
@@ -276,7 +276,7 @@ impl AnthropicOAuthProvider {
         let mut request = self
             .client
             .post(API_URL)
-            .header("Authorization", format!("Bearer {}", token));
+            .header("Authorization", format!("Bearer {token}"));
 
         for (key, value) in claude_code_headers() {
             request = request.header(key, value);
@@ -660,7 +660,7 @@ impl LLMProvider for AnthropicOAuthProvider {
         let result = self
             .client
             .post(API_URL)
-            .header("Authorization", format!("Bearer {}", token))
+            .header("Authorization", format!("Bearer {token}"))
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
             .timeout(std::time::Duration::from_secs(15))

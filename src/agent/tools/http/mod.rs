@@ -53,7 +53,7 @@ impl HttpTool {
         }
         builder
             .build()
-            .map_err(|e| format!("failed to build pinned HTTP client: {}", e))
+            .map_err(|e| format!("failed to build pinned HTTP client: {e}"))
     }
 
     /// HTTP execution with DNS-pinned client (used by `execute()` for SSRF-safe requests).
@@ -97,7 +97,7 @@ impl HttpTool {
             "PUT" => client.put(url),
             "PATCH" => client.patch(url),
             "DELETE" => client.delete(url),
-            _ => return Ok(ToolResult::error(format!("unsupported method: {}", method))),
+            _ => return Ok(ToolResult::error(format!("unsupported method: {method}"))),
         };
 
         request = request.timeout(Duration::from_secs(timeout_secs));
@@ -169,8 +169,7 @@ impl HttpTool {
                         Ok(result) => result,
                         Err(e) => {
                             return Ok(ToolResult::error(format!(
-                                "HTTP {} {} — binary download failed: {}",
-                                status, method, e
+                                "HTTP {status} {method} — binary download failed: {e}"
                             )));
                         }
                     };
@@ -185,8 +184,7 @@ impl HttpTool {
                             content_type
                         ))),
                         Err(e) => Ok(ToolResult::error(format!(
-                            "HTTP {} {} — failed to save binary response: {}",
-                            status, method, e
+                            "HTTP {status} {method} — failed to save binary response: {e}"
                         ))),
                     };
                 }
@@ -212,17 +210,16 @@ impl HttpTool {
                 let final_body: String = if truncated {
                     let truncated_text: String =
                         body_display.chars().take(MAX_RESPONSE_CHARS).collect();
-                    format!("{}...\n[truncated]", truncated_text)
+                    format!("{truncated_text}...\n[truncated]")
                 } else {
                     body_display
                 };
 
                 Ok(ToolResult::new(format!(
-                    "HTTP {} {}{}\n\n{}",
-                    status, method, header_str, final_body
+                    "HTTP {status} {method}{header_str}\n\n{final_body}"
                 )))
             }
-            Err(e) => Ok(ToolResult::error(format!("HTTP error: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("HTTP error: {e}"))),
         }
     }
 }

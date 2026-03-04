@@ -4,7 +4,7 @@ use crate::cron::types::{CronJobState, CronPayload, CronTarget};
 fn make_event_job(id: &str, pattern: &str, channel: Option<&str>) -> CronJob {
     CronJob {
         id: id.to_string(),
-        name: format!("Event {}", id),
+        name: format!("Event {id}"),
         enabled: true,
         schedule: CronSchedule::Event {
             pattern: Some(pattern.to_string()),

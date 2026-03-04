@@ -84,8 +84,7 @@ impl Tool for ReadOnlyToolWrapper {
         };
         if !self.read_only_actions.contains(&action) {
             return Ok(ToolResult::error(format!(
-                "action '{}' is not available in this context (read-only access)",
-                action
+                "action '{action}' is not available in this context (read-only access)"
             )));
         }
         self.inner.execute(params, ctx).await

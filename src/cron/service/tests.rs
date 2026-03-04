@@ -16,7 +16,7 @@ fn test_five_field_cron_needs_normalization() {
     assert!(expr.parse::<Schedule>().is_err());
 
     // But normalized to 6-field (prepend seconds) it works
-    let normalized = format!("0 {}", expr);
+    let normalized = format!("0 {expr}");
     assert!(normalized.parse::<Schedule>().is_ok());
 }
 
@@ -112,8 +112,7 @@ fn test_detect_system_timezone() {
     // but some systems (especially CI runners) return "UTC" or "GMT".
     assert!(
         tz.contains('/') || tz == "UTC" || tz == "GMT",
-        "timezone should be IANA format, got: {}",
-        tz
+        "timezone should be IANA format, got: {tz}"
     );
 }
 

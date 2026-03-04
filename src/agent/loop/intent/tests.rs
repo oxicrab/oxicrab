@@ -29,7 +29,7 @@ fn test_action_intent_positive() {
         "don't forget to send the report",
     ];
     for text in cases {
-        assert!(classify_action_intent(text), "should be action: {}", text);
+        assert!(classify_action_intent(text), "should be action: {text}");
     }
 }
 
@@ -63,8 +63,7 @@ fn test_action_intent_negative() {
     for text in cases {
         assert!(
             !classify_action_intent(text),
-            "should NOT be action: {}",
-            text
+            "should NOT be action: {text}"
         );
     }
 }
@@ -83,8 +82,7 @@ fn test_clarification_question_positive() {
     for text in cases {
         assert!(
             is_clarification_question(text),
-            "should be clarification: {}",
-            text
+            "should be clarification: {text}"
         );
     }
 }
@@ -106,8 +104,7 @@ fn test_clarification_question_negative() {
     for text in cases {
         assert!(
             !is_clarification_question(text),
-            "should NOT be clarification: {}",
-            text
+            "should NOT be clarification: {text}"
         );
     }
 }
@@ -118,8 +115,8 @@ fn test_action_prototypes_are_valid() {
     assert!(!ACTION_PROTOTYPES.is_empty());
     let mut seen = std::collections::HashSet::new();
     for proto in ACTION_PROTOTYPES {
-        assert!(seen.insert(*proto), "duplicate action prototype: {}", proto);
-        assert!(proto.len() >= 5, "prototype too short: {}", proto);
+        assert!(seen.insert(*proto), "duplicate action prototype: {proto}");
+        assert!(proto.len() >= 5, "prototype too short: {proto}");
     }
 }
 

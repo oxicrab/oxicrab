@@ -405,8 +405,7 @@ async fn test_backup_creates_copy() {
     let name = backups[0].file_name().to_string_lossy().to_string();
     assert!(
         name.starts_with("test.md."),
-        "backup name should be prefixed: {}",
-        name
+        "backup name should be prefixed: {name}"
     );
 
     fs::remove_dir_all(&dir).unwrap();
@@ -435,8 +434,8 @@ async fn test_backup_prunes_old_copies() {
 
     // Create 16 fake old backups (exceed MAX_BACKUPS of 14)
     for i in 0..16 {
-        let name = format!("data.md.20250101-{:06}", i);
-        fs::write(backup_dir.join(&name), format!("v{}", i)).unwrap();
+        let name = format!("data.md.20250101-{i:06}");
+        fs::write(backup_dir.join(&name), format!("v{i}")).unwrap();
     }
 
     // Trigger backup which should prune to 14
@@ -449,8 +448,7 @@ async fn test_backup_prunes_old_copies() {
         .count();
     assert_eq!(
         count, MAX_BACKUPS,
-        "should keep exactly {} backups",
-        MAX_BACKUPS
+        "should keep exactly {MAX_BACKUPS} backups"
     );
 
     fs::remove_dir_all(&dir).unwrap();

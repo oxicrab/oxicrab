@@ -225,7 +225,7 @@ fn test_task_store_evicts_oldest_at_capacity() {
         status: TaskStatus::Submitted,
         message: String::new(),
         result: None,
-        created_at: format!("{:06}", MAX_A2A_TASKS),
+        created_at: format!("{MAX_A2A_TASKS:06}"),
         updated_at: String::new(),
     });
     assert!(store.get("task-new").is_some());

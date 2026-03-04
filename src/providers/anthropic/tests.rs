@@ -80,7 +80,7 @@ async fn test_chat_unauthorized() {
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("Authentication"), "Error: {}", err);
+    assert!(err.contains("Authentication"), "Error: {err}");
 }
 
 #[tokio::test]
@@ -105,8 +105,7 @@ async fn test_chat_rate_limit() {
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("Rate limit") || err.contains("rate limit"),
-        "Error: {}",
-        err
+        "Error: {err}"
     );
 }
 

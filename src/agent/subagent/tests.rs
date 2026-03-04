@@ -240,7 +240,7 @@ async fn test_semaphore_limits_concurrency() {
     // Spawn 4 tasks
     for i in 0..4 {
         mgr.spawn(
-            format!("task {}", i),
+            format!("task {i}"),
             None,
             "cli".to_string(),
             "direct".to_string(),
@@ -256,7 +256,7 @@ async fn test_semaphore_limits_concurrency() {
 
     // Max concurrent should never exceed 2
     let max = max_observed.load(std::sync::atomic::Ordering::SeqCst);
-    assert!(max <= 2, "Expected max concurrency <= 2, got {}", max);
+    assert!(max <= 2, "Expected max concurrency <= 2, got {max}");
 }
 
 // --- Silent mode tests ---

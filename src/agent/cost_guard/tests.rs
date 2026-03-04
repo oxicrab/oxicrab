@@ -206,8 +206,7 @@ fn test_cost_tracked_without_budget_limits() {
     let tracked = guard.daily_cost.lock().unwrap().total_cents;
     assert!(
         (tracked - 450.0).abs() < 0.1,
-        "expected ~450 cents tracked, got {:.4}",
-        tracked
+        "expected ~450 cents tracked, got {tracked:.4}"
     );
 }
 
@@ -222,9 +221,7 @@ fn test_cache_read_discount() {
     let expected = 3.0 * 0.1 * 100.0; // $0.30 = 30 cents
     assert!(
         (cost - expected).abs() < 0.01,
-        "cache read should be 10% of input rate, got {:.4} expected {:.4}",
-        cost,
-        expected
+        "cache read should be 10% of input rate, got {cost:.4} expected {expected:.4}"
     );
 }
 
@@ -237,9 +234,7 @@ fn test_cache_creation_surcharge() {
     let expected = 3.0 * 1.25 * 100.0; // $3.75 = 375 cents
     assert!(
         (cost - expected).abs() < 0.01,
-        "cache creation should be 125% of input rate, got {:.4} expected {:.4}",
-        cost,
-        expected
+        "cache creation should be 125% of input rate, got {cost:.4} expected {expected:.4}"
     );
 }
 
@@ -262,9 +257,7 @@ fn test_cache_tokens_combined_with_regular() {
     let expected_cents = (input_cost + output_cost + cache_read_cost + cache_creation_cost) * 100.0;
     assert!(
         (cost - expected_cents).abs() < 0.1,
-        "combined cost mismatch: got {:.4} expected {:.4}",
-        cost,
-        expected_cents
+        "combined cost mismatch: got {cost:.4} expected {expected_cents:.4}"
     );
 }
 
@@ -288,7 +281,7 @@ fn test_with_db_persists_costs() {
     // Check that cost was persisted to the database
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let daily = db.get_daily_cost(&today).unwrap();
-    assert!(daily > 0.0, "cost should be persisted to db, got {}", daily);
+    assert!(daily > 0.0, "cost should be persisted to db, got {daily}");
 }
 
 #[test]
@@ -305,8 +298,7 @@ fn test_with_db_restores_daily_cost() {
     let daily = guard.daily_cost.lock().unwrap().total_cents;
     assert!(
         (daily - 42.5).abs() < 0.01,
-        "expected restored cost 42.5, got {}",
-        daily
+        "expected restored cost 42.5, got {daily}"
     );
 }
 

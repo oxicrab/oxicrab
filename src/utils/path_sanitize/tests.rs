@@ -46,10 +46,7 @@ fn test_sanitize_error_message_with_embedded_paths() {
     let home = dirs::home_dir().unwrap();
     let workspace = home.join("projects/myapp");
     let home_str = home.to_string_lossy();
-    let msg = format!(
-        "Error: file not found: {}/secrets/key.pem and /etc/hosts",
-        home_str
-    );
+    let msg = format!("Error: file not found: {home_str}/secrets/key.pem and /etc/hosts");
     let result = sanitize_error_message(&msg, Some(&workspace));
     assert!(result.contains("<redacted>/key.pem"));
     assert!(result.contains("/etc/hosts"));
