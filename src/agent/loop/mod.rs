@@ -103,6 +103,26 @@ pub struct AgentLoopResult {
     pub discourse: crate::agent::discourse::DiscourseRegister,
 }
 
+/// Lifecycle-related configuration (TTLs, intervals).
+pub struct LifecycleConfig {
+    /// Session TTL in days for cleanup (default 30)
+    pub session_ttl_days: u32,
+    /// Media file TTL in days for cleanup (default 7)
+    pub media_ttl_days: u32,
+    /// Memory indexer interval in seconds (default 300)
+    pub memory_indexer_interval: u64,
+}
+
+/// Safety and guardrail configuration.
+pub struct SafetyConfig {
+    /// Cost guard configuration for budget and rate limiting
+    pub cost_guard: crate::config::CostGuardConfig,
+    /// Exfiltration guard configuration for hiding outbound tools from LLM
+    pub exfiltration_guard: crate::config::ExfiltrationGuardConfig,
+    /// Prompt injection detection configuration
+    pub prompt_guard: crate::config::PromptGuardConfig,
+}
+
 /// Configuration for creating an [`AgentLoop`] instance.
 pub struct AgentLoopConfig {
     pub bus: Arc<Mutex<MessageBus>>,
@@ -117,38 +137,28 @@ pub struct AgentLoopConfig {
     pub temperature: Option<f32>,
     /// Temperature for tool-calling iterations (default Some(0.0) for determinism)
     pub tool_temperature: Option<f32>,
-    /// Session TTL in days for cleanup (default 30)
-    pub session_ttl_days: u32,
     /// Max tokens for LLM responses (default 8192)
     pub max_tokens: u32,
     /// Sender for typing indicator events (channel, `chat_id`)
     pub typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
-    /// Memory indexer interval in seconds (default 300)
-    pub memory_indexer_interval: u64,
-    /// Media file TTL in days for cleanup (default 7)
-    pub media_ttl_days: u32,
     /// Maximum concurrent subagents (default 5)
     pub max_concurrent_subagents: usize,
     /// Voice transcription configuration
     pub voice_config: Option<crate::config::VoiceConfig>,
     /// Memory configuration (archive/purge days)
     pub memory_config: Option<crate::config::MemoryConfig>,
-    /// Cost guard configuration for budget and rate limiting
-    pub cost_guard_config: crate::config::CostGuardConfig,
     /// Cognitive routines configuration for checkpoint pressure signals
     pub cognitive_config: crate::config::CognitiveConfig,
-    /// Exfiltration guard configuration for hiding outbound tools from LLM
-    pub exfiltration_guard: crate::config::ExfiltrationGuardConfig,
-    /// Prompt injection detection configuration
-    pub prompt_guard_config: crate::config::PromptGuardConfig,
     /// External context providers that inject dynamic content into the system prompt
     pub context_providers: Vec<crate::config::ContextProviderConfig>,
     /// Tool-specific configurations (forwarded to [`ToolBuildContext`])
     pub tool_configs: ToolConfigs,
     /// Pre-resolved model routing (maps task types to providers/models).
-    /// When `Some`, allows task-specific provider overrides for daemon, cron,
-    /// subagent, and compaction. Also carries chat complexity routing if configured.
     pub routing: Option<Arc<crate::config::routing::ResolvedRouting>>,
+    /// Lifecycle TTLs and intervals
+    pub lifecycle: LifecycleConfig,
+    /// Safety guardrails
+    pub safety: SafetyConfig,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -206,18 +216,12 @@ impl AgentLoopConfig {
             cron_service: params.cron_service,
             temperature: resolved_temperature,
             tool_temperature: TOOL_TEMPERATURE,
-            session_ttl_days: config.agents.defaults.session_ttl_days,
             max_tokens: config.agents.defaults.max_tokens,
             typing_tx: params.typing_tx,
-            memory_indexer_interval: config.agents.defaults.memory_indexer_interval,
-            media_ttl_days: config.agents.defaults.media_ttl_days,
             max_concurrent_subagents: config.agents.defaults.max_concurrent_subagents,
             voice_config: Some(config.voice.clone()),
             memory_config: Some(config.agents.defaults.memory.clone()),
-            cost_guard_config: config.agents.defaults.cost_guard.clone(),
             cognitive_config: config.agents.defaults.cognitive.clone(),
-            exfiltration_guard: config.tools.exfiltration_guard.clone(),
-            prompt_guard_config: config.agents.defaults.prompt_guard.clone(),
             context_providers: config.agents.defaults.context_providers.clone(),
             tool_configs: ToolConfigs {
                 web_search_config: Some(config.tools.web.search.clone()),
@@ -238,6 +242,16 @@ impl AgentLoopConfig {
                 workspace_ttl: config.agents.defaults.workspace_ttl.clone(),
             },
             routing,
+            lifecycle: LifecycleConfig {
+                session_ttl_days: config.agents.defaults.session_ttl_days,
+                media_ttl_days: config.agents.defaults.media_ttl_days,
+                memory_indexer_interval: config.agents.defaults.memory_indexer_interval,
+            },
+            safety: SafetyConfig {
+                cost_guard: config.agents.defaults.cost_guard.clone(),
+                exfiltration_guard: config.tools.exfiltration_guard.clone(),
+                prompt_guard: config.agents.defaults.prompt_guard.clone(),
+            },
         }
     }
 
@@ -270,18 +284,12 @@ impl AgentLoopConfig {
             cron_service: None,
             temperature: Some(0.7),
             tool_temperature: Some(0.0),
-            session_ttl_days: 0,
             max_tokens: 8192,
             typing_tx: None,
-            memory_indexer_interval: 300,
-            media_ttl_days: 0,
             max_concurrent_subagents: 5,
             voice_config: None,
             memory_config: None,
-            cost_guard_config: crate::config::CostGuardConfig::default(),
             cognitive_config: crate::config::CognitiveConfig::default(),
-            exfiltration_guard: crate::config::ExfiltrationGuardConfig::default(),
-            prompt_guard_config: crate::config::PromptGuardConfig::default(),
             context_providers: vec![],
             tool_configs: ToolConfigs {
                 web_search_config: None,
@@ -305,6 +313,16 @@ impl AgentLoopConfig {
                 workspace_ttl: crate::config::WorkspaceTtlConfig::default(),
             },
             routing: None,
+            lifecycle: LifecycleConfig {
+                session_ttl_days: 0,
+                media_ttl_days: 0,
+                memory_indexer_interval: 300,
+            },
+            safety: SafetyConfig {
+                cost_guard: crate::config::CostGuardConfig::default(),
+                exfiltration_guard: crate::config::ExfiltrationGuardConfig::default(),
+                prompt_guard: crate::config::PromptGuardConfig::default(),
+            },
         }
     }
 }
@@ -376,21 +394,27 @@ impl AgentLoop {
             cron_service,
             temperature,
             tool_temperature,
-            session_ttl_days,
             max_tokens,
             typing_tx,
-            memory_indexer_interval,
-            media_ttl_days,
             max_concurrent_subagents,
             voice_config,
             memory_config,
-            cost_guard_config,
             cognitive_config,
-            exfiltration_guard,
-            prompt_guard_config,
             context_providers,
             tool_configs,
             routing,
+            lifecycle:
+                LifecycleConfig {
+                    session_ttl_days,
+                    media_ttl_days,
+                    memory_indexer_interval,
+                },
+            safety:
+                SafetyConfig {
+                    cost_guard: cost_guard_config,
+                    exfiltration_guard,
+                    prompt_guard: prompt_guard_config,
+                },
         } = config;
 
         // Extract receiver to avoid lock contention
