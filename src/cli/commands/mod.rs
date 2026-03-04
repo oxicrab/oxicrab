@@ -15,7 +15,6 @@ use clap::{CommandFactory, Parser, Subcommand};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 #[derive(Parser)]
@@ -629,12 +628,9 @@ async fn gateway_echo() -> Result<()> {
     }
 
     // Take inbound receiver from the bus
-    let mut inbound_rx = {
-        let mut bus_guard = bus.lock().await;
-        bus_guard
-            .take_inbound_rx()
-            .ok_or_else(|| anyhow::anyhow!("Inbound receiver already taken"))?
-    };
+    let mut inbound_rx = bus
+        .take_inbound_rx()
+        .ok_or_else(|| anyhow::anyhow!("Inbound receiver already taken"))?;
 
     // Echo loop: read inbound, write echo outbound
     let echo_task = {
@@ -709,7 +705,7 @@ type MessageBusSetup = (
     tokio::sync::mpsc::Sender<crate::bus::InboundMessage>,
     Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
     tokio::sync::mpsc::Receiver<crate::bus::OutboundMessage>,
-    Arc<Mutex<MessageBus>>,
+    Arc<MessageBus>,
 );
 
 fn setup_message_bus(config: &Config) -> Result<MessageBusSetup> {
@@ -731,7 +727,7 @@ fn setup_message_bus(config: &Config) -> Result<MessageBusSetup> {
     let outbound_rx = bus
         .take_outbound_rx()
         .ok_or_else(|| anyhow::anyhow!("Outbound receiver already taken"))?;
-    let bus_for_channels = Arc::new(Mutex::new(bus));
+    let bus_for_channels = Arc::new(bus);
     debug!("Message bus initialized");
     Ok((inbound_tx, outbound_tx, outbound_rx, bus_for_channels))
 }
@@ -747,7 +743,7 @@ fn setup_cron_service() -> Result<Arc<CronService>> {
 }
 
 struct SetupAgentParams {
-    bus: Arc<Mutex<MessageBus>>,
+    bus: Arc<MessageBus>,
     provider: Arc<dyn crate::providers::base::LLMProvider>,
     model: Option<String>,
     outbound_tx: Arc<tokio::sync::mpsc::Sender<crate::bus::OutboundMessage>>,
@@ -808,7 +804,7 @@ async fn setup_agent(params: SetupAgentParams, config: &Config) -> Result<Arc<Ag
 async fn setup_cron_callbacks(
     cron: Arc<CronService>,
     agent: Arc<AgentLoop>,
-    bus: Arc<Mutex<MessageBus>>,
+    bus: Arc<MessageBus>,
     memory_db: Arc<crate::agent::memory::memory_db::MemoryDB>,
 ) -> Result<()> {
     debug!("Setting up cron job callback...");
@@ -843,13 +839,12 @@ async fn setup_cron_callbacks(
 async fn cron_job_execute(
     job: &CronJob,
     agent: &Arc<AgentLoop>,
-    bus: &Arc<Mutex<MessageBus>>,
+    bus: &Arc<MessageBus>,
 ) -> Result<Option<String>> {
     if job.payload.kind == "echo" {
         // Echo mode: deliver message directly without invoking the LLM
         for target in &job.payload.targets {
-            let mut bus_guard = bus.lock().await;
-            if let Err(e) = bus_guard
+            if let Err(e) = bus
                 .publish_outbound(crate::bus::OutboundMessage {
                     channel: target.channel.clone(),
                     chat_id: target.to.clone(),
@@ -888,8 +883,7 @@ async fn cron_job_execute(
 
     if job.payload.agent_echo {
         for target in &job.payload.targets {
-            let mut bus_guard = bus.lock().await;
-            if let Err(e) = bus_guard
+            if let Err(e) = bus
                 .publish_outbound(crate::bus::OutboundMessage {
                     channel: target.channel.clone(),
                     chat_id: target.to.clone(),

@@ -13,7 +13,6 @@ use oxicrab::providers::base::{
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tempfile::TempDir;
-use tokio::sync::Mutex;
 
 #[derive(Debug, Clone)]
 pub struct RecordedCall {
@@ -158,7 +157,7 @@ pub async fn create_test_agent_with(
     tmp: &TempDir,
     overrides: TestAgentOverrides,
 ) -> AgentLoop {
-    let bus = Arc::new(Mutex::new(MessageBus::default()));
+    let bus = Arc::new(MessageBus::default());
     let (outbound_tx, _outbound_rx) = tokio::sync::mpsc::channel(100);
     let outbound_tx = Arc::new(outbound_tx);
 

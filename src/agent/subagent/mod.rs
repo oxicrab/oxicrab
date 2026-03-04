@@ -46,7 +46,7 @@ pub struct SubagentConfig {
 pub struct SubagentManager {
     config: Arc<SubagentInner>,
     running_tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
-    bus: Arc<Mutex<MessageBus>>,
+    bus: Arc<MessageBus>,
     semaphore: Arc<tokio::sync::Semaphore>,
 }
 
@@ -65,7 +65,7 @@ struct SubagentInner {
 }
 
 impl SubagentManager {
-    pub fn new(config: SubagentConfig, bus: Arc<Mutex<MessageBus>>) -> Self {
+    pub fn new(config: SubagentConfig, bus: Arc<MessageBus>) -> Self {
         let model = config
             .model
             .unwrap_or_else(|| config.provider.default_model().to_string());
@@ -225,7 +225,7 @@ struct SubagentTask {
 /// Run a subagent task (called inside `tokio::spawn`).
 async fn run_subagent(
     config: &SubagentInner,
-    bus: &Arc<Mutex<MessageBus>>,
+    bus: &Arc<MessageBus>,
     running_tasks: &Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
     params: SubagentTask,
 ) {
@@ -604,7 +604,7 @@ async fn execute_subagent_tool(
 }
 
 async fn announce_result(
-    bus: &Arc<Mutex<MessageBus>>,
+    bus: &Arc<MessageBus>,
     task_id: &str,
     label: &str,
     task: &str,
@@ -630,7 +630,7 @@ async fn announce_result(
         ..Default::default()
     };
 
-    if let Err(e) = bus.lock().await.publish_inbound(msg).await {
+    if let Err(e) = bus.publish_inbound(msg).await {
         warn!("Failed to publish inbound message from subagent: {}", e);
     }
     debug!(

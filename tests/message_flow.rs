@@ -701,29 +701,25 @@ async fn test_end_to_end_bus_pipeline() {
     let tmp = TempDir::new().expect("create temp dir");
     let provider = MockLLMProvider::with_responses(vec![text_response("Bus pipeline works!")]);
 
-    // Create bus and extract channels before wrapping in Arc<Mutex>
-    let mut bus = MessageBus::default();
+    // Create bus and extract channels before wrapping in Arc
+    let bus = MessageBus::default();
     let mut inbound_rx = bus.take_inbound_rx().expect("take inbound rx");
     let _outbound_rx = bus.take_outbound_rx().expect("take outbound rx");
-    let bus = Arc::new(Mutex::new(bus));
+    let bus = Arc::new(bus);
 
     let agent = create_test_agent_with(provider, &tmp, TestAgentOverrides::default()).await;
 
     // Publish inbound message through the bus
-    {
-        let mut bus_guard = bus.lock().await;
-        bus_guard
-            .publish_inbound(InboundMessage {
-                channel: "test".to_string(),
-                sender_id: "user1".to_string(),
-                chat_id: "chat1".to_string(),
-                content: "Hello via bus".to_string(),
-                timestamp: chrono::Utc::now(),
-                ..Default::default()
-            })
-            .await
-            .expect("publish inbound");
-    }
+    bus.publish_inbound(InboundMessage {
+        channel: "test".to_string(),
+        sender_id: "user1".to_string(),
+        chat_id: "chat1".to_string(),
+        content: "Hello via bus".to_string(),
+        timestamp: chrono::Utc::now(),
+        ..Default::default()
+    })
+    .await
+    .expect("publish inbound");
 
     // Receive the inbound message
     let msg = inbound_rx.try_recv().expect("receive inbound message");

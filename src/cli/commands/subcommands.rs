@@ -5,7 +5,6 @@ use super::{
 };
 use anyhow::Result;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use crate::config::load_config;
 
@@ -21,7 +20,7 @@ pub(super) async fn agent(message: Option<String>, session: String) -> Result<()
         bus.add_known_secrets(&secrets);
     }
     let outbound_tx = Arc::new(bus.outbound_tx.clone());
-    let bus_for_agent = Arc::new(Mutex::new(bus));
+    let bus_for_agent = Arc::new(bus);
 
     let agent = setup_agent(
         SetupAgentParams {

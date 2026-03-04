@@ -66,7 +66,7 @@ impl LLMProvider for DelayedProvider {
 }
 
 fn make_manager(provider: Arc<dyn LLMProvider>, max_concurrent: usize) -> SubagentManager {
-    let bus = Arc::new(Mutex::new(MessageBus::default()));
+    let bus = Arc::new(MessageBus::default());
     let mgr = SubagentManager::new(
         SubagentConfig {
             provider,
@@ -264,7 +264,7 @@ async fn test_semaphore_limits_concurrency() {
 #[tokio::test]
 async fn test_silent_mode_no_bus_message() {
     let provider = Arc::new(MockProvider::immediate("result"));
-    let bus = Arc::new(Mutex::new(MessageBus::default()));
+    let bus = Arc::new(MessageBus::default());
     let mgr = SubagentManager::new(
         SubagentConfig {
             provider,
@@ -298,11 +298,9 @@ async fn test_silent_mode_no_bus_message() {
 
     // Bus should NOT have received an inbound message
     // (since we're silent). Check by trying to take the receiver.
-    let bus_guard = bus.lock().await;
     // The inbound_rx is still in the bus (not taken), so no messages were published
     // that we need to worry about. The key assertion is that the test doesn't panic
     // from a bus publish error, and we can verify the task completed.
-    drop(bus_guard);
     let (running, _, _) = mgr.capacity().await;
     assert_eq!(running, 0, "Task should have completed");
 }
@@ -310,13 +308,10 @@ async fn test_silent_mode_no_bus_message() {
 #[tokio::test]
 async fn test_non_silent_mode_publishes_bus_message() {
     let provider = Arc::new(MockProvider::immediate("result"));
-    let bus = Arc::new(Mutex::new(MessageBus::default()));
+    let bus = Arc::new(MessageBus::default());
 
     // Take the receiver so we can check for messages
-    let inbound_rx = {
-        let mut bus_guard = bus.lock().await;
-        bus_guard.take_inbound_rx()
-    };
+    let inbound_rx = bus.take_inbound_rx();
     assert!(inbound_rx.is_some(), "Should be able to take inbound_rx");
     let mut rx = inbound_rx.unwrap();
 

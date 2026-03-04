@@ -10,7 +10,6 @@ use crate::cron::service::CronService;
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 /// All configuration and shared state needed to construct tools.
@@ -22,7 +21,7 @@ pub struct ToolBuildContext {
     pub allowed_commands: Vec<String>,
     pub sandbox_config: config::SandboxConfig,
     pub outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
-    pub bus: Arc<Mutex<MessageBus>>,
+    pub bus: Arc<MessageBus>,
     pub web_search_config: Option<config::WebSearchConfig>,
     pub cron_service: Option<Arc<CronService>>,
     pub channels_config: Option<config::ChannelsConfig>,

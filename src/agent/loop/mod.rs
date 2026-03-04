@@ -125,7 +125,7 @@ pub struct SafetyConfig {
 
 /// Configuration for creating an [`AgentLoop`] instance.
 pub struct AgentLoopConfig {
-    pub bus: Arc<Mutex<MessageBus>>,
+    pub bus: Arc<MessageBus>,
     pub provider: Arc<dyn LLMProvider>,
     pub workspace: PathBuf,
     pub model: Option<String>,
@@ -167,7 +167,7 @@ const TOOL_TEMPERATURE: Option<f32> = Some(0.0);
 /// Runtime parameters for [`AgentLoopConfig::from_config`] that vary per
 /// invocation (as opposed to values read from the config file).
 pub struct AgentLoopRuntimeParams {
-    pub bus: Arc<Mutex<MessageBus>>,
+    pub bus: Arc<MessageBus>,
     pub provider: Arc<dyn LLMProvider>,
     pub model: Option<String>,
     pub outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
@@ -260,7 +260,7 @@ impl AgentLoopConfig {
     /// minimal/disabled defaults.
     #[doc(hidden)]
     pub fn test_defaults(
-        bus: Arc<Mutex<MessageBus>>,
+        bus: Arc<MessageBus>,
         provider: Arc<dyn LLMProvider>,
         workspace: PathBuf,
         outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
@@ -420,14 +420,12 @@ impl AgentLoop {
                 },
         } = config;
 
-        // Extract receiver to avoid lock contention
-        // Receivers are !Sync, so we wrap in Arc<Mutex> for sharing
-        let inbound_rx = Arc::new(tokio::sync::Mutex::new({
-            let mut bus_guard = bus.lock().await;
-            bus_guard
-                .take_inbound_rx()
-                .ok_or_else(|| anyhow::anyhow!("Inbound receiver already taken"))?
-        }));
+        // Extract receiver from the bus (called once at startup).
+        // Receivers are !Sync, so we wrap in Arc<Mutex> for sharing.
+        let inbound_rx = Arc::new(tokio::sync::Mutex::new(
+            bus.take_inbound_rx()
+                .ok_or_else(|| anyhow::anyhow!("Inbound receiver already taken"))?,
+        ));
         let model = model.unwrap_or_else(|| provider.default_model().to_string());
         let mut context_builder = ContextBuilder::new(&workspace)?;
         if !context_providers.is_empty() {

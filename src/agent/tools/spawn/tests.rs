@@ -20,7 +20,7 @@ impl LLMProvider for DummyProvider {
 }
 
 fn make_tool() -> SpawnTool {
-    let bus = Arc::new(tokio::sync::Mutex::new(MessageBus::new(10, 1.0, 16, 16)));
+    let bus = Arc::new(MessageBus::new(10, 1.0, 16, 16));
     let config = crate::agent::subagent::SubagentConfig {
         provider: Arc::new(DummyProvider),
         workspace: PathBuf::from("/tmp"),
