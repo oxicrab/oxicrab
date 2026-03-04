@@ -381,6 +381,7 @@ impl LLMProvider for FlushMock {
             output_tokens: None,
             cache_creation_input_tokens: None,
             cache_read_input_tokens: None,
+            actual_model: None,
         })
     }
     fn default_model(&self) -> &'static str {

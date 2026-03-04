@@ -25,6 +25,7 @@ impl MockProvider {
             output_tokens: None,
             cache_creation_input_tokens: None,
             cache_read_input_tokens: None,
+            actual_model: None,
         }])
     }
 
@@ -49,6 +50,7 @@ impl LLMProvider for MockProvider {
             output_tokens: None,
             cache_creation_input_tokens: None,
             cache_read_input_tokens: None,
+            actual_model: None,
         }))
     }
     fn default_model(&self) -> &'static str {
@@ -73,6 +75,7 @@ impl LLMProvider for DelayedProvider {
             output_tokens: None,
             cache_creation_input_tokens: None,
             cache_read_input_tokens: None,
+            actual_model: None,
         })
     }
     fn default_model(&self) -> &'static str {
@@ -237,6 +240,7 @@ impl LLMProvider for ConcurrencyTracker {
             output_tokens: None,
             cache_creation_input_tokens: None,
             cache_read_input_tokens: None,
+            actual_model: None,
         })
     }
     fn default_model(&self) -> &'static str {

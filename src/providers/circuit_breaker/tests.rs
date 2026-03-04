@@ -31,6 +31,7 @@ impl MockProvider {
             output_tokens: None,
             cache_creation_input_tokens: None,
             cache_read_input_tokens: None,
+            actual_model: None,
         }
     }
 }

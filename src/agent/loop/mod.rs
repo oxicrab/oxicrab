@@ -1303,10 +1303,12 @@ impl AgentLoop {
                 last_input_tokens = response.input_tokens;
             }
 
-            // Record cost for budget tracking
+            // Record cost for budget tracking — use actual_model from fallback
+            // provider when the primary failed and a different provider served it
+            let cost_model = response.actual_model.as_deref().unwrap_or(effective_model);
             if let Some(ref cg) = self.cost_guard {
                 cg.record_llm_call(
-                    effective_model,
+                    cost_model,
                     response.input_tokens,
                     response.output_tokens,
                     response.cache_creation_input_tokens,
@@ -1713,9 +1715,10 @@ impl AgentLoop {
             .await
         {
             Ok(response) => {
+                let cost_model = response.actual_model.as_deref().unwrap_or(effective_model);
                 if let Some(ref cg) = self.cost_guard {
                     cg.record_llm_call(
-                        effective_model,
+                        cost_model,
                         response.input_tokens,
                         response.output_tokens,
                         response.cache_creation_input_tokens,

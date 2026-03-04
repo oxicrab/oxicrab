@@ -62,7 +62,7 @@ impl LLMProvider for FallbackProvider {
             };
 
             match provider.chat(attempt_req).await {
-                Ok(response) => {
+                Ok(mut response) => {
                     if response.has_tool_calls() && !validate_tool_calls(&response.tool_calls) {
                         warn!(
                             "provider {} ({}) returned malformed tool calls{}",
@@ -71,9 +71,17 @@ impl LLMProvider for FallbackProvider {
                             if is_last { "" } else { ", trying next" }
                         );
                         if is_last {
+                            if i > 0 {
+                                response.actual_model = Some(model_name.clone());
+                            }
                             return Ok(response);
                         }
                         continue;
+                    }
+                    // Tag which model actually served the response when it
+                    // wasn't the primary, so cost tracking uses the right rates.
+                    if i > 0 {
+                        response.actual_model = Some(model_name.clone());
                     }
                     return Ok(response);
                 }

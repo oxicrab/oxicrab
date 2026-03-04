@@ -251,6 +251,7 @@ pub fn parse_response(json: &Value) -> LLMResponse {
         output_tokens,
         cache_creation_input_tokens,
         cache_read_input_tokens,
+        actual_model: None,
     }
 }
 

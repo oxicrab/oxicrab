@@ -113,6 +113,7 @@ async fn test_empty_llm_response_handled() {
             output_tokens: None,
             cache_creation_input_tokens: None,
             cache_read_input_tokens: None,
+            actual_model: None,
         },
         LLMResponse {
             content: None,
@@ -122,6 +123,7 @@ async fn test_empty_llm_response_handled() {
             output_tokens: None,
             cache_creation_input_tokens: None,
             cache_read_input_tokens: None,
+            actual_model: None,
         },
         LLMResponse {
             content: None,
@@ -131,6 +133,7 @@ async fn test_empty_llm_response_handled() {
             output_tokens: None,
             cache_creation_input_tokens: None,
             cache_read_input_tokens: None,
+            actual_model: None,
         },
         text_response("Finally responding."),
     ]);

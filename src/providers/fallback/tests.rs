@@ -47,6 +47,7 @@ fn text_response(text: &str) -> LLMResponse {
         output_tokens: None,
         cache_creation_input_tokens: None,
         cache_read_input_tokens: None,
+        actual_model: None,
     }
 }
 
@@ -63,6 +64,7 @@ fn tool_response(name: &str, args: serde_json::Value) -> LLMResponse {
         output_tokens: None,
         cache_creation_input_tokens: None,
         cache_read_input_tokens: None,
+        actual_model: None,
     }
 }
 
@@ -125,6 +127,7 @@ async fn test_malformed_tool_calls_fall_back() {
         output_tokens: None,
         cache_creation_input_tokens: None,
         cache_read_input_tokens: None,
+        actual_model: None,
     };
 
     let primary = MockProvider::ok("local-model", bad_response);
@@ -159,6 +162,7 @@ async fn test_malformed_tool_args_fall_back() {
         output_tokens: None,
         cache_creation_input_tokens: None,
         cache_read_input_tokens: None,
+        actual_model: None,
     };
 
     let primary = MockProvider::ok("local-model", bad_response);
@@ -334,6 +338,7 @@ async fn test_chain_malformed_tools_skip_to_next() {
         output_tokens: None,
         cache_creation_input_tokens: None,
         cache_read_input_tokens: None,
+        actual_model: None,
     };
 
     let p1 = MockProvider::ok("model-a", bad_response);

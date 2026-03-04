@@ -10,7 +10,7 @@ pub struct ToolCallRequest {
     pub arguments: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LLMResponse {
     pub content: Option<String>,
     pub tool_calls: Vec<ToolCallRequest>,
@@ -25,6 +25,10 @@ pub struct LLMResponse {
     pub cache_creation_input_tokens: Option<u64>,
     /// Anthropic prompt caching: tokens read from cache (billed at 10% of input rate).
     pub cache_read_input_tokens: Option<u64>,
+    /// Model that actually served this response. Set by `FallbackProvider` when
+    /// a non-primary provider handles the request; `None` means the originally
+    /// requested model served it.
+    pub actual_model: Option<String>,
 }
 
 impl LLMResponse {

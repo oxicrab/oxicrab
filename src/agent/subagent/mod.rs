@@ -420,10 +420,11 @@ async fn run_subagent_inner(
             })
             .await?;
 
-        // Record cost for budget tracking
+        // Record cost for budget tracking — use actual_model from fallback
+        let cost_model = response.actual_model.as_deref().unwrap_or(&config.model);
         if let Some(ref cg) = config.cost_guard {
             cg.record_llm_call(
-                &config.model,
+                cost_model,
                 response.input_tokens,
                 response.output_tokens,
                 response.cache_creation_input_tokens,
