@@ -105,30 +105,9 @@ async fn test_empty_llm_response_handled() {
 
     // Provider returns empty content and no tool calls
     let provider = MockLLMProvider::with_responses(vec![
-        LLMResponse {
-            content: None,
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
-            ..Default::default()
-        },
-        LLMResponse {
-            content: None,
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
-            ..Default::default()
-        },
-        LLMResponse {
-            content: None,
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
-            ..Default::default()
-        },
+        LLMResponse::default(),
+        LLMResponse::default(),
+        LLMResponse::default(),
         text_response("Finally responding."),
     ]);
 

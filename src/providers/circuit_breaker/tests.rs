@@ -25,10 +25,6 @@ impl MockProvider {
     fn ok_response() -> LLMResponse {
         LLMResponse {
             content: Some("ok".into()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
             ..Default::default()
         }
     }

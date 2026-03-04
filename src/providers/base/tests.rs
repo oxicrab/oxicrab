@@ -26,24 +26,16 @@ fn message_tool_result() {
 fn llm_response_has_tool_calls() {
     let empty = LLMResponse {
         content: Some("hi".into()),
-        tool_calls: vec![],
-        reasoning_content: None,
-        input_tokens: None,
-        output_tokens: None,
         ..Default::default()
     };
     assert!(!empty.has_tool_calls());
 
     let with_tools = LLMResponse {
-        content: None,
         tool_calls: vec![ToolCallRequest {
             id: "1".into(),
             name: "test".into(),
             arguments: Value::Null,
         }],
-        reasoning_content: None,
-        input_tokens: None,
-        output_tokens: None,
         ..Default::default()
     };
     assert!(with_tools.has_tool_calls());
@@ -56,10 +48,6 @@ impl LLMProvider for NoopProvider {
     async fn chat(&self, _req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
         Ok(LLMResponse {
             content: Some("ok".into()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
             ..Default::default()
         })
     }

@@ -19,10 +19,6 @@ impl MockProvider {
     fn immediate(content: &str) -> Self {
         Self::with_responses(vec![LLMResponse {
             content: Some(content.to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
             ..Default::default()
         }])
     }
@@ -42,10 +38,6 @@ impl LLMProvider for MockProvider {
         let response = self.responses.lock().unwrap().pop_front();
         Ok(response.unwrap_or_else(|| LLMResponse {
             content: Some("default".to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
             ..Default::default()
         }))
     }
@@ -65,10 +57,6 @@ impl LLMProvider for DelayedProvider {
         tokio::time::sleep(tokio::time::Duration::from_millis(self.delay_ms)).await;
         Ok(LLMResponse {
             content: Some(self.content.clone()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
             ..Default::default()
         })
     }
@@ -228,10 +216,6 @@ impl LLMProvider for ConcurrencyTracker {
             .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         Ok(LLMResponse {
             content: Some("done".to_string()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
             ..Default::default()
         })
     }

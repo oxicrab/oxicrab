@@ -375,10 +375,6 @@ impl LLMProvider for FlushMock {
     async fn chat(&self, _req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
         Ok(LLMResponse {
             content: Some(self.response.clone()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
             ..Default::default()
         })
     }

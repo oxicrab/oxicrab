@@ -540,14 +540,7 @@ async fn test_empty_response_exhaustion_returns_empty() {
     // When the LLM returns empty responses and retries are exhausted,
     // the agent should return gracefully (not panic)
     let tmp = TempDir::new().expect("create temp dir");
-    let empty_response = || oxicrab::providers::base::LLMResponse {
-        content: None,
-        tool_calls: vec![],
-        reasoning_content: None,
-        input_tokens: None,
-        output_tokens: None,
-        ..Default::default()
-    };
+    let empty_response = oxicrab::providers::base::LLMResponse::default;
     // 3 empty responses (initial + 2 retries = EMPTY_RESPONSE_RETRIES)
     let provider =
         MockLLMProvider::with_responses(vec![empty_response(), empty_response(), empty_response()]);

@@ -41,25 +41,17 @@ impl LLMProvider for MockProvider {
 fn text_response(text: &str) -> LLMResponse {
     LLMResponse {
         content: Some(text.to_string()),
-        tool_calls: vec![],
-        reasoning_content: None,
-        input_tokens: None,
-        output_tokens: None,
         ..Default::default()
     }
 }
 
 fn tool_response(name: &str, args: serde_json::Value) -> LLMResponse {
     LLMResponse {
-        content: None,
         tool_calls: vec![ToolCallRequest {
             id: "tc_1".to_string(),
             name: name.to_string(),
             arguments: args,
         }],
-        reasoning_content: None,
-        input_tokens: None,
-        output_tokens: None,
         ..Default::default()
     }
 }
@@ -112,15 +104,11 @@ async fn test_primary_fails_falls_back_to_secondary() {
 async fn test_malformed_tool_calls_fall_back() {
     // Tool call with empty name
     let bad_response = LLMResponse {
-        content: None,
         tool_calls: vec![ToolCallRequest {
             id: "tc_1".to_string(),
             name: String::new(),
             arguments: json!({"key": "value"}),
         }],
-        reasoning_content: None,
-        input_tokens: None,
-        output_tokens: None,
         ..Default::default()
     };
 
@@ -145,15 +133,11 @@ async fn test_malformed_tool_calls_fall_back() {
 async fn test_malformed_tool_args_fall_back() {
     // Tool call with non-object arguments
     let bad_response = LLMResponse {
-        content: None,
         tool_calls: vec![ToolCallRequest {
             id: "tc_1".to_string(),
             name: "web_search".to_string(),
             arguments: json!("not an object"),
         }],
-        reasoning_content: None,
-        input_tokens: None,
-        output_tokens: None,
         ..Default::default()
     };
 
@@ -319,15 +303,11 @@ async fn test_chain_all_fail_returns_last_error() {
 #[tokio::test]
 async fn test_chain_malformed_tools_skip_to_next() {
     let bad_response = LLMResponse {
-        content: None,
         tool_calls: vec![ToolCallRequest {
             id: "tc_1".to_string(),
             name: String::new(),
             arguments: json!({"key": "value"}),
         }],
-        reasoning_content: None,
-        input_tokens: None,
-        output_tokens: None,
         ..Default::default()
     };
 

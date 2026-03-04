@@ -265,10 +265,6 @@ async fn integration_text_tool_call_parsed() {
              </tool_call>"
                 .into(),
         ),
-        tool_calls: vec![],
-        reasoning_content: None,
-        input_tokens: None,
-        output_tokens: None,
         ..Default::default()
     };
 
@@ -327,10 +323,6 @@ impl MockProvider {
         Self {
             response: LLMResponse {
                 content: Some(text.into()),
-                tool_calls: vec![],
-                reasoning_content: None,
-                input_tokens: None,
-                output_tokens: None,
                 ..Default::default()
             },
         }

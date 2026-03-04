@@ -59,10 +59,6 @@ impl LLMProvider for MockLLMProvider {
         let response = self.responses.lock().expect("lock responses").pop_front();
         Ok(response.unwrap_or_else(|| LLMResponse {
             content: Some(self.default_response.clone()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
             ..Default::default()
         }))
     }
@@ -77,21 +73,13 @@ impl LLMProvider for MockLLMProvider {
 pub fn text_response(content: &str) -> LLMResponse {
     LLMResponse {
         content: Some(content.to_string()),
-        tool_calls: vec![],
-        reasoning_content: None,
-        input_tokens: None,
-        output_tokens: None,
         ..Default::default()
     }
 }
 
 pub fn tool_response(calls: Vec<ToolCallRequest>) -> LLMResponse {
     LLMResponse {
-        content: None,
         tool_calls: calls,
-        reasoning_content: None,
-        input_tokens: None,
-        output_tokens: None,
         ..Default::default()
     }
 }
@@ -141,10 +129,6 @@ impl LLMProvider for ToolCapturingProvider {
         let response = self.responses.lock().expect("lock responses").pop_front();
         Ok(response.unwrap_or_else(|| LLMResponse {
             content: Some(self.default_response.clone()),
-            tool_calls: vec![],
-            reasoning_content: None,
-            input_tokens: None,
-            output_tokens: None,
             ..Default::default()
         }))
     }
