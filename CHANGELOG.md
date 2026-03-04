@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.1] - 2026-03-04
+
+### Fixed
+- use moonshot.ai domain instead of moonshot.cn for API base ([28589cd](https://github.com/oxicrab/oxicrab/commit/28589cdc70e1bdb814d2246dbac8779e356b93cf))
+
 ## [0.13.0] - 2026-03-04
 
 ### Added
