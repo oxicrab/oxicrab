@@ -272,6 +272,9 @@ impl BrowserTool {
             })
             .await;
 
+        if let Some(err) = self.check_post_action_url(session).await {
+            return Ok(ToolResult::error(err));
+        }
         match result {
             Ok(text) => Ok(ToolResult::new(text)),
             Err(e) => Ok(ToolResult::error(e)),
@@ -313,6 +316,9 @@ impl BrowserTool {
             })
             .await;
 
+        if let Some(err) = self.check_post_action_url(session).await {
+            return Ok(ToolResult::error(err));
+        }
         match result {
             Ok(text) => Ok(ToolResult::new(text)),
             Err(e) => Ok(ToolResult::error(e)),
@@ -750,6 +756,10 @@ impl Tool for BrowserTool {
                     "type": "integer",
                     "description": "Number of pixels to scroll (default varies by direction)"
                 },
+                "ms": {
+                    "type": "integer",
+                    "description": "Milliseconds to wait (for wait action, max 30000)"
+                },
                 "navigation": {
                     "type": "string",
                     "enum": ["back", "forward", "reload"],
@@ -860,7 +870,7 @@ impl Tool for BrowserTool {
             }
             "wait" => {
                 let selector = params["selector"].as_str().filter(|s| !s.trim().is_empty());
-                let ms = params["pixels"].as_u64(); // reuse pixels field for ms
+                let ms = params["ms"].as_u64().or_else(|| params["pixels"].as_u64());
                 self.action_wait(selector, ms).await
             }
             "close" => self.action_close().await,

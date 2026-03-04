@@ -195,7 +195,8 @@ impl TodoistTool {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            anyhow::bail!("Todoist API {status}: {text}");
+            let safe: String = text.chars().take(200).collect();
+            anyhow::bail!("Todoist API {status}: {safe}");
         }
         let body: Value = serde_json::from_str(&text).map_err(|e| {
             anyhow::anyhow!(
@@ -229,7 +230,8 @@ impl TodoistTool {
         } else {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Todoist API {status}: {body}");
+            let safe: String = body.chars().take(200).collect();
+            anyhow::bail!("Todoist API {status}: {safe}");
         }
     }
 
@@ -276,7 +278,8 @@ impl TodoistTool {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            anyhow::bail!("Todoist API {status}: {text}");
+            let safe: String = text.chars().take(200).collect();
+            anyhow::bail!("Todoist API {status}: {safe}");
         }
         let t: Value = serde_json::from_str(&text).map_err(|e| {
             anyhow::anyhow!(
@@ -362,7 +365,8 @@ impl TodoistTool {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            anyhow::bail!("Todoist API {status}: {text}");
+            let safe: String = text.chars().take(200).collect();
+            anyhow::bail!("Todoist API {status}: {safe}");
         }
 
         Ok(format!("Task {task_id} updated."))
@@ -386,7 +390,8 @@ impl TodoistTool {
         } else {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Todoist API {status}: {body}");
+            let safe: String = body.chars().take(200).collect();
+            anyhow::bail!("Todoist API {status}: {safe}");
         }
     }
 
@@ -408,7 +413,8 @@ impl TodoistTool {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            anyhow::bail!("Todoist API {status}: {text}");
+            let safe: String = text.chars().take(200).collect();
+            anyhow::bail!("Todoist API {status}: {safe}");
         }
         let body: Value = serde_json::from_str(&text).map_err(|e| {
             anyhow::anyhow!(

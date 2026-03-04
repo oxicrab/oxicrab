@@ -193,7 +193,12 @@ impl Tool for WebSearchTool {
             .await
         {
             Ok(resp) => {
-                let json: Value = resp.json().await?;
+                let text = crate::utils::http::limited_text(
+                    resp,
+                    crate::utils::http::DEFAULT_MAX_BODY_BYTES,
+                )
+                .await?;
+                let json: Value = serde_json::from_str(&text)?;
                 let results = json["web"]["results"]
                     .as_array()
                     .cloned()

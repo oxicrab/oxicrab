@@ -377,15 +377,18 @@ impl Tool for ExecTool {
                 // Truncate raw bytes before UTF-8 conversion to bound memory.
                 // Reserve at least 25% for stderr so error messages aren't lost.
                 let stderr_reserve = MAX_OUTPUT_BYTES / 4;
-                let stdout_max = MAX_OUTPUT_BYTES - stderr_reserve.min(output.stderr.len());
+                let stderr_needed = stderr_reserve.min(output.stderr.len());
+                let stdout_max = MAX_OUTPUT_BYTES - stderr_needed;
                 let stdout_bytes = if output.stdout.len() > stdout_max {
                     truncate_at_utf8_boundary(&output.stdout, stdout_max)
                 } else {
                     &output.stdout
                 };
+                // Give stderr at least its reserved amount, plus any space stdout didn't use
                 let remaining = MAX_OUTPUT_BYTES.saturating_sub(stdout_bytes.len());
-                let stderr_bytes = if output.stderr.len() > remaining {
-                    truncate_at_utf8_boundary(&output.stderr, remaining)
+                let stderr_limit = remaining.max(stderr_needed);
+                let stderr_bytes = if output.stderr.len() > stderr_limit {
+                    truncate_at_utf8_boundary(&output.stderr, stderr_limit)
                 } else {
                     &output.stderr
                 };

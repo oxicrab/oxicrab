@@ -58,12 +58,16 @@ impl GoogleApiClient {
 
     /// Parse a Google API response, handling empty bodies (e.g. 204 No Content from DELETE).
     async fn parse_response(response: reqwest::Response) -> Result<Value> {
-        let resp = response.error_for_status()?;
-        let status = resp.status();
+        let status = response.status();
         if status == reqwest::StatusCode::NO_CONTENT {
             return Ok(Value::Null);
         }
-        let text = resp.text().await?;
+        // Read body before checking status so error details are preserved
+        let text = response.text().await?;
+        if !status.is_success() {
+            let safe_text: String = text.chars().take(500).collect();
+            anyhow::bail!("Google API error ({status}): {safe_text}");
+        }
         if text.is_empty() {
             return Ok(Value::Null);
         }

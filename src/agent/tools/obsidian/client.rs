@@ -28,6 +28,7 @@ impl ObsidianApiClient {
             );
         }
         let client = Client::builder()
+            .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(timeout_secs))
             .pool_max_idle_per_host(4)
             .danger_accept_invalid_certs(is_localhost)

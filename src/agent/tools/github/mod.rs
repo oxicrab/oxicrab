@@ -439,6 +439,11 @@ impl GitHubTool {
         file_path: &str,
         git_ref: Option<&str>,
     ) -> Result<String> {
+        // Reject path traversal attempts before constructing the API URL
+        if file_path.split('/').any(|seg| seg == ".." || seg == ".") {
+            anyhow::bail!("file path must not contain '.' or '..' segments");
+        }
+
         let mut query: Vec<(&str, &str)> = Vec::new();
         if let Some(r) = git_ref {
             query.push(("ref", r));

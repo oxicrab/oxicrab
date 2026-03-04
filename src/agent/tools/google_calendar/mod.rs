@@ -248,11 +248,22 @@ impl Tool for GoogleCalendarTool {
                         )));
                     }
                     body["start"] = serde_json::json!({"date": start_date});
-                    let end_raw = params["end"].as_str().unwrap_or(start_raw);
-                    let end_date = if end_raw.len() >= 10 {
-                        end_raw.get(..10).unwrap_or(end_raw)
+                    let end_date = if let Some(end_raw) = params["end"].as_str() {
+                        if end_raw.len() >= 10 {
+                            end_raw.get(..10).unwrap_or(end_raw).to_string()
+                        } else {
+                            end_raw.to_string()
+                        }
                     } else {
-                        start_date
+                        // Google Calendar all-day events use exclusive end dates,
+                        // so a 1-day event on "2026-03-04" needs end = "2026-03-05"
+                        match chrono::NaiveDate::parse_from_str(start_date, "%Y-%m-%d") {
+                            Ok(d) => {
+                                let next = d + chrono::Duration::days(1);
+                                next.format("%Y-%m-%d").to_string()
+                            }
+                            Err(_) => start_date.to_string(),
+                        }
                     };
                     body["end"] = serde_json::json!({"date": end_date});
                 } else {
@@ -306,14 +317,14 @@ impl Tool for GoogleCalendarTool {
                 }
                 if let Some(s) = params["start"].as_str() {
                     if params["all_day"].as_bool().unwrap_or_default() {
-                        ev["start"] = serde_json::json!({"date": &s[..10.min(s.len())]});
+                        ev["start"] = serde_json::json!({"date": s.get(..10).unwrap_or(s)});
                     } else {
                         ev["start"] = serde_json::json!({"dateTime": s, "timeZone": tz});
                     }
                 }
                 if let Some(e) = params["end"].as_str() {
                     if params["all_day"].as_bool().unwrap_or_default() {
-                        ev["end"] = serde_json::json!({"date": &e[..10.min(e.len())]});
+                        ev["end"] = serde_json::json!({"date": e.get(..10).unwrap_or(e)});
                     } else {
                         ev["end"] = serde_json::json!({"dateTime": e, "timeZone": tz});
                     }
@@ -411,11 +422,14 @@ fn ensure_rfc3339_tz(s: &str) -> String {
     // Already has a +HH:MM or -HH:MM offset (e.g. "2026-03-07T10:00:00+05:00")
     let bytes = trimmed.as_bytes();
     if bytes.len() >= 6 {
-        let tail = &trimmed[trimmed.len() - 6..];
-        if (tail.starts_with('+') || tail.starts_with('-'))
-            && tail[1..3].chars().all(|c| c.is_ascii_digit())
-            && tail.as_bytes()[3] == b':'
-            && tail[4..6].chars().all(|c| c.is_ascii_digit())
+        // Timezone offsets are ASCII, safe to index by byte
+        let tail = &bytes[bytes.len() - 6..];
+        if (tail[0] == b'+' || tail[0] == b'-')
+            && tail[1].is_ascii_digit()
+            && tail[2].is_ascii_digit()
+            && tail[3] == b':'
+            && tail[4].is_ascii_digit()
+            && tail[5].is_ascii_digit()
         {
             return trimmed.to_string();
         }

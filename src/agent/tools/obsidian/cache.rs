@@ -29,6 +29,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -105,18 +106,20 @@ impl ObsidianCache {
         let queue_path = base.join("write_queue.json");
 
         let state = if state_path.exists() {
-            let file = std::fs::File::open(&state_path)?;
+            let mut file = std::fs::File::open(&state_path)?;
             fs2::FileExt::lock_shared(&file)?;
-            let data = std::fs::read_to_string(&state_path)?;
+            let mut data = String::new();
+            file.read_to_string(&mut data)?;
             serde_json::from_str(&data).unwrap_or_default()
         } else {
             SyncState::default()
         };
 
         let write_queue = if queue_path.exists() {
-            let file = std::fs::File::open(&queue_path)?;
+            let mut file = std::fs::File::open(&queue_path)?;
             fs2::FileExt::lock_shared(&file)?;
-            let data = std::fs::read_to_string(&queue_path)?;
+            let mut data = String::new();
+            file.read_to_string(&mut data)?;
             serde_json::from_str(&data).unwrap_or_default()
         } else {
             Vec::new()
