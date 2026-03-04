@@ -403,15 +403,20 @@ impl MemoryDB {
     }
 
     /// Delete sessions not updated within `ttl_days`. Returns count deleted.
+    /// A TTL of 0 deletes all sessions.
     pub fn cleanup_sessions(&self, ttl_days: u32) -> Result<usize> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        let deleted = conn.execute(
-            "DELETE FROM sessions WHERE updated_at < datetime('now', ?1)",
-            rusqlite::params![format!("-{ttl_days} days")],
-        )?;
+        let deleted = if ttl_days == 0 {
+            conn.execute("DELETE FROM sessions", [])?
+        } else {
+            conn.execute(
+                "DELETE FROM sessions WHERE updated_at < datetime('now', ?1)",
+                rusqlite::params![format!("-{ttl_days} days")],
+            )?
+        };
         Ok(deleted)
     }
 }
