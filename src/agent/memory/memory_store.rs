@@ -1,3 +1,4 @@
+#[cfg(feature = "embeddings")]
 use crate::agent::memory::embeddings::{EmbeddingService, LazyEmbeddingService};
 use crate::agent::memory::{MemoryDB, MemoryIndexer};
 use crate::config::MemoryConfig;
@@ -6,7 +7,9 @@ use chrono::Utc;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::debug;
+#[cfg(feature = "embeddings")]
+use tracing::warn;
 
 /// Find a `## Section` header that is on its own line (not a prefix of another header).
 /// Prevents `"## Fact"` from matching `"## FactSheet"`.
@@ -45,10 +48,15 @@ pub struct MemoryStore {
     knowledge_dir: PathBuf,
     db: Arc<MemoryDB>,
     indexer: Option<Arc<MemoryIndexer>>,
+    #[cfg(feature = "embeddings")]
     embedding_service: Option<Arc<LazyEmbeddingService>>,
+    #[cfg(feature = "embeddings")]
     hybrid_weight: f32,
+    #[cfg(feature = "embeddings")]
     fusion_strategy: crate::config::FusionStrategy,
+    #[cfg(feature = "embeddings")]
     rrf_k: u32,
+    #[cfg(feature = "embeddings")]
     recency_half_life_days: u32,
 }
 
@@ -98,6 +106,7 @@ impl MemoryStore {
         })?);
 
         // Create embedding service if enabled (lazy background initialization)
+        #[cfg(feature = "embeddings")]
         let embedding_service = if memory_config.embeddings_enabled {
             Some(Arc::new(LazyEmbeddingService::new(
                 memory_config.embeddings_model.clone(),
@@ -107,6 +116,11 @@ impl MemoryStore {
             None
         };
 
+        #[cfg(feature = "embeddings")]
+        let emb_for_indexer = embedding_service.clone();
+        #[cfg(not(feature = "embeddings"))]
+        let emb_for_indexer = None;
+
         let indexer = Arc::new(MemoryIndexer::with_full_config(
             db.clone(),
             memory_dir.clone(),
@@ -114,7 +128,7 @@ impl MemoryStore {
             indexer_interval_secs,
             memory_config.archive_after_days,
             memory_config.purge_after_days,
-            embedding_service.clone(),
+            emb_for_indexer,
             workspace_ttl,
         ));
 
@@ -123,10 +137,15 @@ impl MemoryStore {
             knowledge_dir,
             db,
             indexer: Some(indexer),
+            #[cfg(feature = "embeddings")]
             embedding_service,
+            #[cfg(feature = "embeddings")]
             hybrid_weight: memory_config.hybrid_weight,
+            #[cfg(feature = "embeddings")]
             fusion_strategy: memory_config.fusion_strategy,
+            #[cfg(feature = "embeddings")]
             rrf_k: memory_config.rrf_k,
+            #[cfg(feature = "embeddings")]
             recency_half_life_days: memory_config.recency_half_life_days,
         })
     }
@@ -176,10 +195,15 @@ impl MemoryStore {
             knowledge_dir,
             db,
             indexer: Some(indexer),
+            #[cfg(feature = "embeddings")]
             embedding_service: None,
+            #[cfg(feature = "embeddings")]
             hybrid_weight: 0.5,
+            #[cfg(feature = "embeddings")]
             fusion_strategy: crate::config::FusionStrategy::default(),
+            #[cfg(feature = "embeddings")]
             rrf_k: 60,
+            #[cfg(feature = "embeddings")]
             recency_half_life_days: 90,
         })
     }
@@ -195,18 +219,25 @@ impl MemoryStore {
     }
 
     /// Get the embedding service if ready (None if disabled or still initializing).
+    #[cfg(feature = "embeddings")]
     pub fn embedding_service(&self) -> Option<&EmbeddingService> {
         self.embedding_service.as_ref().and_then(|lazy| lazy.get())
     }
 
     /// Whether embeddings are available for hybrid search.
     pub fn has_embeddings(&self) -> bool {
-        self.embedding_service
-            .as_ref()
-            .is_some_and(|s| s.is_ready())
+        #[cfg(feature = "embeddings")]
+        {
+            self.embedding_service
+                .as_ref()
+                .is_some_and(|s| s.is_ready())
+        }
+        #[cfg(not(feature = "embeddings"))]
+        false
     }
 
     /// Hybrid search combining keyword and vector similarity.
+    #[cfg(feature = "embeddings")]
     pub fn hybrid_search(
         &self,
         query: &str,
@@ -296,12 +327,19 @@ impl MemoryStore {
             let fetch_limit = if is_group { 16 } else { 8 };
             let result_limit = 8;
             let hits = if self.has_embeddings() {
-                match self.hybrid_search(query, fetch_limit, Some(&exclude)) {
-                    Ok(h) => h,
-                    Err(e) => {
-                        warn!("hybrid search failed, falling back to keyword: {}", e);
-                        self.db.search(query, fetch_limit, Some(&exclude))?
+                #[cfg(feature = "embeddings")]
+                {
+                    match self.hybrid_search(query, fetch_limit, Some(&exclude)) {
+                        Ok(h) => h,
+                        Err(e) => {
+                            warn!("hybrid search failed, falling back to keyword: {}", e);
+                            self.db.search(query, fetch_limit, Some(&exclude))?
+                        }
                     }
+                }
+                #[cfg(not(feature = "embeddings"))]
+                {
+                    self.db.search(query, fetch_limit, Some(&exclude))?
                 }
             } else {
                 self.db.search(query, fetch_limit, Some(&exclude))?
@@ -514,6 +552,7 @@ mod tests {
         assert!(!is_daily_note_key(""));
     }
 
+    #[cfg(feature = "embeddings")]
     #[test]
     fn test_with_config_wires_fusion_strategy() {
         let tmp = tempfile::TempDir::new().unwrap();

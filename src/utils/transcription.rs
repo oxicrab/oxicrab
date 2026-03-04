@@ -1,11 +1,14 @@
 use crate::config::TranscriptionConfig;
 use anyhow::{Context, Result, bail};
 use reqwest::Client;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(feature = "local-whisper")]
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::fs;
 use tracing::{debug, info, warn};
+#[cfg(feature = "local-whisper")]
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 pub struct TranscriptionService {
@@ -15,12 +18,15 @@ pub struct TranscriptionService {
     api_key: String,
     model: String,
     // Local backend
+    #[cfg(feature = "local-whisper")]
     whisper_ctx: Option<Arc<WhisperContext>>,
     prefer_local: bool,
+    #[cfg(feature = "local-whisper")]
     whisper_threads: u16,
 }
 
 /// Expand a leading `~/` in a path to the user's home directory.
+#[cfg(feature = "local-whisper")]
 fn expand_tilde(path: &str) -> PathBuf {
     if let Some(rest) = path.strip_prefix("~/")
         && let Some(home) = dirs::home_dir()
@@ -41,6 +47,7 @@ impl TranscriptionService {
         let has_cloud = !config.api_key.is_empty();
 
         // Try to load local whisper model
+        #[cfg(feature = "local-whisper")]
         let whisper_ctx = if config.local_model_path.is_empty() {
             None
         } else {
@@ -75,7 +82,10 @@ impl TranscriptionService {
             }
         };
 
+        #[cfg(feature = "local-whisper")]
         let has_local = whisper_ctx.is_some();
+        #[cfg(not(feature = "local-whisper"))]
+        let has_local = false;
 
         // Need at least one backend
         if !has_cloud && !has_local {
@@ -93,8 +103,10 @@ impl TranscriptionService {
             api_base: config.api_base.clone(),
             api_key: config.api_key.clone(),
             model: config.model.clone(),
+            #[cfg(feature = "local-whisper")]
             whisper_ctx,
             prefer_local: config.prefer_local,
+            #[cfg(feature = "local-whisper")]
             whisper_threads: config.threads,
         })
     }
@@ -102,6 +114,7 @@ impl TranscriptionService {
     /// Transcribe an audio file, routing between local and cloud backends.
     pub async fn transcribe(&self, audio_path: &Path) -> Result<String> {
         if self.prefer_local {
+            #[cfg(feature = "local-whisper")]
             if let Some(ref ctx) = self.whisper_ctx {
                 match self.transcribe_local(ctx, audio_path).await {
                     Ok(text) => return Ok(text),
@@ -117,6 +130,7 @@ impl TranscriptionService {
         if !self.api_key.is_empty() {
             return self.transcribe_cloud(audio_path).await;
         }
+        #[cfg(feature = "local-whisper")]
         if let Some(ref ctx) = self.whisper_ctx {
             return self.transcribe_local(ctx, audio_path).await;
         }
@@ -203,6 +217,7 @@ impl TranscriptionService {
     }
 
     /// Transcribe locally using whisper-rs via ffmpeg PCM conversion.
+    #[cfg(feature = "local-whisper")]
     async fn transcribe_local(
         &self,
         ctx: &Arc<WhisperContext>,
@@ -293,9 +308,11 @@ impl LazyTranscriptionService {
 const MAX_AUDIO_FILE_BYTES: u64 = 25 * 1024 * 1024;
 
 /// Maximum PCM data size from ffmpeg (50 MB).
+#[cfg(feature = "local-whisper")]
 const MAX_PCM_BYTES: usize = 50 * 1024 * 1024;
 
 /// Convert an audio file to 16kHz mono f32 PCM using ffmpeg.
+#[cfg(feature = "local-whisper")]
 async fn convert_audio_to_pcm(audio_path: &Path) -> Result<Vec<f32>> {
     let output = crate::utils::subprocess::scrubbed_command("ffmpeg")
         .args([

@@ -1725,10 +1725,15 @@ impl AgentLoop {
         let (semantic_result, semantic_score) = if regex_intent {
             (None, None)
         } else {
-            self.memory
-                .embedding_service()
-                .and_then(|svc| intent::classify_action_intent_semantic(content, svc))
-                .map_or((None, None), |(result, score)| (Some(result), Some(score)))
+            #[cfg(feature = "embeddings")]
+            {
+                self.memory
+                    .embedding_service()
+                    .and_then(|svc| intent::classify_action_intent_semantic(content, svc))
+                    .map_or((None, None), |(result, score)| (Some(result), Some(score)))
+            }
+            #[cfg(not(feature = "embeddings"))]
+            (None, None)
         };
         let user_action_intent = regex_intent || semantic_result.unwrap_or_default();
 

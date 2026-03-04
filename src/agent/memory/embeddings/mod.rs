@@ -1,19 +1,28 @@
-/// Local embedding generation via fastembed (ONNX-based, no API key needed).
+/// Embedding utilities and optional local embedding generation via fastembed.
+use anyhow::Result;
+
+#[cfg(feature = "embeddings")]
 use std::num::NonZeroUsize;
+#[cfg(feature = "embeddings")]
 use std::sync::{Arc, Mutex};
 
-use anyhow::Result;
+#[cfg(feature = "embeddings")]
 use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
+#[cfg(feature = "embeddings")]
 use lru::LruCache;
+#[cfg(feature = "embeddings")]
 use tracing::{debug, info, warn};
 
+#[cfg(feature = "embeddings")]
 const DEFAULT_CACHE_SIZE: usize = 10_000;
 
+#[cfg(feature = "embeddings")]
 pub struct EmbeddingService {
     model: Mutex<TextEmbedding>,
     cache: Mutex<LruCache<String, Vec<f32>>>,
 }
 
+#[cfg(feature = "embeddings")]
 impl EmbeddingService {
     /// Load embedding model. This downloads the model on first use (~30MB).
     pub fn new(model_name: &str) -> Result<Self> {
@@ -90,10 +99,12 @@ impl EmbeddingService {
 
 /// Lazy wrapper that initializes the embedding model in a background task.
 /// Callers can check readiness via `get()` or `is_ready()`.
+#[cfg(feature = "embeddings")]
 pub struct LazyEmbeddingService {
     cell: Arc<tokio::sync::OnceCell<EmbeddingService>>,
 }
 
+#[cfg(feature = "embeddings")]
 impl LazyEmbeddingService {
     /// Spawn background initialization of the embedding model.
     pub fn new(model_name: String, cache_size: usize) -> Self {

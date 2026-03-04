@@ -1,4 +1,5 @@
 pub mod base;
+#[cfg(feature = "browser")]
 pub mod browser;
 pub mod cron;
 pub mod filesystem;

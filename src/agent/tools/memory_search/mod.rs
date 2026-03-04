@@ -61,6 +61,7 @@ impl Tool for MemorySearchTool {
         };
 
         // Use hybrid search when embeddings are available
+        #[cfg(feature = "embeddings")]
         if self.memory.has_embeddings() {
             match self.memory.hybrid_search(query, 8, None) {
                 Ok(hits) if !hits.is_empty() => {

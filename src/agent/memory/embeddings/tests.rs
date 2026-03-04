@@ -59,6 +59,7 @@ fn test_deserialize_truncated_blob() {
     assert!(deserialize_embedding(truncated).is_err());
 }
 
+#[cfg(feature = "embeddings")]
 #[test]
 fn test_default_cache_size_is_10k() {
     assert_eq!(DEFAULT_CACHE_SIZE, 10_000);

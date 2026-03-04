@@ -13,10 +13,14 @@
 //!    (e.g. "put it on my calendar" ≈ "schedule a reminder").
 
 use regex::Regex;
-use std::sync::{LazyLock, Mutex};
-use tracing::debug;
+use std::sync::LazyLock;
 
+#[cfg(feature = "embeddings")]
 use crate::agent::memory::embeddings::{EmbeddingService, cosine_similarity};
+#[cfg(feature = "embeddings")]
+use std::sync::Mutex;
+#[cfg(feature = "embeddings")]
+use tracing::debug;
 
 /// Imperative action verbs that typically require tool calls.
 ///
@@ -67,6 +71,7 @@ static CLARIFICATION_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// Prototype action phrases spanning the semantic space of "user requesting
 /// an action." Each phrase represents a cluster of similar action requests.
 /// Chosen to be diverse — task management, file ops, scheduling, deployment.
+#[cfg(feature = "embeddings")]
 const ACTION_PROTOTYPES: &[&str] = &[
     "create a new task for me",
     "delete that file",
@@ -98,11 +103,13 @@ const ACTION_PROTOTYPES: &[&str] = &[
 /// Cosine similarity threshold for classifying action intent.
 /// BGE-small-en-v1.5 normalized embeddings: semantically similar ≈ 0.75–0.95,
 /// somewhat related ≈ 0.55–0.75, unrelated ≈ 0.2–0.5.
+#[cfg(feature = "embeddings")]
 const SEMANTIC_ACTION_THRESHOLD: f32 = 0.72;
 
 /// Cached prototype embeddings, computed once on first use.
 /// `Mutex<Option<...>>` (not `OnceLock`) so initialization can retry if
 /// embeddings weren't ready on the first attempt.
+#[cfg(feature = "embeddings")]
 static PROTOTYPE_CACHE: LazyLock<Mutex<Option<Vec<Vec<f32>>>>> = LazyLock::new(|| Mutex::new(None));
 
 /// Classify action intent using embedding cosine similarity.
@@ -111,6 +118,7 @@ static PROTOTYPE_CACHE: LazyLock<Mutex<Option<Vec<Vec<f32>>>>> = LazyLock::new(|
 /// against action prototypes. Returns `None` if embeddings are unavailable or fail.
 ///
 /// Prototype embeddings are computed once and cached for the process lifetime.
+#[cfg(feature = "embeddings")]
 pub fn classify_action_intent_semantic(
     text: &str,
     embedding_service: &EmbeddingService,

@@ -2,6 +2,7 @@ use crate::agent::memory::MemoryDB;
 /// Background memory indexer service
 ///
 /// Periodically indexes memory files in the background to avoid blocking queries.
+#[cfg(feature = "embeddings")]
 use crate::agent::memory::embeddings::{EmbeddingService, LazyEmbeddingService};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -9,6 +10,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
+
+/// Type alias for the optional embedding service, gated by the `embeddings` feature.
+#[cfg(feature = "embeddings")]
+type OptionalEmbeddings = Option<Arc<LazyEmbeddingService>>;
+#[cfg(not(feature = "embeddings"))]
+type OptionalEmbeddings = Option<()>;
 
 pub struct MemoryIndexer {
     db: Arc<MemoryDB>,
@@ -19,7 +26,7 @@ pub struct MemoryIndexer {
     last_index_time: Arc<Mutex<Option<std::time::Instant>>>,
     archive_after_days: u32,
     purge_after_days: u32,
-    embedding_service: Option<Arc<LazyEmbeddingService>>,
+    embedding_service: OptionalEmbeddings,
     indexing_in_progress: Arc<std::sync::atomic::AtomicBool>,
     workspace_ttl: std::collections::HashMap<String, Option<u64>>,
 }
@@ -49,7 +56,7 @@ impl MemoryIndexer {
         interval_secs: u64,
         archive_after_days: u32,
         purge_after_days: u32,
-        embedding_service: Option<Arc<LazyEmbeddingService>>,
+        embedding_service: OptionalEmbeddings,
         workspace_ttl: std::collections::HashMap<String, Option<u64>>,
     ) -> Self {
         Self {
@@ -94,7 +101,7 @@ impl MemoryIndexer {
                 &db,
                 &memory_dir,
                 knowledge_dir.as_deref(),
-                embedding_service.as_ref(),
+                Some(&embedding_service),
             )
             .await;
 
@@ -126,7 +133,7 @@ impl MemoryIndexer {
                     &db,
                     &memory_dir,
                     knowledge_dir.as_deref(),
-                    embedding_service.as_ref(),
+                    Some(&embedding_service),
                 )
                 .await;
 
@@ -155,14 +162,14 @@ impl MemoryIndexer {
         db: &MemoryDB,
         memory_dir: &Path,
         knowledge_dir: Option<&Path>,
-        embedding_service: Option<&Arc<LazyEmbeddingService>>,
+        embedding_service: Option<&OptionalEmbeddings>,
     ) {
         debug!("Starting memory indexing...");
         match tokio::task::spawn_blocking({
             let db = db.clone();
             let memory_dir = memory_dir.to_path_buf();
             let knowledge_dir = knowledge_dir.map(Path::to_path_buf);
-            let embedding_service = embedding_service.cloned();
+            let embedding_service = embedding_service.and_then(|o| o.clone());
             move || {
                 // Collect source keys that were indexed (for embedding generation)
                 let mut indexed_sources: Vec<String> = Vec::new();
@@ -202,15 +209,16 @@ impl MemoryIndexer {
                     warn!("failed to index knowledge directory: {}", e);
                 }
 
-                // Unwrap lazy service — if still loading, skip embeddings this cycle
-                let inner_embedding_service =
-                    embedding_service.as_ref().and_then(|lazy| lazy.get());
-
-                // Generate embeddings for indexed sources
-                if let Some(emb_svc) = inner_embedding_service {
+                // Generate embeddings for indexed sources (when embeddings feature enabled)
+                #[cfg(feature = "embeddings")]
+                if let Some(ref lazy_svc) = embedding_service
+                    && let Some(emb_svc) = lazy_svc.get()
+                {
                     Self::generate_embeddings_for_sources(&db, emb_svc, &indexed_sources);
                     Self::backfill_missing_embeddings(&db, emb_svc);
                 }
+
+                let _ = (embedding_service, indexed_sources); // suppress unused warnings
 
                 debug!("Memory indexing completed");
             }
@@ -225,6 +233,7 @@ impl MemoryIndexer {
     }
 
     /// Generate embeddings for entries belonging to the given source keys.
+    #[cfg(feature = "embeddings")]
     fn generate_embeddings_for_sources(
         db: &MemoryDB,
         embedding_service: &EmbeddingService,
@@ -266,8 +275,10 @@ impl MemoryIndexer {
 
     /// Back-fill embeddings for entries that were indexed before embeddings were enabled.
     /// Cap per cycle to prevent excessive memory/CPU usage on large databases.
+    #[cfg(feature = "embeddings")]
     const MAX_BACKFILL_PER_CYCLE: usize = 500;
 
+    #[cfg(feature = "embeddings")]
     fn backfill_missing_embeddings(db: &MemoryDB, embedding_service: &EmbeddingService) {
         let missing = match db.get_entries_missing_embeddings() {
             Ok(m) => m,
@@ -414,7 +425,7 @@ impl MemoryIndexer {
                 &db,
                 &memory_dir,
                 knowledge_dir.as_deref(),
-                embedding_service.as_ref(),
+                Some(&embedding_service),
             )
             .await;
         });

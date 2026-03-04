@@ -54,6 +54,7 @@ pub async fn register_all_tools(
     register_web(&mut tools, ctx);
     let subagents = register_subagents(&mut tools, ctx);
     register_tmux(&mut tools);
+    #[cfg(feature = "browser")]
     register_browser(&mut tools, ctx);
     register_image_gen(&mut tools, ctx);
     register_cron(&mut tools, ctx);
@@ -179,6 +180,7 @@ fn register_tmux(registry: &mut ToolRegistry) {
     registry.register(Arc::new(TmuxTool::new()));
 }
 
+#[cfg(feature = "browser")]
 fn register_browser(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::browser::BrowserTool;
 

@@ -22,8 +22,11 @@ name = "oxicrab"
 path = "src/main.rs"
 
 [features]
-default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio", "keyring-store"]
+default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio", "keyring-store", "browser", "local-whisper", "embeddings"]
 keyring-store = ["dep:keyring"]
+browser = ["dep:chromiumoxide"]
+local-whisper = ["dep:whisper-rs"]
+embeddings = ["dep:fastembed"]
 channel-telegram = ["dep:teloxide"]
 channel-discord = ["dep:serenity"]
 channel-slack = ["dep:tokio-tungstenite"]
@@ -44,7 +47,7 @@ clap = { version = "4.5", features = ["derive"] }
 clap_complete = "4.5"
 cron = "0.15"
 dirs = "6.0"
-fastembed = { version = "5", default-features = false, features = ["hf-hub", "hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"] }
+fastembed = { version = "5", default-features = false, features = ["hf-hub", "hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"], optional = true }
 fastrand = "2.0"
 fs2 = "0.4"
 form_urlencoded = "1.2"
@@ -87,9 +90,9 @@ walkdir = "2.5"
 whatsapp-rust = { git = "https://github.com/jlucaso1/whatsapp-rust", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
 whatsapp-rust-tokio-transport = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-tokio-transport", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
 whatsapp-rust-ureq-http-client = { git = "https://github.com/jlucaso1/whatsapp-rust", package = "whatsapp-rust-ureq-http-client", rev = "1a563916001abfbba54b1c92c80e118b43e594f4", optional = true }
-chromiumoxide = { version = "0.8", default-features = false, features = ["tokio-runtime"] }
+chromiumoxide = { version = "0.8", default-features = false, features = ["tokio-runtime"], optional = true }
 which = "8.0"
-whisper-rs = { version = "0.15", features = ["tracing_backend"] }
+whisper-rs = { version = "0.15", features = ["tracing_backend"], optional = true }
 
 # Security: Force minimum versions of transitive dependencies to resolve vulnerabilities
 # - CVE-2022-23639 / GHSA-qc84-gqf4-9926: crossbeam-utils AtomicCell unsoundness (fixed in >= 0.8.7)
