@@ -45,7 +45,7 @@ pub fn recency_decay(age_days: f64, half_life_days: u32) -> f32 {
 }
 
 pub struct MemoryDB {
-    conn: std::sync::Mutex<Connection>,
+    pub(crate) conn: std::sync::Mutex<Connection>,
     db_path: String,
     has_fts: bool,
     /// Lazily populated embedding cache. Set to `None` to invalidate
@@ -297,6 +297,15 @@ impl MemoryDB {
             );
         }
 
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS sessions (
+                key TEXT PRIMARY KEY,
+                data TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+
         // Try to create FTS5 virtual table
         if conn
             .execute(
@@ -345,6 +354,65 @@ impl MemoryDB {
         }
 
         Ok(())
+    }
+}
+
+// --- Session storage ---
+
+impl MemoryDB {
+    /// Load a session by key. Returns `None` if not found.
+    pub fn load_session(&self, key: &str) -> Result<Option<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare("SELECT data FROM sessions WHERE key = ?1")?;
+        let mut rows = stmt.query(rusqlite::params![key])?;
+        if let Some(row) = rows.next()? {
+            let data: String = row.get(0)?;
+            Ok(Some(data))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Save a session (insert or replace).
+    pub fn save_session(&self, key: &str, data: &str) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO sessions (key, data, updated_at) VALUES (?1, ?2, datetime('now'))",
+            rusqlite::params![key, data],
+        )?;
+        Ok(())
+    }
+
+    /// Delete a session by key. Returns true if a row was deleted.
+    pub fn delete_session(&self, key: &str) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let deleted = conn.execute(
+            "DELETE FROM sessions WHERE key = ?1",
+            rusqlite::params![key],
+        )?;
+        Ok(deleted > 0)
+    }
+
+    /// Delete sessions not updated within `ttl_days`. Returns count deleted.
+    pub fn cleanup_sessions(&self, ttl_days: u32) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let deleted = conn.execute(
+            "DELETE FROM sessions WHERE updated_at < datetime('now', ?1)",
+            rusqlite::params![format!("-{ttl_days} days")],
+        )?;
+        Ok(deleted)
     }
 }
 

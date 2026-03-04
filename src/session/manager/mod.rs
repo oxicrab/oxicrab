@@ -1,16 +1,15 @@
+use crate::agent::memory::MemoryDB;
 use crate::session::store::SessionStore;
-use crate::utils::{atomic_write, ensure_dir, safe_filename};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use fs2::FileExt;
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fs;
 use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
@@ -103,91 +102,108 @@ impl Session {
 }
 
 pub struct SessionManager {
-    sessions_dir: PathBuf,
+    db: Arc<MemoryDB>,
     cache: Mutex<LruCache<String, Session>>,
 }
 
 impl SessionManager {
     pub fn new(workspace: &Path) -> Result<Self> {
-        let sessions_dir = ensure_dir(workspace.join("sessions"))?;
-        Ok(Self {
-            sessions_dir,
+        let memory_dir = workspace.join("memory");
+        std::fs::create_dir_all(&memory_dir).with_context(|| {
+            format!(
+                "failed to create memory directory: {}",
+                memory_dir.display()
+            )
+        })?;
+        let db_path = memory_dir.join("memory.sqlite3");
+        let db = Arc::new(MemoryDB::new(db_path)?);
+        let mgr = Self {
+            db,
             cache: Mutex::new(LruCache::new(
                 NonZeroUsize::new(MAX_CACHED_SESSIONS).expect("MAX_CACHED_SESSIONS must be > 0"),
             )),
-        })
-    }
-
-    fn get_session_path(&self, key: &str) -> PathBuf {
-        let safe_key = safe_filename(&key.replace(':', "_"));
-        self.sessions_dir.join(format!("{safe_key}.jsonl"))
-    }
-
-    pub async fn get_or_create(&self, key: &str) -> Result<Session> {
-        // Check cache with single lock scope to prevent race conditions
-        let cached_session = {
-            let mut cache = self.cache.lock().await;
-            cache.get(key).cloned()
         };
 
-        if let Some(session) = cached_session {
-            debug!("session cache hit: {}", key);
-            return Ok(session);
-        }
-
-        // Try to load from disk (in spawn_blocking to avoid blocking async runtime)
-        let path = self.get_session_path(key);
-        let loaded = tokio::task::spawn_blocking(move || Self::load_from_path(&path))
-            .await
-            .map_err(|e| anyhow::anyhow!("session load task failed: {e}"))??;
-        let session = if let Some(s) = loaded {
-            debug!("session loaded from disk: {}", key);
-            s
-        } else {
-            debug!("session created: {}", key);
-            Session::new(key.to_string())
-        };
-
-        // Put in cache - double-check pattern to avoid duplicates
-        {
-            let mut cache = self.cache.lock().await;
-            // Check again in case another task loaded it
-            if let Some(existing) = cache.get(key) {
-                return Ok(existing.clone());
+        // Migrate existing JSONL files on first use
+        let sessions_dir = workspace.join("sessions");
+        if sessions_dir.is_dir() {
+            if let Err(e) = mgr.migrate_jsonl_files(&sessions_dir) {
+                warn!("session migration from JSONL failed: {e}");
             }
-            cache.put(key.to_string(), session.clone());
         }
 
-        Ok(session)
+        Ok(mgr)
     }
 
-    /// Load a session from a file path. Extracted as a static method so it can
-    /// be called from `spawn_blocking` without borrowing `self`.
-    fn load_from_path(path: &std::path::Path) -> Result<Option<Session>> {
+    /// Create a `SessionManager` from an existing `MemoryDB` instance.
+    /// Used when the agent loop already has a db reference.
+    pub fn with_db(db: Arc<MemoryDB>) -> Self {
+        Self {
+            db,
+            cache: Mutex::new(LruCache::new(
+                NonZeroUsize::new(MAX_CACHED_SESSIONS).expect("MAX_CACHED_SESSIONS must be > 0"),
+            )),
+        }
+    }
+
+    /// Migrate existing JSONL session files into SQLite.
+    /// Runs once; after migration, the `sessions/` directory is renamed to
+    /// `sessions.migrated/` to prevent re-migration.
+    fn migrate_jsonl_files(&self, sessions_dir: &Path) -> Result<()> {
+        let entries: Vec<_> = std::fs::read_dir(sessions_dir)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
+            .collect();
+
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        info!("migrating {} JSONL session files to SQLite", entries.len());
+
+        for entry in &entries {
+            let path = entry.path();
+            match Self::load_jsonl_file(&path) {
+                Ok(Some(session)) => {
+                    let data = serde_json::to_string(&session)?;
+                    if let Err(e) = self.db.save_session(&session.key, &data) {
+                        warn!("failed to migrate session {}: {e}", session.key);
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => warn!("failed to read session file {}: {e}", path.display()),
+            }
+        }
+
+        // Rename the old directory to mark migration complete
+        let migrated_dir = sessions_dir.with_file_name("sessions.migrated");
+        if let Err(e) = std::fs::rename(sessions_dir, &migrated_dir) {
+            warn!(
+                "could not rename sessions dir after migration: {e}; files will be re-migrated next time"
+            );
+        } else {
+            info!(
+                "session migration complete; old files moved to {}",
+                migrated_dir.display()
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Load a session from a JSONL file (for migration).
+    fn load_jsonl_file(path: &std::path::Path) -> Result<Option<Session>> {
         if !path.exists() {
             return Ok(None);
         }
 
-        // Use the same lock file as save() for proper coordination.
-        // Shared lock blocks exclusive writes; read from data file while lock held.
-        let lock_path = path.with_extension("jsonl.lock");
-        let _lock_file = fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&lock_path)
-            .and_then(|f| f.lock_shared().map(|()| f))
-            .with_context(|| "Failed to acquire shared lock on session lock file")?;
-        let content = fs::read_to_string(path)
-            .with_context(|| format!("Failed to read session file: {}", path.display()))?;
-        // lock released when `_lock_file` drops
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read session file: {}", path.display()))?;
 
         let mut messages = Vec::new();
         let mut metadata = HashMap::new();
         let mut created_at = None;
 
-        // Derive session key from filename as fallback; prefer the key stored
-        // in the metadata line (added in v0.11+) for round-trip fidelity.
         let fallback_key = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -202,7 +218,7 @@ impl SessionManager {
             }
 
             let data: Value =
-                serde_json::from_str(line).with_context(|| "Failed to parse session JSON line")?;
+                serde_json::from_str(line).with_context(|| "failed to parse session JSON line")?;
 
             if data.get("_type") == Some(&Value::String("metadata".to_string())) {
                 if let Some(stored_key) = data.get("key").and_then(|v| v.as_str()) {
@@ -224,9 +240,6 @@ impl SessionManager {
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string();
-                if role.is_empty() {
-                    warn!("session message missing 'role' field, defaulting to empty");
-                }
                 let content = data
                     .get("content")
                     .and_then(|v| v.as_str())
@@ -237,12 +250,6 @@ impl SessionManager {
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string();
-                if !timestamp.is_empty() && DateTime::parse_from_rfc3339(&timestamp).is_err() {
-                    warn!(
-                        "session message has invalid RFC3339 timestamp: {}",
-                        timestamp
-                    );
-                }
 
                 let mut extra = HashMap::new();
                 if let Some(obj) = data.as_object() {
@@ -262,7 +269,6 @@ impl SessionManager {
             }
         }
 
-        // Prune on load
         if messages.len() > MAX_SESSION_MESSAGES {
             let drain_count = messages.len() - MAX_SESSION_MESSAGES;
             messages.drain(..drain_count);
@@ -277,124 +283,68 @@ impl SessionManager {
         }))
     }
 
-    /// Delete session files older than `ttl_days` days.
-    /// Runs once at startup to prevent unbounded disk accumulation.
-    pub fn cleanup_old_sessions(&self, ttl_days: u32) -> Result<usize> {
-        use std::time::{Duration, SystemTime};
-        let cutoff = SystemTime::now() - Duration::from_secs(u64::from(ttl_days) * 86400);
-        let mut deleted = 0;
+    pub async fn get_or_create(&self, key: &str) -> Result<Session> {
+        // Check cache
+        let cached_session = {
+            let mut cache = self.cache.lock().await;
+            cache.get(key).cloned()
+        };
 
-        let entries = fs::read_dir(&self.sessions_dir).with_context(|| {
-            format!(
-                "Failed to read sessions dir: {}",
-                self.sessions_dir.display()
-            )
-        })?;
-
-        for entry in entries {
-            let Ok(entry) = entry else { continue };
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                continue;
-            }
-            let Ok(modified) = entry.metadata().and_then(|m| m.modified()) else {
-                continue;
-            };
-            if modified < cutoff {
-                // Evict from in-memory cache before deleting from disk.
-                // The cache is keyed by the original session key (e.g. "telegram:12345"),
-                // but the filename is a safe_filename version of that key. We need to
-                // try evicting by reconstructing the original key pattern. Since the
-                // exact original key isn't stored in the filename, we iterate the cache
-                // to find entries whose path matches this file.
-                match self.cache.try_lock() {
-                    Ok(mut cache) => {
-                        // Collect keys to evict (can't mutate during iteration)
-                        let keys_to_evict: Vec<String> = cache
-                            .iter()
-                            .filter(|(k, _)| self.get_session_path(k) == path)
-                            .map(|(k, _)| k.clone())
-                            .collect();
-                        for k in keys_to_evict {
-                            cache.pop(&k);
-                        }
-                    }
-                    Err(_) => {
-                        warn!(
-                            "could not acquire cache lock during cleanup, skipping eviction for {}",
-                            path.display()
-                        );
-                    }
-                }
-                if let Err(e) = fs::remove_file(&path) {
-                    warn!("Failed to delete old session {}: {}", path.display(), e);
-                } else {
-                    info!("Cleaned up old session: {}", path.display());
-                    deleted += 1;
-                }
-            }
+        if let Some(session) = cached_session {
+            debug!("session cache hit: {}", key);
+            return Ok(session);
         }
 
+        // Try to load from SQLite
+        let db = self.db.clone();
+        let key_owned = key.to_string();
+        let loaded = tokio::task::spawn_blocking(move || db.load_session(&key_owned))
+            .await
+            .map_err(|e| anyhow::anyhow!("session load task failed: {e}"))??;
+
+        let session = if let Some(data) = loaded {
+            let mut s: Session = serde_json::from_str(&data)
+                .with_context(|| "failed to parse session JSON from database")?;
+            // Ensure key matches (migration may have stored under a different key)
+            s.key = key.to_string();
+            debug!("session loaded from database: {}", key);
+            s
+        } else {
+            debug!("session created: {}", key);
+            Session::new(key.to_string())
+        };
+
+        // Put in cache (double-check to avoid duplicates)
+        {
+            let mut cache = self.cache.lock().await;
+            if let Some(existing) = cache.get(key) {
+                return Ok(existing.clone());
+            }
+            cache.put(key.to_string(), session.clone());
+        }
+
+        Ok(session)
+    }
+
+    /// Delete session files older than `ttl_days` days.
+    pub fn cleanup_old_sessions(&self, ttl_days: u32) -> Result<usize> {
+        let deleted = self.db.cleanup_sessions(ttl_days)?;
         if deleted > 0 {
-            info!("Session cleanup: removed {} expired session(s)", deleted);
+            info!("session cleanup: removed {} expired session(s)", deleted);
         }
         Ok(deleted)
     }
 
     pub async fn save(&self, session: &Session) -> Result<()> {
-        let path = self.get_session_path(&session.key);
-
-        let mut content = String::new();
-
-        // Write metadata line (includes original key for round-trip fidelity)
-        let metadata_line = serde_json::json!({
-            "_type": "metadata",
-            "key": session.key,
-            "created_at": session.created_at.to_rfc3339(),
-            "updated_at": session.updated_at.to_rfc3339(),
-            "metadata": session.metadata,
-        });
-        content.push_str(&serde_json::to_string(&metadata_line)?);
-        content.push('\n');
-
-        // Write messages
-        for msg in &session.messages {
-            let mut msg_obj = serde_json::json!({
-                "role": msg.role,
-                "content": msg.content,
-                "timestamp": msg.timestamp,
-            });
-            for (k, v) in &msg.extra {
-                msg_obj[k] = v.clone();
-            }
-            content.push_str(&serde_json::to_string(&msg_obj)?);
-            content.push('\n');
-        }
-
+        let data = serde_json::to_string(session).context("failed to serialize session to JSON")?;
         let session_key = session.key.clone();
         let msg_count = session.messages.len();
 
-        // Perform blocking file I/O (locking + atomic write) off the async runtime
-        let path_clone = path.clone();
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            ensure_dir(path_clone.parent().context("Session path has no parent")?)?;
-            let lock_path = path_clone.with_extension("jsonl.lock");
-            let lock_file = fs::OpenOptions::new()
-                .create(true)
-                .truncate(false)
-                .write(true)
-                .open(&lock_path)
-                .with_context(|| "Failed to open session lock file")?;
-            lock_file
-                .lock_exclusive()
-                .with_context(|| "Failed to acquire exclusive lock on session file")?;
-            atomic_write(&path_clone, &content).with_context(|| {
-                format!("Failed to write session file: {}", path_clone.display())
-            })?;
-            // Lock file kept on disk for future load/save coordination
-            Ok(())
-        })
-        .await??;
+        let db = self.db.clone();
+        let key = session.key.clone();
+        tokio::task::spawn_blocking(move || db.save_session(&key, &data))
+            .await
+            .map_err(|e| anyhow::anyhow!("session save task failed: {e}"))??;
 
         debug!("session saved: {} ({} messages)", session_key, msg_count);
 

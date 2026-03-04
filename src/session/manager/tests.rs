@@ -132,7 +132,7 @@ async fn test_save_and_load_roundtrip() {
     session.add_message("assistant", "hi there", HashMap::new());
     mgr.save(&session).await.unwrap();
 
-    // Create a fresh manager at the same path — forces disk load
+    // Create a fresh manager at the same path — forces database load
     let mgr2 = SessionManager::new(dir.path()).unwrap();
     let loaded = mgr2.get_or_create("roundtrip:key").await.unwrap();
 
@@ -178,7 +178,7 @@ async fn test_lru_eviction() {
     }
 
     // "evict:first" should be evicted from LRU cache.
-    // get_or_create should still load it from disk.
+    // get_or_create should still load it from the database.
     let reloaded = mgr.get_or_create("evict:first").await.unwrap();
     assert_eq!(reloaded.key, "evict:first");
     assert_eq!(reloaded.messages.len(), 1);
@@ -190,22 +190,35 @@ async fn test_cleanup_old_sessions() {
     let dir = tempfile::tempdir().unwrap();
     let mgr = SessionManager::new(dir.path()).unwrap();
 
-    // Save a session so a file exists
+    // Save a session
     let session = Session::new("old:session");
     mgr.save(&session).await.unwrap();
 
-    let path = mgr.get_session_path("old:session");
-    assert!(path.exists());
-
-    // Backdate the file to 100 days ago
-    let old_time =
-        filetime::FileTime::from_unix_time(chrono::Utc::now().timestamp() - 100 * 86400, 0);
-    filetime::set_file_mtime(&path, old_time).unwrap();
+    // Backdate the updated_at in the database to 100 days ago
+    {
+        let db = mgr.db.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE sessions SET updated_at = datetime('now', '-100 days') WHERE key = ?1",
+                rusqlite::params!["old:session"],
+            )
+            .unwrap();
+        })
+        .await
+        .unwrap();
+    }
 
     // Cleanup with 30-day TTL should delete it
     let deleted = mgr.cleanup_old_sessions(30).unwrap();
     assert_eq!(deleted, 1);
-    assert!(!path.exists());
+
+    // Should no longer be loadable
+    let reloaded = mgr.get_or_create("old:session").await.unwrap();
+    assert!(
+        reloaded.messages.is_empty(),
+        "deleted session should be empty on recreate"
+    );
 }
 
 #[tokio::test]
@@ -213,24 +226,26 @@ async fn test_cleanup_preserves_recent_sessions() {
     let dir = tempfile::tempdir().unwrap();
     let mgr = SessionManager::new(dir.path()).unwrap();
 
-    let session = Session::new("recent:session");
+    let mut session = Session::new("recent:session");
+    session.add_message("user", "keep me", HashMap::new());
     mgr.save(&session).await.unwrap();
 
-    let path = mgr.get_session_path("recent:session");
-    assert!(path.exists());
-
-    // Cleanup with 30-day TTL should preserve a just-created file
+    // Cleanup with 30-day TTL should preserve a just-created session
     let deleted = mgr.cleanup_old_sessions(30).unwrap();
     assert_eq!(deleted, 0);
-    assert!(path.exists());
+
+    // Should still be loadable
+    let mgr2 = SessionManager::new(dir.path()).unwrap();
+    let loaded = mgr2.get_or_create("recent:session").await.unwrap();
+    assert_eq!(loaded.messages.len(), 1);
 }
 
 #[tokio::test]
-async fn test_load_handles_metadata_line() {
+async fn test_load_handles_metadata() {
     let dir = tempfile::tempdir().unwrap();
     let mgr = SessionManager::new(dir.path()).unwrap();
 
-    // Save a session (which writes a metadata line with key + created_at)
+    // Save a session with metadata
     let mut session = Session::new("meta:test");
     session.metadata.insert(
         "custom".to_string(),
@@ -250,11 +265,11 @@ async fn test_load_handles_metadata_line() {
 }
 
 #[tokio::test]
-async fn test_load_handles_missing_file() {
+async fn test_load_handles_missing_session() {
     let dir = tempfile::tempdir().unwrap();
     let mgr = SessionManager::new(dir.path()).unwrap();
 
-    // No file on disk — should create a new empty session
+    // No session in DB — should create a new empty session
     let session = mgr.get_or_create("does:not:exist").await.unwrap();
     assert_eq!(session.key, "does:not:exist");
     assert!(session.messages.is_empty());
@@ -273,7 +288,38 @@ async fn test_session_key_roundtrip_with_colons() {
     let mgr2 = SessionManager::new(dir.path()).unwrap();
     let loaded = mgr2.get_or_create("telegram:12345").await.unwrap();
 
-    // The metadata line preserves the original key despite filename mangling
     assert_eq!(loaded.key, "telegram:12345");
     assert_eq!(loaded.messages.len(), 1);
+}
+
+#[tokio::test]
+async fn test_jsonl_migration() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Create a JSONL session file in the old format
+    let sessions_dir = dir.path().join("sessions");
+    std::fs::create_dir_all(&sessions_dir).unwrap();
+
+    let jsonl_content = r#"{"_type":"metadata","key":"telegram:999","created_at":"2026-01-01T00:00:00Z","metadata":{}}
+{"role":"user","content":"migrated msg","timestamp":"2026-01-01T00:00:01Z"}
+"#;
+    std::fs::write(sessions_dir.join("telegram_999.jsonl"), jsonl_content).unwrap();
+
+    // Creating a SessionManager should trigger migration
+    let mgr = SessionManager::new(dir.path()).unwrap();
+    let loaded = mgr.get_or_create("telegram:999").await.unwrap();
+
+    assert_eq!(loaded.key, "telegram:999");
+    assert_eq!(loaded.messages.len(), 1);
+    assert_eq!(loaded.messages[0].content, "migrated msg");
+
+    // The old sessions/ dir should be renamed
+    assert!(
+        !sessions_dir.exists(),
+        "sessions dir should be renamed after migration"
+    );
+    assert!(
+        dir.path().join("sessions.migrated").exists(),
+        "sessions.migrated should exist"
+    );
 }
