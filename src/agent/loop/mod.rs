@@ -344,7 +344,10 @@ pub struct AgentLoop {
     compactor: Option<Arc<MessageCompactor>>,
     compaction_config: crate::config::CompactionConfig,
     _subagents: Option<Arc<SubagentManager>>,
-    processing_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Per-session processing locks. Each session key maps to a Mutex that
+    /// serializes message processing for that session while allowing independent
+    /// sessions to be processed concurrently.
+    session_locks: Arc<std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
     running: Arc<tokio::sync::Mutex<bool>>,
     outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     task_tracker: Arc<TaskTracker>,
@@ -622,7 +625,7 @@ impl AgentLoop {
             compactor,
             compaction_config,
             _subagents: Some(subagents),
-            processing_lock: Arc::new(tokio::sync::Mutex::new(())),
+            session_locks: Arc::new(std::sync::Mutex::new(HashMap::new())),
             running: Arc::new(tokio::sync::Mutex::new(false)),
             outbound_tx,
             task_tracker: Arc::new(TaskTracker::new()),
@@ -747,8 +750,20 @@ impl AgentLoop {
         self.memory.stop_indexer().await;
     }
 
+    /// Get or create a per-session lock, enabling concurrent processing of
+    /// independent sessions while serializing within each session.
+    fn session_lock(&self, session_key: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.session_locks.lock().unwrap_or_else(|p| p.into_inner());
+        locks
+            .entry(session_key.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
+    }
+
     async fn process_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
-        let _lock = self.processing_lock.lock().await;
+        let session_key = msg.session_key();
+        let lock = self.session_lock(&session_key);
+        let _guard = lock.lock().await;
         self.process_message_unlocked(msg).await
     }
 
@@ -1992,8 +2007,10 @@ impl AgentLoop {
         chat_id: &str,
         overrides: &AgentRunOverrides,
     ) -> Result<String> {
-        // Acquire processing lock to prevent concurrent processing
-        let _lock = self.processing_lock.lock().await;
+        // Acquire per-session lock to prevent concurrent processing within the same session
+        let lock_key = format!("{channel}:{chat_id}");
+        let lock = self.session_lock(&lock_key);
+        let _guard = lock.lock().await;
 
         // Inbound secret scanning for direct calls (cron, subagents)
         let redacted_content: Option<String> = {
