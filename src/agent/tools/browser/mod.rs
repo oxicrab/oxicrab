@@ -200,6 +200,22 @@ impl BrowserTool {
         }
     }
 
+    /// Validate the current page URL after an action that may have triggered
+    /// navigation (eval, click, navigate). Returns an error message if the
+    /// page navigated to an internal/blocked URL.
+    async fn check_post_action_url(&self, session: &BrowserSession) -> Option<String> {
+        let url = session.page.url().await.ok().flatten().unwrap_or_default();
+        if url.is_empty() {
+            return None;
+        }
+        if let Err(e) = crate::utils::url_security::validate_and_resolve(&url).await {
+            warn!("browser SSRF blocked after action: {url} ({e})");
+            Some(format!("action navigated to blocked URL: {url} ({e})"))
+        } else {
+            None
+        }
+    }
+
     async fn action_click(&self, selector: &str) -> Result<ToolResult> {
         let mut guard = self.session.lock().await;
         let Some(session) = guard.as_mut() else {
@@ -222,6 +238,9 @@ impl BrowserTool {
             })
             .await;
 
+        if let Some(err) = self.check_post_action_url(session).await {
+            return Ok(ToolResult::error(err));
+        }
         match result {
             Ok(text) => Ok(ToolResult::new(text)),
             Err(e) => Ok(ToolResult::error(e)),
@@ -432,6 +451,9 @@ impl BrowserTool {
             })
             .await;
 
+        if let Some(err) = self.check_post_action_url(session).await {
+            return Ok(ToolResult::error(err));
+        }
         match result {
             Ok(text) => Ok(ToolResult::new(text)),
             Err(e) => Ok(ToolResult::error(e)),
@@ -647,6 +669,9 @@ impl BrowserTool {
             })
             .await;
 
+        if let Some(err) = self.check_post_action_url(session).await {
+            return Ok(ToolResult::error(err));
+        }
         match result {
             Ok(text) => Ok(ToolResult::new(text)),
             Err(e) => Ok(ToolResult::error(e)),
