@@ -200,7 +200,7 @@ pub fn format_pairing_reply(channel: &str, sender_id: &str, code: &str) -> Strin
     feature = "channel-twilio",
 ))]
 pub fn exponential_backoff_delay(attempt: u32, base_delay_secs: u64, max_delay_secs: u64) -> u64 {
-    let delay = (base_delay_secs as f64 * 2.0_f64.powi(attempt as i32)) as u64;
+    let delay = (base_delay_secs as f64 * 2.0_f64.powi((attempt as i32).min(20))) as u64;
     let capped = delay.min(max_delay_secs);
     // Add up to 25% jitter to avoid thundering herd
     let jitter = (capped as f64 * 0.25 * fastrand::f64()) as u64;

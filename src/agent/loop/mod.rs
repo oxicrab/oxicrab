@@ -324,10 +324,10 @@ impl AgentLoop {
         };
 
         let complexity_scorer = if let Some(ref r) = routing
-            && r.has_chat_routing()
+            && let Some(weights) = r.chat_weights()
         {
             info!("complexity-aware message routing enabled");
-            Some(complexity::ComplexityScorer::new(r.chat_weights().unwrap()))
+            Some(complexity::ComplexityScorer::new(weights))
         } else {
             None
         };

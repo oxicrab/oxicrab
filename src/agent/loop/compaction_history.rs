@@ -214,7 +214,14 @@ impl AgentLoop {
                     result.extend(recent_messages.iter().cloned());
 
                     // Strip orphaned tool messages that lost their pair during compaction
-                    strip_orphaned_tool_messages(&mut result);
+                    let (orphaned_results, orphaned_calls) =
+                        strip_orphaned_tool_messages(&mut result);
+                    if orphaned_results > 0 || orphaned_calls > 0 {
+                        debug!(
+                            orphaned_results,
+                            orphaned_calls, "stripped orphaned tool messages after compaction"
+                        );
+                    }
 
                     Ok(result)
                 }
@@ -230,7 +237,7 @@ impl AgentLoop {
                         // Reuse the last successful summary rather than losing all context
                         warn!("compaction failed: {}, falling back to previous summary", e);
                         let mut result = vec![HashMap::from([
-                            ("role".to_string(), Value::String("system".to_string())),
+                            ("role".to_string(), Value::String("user".to_string())),
                             (
                                 "content".to_string(),
                                 Value::String(format!(
@@ -239,7 +246,15 @@ impl AgentLoop {
                             ),
                         ])];
                         result.extend(recent_messages.iter().cloned());
-                        strip_orphaned_tool_messages(&mut result);
+                        let (orphaned_results, orphaned_calls) =
+                            strip_orphaned_tool_messages(&mut result);
+                        if orphaned_results > 0 || orphaned_calls > 0 {
+                            debug!(
+                                orphaned_results,
+                                orphaned_calls,
+                                "stripped orphaned tool messages after compaction fallback"
+                            );
+                        }
                         Ok(result)
                     }
                 }

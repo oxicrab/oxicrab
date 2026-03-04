@@ -551,6 +551,15 @@ fn apply_template(template: &str, body_str: &str, json: Option<&serde_json::Valu
             result.push_str("{{");
             rest = after_open;
         }
+        // Cap output size to prevent template expansion amplification
+        if result.len() > WEBHOOK_MAX_BODY {
+            warn!(
+                "webhook template output exceeded {}B limit, truncating",
+                WEBHOOK_MAX_BODY
+            );
+            result.truncate(WEBHOOK_MAX_BODY);
+            return result;
+        }
     }
     result.push_str(rest);
     result
