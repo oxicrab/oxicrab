@@ -15,6 +15,8 @@ pub struct LLMResponse {
     pub content: Option<String>,
     pub tool_calls: Vec<ToolCallRequest>,
     pub reasoning_content: Option<String>,
+    /// Anthropic thinking block signature (required when replaying thinking blocks)
+    pub reasoning_signature: Option<String>,
     /// Input token count reported by the provider (if available).
     /// Used for precise compaction threshold checks.
     pub input_tokens: Option<u64>,
@@ -55,6 +57,8 @@ pub struct Message {
     pub images: Vec<ImageData>,
     /// Thinking/reasoning content from extended-thinking models (Claude, DeepSeek-R1, etc.)
     pub reasoning_content: Option<String>,
+    /// Anthropic thinking block signature (required when replaying thinking blocks)
+    pub reasoning_signature: Option<String>,
 }
 
 impl Message {
@@ -96,12 +100,14 @@ impl Message {
         content: impl Into<String>,
         tool_calls: Option<Vec<ToolCallRequest>>,
         reasoning_content: Option<String>,
+        reasoning_signature: Option<String>,
     ) -> Self {
         Self {
             role: "assistant".into(),
             content: content.into(),
             tool_calls,
             reasoning_content,
+            reasoning_signature,
             ..Default::default()
         }
     }

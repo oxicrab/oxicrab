@@ -404,6 +404,10 @@ impl ContextBuilder {
                 .get("reasoning_content")
                 .and_then(|v| v.as_str())
                 .map(String::from);
+            let reasoning_sig = msg
+                .get("reasoning_signature")
+                .and_then(|v| v.as_str())
+                .map(String::from);
             // Skip empty messages unless they have tool_calls (tool-only assistant turns)
             if content.is_empty() && tool_calls.is_none() && tool_call_id.is_none() {
                 continue;
@@ -414,6 +418,7 @@ impl ContextBuilder {
                 tool_calls,
                 tool_call_id,
                 reasoning_content: reasoning,
+                reasoning_signature: reasoning_sig,
                 ..Default::default()
             });
         }
@@ -451,11 +456,13 @@ impl ContextBuilder {
         content: Option<&str>,
         tool_calls: Option<Vec<crate::providers::base::ToolCallRequest>>,
         reasoning_content: Option<&str>,
+        reasoning_signature: Option<&str>,
     ) {
         let msg = crate::providers::base::Message::assistant_with_thinking(
             content.unwrap_or_default(),
             tool_calls,
             reasoning_content.map(String::from),
+            reasoning_signature.map(String::from),
         );
         messages.push(msg);
     }

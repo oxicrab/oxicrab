@@ -67,10 +67,14 @@ pub fn convert_messages(messages: Vec<Message>) -> (Option<String>, Vec<Anthropi
                 if let Some(ref thinking) = msg.reasoning_content
                     && !thinking.is_empty()
                 {
-                    content.push(json!({
+                    let mut thinking_block = json!({
                         "type": "thinking",
                         "thinking": thinking
-                    }));
+                    });
+                    if let Some(ref sig) = msg.reasoning_signature {
+                        thinking_block["signature"] = json!(sig);
+                    }
+                    content.push(thinking_block);
                 }
 
                 // Only include text block if content is non-empty
@@ -205,6 +209,7 @@ pub fn parse_response(json: &Value) -> LLMResponse {
 
     let mut tool_calls = Vec::new();
     let mut reasoning_content = None;
+    let mut reasoning_signature = None;
 
     if let Some(content_array) = json["content"].as_array() {
         for block in content_array {
@@ -221,6 +226,9 @@ pub fn parse_response(json: &Value) -> LLMResponse {
                     reasoning_content = block["thinking"]
                         .as_str()
                         .or_else(|| block["text"].as_str())
+                        .map(std::string::ToString::to_string);
+                    reasoning_signature = block["signature"]
+                        .as_str()
                         .map(std::string::ToString::to_string);
                 }
                 _ => {}
@@ -250,6 +258,7 @@ pub fn parse_response(json: &Value) -> LLMResponse {
         content,
         tool_calls,
         reasoning_content,
+        reasoning_signature,
         input_tokens,
         output_tokens,
         cache_creation_input_tokens,

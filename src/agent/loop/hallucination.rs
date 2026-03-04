@@ -93,7 +93,13 @@ pub(super) fn handle_text_response(
         {
             debug!("failed to record hallucination metric: {}", e);
         }
-        ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
+        ContextBuilder::add_assistant_message(
+            messages,
+            Some(content),
+            None,
+            reasoning_content,
+            None,
+        );
         let tool_list = tool_names.join(", ");
         messages.push(Message::user(format!(
             "[Internal: Your previous response was not delivered. \
@@ -137,7 +143,13 @@ pub(super) fn handle_text_response(
             {
                 debug!("failed to record hallucination metric: {}", e);
             }
-            ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
+            ContextBuilder::add_assistant_message(
+                messages,
+                Some(content),
+                None,
+                reasoning_content,
+                None,
+            );
             messages.push(Message::user(
                 "[Internal: Your previous response was not delivered to the user. \
                  You must call the appropriate tool to perform the requested action. \
@@ -174,7 +186,13 @@ pub(super) fn handle_text_response(
         {
             debug!("failed to record hallucination metric: {}", e);
         }
-        ContextBuilder::add_assistant_message(messages, Some(content), None, reasoning_content);
+        ContextBuilder::add_assistant_message(
+            messages,
+            Some(content),
+            None,
+            reasoning_content,
+            None,
+        );
         messages.push(Message::user(
             "[Internal: Your previous response was not delivered to the user. \
              The user is requesting an action that requires a tool call. \

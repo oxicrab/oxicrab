@@ -477,6 +477,7 @@ fn test_convert_assistant_message_with_thinking() {
         "The answer is 42.",
         None,
         Some("Let me reason about this...".to_string()),
+        Some("sig_abc".to_string()),
     )];
     let (_, result) = convert_messages(messages);
     assert_eq!(result.len(), 1);
@@ -485,6 +486,7 @@ fn test_convert_assistant_message_with_thinking() {
     assert_eq!(content.len(), 2);
     assert_eq!(content[0]["type"], "thinking");
     assert_eq!(content[0]["thinking"], "Let me reason about this...");
+    assert_eq!(content[0]["signature"], "sig_abc");
     assert_eq!(content[1]["type"], "text");
     assert_eq!(content[1]["text"], "The answer is 42.");
 }
@@ -504,14 +506,19 @@ fn test_thinking_roundtrip_parse_then_convert() {
     // Parse a response with thinking, then convert it back
     let api_response = json!({
         "content": [
-            {"type": "thinking", "thinking": "Working through the math..."},
+            {"type": "thinking", "thinking": "Working through the math...", "signature": "sig_roundtrip"},
             {"type": "text", "text": "The result is 7."}
         ]
     });
     let resp = parse_response(&api_response);
 
     // Build a Message from the response (as the agent loop does)
-    let msg = Message::assistant_with_thinking(resp.content.unwrap(), None, resp.reasoning_content);
+    let msg = Message::assistant_with_thinking(
+        resp.content.unwrap(),
+        None,
+        resp.reasoning_content,
+        resp.reasoning_signature,
+    );
 
     // Convert back to Anthropic format
     let (_, converted) = convert_messages(vec![msg]);

@@ -449,6 +449,7 @@ async fn run_subagent_inner(
                 response.content.clone().unwrap_or_default(),
                 Some(response.tool_calls.clone()),
                 response.reasoning_content.clone(),
+                response.reasoning_signature.clone(),
             ));
 
             // Execute tools in parallel (same pattern as main agent loop)

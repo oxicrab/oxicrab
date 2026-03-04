@@ -64,16 +64,22 @@ async fn default_warmup_returns_ok() {
 
 #[test]
 fn message_assistant_with_thinking() {
-    let msg = Message::assistant_with_thinking("answer", None, Some("reasoning...".to_string()));
+    let msg = Message::assistant_with_thinking(
+        "answer",
+        None,
+        Some("reasoning...".to_string()),
+        Some("sig123".to_string()),
+    );
     assert_eq!(msg.role, "assistant");
     assert_eq!(msg.content, "answer");
     assert_eq!(msg.reasoning_content.as_deref(), Some("reasoning..."));
+    assert_eq!(msg.reasoning_signature.as_deref(), Some("sig123"));
     assert!(msg.tool_calls.is_none());
 }
 
 #[test]
 fn message_assistant_with_thinking_none() {
-    let msg = Message::assistant_with_thinking("answer", None, None);
+    let msg = Message::assistant_with_thinking("answer", None, None, None);
     assert!(msg.reasoning_content.is_none());
 }
 
