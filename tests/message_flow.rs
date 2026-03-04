@@ -696,7 +696,6 @@ async fn test_silent_response_returns_marker() {
 async fn test_end_to_end_bus_pipeline() {
     use oxicrab::bus::{InboundMessage, MessageBus};
     use std::sync::Arc;
-    use tokio::sync::Mutex;
 
     let tmp = TempDir::new().expect("create temp dir");
     let provider = MockLLMProvider::with_responses(vec![text_response("Bus pipeline works!")]);

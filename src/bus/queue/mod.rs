@@ -20,7 +20,7 @@ const MAX_INBOUND_CONTENT_LEN: usize = 1_000_000;
 /// Maximum number of tracked senders/destinations before forced pruning
 const MAX_TRACKED_ENDPOINTS: usize = 5000;
 
-/// Rate-limit state protected by a std::sync::Mutex (held only briefly for
+/// Rate-limit state protected by a `std::sync::Mutex` (held only briefly for
 /// timestamp bookkeeping, never across awaits).
 struct RateLimitState {
     rate_limit: usize,

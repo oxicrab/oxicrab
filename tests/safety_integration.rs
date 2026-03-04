@@ -193,7 +193,7 @@ async fn test_exfil_guard_allows_non_network_tools() {
 async fn test_leak_detector_redacts_api_key_in_outbound() {
     // MessageBus.publish_outbound() runs LeakDetector before sending.
     // We verify by sending a message with a secret, then reading from the channel.
-    let mut bus = MessageBus::new(30, 60.0, 100, 100);
+    let bus = MessageBus::new(30, 60.0, 100, 100);
     let mut rx = bus.take_outbound_rx().expect("take outbound rx");
 
     let msg = OutboundMessage {

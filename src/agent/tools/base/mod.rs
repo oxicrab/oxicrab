@@ -143,21 +143,21 @@ pub trait Tool: Send + Sync {
 /// included) are sent to the LLM, reducing prompt noise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolCategory {
-    /// Shell, filesystem, memory_search — always included
+    /// Shell, filesystem, memory search — always included
     Core,
-    /// web_search, web_fetch, http, browser
+    /// Web search, web fetch, HTTP, browser
     Web,
-    /// google_mail
+    /// Google Mail
     Communication,
-    /// github
+    /// GitHub
     Development,
-    /// cron, google_calendar
+    /// Cron, Google Calendar
     Scheduling,
-    /// image_gen, media (radarr/sonarr)
+    /// Image generation, media (Radarr/Sonarr)
     Media,
-    /// todoist, obsidian, workspace, reddit
+    /// Todoist, Obsidian, workspace, Reddit
     Productivity,
-    /// spawn, subagent_control, tmux
+    /// Spawn, subagent control, tmux
     System,
 }
 

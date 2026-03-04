@@ -126,10 +126,10 @@ impl SessionManager {
 
         // Migrate existing JSONL files on first use
         let sessions_dir = workspace.join("sessions");
-        if sessions_dir.is_dir() {
-            if let Err(e) = mgr.migrate_jsonl_files(&sessions_dir) {
-                warn!("session migration from JSONL failed: {e}");
-            }
+        if sessions_dir.is_dir()
+            && let Err(e) = mgr.migrate_jsonl_files(&sessions_dir)
+        {
+            warn!("session migration from JSONL failed: {e}");
         }
 
         Ok(mgr)
@@ -146,12 +146,12 @@ impl SessionManager {
         }
     }
 
-    /// Migrate existing JSONL session files into SQLite.
+    /// Migrate existing JSONL session files into `SQLite`.
     /// Runs once; after migration, the `sessions/` directory is renamed to
     /// `sessions.migrated/` to prevent re-migration.
     fn migrate_jsonl_files(&self, sessions_dir: &Path) -> Result<()> {
         let entries: Vec<_> = std::fs::read_dir(sessions_dir)?
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
             .collect();
 

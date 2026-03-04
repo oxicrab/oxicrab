@@ -1244,8 +1244,7 @@ impl AgentLoop {
                     .iter()
                     .rev()
                     .find(|m| m.role == "user")
-                    .map(|m| m.content.as_str())
-                    .unwrap_or("");
+                    .map_or("", |m| m.content.as_str());
                 let categories = infer_tool_categories(user_content);
                 let defs = self.tools.get_filtered_definitions(&categories);
                 debug!(
@@ -2165,7 +2164,9 @@ impl AgentLoop {
 /// Infer which tool categories are relevant for a user message.
 /// Core and System are always included.
 fn infer_tool_categories(content: &str) -> Vec<ToolCategory> {
-    use ToolCategory::*;
+    use ToolCategory::{
+        Communication, Core, Development, Media, Productivity, Scheduling, System, Web,
+    };
 
     let lower = content.to_lowercase();
     let mut cats = vec![Core, System];

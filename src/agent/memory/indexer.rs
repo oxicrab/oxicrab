@@ -169,7 +169,7 @@ impl MemoryIndexer {
             let db = db.clone();
             let memory_dir = memory_dir.to_path_buf();
             let knowledge_dir = knowledge_dir.map(Path::to_path_buf);
-            let embedding_service = embedding_service.and_then(|o| o.clone());
+            let embedding_service = embedding_service.and_then(Clone::clone);
             move || {
                 // Collect source keys that were indexed (for embedding generation)
                 let mut indexed_sources: Vec<String> = Vec::new();
