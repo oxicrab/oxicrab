@@ -2,7 +2,7 @@ use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{DmCheckResult, check_dm_access, format_pairing_reply};
 use crate::config::TwilioConfig;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use axum::Router;
 use axum::extract::State;
@@ -287,12 +287,14 @@ impl BaseChannel for TwilioChannel {
         for chunk in chunks {
             let response = if msg.chat_id.starts_with('+') {
                 // SMS API: chat_id is a phone number
-                let url = format!(
+                // SECURITY: credentials transmitted exclusively over HTTPS (hardcoded scheme)
+                let url = reqwest::Url::parse(&format!(
                     "https://api.twilio.com/2010-04-01/Accounts/{}/Messages.json",
-                    self.config.account_sid
-                );
+                    urlencoding::encode(&self.config.account_sid)
+                ))
+                .context("invalid Twilio SMS API URL")?;
                 self.client
-                    .post(&url)
+                    .post(url)
                     .basic_auth(&self.config.account_sid, Some(&self.config.auth_token))
                     .form(&[
                         ("Body", chunk.as_str()),
@@ -303,12 +305,14 @@ impl BaseChannel for TwilioChannel {
                     .await?
             } else {
                 // Conversations API: chat_id is a ConversationSid
-                let url = format!(
+                // SECURITY: credentials transmitted exclusively over HTTPS (hardcoded scheme)
+                let url = reqwest::Url::parse(&format!(
                     "https://conversations.twilio.com/v1/Conversations/{}/Messages",
                     urlencoding::encode(&msg.chat_id)
-                );
+                ))
+                .context("invalid Twilio Conversations API URL")?;
                 self.client
-                    .post(&url)
+                    .post(url)
                     .basic_auth(&self.config.account_sid, Some(&self.config.auth_token))
                     .form(&[("Body", chunk.as_str()), ("Author", "oxicrab")])
                     .send()
