@@ -789,12 +789,17 @@ impl Config {
             if let Some(cached) = provider_cache.get(model_str) {
                 return Ok(cached.clone());
             }
+            // Strip the provider prefix (e.g. "minimax/MiniMax-M2.5" → "MiniMax-M2.5")
+            // so the bare model name is sent to the API, not the routing string.
+            let bare_model = crate::providers::strategy::parse_model_ref(model_str)
+                .model
+                .to_string();
             let mut provider = factory.create_provider(model_str)?;
             if self.should_use_prompt_guided_tools(model_str) {
                 provider =
                     crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(provider);
             }
-            let entry = (provider, model_str.to_string());
+            let entry = (provider, bare_model);
             provider_cache.insert(model_str.to_string(), entry.clone());
             Ok(entry)
         };
@@ -846,8 +851,10 @@ impl Config {
             if self.should_use_prompt_guided_tools(model) {
                 primary = crate::providers::prompt_guided::PromptGuidedToolsProvider::wrap(primary);
             }
-            let primary_model = model.to_string();
-            let mut chain = vec![(primary, primary_model)];
+            let primary_bare = crate::providers::strategy::parse_model_ref(model)
+                .model
+                .to_string();
+            let mut chain = vec![(primary, primary_bare)];
             for fb_model in &routing.fallbacks {
                 let mut fb_provider = factory.create_provider(fb_model)?;
                 if self.should_use_prompt_guided_tools(fb_model) {
@@ -855,7 +862,10 @@ impl Config {
                         fb_provider,
                     );
                 }
-                chain.push((fb_provider, fb_model.clone()));
+                let fb_bare = crate::providers::strategy::parse_model_ref(fb_model)
+                    .model
+                    .to_string();
+                chain.push((fb_provider, fb_bare));
             }
             return Ok(std::sync::Arc::new(
                 crate::providers::fallback::FallbackProvider::new(chain),
