@@ -174,7 +174,10 @@ async fn webhook_handler(
     // SMS messages (phone number chat_id) are always 1:1.
     let is_group = params.contains_key("ConversationSid");
     let mut metadata = HashMap::new();
-    metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
+    metadata.insert(
+        crate::bus::meta::IS_GROUP.to_string(),
+        serde_json::Value::Bool(is_group),
+    );
     let message = InboundMessage {
         channel: "twilio".to_string(),
         sender_id: sender,

@@ -26,7 +26,7 @@ impl AgentLoop {
         // Prefer provider-reported input tokens (precise), fall back to heuristic
         let token_est = session
             .metadata
-            .get("last_input_tokens")
+            .get(crate::bus::meta::LAST_INPUT_TOKENS)
             .and_then(serde_json::Value::as_u64)
             .unwrap_or_else(|| {
                 crate::agent::compaction::estimate_messages_tokens(&full_history) as u64
@@ -129,9 +129,21 @@ impl AgentLoop {
             }
         }
 
-        // Compact old messages
+        // Compact old messages. Strip checkpoint/recovery annotations from the
+        // previous summary before feeding it to the compaction LLM, so they don't
+        // accumulate across cycles (annotations are re-appended below).
+        let clean_summary = previous_summary
+            .split("\n\n[Checkpoint]")
+            .next()
+            .unwrap_or(&previous_summary)
+            .split("\n\n[Cognitive")
+            .next()
+            .unwrap_or(&previous_summary)
+            .split("\n\n[Recovery")
+            .next()
+            .unwrap_or(&previous_summary);
         if let Some(ref compactor) = self.compactor {
-            match compactor.compact(old_messages, &previous_summary).await {
+            match compactor.compact(old_messages, clean_summary).await {
                 Ok(summary) => {
                     // Build recovery-enriched summary
                     let mut recovery_summary = summary.clone();
@@ -188,8 +200,10 @@ impl AgentLoop {
                     }
 
                     // Return recovery-enriched summary + recent messages
+                    // Use "user" role so build_messages() includes it (role="system"
+                    // is intentionally rejected to prevent prompt override injection).
                     let mut result = vec![HashMap::from([
-                        ("role".to_string(), Value::String("system".to_string())),
+                        ("role".to_string(), Value::String("user".to_string())),
                         (
                             "content".to_string(),
                             Value::String(format!(

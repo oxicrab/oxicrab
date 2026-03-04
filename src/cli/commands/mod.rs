@@ -1049,7 +1049,7 @@ fn start_channels_loop(
 
                 let is_status = msg
                     .metadata
-                    .get("status")
+                    .get(crate::bus::meta::STATUS)
                     .and_then(serde_json::Value::as_bool)
                     .unwrap_or_default();
                 let key = (msg.channel.clone(), msg.chat_id.clone());

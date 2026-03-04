@@ -1,7 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{
-    DmCheckResult, check_dm_access, exponential_backoff_delay, format_pairing_reply,
+    DmCheckResult, check_dm_access, check_group_access, exponential_backoff_delay,
+    format_pairing_reply,
 };
 use crate::config::SlackConfig;
 use crate::utils::regex::{RegexPatterns, compile_slack_mention};
@@ -253,6 +254,7 @@ impl BaseChannel for SlackChannel {
         let app_token = self.config.app_token.clone();
         let bot_token = self.config.bot_token.clone();
         let config_allow = self.config.allow_from.clone();
+        let config_allow_groups = self.config.allow_groups.clone();
         let dm_policy = self.config.dm_policy.clone();
         let inbound_tx = self.inbound_tx.clone();
         let bot_user_id = self.bot_user_id.clone();
@@ -439,6 +441,7 @@ impl BaseChannel for SlackChannel {
                                                         &user_cache,
                                                         &inbound_tx,
                                                         &config_allow,
+                                                        &config_allow_groups,
                                                         &dm_policy,
                                                         &bot_token,
                                                         &ws_client,
@@ -538,11 +541,20 @@ impl BaseChannel for SlackChannel {
         let content = Self::format_for_slack(&msg.content);
 
         // Split long messages (Slack limit is ~40k but 4000 is more readable)
+        // Thread replies: use reply_to or inbound ts metadata for threading
+        let thread_ts = msg.reply_to.as_deref().or_else(|| {
+            msg.metadata
+                .get(crate::bus::meta::TS)
+                .and_then(|v| v.as_str())
+        });
         for chunk in split_message(&content, 4000) {
             let mut params = HashMap::new();
             params.insert("channel", Value::String(msg.chat_id.clone()));
             params.insert("text", Value::String(chunk));
             params.insert("mrkdwn", Value::Bool(true));
+            if let Some(ts) = thread_ts {
+                params.insert("thread_ts", Value::String(ts.to_string()));
+            }
 
             if let Err(e) = self.send_slack_api("chat.postMessage", &params).await {
                 error!("Error sending Slack message: {}", e);
@@ -731,6 +743,7 @@ async fn handle_slack_event(
     user_cache: &Arc<tokio::sync::Mutex<lru::LruCache<String, String>>>,
     inbound_tx: &Arc<mpsc::Sender<InboundMessage>>,
     allow_from: &[String],
+    allow_groups: &[String],
     dm_policy: &crate::config::DmPolicy,
     bot_token: &str,
     client: &reqwest::Client,
@@ -801,8 +814,13 @@ async fn handle_slack_event(
         }
     }
 
-    // Skip DM access check for group/channel messages (non-DM channels don't start with 'D')
     let is_dm = channel_id.starts_with('D');
+    // Check group allowlist for non-DM channels
+    if !is_dm && !check_group_access(channel_id, allow_groups) {
+        debug!("slack: ignoring message from non-allowed channel {channel_id}");
+        return Ok(());
+    }
+    // DM access check
     if is_dm {
         match check_dm_access(user_id, allow_from, "slack", dm_policy) {
             DmCheckResult::Allowed => {}
@@ -1033,7 +1051,10 @@ async fn handle_slack_event(
             meta.insert("user_id".to_string(), Value::String(user_id.to_string()));
             // Slack DM channels start with 'D', public channels with 'C', private/group with 'G'
             let is_group = !channel_id.starts_with('D');
-            meta.insert("is_group".to_string(), Value::Bool(is_group));
+            meta.insert(
+                crate::bus::meta::IS_GROUP.to_string(),
+                Value::Bool(is_group),
+            );
             meta
         },
     };

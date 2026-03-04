@@ -9,28 +9,23 @@ fn make_test_channels_config() -> ChannelsConfig {
     ChannelsConfig {
         slack: SlackConfig {
             enabled: true,
-            bot_token: String::new(),
-            app_token: String::new(),
             allow_from: vec!["U08G6HBC89X".to_string()],
-            dm_policy: crate::config::DmPolicy::Allowlist,
+            ..Default::default()
         },
         discord: DiscordConfig {
             enabled: true,
-            token: String::new(),
             allow_from: vec!["123456789".to_string()],
-            commands: Vec::new(),
-            dm_policy: crate::config::DmPolicy::Allowlist,
+            ..Default::default()
         },
         telegram: TelegramConfig {
             enabled: true,
-            token: String::new(),
             allow_from: vec!["987654321".to_string()],
-            dm_policy: crate::config::DmPolicy::Allowlist,
+            ..Default::default()
         },
         whatsapp: WhatsAppConfig {
             enabled: true,
             allow_from: vec!["+15551234567".to_string()],
-            dm_policy: crate::config::DmPolicy::Allowlist,
+            ..Default::default()
         },
         twilio: TwilioConfig::default(),
     }

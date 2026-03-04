@@ -187,10 +187,10 @@ pub async fn create_test_agent_with(
         config.cognitive_config = v;
     }
     if let Some(v) = overrides.exfiltration_guard {
-        config.exfiltration_guard = v;
+        config.safety.exfiltration_guard = v;
     }
     if let Some(v) = overrides.prompt_guard_config {
-        config.prompt_guard_config = v;
+        config.safety.prompt_guard = v;
     }
     if let Some(v) = overrides.sandbox_config {
         config.tool_configs.sandbox_config = v;

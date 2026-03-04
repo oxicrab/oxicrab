@@ -1,7 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{
-    DmCheckResult, check_dm_access, exponential_backoff_delay, format_pairing_reply,
+    DmCheckResult, check_dm_access, check_group_access, exponential_backoff_delay,
+    format_pairing_reply,
 };
 use crate::config::{DiscordCommand, DiscordConfig};
 use anyhow::Result;
@@ -28,6 +29,7 @@ const MAX_AUDIO_DOWNLOAD: usize = 50 * 1024 * 1024; // 50 MB
 struct Handler {
     inbound_tx: mpsc::Sender<InboundMessage>,
     allow_list: Vec<String>,
+    allow_groups: Vec<String>,
     dm_policy: crate::config::DmPolicy,
     http_client: reqwest::Client,
     commands: Vec<DiscordCommand>,
@@ -103,7 +105,7 @@ impl Handler {
             serde_json::Value::String(cmd.application_id.to_string()),
         );
         metadata.insert(
-            "is_group".to_string(),
+            crate::bus::meta::IS_GROUP.to_string(),
             serde_json::Value::Bool(cmd.guild_id.is_some()),
         );
 
@@ -183,7 +185,7 @@ impl Handler {
             serde_json::Value::String(custom_id),
         );
         metadata.insert(
-            "is_group".to_string(),
+            crate::bus::meta::IS_GROUP.to_string(),
             serde_json::Value::Bool(comp.guild_id.is_some()),
         );
 
@@ -216,8 +218,16 @@ impl EventHandler for Handler {
 
         let sender_id = msg.author.id.to_string();
 
-        // Skip DM access check for group/server messages
         let is_group = msg.guild_id.is_some();
+        // Check group allowlist
+        if is_group {
+            let group_id = msg.guild_id.map_or_else(String::new, |g| g.to_string());
+            if !check_group_access(&group_id, &self.allow_groups) {
+                debug!("discord: ignoring message from non-allowed guild {group_id}");
+                return;
+            }
+        }
+        // DM access check (skipped for group messages)
         if !is_group {
             match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
                 DmCheckResult::Allowed => {}
@@ -321,7 +331,10 @@ impl EventHandler for Handler {
         }
 
         let mut metadata = HashMap::new();
-        metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
+        metadata.insert(
+            crate::bus::meta::IS_GROUP.to_string(),
+            serde_json::Value::Bool(is_group),
+        );
         let inbound_msg = InboundMessage {
             channel: "discord".to_string(),
             sender_id,
@@ -574,6 +587,7 @@ impl BaseChannel for DiscordChannel {
 
         let token = self.config.token.clone();
         let allow_from = self.config.allow_from.clone();
+        let allow_groups = self.config.allow_groups.clone();
         let dm_policy = self.config.dm_policy.clone();
         let commands = self.config.commands.clone();
         let inbound_tx = self.inbound_tx.clone();
@@ -590,6 +604,7 @@ impl BaseChannel for DiscordChannel {
                 let handler = Handler {
                     inbound_tx: inbound_tx.clone(),
                     allow_list: allow_from.clone(),
+                    allow_groups: allow_groups.clone(),
                     dm_policy: dm_policy.clone(),
                     http_client: reqwest::Client::builder()
                         .connect_timeout(std::time::Duration::from_secs(10))
@@ -788,7 +803,25 @@ impl BaseChannel for DiscordChannel {
             return Ok(None);
         }
         let id_val = msg.chat_id.parse::<u64>()?;
-        let target = serenity::model::id::ChannelId::new(id_val);
+        // Resolve DM channel for user IDs (same logic as send())
+        let is_user_id = self
+            .config
+            .allow_from
+            .iter()
+            .any(|a| a.trim_start_matches('+') == msg.chat_id);
+        let target = if is_user_id {
+            let mut cache = self.dm_channel_cache.lock().await;
+            if let Some(&cached_id) = cache.get(&id_val) {
+                cached_id
+            } else {
+                let user_id = serenity::model::id::UserId::new(id_val);
+                let dm_channel = user_id.create_dm_channel(&self.serenity_http).await?;
+                cache.insert(id_val, dm_channel.id);
+                dm_channel.id
+            }
+        } else {
+            serenity::model::id::ChannelId::new(id_val)
+        };
         let chunks = split_message(&msg.content, 2000);
         let mut last_id = None;
         for chunk in &chunks {

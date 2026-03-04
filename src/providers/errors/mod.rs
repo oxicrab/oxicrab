@@ -45,8 +45,10 @@ impl ProviderErrorHandler {
 
             let retryable =
                 status == 500 || status == 502 || status == 503 || status == 504 || status == 529;
+            // Truncate error message to prevent leaking request content back to the LLM
+            let safe_msg: String = error_msg.chars().take(500).collect();
             return Err(OxicrabError::Provider {
-                message: format!("API error ({error_type}): {error_msg}"),
+                message: format!("API error ({error_type}): {safe_msg}"),
                 retryable,
             });
         }

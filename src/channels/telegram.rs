@@ -1,7 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{
-    DmCheckResult, check_dm_access, exponential_backoff_delay, format_pairing_reply,
+    DmCheckResult, check_dm_access, check_group_access, exponential_backoff_delay,
+    format_pairing_reply,
 };
 use crate::config::TelegramConfig;
 use crate::utils::regex::RegexPatterns;
@@ -10,6 +11,9 @@ use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::fmt::Write as _;
+
+/// Maximum file download size for Telegram media (25 MB).
+const MAX_TELEGRAM_DOWNLOAD: u32 = 25 * 1024 * 1024;
 use std::sync::Arc;
 use teloxide::net::Download;
 use teloxide::prelude::*;
@@ -51,6 +55,7 @@ impl BaseChannel for TelegramChannel {
         let bot = self.bot.clone();
         let inbound_tx = self.inbound_tx.clone();
         let allow_list = self.config.allow_from.clone();
+        let allow_groups = self.config.allow_groups.clone();
         let dm_policy = self.config.dm_policy.clone();
         let running = self.running.clone();
 
@@ -67,11 +72,13 @@ impl BaseChannel for TelegramChannel {
                 let bot_clone = bot.clone();
                 let inbound_tx_clone = inbound_tx.clone();
                 let allow_list_clone = allow_list.clone();
+                let allow_groups_clone = allow_groups.clone();
                 let dm_policy_clone = dm_policy.clone();
 
                 let handler = Update::filter_message().endpoint(move |bot: Bot, msg: TgMessage| {
                     let inbound_tx = inbound_tx_clone.clone();
                     let allow_list = allow_list_clone.clone();
+                    let allow_groups = allow_groups_clone.clone();
                     let dm_policy = dm_policy_clone.clone();
                     async move {
                         if let MessageKind::Common(_msg_common) = &msg.kind {
@@ -88,8 +95,21 @@ impl BaseChannel for TelegramChannel {
                                 return Ok(());
                             }
 
-                            // Skip DM access check for group messages
                             let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
+                            // Check group allowlist
+                            if is_group
+                                && !check_group_access(
+                                    &msg.chat.id.to_string(),
+                                    &allow_groups,
+                                )
+                            {
+                                debug!(
+                                    "telegram: ignoring message from non-allowed group {}",
+                                    msg.chat.id
+                                );
+                                return Ok(());
+                            }
+                            // DM access check (skipped for group messages)
                             if !is_group {
                                 match check_dm_access(&sender_id, &allow_list, "telegram", &dm_policy) {
                                     DmCheckResult::Allowed => {}
@@ -115,6 +135,9 @@ impl BaseChannel for TelegramChannel {
 
                                     // Download the photo
                                     match bot.get_file(photo.file.id.clone()).await {
+                                        Ok(file) if file.size > MAX_TELEGRAM_DOWNLOAD => {
+                                            warn!("telegram photo too large ({} bytes), skipping", file.size);
+                                        }
                                         Ok(file) => {
                                             let Ok(media_dir) = crate::utils::media::media_dir() else {
                                                 warn!("Failed to create media directory");
@@ -154,7 +177,7 @@ impl BaseChannel for TelegramChannel {
                                     if !content.trim().is_empty() || !media_paths.is_empty() {
                                         let mut metadata = HashMap::new();
                                         let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
-                                        metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
+                                        metadata.insert(crate::bus::meta::IS_GROUP.to_string(), serde_json::Value::Bool(is_group));
                                         let inbound_msg = InboundMessage {
                                             channel: "telegram".to_string(),
                                             sender_id,
@@ -181,6 +204,9 @@ impl BaseChannel for TelegramChannel {
                                 let mut content = text;
 
                                 match bot.get_file(voice.file.id.clone()).await {
+                                    Ok(file) if file.size > MAX_TELEGRAM_DOWNLOAD => {
+                                        warn!("telegram voice too large ({} bytes), skipping", file.size);
+                                    }
                                     Ok(file) => {
                                         let Ok(media_dir) = crate::utils::media::media_dir() else {
                                             warn!("Failed to create media directory");
@@ -220,7 +246,7 @@ impl BaseChannel for TelegramChannel {
                                 if !content.trim().is_empty() || !media_paths.is_empty() {
                                     let mut metadata = HashMap::new();
                                     let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
-                                    metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
+                                    metadata.insert(crate::bus::meta::IS_GROUP.to_string(), serde_json::Value::Bool(is_group));
                                     let inbound_msg = InboundMessage {
                                         channel: "telegram".to_string(),
                                         sender_id,
@@ -247,13 +273,17 @@ impl BaseChannel for TelegramChannel {
                                 let mut content = text;
 
                                 match bot.get_file(doc.file.id.clone()).await {
+                                    Ok(file) if file.size > MAX_TELEGRAM_DOWNLOAD => {
+                                        warn!("telegram document too large ({} bytes), skipping", file.size);
+                                    }
                                     Ok(file) => {
                                         let Ok(media_dir) = crate::utils::media::media_dir() else {
                                             warn!("Failed to create media directory");
                                             return Ok(());
                                         };
-                                        // Use original extension, fall back to mime type
-                                        let ext = doc
+                                        // Use original extension, fall back to mime type.
+                                        // Sanitize to alphanumeric to prevent path traversal.
+                                        let raw_ext = doc
                                             .file_name
                                             .as_deref()
                                             .and_then(|n| n.rsplit_once('.').map(|(_, ext)| ext))
@@ -263,6 +293,12 @@ impl BaseChannel for TelegramChannel {
                                                     .map(|m| m.subtype().as_str())
                                             })
                                             .unwrap_or("bin");
+                                        let ext: String = raw_ext
+                                            .chars()
+                                            .filter(char::is_ascii_alphanumeric)
+                                            .take(10)
+                                            .collect();
+                                        let ext = if ext.is_empty() { "bin".to_string() } else { ext };
                                         let file_path = media_dir.join(format!(
                                             "telegram_{}.{}",
                                             doc.file.unique_id, ext
@@ -305,7 +341,7 @@ impl BaseChannel for TelegramChannel {
                                 if !content.trim().is_empty() || !media_paths.is_empty() {
                                     let mut metadata = HashMap::new();
                                     let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
-                                    metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
+                                    metadata.insert(crate::bus::meta::IS_GROUP.to_string(), serde_json::Value::Bool(is_group));
                                     let inbound_msg = InboundMessage {
                                         channel: "telegram".to_string(),
                                         sender_id,
@@ -329,7 +365,7 @@ impl BaseChannel for TelegramChannel {
                             if let Some(text) = msg.text() {
                                 let mut metadata = HashMap::new();
                                 let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
-                                metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
+                                metadata.insert(crate::bus::meta::IS_GROUP.to_string(), serde_json::Value::Bool(is_group));
                                 let inbound_msg = InboundMessage {
                                     channel: "telegram".to_string(),
                                     sender_id,
@@ -532,6 +568,12 @@ fn markdown_to_telegram_html(text: &str) -> String {
         let link_html = format!(r#"<a href="{url}">{escaped_display}</a>"#);
         html = html.replace(&placeholder, &link_html);
     }
+
+    // Fenced code blocks: ```lang\n...\n``` → <pre><code>...</code></pre>
+    // Must run before inline code to avoid partial matches
+    html = RegexPatterns::markdown_code_block()
+        .replace_all(&html, r"<pre><code>$2</code></pre>")
+        .to_string();
 
     // Convert remaining markdown using shared regex patterns
     html = RegexPatterns::markdown_bold()

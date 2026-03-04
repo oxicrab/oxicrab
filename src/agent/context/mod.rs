@@ -337,30 +337,85 @@ impl ContextBuilder {
 
         messages.push(crate::providers::base::Message::system(system_prompt));
 
-        // History (skip messages with empty content — Anthropic rejects empty text blocks)
+        // History — reconstruct Message structs from session HashMap data.
+        // Anthropic rejects empty text blocks, so skip messages with no content
+        // UNLESS they are assistant messages with tool_calls (tool-only responses).
         for msg in history {
-            if let (Some(role), Some(content)) = (
-                msg.get("role").and_then(|v| v.as_str()),
-                msg.get("content").and_then(|v| v.as_str()),
-            ) && !content.is_empty()
-            {
-                // Only allow valid conversation roles in history — reject injected
-                // "system" messages which could override the system prompt
-                if !matches!(role, "user" | "assistant" | "tool") {
-                    warn!("skipping history message with invalid role: {}", role);
-                    continue;
-                }
-                let reasoning = msg
-                    .get("reasoning_content")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                messages.push(crate::providers::base::Message {
-                    role: role.to_string(),
-                    content: content.to_string(),
-                    reasoning_content: reasoning,
-                    ..Default::default()
-                });
+            let Some(role) = msg.get("role").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            // Only allow valid conversation roles — reject injected "system" messages
+            if !matches!(role, "user" | "assistant" | "tool") {
+                warn!("skipping history message with invalid role: {role}");
+                continue;
             }
+            // Extract content (string or first text element from array)
+            let content = msg
+                .get("content")
+                .and_then(|v| {
+                    v.as_str().map(String::from).or_else(|| {
+                        // Handle content-block arrays (Anthropic format)
+                        v.as_array().and_then(|arr| {
+                            arr.iter()
+                                .find_map(|b| b.get("text").and_then(|t| t.as_str()))
+                                .map(String::from)
+                        })
+                    })
+                })
+                .unwrap_or_default();
+            // Reconstruct tool_calls for assistant messages
+            let tool_calls: Option<Vec<crate::providers::base::ToolCallRequest>> = msg
+                .get("tool_calls")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .or_else(|| {
+                    // Also check Anthropic-style content array for tool_use blocks
+                    msg.get("content").and_then(|v| {
+                        v.as_array().map(|arr| {
+                            arr.iter()
+                                .filter_map(|b| {
+                                    if b.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                                        Some(crate::providers::base::ToolCallRequest {
+                                            id: b
+                                                .get("id")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or_default()
+                                                .to_string(),
+                                            name: b
+                                                .get("name")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or_default()
+                                                .to_string(),
+                                            arguments: b.get("input").cloned().unwrap_or_default(),
+                                        })
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                })
+                .filter(|tc| !tc.is_empty());
+            let tool_call_id = msg
+                .get("tool_call_id")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let reasoning = msg
+                .get("reasoning_content")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            // Skip empty messages unless they have tool_calls (tool-only assistant turns)
+            if content.is_empty() && tool_calls.is_none() && tool_call_id.is_none() {
+                continue;
+            }
+            messages.push(crate::providers::base::Message {
+                role: role.to_string(),
+                content,
+                tool_calls,
+                tool_call_id,
+                reasoning_content: reasoning,
+                ..Default::default()
+            });
         }
 
         let time_prefix = format!("[{}] ", Local::now().format("%H:%M"));

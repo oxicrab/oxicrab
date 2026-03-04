@@ -97,6 +97,23 @@ pub fn normalize_sender_id(sender: &str) -> String {
     trimmed.chars().filter(|c| !c.is_control()).collect()
 }
 
+/// Check if a group/channel ID is allowed based on the `allowGroups` config list.
+/// Empty list means all groups are allowed (backward compatible).
+/// Non-empty list restricts to only the listed group IDs.
+#[cfg(any(
+    feature = "channel-telegram",
+    feature = "channel-discord",
+    feature = "channel-slack",
+    feature = "channel-whatsapp",
+    feature = "channel-twilio",
+))]
+pub fn check_group_access(group_id: &str, allow_groups: &[String]) -> bool {
+    if allow_groups.is_empty() {
+        return true; // empty = all groups allowed
+    }
+    allow_groups.iter().any(|g| g == group_id || g == "*")
+}
+
 /// Result of a DM access check.
 #[cfg(any(
     feature = "channel-telegram",

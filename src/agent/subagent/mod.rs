@@ -408,14 +408,17 @@ async fn run_subagent_inner(
 
         let response = config
             .provider
-            .chat(crate::providers::base::ChatRequest {
-                messages: messages.clone(),
-                tools: Some(tools.get_tool_definitions()),
-                model: Some(config.model.clone()),
-                max_tokens: config.max_tokens,
-                temperature: config.tool_temperature,
-                ..Default::default()
-            })
+            .chat_with_retry(
+                crate::providers::base::ChatRequest {
+                    messages: messages.clone(),
+                    tools: Some(tools.get_tool_definitions()),
+                    model: Some(config.model.clone()),
+                    max_tokens: config.max_tokens,
+                    temperature: config.tool_temperature,
+                    ..Default::default()
+                },
+                Some(crate::providers::base::RetryConfig::default()),
+            )
             .await?;
 
         // Record cost for budget tracking — use actual_model from fallback

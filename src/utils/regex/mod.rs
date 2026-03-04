@@ -89,6 +89,15 @@ impl RegexPatterns {
         &RE
     }
 
+    /// Fenced code blocks: ```lang\n...\n```
+    pub fn markdown_code_block() -> &'static Regex {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"(?s)```(\w*)\n(.*?)```")
+                .expect("Failed to compile markdown code block regex")
+        });
+        &RE
+    }
+
     /// Regex for matching HTML script tags
     pub fn html_script() -> &'static Regex {
         static RE: LazyLock<Regex> = LazyLock::new(|| {

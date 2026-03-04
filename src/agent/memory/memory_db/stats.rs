@@ -75,18 +75,20 @@ impl MemoryDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        conn.execute(
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
             "INSERT INTO memory_access_log (query, search_type, result_count, top_score, request_id)
              VALUES (?, ?, ?, ?, ?)",
             params![query, search_type, results.len() as i64, top_score, request_id],
         )?;
-        let log_id = conn.last_insert_rowid();
+        let log_id = tx.last_insert_rowid();
         for hit in results {
-            conn.execute(
+            tx.execute(
                 "INSERT INTO memory_search_hits (access_log_id, source_key) VALUES (?, ?)",
                 params![log_id, hit.source_key],
             )?;
         }
+        tx.commit()?;
         Ok(())
     }
 

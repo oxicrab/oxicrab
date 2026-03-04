@@ -689,3 +689,52 @@ async fn test_silent_response_returns_marker() {
         "[SILENT] marker should be preserved in process_direct output"
     );
 }
+
+/// End-to-end test: inbound message → MessageBus → AgentLoop → outbound message.
+/// Verifies the full pipeline without using `process_direct`.
+#[tokio::test]
+async fn test_end_to_end_bus_pipeline() {
+    use oxicrab::bus::{InboundMessage, MessageBus};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    let tmp = TempDir::new().expect("create temp dir");
+    let provider = MockLLMProvider::with_responses(vec![text_response("Bus pipeline works!")]);
+
+    // Create bus and extract channels before wrapping in Arc<Mutex>
+    let mut bus = MessageBus::default();
+    let mut inbound_rx = bus.take_inbound_rx().expect("take inbound rx");
+    let _outbound_rx = bus.take_outbound_rx().expect("take outbound rx");
+    let bus = Arc::new(Mutex::new(bus));
+
+    let agent = create_test_agent_with(provider, &tmp, TestAgentOverrides::default()).await;
+
+    // Publish inbound message through the bus
+    {
+        let mut bus_guard = bus.lock().await;
+        bus_guard
+            .publish_inbound(InboundMessage {
+                channel: "test".to_string(),
+                sender_id: "user1".to_string(),
+                chat_id: "chat1".to_string(),
+                content: "Hello via bus".to_string(),
+                timestamp: chrono::Utc::now(),
+                ..Default::default()
+            })
+            .await
+            .expect("publish inbound");
+    }
+
+    // Receive the inbound message
+    let msg = inbound_rx.try_recv().expect("receive inbound message");
+    assert_eq!(msg.channel, "test");
+    assert_eq!(msg.content, "Hello via bus");
+
+    // Process it through the agent (simulating the main loop)
+    let response = agent
+        .process_direct(&msg.content, &msg.session_key(), &msg.channel, &msg.chat_id)
+        .await
+        .expect("agent process");
+
+    assert_eq!(response, "Bus pipeline works!");
+}

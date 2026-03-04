@@ -41,28 +41,6 @@ impl MemoryIndexer {
         }
     }
 
-    pub fn with_hygiene_config(
-        db: Arc<MemoryDB>,
-        memory_dir: PathBuf,
-        interval_secs: u64,
-        archive_after_days: u32,
-        purge_after_days: u32,
-    ) -> Self {
-        Self {
-            db,
-            memory_dir,
-            knowledge_dir: None,
-            interval: Duration::from_secs(interval_secs),
-            running: Arc::new(tokio::sync::Mutex::new(false)),
-            last_index_time: Arc::new(Mutex::new(None)),
-            archive_after_days,
-            purge_after_days,
-            embedding_service: None,
-            indexing_in_progress: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            workspace_ttl: std::collections::HashMap::new(),
-        }
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn with_full_config(
         db: Arc<MemoryDB>,
@@ -287,6 +265,9 @@ impl MemoryIndexer {
     }
 
     /// Back-fill embeddings for entries that were indexed before embeddings were enabled.
+    /// Cap per cycle to prevent excessive memory/CPU usage on large databases.
+    const MAX_BACKFILL_PER_CYCLE: usize = 500;
+
     fn backfill_missing_embeddings(db: &MemoryDB, embedding_service: &EmbeddingService) {
         let missing = match db.get_entries_missing_embeddings() {
             Ok(m) => m,
@@ -300,7 +281,20 @@ impl MemoryIndexer {
             return;
         }
 
-        info!("back-filling embeddings for {} entries", missing.len());
+        let total = missing.len();
+        let missing: Vec<_> = missing
+            .into_iter()
+            .take(Self::MAX_BACKFILL_PER_CYCLE)
+            .collect();
+        if total > Self::MAX_BACKFILL_PER_CYCLE {
+            info!(
+                "back-filling embeddings for {} of {} entries (capped)",
+                missing.len(),
+                total
+            );
+        } else {
+            info!("back-filling embeddings for {} entries", missing.len());
+        }
 
         // Group by source_key for batch processing
         let mut by_source: std::collections::HashMap<String, Vec<(i64, String)>> =

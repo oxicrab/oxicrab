@@ -28,6 +28,9 @@ pub struct TelegramConfig {
     pub token: String,
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
+    /// Restrict which group chats the bot responds in. Empty = all groups allowed.
+    #[serde(default, rename = "allowGroups")]
+    pub allow_groups: Vec<String>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
     pub dm_policy: DmPolicy,
 }
@@ -38,6 +41,7 @@ impl Default for TelegramConfig {
             enabled: false,
             token: String::new(),
             allow_from: Vec::new(),
+            allow_groups: Vec::new(),
             dm_policy: default_dm_policy(),
         }
     }
@@ -48,6 +52,7 @@ redact_debug!(
     enabled,
     redact(token),
     allow_from,
+    allow_groups,
     dm_policy,
 );
 
@@ -87,6 +92,9 @@ pub struct DiscordConfig {
     pub token: String,
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
+    /// Restrict which guild/group chats the bot responds in. Empty = all groups allowed.
+    #[serde(default, rename = "allowGroups")]
+    pub allow_groups: Vec<String>,
     #[serde(default = "default_discord_commands")]
     pub commands: Vec<DiscordCommand>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
@@ -99,6 +107,7 @@ impl Default for DiscordConfig {
             enabled: false,
             token: String::new(),
             allow_from: Vec::new(),
+            allow_groups: Vec::new(),
             commands: default_discord_commands(),
             dm_policy: default_dm_policy(),
         }
@@ -110,6 +119,7 @@ redact_debug!(
     enabled,
     redact(token),
     allow_from,
+    allow_groups,
     commands,
     dm_policy,
 );
@@ -124,6 +134,9 @@ pub struct SlackConfig {
     pub app_token: String,
     #[serde(default, rename = "allowFrom")]
     pub allow_from: Vec<String>,
+    /// Restrict which channels/groups the bot responds in. Empty = all allowed.
+    #[serde(default, rename = "allowGroups")]
+    pub allow_groups: Vec<String>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
     pub dm_policy: DmPolicy,
 }
@@ -135,6 +148,7 @@ impl Default for SlackConfig {
             bot_token: String::new(),
             app_token: String::new(),
             allow_from: Vec::new(),
+            allow_groups: Vec::new(),
             dm_policy: default_dm_policy(),
         }
     }
@@ -146,6 +160,7 @@ redact_debug!(
     redact(bot_token),
     redact(app_token),
     allow_from,
+    allow_groups,
     dm_policy,
 );
 

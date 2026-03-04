@@ -80,6 +80,9 @@ const MAX_FORMAT_NAME_LEN: usize = 256;
 /// Timeout for waiting on agent response (2 minutes, matching provider timeout).
 const RESPONSE_TIMEOUT_SECS: u64 = 120;
 
+/// Maximum age of webhook timestamps for replay protection (5 minutes).
+const REPLAY_WINDOW_SECS: i64 = 300;
+
 /// Shared state between HTTP handlers and the response router.
 #[derive(Clone)]
 pub struct HttpApiState {
@@ -87,6 +90,22 @@ pub struct HttpApiState {
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<OutboundMessage>>>>,
     webhooks: Arc<HashMap<String, WebhookConfig>>,
     outbound_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>,
+}
+
+/// Drop guard that removes a pending response entry when the handler is dropped
+/// (e.g., on client disconnect). If the response already arrived via `route_response()`,
+/// the entry will already be consumed and the remove is a harmless no-op.
+struct PendingCleanup {
+    pending: Arc<Mutex<HashMap<String, oneshot::Sender<OutboundMessage>>>>,
+    id: String,
+}
+
+impl Drop for PendingCleanup {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(&self.id);
+        }
+    }
 }
 
 /// Request body for POST /api/chat.
@@ -351,6 +370,14 @@ async fn chat_handler(
         pending.insert(request_id.clone(), tx);
     }
 
+    // Drop guard: remove pending entry if the handler is dropped (client disconnect).
+    // When the response arrives normally, the entry is consumed by route_response()
+    // so this guard's remove is a harmless no-op.
+    let _cleanup = PendingCleanup {
+        pending: state.pending.clone(),
+        id: request_id.clone(),
+    };
+
     // Convert gateway response format to provider-level enum and serialize
     // into metadata so the agent loop can extract it.
     // Validate schema size to prevent uncontrolled allocation.
@@ -407,11 +434,14 @@ async fn chat_handler(
         metadata: {
             let mut meta = HashMap::new();
             meta.insert(
-                "session_id".to_string(),
+                crate::bus::meta::SESSION_ID.to_string(),
                 serde_json::Value::String(session_id.clone()),
             );
             if let Some(ref rf) = response_format_value {
-                meta.insert("response_format".to_string(), response_format_to_json(rf));
+                meta.insert(
+                    crate::bus::meta::RESPONSE_FORMAT.to_string(),
+                    response_format_to_json(rf),
+                );
             }
             meta
         },
@@ -574,13 +604,26 @@ async fn webhook_handler(
 
     // Validate HMAC-SHA256 signature
     if !validate_webhook_signature(&config.secret, signature, &body) {
-        warn!("webhook {}: invalid signature", name);
+        warn!("webhook {name}: invalid signature");
         return StatusCode::FORBIDDEN.into_response();
     }
 
+    // Replay protection: reject payloads with timestamps older than 5 minutes.
+    // Checks X-Webhook-Timestamp (Unix seconds) if present.
+    if let Some(ts_header) = headers
+        .get("X-Webhook-Timestamp")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<i64>().ok())
+    {
+        let now = chrono::Utc::now().timestamp();
+        if (now - ts_header).abs() > REPLAY_WINDOW_SECS {
+            warn!("webhook {name}: timestamp too old ({ts_header}), rejecting (replay?)");
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
+
     debug!(
-        "webhook {}: signature valid, payload_len={}",
-        name,
+        "webhook {name}: signature valid, payload_len={}",
         body.len()
     );
 
@@ -613,7 +656,7 @@ async fn webhook_handler(
             metadata: {
                 let mut meta = HashMap::new();
                 meta.insert(
-                    "webhook_name".to_string(),
+                    crate::bus::meta::WEBHOOK_NAME.to_string(),
                     serde_json::Value::String(name.clone()),
                 );
                 meta
@@ -681,15 +724,23 @@ async fn deliver_to_targets(
         return;
     };
 
+    // Scan for leaked secrets before delivery (this path bypasses MessageBus,
+    // so we must run leak detection ourselves)
+    let detector = crate::safety::leak_detector::LeakDetector::new();
+    let safe_content = detector.redact(content);
+    if safe_content != content {
+        warn!("webhook {webhook_name}: redacted leaked secrets from target delivery");
+    }
+
     for target in targets {
         let msg = OutboundMessage {
             channel: target.channel.clone(),
             chat_id: target.chat_id.clone(),
-            content: content.to_string(),
+            content: safe_content.clone(),
             metadata: {
                 let mut meta = HashMap::new();
                 meta.insert(
-                    "webhook_source".to_string(),
+                    crate::bus::meta::WEBHOOK_SOURCE.to_string(),
                     serde_json::Value::String(webhook_name.to_string()),
                 );
                 meta
