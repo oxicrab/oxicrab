@@ -21,7 +21,7 @@ const OPENAI_COMPAT_URLS: &[(&str, &str)] = &[
     ),
     ("deepseek", "https://api.deepseek.com/v1/chat/completions"),
     ("groq", "https://api.groq.com/openai/v1/chat/completions"),
-    ("moonshot", "https://api.moonshot.cn/v1/chat/completions"),
+    ("moonshot", "https://api.moonshot.ai/v1/chat/completions"),
     (
         "zhipu",
         "https://open.bigmodel.cn/api/paas/v4/chat/completions",
