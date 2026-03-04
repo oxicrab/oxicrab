@@ -1,7 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{
-    DmCheckResult, check_dm_access, exponential_backoff_delay, format_pairing_reply,
+    DmCheckResult, check_dm_access, check_group_access, exponential_backoff_delay,
+    format_pairing_reply,
 };
 use crate::config::{DiscordCommand, DiscordConfig};
 use anyhow::Result;
@@ -28,6 +29,7 @@ const MAX_AUDIO_DOWNLOAD: usize = 50 * 1024 * 1024; // 50 MB
 struct Handler {
     inbound_tx: mpsc::Sender<InboundMessage>,
     allow_list: Vec<String>,
+    allow_groups: Vec<String>,
     dm_policy: crate::config::DmPolicy,
     http_client: reqwest::Client,
     commands: Vec<DiscordCommand>,
@@ -216,8 +218,16 @@ impl EventHandler for Handler {
 
         let sender_id = msg.author.id.to_string();
 
-        // Skip DM access check for group/server messages
         let is_group = msg.guild_id.is_some();
+        // Check group allowlist
+        if is_group {
+            let group_id = msg.guild_id.map_or_else(String::new, |g| g.to_string());
+            if !check_group_access(&group_id, &self.allow_groups) {
+                debug!("discord: ignoring message from non-allowed guild {group_id}");
+                return;
+            }
+        }
+        // DM access check (skipped for group messages)
         if !is_group {
             match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
                 DmCheckResult::Allowed => {}
@@ -577,6 +587,7 @@ impl BaseChannel for DiscordChannel {
 
         let token = self.config.token.clone();
         let allow_from = self.config.allow_from.clone();
+        let allow_groups = self.config.allow_groups.clone();
         let dm_policy = self.config.dm_policy.clone();
         let commands = self.config.commands.clone();
         let inbound_tx = self.inbound_tx.clone();
@@ -593,6 +604,7 @@ impl BaseChannel for DiscordChannel {
                 let handler = Handler {
                     inbound_tx: inbound_tx.clone(),
                     allow_list: allow_from.clone(),
+                    allow_groups: allow_groups.clone(),
                     dm_policy: dm_policy.clone(),
                     http_client: reqwest::Client::builder()
                         .connect_timeout(std::time::Duration::from_secs(10))

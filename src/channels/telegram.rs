@@ -1,7 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{
-    DmCheckResult, check_dm_access, exponential_backoff_delay, format_pairing_reply,
+    DmCheckResult, check_dm_access, check_group_access, exponential_backoff_delay,
+    format_pairing_reply,
 };
 use crate::config::TelegramConfig;
 use crate::utils::regex::RegexPatterns;
@@ -54,6 +55,7 @@ impl BaseChannel for TelegramChannel {
         let bot = self.bot.clone();
         let inbound_tx = self.inbound_tx.clone();
         let allow_list = self.config.allow_from.clone();
+        let allow_groups = self.config.allow_groups.clone();
         let dm_policy = self.config.dm_policy.clone();
         let running = self.running.clone();
 
@@ -70,11 +72,13 @@ impl BaseChannel for TelegramChannel {
                 let bot_clone = bot.clone();
                 let inbound_tx_clone = inbound_tx.clone();
                 let allow_list_clone = allow_list.clone();
+                let allow_groups_clone = allow_groups.clone();
                 let dm_policy_clone = dm_policy.clone();
 
                 let handler = Update::filter_message().endpoint(move |bot: Bot, msg: TgMessage| {
                     let inbound_tx = inbound_tx_clone.clone();
                     let allow_list = allow_list_clone.clone();
+                    let allow_groups = allow_groups_clone.clone();
                     let dm_policy = dm_policy_clone.clone();
                     async move {
                         if let MessageKind::Common(_msg_common) = &msg.kind {
@@ -91,8 +95,21 @@ impl BaseChannel for TelegramChannel {
                                 return Ok(());
                             }
 
-                            // Skip DM access check for group messages
                             let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
+                            // Check group allowlist
+                            if is_group
+                                && !check_group_access(
+                                    &msg.chat.id.to_string(),
+                                    &allow_groups,
+                                )
+                            {
+                                debug!(
+                                    "telegram: ignoring message from non-allowed group {}",
+                                    msg.chat.id
+                                );
+                                return Ok(());
+                            }
+                            // DM access check (skipped for group messages)
                             if !is_group {
                                 match check_dm_access(&sender_id, &allow_list, "telegram", &dm_policy) {
                                     DmCheckResult::Allowed => {}

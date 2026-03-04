@@ -80,6 +80,9 @@ const MAX_FORMAT_NAME_LEN: usize = 256;
 /// Timeout for waiting on agent response (2 minutes, matching provider timeout).
 const RESPONSE_TIMEOUT_SECS: u64 = 120;
 
+/// Maximum age of webhook timestamps for replay protection (5 minutes).
+const REPLAY_WINDOW_SECS: i64 = 300;
+
 /// Shared state between HTTP handlers and the response router.
 #[derive(Clone)]
 pub struct HttpApiState {
@@ -601,13 +604,26 @@ async fn webhook_handler(
 
     // Validate HMAC-SHA256 signature
     if !validate_webhook_signature(&config.secret, signature, &body) {
-        warn!("webhook {}: invalid signature", name);
+        warn!("webhook {name}: invalid signature");
         return StatusCode::FORBIDDEN.into_response();
     }
 
+    // Replay protection: reject payloads with timestamps older than 5 minutes.
+    // Checks X-Webhook-Timestamp (Unix seconds) if present.
+    if let Some(ts_header) = headers
+        .get("X-Webhook-Timestamp")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<i64>().ok())
+    {
+        let now = chrono::Utc::now().timestamp();
+        if (now - ts_header).abs() > REPLAY_WINDOW_SECS {
+            warn!("webhook {name}: timestamp too old ({ts_header}), rejecting (replay?)");
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
+
     debug!(
-        "webhook {}: signature valid, payload_len={}",
-        name,
+        "webhook {name}: signature valid, payload_len={}",
         body.len()
     );
 

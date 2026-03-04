@@ -1,7 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{
-    DmCheckResult, check_dm_access, exponential_backoff_delay, format_pairing_reply,
+    DmCheckResult, check_dm_access, check_group_access, exponential_backoff_delay,
+    format_pairing_reply,
 };
 use crate::config::SlackConfig;
 use crate::utils::regex::{RegexPatterns, compile_slack_mention};
@@ -253,6 +254,7 @@ impl BaseChannel for SlackChannel {
         let app_token = self.config.app_token.clone();
         let bot_token = self.config.bot_token.clone();
         let config_allow = self.config.allow_from.clone();
+        let config_allow_groups = self.config.allow_groups.clone();
         let dm_policy = self.config.dm_policy.clone();
         let inbound_tx = self.inbound_tx.clone();
         let bot_user_id = self.bot_user_id.clone();
@@ -439,6 +441,7 @@ impl BaseChannel for SlackChannel {
                                                         &user_cache,
                                                         &inbound_tx,
                                                         &config_allow,
+                                                        &config_allow_groups,
                                                         &dm_policy,
                                                         &bot_token,
                                                         &ws_client,
@@ -731,6 +734,7 @@ async fn handle_slack_event(
     user_cache: &Arc<tokio::sync::Mutex<lru::LruCache<String, String>>>,
     inbound_tx: &Arc<mpsc::Sender<InboundMessage>>,
     allow_from: &[String],
+    allow_groups: &[String],
     dm_policy: &crate::config::DmPolicy,
     bot_token: &str,
     client: &reqwest::Client,
@@ -801,8 +805,13 @@ async fn handle_slack_event(
         }
     }
 
-    // Skip DM access check for group/channel messages (non-DM channels don't start with 'D')
     let is_dm = channel_id.starts_with('D');
+    // Check group allowlist for non-DM channels
+    if !is_dm && !check_group_access(channel_id, allow_groups) {
+        debug!("slack: ignoring message from non-allowed channel {channel_id}");
+        return Ok(());
+    }
+    // DM access check
     if is_dm {
         match check_dm_access(user_id, allow_from, "slack", dm_policy) {
             DmCheckResult::Allowed => {}
