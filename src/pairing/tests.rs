@@ -7,8 +7,7 @@ fn test_generate_code_format() {
     for c in code.chars() {
         assert!(
             CODE_ALPHABET.contains(&(c as u8)),
-            "invalid char in code: {}",
-            c
+            "invalid char in code: {c}"
         );
     }
 }
@@ -121,7 +120,7 @@ fn test_max_pending_per_channel() {
 
     for i in 0..MAX_PENDING_PER_CHANNEL {
         let result = store
-            .request_pairing("telegram", &format!("user{}", i))
+            .request_pairing("telegram", &format!("user{i}"))
             .unwrap();
         assert!(result.is_some());
     }

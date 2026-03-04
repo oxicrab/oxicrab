@@ -29,7 +29,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         conn.execute(
             "INSERT INTO llm_cost_log
              (model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_cents, caller, request_id)
@@ -53,15 +53,15 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
-        let pattern = format!("{}%", date_str);
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let pattern = format!("{date_str}%");
         let total: f64 = conn
             .query_row(
                 "SELECT COALESCE(SUM(cost_cents), 0.0) FROM llm_cost_log WHERE timestamp LIKE ?",
                 [&pattern],
                 |row| row.get(0),
             )
-            .unwrap_or(0.0);
+            .unwrap_or_default();
         Ok(total)
     }
 
@@ -70,7 +70,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT DATE(timestamp) as day, model,
                     SUM(cost_cents) as total_cents,
@@ -94,6 +94,6 @@ impl MemoryDB {
                 })
             })?
             .collect();
-        rows.map_err(|e| anyhow::anyhow!("failed to get cost summary: {}", e))
+        rows.map_err(|e| anyhow::anyhow!("failed to get cost summary: {e}"))
     }
 }

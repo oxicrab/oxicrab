@@ -225,7 +225,7 @@ impl AnthropicOAuthProvider {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("OAuth token refresh failed (HTTP {}): {}", status, body);
+            anyhow::bail!("OAuth token refresh failed (HTTP {status}): {body}");
         }
 
         let data: Value = resp
@@ -276,7 +276,7 @@ impl AnthropicOAuthProvider {
         let mut request = self
             .client
             .post(API_URL)
-            .header("Authorization", format!("Bearer {}", token));
+            .header("Authorization", format!("Bearer {token}"));
 
         for (key, value) in claude_code_headers() {
             request = request.header(key, value);
@@ -435,7 +435,10 @@ impl AnthropicOAuthProvider {
                     let cache_path = oxicrab_oauth_cache_path();
                     if cred_type == "oauth" {
                         if let Some(access) = cred.get("access").and_then(Value::as_str) {
-                            let refresh = cred.get("refresh").and_then(Value::as_str).unwrap_or("");
+                            let refresh = cred
+                                .get("refresh")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default();
                             let expires = cred.get("expires").and_then(Value::as_i64).unwrap_or(0);
 
                             return Ok(Some(Self::new(
@@ -490,7 +493,7 @@ impl AnthropicOAuthProvider {
             let refresh = oauth
                 .get("refreshToken")
                 .and_then(Value::as_str)
-                .unwrap_or("");
+                .unwrap_or_default();
             let expires = oauth.get("expiresAt").and_then(Value::as_i64).unwrap_or(0);
 
             // Use oxicrab's own cache path for refreshed tokens so we
@@ -532,8 +535,8 @@ impl AnthropicOAuthProvider {
 
 #[async_trait]
 impl LLMProvider for AnthropicOAuthProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
-        let model = req.model.map_or(self.default_model.as_str(), |m| {
+    async fn chat(&self, req: ChatRequest) -> Result<LLMResponse> {
+        let model = req.model.as_deref().map(|m| {
             // Strip provider prefix (e.g. "anthropic/claude-opus-4-6" -> "claude-opus-4-6")
             if m.contains('/') {
                 m.split_once('/').map_or(m, |x| x.1)
@@ -541,6 +544,7 @@ impl LLMProvider for AnthropicOAuthProvider {
                 m
             }
         });
+        let model = model.unwrap_or(self.default_model.as_str());
 
         let token = self.ensure_valid_token().await?;
 
@@ -656,7 +660,7 @@ impl LLMProvider for AnthropicOAuthProvider {
         let result = self
             .client
             .post(API_URL)
-            .header("Authorization", format!("Bearer {}", token))
+            .header("Authorization", format!("Bearer {token}"))
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
             .timeout(std::time::Duration::from_secs(15))

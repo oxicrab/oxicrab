@@ -21,7 +21,7 @@ pub struct ResolvedUrl {
 /// DNS resolution uses `tokio::net::lookup_host` to avoid blocking the async
 /// runtime. Falls back to `spawn_blocking` with `std::net` if tokio lookup fails.
 pub async fn validate_and_resolve(url_str: &str) -> Result<ResolvedUrl, String> {
-    let parsed = url::Url::parse(url_str).map_err(|e| format!("Invalid URL: {}", e))?;
+    let parsed = url::Url::parse(url_str).map_err(|e| format!("Invalid URL: {e}"))?;
 
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err(format!(
@@ -50,20 +50,20 @@ pub async fn validate_and_resolve(url_str: &str) -> Result<ResolvedUrl, String> 
             vec![SocketAddr::new(IpAddr::V6(v6), port)]
         }
         url::Host::Domain(domain) => {
-            let lookup_addr = format!("{}:{}", domain, port);
+            let lookup_addr = format!("{domain}:{port}");
             let resolved = tokio::time::timeout(
                 Duration::from_secs(5),
                 tokio::net::lookup_host(&lookup_addr),
             )
             .await
-            .map_err(|_| format!("DNS resolution timed out for domain: {}", domain))?
-            .map_err(|_| format!("DNS resolution failed for domain: {}", domain))?;
+            .map_err(|_| format!("DNS resolution timed out for domain: {domain}"))?
+            .map_err(|_| format!("DNS resolution failed for domain: {domain}"))?;
             let addrs: Vec<SocketAddr> = resolved.collect();
             for addr in &addrs {
                 check_ip_allowed(addr.ip())?;
             }
             if addrs.is_empty() {
-                return Err(format!("DNS resolved no addresses for: {}", domain));
+                return Err(format!("DNS resolved no addresses for: {domain}"));
             }
             addrs
         }
@@ -87,18 +87,18 @@ fn check_ip_allowed(ip: IpAddr) -> Result<(), String> {
                 || v4.octets()[0] == 0
             // 0.0.0.0/8
             {
-                return Err(format!("Blocked: requests to {} are not allowed", v4));
+                return Err(format!("Blocked: requests to {v4} are not allowed"));
             }
             // CGNAT / shared address space (RFC 6598) - used by cloud providers internally
             let cgnat_start = Ipv4Addr::new(100, 64, 0, 0);
             let cgnat_end = Ipv4Addr::new(100, 127, 255, 255);
             if v4 >= cgnat_start && v4 <= cgnat_end {
-                return Err(format!("Blocked: requests to {} are not allowed", v4));
+                return Err(format!("Blocked: requests to {v4} are not allowed"));
             }
         }
         IpAddr::V6(v6) => {
             if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
-                return Err(format!("Blocked: requests to {} are not allowed", v6));
+                return Err(format!("Blocked: requests to {v6} are not allowed"));
             }
             // Check for IPv4-mapped addresses (::ffff:127.0.0.1 etc)
             if let Some(v4) = v6.to_ipv4_mapped() {
@@ -107,23 +107,23 @@ fn check_ip_allowed(ip: IpAddr) -> Result<(), String> {
             let segments = v6.segments();
             // fe80::/10 link-local
             if segments[0] & 0xffc0 == 0xfe80 {
-                return Err(format!("Blocked: requests to {} are not allowed", v6));
+                return Err(format!("Blocked: requests to {v6} are not allowed"));
             }
             // fc00::/7 unique local
             if segments[0] & 0xfe00 == 0xfc00 {
-                return Err(format!("Blocked: requests to {} are not allowed", v6));
+                return Err(format!("Blocked: requests to {v6} are not allowed"));
             }
             // 2001:db8::/32 documentation
             if segments[0] == 0x2001 && segments[1] == 0x0db8 {
-                return Err(format!("Blocked: requests to {} are not allowed", v6));
+                return Err(format!("Blocked: requests to {v6} are not allowed"));
             }
             // Teredo tunneling (can embed arbitrary IPv4 addresses)
             if segments[0] == 0x2001 && segments[1] == 0x0000 {
-                return Err(format!("Blocked: requests to {} are not allowed", v6));
+                return Err(format!("Blocked: requests to {v6} are not allowed"));
             }
             // 2002::/16 6to4 tunneling (can embed arbitrary IPv4)
             if segments[0] == 0x2002 {
-                return Err(format!("Blocked: requests to {} are not allowed", v6));
+                return Err(format!("Blocked: requests to {v6} are not allowed"));
             }
             // 64:ff9b::/96 NAT64 well-known prefix (maps IPv4 into last 32 bits)
             if segments[0] == 0x0064

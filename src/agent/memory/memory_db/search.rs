@@ -51,7 +51,7 @@ impl MemoryDB {
                 let conn = self
                     .conn
                     .lock()
-                    .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
                 let mut stmt = conn.prepare(
                     "SELECT me.id, me.source_key, me.content, bm25(memory_fts) as score, me.created_at
                      FROM memory_fts
@@ -248,7 +248,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let mut stmt =
             conn.prepare("SELECT id, content FROM memory_entries WHERE source_key = ?")?;
         let rows: Result<Vec<_>, _> = stmt
@@ -256,7 +256,7 @@ impl MemoryDB {
                 Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
             })?
             .collect();
-        rows.map_err(|e| anyhow::anyhow!("Failed to get entries: {}", e))
+        rows.map_err(|e| anyhow::anyhow!("Failed to get entries: {e}"))
     }
 
     /// List all source keys in the database.
@@ -264,10 +264,10 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare("SELECT source_key FROM memory_sources")?;
         let keys: Result<Vec<_>, _> = stmt.query_map([], |row| row.get(0))?.collect();
-        keys.map_err(|e| anyhow::anyhow!("Failed to list source keys: {}", e))
+        keys.map_err(|e| anyhow::anyhow!("Failed to list source keys: {e}"))
     }
 
     /// Remove a source and all its entries from the database.
@@ -275,7 +275,7 @@ impl MemoryDB {
         let mut conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         // Wrap all deletes in a transaction so a crash between them doesn't
         // leave partial state (e.g. embeddings deleted but entries remaining).
         let tx = conn.transaction()?;
@@ -332,7 +332,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
 
         if self.has_fts {
             let mut stmt = conn.prepare(
@@ -381,7 +381,7 @@ impl MemoryDB {
                 other => vec![other],
             })
             .collect();
-        let like = format!("%{}%", escaped);
+        let like = format!("%{escaped}%");
         let mut stmt = conn.prepare(
             "SELECT source_key, content
             FROM memory_entries

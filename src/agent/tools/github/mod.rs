@@ -133,7 +133,7 @@ impl GitHubTool {
                 |_| "Unknown error".to_string(),
                 |v| Self::sanitize_api_error(&v),
             );
-            anyhow::bail!("GitHub API {}: {}", status, msg);
+            anyhow::bail!("GitHub API {status}: {msg}");
         }
         Ok(())
     }
@@ -148,14 +148,14 @@ impl GitHubTool {
     ) -> Result<String> {
         let json = self
             .api_get(
-                &format!("/repos/{}/{}/issues", owner, repo),
+                &format!("/repos/{owner}/{repo}/issues"),
                 &[("state", state), ("page", page), ("per_page", per_page)],
             )
             .await?;
 
         let issues = json.as_array().map(Vec::as_slice).unwrap_or_default();
         if issues.is_empty() {
-            return Ok(format!("No {} issues in {}/{}.", state, owner, repo));
+            return Ok(format!("No {state} issues in {owner}/{repo}."));
         }
 
         let lines: Vec<String> = issues
@@ -163,7 +163,7 @@ impl GitHubTool {
             .filter(|i| i.get("pull_request").is_none()) // Exclude PRs
             .map(|i| {
                 let number = i["number"].as_u64().unwrap_or(0);
-                let title = i["title"].as_str().unwrap_or("");
+                let title = i["title"].as_str().unwrap_or_default();
                 let user = i["user"]["login"].as_str().unwrap_or("?");
                 let labels: Vec<&str> = i["labels"]
                     .as_array()
@@ -174,7 +174,7 @@ impl GitHubTool {
                 } else {
                     format!(" [{}]", labels.join(", "))
                 };
-                format!("#{} {} (by {}){}", number, title, user, label_str)
+                format!("#{number} {title} (by {user}){label_str}")
             })
             .collect();
 
@@ -205,12 +205,12 @@ impl GitHubTool {
         }
 
         let result = self
-            .api_post(&format!("/repos/{}/{}/issues", owner, repo), &payload)
+            .api_post(&format!("/repos/{owner}/{repo}/issues"), &payload)
             .await?;
 
         let number = result["number"].as_u64().unwrap_or(0);
-        let url = result["html_url"].as_str().unwrap_or("");
-        Ok(format!("Created issue #{}: {}", number, url))
+        let url = result["html_url"].as_str().unwrap_or_default();
+        Ok(format!("Created issue #{number}: {url}"))
     }
 
     async fn list_prs(
@@ -223,34 +223,34 @@ impl GitHubTool {
     ) -> Result<String> {
         let json = self
             .api_get(
-                &format!("/repos/{}/{}/pulls", owner, repo),
+                &format!("/repos/{owner}/{repo}/pulls"),
                 &[("state", state), ("page", page), ("per_page", per_page)],
             )
             .await?;
 
         let prs = json.as_array().map(Vec::as_slice).unwrap_or_default();
         if prs.is_empty() {
-            return Ok(format!("No {} PRs in {}/{}.", state, owner, repo));
+            return Ok(format!("No {state} PRs in {owner}/{repo}."));
         }
 
         let lines: Vec<String> = prs
             .iter()
             .map(|pr| {
                 let number = pr["number"].as_u64().unwrap_or(0);
-                let title = pr["title"].as_str().unwrap_or("");
+                let title = pr["title"].as_str().unwrap_or_default();
                 let user = pr["user"]["login"].as_str().unwrap_or("?");
-                let draft = if pr["draft"].as_bool().unwrap_or(false) {
+                let draft = if pr["draft"].as_bool().unwrap_or_default() {
                     " (draft)"
                 } else {
                     ""
                 };
-                let mergeable_state = pr["mergeable_state"].as_str().unwrap_or("");
+                let mergeable_state = pr["mergeable_state"].as_str().unwrap_or_default();
                 let state_str = if mergeable_state.is_empty() {
                     String::new()
                 } else {
-                    format!(" [{}]", mergeable_state)
+                    format!(" [{mergeable_state}]")
                 };
-                format!("#{} {} (by {}){}{}", number, title, user, draft, state_str)
+                format!("#{number} {title} (by {user}){draft}{state_str}")
             })
             .collect();
 
@@ -266,14 +266,14 @@ impl GitHubTool {
 
     async fn get_pr(&self, owner: &str, repo: &str, number: u64) -> Result<String> {
         let pr = self
-            .api_get(&format!("/repos/{}/{}/pulls/{}", owner, repo, number), &[])
+            .api_get(&format!("/repos/{owner}/{repo}/pulls/{number}"), &[])
             .await?;
 
-        let title = pr["title"].as_str().unwrap_or("");
-        let state = pr["state"].as_str().unwrap_or("");
+        let title = pr["title"].as_str().unwrap_or_default();
+        let state = pr["state"].as_str().unwrap_or_default();
         let user = pr["user"]["login"].as_str().unwrap_or("?");
         let body = pr["body"].as_str().unwrap_or("(no description)");
-        let merged = pr["merged"].as_bool().unwrap_or(false);
+        let merged = pr["merged"].as_bool().unwrap_or_default();
         let additions = pr["additions"].as_u64().unwrap_or(0);
         let deletions = pr["deletions"].as_u64().unwrap_or(0);
         let changed_files = pr["changed_files"].as_u64().unwrap_or(0);
@@ -281,21 +281,18 @@ impl GitHubTool {
         let base = pr["base"]["ref"].as_str().unwrap_or("?");
 
         // Fetch checks status
-        let sha = pr["head"]["sha"].as_str().unwrap_or("");
+        let sha = pr["head"]["sha"].as_str().unwrap_or_default();
         let checks_str = if sha.is_empty() {
             "CI: unknown".to_string()
         } else {
             match self
-                .api_get(
-                    &format!("/repos/{}/{}/commits/{}/status", owner, repo, sha),
-                    &[],
-                )
+                .api_get(&format!("/repos/{owner}/{repo}/commits/{sha}/status"), &[])
                 .await
             {
                 Ok(status) => {
                     let state = status["state"].as_str().unwrap_or("unknown");
                     let total = status["total_count"].as_u64().unwrap_or(0);
-                    format!("CI: {} ({} checks)", state, total)
+                    format!("CI: {state} ({total} checks)")
                 }
                 Err(_) => "CI: unknown".to_string(),
             }
@@ -321,15 +318,15 @@ impl GitHubTool {
 
     async fn get_issue(&self, owner: &str, repo: &str, number: u64) -> Result<String> {
         let issue = self
-            .api_get(&format!("/repos/{}/{}/issues/{}", owner, repo, number), &[])
+            .api_get(&format!("/repos/{owner}/{repo}/issues/{number}"), &[])
             .await?;
 
-        let title = issue["title"].as_str().unwrap_or("");
-        let state = issue["state"].as_str().unwrap_or("");
+        let title = issue["title"].as_str().unwrap_or_default();
+        let state = issue["state"].as_str().unwrap_or_default();
         let user = issue["user"]["login"].as_str().unwrap_or("?");
         let body = issue["body"].as_str().unwrap_or("(no description)");
         let comments = issue["comments"].as_u64().unwrap_or(0);
-        let url = issue["html_url"].as_str().unwrap_or("");
+        let url = issue["html_url"].as_str().unwrap_or_default();
 
         let labels: Vec<&str> = issue["labels"]
             .as_array()
@@ -368,14 +365,14 @@ impl GitHubTool {
     async fn get_pr_files(&self, owner: &str, repo: &str, number: u64) -> Result<String> {
         let json = self
             .api_get(
-                &format!("/repos/{}/{}/pulls/{}/files", owner, repo, number),
+                &format!("/repos/{owner}/{repo}/pulls/{number}/files"),
                 &[("per_page", "100")],
             )
             .await?;
 
         let files = json.as_array().map(Vec::as_slice).unwrap_or_default();
         if files.is_empty() {
-            return Ok(format!("No files changed in PR #{}", number));
+            return Ok(format!("No files changed in PR #{number}"));
         }
 
         let lines: Vec<String> = files
@@ -387,7 +384,7 @@ impl GitHubTool {
                 let deletions = f["deletions"].as_u64().unwrap_or(0);
                 let patch: String = f["patch"]
                     .as_str()
-                    .unwrap_or("")
+                    .unwrap_or_default()
                     .chars()
                     .take(200)
                     .collect();
@@ -396,10 +393,7 @@ impl GitHubTool {
                 } else {
                     format!("\n  {}", patch.replace('\n', "\n  "))
                 };
-                format!(
-                    "{} ({}) +{} −{}{}",
-                    filename, status, additions, deletions, patch_str
-                )
+                format!("{filename} ({status}) +{additions} −{deletions}{patch_str}")
             })
             .collect();
 
@@ -426,16 +420,15 @@ impl GitHubTool {
 
         let result = self
             .api_post(
-                &format!("/repos/{}/{}/pulls/{}/reviews", owner, repo, number),
+                &format!("/repos/{owner}/{repo}/pulls/{number}/reviews"),
                 &payload,
             )
             .await?;
 
         let review_id = result["id"].as_u64().unwrap_or(0);
-        let state = result["state"].as_str().unwrap_or("");
+        let state = result["state"].as_str().unwrap_or_default();
         Ok(format!(
-            "Created review #{} on PR #{}: {}",
-            review_id, number, state
+            "Created review #{review_id} on PR #{number}: {state}"
         ))
     }
 
@@ -459,7 +452,7 @@ impl GitHubTool {
             .join("/");
         let json = self
             .api_get(
-                &format!("/repos/{}/{}/contents/{}", owner, repo, encoded_path),
+                &format!("/repos/{owner}/{repo}/contents/{encoded_path}"),
                 &query,
             )
             .await?;
@@ -472,7 +465,7 @@ impl GitHubTool {
                     let name = e["name"].as_str().unwrap_or("?");
                     let kind = e["type"].as_str().unwrap_or("?");
                     let size = e["size"].as_u64().unwrap_or(0);
-                    format!("{} ({}, {} bytes)", name, kind, size)
+                    format!("{name} ({kind}, {size} bytes)")
                 })
                 .collect();
             return Ok(format!(
@@ -484,23 +477,20 @@ impl GitHubTool {
         }
 
         // Handle file content
-        let encoding = json["encoding"].as_str().unwrap_or("");
-        let content_b64 = json["content"].as_str().unwrap_or("");
+        let encoding = json["encoding"].as_str().unwrap_or_default();
+        let content_b64 = json["content"].as_str().unwrap_or_default();
         let name = json["name"].as_str().unwrap_or(file_path);
         let size = json["size"].as_u64().unwrap_or(0);
 
         if encoding != "base64" {
-            return Ok(format!(
-                "File {} ({} bytes, encoding: {})",
-                name, size, encoding
-            ));
+            return Ok(format!("File {name} ({size} bytes, encoding: {encoding})"));
         }
 
         // Decode base64 content (GitHub adds newlines in the base64)
         let cleaned: String = content_b64.chars().filter(|c| !c.is_whitespace()).collect();
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(&cleaned)
-            .map_err(|e| anyhow::anyhow!("Failed to decode base64: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to decode base64: {e}"))?;
         let text = String::from_utf8_lossy(&decoded);
 
         // Truncate at 10k chars
@@ -512,8 +502,7 @@ impl GitHubTool {
         };
 
         Ok(format!(
-            "File: {} ({} bytes)\n\n{}{}",
-            name, size, truncated, suffix
+            "File: {name} ({size} bytes)\n\n{truncated}{suffix}"
         ))
     }
 
@@ -531,17 +520,13 @@ impl GitHubTool {
         }
 
         self.api_post_no_content(
-            &format!(
-                "/repos/{}/{}/actions/workflows/{}/dispatches",
-                owner, repo, workflow_id
-            ),
+            &format!("/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches"),
             &payload,
         )
         .await?;
 
         Ok(format!(
-            "Triggered workflow {} on {}/{} (ref: {})",
-            workflow_id, owner, repo, git_ref
+            "Triggered workflow {workflow_id} on {owner}/{repo} (ref: {git_ref})"
         ))
     }
 
@@ -552,8 +537,8 @@ impl GitHubTool {
         workflow_id: Option<&str>,
     ) -> Result<String> {
         let path = match workflow_id {
-            Some(wid) => format!("/repos/{}/{}/actions/workflows/{}/runs", owner, repo, wid),
-            None => format!("/repos/{}/{}/actions/runs", owner, repo),
+            Some(wid) => format!("/repos/{owner}/{repo}/actions/workflows/{wid}/runs"),
+            None => format!("/repos/{owner}/{repo}/actions/runs"),
         };
 
         let json = self.api_get(&path, &[("per_page", "10")]).await?;
@@ -564,7 +549,7 @@ impl GitHubTool {
             .unwrap_or_default();
 
         if runs.is_empty() {
-            return Ok(format!("No workflow runs found in {}/{}.", owner, repo));
+            return Ok(format!("No workflow runs found in {owner}/{repo}."));
         }
 
         let lines: Vec<String> = runs
@@ -576,11 +561,8 @@ impl GitHubTool {
                 let conclusion = r["conclusion"].as_str().unwrap_or("pending");
                 let branch = r["head_branch"].as_str().unwrap_or("?");
                 let created = r["created_at"].as_str().unwrap_or("?");
-                let url = r["html_url"].as_str().unwrap_or("");
-                format!(
-                    "#{} {} — {} ({}) on {} [{}]\n  {}",
-                    id, name, status, conclusion, branch, created, url
-                )
+                let url = r["html_url"].as_str().unwrap_or_default();
+                format!("#{id} {name} — {status} ({conclusion}) on {branch} [{created}]\n  {url}")
             })
             .collect();
 
@@ -607,10 +589,10 @@ impl GitHubTool {
             .iter()
             .map(|n| {
                 let reason = n["reason"].as_str().unwrap_or("?");
-                let title = n["subject"]["title"].as_str().unwrap_or("");
-                let kind = n["subject"]["type"].as_str().unwrap_or("");
-                let repo = n["repository"]["full_name"].as_str().unwrap_or("");
-                format!("[{}] {} — {} ({})", reason, title, repo, kind)
+                let title = n["subject"]["title"].as_str().unwrap_or_default();
+                let kind = n["subject"]["type"].as_str().unwrap_or_default();
+                let repo = n["repository"]["full_name"].as_str().unwrap_or_default();
+                format!("[{reason}] {title} — {repo} ({kind})")
             })
             .collect();
 
@@ -774,8 +756,7 @@ impl Tool for GitHubTool {
                         let state = params["state"].as_str().unwrap_or("open");
                         if !matches!(state, "open" | "closed" | "all") {
                             return Ok(ToolResult::error(format!(
-                                "invalid state '{}', must be open, closed, or all",
-                                state
+                                "invalid state '{state}', must be open, closed, or all"
                             )));
                         }
                         self.list_issues(owner, repo, state, &page, &per_page).await
@@ -784,8 +765,7 @@ impl Tool for GitHubTool {
                         let state = params["state"].as_str().unwrap_or("open");
                         if !matches!(state, "open" | "closed" | "all") {
                             return Ok(ToolResult::error(format!(
-                                "invalid state '{}', must be open, closed, or all",
-                                state
+                                "invalid state '{state}', must be open, closed, or all"
                             )));
                         }
                         self.list_prs(owner, repo, state, &page, &per_page).await
@@ -833,11 +813,10 @@ impl Tool for GitHubTool {
                         };
                         if !matches!(event, "APPROVE" | "REQUEST_CHANGES" | "COMMENT") {
                             return Ok(ToolResult::error(format!(
-                                "invalid event '{}'. Must be APPROVE, REQUEST_CHANGES, or COMMENT",
-                                event
+                                "invalid event '{event}'. Must be APPROVE, REQUEST_CHANGES, or COMMENT"
                             )));
                         }
-                        let body = params["body"].as_str().unwrap_or("");
+                        let body = params["body"].as_str().unwrap_or_default();
                         self.create_pr_review(owner, repo, number, event, body)
                             .await
                     }
@@ -868,10 +847,7 @@ impl Tool for GitHubTool {
                             .await
                     }
                     other => {
-                        return Ok(ToolResult::error(format!(
-                            "unknown repo action: '{}'",
-                            other
-                        )));
+                        return Ok(ToolResult::error(format!("unknown repo action: '{other}'")));
                     }
                 };
 
@@ -881,7 +857,7 @@ impl Tool for GitHubTool {
                 self.list_notifications().await,
                 "GitHub",
             )),
-            _ => Ok(ToolResult::error(format!("unknown action: {}", action))),
+            _ => Ok(ToolResult::error(format!("unknown action: {action}"))),
         }
     }
 }

@@ -120,7 +120,7 @@ fn test_detect_base64_encoded_anthropic_key() {
     let detector = LeakDetector::new();
     let secret = "sk-ant-api03-abcdefghijklmnopqrst12345";
     let encoded = base64::engine::general_purpose::STANDARD.encode(secret.as_bytes());
-    let text = format!("Here is encoded data: {}", encoded);
+    let text = format!("Here is encoded data: {encoded}");
     let matches = detector.scan(&text);
     assert!(
         !matches.is_empty(),
@@ -133,7 +133,7 @@ fn test_detect_hex_encoded_openai_key() {
     let detector = LeakDetector::new();
     let secret = "sk-abcdefghijklmnopqrstuvwx";
     let hex = hex::encode(secret.as_bytes());
-    let text = format!("Hex payload: {}", hex);
+    let text = format!("Hex payload: {hex}");
     let matches = detector.scan(&text);
     assert!(!matches.is_empty(), "Should detect hex-encoded OpenAI key");
 }
@@ -188,7 +188,7 @@ fn test_redact_covers_known_secrets() {
     detector.add_known_secrets(&[("test", secret)]);
 
     let b64 = base64::engine::general_purpose::STANDARD.encode(secret.as_bytes());
-    let text = format!("Leak: {} and also {}", secret, b64);
+    let text = format!("Leak: {secret} and also {b64}");
     let redacted = detector.redact(&text);
     assert!(!redacted.contains(secret));
     assert!(!redacted.contains(&b64));

@@ -45,18 +45,18 @@ impl WeatherTool {
         let json: Value = resp.json().await?;
         if !status.is_success() {
             let msg = json["message"].as_str().unwrap_or("Unknown error");
-            anyhow::bail!("OpenWeatherMap: {}", msg);
+            anyhow::bail!("OpenWeatherMap: {msg}");
         }
 
-        let temp = json["main"]["temp"].as_f64().unwrap_or(0.0);
-        let feels_like = json["main"]["feels_like"].as_f64().unwrap_or(0.0);
+        let temp = json["main"]["temp"].as_f64().unwrap_or_default();
+        let feels_like = json["main"]["feels_like"].as_f64().unwrap_or_default();
         let humidity = json["main"]["humidity"].as_u64().unwrap_or(0);
         let description = json["weather"][0]["description"]
             .as_str()
             .unwrap_or("unknown");
-        let wind_speed = json["wind"]["speed"].as_f64().unwrap_or(0.0);
+        let wind_speed = json["wind"]["speed"].as_f64().unwrap_or_default();
         let city = json["name"].as_str().unwrap_or(location);
-        let country = json["sys"]["country"].as_str().unwrap_or("");
+        let country = json["sys"]["country"].as_str().unwrap_or_default();
 
         let unit_label = match units {
             "imperial" => "°F",
@@ -66,17 +66,7 @@ impl WeatherTool {
         let wind_unit = if units == "imperial" { "mph" } else { "m/s" };
 
         Ok(format!(
-            "Weather in {}, {}:\n{} | {:.0}{} (feels like {:.0}{})\nHumidity: {}% | Wind: {:.1} {}",
-            city,
-            country,
-            description,
-            temp,
-            unit_label,
-            feels_like,
-            unit_label,
-            humidity,
-            wind_speed,
-            wind_unit
+            "Weather in {city}, {country}:\n{description} | {temp:.0}{unit_label} (feels like {feels_like:.0}{unit_label})\nHumidity: {humidity}% | Wind: {wind_speed:.1} {wind_unit}"
         ))
     }
 
@@ -98,11 +88,11 @@ impl WeatherTool {
         let json: Value = resp.json().await?;
         if !status.is_success() {
             let msg = json["message"].as_str().unwrap_or("Unknown error");
-            anyhow::bail!("OpenWeatherMap: {}", msg);
+            anyhow::bail!("OpenWeatherMap: {msg}");
         }
 
         let city = json["city"]["name"].as_str().unwrap_or(location);
-        let country = json["city"]["country"].as_str().unwrap_or("");
+        let country = json["city"]["country"].as_str().unwrap_or_default();
         let list = json["list"]
             .as_array()
             .map(Vec::as_slice)
@@ -118,13 +108,10 @@ impl WeatherTool {
             .iter()
             .map(|entry| {
                 let dt_txt = entry["dt_txt"].as_str().unwrap_or("?");
-                let temp = entry["main"]["temp"].as_f64().unwrap_or(0.0);
+                let temp = entry["main"]["temp"].as_f64().unwrap_or_default();
                 let desc = entry["weather"][0]["description"].as_str().unwrap_or("?");
-                let pop = entry["pop"].as_f64().unwrap_or(0.0) * 100.0;
-                format!(
-                    "{}: {:.0}{} {} (rain: {:.0}%)",
-                    dt_txt, temp, unit_label, desc, pop
-                )
+                let pop = entry["pop"].as_f64().unwrap_or_default() * 100.0;
+                format!("{dt_txt}: {temp:.0}{unit_label} {desc} (rain: {pop:.0}%)")
             })
             .collect();
 
@@ -160,7 +147,7 @@ impl Tool for WeatherTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::Full,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
@@ -202,12 +189,12 @@ impl Tool for WeatherTool {
         let result = match action {
             "current" => self.current(location, units).await,
             "forecast" => self.forecast(location, units).await,
-            _ => return Ok(ToolResult::error(format!("unknown action: {}", action))),
+            _ => return Ok(ToolResult::error(format!("unknown action: {action}"))),
         };
 
         match result {
             Ok(content) => Ok(ToolResult::new(content)),
-            Err(e) => Ok(ToolResult::error(format!("weather error: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("weather error: {e}"))),
         }
     }
 }

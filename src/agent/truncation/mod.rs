@@ -15,7 +15,7 @@ pub fn strip_binary_blobs(text: &str) -> String {
             .unwrap_or("unknown");
         let data_start = full.find(',').map_or(0, |i| i + 1);
         let data_len = full.len() - data_start;
-        format!("[{} data, {} bytes]", mime, data_len)
+        format!("[{mime} data, {data_len} bytes]")
     });
 
     // 2. Long hex sequences (before base64, since hex is a subset of base64 alphabet).

@@ -848,8 +848,7 @@ impl Tool for BrowserTool {
                 self.action_navigate(nav).await
             }
             unknown => Ok(ToolResult::error(format!(
-                "unknown browser action '{}'. Valid actions: open, click, type_text, fill, screenshot, snapshot, eval, get, scroll, wait, close, navigate",
-                unknown
+                "unknown browser action '{unknown}'. Valid actions: open, click, type_text, fill, screenshot, snapshot, eval, get, scroll, wait, close, navigate"
             ))),
         }
     }

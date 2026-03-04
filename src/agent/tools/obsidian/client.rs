@@ -21,7 +21,7 @@ impl ObsidianApiClient {
                 Some(url::Host::Domain(d)) => Some(d == "localhost"),
                 None => None,
             })
-            .unwrap_or(false);
+            .unwrap_or_default();
         if !is_localhost {
             warn!(
                 "obsidian API URL is not localhost — TLS certificate validation will be enforced"
@@ -93,7 +93,7 @@ impl ObsidianApiClient {
                             let full_path = if dir.is_empty() {
                                 name.to_string()
                             } else {
-                                format!("{}{}", dir, name)
+                                format!("{dir}{name}")
                             };
                             dirs_to_visit.push(full_path);
                         } else {
@@ -101,7 +101,7 @@ impl ObsidianApiClient {
                             let full_path = if dir.is_empty() {
                                 name.to_string()
                             } else {
-                                format!("{}{}", dir, name)
+                                format!("{dir}{name}")
                             };
                             all_files.push(full_path);
                         }
@@ -143,7 +143,7 @@ impl ObsidianApiClient {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Obsidian API {} reading '{}': {}", status, path, body);
+            anyhow::bail!("Obsidian API {status} reading '{path}': {body}");
         }
 
         Ok(resp.text().await?)
@@ -166,7 +166,7 @@ impl ObsidianApiClient {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Obsidian API {} writing '{}': {}", status, path, body);
+            anyhow::bail!("Obsidian API {status} writing '{path}': {body}");
         }
 
         Ok(())
@@ -189,7 +189,7 @@ impl ObsidianApiClient {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Obsidian API {} appending '{}': {}", status, path, body);
+            anyhow::bail!("Obsidian API {status} appending '{path}': {body}");
         }
 
         Ok(())

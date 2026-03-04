@@ -2,7 +2,7 @@ use super::*;
 use tempfile::TempDir;
 
 fn create_dated_file(dir: &Path, date_str: &str, content: &str) {
-    let path = dir.join(format!("{}.md", date_str));
+    let path = dir.join(format!("{date_str}.md"));
     std::fs::write(path, content).unwrap();
 }
 
@@ -95,8 +95,8 @@ fn test_utility_based_early_archive() {
     create_dated_file(memory_dir, &twenty_days_ago, note_content);
 
     // Index the file so it exists in DB
-    let note_path = memory_dir.join(format!("{}.md", twenty_days_ago));
-    db.index_file(&format!("{}.md", twenty_days_ago), &note_path)
+    let note_path = memory_dir.join(format!("{twenty_days_ago}.md"));
+    db.index_file(&format!("{twenty_days_ago}.md"), &note_path)
         .unwrap();
 
     // Without db: note should NOT be early-archived (it's between early and normal cutoff)
@@ -110,7 +110,7 @@ fn test_utility_based_early_archive() {
     assert!(
         memory_dir
             .join("archive")
-            .join(format!("{}.md", twenty_days_ago))
+            .join(format!("{twenty_days_ago}.md"))
             .exists()
     );
 }
@@ -129,8 +129,8 @@ fn test_utility_based_keeps_used_notes() {
     let note_content = "This is about Rust programming and memory management techniques.";
     create_dated_file(memory_dir, &twenty_days_ago, note_content);
 
-    let note_path = memory_dir.join(format!("{}.md", twenty_days_ago));
-    db.index_file(&format!("{}.md", twenty_days_ago), &note_path)
+    let note_path = memory_dir.join(format!("{twenty_days_ago}.md"));
+    db.index_file(&format!("{twenty_days_ago}.md"), &note_path)
         .unwrap();
 
     // Search for something that will hit this note — this creates search hits

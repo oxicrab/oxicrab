@@ -31,14 +31,13 @@ impl ProviderErrorHandler {
                 let model_name = error_msg.replace("model: ", "").trim().to_string();
                 return Err(OxicrabError::Provider {
                     message: format!(
-                        "Model '{}' not found. This model may be deprecated or incorrect.\n\
+                        "Model '{model_name}' not found. This model may be deprecated or incorrect.\n\
                             Please update your config file (~/.oxicrab/config.json) to use a valid model:\n\
                             - claude-sonnet-4-6 (recommended)\n\
                             - claude-haiku-4-5-20251001 (fastest)\n\
                             - claude-opus-4-6 (most capable)\n\
                             \n\
-                            Or remove the 'model' field from your config to use the default.",
-                        model_name
+                            Or remove the 'model' field from your config to use the default."
                     ),
                     retryable: false,
                 });
@@ -47,7 +46,7 @@ impl ProviderErrorHandler {
             let retryable =
                 status == 500 || status == 502 || status == 503 || status == 504 || status == 529;
             return Err(OxicrabError::Provider {
-                message: format!("API error ({}): {}", error_type, error_msg),
+                message: format!("API error ({error_type}): {error_msg}"),
                 retryable,
             });
         }
@@ -55,7 +54,7 @@ impl ProviderErrorHandler {
         let retryable =
             status == 500 || status == 502 || status == 503 || status == 504 || status == 529;
         Err(OxicrabError::Provider {
-            message: format!("API error ({}): {}", status, error_text),
+            message: format!("API error ({status}): {error_text}"),
             retryable,
         })
     }
@@ -82,8 +81,7 @@ impl ProviderErrorHandler {
     pub fn handle_auth_error(status: u16, error_text: &str) -> Result<(), OxicrabError> {
         warn!("Authentication error (status: {}): {}", status, error_text);
         Err(OxicrabError::Auth(format!(
-            "Authentication failed. Please check your API key or credentials. Error: {}",
-            error_text
+            "Authentication failed. Please check your API key or credentials. Error: {error_text}"
         )))
     }
 
@@ -150,7 +148,7 @@ impl ProviderErrorHandler {
         let json: Value = resp
             .json()
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to parse {} API response: {}", provider, e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to parse {provider} API response: {e}"))?;
 
         // Check for API-level errors in the JSON body
         if let Some(error_val) = json.get("error") {

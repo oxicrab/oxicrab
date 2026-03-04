@@ -162,11 +162,11 @@ impl Tool for GoogleCalendarTool {
                         .or_else(|| ev["end"]["date"].as_str())
                         .unwrap_or("?");
                     let summary = ev["summary"].as_str().unwrap_or("(no title)");
-                    let location = ev["location"].as_str().unwrap_or("");
+                    let location = ev["location"].as_str().unwrap_or_default();
                     let loc_str = if location.is_empty() {
                         String::new()
                     } else {
-                        format!("\n  Location: {}", location)
+                        format!("\n  Location: {location}")
                     };
                     let empty_attendees: Vec<serde_json::Value> = vec![];
                     let attendees = ev["attendees"].as_array().unwrap_or(&empty_attendees);
@@ -219,7 +219,7 @@ impl Tool for GoogleCalendarTool {
                     .ok_or_else(|| anyhow::anyhow!("Missing 'start' parameter"))?;
 
                 let tz = params["timezone"].as_str().unwrap_or("UTC");
-                let all_day = params["all_day"].as_bool().unwrap_or(false);
+                let all_day = params["all_day"].as_bool().unwrap_or_default();
 
                 let mut body = serde_json::json!({
                     "summary": summary
@@ -238,14 +238,12 @@ impl Tool for GoogleCalendarTool {
                         &start_raw[..10]
                     } else {
                         return Ok(ToolResult::error(format!(
-                            "invalid date format for all-day event: '{}' (expected YYYY-MM-DD)",
-                            start_raw
+                            "invalid date format for all-day event: '{start_raw}' (expected YYYY-MM-DD)"
                         )));
                     };
                     if chrono::NaiveDate::parse_from_str(start_date, "%Y-%m-%d").is_err() {
                         return Ok(ToolResult::error(format!(
-                            "invalid date: '{}' (expected YYYY-MM-DD)",
-                            start_date
+                            "invalid date: '{start_date}' (expected YYYY-MM-DD)"
                         )));
                     }
                     body["start"] = serde_json::json!({"date": start_date});
@@ -279,7 +277,7 @@ impl Tool for GoogleCalendarTool {
                     "Event created: {} (ID: {})\nLink: {}",
                     ev["summary"].as_str().unwrap_or("?"),
                     ev["id"].as_str().unwrap_or("?"),
-                    ev["htmlLink"].as_str().unwrap_or("")
+                    ev["htmlLink"].as_str().unwrap_or_default()
                 )))
             }
             "update_event" => {
@@ -306,14 +304,14 @@ impl Tool for GoogleCalendarTool {
                     ev["location"] = Value::String(l.to_string());
                 }
                 if let Some(s) = params["start"].as_str() {
-                    if params["all_day"].as_bool().unwrap_or(false) {
+                    if params["all_day"].as_bool().unwrap_or_default() {
                         ev["start"] = serde_json::json!({"date": &s[..10.min(s.len())]});
                     } else {
                         ev["start"] = serde_json::json!({"dateTime": s, "timeZone": tz});
                     }
                 }
                 if let Some(e) = params["end"].as_str() {
-                    if params["all_day"].as_bool().unwrap_or(false) {
+                    if params["all_day"].as_bool().unwrap_or_default() {
                         ev["end"] = serde_json::json!({"date": &e[..10.min(e.len())]});
                     } else {
                         ev["end"] = serde_json::json!({"dateTime": e, "timeZone": tz});
@@ -347,7 +345,7 @@ impl Tool for GoogleCalendarTool {
                     urlencoding::encode(event_id)
                 );
                 self.api.call(&endpoint, "DELETE", None).await?;
-                Ok(ToolResult::new(format!("Event {} deleted.", event_id)))
+                Ok(ToolResult::new(format!("Event {event_id} deleted.")))
             }
             "list_calendars" => {
                 let result = self.api.call("users/me/calendarList", "GET", None).await?;
@@ -358,7 +356,7 @@ impl Tool for GoogleCalendarTool {
                 }
                 let mut lines = vec!["Your calendars:\n".to_string()];
                 for cal in cals {
-                    let primary = if cal["primary"].as_bool().unwrap_or(false) {
+                    let primary = if cal["primary"].as_bool().unwrap_or_default() {
                         " (primary)"
                     } else {
                         ""
@@ -372,7 +370,7 @@ impl Tool for GoogleCalendarTool {
                 }
                 Ok(ToolResult::new(lines.join("\n")))
             }
-            _ => Ok(ToolResult::error(format!("unknown action: {}", action))),
+            _ => Ok(ToolResult::error(format!("unknown action: {action}"))),
         }
     }
 }
@@ -423,7 +421,7 @@ fn ensure_rfc3339_tz(s: &str) -> String {
     }
     // Only append Z if this looks like a datetime (contains 'T'), not a date-only string
     if trimmed.contains('T') {
-        format!("{}Z", trimmed)
+        format!("{trimmed}Z")
     } else {
         trimmed.to_string()
     }
@@ -443,15 +441,15 @@ fn format_event_detail(ev: &Value) -> String {
             "Summary: {}",
             ev["summary"].as_str().unwrap_or("(no title)")
         ),
-        format!("ID: {}", ev["id"].as_str().unwrap_or("")),
+        format!("ID: {}", ev["id"].as_str().unwrap_or_default()),
         format!("Start: {}", start),
         format!("End: {}", end),
     ];
     if let Some(loc) = ev["location"].as_str() {
-        parts.push(format!("Location: {}", loc));
+        parts.push(format!("Location: {loc}"));
     }
     if let Some(desc) = ev["description"].as_str() {
-        parts.push(format!("Description: {}", desc));
+        parts.push(format!("Description: {desc}"));
     }
     if let Some(attendees) = ev["attendees"].as_array() {
         let att: Vec<String> = attendees
@@ -461,10 +459,10 @@ fn format_event_detail(ev: &Value) -> String {
         parts.push(format!("Attendees: {}", att.join(", ")));
     }
     if let Some(link) = ev["htmlLink"].as_str() {
-        parts.push(format!("Link: {}", link));
+        parts.push(format!("Link: {link}"));
     }
     if let Some(status) = ev["status"].as_str() {
-        parts.push(format!("Status: {}", status));
+        parts.push(format!("Status: {status}"));
     }
     parts.join("\n")
 }
@@ -612,15 +610,13 @@ mod tests {
         for action in &schema_actions {
             assert!(
                 cap_actions.contains(action),
-                "action '{}' in schema but not in capabilities()",
-                action
+                "action '{action}' in schema but not in capabilities()"
             );
         }
         for action in &cap_actions {
             assert!(
                 schema_actions.contains(action),
-                "action '{}' in capabilities() but not in schema",
-                action
+                "action '{action}' in capabilities() but not in schema"
             );
         }
     }

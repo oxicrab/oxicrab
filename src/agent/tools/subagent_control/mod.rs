@@ -1,5 +1,5 @@
 use crate::agent::subagent::SubagentManager;
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -47,9 +47,7 @@ impl Tool for SubagentControlTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
-            network_outbound: false,
-            subagent_access: SubagentAccess::Denied,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
@@ -63,15 +61,12 @@ impl Tool for SubagentControlTool {
             "list" => {
                 let tasks = self.manager.list_running().await;
                 let (running, max, available) = self.manager.capacity().await;
-                let capacity_line = format!(
-                    "Capacity: {}/{} running, {} slots available",
-                    running, max, available
-                );
+                let capacity_line =
+                    format!("Capacity: {running}/{max} running, {available} slots available");
 
                 if tasks.is_empty() {
                     return Ok(ToolResult::new(format!(
-                        "No running subagents.\n{}",
-                        capacity_line
+                        "No running subagents.\n{capacity_line}"
                     )));
                 }
                 let lines: Vec<String> = tasks
@@ -81,11 +76,11 @@ impl Tool for SubagentControlTool {
                         let done = t
                             .get("done")
                             .and_then(serde_json::Value::as_bool)
-                            .unwrap_or(false);
+                            .unwrap_or_default();
                         let cancelled = t
                             .get("cancelled")
                             .and_then(serde_json::Value::as_bool)
-                            .unwrap_or(false);
+                            .unwrap_or_default();
                         let status = if cancelled {
                             "cancelled"
                         } else if done {
@@ -93,7 +88,7 @@ impl Tool for SubagentControlTool {
                         } else {
                             "running"
                         };
-                        format!("- [{}] {}", id, status)
+                        format!("- [{id}] {status}")
                     })
                     .collect();
                 Ok(ToolResult::new(format!(
@@ -110,13 +105,11 @@ impl Tool for SubagentControlTool {
                 let cancelled = self.manager.cancel(task_id).await;
                 if cancelled {
                     Ok(ToolResult::new(format!(
-                        "Subagent {} cancelled successfully.",
-                        task_id
+                        "Subagent {task_id} cancelled successfully."
                     )))
                 } else {
                     Ok(ToolResult::error(format!(
-                        "subagent {} not found or already finished",
-                        task_id
+                        "subagent {task_id} not found or already finished"
                     )))
                 }
             }

@@ -115,8 +115,8 @@ impl McpManager {
         let transport = TokioChildProcess::new(cmd)?;
         let client = tokio::time::timeout(std::time::Duration::from_secs(30), ().serve(transport))
             .await
-            .map_err(|_| anyhow::anyhow!("MCP handshake timed out for server '{}' (30s)", name))?
-            .map_err(|e| anyhow::anyhow!("MCP handshake failed for server '{}': {}", name, e))?;
+            .map_err(|_| anyhow::anyhow!("MCP handshake timed out for server '{name}' (30s)"))?
+            .map_err(|e| anyhow::anyhow!("MCP handshake failed for server '{name}': {e}"))?;
 
         Ok(RunningMcpServer {
             client,
@@ -146,7 +146,11 @@ impl McpManager {
             match mcp_tools_result {
                 Ok(mcp_tools) => {
                     for mcp_tool in mcp_tools {
-                        let description = mcp_tool.description.as_deref().unwrap_or("").to_string();
+                        let description = mcp_tool
+                            .description
+                            .as_deref()
+                            .unwrap_or_default()
+                            .to_string();
 
                         // Convert the input_schema Arc<Map> to a Value
                         let input_schema =

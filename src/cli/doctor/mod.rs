@@ -31,7 +31,7 @@ impl CheckResult {
 fn print_check(name: &str, result: &CheckResult) {
     let label = result.label();
     let detail = result.detail();
-    println!("  {:<6} {:<30} {}", label, name, detail);
+    println!("  {label:<6} {name:<30} {detail}");
 }
 
 fn check_config_exists() -> CheckResult {
@@ -43,14 +43,14 @@ fn check_config_exists() -> CheckResult {
                 CheckResult::Fail(format!("not found at {}", path.display()))
             }
         }
-        Err(e) => CheckResult::Fail(format!("cannot determine path: {}", e)),
+        Err(e) => CheckResult::Fail(format!("cannot determine path: {e}")),
     }
 }
 
 fn check_config_parses() -> CheckResult {
     match crate::config::load_config(None) {
         Ok(_) => CheckResult::Pass("valid JSON".to_string()),
-        Err(e) => CheckResult::Fail(format!("{}", e)),
+        Err(e) => CheckResult::Fail(format!("{e}")),
     }
 }
 
@@ -58,9 +58,9 @@ fn check_config_validates() -> CheckResult {
     match crate::config::load_config(None) {
         Ok(config) => match config.validate() {
             Ok(()) => CheckResult::Pass("all checks passed".to_string()),
-            Err(e) => CheckResult::Fail(format!("{}", e)),
+            Err(e) => CheckResult::Fail(format!("{e}")),
         },
-        Err(e) => CheckResult::Skip(format!("config did not parse: {}", e)),
+        Err(e) => CheckResult::Skip(format!("config did not parse: {e}")),
     }
 }
 
@@ -153,7 +153,7 @@ async fn check_provider_connectivity() -> CheckResult {
                     )),
                 }
             }
-            Err(e) => CheckResult::Fail(format!("cannot create provider: {}", e)),
+            Err(e) => CheckResult::Fail(format!("cannot create provider: {e}")),
         },
         Err(_) => CheckResult::Skip("config not available".to_string()),
     }
@@ -274,7 +274,7 @@ fn check_external_command(name: &str, args: &[&str]) -> CheckResult {
         Ok(output) => {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                let version = stdout.lines().next().unwrap_or("").trim().to_string();
+                let version = stdout.lines().next().unwrap_or_default().trim().to_string();
                 CheckResult::Pass(version)
             } else {
                 CheckResult::Fail("command failed".to_string())
@@ -298,7 +298,7 @@ fn check_config_file_permissions() -> CheckResult {
         if let Ok(meta) = std::fs::metadata(&path) {
             let mode = meta.permissions().mode() & 0o777;
             if mode.trailing_zeros() >= 6 {
-                CheckResult::Pass(format!("{:o}", mode))
+                CheckResult::Pass(format!("{mode:o}"))
             } else {
                 CheckResult::Fail(format!(
                     "{:o} (world/group readable — run: chmod 600 {})",
@@ -332,7 +332,7 @@ fn check_config_dir_permissions() -> CheckResult {
         if let Ok(meta) = std::fs::metadata(parent) {
             let mode = meta.permissions().mode() & 0o777;
             if mode.trailing_zeros() >= 6 {
-                CheckResult::Pass(format!("{:o}", mode))
+                CheckResult::Pass(format!("{mode:o}"))
             } else {
                 CheckResult::Fail(format!(
                     "{:o} (world/group accessible — run: chmod 700 {})",
@@ -477,9 +477,9 @@ fn check_pairing_store() -> CheckResult {
         Ok(store) => {
             let paired = store.paired_count();
             let pending = store.list_pending().len();
-            CheckResult::Pass(format!("{} paired sender(s), {} pending", paired, pending))
+            CheckResult::Pass(format!("{paired} paired sender(s), {pending} pending"))
         }
-        Err(e) => CheckResult::Fail(format!("cannot load: {}", e)),
+        Err(e) => CheckResult::Fail(format!("cannot load: {e}")),
     }
 }
 
@@ -614,10 +614,7 @@ pub async fn doctor_command() -> Result<()> {
 
     // Summary
     println!("\n{}", "=".repeat(60));
-    println!(
-        "  {} passed, {} failed, {} skipped",
-        pass_count, fail_count, skip_count
-    );
+    println!("  {pass_count} passed, {fail_count} failed, {skip_count} skipped");
 
     if fail_count > 0 {
         println!("\n  Some checks failed. Review the output above.");

@@ -67,7 +67,7 @@ pub fn archive_old_notes(
         } else if date < early_cutoff {
             // Early archive: only if zero search hits (utility-based)
             if let Some(db) = db {
-                let source_key = format!("{}.md", stem);
+                let source_key = format!("{stem}.md");
                 match db.get_source_hit_count(&source_key) {
                     Ok(0) => {
                         debug!("early-archiving unused note: {}", stem);

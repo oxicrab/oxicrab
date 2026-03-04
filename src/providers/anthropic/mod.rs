@@ -71,10 +71,10 @@ impl AnthropicProvider {
 
 #[async_trait]
 impl LLMProvider for AnthropicProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+    async fn chat(&self, req: ChatRequest) -> Result<LLMResponse> {
         debug!(
             "anthropic chat: model={}",
-            req.model.unwrap_or(&self.default_model)
+            req.model.as_deref().unwrap_or(&self.default_model)
         );
         let json_mode_hint = match &req.response_format {
             Some(crate::providers::base::ResponseFormat::JsonObject) => {
@@ -95,7 +95,7 @@ impl LLMProvider for AnthropicProvider {
         let (system, anthropic_messages) = anthropic_common::convert_messages(req.messages);
 
         let mut payload = json!({
-            "model": req.model.unwrap_or(&self.default_model),
+            "model": req.model.as_deref().unwrap_or(&self.default_model),
             "messages": anthropic_messages,
             "max_tokens": req.max_tokens,
         });

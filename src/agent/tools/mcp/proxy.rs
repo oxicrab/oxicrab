@@ -1,6 +1,4 @@
-use crate::agent::tools::base::{
-    ExecutionContext, SubagentAccess, Tool, ToolCapabilities, ToolResult,
-};
+use crate::agent::tools::base::{ExecutionContext, Tool, ToolCapabilities, ToolResult};
 use async_trait::async_trait;
 use rmcp::RoleClient;
 use rmcp::model::{CallToolRequestParams, RawContent};
@@ -60,10 +58,8 @@ impl Tool for McpProxyTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
-            built_in: false,
             network_outbound: true,
-            subagent_access: SubagentAccess::Denied,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
@@ -101,7 +97,7 @@ impl Tool for McpProxyTool {
             }
         };
 
-        let is_error = result.is_error.unwrap_or(false);
+        let is_error = result.is_error.unwrap_or_default();
 
         // Convert MCP content blocks to a string result.
         // Content is Annotated<RawContent>, which Derefs to RawContent.
@@ -197,10 +193,8 @@ impl Tool for AttenuatedMcpTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
-            built_in: false,
             network_outbound: true,
-            subagent_access: SubagentAccess::Denied,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
@@ -224,6 +218,7 @@ impl Tool for AttenuatedMcpTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::tools::base::SubagentAccess;
     use anyhow::Result;
 
     struct FakeTool;

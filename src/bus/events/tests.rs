@@ -7,8 +7,7 @@ fn make_inbound(channel: &str, chat_id: &str) -> InboundMessage {
         chat_id: chat_id.to_string(),
         content: "hello".to_string(),
         timestamp: Utc::now(),
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     }
 }
 

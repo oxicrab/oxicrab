@@ -158,8 +158,7 @@ fn try_reframe_negative(lower: &str, original: &str) -> Option<String> {
 
     // Reframe: prepend "NOTE:" and append corrective hint
     Some(format!(
-        "NOTE (reframed): {} — verify current state before relying on this",
-        original
+        "NOTE (reframed): {original} — verify current state before relying on this"
     ))
 }
 

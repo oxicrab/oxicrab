@@ -12,7 +12,7 @@ fn test_parse_api_error_with_json_body() {
             assert!(message.contains("bad request"));
             assert!(!retryable);
         }
-        _ => panic!("expected Provider error, got {:?}", err),
+        _ => panic!("expected Provider error, got {err:?}"),
     }
 }
 

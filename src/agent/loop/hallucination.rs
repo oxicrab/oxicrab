@@ -97,9 +97,8 @@ pub(super) fn handle_text_response(
         let tool_list = tool_names.join(", ");
         messages.push(Message::user(format!(
             "[Internal: Your previous response was not delivered. \
-             You DO have tools available: {}. \
-             Call the appropriate tool now. Do NOT apologize or reference this correction.]",
-            tool_list
+             You DO have tools available: {tool_list}. \
+             Call the appropriate tool now. Do NOT apologize or reference this correction.]"
         )));
         state.layer0_count += 1;
         return TextAction::Continue;

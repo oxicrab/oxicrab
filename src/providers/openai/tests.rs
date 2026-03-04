@@ -5,15 +5,12 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // --- Wiremock tests ---
 
-fn simple_chat_request(content: &str) -> ChatRequest<'_> {
+fn simple_chat_request(content: &str) -> ChatRequest {
     ChatRequest {
         messages: vec![Message::user(content)],
-        tools: None,
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     }
 }
 
@@ -97,7 +94,7 @@ async fn test_chat_unauthorized() {
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("Authentication"), "Error: {}", err);
+    assert!(err.contains("Authentication"), "Error: {err}");
 }
 
 #[tokio::test]
@@ -122,8 +119,7 @@ async fn test_chat_rate_limit() {
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("Rate limit") || err.contains("rate limit"),
-        "Error: {}",
-        err
+        "Error: {err}"
     );
 }
 
@@ -326,12 +322,10 @@ async fn test_chat_with_json_object_format() {
     let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
     let req = ChatRequest {
         messages: vec![Message::user("return json")],
-        tools: None,
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
         response_format: Some(crate::providers::base::ResponseFormat::JsonObject),
+        ..Default::default()
     };
     let result = provider.chat(req).await.unwrap();
     assert_eq!(result.content.unwrap(), "{\"answer\": 42}");
@@ -366,15 +360,13 @@ async fn test_chat_with_json_schema_format() {
     });
     let req = ChatRequest {
         messages: vec![Message::user("return a person")],
-        tools: None,
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
         response_format: Some(crate::providers::base::ResponseFormat::JsonSchema {
             name: "person".into(),
             schema,
         }),
+        ..Default::default()
     };
     let result = provider.chat(req).await.unwrap();
     assert!(result.content.unwrap().contains("Alice"));
@@ -452,11 +444,10 @@ async fn test_chat_tool_choice_any_mapped_to_required() {
             description: "a test tool".to_string(),
             parameters: json!({"type": "object", "properties": {}}),
         }]),
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
         tool_choice: Some("any".to_string()),
-        response_format: None,
+        ..Default::default()
     };
     let result = provider.chat(req).await.unwrap();
     assert!(result.has_tool_calls());
@@ -487,12 +478,9 @@ async fn test_chat_with_image_in_message() {
                 data: "iVBORw0KGgoAAAANSUhEUg==".to_string(),
             }],
         )],
-        tools: None,
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     };
     let result = provider.chat(req).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("I see an image"));
@@ -522,12 +510,9 @@ async fn test_chat_with_document_in_message() {
                 data: "JVBERi0xLjQK".to_string(),
             }],
         )],
-        tools: None,
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     };
     let result = provider.chat(req).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("I read the PDF"));

@@ -154,7 +154,7 @@ impl SkillsLoader {
         for name in skill_names {
             if let Some(content) = self.load_skill(name) {
                 let stripped = Self::strip_frontmatter(&content);
-                parts.push(format!("### Skill: {}\n\n{}", name, stripped));
+                parts.push(format!("### Skill: {name}\n\n{stripped}"));
             }
         }
         if parts.is_empty() {
@@ -193,9 +193,9 @@ impl SkillsLoader {
                 "  <skill available=\"{}\">",
                 available.to_string().to_lowercase()
             ));
-            lines.push(format!("    <name>{}</name>", name_escaped));
-            lines.push(format!("    <description>{}</description>", desc));
-            lines.push(format!("    <location>{}</location>", path_escaped));
+            lines.push(format!("    <name>{name_escaped}</name>"));
+            lines.push(format!("    <description>{desc}</description>"));
+            lines.push(format!("    <location>{path_escaped}</location>"));
 
             if !available {
                 let missing = Self::get_missing_requirements(meta.as_ref());
@@ -220,7 +220,7 @@ impl SkillsLoader {
                     if let Some(bin_str) = bin.as_str()
                         && which::which(bin_str).is_err()
                     {
-                        missing.push(format!("CLI: {}", bin_str));
+                        missing.push(format!("CLI: {bin_str}"));
                     }
                 }
             }
@@ -229,7 +229,7 @@ impl SkillsLoader {
                     if let Some(env_str) = env_var.as_str()
                         && std::env::var(env_str).is_err()
                     {
-                        missing.push(format!("ENV: {}", env_str));
+                        missing.push(format!("ENV: {env_str}"));
                     }
                 }
             }
@@ -301,7 +301,7 @@ impl SkillsLoader {
                 if meta
                     .get("always")
                     .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false)
+                    .unwrap_or_default()
                 {
                     Some(name.clone())
                 } else {

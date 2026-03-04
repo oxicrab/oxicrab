@@ -21,13 +21,13 @@ const PRUNE_DISABLED_AFTER_DAYS: i64 = 30;
 /// Then validate it parses. Returns Ok(normalized) or Err with a message.
 pub fn validate_cron_expr(expr: &str) -> Result<String> {
     let normalized = if expr.split_whitespace().count() == 5 {
-        format!("0 {}", expr)
+        format!("0 {expr}")
     } else {
         expr.to_string()
     };
     normalized
         .parse::<Schedule>()
-        .map_err(|e| anyhow::anyhow!("Invalid cron expression '{}': {}", expr, e))?;
+        .map_err(|e| anyhow::anyhow!("Invalid cron expression '{expr}': {e}"))?;
     Ok(normalized)
 }
 
@@ -78,7 +78,7 @@ fn compute_next_run_with_last(
                 // validate_cron_expr normalizes and validates the expression;
                 // parse it directly here to avoid a redundant second parse.
                 let normalized = if expr_str.split_whitespace().count() == 5 {
-                    format!("0 {}", expr_str)
+                    format!("0 {expr_str}")
                 } else {
                     expr_str.clone()
                 };
@@ -415,7 +415,7 @@ impl CronService {
                     let job_id = job_clone.id.clone();
                     let task_tracker = service.task_tracker.clone();
                     task_tracker
-                        .spawn_auto_cleanup(format!("cron_job_{}", job_id), async move {
+                        .spawn_auto_cleanup(format!("cron_job_{job_id}"), async move {
                             let (status, error) = match callback(job_clone).await {
                                 Ok(Some(result)) => {
                                     info!(

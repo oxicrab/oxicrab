@@ -67,11 +67,11 @@ impl WebSearchTool {
                 let document = Html::parse_document(&html);
 
                 let result_sel = Selector::parse(".result")
-                    .map_err(|e| anyhow::anyhow!("Failed to parse selector: {:?}", e))?;
+                    .map_err(|e| anyhow::anyhow!("Failed to parse selector: {e:?}"))?;
                 let title_sel = Selector::parse(".result__a")
-                    .map_err(|e| anyhow::anyhow!("Failed to parse selector: {:?}", e))?;
+                    .map_err(|e| anyhow::anyhow!("Failed to parse selector: {e:?}"))?;
                 let snippet_sel = Selector::parse(".result__snippet")
-                    .map_err(|e| anyhow::anyhow!("Failed to parse selector: {:?}", e))?;
+                    .map_err(|e| anyhow::anyhow!("Failed to parse selector: {e:?}"))?;
 
                 let mut lines = vec![format!("Results for: {} (via DuckDuckGo)\n", query)];
                 let mut found = 0;
@@ -90,7 +90,7 @@ impl WebSearchTool {
                         .select(&title_sel)
                         .next()
                         .and_then(|e| e.value().attr("href"))
-                        .unwrap_or("");
+                        .unwrap_or_default();
                     let snippet = result
                         .select(&snippet_sel)
                         .next()
@@ -104,19 +104,19 @@ impl WebSearchTool {
                     }
 
                     found += 1;
-                    lines.push(format!("{}. {}\n   {}", found, title, url));
+                    lines.push(format!("{found}. {title}\n   {url}"));
                     if !snippet.is_empty() {
-                        lines.push(format!("   {}", snippet));
+                        lines.push(format!("   {snippet}"));
                     }
                 }
 
                 if found == 0 {
-                    return Ok(ToolResult::new(format!("No results for: {}", query)));
+                    return Ok(ToolResult::new(format!("No results for: {query}")));
                 }
 
                 Ok(ToolResult::new(lines.join("\n")))
             }
-            Err(e) => Ok(ToolResult::error(format!("DuckDuckGo search error: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("DuckDuckGo search error: {e}"))),
         }
     }
 }
@@ -144,7 +144,7 @@ impl Tool for WebSearchTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::Full,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
@@ -199,21 +199,21 @@ impl Tool for WebSearchTool {
                     .unwrap_or_default();
 
                 if results.is_empty() {
-                    return Ok(ToolResult::new(format!("No results for: {}", query)));
+                    return Ok(ToolResult::new(format!("No results for: {query}")));
                 }
 
                 let mut lines = vec![format!("Results for: {}\n", query)];
                 for (i, item) in results.iter().take(count).enumerate() {
-                    let title = item["title"].as_str().unwrap_or("");
-                    let url = item["url"].as_str().unwrap_or("");
+                    let title = item["title"].as_str().unwrap_or_default();
+                    let url = item["url"].as_str().unwrap_or_default();
                     lines.push(format!("{}. {}\n   {}", i + 1, title, url));
                     if let Some(desc) = item["description"].as_str() {
-                        lines.push(format!("   {}", desc));
+                        lines.push(format!("   {desc}"));
                     }
                 }
                 Ok(ToolResult::new(lines.join("\n")))
             }
-            Err(e) => Ok(ToolResult::error(format!("search failed: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("search failed: {e}"))),
         }
     }
 }
@@ -269,7 +269,7 @@ impl WebFetchTool {
                     .headers()
                     .get("content-type")
                     .and_then(|h| h.to_str().ok())
-                    .unwrap_or("")
+                    .unwrap_or_default()
                     .to_string();
 
                 // Handle binary content (images, etc.) — save to disk
@@ -293,8 +293,7 @@ impl WebFetchTool {
                         }
                         Err(e) => {
                             return Ok(ToolResult::error(format!(
-                                "failed to save media from {}: {}",
-                                url_str, e
+                                "failed to save media from {url_str}: {e}"
                             )));
                         }
                     }
@@ -391,7 +390,7 @@ impl Tool for WebFetchTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::Full,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
@@ -441,8 +440,7 @@ impl Tool for WebFetchTool {
                 Ok(c) => c,
                 Err(e) => {
                     return Ok(ToolResult::error(format!(
-                        "failed to build pinned HTTP client: {}",
-                        e
+                        "failed to build pinned HTTP client: {e}"
                     )));
                 }
             }
@@ -471,7 +469,7 @@ fn extract_html(html: &str, markdown: bool) -> Result<String> {
 
     // Extract title using scraper
     let title_selector = Selector::parse("title")
-        .map_err(|e| anyhow::anyhow!("Failed to parse title selector: {:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse title selector: {e:?}"))?;
     let title = document
         .select(&title_selector)
         .next()
@@ -540,7 +538,7 @@ fn html_to_markdown(html: &str) -> String {
 
     // Convert headings
     for level in 1..=6 {
-        if let Ok(heading_sel) = Selector::parse(&format!("h{}", level)) {
+        if let Ok(heading_sel) = Selector::parse(&format!("h{level}")) {
             for heading in fragment.select(&heading_sel) {
                 let text: String = heading.text().collect();
                 if !text.trim().is_empty() {
@@ -580,7 +578,7 @@ fn html_to_markdown(html: &str) -> String {
         // Convert headings
         for level in 1..=6 {
             if let Ok(re_heading) =
-                compile_regex(&format!(r"(?i)<h{}[^>]*>([\s\S]*?)</h{}>", level, level))
+                compile_regex(&format!(r"(?i)<h{level}[^>]*>([\s\S]*?)</h{level}>"))
             {
                 text = re_heading
                     .replace_all(&text, |caps: &regex::Captures| {

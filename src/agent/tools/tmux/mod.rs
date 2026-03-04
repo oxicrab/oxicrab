@@ -1,4 +1,4 @@
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::utils::regex::compile_security_patterns;
 use anyhow::Result;
@@ -93,9 +93,7 @@ impl Tool for TmuxTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
-            network_outbound: false,
-            subagent_access: SubagentAccess::Denied,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
@@ -158,8 +156,7 @@ impl Tool for TmuxTool {
                     .await?;
                 if code != 0 {
                     return Ok(ToolResult::error(format!(
-                        "failed to create session '{}': {}",
-                        session_name, stderr
+                        "failed to create session '{session_name}': {stderr}"
                     )));
                 }
                 debug!(
@@ -167,10 +164,7 @@ impl Tool for TmuxTool {
                     session_name,
                     get_socket_path().display()
                 );
-                Ok(ToolResult::new(format!(
-                    "Session '{}' created",
-                    session_name
-                )))
+                Ok(ToolResult::new(format!("Session '{session_name}' created")))
             }
             "send" => {
                 let session_name = params["session_name"]
@@ -189,8 +183,7 @@ impl Tool for TmuxTool {
                 for pattern in &self.deny_patterns {
                     if pattern.is_match(command) {
                         return Ok(ToolResult::error(format!(
-                            "command blocked by security policy: {}",
-                            command
+                            "command blocked by security policy: {command}"
                         )));
                     }
                 }
@@ -202,13 +195,11 @@ impl Tool for TmuxTool {
                     .await?;
                 if code != 0 {
                     return Ok(ToolResult::error(format!(
-                        "failed to send command to '{}': {}",
-                        session_name, stderr
+                        "failed to send command to '{session_name}': {stderr}"
                     )));
                 }
                 Ok(ToolResult::new(format!(
-                    "Command sent to session '{}'",
-                    session_name
+                    "Command sent to session '{session_name}'"
                 )))
             }
             "read" => {
@@ -231,19 +222,18 @@ impl Tool for TmuxTool {
                         session_name,
                         "-p",
                         "-S",
-                        &format!("-{}", lines),
+                        &format!("-{lines}"),
                     ])
                     .await?;
                 if code != 0 {
                     return Ok(ToolResult::error(format!(
-                        "failed to read session '{}': {}",
-                        session_name, stderr
+                        "failed to read session '{session_name}': {stderr}"
                     )));
                 }
                 let output = stdout.trim();
                 let output = if output.len() > MAX_OUTPUT_BYTES {
                     let truncated = &output[..output.floor_char_boundary(MAX_OUTPUT_BYTES)];
-                    format!("{}\n[output truncated at 1MB]", truncated)
+                    format!("{truncated}\n[output truncated at 1MB]")
                 } else {
                     output.to_string()
                 };
@@ -260,8 +250,7 @@ impl Tool for TmuxTool {
                         return Ok(ToolResult::new("No active sessions".to_string()));
                     }
                     return Ok(ToolResult::error(format!(
-                        "failed to list sessions: {}",
-                        stderr
+                        "failed to list sessions: {stderr}"
                     )));
                 }
                 let output = stdout.trim();
@@ -285,17 +274,13 @@ impl Tool for TmuxTool {
                     self.run_tmux(&["kill-session", "-t", session_name]).await?;
                 if code != 0 {
                     return Ok(ToolResult::error(format!(
-                        "failed to kill session '{}': {}",
-                        session_name, stderr
+                        "failed to kill session '{session_name}': {stderr}"
                     )));
                 }
                 debug!("tmux session '{}' killed", session_name);
-                Ok(ToolResult::new(format!(
-                    "Session '{}' killed",
-                    session_name
-                )))
+                Ok(ToolResult::new(format!("Session '{session_name}' killed")))
             }
-            _ => Ok(ToolResult::error(format!("unknown action '{}'", action))),
+            _ => Ok(ToolResult::error(format!("unknown action '{action}'"))),
         }
     }
 }

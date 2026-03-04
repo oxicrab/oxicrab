@@ -39,9 +39,7 @@ fn test_route_response_non_http_returns_false() {
         channel: "telegram".to_string(),
         chat_id: "123".to_string(),
         content: "hello".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     };
     assert!(!route_response(&state, msg));
 }
@@ -60,9 +58,7 @@ fn test_route_response_http_with_pending() {
         channel: "http".to_string(),
         chat_id: "req-1".to_string(),
         content: "response text".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     };
     assert!(route_response(&state, msg));
     let received = rx.try_recv().unwrap();
@@ -76,9 +72,7 @@ fn test_route_response_http_no_pending() {
         channel: "http".to_string(),
         chat_id: "nonexistent".to_string(),
         content: "orphan".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     };
     // Should not panic, just return true (consumed) and warn
     assert!(route_response(&state, msg));
@@ -143,9 +137,7 @@ fn make_webhook_config(enabled: bool, secret: &str) -> WebhookConfig {
     WebhookConfig {
         enabled,
         secret: secret.to_string(),
-        template: "{{body}}".to_string(),
-        targets: vec![],
-        agent_turn: false,
+        ..Default::default()
     }
 }
 
@@ -339,8 +331,7 @@ async fn test_webhook_alternative_signature_headers() {
         assert_eq!(
             resp.status(),
             StatusCode::OK,
-            "header {} should be accepted",
-            header_name
+            "header {header_name} should be accepted"
         );
     }
 }
@@ -356,7 +347,6 @@ async fn test_webhook_direct_delivery_to_targets() {
     webhooks.insert(
         "deploy".to_string(),
         WebhookConfig {
-            enabled: true,
             secret: "deploy-secret".to_string(),
             template: "Deploy event: {{body}}".to_string(),
             targets: vec![
@@ -369,7 +359,7 @@ async fn test_webhook_direct_delivery_to_targets() {
                     chat_id: "456".to_string(),
                 },
             ],
-            agent_turn: false,
+            ..Default::default()
         },
     );
 
@@ -422,7 +412,6 @@ async fn test_webhook_agent_turn_routes_through_agent() {
     webhooks.insert(
         "alert".to_string(),
         WebhookConfig {
-            enabled: true,
             secret: "alert-secret".to_string(),
             template: "Alert: {{body}}".to_string(),
             targets: vec![WebhookTarget {
@@ -430,6 +419,7 @@ async fn test_webhook_agent_turn_routes_through_agent() {
                 chat_id: "G789".to_string(),
             }],
             agent_turn: true,
+            ..Default::default()
         },
     );
 
@@ -466,9 +456,7 @@ async fn test_webhook_agent_turn_routes_through_agent() {
         channel: "http".to_string(),
         chat_id: request_id,
         content: "I'm investigating the server issue.".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     })
     .unwrap();
 
@@ -525,9 +513,7 @@ async fn test_chat_handler_sends_inbound_and_returns_response() {
         channel: "http".to_string(),
         chat_id: request_id,
         content: "world".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     })
     .unwrap();
 
@@ -572,9 +558,7 @@ async fn test_chat_handler_with_session_id() {
         channel: "http".to_string(),
         chat_id: request_id,
         content: "reply".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     })
     .unwrap();
 
@@ -649,14 +633,13 @@ async fn test_webhook_template_with_json_fields() {
     webhooks.insert(
         "gh-push".to_string(),
         WebhookConfig {
-            enabled: true,
             secret: "json-secret".to_string(),
             template: "{{action}} on {{repo}}".to_string(),
             targets: vec![WebhookTarget {
                 channel: "slack".to_string(),
                 chat_id: "C456".to_string(),
             }],
-            agent_turn: false,
+            ..Default::default()
         },
     );
 
@@ -895,9 +878,7 @@ async fn test_chat_handler_with_response_format_metadata() {
         channel: "http".to_string(),
         chat_id: request_id,
         content: r#"{"items":[]}"#.to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     })
     .unwrap();
 
@@ -938,9 +919,7 @@ async fn test_chat_handler_without_response_format_no_metadata() {
         channel: "http".to_string(),
         chat_id: request_id,
         content: "world".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     })
     .unwrap();
 

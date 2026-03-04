@@ -186,14 +186,14 @@ impl TranscriptionService {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            bail!("whisper API returned {}: {}", status, body);
+            bail!("whisper API returned {status}: {body}");
         }
 
         let body: serde_json::Value = response
             .json()
             .await
             .context("failed to parse whisper API response")?;
-        let text = body["text"].as_str().unwrap_or("").trim().to_string();
+        let text = body["text"].as_str().unwrap_or_default().trim().to_string();
 
         if text.is_empty() {
             warn!("whisper API returned empty transcription");

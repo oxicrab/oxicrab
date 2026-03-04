@@ -108,7 +108,7 @@ impl ContextBuilder {
             self.memory.get_memory_context(query)?
         };
         if !memory.is_empty() {
-            parts.push(format!("# Memory\n\n{}", memory));
+            parts.push(format!("# Memory\n\n{memory}"));
         }
 
         // Dynamic context from external providers
@@ -122,7 +122,7 @@ impl ContextBuilder {
         if !always_skills.is_empty() {
             let always_content = self.skills.load_skills_for_context(&always_skills);
             if !always_content.is_empty() {
-                parts.push(format!("# Active Skills\n\n{}", always_content));
+                parts.push(format!("# Active Skills\n\n{always_content}"));
             }
         }
 
@@ -130,8 +130,7 @@ impl ContextBuilder {
         let skills_summary = self.skills.build_skills_summary();
         if !skills_summary.is_empty() {
             parts.push(format!(
-                "# Skills\n\nThe following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.\nSkills with available=\"false\" need dependencies installed first - you can try installing them with apt/brew.\n\n{}",
-                skills_summary
+                "# Skills\n\nThe following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.\nSkills with available=\"false\" need dependencies installed first - you can try installing them with apt/brew.\n\n{skills_summary}"
             ));
         }
 
@@ -194,22 +193,13 @@ impl ContextBuilder {
         workspace_path: &str,
     ) -> String {
         format!(
-            "{}\n\n## Current Context\n\n**Date**: {}\n**Timezone**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md",
-            identity_content,
-            now,
-            tz,
-            runtime,
-            workspace_path,
-            workspace_path,
-            workspace_path,
-            workspace_path,
+            "{identity_content}\n\n## Current Context\n\n**Date**: {now}\n**Timezone**: {tz}\n**Runtime**: {runtime}\n**Workspace**: {workspace_path}\n- Memory files: {workspace_path}/memory/MEMORY.md\n- Daily notes: {workspace_path}/memory/YYYY-MM-DD.md\n- Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md",
         )
     }
 
     fn get_default_identity(now: &str, tz: &str, runtime: &str, workspace_path: &str) -> String {
         format!(
-            "# oxicrab\n\nYou are oxicrab, a helpful AI assistant.\n\n## Capabilities\n\n- Read, write, and edit files\n- Execute shell commands\n- Search the web and fetch web pages\n- Communicate with users across chat channels\n- Spawn subagents for complex background tasks\n\n## Tool Usage Rules\n\n- NEVER claim to have called a tool or report tool results unless you actually invoked the tool in this conversation.\n- NEVER fabricate or simulate tool output. If you need data, call the tool.\n- If asked to test or run tools, you MUST call each tool individually and report the real results.\n- If a tool is unavailable or fails, say so explicitly — do not invent results.\n- If you need to use tools, call them directly — never send a preliminary message like \"Let me check\" without actually calling a tool in the same response.\n\n## Current Context\n\n**Date**: {}\n**Timezone**: {}\n**Runtime**: {}\n**Workspace**: {}\n- Memory files: {}/memory/MEMORY.md\n- Daily notes: {}/memory/YYYY-MM-DD.md\n- Custom skills: {}/skills/{{skill-name}}/SKILL.md",
-            now, tz, runtime, workspace_path, workspace_path, workspace_path, workspace_path,
+            "# oxicrab\n\nYou are oxicrab, a helpful AI assistant.\n\n## Capabilities\n\n- Read, write, and edit files\n- Execute shell commands\n- Search the web and fetch web pages\n- Communicate with users across chat channels\n- Spawn subagents for complex background tasks\n\n## Tool Usage Rules\n\n- NEVER claim to have called a tool or report tool results unless you actually invoked the tool in this conversation.\n- NEVER fabricate or simulate tool output. If you need data, call the tool.\n- If asked to test or run tools, you MUST call each tool individually and report the real results.\n- If a tool is unavailable or fails, say so explicitly — do not invent results.\n- If you need to use tools, call them directly — never send a preliminary message like \"Let me check\" without actually calling a tool in the same response.\n\n## Current Context\n\n**Date**: {now}\n**Timezone**: {tz}\n**Runtime**: {runtime}\n**Workspace**: {workspace_path}\n- Memory files: {workspace_path}/memory/MEMORY.md\n- Daily notes: {workspace_path}/memory/YYYY-MM-DD.md\n- Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md",
         )
     }
 
@@ -260,7 +250,7 @@ impl ContextBuilder {
                     continue;
                 }
                 if let Ok(content) = std::fs::read_to_string(&file_path) {
-                    parts.push(format!("## {}\n\n{}", filename, content));
+                    parts.push(format!("## {filename}\n\n{content}"));
                 }
             }
         }
@@ -308,15 +298,14 @@ impl ContextBuilder {
         // System prompt
         let mut system_prompt = self.build_system_prompt_inner(Some(current_message), is_group)?;
         if let (Some(ch), Some(cid)) = (channel, chat_id) {
-            let mut session_info =
-                format!("\n\n## Current Session\nChannel: {}\nChat ID: {}", ch, cid);
+            let mut session_info = format!("\n\n## Current Session\nChannel: {ch}\nChat ID: {cid}");
             if let Some(sid) = sender_id {
                 use std::fmt::Write as _;
-                let _ = write!(session_info, "\nSender: {}", sid);
+                let _ = write!(session_info, "\nSender: {sid}");
             }
             if let Some(hint) = Self::channel_formatting_hint(ch) {
                 use std::fmt::Write as _;
-                let _ = write!(session_info, "\n{}", hint);
+                let _ = write!(session_info, "\n{hint}");
             }
             system_prompt.push_str(&session_info);
         }
@@ -342,8 +331,7 @@ impl ContextBuilder {
                 "\n\n## Recently Referenced Entities\n\n\
                  These entities were mentioned in this conversation. When the user refers to \
                  \"that\", \"it\", \"the task\", etc., match to an entity below and ACT on it. \
-                 Do NOT ask which one — if one entity matches, use it.\n\n{}",
-                ctx
+                 Do NOT ask which one — if one entity matches, use it.\n\n{ctx}"
             );
         }
 
@@ -376,7 +364,7 @@ impl ContextBuilder {
         }
 
         let time_prefix = format!("[{}] ", Local::now().format("%H:%M"));
-        let user_content = format!("{}{}", time_prefix, current_message);
+        let user_content = format!("{time_prefix}{current_message}");
         if images.is_empty() {
             messages.push(crate::providers::base::Message::user(user_content));
         } else {
@@ -410,7 +398,7 @@ impl ContextBuilder {
         reasoning_content: Option<&str>,
     ) {
         let msg = crate::providers::base::Message::assistant_with_thinking(
-            content.unwrap_or(""),
+            content.unwrap_or_default(),
             tool_calls,
             reasoning_content.map(String::from),
         );

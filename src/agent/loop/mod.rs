@@ -843,9 +843,8 @@ impl AgentLoop {
                         channel: msg.channel,
                         chat_id: msg.chat_id,
                         content: "I can't process this message as it appears to contain prompt injection patterns.".to_string(),
-                        reply_to: None,
-                        media: vec![],
                         metadata: msg.metadata,
+                        ..Default::default()
                     }));
                 }
             }
@@ -867,9 +866,8 @@ impl AgentLoop {
                     channel: msg.channel,
                     chat_id: msg.chat_id,
                     content: response_text,
-                    reply_to: None,
-                    media: vec![],
                     metadata: msg.metadata,
+                    ..Default::default()
                 }));
             }
         }
@@ -883,7 +881,7 @@ impl AgentLoop {
                 let ext = std::path::Path::new(p)
                     .extension()
                     .and_then(|e| e.to_str())
-                    .unwrap_or("");
+                    .unwrap_or_default();
                 !audio_extensions.contains(&ext)
             })
             .cloned()
@@ -916,7 +914,7 @@ impl AgentLoop {
             .metadata
             .get("is_group")
             .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
+            .unwrap_or_default();
         // Load discourse entity register from session for reference resolution
         let mut discourse_register =
             crate::agent::discourse::DiscourseRegister::from_session_metadata(&session.metadata);
@@ -1126,9 +1124,9 @@ impl AgentLoop {
                 channel: msg.channel,
                 chat_id: msg.chat_id,
                 content,
-                reply_to: None,
                 media: collected_media,
                 metadata: msg.metadata,
+                ..Default::default()
             }))
         } else {
             warn!(
@@ -1139,9 +1137,8 @@ impl AgentLoop {
                 channel: msg.channel,
                 chat_id: msg.chat_id,
                 content: "I wasn't able to generate a response. Please try again.".to_string(),
-                reply_to: None,
-                media: vec![],
                 metadata: msg.metadata,
+                ..Default::default()
             }))
         }
     }
@@ -1237,8 +1234,7 @@ impl AgentLoop {
             // Inject wrap-up hint when approaching iteration limit
             if iteration == wrapup_threshold && any_tools_called {
                 messages.push(Message::system(format!(
-                    "You have used {} of {} iterations. Begin wrapping up — summarize progress and deliver results.",
-                    iteration, effective_max_iterations
+                    "You have used {iteration} of {effective_max_iterations} iterations. Begin wrapping up — summarize progress and deliver results."
                 )));
             }
 
@@ -1281,7 +1277,7 @@ impl AgentLoop {
                     crate::providers::base::ChatRequest {
                         messages: messages.clone(),
                         tools: Some(tools_defs.clone()),
-                        model: Some(effective_model),
+                        model: Some(effective_model.to_string()),
                         max_tokens: self.max_tokens,
                         temperature: current_temp,
                         tool_choice,
@@ -1652,7 +1648,7 @@ impl AgentLoop {
                 .and_then(|svc| intent::classify_action_intent_semantic(content, svc))
                 .map_or((None, None), |(result, score)| (Some(result), Some(score)))
         };
-        let user_action_intent = regex_intent || semantic_result.unwrap_or(false);
+        let user_action_intent = regex_intent || semantic_result.unwrap_or_default();
 
         let intent_method = if regex_intent {
             "regex"
@@ -1703,12 +1699,10 @@ impl AgentLoop {
             .chat_with_retry(
                 crate::providers::base::ChatRequest {
                     messages: messages.clone(),
-                    tools: None,
-                    model: Some(effective_model),
+                    model: Some(effective_model.to_string()),
                     max_tokens: self.max_tokens,
                     temperature: self.temperature,
-                    tool_choice: None,
-                    response_format: None,
+                    ..Default::default()
                 },
                 Some(crate::providers::base::RetryConfig::default()),
             )
@@ -1744,7 +1738,7 @@ impl AgentLoop {
             channel: channel.to_string(),
             chat_id: chat_id.to_string(),
             context_summary,
-            metadata: HashMap::new(),
+            ..Default::default()
         }
     }
 
@@ -1772,7 +1766,7 @@ impl AgentLoop {
             ("cli".to_string(), msg.chat_id.clone())
         };
 
-        let session_key = format!("{}:{}", origin_channel, origin_chat_id);
+        let session_key = format!("{origin_channel}:{origin_chat_id}");
         let session = self.sessions.get_or_create(&session_key).await?;
 
         let history = self.get_compacted_history(&session).await?;
@@ -1847,9 +1841,9 @@ impl AgentLoop {
             channel: origin_channel.clone(),
             chat_id: origin_chat_id.clone(),
             content: final_content,
-            reply_to: None,
             media: collected_media,
             metadata: msg.metadata,
+            ..Default::default()
         }))
     }
 
@@ -1878,12 +1872,12 @@ impl AgentLoop {
                     info!("remember fast path: duplicate detected, skipping write");
                     "I already have that noted.".to_string()
                 } else {
-                    self.memory.append_today(&format!("\n- {}\n", reframed))?;
+                    self.memory.append_today(&format!("\n- {reframed}\n"))?;
                     info!(
                         "remember fast path: wrote {} chars to daily notes (reframed)",
                         reframed.len()
                     );
-                    format!("Noted (reframed for accuracy): {}", reframed)
+                    format!("Noted (reframed for accuracy): {reframed}")
                 }
             }
             QualityVerdict::Pass => {
@@ -1892,12 +1886,12 @@ impl AgentLoop {
                     info!("remember fast path: duplicate detected, skipping write");
                     "I already have that noted.".to_string()
                 } else {
-                    self.memory.append_today(&format!("\n- {}\n", content))?;
+                    self.memory.append_today(&format!("\n- {content}\n"))?;
                     info!(
                         "remember fast path: wrote {} chars to daily notes",
                         content.len()
                     );
-                    format!("Noted! I'll remember: {}", content)
+                    format!("Noted! I'll remember: {content}")
                 }
             }
         };
@@ -1907,7 +1901,7 @@ impl AgentLoop {
         let extra = HashMap::new();
         session.add_message(
             "user".to_string(),
-            format!("remember that {}", content),
+            format!("remember that {content}"),
             extra.clone(),
         );
         session.add_message("assistant".to_string(), response.clone(), extra);

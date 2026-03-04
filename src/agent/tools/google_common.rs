@@ -82,10 +82,10 @@ impl GoogleApiClient {
             "POST" => self.client.post(url),
             "PUT" => self.client.put(url),
             "DELETE" => self.client.delete(url),
-            _ => return Err(anyhow::anyhow!("Unsupported HTTP method: {}", method)),
+            _ => return Err(anyhow::anyhow!("Unsupported HTTP method: {method}")),
         };
 
-        request = request.header("Authorization", format!("Bearer {}", token));
+        request = request.header("Authorization", format!("Bearer {token}"));
 
         if let Some(body) = body {
             request = request.json(body);

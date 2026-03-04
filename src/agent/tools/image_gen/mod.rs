@@ -1,4 +1,4 @@
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -80,8 +80,7 @@ impl ImageGenTool {
                     }
                 }
                 _ => Err(format!(
-                    "unknown provider '{}'. Use 'openai' or 'google'",
-                    provider
+                    "unknown provider '{provider}'. Use 'openai' or 'google'"
                 )),
             }
         } else {
@@ -128,7 +127,7 @@ impl ImageGenTool {
         let resp = self
             .client
             .post(&self.openai_base_url)
-            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Authorization", format!("Bearer {api_key}"))
             .json(&body)
             .send()
             .await?;
@@ -140,7 +139,7 @@ impl ImageGenTool {
                 .ok()
                 .and_then(|v| v["error"]["message"].as_str().map(String::from))
                 .unwrap_or_else(|| format!("HTTP {status}"));
-            anyhow::bail!("OpenAI image generation failed: {}", msg);
+            anyhow::bail!("OpenAI image generation failed: {msg}");
         }
 
         let json: Value = resp.json().await?;
@@ -199,7 +198,7 @@ impl ImageGenTool {
                 .ok()
                 .and_then(|v| v["error"]["message"].as_str().map(String::from))
                 .unwrap_or_else(|| format!("HTTP {status}"));
-            anyhow::bail!("Google Imagen failed: {}", msg);
+            anyhow::bail!("Google Imagen failed: {msg}");
         }
 
         let json: Value = resp.json().await?;
@@ -250,8 +249,7 @@ impl Tool for ImageGenTool {
         ToolCapabilities {
             built_in: true,
             network_outbound: true,
-            subagent_access: SubagentAccess::Denied,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
@@ -312,8 +310,7 @@ impl Tool for ImageGenTool {
             }
             other => {
                 return Ok(ToolResult::error(format!(
-                    "unsupported image provider: '{}'",
-                    other
+                    "unsupported image provider: '{other}'"
                 )));
             }
         };
@@ -323,7 +320,7 @@ impl Tool for ImageGenTool {
                 "Image saved to: {}",
                 crate::utils::path_sanitize::sanitize_path(std::path::Path::new(&path), None,)
             ))),
-            Err(e) => Ok(ToolResult::error(format!("image generation failed: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("image generation failed: {e}"))),
         }
     }
 }

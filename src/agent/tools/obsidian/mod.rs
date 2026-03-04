@@ -91,7 +91,7 @@ fn format_tags_yaml(params: Option<&Value>) -> String {
         use std::fmt::Write as _;
         let mut out = "tags:\n".to_string();
         for tag in &tags {
-            let _ = writeln!(out, "  - {}", tag);
+            let _ = writeln!(out, "  - {tag}");
         }
         out
     }
@@ -165,7 +165,7 @@ impl Tool for ObsidianTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let action = params["action"].as_str().unwrap_or("");
+        let action = params["action"].as_str().unwrap_or_default();
 
         match action {
             "read" => {
@@ -176,8 +176,7 @@ impl Tool for ObsidianTool {
                 match self.cache.read_cached(path) {
                     Some(content) => Ok(ToolResult::new(content)),
                     None => Ok(ToolResult::error(format!(
-                        "Note '{}' not found in cache. It may not exist or hasn't been synced yet.",
-                        path
+                        "Note '{path}' not found in cache. It may not exist or hasn't been synced yet."
                     ))),
                 }
             }
@@ -192,13 +191,13 @@ impl Tool for ObsidianTool {
                 let content =
                     if self.cache.read_cached(path).is_none() && !content.starts_with("---") {
                         let fm = generate_frontmatter(params.get("frontmatter"));
-                        format!("{}\n{}", fm, content)
+                        format!("{fm}\n{content}")
                     } else {
                         content.to_string()
                     };
                 match self.cache.write_file(path, &content).await {
                     Ok(msg) => Ok(ToolResult::new(msg)),
-                    Err(e) => Ok(ToolResult::error(format!("write failed: {}", e))),
+                    Err(e) => Ok(ToolResult::error(format!("write failed: {e}"))),
                 }
             }
             "append" => {
@@ -211,7 +210,7 @@ impl Tool for ObsidianTool {
                 };
                 match self.cache.append_file(path, content).await {
                     Ok(msg) => Ok(ToolResult::new(msg)),
-                    Err(e) => Ok(ToolResult::error(format!("append failed: {}", e))),
+                    Err(e) => Ok(ToolResult::error(format!("append failed: {e}"))),
                 }
             }
             "search" => {
@@ -221,10 +220,7 @@ impl Tool for ObsidianTool {
                 };
                 let results = self.cache.search_cached(query).await;
                 if results.is_empty() {
-                    Ok(ToolResult::new(format!(
-                        "No results found for '{}'.",
-                        query
-                    )))
+                    Ok(ToolResult::new(format!("No results found for '{query}'.")))
                 } else {
                     let lines: Vec<String> = results
                         .iter()
@@ -244,7 +240,7 @@ impl Tool for ObsidianTool {
                 let files = self.cache.list_cached(folder).await;
                 if files.is_empty() {
                     let msg = if let Some(f) = folder {
-                        format!("No notes found in folder '{}'.", f)
+                        format!("No notes found in folder '{f}'.")
                     } else {
                         "No notes in cache. The vault may not have synced yet.".to_string()
                     };
@@ -258,8 +254,7 @@ impl Tool for ObsidianTool {
                 }
             }
             _ => Ok(ToolResult::error(format!(
-                "unknown action '{}'. Use: read, write, append, search, or list",
-                action
+                "unknown action '{action}'. Use: read, write, append, search, or list"
             ))),
         }
     }

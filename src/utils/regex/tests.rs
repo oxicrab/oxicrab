@@ -83,7 +83,7 @@ fn security_patterns_block_dangerous() {
     ];
     for cmd in dangerous {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(blocked, "Should block: {}", cmd);
+        assert!(blocked, "Should block: {cmd}");
     }
 }
 
@@ -97,7 +97,7 @@ fn security_patterns_block_long_options() {
     ];
     for cmd in dangerous {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(blocked, "Should block: {}", cmd);
+        assert!(blocked, "Should block: {cmd}");
     }
 }
 
@@ -114,7 +114,7 @@ fn security_patterns_block_command_substitution() {
     ];
     for cmd in dangerous {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(blocked, "Should block: {}", cmd);
+        assert!(blocked, "Should block: {cmd}");
     }
 }
 
@@ -130,7 +130,7 @@ fn security_patterns_allow_safe() {
     ];
     for cmd in safe {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(!blocked, "Should allow: {}", cmd);
+        assert!(!blocked, "Should allow: {cmd}");
     }
 }
 
@@ -144,7 +144,7 @@ fn security_patterns_block_input_redirection() {
     ];
     for cmd in dangerous {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(blocked, "Should block: {}", cmd);
+        assert!(blocked, "Should block: {cmd}");
     }
 }
 
@@ -154,7 +154,7 @@ fn security_patterns_block_bare_var_expansion() {
     let dangerous = vec!["echo $HOME", "echo $AWS_SECRET_KEY", "cat $PATH"];
     for cmd in dangerous {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(blocked, "Should block: {}", cmd);
+        assert!(blocked, "Should block: {cmd}");
     }
 }
 
@@ -168,7 +168,7 @@ fn security_patterns_block_netcat_listeners() {
     ];
     for cmd in dangerous {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(blocked, "Should block: {}", cmd);
+        assert!(blocked, "Should block: {cmd}");
     }
 }
 
@@ -183,7 +183,7 @@ fn security_patterns_block_hex_decode_to_shell() {
     ];
     for cmd in dangerous {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(blocked, "Should block: {}", cmd);
+        assert!(blocked, "Should block: {cmd}");
     }
 }
 
@@ -197,7 +197,7 @@ fn security_patterns_allow_safe_variants_of_new_patterns() {
     ];
     for cmd in safe {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(!blocked, "Should allow: {}", cmd);
+        assert!(!blocked, "Should allow: {cmd}");
     }
 }
 
@@ -215,7 +215,7 @@ fn security_patterns_block_curl_file_upload() {
     ];
     for cmd in dangerous {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(blocked, "Should block: {}", cmd);
+        assert!(blocked, "Should block: {cmd}");
     }
 }
 
@@ -229,7 +229,7 @@ fn security_patterns_allow_safe_curl_usage() {
     ];
     for cmd in safe {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(!blocked, "Should allow: {}", cmd);
+        assert!(!blocked, "Should allow: {cmd}");
     }
 }
 
@@ -242,7 +242,7 @@ fn security_patterns_block_versioned_python() {
     ];
     for cmd in dangerous {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(blocked, "Should block: {}", cmd);
+        assert!(blocked, "Should block: {cmd}");
     }
 }
 
@@ -256,7 +256,7 @@ fn security_patterns_block_perl_ruby_execution() {
     ];
     for cmd in dangerous {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(blocked, "Should block: {}", cmd);
+        assert!(blocked, "Should block: {cmd}");
     }
 }
 
@@ -271,7 +271,7 @@ fn security_patterns_allow_safe_perl_ruby() {
     ];
     for cmd in safe {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(!blocked, "Should allow: {}", cmd);
+        assert!(!blocked, "Should allow: {cmd}");
     }
 }
 
@@ -284,7 +284,7 @@ fn security_patterns_block_node_php_execution() {
     ];
     for cmd in dangerous {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(blocked, "Should block: {}", cmd);
+        assert!(blocked, "Should block: {cmd}");
     }
 }
 
@@ -297,7 +297,7 @@ fn security_patterns_allow_safe_node_php() {
     ];
     for cmd in safe {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(!blocked, "Should allow: {}", cmd);
+        assert!(!blocked, "Should allow: {cmd}");
     }
 }
 
@@ -311,7 +311,7 @@ fn security_patterns_block_line_continuation_bypass() {
     ];
     for cmd in dangerous_normalized {
         let blocked = patterns.iter().any(|p| p.is_match(cmd));
-        assert!(blocked, "Should block (after normalization): {}", cmd);
+        assert!(blocked, "Should block (after normalization): {cmd}");
     }
 }
 

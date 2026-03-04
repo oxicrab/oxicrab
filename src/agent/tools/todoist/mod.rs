@@ -69,7 +69,7 @@ impl TodoistTool {
                 } else {
                     text.clone()
                 };
-                anyhow::bail!("Todoist API {}: {}", status, safe_body);
+                anyhow::bail!("Todoist API {status}: {safe_body}");
             }
             let body: Value = serde_json::from_str(&text).map_err(|e| {
                 anyhow::anyhow!(
@@ -127,7 +127,7 @@ impl TodoistTool {
             .iter()
             .map(|t| {
                 let id = t["id"].as_str().unwrap_or("?");
-                let content = t["content"].as_str().unwrap_or("");
+                let content = t["content"].as_str().unwrap_or_default();
                 let priority = t["priority"].as_u64().unwrap_or(1);
                 let due = t["due"]["string"].as_str().unwrap_or("no due date");
                 let labels: Vec<&str> = t["labels"]
@@ -146,10 +146,7 @@ impl TodoistTool {
                     3 => " !",
                     _ => "",
                 };
-                format!(
-                    "- ({}) {}{} | due: {}{}",
-                    id, content, priority_str, due, label_str
-                )
+                format!("- ({id}) {content}{priority_str} | due: {due}{label_str}")
             })
             .collect();
 
@@ -198,7 +195,7 @@ impl TodoistTool {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            anyhow::bail!("Todoist API {}: {}", status, text);
+            anyhow::bail!("Todoist API {status}: {text}");
         }
         let body: Value = serde_json::from_str(&text).map_err(|e| {
             anyhow::anyhow!(
@@ -210,8 +207,8 @@ impl TodoistTool {
 
         let id = body["id"].as_str().unwrap_or("?");
         // v1 API removed url from response; construct it per migration guide
-        let url = format!("https://app.todoist.com/app/task/{}", id);
-        Ok(format!("Created task ({}): {} — {}", id, content, url))
+        let url = format!("https://app.todoist.com/app/task/{id}");
+        Ok(format!("Created task ({id}): {content} — {url}"))
     }
 
     async fn complete_task(&self, task_id: &str) -> Result<String> {
@@ -228,11 +225,11 @@ impl TodoistTool {
             .await?;
 
         if resp.status().is_success() {
-            Ok(format!("Task {} completed.", task_id))
+            Ok(format!("Task {task_id} completed."))
         } else {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Todoist API {}: {}", status, body);
+            anyhow::bail!("Todoist API {status}: {body}");
         }
     }
 
@@ -248,11 +245,11 @@ impl TodoistTool {
             .iter()
             .map(|p| {
                 let id = p["id"].as_str().unwrap_or("?");
-                let name = p["name"].as_str().unwrap_or("");
-                let color = p["color"].as_str().unwrap_or("");
-                let is_fav = p["is_favorite"].as_bool().unwrap_or(false);
+                let name = p["name"].as_str().unwrap_or_default();
+                let color = p["color"].as_str().unwrap_or_default();
+                let is_fav = p["is_favorite"].as_bool().unwrap_or_default();
                 let fav_str = if is_fav { " *" } else { "" };
-                format!("- ({}) {}{} [{}]", id, name, fav_str, color)
+                format!("- ({id}) {name}{fav_str} [{color}]")
             })
             .collect();
 
@@ -279,7 +276,7 @@ impl TodoistTool {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            anyhow::bail!("Todoist API {}: {}", status, text);
+            anyhow::bail!("Todoist API {status}: {text}");
         }
         let t: Value = serde_json::from_str(&text).map_err(|e| {
             anyhow::anyhow!(
@@ -290,8 +287,8 @@ impl TodoistTool {
         })?;
 
         let id = t["id"].as_str().unwrap_or("?");
-        let content = t["content"].as_str().unwrap_or("");
-        let description = t["description"].as_str().unwrap_or("");
+        let content = t["content"].as_str().unwrap_or_default();
+        let description = t["description"].as_str().unwrap_or_default();
         let priority = t["priority"].as_u64().unwrap_or(1);
         let due = t["due"]["string"].as_str().unwrap_or("no due date");
         let labels: Vec<&str> = t["labels"]
@@ -299,8 +296,8 @@ impl TodoistTool {
             .map(|a| a.iter().filter_map(|l| l.as_str()).collect())
             .unwrap_or_default();
         let project_id = t["project_id"].as_str().unwrap_or("?");
-        let is_completed = t["is_completed"].as_bool().unwrap_or(false);
-        let url = format!("https://app.todoist.com/app/task/{}", id);
+        let is_completed = t["is_completed"].as_bool().unwrap_or_default();
+        let url = format!("https://app.todoist.com/app/task/{id}");
 
         let label_str = if labels.is_empty() {
             String::new()
@@ -310,7 +307,7 @@ impl TodoistTool {
         let desc_str = if description.is_empty() {
             String::new()
         } else {
-            format!("\nDescription: {}", description)
+            format!("\nDescription: {description}")
         };
         let status_str = if is_completed { "completed" } else { "open" };
 
@@ -365,10 +362,10 @@ impl TodoistTool {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            anyhow::bail!("Todoist API {}: {}", status, text);
+            anyhow::bail!("Todoist API {status}: {text}");
         }
 
-        Ok(format!("Task {} updated.", task_id))
+        Ok(format!("Task {task_id} updated."))
     }
 
     async fn delete_task(&self, task_id: &str) -> Result<String> {
@@ -385,11 +382,11 @@ impl TodoistTool {
             .await?;
 
         if resp.status().is_success() {
-            Ok(format!("Task {} deleted.", task_id))
+            Ok(format!("Task {task_id} deleted."))
         } else {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Todoist API {}: {}", status, body);
+            anyhow::bail!("Todoist API {status}: {body}");
         }
     }
 
@@ -411,7 +408,7 @@ impl TodoistTool {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            anyhow::bail!("Todoist API {}: {}", status, text);
+            anyhow::bail!("Todoist API {status}: {text}");
         }
         let body: Value = serde_json::from_str(&text).map_err(|e| {
             anyhow::anyhow!(
@@ -422,7 +419,7 @@ impl TodoistTool {
         })?;
 
         let id = body["id"].as_str().unwrap_or("?");
-        Ok(format!("Comment ({}) added to task {}.", id, task_id))
+        Ok(format!("Comment ({id}) added to task {task_id}."))
     }
 
     async fn list_comments(&self, task_id: &str) -> Result<String> {
@@ -432,16 +429,16 @@ impl TodoistTool {
             .await?;
 
         if comments.is_empty() {
-            return Ok(format!("No comments on task {}.", task_id));
+            return Ok(format!("No comments on task {task_id}."));
         }
 
         let lines: Vec<String> = comments
             .iter()
             .map(|c| {
                 let id = c["id"].as_str().unwrap_or("?");
-                let content = c["content"].as_str().unwrap_or("");
+                let content = c["content"].as_str().unwrap_or_default();
                 let posted = c["posted_at"].as_str().unwrap_or("?");
-                format!("- ({}) [{}] {}", id, posted, content)
+                format!("- ({id}) [{posted}] {content}")
             })
             .collect();
 
@@ -627,7 +624,7 @@ impl Tool for TodoistTool {
                 self.list_comments(task_id).await
             }
             "list_projects" => self.list_projects().await,
-            _ => return Ok(ToolResult::error(format!("unknown action: {}", action))),
+            _ => return Ok(ToolResult::error(format!("unknown action: {action}"))),
         };
 
         Ok(ToolResult::from_result(result, "Todoist"))

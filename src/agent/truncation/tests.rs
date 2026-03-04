@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn strip_blobs_data_uri_replaced() {
     let b64_data = "A".repeat(300);
-    let input = format!("Image: data:image/png;base64,{} end", b64_data);
+    let input = format!("Image: data:image/png;base64,{b64_data} end");
     let result = strip_binary_blobs(&input);
     assert!(!result.contains(&b64_data));
     assert!(result.contains("[image/png data,"));
@@ -17,7 +17,7 @@ fn strip_blobs_data_uri_replaced() {
 fn strip_blobs_long_base64_replaced() {
     // Include +/ chars so the heuristic recognizes it as real base64
     let b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".repeat(5);
-    let input = format!("Before {} After", b64);
+    let input = format!("Before {b64} After");
     let result = strip_binary_blobs(&input);
     assert!(!result.contains(&b64));
     assert!(result.contains("[base64 data,"));
@@ -39,7 +39,7 @@ fn strip_blobs_pure_alpha_not_treated_as_base64() {
 #[test]
 fn strip_blobs_long_hex_replaced() {
     let hex = "a1b2c3d4e5f6".repeat(30); // 360 hex chars
-    let input = format!("Hash: {} done", hex);
+    let input = format!("Hash: {hex} done");
     let result = strip_binary_blobs(&input);
     assert!(!result.contains(&hex));
     assert!(result.contains("[hex data,"));
@@ -49,7 +49,7 @@ fn strip_blobs_long_hex_replaced() {
 #[test]
 fn strip_blobs_short_base64_unchanged() {
     let short = "SGVsbG8gV29ybGQ="; // "Hello World" in base64 (16 chars)
-    let input = format!("Encoded: {}", short);
+    let input = format!("Encoded: {short}");
     let result = strip_binary_blobs(&input);
     assert!(result.contains(short), "short base64 should pass through");
 }
@@ -66,7 +66,7 @@ fn strip_blobs_multiple_blobs() {
     // Use base64 with + and / chars (no = in middle since it only appears at end)
     let b64_1 = "ABCDabcd0123+/XY".repeat(16); // 256 chars with base64 markers
     let b64_2 = "XYZxyz9876+/ABCD".repeat(20); // 320 chars with base64 markers
-    let input = format!("First: {} middle text {} end", b64_1, b64_2);
+    let input = format!("First: {b64_1} middle text {b64_2} end");
     let result = strip_binary_blobs(&input);
     assert!(!result.contains(&b64_1));
     assert!(!result.contains(&b64_2));
@@ -78,8 +78,7 @@ fn strip_blobs_multiple_blobs() {
 fn strip_blobs_mixed_content_preserves_text() {
     let b64_data = "Z".repeat(500);
     let input = format!(
-        "Here is the screenshot:\ndata:image/jpeg;base64,{}\n\nThe file contains 3 errors on line 42.",
-        b64_data
+        "Here is the screenshot:\ndata:image/jpeg;base64,{b64_data}\n\nThe file contains 3 errors on line 42."
     );
     let result = strip_binary_blobs(&input);
     assert!(result.contains("Here is the screenshot:"));
@@ -93,8 +92,7 @@ fn strip_blobs_integrated_with_truncation() {
     // A tool result with a large base64 blob that would normally eat the truncation budget
     let b64_data = "X".repeat(5000);
     let input = format!(
-        "Important: the config is invalid.\ndata:application/octet-stream;base64,{}\nFix: set debug=true",
-        b64_data
+        "Important: the config is invalid.\ndata:application/octet-stream;base64,{b64_data}\nFix: set debug=true"
     );
     let result = truncate_tool_result(&input, 500);
     // The blob should be stripped, and both text parts should survive

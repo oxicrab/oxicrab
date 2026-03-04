@@ -150,8 +150,7 @@ async fn webhook_handler(
             // Return TwiML response so Twilio sends the pairing code as an SMS reply
             let escaped = html_escape::encode_text(&reply);
             let twiml = format!(
-                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response><Message>{}</Message></Response>",
-                escaped
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response><Message>{escaped}</Message></Response>"
             );
             return (
                 StatusCode::OK,
@@ -182,8 +181,8 @@ async fn webhook_handler(
         chat_id,
         content: body_text,
         timestamp: Utc::now(),
-        media: Vec::new(),
         metadata,
+        ..Default::default()
     };
 
     if let Err(e) = state.inbound_tx.send(message).await {
@@ -331,7 +330,7 @@ impl BaseChannel for TwilioChannel {
                     .text()
                     .await
                     .unwrap_or_else(|_| "unknown".to_string());
-                return Err(anyhow::anyhow!("twilio API error ({}): {}", status, body));
+                return Err(anyhow::anyhow!("twilio API error ({status}): {body}"));
             }
         }
 
@@ -420,7 +419,7 @@ mod tests {
         params.insert("Middle".to_string(), "mid".to_string());
 
         // Compute expected: URL + AlphafirstMiddlemidZebralast
-        let data = format!("{}AlphafirstMiddlemidZebralast", url);
+        let data = format!("{url}AlphafirstMiddlemidZebralast");
         let mut mac = HmacSha1::new_from_slice(auth_token.as_bytes()).unwrap();
         mac.update(data.as_bytes());
         let result = mac.finalize();
@@ -438,10 +437,7 @@ mod tests {
     fn test_send_constructs_correct_url() {
         // Verify the URL format for sending messages
         let chat_id = "CH1234567890";
-        let url = format!(
-            "https://conversations.twilio.com/v1/Conversations/{}/Messages",
-            chat_id
-        );
+        let url = format!("https://conversations.twilio.com/v1/Conversations/{chat_id}/Messages");
         assert_eq!(
             url,
             "https://conversations.twilio.com/v1/Conversations/CH1234567890/Messages"

@@ -119,8 +119,7 @@ impl Tool for GoogleMailTool {
 
                 if messages.is_empty() {
                     return Ok(ToolResult::new(format!(
-                        "No messages found for query: {}",
-                        query
+                        "No messages found for query: {query}"
                     )));
                 }
 
@@ -149,7 +148,7 @@ impl Tool for GoogleMailTool {
                                 Some((name.to_string(), value.to_string()))
                             })
                             .collect();
-                    let snippet = msg["snippet"].as_str().unwrap_or("");
+                    let snippet = msg["snippet"].as_str().unwrap_or_default();
 
                     lines.push(format!(
                         "- ID: {}\n  From: {}\n  Subject: {}\n  Date: {}\n  Snippet: {}",
@@ -222,7 +221,7 @@ impl Tool for GoogleMailTool {
                 let subject = subject.replace(['\r', '\n'], " ");
                 let body = body.replace('\r', "");
 
-                let email = format!("To: {}\r\nSubject: {}\r\n\r\n{}", to, subject, body);
+                let email = format!("To: {to}\r\nSubject: {subject}\r\n\r\n{body}");
                 let raw = URL_SAFE_NO_PAD.encode(email.as_bytes());
 
                 let body_json = serde_json::json!({"raw": raw});
@@ -258,7 +257,7 @@ impl Tool for GoogleMailTool {
                             Some((name.to_string(), value.to_string()))
                         })
                         .collect();
-                let thread_id = original["threadId"].as_str().unwrap_or("");
+                let thread_id = original["threadId"].as_str().unwrap_or_default();
 
                 let empty_str = String::new();
                 let reply_to = headers
@@ -270,7 +269,7 @@ impl Tool for GoogleMailTool {
                     .unwrap_or(&String::new())
                     .replace(['\r', '\n'], "");
                 if !subject.to_lowercase().starts_with("re:") {
-                    subject = format!("Re: {}", subject);
+                    subject = format!("Re: {subject}");
                 }
 
                 let message_id = headers
@@ -278,8 +277,7 @@ impl Tool for GoogleMailTool {
                     .unwrap_or(&String::new())
                     .replace(['\r', '\n'], "");
                 let email = format!(
-                    "To: {}\r\nSubject: {}\r\nIn-Reply-To: {}\r\nReferences: {}\r\n\r\n{}",
-                    reply_to, subject, message_id, message_id, body
+                    "To: {reply_to}\r\nSubject: {subject}\r\nIn-Reply-To: {message_id}\r\nReferences: {message_id}\r\n\r\n{body}"
                 );
                 let raw = URL_SAFE_NO_PAD.encode(email.as_bytes());
 
@@ -303,7 +301,7 @@ impl Tool for GoogleMailTool {
                 }
                 let mut lines = vec!["Gmail Labels:\n".to_string()];
                 let mut sorted_labels: Vec<&Value> = labels.iter().collect();
-                sorted_labels.sort_by_key(|l| l["name"].as_str().unwrap_or(""));
+                sorted_labels.sort_by_key(|l| l["name"].as_str().unwrap_or_default());
                 for lbl in sorted_labels {
                     lines.push(format!(
                         "- {} (ID: {})",
@@ -356,11 +354,10 @@ impl Tool for GoogleMailTool {
                 );
                 self.api.call(&endpoint, "POST", Some(body)).await?;
                 Ok(ToolResult::new(format!(
-                    "Labels updated on message {}",
-                    message_id
+                    "Labels updated on message {message_id}"
                 )))
             }
-            _ => Ok(ToolResult::error(format!("unknown action: {}", action))),
+            _ => Ok(ToolResult::error(format!("unknown action: {action}"))),
         }
     }
 }

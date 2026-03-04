@@ -5,15 +5,12 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // --- Wiremock tests ---
 
-fn simple_chat_request(content: &str) -> ChatRequest<'_> {
+fn simple_chat_request(content: &str) -> ChatRequest {
     ChatRequest {
         messages: vec![Message::user(content)],
-        tools: None,
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     }
 }
 
@@ -92,7 +89,7 @@ async fn test_chat_unauthorized() {
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("Authentication"), "Error: {}", err);
+    assert!(err.contains("Authentication"), "Error: {err}");
 }
 
 #[tokio::test]
@@ -113,8 +110,7 @@ async fn test_chat_rate_limit() {
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("Rate limit") || err.contains("rate limit"),
-        "Error: {}",
-        err
+        "Error: {err}"
     );
 }
 
@@ -210,12 +206,9 @@ async fn test_system_message_as_system_instruction() {
     let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
     let req = ChatRequest {
         messages: vec![Message::system("You are helpful."), Message::user("Hello")],
-        tools: None,
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     };
     let result = provider.chat(req).await.unwrap();
 
@@ -343,12 +336,10 @@ async fn test_chat_with_json_object_format() {
     let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
     let req = ChatRequest {
         messages: vec![Message::user("return json")],
-        tools: None,
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
         response_format: Some(crate::providers::base::ResponseFormat::JsonObject),
+        ..Default::default()
     };
     let result = provider.chat(req).await.unwrap();
     assert_eq!(result.content.unwrap(), "{\"key\": \"value\"}");

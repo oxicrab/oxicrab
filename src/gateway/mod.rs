@@ -404,7 +404,6 @@ async fn chat_handler(
         chat_id: request_id.clone(),
         content: body.message,
         timestamp: chrono::Utc::now(),
-        media: vec![],
         metadata: {
             let mut meta = HashMap::new();
             meta.insert(
@@ -416,6 +415,7 @@ async fn chat_handler(
             }
             meta
         },
+        ..Default::default()
     };
 
     if let Err(e) = state.inbound_tx.send(msg).await {
@@ -606,11 +606,10 @@ async fn webhook_handler(
 
         let inbound = InboundMessage {
             channel: "http".to_string(),
-            sender_id: format!("webhook:{}", name),
+            sender_id: format!("webhook:{name}"),
             chat_id: request_id.clone(),
             content: message,
             timestamp: chrono::Utc::now(),
-            media: vec![],
             metadata: {
                 let mut meta = HashMap::new();
                 meta.insert(
@@ -619,6 +618,7 @@ async fn webhook_handler(
                 );
                 meta
             },
+            ..Default::default()
         };
 
         if let Err(e) = state.inbound_tx.send(inbound).await {
@@ -686,8 +686,6 @@ async fn deliver_to_targets(
             channel: target.channel.clone(),
             chat_id: target.chat_id.clone(),
             content: content.to_string(),
-            reply_to: None,
-            media: vec![],
             metadata: {
                 let mut meta = HashMap::new();
                 meta.insert(
@@ -696,6 +694,7 @@ async fn deliver_to_targets(
                 );
                 meta
             },
+            ..Default::default()
         };
         if let Err(e) = outbound_tx.send(msg).await {
             error!(
@@ -793,7 +792,7 @@ pub async fn start<S: BuildHasher>(
         None
     };
     let app = build_router(state.clone(), a2a_state, key, rate_limiter);
-    let addr = format!("{}:{}", host, port);
+    let addr = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("HTTP API listening on {}", addr);
 

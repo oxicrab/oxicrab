@@ -7,7 +7,6 @@ use common::{
 use oxicrab::bus::{MessageBus, OutboundMessage};
 use oxicrab::config::{ExfiltrationGuardConfig, PromptGuardAction, PromptGuardConfig};
 use serde_json::json;
-use std::collections::HashMap;
 use tempfile::TempDir;
 
 // ===========================================================================
@@ -202,9 +201,7 @@ async fn test_leak_detector_redacts_api_key_in_outbound() {
         chat_id: "test".to_string(),
         content: "Here is the key: sk-ant-api03-abcdefghijklmnopqrst12345 you asked for"
             .to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     };
 
     bus.publish_outbound(msg).await.expect("publish outbound");
@@ -245,9 +242,7 @@ async fn test_leak_detector_with_known_secrets_via_bus() {
         channel: "telegram".to_string(),
         chat_id: "test".to_string(),
         content: format!("The secret is: {}", custom_secret),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     };
 
     // publish_outbound redacts the message before sending

@@ -152,15 +152,13 @@ fn test_google_mail_actions_match_schema() {
     for action in &schema_actions {
         assert!(
             cap_actions.contains(action),
-            "action '{}' in schema but not in capabilities()",
-            action
+            "action '{action}' in schema but not in capabilities()"
         );
     }
     for action in &cap_actions {
         assert!(
             schema_actions.contains(action),
-            "action '{}' in capabilities() but not in schema",
-            action
+            "action '{action}' in capabilities() but not in schema"
         );
     }
 }

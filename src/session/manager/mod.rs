@@ -120,7 +120,7 @@ impl SessionManager {
 
     fn get_session_path(&self, key: &str) -> PathBuf {
         let safe_key = safe_filename(&key.replace(':', "_"));
-        self.sessions_dir.join(format!("{}.jsonl", safe_key))
+        self.sessions_dir.join(format!("{safe_key}.jsonl"))
     }
 
     pub async fn get_or_create(&self, key: &str) -> Result<Session> {
@@ -139,7 +139,7 @@ impl SessionManager {
         let path = self.get_session_path(key);
         let loaded = tokio::task::spawn_blocking(move || Self::load_from_path(&path))
             .await
-            .map_err(|e| anyhow::anyhow!("session load task failed: {}", e))??;
+            .map_err(|e| anyhow::anyhow!("session load task failed: {e}"))??;
         let session = if let Some(s) = loaded {
             debug!("session loaded from disk: {}", key);
             s
@@ -191,7 +191,7 @@ impl SessionManager {
         let fallback_key = path
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or("")
+            .unwrap_or_default()
             .to_string();
         let mut key = fallback_key;
 
@@ -222,7 +222,7 @@ impl SessionManager {
                 let role = data
                     .get("role")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("")
+                    .unwrap_or_default()
                     .to_string();
                 if role.is_empty() {
                     warn!("session message missing 'role' field, defaulting to empty");
@@ -230,12 +230,12 @@ impl SessionManager {
                 let content = data
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("")
+                    .unwrap_or_default()
                     .to_string();
                 let timestamp = data
                     .get("timestamp")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("")
+                    .unwrap_or_default()
                     .to_string();
                 if !timestamp.is_empty() && DateTime::parse_from_rfc3339(&timestamp).is_err() {
                     warn!(

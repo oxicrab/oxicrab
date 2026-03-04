@@ -28,7 +28,7 @@ impl ToolResult {
     pub fn from_result(result: anyhow::Result<String>, error_prefix: &str) -> Self {
         match result {
             Ok(content) => Self::new(content),
-            Err(e) => Self::error(format!("{} error: {}", error_prefix, e)),
+            Err(e) => Self::error(format!("{error_prefix} error: {e}")),
         }
     }
 }

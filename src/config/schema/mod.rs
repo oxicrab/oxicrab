@@ -208,6 +208,18 @@ pub struct WebhookConfig {
     pub agent_turn: bool,
 }
 
+impl Default for WebhookConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            secret: String::new(),
+            template: default_webhook_template(),
+            targets: vec![],
+            agent_turn: false,
+        }
+    }
+}
+
 fn default_webhook_template() -> String {
     "{{body}}".to_string()
 }
@@ -571,8 +583,7 @@ impl Config {
         for (i, fb) in routing.fallbacks.iter().enumerate() {
             if fb.is_empty() {
                 return Err(OxicrabError::Config(format!(
-                    "modelRouting.fallbacks[{}] must not be empty",
-                    i
+                    "modelRouting.fallbacks[{i}] must not be empty"
                 )));
             }
         }

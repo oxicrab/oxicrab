@@ -47,7 +47,7 @@ fn validate_tool_calls(tool_calls: &[ToolCallRequest]) -> bool {
 
 #[async_trait]
 impl LLMProvider for FallbackProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
         let mut last_error = None;
         for (i, (provider, model_name)) in self.providers.iter().enumerate() {
             let is_last = i == self.providers.len() - 1;

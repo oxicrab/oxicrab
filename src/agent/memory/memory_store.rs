@@ -330,7 +330,7 @@ impl MemoryStore {
             && let Ok(long_term) = self.read_long_term()
             && !long_term.trim().is_empty()
         {
-            chunks.insert(0, format!("## Long-term Memory\n{}", long_term));
+            chunks.insert(0, format!("## Long-term Memory\n{long_term}"));
         }
 
         // Include today's note only in DM/private chats
@@ -339,7 +339,7 @@ impl MemoryStore {
             if let Ok(content) = std::fs::read_to_string(&today_file)
                 && !content.trim().is_empty()
             {
-                chunks.push(format!("**Today's Notes ({})**:\n{}", today_key, content));
+                chunks.push(format!("**Today's Notes ({today_key})**:\n{content}"));
             }
         }
 
@@ -382,11 +382,11 @@ impl MemoryStore {
             .with_context(|| "failed to acquire memory notes lock")?;
 
         if !today_file.exists() {
-            let header = format!("# {}\n\n", date_str);
+            let header = format!("# {date_str}\n\n");
             std::fs::write(&today_file, header)?;
         }
         let mut file = std::fs::OpenOptions::new().append(true).open(&today_file)?;
-        writeln!(file, "{}", content)?;
+        writeln!(file, "{content}")?;
         // lock released when lock_file drops
         Ok(())
     }
@@ -417,10 +417,10 @@ impl MemoryStore {
         let mut text = if today_file.exists() {
             std::fs::read_to_string(&today_file)?
         } else {
-            format!("# {}\n", date_str)
+            format!("# {date_str}\n")
         };
 
-        let header = format!("## {}", section);
+        let header = format!("## {section}");
         // Find header on its own line (prevent "## Fact" matching "## FactSheet")
         if let Some(section_start) = find_section_header(&text, &header) {
             // Find the end of this section (next ## header or end of file)
@@ -445,7 +445,7 @@ impl MemoryStore {
             if !text.ends_with('\n') {
                 text.push('\n');
             }
-            write!(text, "\n{}\n\n{}\n", header, content).unwrap();
+            write!(text, "\n{header}\n\n{content}\n").unwrap();
         }
 
         std::fs::write(&today_file, text)?;
@@ -459,7 +459,7 @@ impl MemoryStore {
         if today_content.is_empty() {
             return Ok(String::new());
         }
-        let header = format!("## {}", section);
+        let header = format!("## {section}");
         if let Some(start) = find_section_header(&today_content, &header) {
             let after_header = start + header.len();
             // Skip past the header line

@@ -21,7 +21,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         conn.execute(
             "INSERT OR REPLACE INTO memory_embeddings (entry_id, embedding) VALUES (?, ?)",
             params![entry_id, embedding],
@@ -43,7 +43,7 @@ impl MemoryDB {
         let conn = self
             .conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT me.id, me.content, me.source_key, emb.embedding
              FROM memory_embeddings emb
@@ -65,7 +65,7 @@ impl MemoryDB {
             .collect();
 
         Ok(rows
-            .map_err(|e| anyhow::anyhow!("Failed to get embeddings: {}", e))?
+            .map_err(|e| anyhow::anyhow!("Failed to get embeddings: {e}"))?
             .into_iter()
             .filter(|(_, _, key, _)| !exclude.contains(key))
             .collect())

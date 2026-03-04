@@ -166,7 +166,7 @@ impl WorkspaceManager {
 
         let mut comps = relative.components();
         let first_component = match comps.next() {
-            Some(std::path::Component::Normal(name)) => name.to_str().unwrap_or(""),
+            Some(std::path::Component::Normal(name)) => name.to_str().unwrap_or_default(),
             _ => return false,
         };
 
@@ -454,7 +454,7 @@ fn category_from_relative(rel: &str) -> FileCategory {
             std::path::Component::Normal(name) => name.to_str(),
             _ => None,
         })
-        .unwrap_or("");
+        .unwrap_or_default();
 
     first
         .parse::<FileCategory>()

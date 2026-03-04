@@ -72,7 +72,7 @@ impl GeminiProvider {
         if let Some(reason) = candidate["finishReason"].as_str()
             && matches!(reason, "SAFETY" | "BLOCKED" | "RECITATION")
         {
-            anyhow::bail!("Gemini response blocked (finishReason: {})", reason);
+            anyhow::bail!("Gemini response blocked (finishReason: {reason})");
         }
 
         let content = candidate["content"]["parts"].as_array().and_then(|parts| {
@@ -92,7 +92,7 @@ impl GeminiProvider {
             for part in parts {
                 // Gemini returns singular `functionCall` per part (not plural array)
                 if let Some(fc) = part.get("functionCall") {
-                    let name = fc["name"].as_str().unwrap_or("").to_string();
+                    let name = fc["name"].as_str().unwrap_or_default().to_string();
                     // Generate a unique ID per tool call to avoid collisions
                     // when the same function is called multiple times
                     let id = format!("gemini_{}", &uuid::Uuid::new_v4().to_string()[..12]);
@@ -127,10 +127,10 @@ impl GeminiProvider {
 
 #[async_trait]
 impl LLMProvider for GeminiProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+    async fn chat(&self, req: ChatRequest) -> Result<LLMResponse> {
         debug!(
             "gemini chat: model={}",
-            req.model.unwrap_or(&self.default_model)
+            req.model.as_deref().unwrap_or(&self.default_model)
         );
         // Separate system messages for systemInstruction; rest go into contents
         let mut system_parts: Vec<String> = Vec::new();
@@ -285,7 +285,7 @@ impl LLMProvider for GeminiProvider {
             }
         }
 
-        let model_name = req.model.unwrap_or(&self.default_model);
+        let model_name = req.model.as_deref().unwrap_or(&self.default_model);
         // URL-encode model name to prevent path injection
         let encoded_model = urlencoding::encode(model_name);
         let url = format!("{}/models/{}:generateContent", self.base_url, encoded_model);

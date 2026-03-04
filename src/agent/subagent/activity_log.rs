@@ -28,7 +28,7 @@ impl ActivityLog {
             return None;
         }
         let date = Utc::now().format("%Y%m%d-%H%M%S");
-        let file_path = log_dir.join(format!("subagent-{}-{}.log", task_id, date));
+        let file_path = log_dir.join(format!("subagent-{task_id}-{date}.log"));
         let file = OpenOptions::new()
             .create(true)
             .append(true)
@@ -53,13 +53,13 @@ impl ActivityLog {
 
     fn write_line(&mut self, msg: &str) {
         let ts = Utc::now().format("%H:%M:%S%.3fZ");
-        let _ = writeln!(self.writer, "[{}] {}", ts, msg);
+        let _ = writeln!(self.writer, "[{ts}] {msg}");
         let _ = self.writer.flush();
     }
 
     pub fn log_start(&mut self, task: &str) {
         self.write_line(&format!("SUBAGENT START task_id={}", self.task_id));
-        self.write_line(&format!("TASK: {}", task));
+        self.write_line(&format!("TASK: {task}"));
     }
 
     pub fn log_tools(&mut self, registered: &[String]) {
@@ -68,29 +68,26 @@ impl ActivityLog {
 
     pub fn log_iteration_tool_calls(&mut self, iteration: usize, count: usize) {
         self.write_line(&format!(
-            "ITERATION {}: LLM responded with {} tool call(s)",
-            iteration, count
+            "ITERATION {iteration}: LLM responded with {count} tool call(s)"
         ));
     }
 
     pub fn log_iteration_text(&mut self, iteration: usize, content_len: usize) {
         self.write_line(&format!(
-            "ITERATION {}: LLM responded with text ({} chars) — final result",
-            iteration, content_len
+            "ITERATION {iteration}: LLM responded with text ({content_len} chars) — final result"
         ));
     }
 
     pub fn log_iteration_empty(&mut self, iteration: usize, retries_left: usize) {
         self.write_line(&format!(
-            "ITERATION {}: LLM returned empty response (retries left: {})",
-            iteration, retries_left
+            "ITERATION {iteration}: LLM returned empty response (retries left: {retries_left})"
         ));
     }
 
     pub fn log_tool_call(&mut self, name: &str, args: &serde_json::Value) {
         let args_str = serde_json::to_string(args).unwrap_or_default();
         let preview: String = args_str.chars().take(500).collect();
-        self.write_line(&format!("  TOOL CALL: {} {}", name, preview));
+        self.write_line(&format!("  TOOL CALL: {name} {preview}"));
     }
 
     pub fn log_tool_result(&mut self, name: &str, content: &str, is_error: bool) {
@@ -116,13 +113,12 @@ impl ActivityLog {
     }
 
     pub fn log_cost_blocked(&mut self, msg: &str) {
-        self.write_line(&format!("COST GUARD BLOCKED: {}", msg));
+        self.write_line(&format!("COST GUARD BLOCKED: {msg}"));
     }
 
     pub fn log_max_iterations(&mut self, max: usize) {
         self.write_line(&format!(
-            "MAX ITERATIONS REACHED ({}) — exiting without final response",
-            max
+            "MAX ITERATIONS REACHED ({max}) — exiting without final response"
         ));
     }
 

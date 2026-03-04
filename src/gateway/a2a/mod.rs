@@ -207,8 +207,7 @@ pub async fn create_task_handler(
         chat_id: task_id.clone(),
         content: body.message,
         timestamp: Utc::now(),
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     };
 
     if let Err(e) = state.inbound_tx.send(msg).await {

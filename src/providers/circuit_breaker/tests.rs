@@ -32,13 +32,13 @@ impl MockProvider {
 
 #[async_trait]
 impl LLMProvider for MockProvider {
-    async fn chat(&self, _req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         let mut responses = self.responses.lock().await;
         if let Some(response) = responses.pop() {
             match response {
                 Ok(r) => Ok(r),
-                Err(e) => Err(anyhow::anyhow!("{}", e)),
+                Err(e) => Err(anyhow::anyhow!("{e}")),
             }
         } else {
             Ok(Self::ok_response())
@@ -58,15 +58,12 @@ fn test_config() -> CircuitBreakerConfig {
     }
 }
 
-fn make_request() -> ChatRequest<'static> {
+fn make_request() -> ChatRequest {
     ChatRequest {
         messages: vec![],
-        tools: None,
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     }
 }
 

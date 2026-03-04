@@ -85,7 +85,7 @@ impl GoogleCredentials {
                 .ok()
                 .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
                 .unwrap_or_else(|| format!("HTTP {status}"));
-            return Err(anyhow::anyhow!("token refresh failed: {}", error_code));
+            return Err(anyhow::anyhow!("token refresh failed: {error_code}"));
         }
 
         let token_data: serde_json::Value = response.json().await?;
@@ -95,7 +95,7 @@ impl GoogleCredentials {
                 .get("error_description")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown error");
-            return Err(anyhow::anyhow!("Token refresh failed: {}", error_desc));
+            return Err(anyhow::anyhow!("Token refresh failed: {error_desc}"));
         }
 
         self.token = token_data["access_token"]
@@ -203,7 +203,7 @@ pub async fn run_oauth_flow(
         .set_token_uri(TokenUrl::new(
             "https://oauth2.googleapis.com/token".to_string(),
         )?)
-        .set_redirect_uri(RedirectUrl::new(format!("http://localhost:{}", port))?);
+        .set_redirect_uri(RedirectUrl::new(format!("http://localhost:{port}"))?);
 
     // Generate PKCE challenge for defense against code interception attacks
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
@@ -214,7 +214,7 @@ pub async fn run_oauth_flow(
         .add_scopes(scopes.iter().map(|s| Scope::new(s.to_string())))
         .url();
 
-    let redirect_uri = format!("http://localhost:{}", port);
+    let redirect_uri = format!("http://localhost:{port}");
 
     if headless {
         return run_manual_flow(
@@ -253,7 +253,7 @@ pub async fn run_oauth_flow(
     params.insert("code", code);
     params.insert("client_id", client_id.to_string());
     params.insert("client_secret", client_secret.to_string());
-    params.insert("redirect_uri", format!("http://localhost:{}", port));
+    params.insert("redirect_uri", format!("http://localhost:{port}"));
     params.insert("grant_type", "authorization_code".to_string());
     params.insert("code_verifier", pkce_verifier.secret().clone());
 
@@ -270,7 +270,7 @@ pub async fn run_oauth_flow(
             .ok()
             .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
             .unwrap_or_else(|| format!("HTTP {status}"));
-        return Err(anyhow::anyhow!("token exchange failed: {}", error_code));
+        return Err(anyhow::anyhow!("token exchange failed: {error_code}"));
     }
 
     let token_data: serde_json::Value = response.json().await?;
@@ -280,7 +280,7 @@ pub async fn run_oauth_flow(
             .get("error_description")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown error");
-        return Err(anyhow::anyhow!("token exchange failed: {}", error_desc));
+        return Err(anyhow::anyhow!("token exchange failed: {error_desc}"));
     }
 
     let creds = build_credentials_from_token(&token_data, client_id, client_secret, &scopes)?;
@@ -300,13 +300,13 @@ async fn get_code_via_browser(
 
     // Open browser
     if let Err(e) = open::that(auth_url.as_str()) {
-        return Err(anyhow::anyhow!("Failed to open browser: {}", e));
+        return Err(anyhow::anyhow!("Failed to open browser: {e}"));
     }
 
     info!("Waiting for OAuth redirect on port {}...", port);
 
     // Start local server
-    let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
+    let listener = TcpListener::bind(format!("127.0.0.1:{port}")).await?;
     let (mut stream, _) = listener.accept().await?;
 
     let mut buffer = [0; 4096];
@@ -347,7 +347,7 @@ async fn run_manual_flow(
     println!("\n┌─────────────────────────────────────────────────────┐");
     println!("│  Open this URL in any browser and authorize access: │");
     println!("└─────────────────────────────────────────────────────┘\n");
-    println!("{}", auth_url);
+    println!("{auth_url}");
     println!(
         "\nAfter authorizing, you will be redirected to a localhost URL.\n\
          It may show an error page — that's OK.\n\
@@ -395,7 +395,7 @@ async fn run_manual_flow(
             .ok()
             .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
             .unwrap_or_else(|| format!("HTTP {status}"));
-        return Err(anyhow::anyhow!("token exchange failed: {}", error_code));
+        return Err(anyhow::anyhow!("token exchange failed: {error_code}"));
     }
 
     let token_data: serde_json::Value = response.json().await?;
@@ -405,7 +405,7 @@ async fn run_manual_flow(
             .get("error_description")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown error");
-        return Err(anyhow::anyhow!("token exchange failed: {}", error_desc));
+        return Err(anyhow::anyhow!("token exchange failed: {error_desc}"));
     }
 
     let creds = build_credentials_from_token(&token_data, client_id, client_secret, scopes)?;

@@ -199,7 +199,7 @@ impl ExecTool {
         // Blocklist check (secondary safety layer)
         for pattern in &self.deny_patterns {
             if pattern.is_match(command) {
-                return Some(format!("command blocked by security policy: {}", command));
+                return Some(format!("command blocked by security policy: {command}"));
             }
         }
 
@@ -257,7 +257,7 @@ impl ExecTool {
                     .canonicalize()
                     .unwrap_or_else(|_| lexical_normalize(&resolved));
                 if !canonical.starts_with(workspace) {
-                    return Some(format!("path '{}' resolves outside workspace", cleaned));
+                    return Some(format!("path '{cleaned}' resolves outside workspace"));
                 }
             }
         }
@@ -324,9 +324,8 @@ impl Tool for ExecTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
-            network_outbound: false,
             subagent_access: SubagentAccess::Full,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
@@ -413,12 +412,12 @@ impl Tool for ExecTool {
                         result
                     }))
                 } else {
-                    Ok(ToolResult::error(format!("command failed: {}", result)))
+                    Ok(ToolResult::error(format!("command failed: {result}")))
                 }
             }
             Ok(Err(e)) => Ok(ToolResult::error(
                 crate::utils::path_sanitize::sanitize_error_message(
-                    &format!("error executing command: {}", e),
+                    &format!("error executing command: {e}"),
                     self.working_dir.as_deref(),
                 ),
             )),

@@ -161,7 +161,7 @@ fn fetch_from_helper(helper: &CredentialHelperConfig, key: &str) -> Result<Strin
             Ok(parsed
                 .get("value")
                 .and_then(|v| v.as_str())
-                .unwrap_or("")
+                .unwrap_or_default()
                 .to_string())
         }
     }

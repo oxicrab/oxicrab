@@ -18,7 +18,7 @@ impl std::fmt::Display for CircuitState {
         match self {
             Self::Closed => write!(f, "Closed"),
             Self::Open { .. } => write!(f, "Open"),
-            Self::HalfOpen { successes } => write!(f, "HalfOpen({})", successes),
+            Self::HalfOpen { successes } => write!(f, "HalfOpen({successes})"),
         }
     }
 }
@@ -197,7 +197,7 @@ impl CircuitBreakerProvider {
 
 #[async_trait]
 impl LLMProvider for CircuitBreakerProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
         self.should_allow().await?;
 
         match self.inner.chat(req).await {

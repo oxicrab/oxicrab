@@ -223,9 +223,9 @@ impl MessageCompactor {
         let formatted: Vec<String> = messages
             .iter()
             .map(|m| {
-                let role = m.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                let role = m.get("role").and_then(|v| v.as_str()).unwrap_or_default();
                 let content = extract_message_text(m.get("content"));
-                format!("{}: {}", role, content)
+                format!("{role}: {content}")
             })
             .collect();
 
@@ -245,12 +245,10 @@ impl MessageCompactor {
             .provider
             .chat(ChatRequest {
                 messages: llm_messages,
-                tools: None,
-                model: self.model.as_deref(),
+                model: self.model.clone(),
                 max_tokens: COMPACTION_MAX_TOKENS,
                 temperature: COMPACTION_TEMPERATURE,
-                tool_choice: None,
-                response_format: None,
+                ..Default::default()
             })
             .await?;
 
@@ -277,9 +275,9 @@ impl MessageCompactor {
         let formatted: Vec<String> = messages
             .iter()
             .map(|m| {
-                let role = m.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                let role = m.get("role").and_then(|v| v.as_str()).unwrap_or_default();
                 let content = extract_message_text(m.get("content"));
-                format!("{}: {}", role, content)
+                format!("{role}: {content}")
             })
             .collect();
 
@@ -292,12 +290,10 @@ impl MessageCompactor {
             .provider
             .chat(ChatRequest {
                 messages: llm_messages,
-                tools: None,
-                model: self.model.as_deref(),
+                model: self.model.clone(),
                 max_tokens: PRE_FLUSH_MAX_TOKENS,
                 temperature: PRE_FLUSH_TEMPERATURE,
-                tool_choice: None,
-                response_format: None,
+                ..Default::default()
             })
             .await?;
 
@@ -334,12 +330,10 @@ impl MessageCompactor {
             .provider
             .chat(ChatRequest {
                 messages: llm_messages,
-                tools: None,
-                model: self.model.as_deref(),
+                model: self.model.clone(),
                 max_tokens: EXTRACTION_MAX_TOKENS,
                 temperature: EXTRACTION_TEMPERATURE,
-                tool_choice: None,
-                response_format: None,
+                ..Default::default()
             })
             .await?;
 

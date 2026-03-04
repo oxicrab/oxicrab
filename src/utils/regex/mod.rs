@@ -171,7 +171,7 @@ impl RegexPatterns {
 
 /// Compile a regex pattern with proper error handling
 pub fn compile_regex(pattern: &str) -> Result<Regex> {
-    Regex::new(pattern).with_context(|| format!("Failed to compile regex pattern: {}", pattern))
+    Regex::new(pattern).with_context(|| format!("Failed to compile regex pattern: {pattern}"))
 }
 
 /// Compile a regex pattern for Slack mention matching
@@ -184,13 +184,9 @@ pub fn compile_regex(pattern: &str) -> Result<Regex> {
 ))]
 pub fn compile_slack_mention(bot_id: &str) -> Result<Regex> {
     let escaped_id = regex::escape(bot_id);
-    let pattern = format!(r"<@{}\s*>\s*", escaped_id);
-    compile_regex(&pattern).with_context(|| {
-        format!(
-            "Failed to compile Slack mention regex for bot_id: {}",
-            bot_id
-        )
-    })
+    let pattern = format!(r"<@{escaped_id}\s*>\s*");
+    compile_regex(&pattern)
+        .with_context(|| format!("Failed to compile Slack mention regex for bot_id: {bot_id}"))
 }
 
 /// Get cached security patterns for command validation.
@@ -252,7 +248,7 @@ pub fn compile_security_patterns() -> Result<Vec<Regex>> {
     PATTERNS
         .as_ref()
         .map(Clone::clone)
-        .map_err(|e| anyhow::anyhow!("{}", e))
+        .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 #[cfg(test)]

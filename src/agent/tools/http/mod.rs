@@ -1,4 +1,4 @@
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::utils::media::{extension_from_content_type, save_media_file};
 use anyhow::Result;
@@ -53,7 +53,7 @@ impl HttpTool {
         }
         builder
             .build()
-            .map_err(|e| format!("failed to build pinned HTTP client: {}", e))
+            .map_err(|e| format!("failed to build pinned HTTP client: {e}"))
     }
 
     /// HTTP execution with DNS-pinned client (used by `execute()` for SSRF-safe requests).
@@ -97,7 +97,7 @@ impl HttpTool {
             "PUT" => client.put(url),
             "PATCH" => client.patch(url),
             "DELETE" => client.delete(url),
-            _ => return Ok(ToolResult::error(format!("unsupported method: {}", method))),
+            _ => return Ok(ToolResult::error(format!("unsupported method: {method}"))),
         };
 
         request = request.timeout(Duration::from_secs(timeout_secs));
@@ -124,7 +124,7 @@ impl HttpTool {
                 if !has_content_type {
                     request = request.header("Content-Type", "text/plain");
                 }
-                request = request.body(params["body"].as_str().unwrap_or("").to_string());
+                request = request.body(params["body"].as_str().unwrap_or_default().to_string());
             } else {
                 request = request.json(&params["body"]);
             }
@@ -149,7 +149,7 @@ impl HttpTool {
                     .headers()
                     .get("content-type")
                     .and_then(|h| h.to_str().ok())
-                    .unwrap_or("")
+                    .unwrap_or_default()
                     .to_string();
 
                 let header_str = if headers.is_empty() {
@@ -169,8 +169,7 @@ impl HttpTool {
                         Ok(result) => result,
                         Err(e) => {
                             return Ok(ToolResult::error(format!(
-                                "HTTP {} {} — binary download failed: {}",
-                                status, method, e
+                                "HTTP {status} {method} — binary download failed: {e}"
                             )));
                         }
                     };
@@ -185,8 +184,7 @@ impl HttpTool {
                             content_type
                         ))),
                         Err(e) => Ok(ToolResult::error(format!(
-                            "HTTP {} {} — failed to save binary response: {}",
-                            status, method, e
+                            "HTTP {status} {method} — failed to save binary response: {e}"
                         ))),
                     };
                 }
@@ -212,17 +210,16 @@ impl HttpTool {
                 let final_body: String = if truncated {
                     let truncated_text: String =
                         body_display.chars().take(MAX_RESPONSE_CHARS).collect();
-                    format!("{}...\n[truncated]", truncated_text)
+                    format!("{truncated_text}...\n[truncated]")
                 } else {
                     body_display
                 };
 
                 Ok(ToolResult::new(format!(
-                    "HTTP {} {}{}\n\n{}",
-                    status, method, header_str, final_body
+                    "HTTP {status} {method}{header_str}\n\n{final_body}"
                 )))
             }
-            Err(e) => Ok(ToolResult::error(format!("HTTP error: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("HTTP error: {e}"))),
         }
     }
 }
@@ -245,8 +242,7 @@ impl Tool for HttpTool {
         ToolCapabilities {
             built_in: true,
             network_outbound: true,
-            subagent_access: SubagentAccess::Denied,
-            actions: vec![],
+            ..Default::default()
         }
     }
 

@@ -27,11 +27,7 @@ pub async fn limited_body(resp: Response, max_bytes: usize) -> Result<(Vec<u8>, 
     if let Some(cl) = resp.content_length()
         && cl as usize > max_bytes
     {
-        bail!(
-            "response body too large: Content-Length {} exceeds limit {}",
-            cl,
-            max_bytes
-        );
+        bail!("response body too large: Content-Length {cl} exceeds limit {max_bytes}");
     }
 
     let mut buf = Vec::new();

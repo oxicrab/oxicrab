@@ -46,7 +46,7 @@ impl WorkspaceTool {
     /// Format a human-readable file size.
     fn format_size(bytes: i64) -> String {
         if bytes < 1024 {
-            format!("{} B", bytes)
+            format!("{bytes} B")
         } else if bytes < 1024 * 1024 {
             format!("{:.1} KB", bytes as f64 / 1024.0)
         } else {
@@ -90,7 +90,7 @@ impl WorkspaceTool {
             .as_str()
             .map(FileCategory::from_str)
             .transpose()
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
         let date = params["date"].as_str();
         let tags = params["tags"].as_str();
 
@@ -138,14 +138,14 @@ impl WorkspaceTool {
             .or_else(|| entries.first());
 
         let Some(entry) = entry else {
-            return Ok(format!("No file found matching '{}'", path_str));
+            return Ok(format!("No file found matching '{path_str}'"));
         };
 
         let mut info = String::new();
         let _ = writeln!(info, "path: {}", entry.path);
         let _ = writeln!(info, "category: {}", entry.category);
         if let Some(ref name) = entry.original_name {
-            let _ = writeln!(info, "original_name: {}", name);
+            let _ = writeln!(info, "original_name: {name}");
         }
         let _ = writeln!(
             info,
@@ -154,17 +154,17 @@ impl WorkspaceTool {
             entry.size_bytes
         );
         if let Some(ref tool) = entry.source_tool {
-            let _ = writeln!(info, "source_tool: {}", tool);
+            let _ = writeln!(info, "source_tool: {tool}");
         }
         if !entry.tags.is_empty() {
             let _ = writeln!(info, "tags: {}", entry.tags);
         }
         let _ = writeln!(info, "created_at: {}", entry.created_at);
         if let Some(ref accessed) = entry.accessed_at {
-            let _ = writeln!(info, "accessed_at: {}", accessed);
+            let _ = writeln!(info, "accessed_at: {accessed}");
         }
         if let Some(ref session) = entry.session_key {
-            let _ = writeln!(info, "session_key: {}", session);
+            let _ = writeln!(info, "session_key: {session}");
         }
 
         Ok(info)
@@ -217,10 +217,10 @@ impl WorkspaceTool {
                 for (name, count) in &subdirs {
                     if *count == 0 {
                         // Direct file in category dir
-                        let _ = writeln!(tree, "    {}", name);
+                        let _ = writeln!(tree, "    {name}");
                     } else {
                         let label = if *count == 1 { "file" } else { "files" };
-                        let _ = writeln!(tree, "    {}/ ({} {})", name, count, label);
+                        let _ = writeln!(tree, "    {name}/ ({count} {label})");
                     }
                 }
             }
@@ -242,8 +242,7 @@ impl WorkspaceTool {
             .ok_or_else(|| anyhow::anyhow!("missing 'category' parameter"))?;
 
         let abs_path = self.resolve_tool_path(path_str);
-        let category =
-            FileCategory::from_str(category_str).map_err(|e| anyhow::anyhow!("{}", e))?;
+        let category = FileCategory::from_str(category_str).map_err(|e| anyhow::anyhow!("{e}"))?;
 
         let new_path = self.manager.move_file(&abs_path, category)?;
         let display = new_path
@@ -259,7 +258,7 @@ impl WorkspaceTool {
 
         let abs_path = self.resolve_tool_path(path_str);
         self.manager.remove_file(&abs_path)?;
-        Ok(format!("Deleted {}", path_str))
+        Ok(format!("Deleted {path_str}"))
     }
 
     fn action_tag(&self, params: &Value) -> Result<String> {
@@ -272,7 +271,7 @@ impl WorkspaceTool {
 
         let abs_path = self.resolve_tool_path(path_str);
         self.manager.tag_file(&abs_path, tags)?;
-        Ok(format!("Tagged '{}' with: {}", path_str, tags))
+        Ok(format!("Tagged '{path_str}' with: {tags}"))
     }
 
     fn action_send(&self, params: &Value) -> Result<String> {
@@ -283,13 +282,13 @@ impl WorkspaceTool {
         let abs_path = self.resolve_tool_path(path_str);
 
         if !abs_path.exists() {
-            anyhow::bail!("file not found: {}", path_str);
+            anyhow::bail!("file not found: {path_str}");
         }
         // Allow sending any file under the workspace root (including memory/, knowledge/).
         // Unlike delete/move, sending doesn't modify the file so the guard is relaxed.
         let resolved = abs_path.canonicalize().unwrap_or_else(|_| abs_path.clone());
         if !resolved.starts_with(self.manager.workspace_root()) {
-            anyhow::bail!("path is outside the workspace: {}", path_str);
+            anyhow::bail!("path is outside the workspace: {path_str}");
         }
 
         let filename = abs_path
@@ -311,12 +310,11 @@ impl WorkspaceTool {
         let removed = self.manager.cleanup_expired(&ttl_map)?;
         let (stale, discovered) = self.manager.sync_manifest()?;
 
-        let mut report = format!("Cleanup complete: {} expired file(s) removed.", removed);
+        let mut report = format!("Cleanup complete: {removed} expired file(s) removed.");
         if stale > 0 || discovered > 0 {
             let _ = write!(
                 report,
-                "\nManifest sync: {} stale entries removed, {} new files discovered.",
-                stale, discovered
+                "\nManifest sync: {stale} stale entries removed, {discovered} new files discovered."
             );
         }
         Ok(report)
@@ -435,7 +433,7 @@ impl Tool for WorkspaceTool {
             "tag" => self.action_tag(&params),
             "cleanup" => self.action_cleanup(),
             "send" => self.action_send(&params),
-            _ => return Ok(ToolResult::error(format!("unknown action: '{}'", action))),
+            _ => return Ok(ToolResult::error(format!("unknown action: '{action}'"))),
         };
 
         Ok(ToolResult::from_result(result, "workspace"))

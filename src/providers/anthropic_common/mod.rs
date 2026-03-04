@@ -208,8 +208,8 @@ pub fn parse_response(json: &Value) -> LLMResponse {
             match block["type"].as_str() {
                 Some("tool_use") => {
                     tool_calls.push(ToolCallRequest {
-                        id: block["id"].as_str().unwrap_or("").to_string(),
-                        name: block["name"].as_str().unwrap_or("").to_string(),
+                        id: block["id"].as_str().unwrap_or_default().to_string(),
+                        name: block["name"].as_str().unwrap_or_default().to_string(),
                         arguments: block.get("input").cloned().unwrap_or(json!({})),
                     });
                 }

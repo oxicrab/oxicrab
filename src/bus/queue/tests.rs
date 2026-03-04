@@ -1,6 +1,5 @@
 use super::*;
 use chrono::Utc;
-use std::collections::HashMap;
 
 fn make_inbound(channel: &str, sender_id: &str) -> InboundMessage {
     InboundMessage {
@@ -9,8 +8,7 @@ fn make_inbound(channel: &str, sender_id: &str) -> InboundMessage {
         chat_id: "chat1".to_string(),
         content: "hello".to_string(),
         timestamp: Utc::now(),
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     }
 }
 
@@ -19,9 +17,7 @@ fn make_outbound(channel: &str, chat_id: &str, content: &str) -> OutboundMessage
         channel: channel.to_string(),
         chat_id: chat_id.to_string(),
         content: content.to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     }
 }
 
@@ -116,7 +112,7 @@ async fn test_outbound_leak_detection_redacts() {
     let secret = "sk-secret-1234567890";
     bus.add_known_secrets(&[("api_key", secret)]);
 
-    let msg = make_outbound("ch", "dest", &format!("the key is {}", secret));
+    let msg = make_outbound("ch", "dest", &format!("the key is {secret}"));
     bus.publish_outbound(msg).await.unwrap();
 
     let received = rx.try_recv().unwrap();

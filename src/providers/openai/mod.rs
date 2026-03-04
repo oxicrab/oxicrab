@@ -116,8 +116,8 @@ impl OpenAIProvider {
                     };
 
                     tool_calls.push(ToolCallRequest {
-                        id: tc["id"].as_str().unwrap_or("").to_string(),
-                        name: function["name"].as_str().unwrap_or("").to_string(),
+                        id: tc["id"].as_str().unwrap_or_default().to_string(),
+                        name: function["name"].as_str().unwrap_or_default().to_string(),
                         arguments,
                     });
                 }
@@ -152,11 +152,11 @@ impl OpenAIProvider {
 
 #[async_trait]
 impl LLMProvider for OpenAIProvider {
-    async fn chat(&self, req: ChatRequest<'_>) -> Result<LLMResponse> {
+    async fn chat(&self, req: ChatRequest) -> Result<LLMResponse> {
         debug!(
             "{} chat: model={}",
             self.provider_name,
-            req.model.unwrap_or(&self.default_model)
+            req.model.as_deref().unwrap_or(&self.default_model)
         );
         let openai_messages: Vec<Value> = req
             .messages
@@ -227,7 +227,7 @@ impl LLMProvider for OpenAIProvider {
             .collect();
 
         let mut payload = json!({
-            "model": req.model.unwrap_or(&self.default_model),
+            "model": req.model.as_deref().unwrap_or(&self.default_model),
             "messages": openai_messages,
             "max_tokens": req.max_tokens,
         });
@@ -290,7 +290,7 @@ impl LLMProvider for OpenAIProvider {
             .json(&payload)
             .send()
             .await
-            .with_context(|| format!("Failed to send request to {} API", provider_name))?;
+            .with_context(|| format!("Failed to send request to {provider_name} API"))?;
 
         let json =
             ProviderErrorHandler::check_response(resp, &self.provider_name, &self.metrics).await?;

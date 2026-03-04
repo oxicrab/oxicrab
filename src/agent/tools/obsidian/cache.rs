@@ -239,22 +239,20 @@ impl ObsidianCache {
                             warn!("Opportunistic queue flush failed: {}", e);
                         }
                     }
-                    Ok(format!("Written to '{}'.", path))
+                    Ok(format!("Written to '{path}'."))
                 }
                 Err(e) => {
                     warn!("API write failed, queueing: {}", e);
                     self.enqueue_write(path, content, "write").await?;
                     Ok(format!(
-                        "Written to cache. API unreachable — queued for sync: {}",
-                        path
+                        "Written to cache. API unreachable — queued for sync: {path}"
                     ))
                 }
             }
         } else {
             self.enqueue_write(path, content, "write").await?;
             Ok(format!(
-                "API unreachable. Written to cache and queued for sync: {}",
-                path
+                "API unreachable. Written to cache and queued for sync: {path}"
             ))
         }
     }
@@ -263,7 +261,7 @@ impl ObsidianCache {
     pub async fn append_file(&self, path: &str, content: &str) -> Result<String> {
         // Build full content from cache + append
         let existing = self.read_cached(path).unwrap_or_default();
-        let full_content = format!("{}{}", existing, content);
+        let full_content = format!("{existing}{content}");
 
         // Update cache optimistically
         self.write_to_cache(path, &full_content).await?;
@@ -280,22 +278,20 @@ impl ObsidianCache {
                             warn!("Opportunistic queue flush failed: {}", e);
                         }
                     }
-                    Ok(format!("Appended to '{}'.", path))
+                    Ok(format!("Appended to '{path}'."))
                 }
                 Err(e) => {
                     warn!("API append failed, queueing: {}", e);
                     self.enqueue_write(path, content, "append").await?;
                     Ok(format!(
-                        "Appended to cache. API unreachable — queued for sync: {}",
-                        path
+                        "Appended to cache. API unreachable — queued for sync: {path}"
                     ))
                 }
             }
         } else {
             self.enqueue_write(path, content, "append").await?;
             Ok(format!(
-                "API unreachable. Appended to cache and queued for sync: {}",
-                path
+                "API unreachable. Appended to cache and queued for sync: {path}"
             ))
         }
     }
@@ -447,7 +443,7 @@ impl ObsidianCache {
     async fn write_to_cache(&self, path: &str, content: &str) -> Result<()> {
         let file_path = self
             .safe_cache_path(path)
-            .ok_or_else(|| anyhow::anyhow!("path traversal blocked: {}", path))?;
+            .ok_or_else(|| anyhow::anyhow!("path traversal blocked: {path}"))?;
         let content = content.to_string();
         tokio::task::spawn_blocking(move || {
             if let Some(parent) = file_path.parent() {
@@ -485,8 +481,7 @@ impl ObsidianCache {
         let mut queue = self.write_queue.lock().await;
         if queue.len() >= MAX_QUEUE_SIZE {
             anyhow::bail!(
-                "write queue full ({} items) — API has been unreachable too long",
-                MAX_QUEUE_SIZE
+                "write queue full ({MAX_QUEUE_SIZE} items) — API has been unreachable too long"
             );
         }
         queue.push(QueuedWrite {

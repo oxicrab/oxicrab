@@ -3,15 +3,12 @@ use crate::providers::base::Message;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn simple_chat_request(content: &str) -> ChatRequest<'_> {
+fn simple_chat_request(content: &str) -> ChatRequest {
     ChatRequest {
         messages: vec![Message::user(content)],
-        tools: None,
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     }
 }
 
@@ -83,7 +80,7 @@ async fn test_chat_unauthorized() {
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("Authentication"), "Error: {}", err);
+    assert!(err.contains("Authentication"), "Error: {err}");
 }
 
 #[tokio::test]
@@ -108,8 +105,7 @@ async fn test_chat_rate_limit() {
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("Rate limit") || err.contains("rate limit"),
-        "Error: {}",
-        err
+        "Error: {err}"
     );
 }
 
@@ -151,12 +147,9 @@ async fn test_chat_with_system_message() {
             Message::system("You are a helpful assistant."),
             Message::user("Hello"),
         ],
-        tools: None,
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     };
     let result = provider.chat(req).await.unwrap();
 

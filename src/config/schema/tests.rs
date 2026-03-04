@@ -206,8 +206,7 @@ fn test_valid_dm_policy_values() {
         config.channels.telegram.dm_policy = policy.clone();
         assert!(
             config.validate().is_ok(),
-            "policy '{:?}' should be valid",
-            policy
+            "policy '{policy:?}' should be valid"
         );
     }
 }
@@ -289,8 +288,7 @@ fn test_collect_secrets_skips_empty_values() {
     let secrets = config.collect_secrets();
     assert!(
         secrets.is_empty(),
-        "default config should have no secrets, got: {:?}",
-        secrets
+        "default config should have no secrets, got: {secrets:?}"
     );
 }
 
@@ -618,14 +616,14 @@ fn test_webhook_config_deserialization_defaults() {
 #[test]
 fn test_redact_debug_telegram_config() {
     let mut tg = TelegramConfig::default();
-    let debug_empty = format!("{:?}", tg);
+    let debug_empty = format!("{tg:?}");
     assert!(
         debug_empty.contains("[empty]"),
         "empty token should show [empty] in debug: {debug_empty}"
     );
 
     tg.token = "1234567890:ABCdefGHIjklMNO".to_string();
-    let debug_redacted = format!("{:?}", tg);
+    let debug_redacted = format!("{tg:?}");
     assert!(
         debug_redacted.contains("[REDACTED]"),
         "non-empty token should show [REDACTED] in debug: {debug_redacted}"
@@ -1027,8 +1025,7 @@ fn test_model_routing_chat_invalid_thresholds() {
     let err = config.validate().unwrap_err();
     assert!(
         err.to_string().contains("standard must be less than heavy"),
-        "error: {}",
-        err
+        "error: {err}"
     );
 }
 
@@ -1055,8 +1052,7 @@ fn test_model_routing_chat_only_on_chat_key() {
     let err = config.validate().unwrap_err();
     assert!(
         err.to_string().contains("only the 'chat' key supports"),
-        "error: {}",
-        err
+        "error: {err}"
     );
 }
 

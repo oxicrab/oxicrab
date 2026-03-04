@@ -113,8 +113,8 @@ impl Handler {
             chat_id: cmd.channel_id.to_string(),
             content,
             timestamp: Utc::now(),
-            media: Vec::new(),
             metadata,
+            ..Default::default()
         };
 
         if let Err(e) = self.inbound_tx.send(inbound_msg).await {
@@ -167,7 +167,7 @@ impl Handler {
         }
 
         let custom_id = comp.data.custom_id.clone();
-        let content = format!("[button:{}]", custom_id);
+        let content = format!("[button:{custom_id}]");
 
         let mut metadata = HashMap::new();
         metadata.insert(
@@ -193,8 +193,8 @@ impl Handler {
             chat_id: comp.channel_id.to_string(),
             content,
             timestamp: Utc::now(),
-            media: Vec::new(),
             metadata,
+            ..Default::default()
         };
 
         if let Err(e) = self.inbound_tx.send(inbound_msg).await {
@@ -238,7 +238,7 @@ impl EventHandler for Handler {
         let mut media_paths = Vec::new();
         let mut content = msg.content.clone();
         for attachment in &msg.attachments {
-            let content_type = attachment.content_type.as_deref().unwrap_or("");
+            let content_type = attachment.content_type.as_deref().unwrap_or_default();
             let is_image = content_type.starts_with("image/");
             let is_audio = content_type.starts_with("audio/");
             if !is_image && !is_audio {
@@ -311,7 +311,7 @@ impl EventHandler for Handler {
                             }
                             let path_str = file_path.to_string_lossy().to_string();
                             media_paths.push(path_str.clone());
-                            content = format!("{}\n[{}: {}]", content, tag, path_str);
+                            content = format!("{content}\n[{tag}: {path_str}]");
                         }
                         Err(e) => warn!("Failed to download Discord attachment: {}", e),
                     }
@@ -444,7 +444,7 @@ fn parse_embeds_from_metadata(metadata: &HashMap<String, serde_json::Value>) -> 
                 for f in fields {
                     let name = f["name"].as_str().unwrap_or("—");
                     let value = f["value"].as_str().unwrap_or("—");
-                    let inline = f["inline"].as_bool().unwrap_or(false);
+                    let inline = f["inline"].as_bool().unwrap_or_default();
                     embed = embed.field(name, value, inline);
                 }
             }
@@ -482,7 +482,7 @@ fn parse_components_from_metadata(
                     let custom_id = b["custom_id"].as_str()?;
                     let label = b["label"].as_str().unwrap_or(custom_id);
                     let style = parse_button_style(b["style"].as_str().unwrap_or("secondary"));
-                    let disabled = b["disabled"].as_bool().unwrap_or(false);
+                    let disabled = b["disabled"].as_bool().unwrap_or_default();
                     Some(
                         CreateButton::new(custom_id)
                             .label(label)
@@ -518,7 +518,7 @@ async fn send_interaction_followup(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Discord webhook followup failed ({}): {}", status, body);
+        anyhow::bail!("Discord webhook followup failed ({status}): {body}");
     }
     Ok(())
 }
@@ -663,7 +663,7 @@ impl BaseChannel for DiscordChannel {
     async fn send_typing(&self, chat_id: &str) -> Result<()> {
         let channel_id = chat_id
             .parse::<u64>()
-            .map_err(|e| anyhow::anyhow!("Invalid Discord channel_id: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Invalid Discord channel_id: {e}"))?;
         let channel_id_typed = serenity::model::id::ChannelId::new(channel_id);
         channel_id_typed
             .broadcast_typing(&self.serenity_http)
@@ -756,12 +756,12 @@ impl BaseChannel for DiscordChannel {
                 target_channel_id
                     .send_message(&http, builder)
                     .await
-                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?;
             } else {
                 target_channel_id
                     .say(&http, chunk)
                     .await
-                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?;
             }
         }
 
@@ -777,7 +777,7 @@ impl BaseChannel for DiscordChannel {
             target_channel_id
                 .send_message(&http, builder)
                 .await
-                .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?;
         }
 
         Ok(())
@@ -795,7 +795,7 @@ impl BaseChannel for DiscordChannel {
             let sent = target
                 .say(&self.serenity_http, chunk)
                 .await
-                .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?;
             last_id = Some(sent.id.to_string());
         }
         Ok(last_id)
@@ -813,7 +813,7 @@ impl BaseChannel for DiscordChannel {
                 builder,
             )
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to edit Discord message: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to edit Discord message: {e}"))?;
         Ok(())
     }
 
@@ -827,7 +827,7 @@ impl BaseChannel for DiscordChannel {
                 serenity::model::id::MessageId::new(msg_id),
             )
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to delete Discord message: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to delete Discord message: {e}"))?;
         Ok(())
     }
 }
@@ -892,7 +892,7 @@ impl DiscordChannel {
                                         "danger" => 4,
                                         _ => 2,
                                     };
-                                    let disabled = b["disabled"].as_bool().unwrap_or(false);
+                                    let disabled = b["disabled"].as_bool().unwrap_or_default();
                                     Some(serde_json::json!({
                                         "type": 2,
                                         "custom_id": custom_id,
@@ -945,7 +945,7 @@ impl DiscordChannel {
                                     "danger" => 4,
                                     _ => 2,
                                 };
-                                let disabled = b["disabled"].as_bool().unwrap_or(false);
+                                let disabled = b["disabled"].as_bool().unwrap_or_default();
                                 Some(serde_json::json!({
                                     "type": 2,
                                     "custom_id": custom_id,

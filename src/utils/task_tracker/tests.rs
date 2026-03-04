@@ -66,7 +66,7 @@ async fn test_multiple_tasks() {
         let handle = tokio::spawn(async {
             tokio::time::sleep(tokio::time::Duration::from_mins(1)).await;
         });
-        tracker.spawn(format!("task_{}", i), handle).await;
+        tracker.spawn(format!("task_{i}"), handle).await;
     }
     assert_eq!(tracker.tasks.lock().await.len(), 5);
     tracker.cancel_all().await;

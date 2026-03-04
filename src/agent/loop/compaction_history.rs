@@ -52,7 +52,7 @@ impl AgentLoop {
             .metadata
             .get("compaction_summary")
             .and_then(|v| v.as_str())
-            .unwrap_or("")
+            .unwrap_or_default()
             .to_string();
 
         // Extract last user message for recovery context
@@ -61,7 +61,7 @@ impl AgentLoop {
             .rev()
             .find(|m| m.get("role").and_then(Value::as_str) == Some("user"))
             .and_then(|m| m.get("content").and_then(Value::as_str))
-            .unwrap_or("")
+            .unwrap_or_default()
             .to_string();
 
         // Await any in-flight checkpoint task before reading
@@ -136,10 +136,10 @@ impl AgentLoop {
                     // Build recovery-enriched summary
                     let mut recovery_summary = summary.clone();
                     if let Some(ref cp) = checkpoint {
-                        let _ = write!(recovery_summary, "\n\n[Checkpoint] {}", cp);
+                        let _ = write!(recovery_summary, "\n\n[Checkpoint] {cp}");
                     }
                     if let Some(ref crumb) = cognitive_crumb {
-                        let _ = write!(recovery_summary, "\n\n{}", crumb);
+                        let _ = write!(recovery_summary, "\n\n{crumb}");
                     }
                     if !last_user_msg.is_empty() {
                         // Truncate last user message to avoid bloating the summary
@@ -150,8 +150,7 @@ impl AgentLoop {
                         let _ = write!(
                             recovery_summary,
                             "\n\n[Recovery] The conversation was compacted. \
-                             Continue from where you left off. Last user request: {}",
-                            truncated_msg
+                             Continue from where you left off. Last user request: {truncated_msg}"
                         );
                     }
 
@@ -194,8 +193,7 @@ impl AgentLoop {
                         (
                             "content".to_string(),
                             Value::String(format!(
-                                "[Previous conversation summary: {}]",
-                                recovery_summary
+                                "[Previous conversation summary: {recovery_summary}]"
                             )),
                         ),
                     ])];
@@ -222,8 +220,7 @@ impl AgentLoop {
                             (
                                 "content".to_string(),
                                 Value::String(format!(
-                                    "[Previous conversation summary: {}]",
-                                    previous_summary
+                                    "[Previous conversation summary: {previous_summary}]"
                                 )),
                             ),
                         ])];

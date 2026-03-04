@@ -169,8 +169,7 @@ impl SubagentManager {
 
         info!("Spawned subagent [{}]: {}", task_id, display_label);
         Ok(format!(
-            "Subagent [{}] started (id: {}). I'll notify you when it completes.",
-            display_label, task_id
+            "Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."
         ))
     }
 
@@ -277,7 +276,7 @@ async fn run_subagent(
                     &task_id,
                     &label,
                     &task,
-                    &format!("Error: {}", e),
+                    &format!("Error: {e}"),
                     &origin,
                     "error",
                 )
@@ -404,7 +403,7 @@ async fn run_subagent_inner(
                 l.log_cost_blocked(&msg);
                 l.log_end("cost-blocked");
             }
-            return Ok(format!("Budget limit reached: {}", msg));
+            return Ok(format!("Budget limit reached: {msg}"));
         }
 
         let response = config
@@ -412,11 +411,10 @@ async fn run_subagent_inner(
             .chat(crate::providers::base::ChatRequest {
                 messages: messages.clone(),
                 tools: Some(tools.get_tool_definitions()),
-                model: Some(&config.model),
+                model: Some(config.model.clone()),
                 max_tokens: config.max_tokens,
                 temperature: config.tool_temperature,
-                tool_choice: None,
-                response_format: None,
+                ..Default::default()
             })
             .await?;
 
@@ -583,15 +581,14 @@ async fn execute_subagent_tool(
         let ctx = crate::agent::tools::base::ExecutionContext {
             channel: origin.0.clone(),
             chat_id: origin.1.clone(),
-            context_summary: None,
-            metadata: std::collections::HashMap::new(),
+            ..Default::default()
         };
         match registry.execute(tool_name, tool_args.clone(), &ctx).await {
             Ok(result) => (result.content, result.is_error),
             Err(e) => {
                 warn!("Subagent [{}] tool '{}' failed: {}", task_id, tool_name, e);
                 let msg = crate::utils::path_sanitize::sanitize_error_message(
-                    &format!("Tool execution failed: {}", e),
+                    &format!("Tool execution failed: {e}"),
                     workspace,
                 );
                 (msg, true)
@@ -599,7 +596,7 @@ async fn execute_subagent_tool(
         }
     } else {
         warn!("Subagent [{}] called unknown tool: {}", task_id, tool_name);
-        (format!("Error: tool '{}' does not exist", tool_name), true)
+        (format!("Error: tool '{tool_name}' does not exist"), true)
     }
 }
 
@@ -618,8 +615,7 @@ async fn announce_result(
         "failed"
     };
     let announce_content = format!(
-        "[Subagent '{}' {}]\n\nTask: {}\n\nResult:\n{}\n\nSummarize this naturally for the user. Keep it brief (1-2 sentences). Do not mention technical details like \"subagent\" or task IDs.",
-        label, status_text, task, result
+        "[Subagent '{label}' {status_text}]\n\nTask: {task}\n\nResult:\n{result}\n\nSummarize this naturally for the user. Keep it brief (1-2 sentences). Do not mention technical details like \"subagent\" or task IDs."
     );
 
     let msg = InboundMessage {
@@ -628,8 +624,7 @@ async fn announce_result(
         chat_id: format!("{}:{}", origin.0, origin.1),
         content: announce_content,
         timestamp: Utc::now(),
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     };
 
     if let Err(e) = bus.lock().await.publish_inbound(msg).await {
@@ -651,8 +646,7 @@ fn build_subagent_prompt(
         // Cap context to avoid bloating subagent token usage
         let trimmed: String = ctx.chars().take(MAX_CONTEXT_CHARS).collect();
         format!(
-            "\n## Conversation Context\nThe main agent's recent conversation (for reference):\n{}\n",
-            trimmed
+            "\n## Conversation Context\nThe main agent's recent conversation (for reference):\n{trimmed}\n"
         )
     } else {
         String::new()
@@ -684,14 +678,14 @@ fn build_subagent_prompt(
                 })
                 .unwrap_or_default();
 
-            (name, format!("{}{}", desc, actions_suffix))
+            (name, format!("{desc}{actions_suffix}"))
         })
         .collect();
     tool_entries.sort_by(|a, b| a.0.cmp(&b.0));
 
     let tool_list = tool_entries
         .iter()
-        .map(|(name, desc)| format!("- **{}**: {}", name, desc))
+        .map(|(name, desc)| format!("- **{name}**: {desc}"))
         .collect::<Vec<_>>()
         .join("\n");
 

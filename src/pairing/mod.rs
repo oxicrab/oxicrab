@@ -190,7 +190,7 @@ impl PairingStore {
 
     fn save_allowlist(&self, channel: &str) -> Result<()> {
         let _lock = self.lock_exclusive()?;
-        let path = self.base_dir.join(format!("{}-allowlist.json", channel));
+        let path = self.base_dir.join(format!("{channel}-allowlist.json"));
         let data = self.allowlists.get(channel).cloned().unwrap_or_default();
         let content = serde_json::to_string_pretty(&data)?;
         crate::utils::atomic_write(&path, &content)?;

@@ -80,7 +80,7 @@ impl CronTool {
             })
         } else if let Some(cron_expr) = params["cron_expr"].as_str() {
             if let Err(e) = crate::cron::service::validate_cron_expr(cron_expr) {
-                return Err(ToolResult::error(format!("invalid cron expression: {}", e)));
+                return Err(ToolResult::error(format!("invalid cron expression: {e}")));
             }
             let tz = params["tz"]
                 .as_str()
@@ -112,8 +112,7 @@ impl CronTool {
         } else if let Some(event_pattern) = params["event_pattern"].as_str() {
             if let Err(e) = regex::Regex::new(event_pattern) {
                 return Err(ToolResult::error(format!(
-                    "invalid event_pattern regex: {}",
-                    e
+                    "invalid event_pattern regex: {e}"
                 )));
             }
             Ok(CronSchedule::Event {
@@ -197,7 +196,7 @@ fn format_whatsapp_target(phone: &str) -> String {
         phone.to_string()
     } else {
         let cleaned = phone.trim_start_matches('+');
-        format!("{}@s.whatsapp.net", cleaned)
+        format!("{cleaned}@s.whatsapp.net")
     }
 }
 
@@ -364,8 +363,7 @@ impl Tool for CronTool {
                 let job_type = params["type"].as_str().unwrap_or("agent");
                 if job_type != "agent" && job_type != "echo" {
                     return Ok(ToolResult::error(format!(
-                        "invalid type '{}'. Must be 'agent' or 'echo'",
-                        job_type
+                        "invalid type '{job_type}'. Must be 'agent' or 'echo'"
                     )));
                 }
 
@@ -447,14 +445,7 @@ impl Tool for CronTool {
                         targets,
                         origin_metadata: ctx.metadata.clone(),
                     },
-                    state: CronJobState {
-                        next_run_at_ms: None,
-                        last_run_at_ms: None,
-                        last_status: None,
-                        last_error: None,
-                        run_count: 0,
-                        last_fired_at_ms: None,
-                    },
+                    state: CronJobState::default(),
                     created_at_ms: now_ms,
                     updated_at_ms: now_ms,
                     delete_after_run,
@@ -541,8 +532,8 @@ impl Tool for CronTool {
                     .ok_or_else(|| anyhow::anyhow!("Missing 'job_id' parameter for remove"))?;
 
                 match self.cron_service.remove_job(job_id).await? {
-                    Some(_) => Ok(ToolResult::new(format!("Removed job {}", job_id))),
-                    None => Ok(ToolResult::error(format!("job {} not found", job_id))),
+                    Some(_) => Ok(ToolResult::new(format!("Removed job {job_id}"))),
+                    None => Ok(ToolResult::error(format!("job {job_id} not found"))),
                 }
             }
             "run" => {
@@ -564,8 +555,7 @@ impl Tool for CronTool {
                 });
 
                 Ok(ToolResult::new(format!(
-                    "Job {} triggered (running in background)",
-                    job_id
+                    "Job {job_id} triggered (running in background)"
                 )))
             }
             "dlq_list" => {
@@ -613,7 +603,7 @@ impl Tool for CronTool {
                 let entries = db.list_dlq_entries(None)?;
                 let entry = entries.iter().find(|e| e.id == dlq_id);
                 let Some(entry) = entry else {
-                    return Ok(ToolResult::error(format!("DLQ entry {} not found", dlq_id)));
+                    return Ok(ToolResult::error(format!("DLQ entry {dlq_id} not found")));
                 };
 
                 // Spawn replay on a separate task to avoid deadlock (same
@@ -629,8 +619,7 @@ impl Tool for CronTool {
                 });
 
                 Ok(ToolResult::new(format!(
-                    "DLQ entry {} replay triggered (job {}, running in background)",
-                    dlq_id, job_id
+                    "DLQ entry {dlq_id} replay triggered (job {job_id}, running in background)"
                 )))
             }
             "dlq_clear" => {
@@ -645,11 +634,11 @@ impl Tool for CronTool {
                     "Cleared {} DLQ entries{}",
                     deleted,
                     status_filter
-                        .map(|s| format!(" (status={})", s))
+                        .map(|s| format!(" (status={s})"))
                         .unwrap_or_default()
                 )))
             }
-            _ => Ok(ToolResult::error(format!("unknown action: {}", action))),
+            _ => Ok(ToolResult::error(format!("unknown action: {action}"))),
         }
     }
 }

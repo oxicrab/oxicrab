@@ -7,7 +7,7 @@ proptest! {
         let mut session = Session::new("prop:test".to_string());
         let extra = HashMap::new();
         for i in 0..count {
-            session.add_message("user", format!("msg {}", i), extra.clone());
+            session.add_message("user", format!("msg {i}"), extra.clone());
         }
         prop_assert!(session.messages.len() <= MAX_SESSION_MESSAGES);
     }
@@ -20,7 +20,7 @@ proptest! {
         let mut session = Session::new("prop:history".to_string());
         let extra = HashMap::new();
         for i in 0..msg_count {
-            session.add_message("user", format!("msg {}", i), extra.clone());
+            session.add_message("user", format!("msg {i}"), extra.clone());
         }
         let history = session.get_history(limit);
         prop_assert!(history.len() <= limit);
@@ -35,7 +35,7 @@ fn test_session_get_history_with_limit() {
 
     // Add 5 messages
     for i in 0..5 {
-        session.add_message("user".to_string(), format!("Message {}", i), extra.clone());
+        session.add_message("user".to_string(), format!("Message {i}"), extra.clone());
     }
 
     let history = session.get_history(3);
@@ -63,14 +63,14 @@ fn test_session_get_full_history() {
 
     // Add 3 messages
     for i in 0..3 {
-        session.add_message("user".to_string(), format!("Message {}", i), extra.clone());
+        session.add_message("user".to_string(), format!("Message {i}"), extra.clone());
     }
 
     let history = session.get_full_history();
     assert_eq!(history.len(), 3);
 
     for (i, entry) in history.iter().enumerate() {
-        assert_eq!(entry["content"], Value::String(format!("Message {}", i)));
+        assert_eq!(entry["content"], Value::String(format!("Message {i}")));
         assert_eq!(entry["role"], Value::String("user".to_string()));
         // Timestamp and extra fields are now included
         assert!(entry.contains_key("timestamp"));
@@ -104,7 +104,7 @@ fn test_session_add_message_prunes_at_capacity() {
 
     // Add MAX_SESSION_MESSAGES + 5 messages
     for i in 0..(MAX_SESSION_MESSAGES + 5) {
-        session.add_message("user".to_string(), format!("Message {}", i), extra.clone());
+        session.add_message("user".to_string(), format!("Message {i}"), extra.clone());
     }
 
     // Should be capped at MAX_SESSION_MESSAGES
@@ -172,7 +172,7 @@ async fn test_lru_eviction() {
     // Fill cache to capacity with other sessions to evict the first one
     for i in 0..MAX_CACHED_SESSIONS {
         let _ = mgr
-            .get_or_create(&format!("evict:filler_{}", i))
+            .get_or_create(&format!("evict:filler_{i}"))
             .await
             .unwrap();
     }

@@ -167,11 +167,9 @@ fn rewrite_request_moves_tools_to_system_prompt() {
     let req = ChatRequest {
         messages: vec![Message::system("You are a helpful assistant.")],
         tools: Some(tools),
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     };
 
     let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
@@ -190,11 +188,9 @@ fn rewrite_request_tool_result_to_user_message() {
             Message::tool_result("tc_1", "Found 10 results", false),
         ],
         tools: Some(vec![web_search_tool()]),
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     };
 
     let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
@@ -219,11 +215,9 @@ fn rewrite_request_assistant_tool_calls_to_inline_text() {
             Message::assistant("Let me search.", Some(tool_calls)),
         ],
         tools: Some(vec![web_search_tool()]),
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     };
 
     let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
@@ -239,11 +233,10 @@ fn rewrite_request_tool_choice_any_adds_force_instruction() {
     let req = ChatRequest {
         messages: vec![Message::system("You are helpful.")],
         tools: Some(vec![web_search_tool()]),
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
         tool_choice: Some("any".into()),
-        response_format: None,
+        ..Default::default()
     };
 
     let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
@@ -277,11 +270,9 @@ async fn integration_text_tool_call_parsed() {
             Message::user("search for rust async"),
         ],
         tools: Some(vec![web_search_tool()]),
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     };
 
     let response = provider.chat(req).await.unwrap();
@@ -299,12 +290,9 @@ async fn passthrough_when_no_tools() {
 
     let req = ChatRequest {
         messages: vec![Message::user("hello")],
-        tools: None,
-        model: None,
         max_tokens: 1024,
         temperature: Some(0.7),
-        tool_choice: None,
-        response_format: None,
+        ..Default::default()
     };
 
     let response = provider.chat(req).await.unwrap();
@@ -335,7 +323,7 @@ impl MockProvider {
 
 #[async_trait]
 impl LLMProvider for MockProvider {
-    async fn chat(&self, _req: ChatRequest<'_>) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
         Ok(self.response.clone())
     }
 
