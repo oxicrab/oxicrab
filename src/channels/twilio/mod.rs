@@ -10,7 +10,6 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use base64::Engine;
-use chrono::Utc;
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
 use std::collections::HashMap;
@@ -173,20 +172,9 @@ async fn webhook_handler(
     // Conversations API messages (ConversationSid) can be group chats;
     // SMS messages (phone number chat_id) are always 1:1.
     let is_group = params.contains_key("ConversationSid");
-    let mut metadata = HashMap::new();
-    metadata.insert(
-        crate::bus::meta::IS_GROUP.to_string(),
-        serde_json::Value::Bool(is_group),
-    );
-    let message = InboundMessage {
-        channel: "twilio".to_string(),
-        sender_id: sender,
-        chat_id,
-        content: body_text,
-        timestamp: Utc::now(),
-        metadata,
-        ..Default::default()
-    };
+    let message = InboundMessage::builder("twilio", sender, chat_id, body_text)
+        .is_group(is_group)
+        .build();
 
     if let Err(e) = state.inbound_tx.send(message).await {
         error!("twilio webhook: failed to send inbound message: {}", e);

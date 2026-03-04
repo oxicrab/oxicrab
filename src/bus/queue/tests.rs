@@ -1,24 +1,11 @@
 use super::*;
-use chrono::Utc;
 
 fn make_inbound(channel: &str, sender_id: &str) -> InboundMessage {
-    InboundMessage {
-        channel: channel.to_string(),
-        sender_id: sender_id.to_string(),
-        chat_id: "chat1".to_string(),
-        content: "hello".to_string(),
-        timestamp: Utc::now(),
-        ..Default::default()
-    }
+    InboundMessage::builder(channel, sender_id, "chat1", "hello").build()
 }
 
 fn make_outbound(channel: &str, chat_id: &str, content: &str) -> OutboundMessage {
-    OutboundMessage {
-        channel: channel.to_string(),
-        chat_id: chat_id.to_string(),
-        content: content.to_string(),
-        ..Default::default()
-    }
+    OutboundMessage::builder(channel, chat_id, content).build()
 }
 
 #[tokio::test]

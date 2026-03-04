@@ -139,13 +139,7 @@ impl AgentLoop {
                     );
                 }
                 if self.prompt_guard_config.should_block() {
-                    return Ok(Some(OutboundMessage {
-                        channel: msg.channel,
-                        chat_id: msg.chat_id,
-                        content: "I can't process this message as it appears to contain prompt injection patterns.".to_string(),
-                        metadata: msg.metadata,
-                        ..Default::default()
-                    }));
+                    return Ok(Some(OutboundMessage::from_inbound(msg, "I can't process this message as it appears to contain prompt injection patterns.").build()));
                 }
             }
         }
@@ -162,13 +156,9 @@ impl AgentLoop {
                 }
             };
             if let Some(response_text) = response {
-                return Ok(Some(OutboundMessage {
-                    channel: msg.channel,
-                    chat_id: msg.chat_id,
-                    content: response_text,
-                    metadata: msg.metadata,
-                    ..Default::default()
-                }));
+                return Ok(Some(
+                    OutboundMessage::from_inbound(msg, response_text).build(),
+                ));
             }
         }
 
@@ -428,26 +418,23 @@ impl AgentLoop {
                 debug!("Suppressing silent response");
                 return Ok(None);
             }
-            Ok(Some(OutboundMessage {
-                channel: msg.channel,
-                chat_id: msg.chat_id,
-                content,
-                media: loop_result.media,
-                metadata: msg.metadata,
-                ..Default::default()
-            }))
+            Ok(Some(
+                OutboundMessage::from_inbound(msg, content)
+                    .media(loop_result.media)
+                    .build(),
+            ))
         } else {
             warn!(
                 "agent loop produced no response for {}:{}",
                 msg.channel, msg.chat_id
             );
-            Ok(Some(OutboundMessage {
-                channel: msg.channel,
-                chat_id: msg.chat_id,
-                content: "I wasn't able to generate a response. Please try again.".to_string(),
-                metadata: msg.metadata,
-                ..Default::default()
-            }))
+            Ok(Some(
+                OutboundMessage::from_inbound(
+                    msg,
+                    "I wasn't able to generate a response. Please try again.",
+                )
+                .build(),
+            ))
         }
     }
 
@@ -539,14 +526,16 @@ impl AgentLoop {
         );
         self.sessions.save(&session).await?;
 
-        Ok(Some(OutboundMessage {
-            channel: origin_channel.clone(),
-            chat_id: origin_chat_id.clone(),
-            content: final_content,
-            media: loop_result.media,
-            metadata: msg.metadata,
-            ..Default::default()
-        }))
+        Ok(Some(
+            OutboundMessage::builder(
+                origin_channel.clone(),
+                origin_chat_id.clone(),
+                final_content,
+            )
+            .media(loop_result.media)
+            .metadata(msg.metadata)
+            .build(),
+        ))
     }
 
     /// Attempt to persist a "remember that..." message directly to memory,

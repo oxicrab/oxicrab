@@ -35,12 +35,7 @@ async fn test_health_endpoint_returns_json() {
 #[test]
 fn test_route_response_non_http_returns_false() {
     let state = make_state();
-    let msg = OutboundMessage {
-        channel: "telegram".to_string(),
-        chat_id: "123".to_string(),
-        content: "hello".to_string(),
-        ..Default::default()
-    };
+    let msg = OutboundMessage::builder("telegram", "123", "hello").build();
     assert!(!route_response(&state, msg));
 }
 
@@ -54,12 +49,7 @@ fn test_route_response_http_with_pending() {
         .unwrap()
         .insert("req-1".to_string(), tx);
 
-    let msg = OutboundMessage {
-        channel: "http".to_string(),
-        chat_id: "req-1".to_string(),
-        content: "response text".to_string(),
-        ..Default::default()
-    };
+    let msg = OutboundMessage::builder("http", "req-1", "response text").build();
     assert!(route_response(&state, msg));
     let received = rx.try_recv().unwrap();
     assert_eq!(received.content, "response text");
@@ -68,12 +58,7 @@ fn test_route_response_http_with_pending() {
 #[test]
 fn test_route_response_http_no_pending() {
     let state = make_state();
-    let msg = OutboundMessage {
-        channel: "http".to_string(),
-        chat_id: "nonexistent".to_string(),
-        content: "orphan".to_string(),
-        ..Default::default()
-    };
+    let msg = OutboundMessage::builder("http", "nonexistent", "orphan").build();
     // Should not panic, just return true (consumed) and warn
     assert!(route_response(&state, msg));
 }
@@ -452,12 +437,9 @@ async fn test_webhook_agent_turn_routes_through_agent() {
     // Simulate agent response by sending to the pending oneshot
     let request_id = inbound.chat_id.clone();
     let tx = pending.lock().unwrap().remove(&request_id).unwrap();
-    tx.send(OutboundMessage {
-        channel: "http".to_string(),
-        chat_id: request_id,
-        content: "I'm investigating the server issue.".to_string(),
-        ..Default::default()
-    })
+    tx.send(
+        OutboundMessage::builder("http", request_id, "I'm investigating the server issue.").build(),
+    )
     .unwrap();
 
     let resp = handle.await.unwrap();
@@ -509,13 +491,8 @@ async fn test_chat_handler_sends_inbound_and_returns_response() {
     // Send a response through the pending oneshot
     let request_id = msg.chat_id.clone();
     let tx = pending.lock().unwrap().remove(&request_id).unwrap();
-    tx.send(OutboundMessage {
-        channel: "http".to_string(),
-        chat_id: request_id,
-        content: "world".to_string(),
-        ..Default::default()
-    })
-    .unwrap();
+    tx.send(OutboundMessage::builder("http", request_id, "world").build())
+        .unwrap();
 
     let resp = handle.await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -554,13 +531,8 @@ async fn test_chat_handler_with_session_id() {
     let msg = inbound_rx.recv().await.unwrap();
     let request_id = msg.chat_id.clone();
     let tx = pending.lock().unwrap().remove(&request_id).unwrap();
-    tx.send(OutboundMessage {
-        channel: "http".to_string(),
-        chat_id: request_id,
-        content: "reply".to_string(),
-        ..Default::default()
-    })
-    .unwrap();
+    tx.send(OutboundMessage::builder("http", request_id, "reply").build())
+        .unwrap();
 
     let resp = handle.await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -874,13 +846,8 @@ async fn test_chat_handler_with_response_format_metadata() {
     // Complete the request to avoid timeout
     let request_id = msg.chat_id.clone();
     let tx = pending.lock().unwrap().remove(&request_id).unwrap();
-    tx.send(OutboundMessage {
-        channel: "http".to_string(),
-        chat_id: request_id,
-        content: r#"{"items":[]}"#.to_string(),
-        ..Default::default()
-    })
-    .unwrap();
+    tx.send(OutboundMessage::builder("http", request_id, r#"{"items":[]}"#).build())
+        .unwrap();
 
     let resp = handle.await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -915,13 +882,8 @@ async fn test_chat_handler_without_response_format_no_metadata() {
 
     let request_id = msg.chat_id.clone();
     let tx = pending.lock().unwrap().remove(&request_id).unwrap();
-    tx.send(OutboundMessage {
-        channel: "http".to_string(),
-        chat_id: request_id,
-        content: "world".to_string(),
-        ..Default::default()
-    })
-    .unwrap();
+    tx.send(OutboundMessage::builder("http", request_id, "world").build())
+        .unwrap();
 
     let resp = handle.await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);

@@ -59,12 +59,7 @@ fn test_config() -> CircuitBreakerConfig {
 }
 
 fn make_request() -> ChatRequest {
-    ChatRequest {
-        messages: vec![],
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    }
+    ChatRequest::builder(vec![], 1024).temperature(0.7).build()
 }
 
 #[tokio::test]

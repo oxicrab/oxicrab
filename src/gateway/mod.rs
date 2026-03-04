@@ -425,28 +425,18 @@ async fn chat_handler(
     };
 
     // Publish inbound message to the agent
-    let msg = InboundMessage {
-        channel: "http".to_string(),
-        sender_id: "http-api".to_string(),
-        chat_id: request_id.clone(),
-        content: body.message,
-        timestamp: chrono::Utc::now(),
-        metadata: {
-            let mut meta = HashMap::new();
-            meta.insert(
-                crate::bus::meta::SESSION_ID.to_string(),
-                serde_json::Value::String(session_id.clone()),
-            );
-            if let Some(ref rf) = response_format_value {
-                meta.insert(
-                    crate::bus::meta::RESPONSE_FORMAT.to_string(),
-                    response_format_to_json(rf),
-                );
-            }
-            meta
-        },
-        ..Default::default()
-    };
+    let mut builder = InboundMessage::builder("http", "http-api", request_id.clone(), body.message)
+        .meta(
+            crate::bus::meta::SESSION_ID,
+            serde_json::Value::String(session_id.clone()),
+        );
+    if let Some(ref rf) = response_format_value {
+        builder = builder.meta(
+            crate::bus::meta::RESPONSE_FORMAT,
+            response_format_to_json(rf),
+        );
+    }
+    let msg = builder.build();
 
     if let Err(e) = state.inbound_tx.send(msg).await {
         // Clean up pending entry
@@ -647,22 +637,17 @@ async fn webhook_handler(
             pending.insert(request_id.clone(), tx);
         }
 
-        let inbound = InboundMessage {
-            channel: "http".to_string(),
-            sender_id: format!("webhook:{name}"),
-            chat_id: request_id.clone(),
-            content: message,
-            timestamp: chrono::Utc::now(),
-            metadata: {
-                let mut meta = HashMap::new();
-                meta.insert(
-                    crate::bus::meta::WEBHOOK_NAME.to_string(),
-                    serde_json::Value::String(name.clone()),
-                );
-                meta
-            },
-            ..Default::default()
-        };
+        let inbound = InboundMessage::builder(
+            "http",
+            format!("webhook:{name}"),
+            request_id.clone(),
+            message,
+        )
+        .meta(
+            crate::bus::meta::WEBHOOK_NAME,
+            serde_json::Value::String(name.clone()),
+        )
+        .build();
 
         if let Err(e) = state.inbound_tx.send(inbound).await {
             let mut pending = state.pending.lock().unwrap_or_else(|poison| {
@@ -733,20 +718,16 @@ async fn deliver_to_targets(
     }
 
     for target in targets {
-        let msg = OutboundMessage {
-            channel: target.channel.clone(),
-            chat_id: target.chat_id.clone(),
-            content: safe_content.clone(),
-            metadata: {
-                let mut meta = HashMap::new();
-                meta.insert(
-                    crate::bus::meta::WEBHOOK_SOURCE.to_string(),
-                    serde_json::Value::String(webhook_name.to_string()),
-                );
-                meta
-            },
-            ..Default::default()
-        };
+        let msg = OutboundMessage::builder(
+            target.channel.clone(),
+            target.chat_id.clone(),
+            safe_content.clone(),
+        )
+        .meta(
+            crate::bus::meta::WEBHOOK_SOURCE,
+            serde_json::Value::String(webhook_name.to_string()),
+        )
+        .build();
         if let Err(e) = outbound_tx.send(msg).await {
             error!(
                 "webhook {}: failed to deliver to {}:{}: {}",

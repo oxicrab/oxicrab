@@ -8,7 +8,6 @@ use crate::config::SlackConfig;
 use crate::utils::regex::{RegexPatterns, compile_slack_mention};
 use anyhow::Result;
 use async_trait::async_trait;
-use chrono::Utc;
 use futures_util::SinkExt;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -1036,28 +1035,15 @@ async fn handle_slack_event(
         });
     }
 
-    let inbound_msg = InboundMessage {
-        channel: "slack".to_string(),
-        sender_id,
-        chat_id: channel_id.to_string(),
-        content,
-        timestamp: Utc::now(),
-        media: media_paths,
-        metadata: {
-            let mut meta = HashMap::new();
-            if let Some(ts) = event.get("ts").and_then(Value::as_str) {
-                meta.insert("ts".to_string(), Value::String(ts.to_string()));
-            }
-            meta.insert("user_id".to_string(), Value::String(user_id.to_string()));
-            // Slack DM channels start with 'D', public channels with 'C', private/group with 'G'
-            let is_group = !channel_id.starts_with('D');
-            meta.insert(
-                crate::bus::meta::IS_GROUP.to_string(),
-                Value::Bool(is_group),
-            );
-            meta
-        },
-    };
+    let is_group = !channel_id.starts_with('D');
+    let mut builder = InboundMessage::builder("slack", sender_id, channel_id.to_string(), content)
+        .media(media_paths)
+        .meta("user_id", Value::String(user_id.to_string()))
+        .is_group(is_group);
+    if let Some(ts) = event.get("ts").and_then(Value::as_str) {
+        builder = builder.meta("ts", Value::String(ts.to_string()));
+    }
+    let inbound_msg = builder.build();
 
     inbound_tx
         .send(inbound_msg)

@@ -43,6 +43,66 @@ impl InboundMessage {
     pub fn session_key(&self) -> String {
         format!("{}:{}", self.channel, self.chat_id)
     }
+
+    /// Start building an `InboundMessage` with the required fields.
+    /// Timestamp defaults to `Utc::now()`.
+    pub fn builder(
+        channel: impl Into<String>,
+        sender_id: impl Into<String>,
+        chat_id: impl Into<String>,
+        content: impl Into<String>,
+    ) -> InboundMessageBuilder {
+        InboundMessageBuilder {
+            inner: InboundMessage {
+                channel: channel.into(),
+                sender_id: sender_id.into(),
+                chat_id: chat_id.into(),
+                content: content.into(),
+                timestamp: Utc::now(),
+                media: Vec::new(),
+                metadata: HashMap::new(),
+            },
+        }
+    }
+}
+
+/// Builder for [`InboundMessage`]. Created via [`InboundMessage::builder()`].
+#[must_use]
+pub struct InboundMessageBuilder {
+    inner: InboundMessage,
+}
+
+impl InboundMessageBuilder {
+    pub fn timestamp(mut self, ts: DateTime<Utc>) -> Self {
+        self.inner.timestamp = ts;
+        self
+    }
+
+    pub fn media(mut self, paths: Vec<String>) -> Self {
+        self.inner.media = paths;
+        self
+    }
+
+    /// Insert a single metadata key-value pair.
+    pub fn meta(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        self.inner.metadata.insert(key.into(), value);
+        self
+    }
+
+    /// Replace the entire metadata map.
+    pub fn metadata(mut self, map: HashMap<String, serde_json::Value>) -> Self {
+        self.inner.metadata = map;
+        self
+    }
+
+    /// Shorthand for `.meta(meta::IS_GROUP, Value::Bool(flag))`.
+    pub fn is_group(self, flag: bool) -> Self {
+        self.meta(meta::IS_GROUP, serde_json::Value::Bool(flag))
+    }
+
+    pub fn build(self) -> InboundMessage {
+        self.inner
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -53,6 +113,75 @@ pub struct OutboundMessage {
     pub reply_to: Option<String>,
     pub media: Vec<String>,
     pub metadata: HashMap<String, serde_json::Value>,
+}
+
+impl OutboundMessage {
+    /// Start building an `OutboundMessage` with the required fields.
+    pub fn builder(
+        channel: impl Into<String>,
+        chat_id: impl Into<String>,
+        content: impl Into<String>,
+    ) -> OutboundMessageBuilder {
+        OutboundMessageBuilder {
+            inner: OutboundMessage {
+                channel: channel.into(),
+                chat_id: chat_id.into(),
+                content: content.into(),
+                reply_to: None,
+                media: Vec::new(),
+                metadata: HashMap::new(),
+            },
+        }
+    }
+
+    /// Build from an inbound message, moving `channel`, `chat_id`, and `metadata`.
+    pub fn from_inbound(msg: InboundMessage, content: impl Into<String>) -> OutboundMessageBuilder {
+        OutboundMessageBuilder {
+            inner: OutboundMessage {
+                channel: msg.channel,
+                chat_id: msg.chat_id,
+                content: content.into(),
+                reply_to: None,
+                media: Vec::new(),
+                metadata: msg.metadata,
+            },
+        }
+    }
+}
+
+/// Builder for [`OutboundMessage`]. Created via [`OutboundMessage::builder()`] or
+/// [`OutboundMessage::from_inbound()`].
+#[must_use]
+pub struct OutboundMessageBuilder {
+    inner: OutboundMessage,
+}
+
+impl OutboundMessageBuilder {
+    pub fn media(mut self, paths: Vec<String>) -> Self {
+        self.inner.media = paths;
+        self
+    }
+
+    pub fn reply_to(mut self, id: impl Into<String>) -> Self {
+        self.inner.reply_to = Some(id.into());
+        self
+    }
+
+    /// Insert a single metadata key-value pair.
+    pub fn meta(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        self.inner.metadata.insert(key.into(), value);
+        self
+    }
+
+    /// Replace the entire metadata map.
+    pub fn metadata(mut self, map: HashMap<String, serde_json::Value>) -> Self {
+        self.inner.metadata = map;
+        self
+    }
+
+    pub fn build(self) -> OutboundMessage {
+        self.inner
+    }
 }
 
 #[cfg(test)]

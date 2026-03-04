@@ -57,12 +57,7 @@ fn tool_response(name: &str, args: serde_json::Value) -> LLMResponse {
 }
 
 fn make_request() -> ChatRequest {
-    ChatRequest {
-        messages: vec![],
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    }
+    ChatRequest::builder(vec![], 1024).temperature(0.7).build()
 }
 
 #[tokio::test]
@@ -207,17 +202,14 @@ async fn test_text_only_with_tools_available_not_rejected() {
     );
 
     // Request WITH tools but tool_choice=None (auto)
-    let req = ChatRequest {
-        messages: vec![],
-        tools: Some(vec![crate::providers::base::ToolDefinition {
+    let req = ChatRequest::builder(vec![], 1024)
+        .tools(vec![crate::providers::base::ToolDefinition {
             name: "web_search".to_string(),
             description: "Search the web".to_string(),
             parameters: json!({"type": "object"}),
-        }]),
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    };
+        }])
+        .temperature(0.7)
+        .build();
 
     let result = provider.chat(req).await.unwrap();
     // Primary's text response should be returned (not fallback)

@@ -50,17 +50,73 @@ fn test_inbound_serde_roundtrip() {
 
 #[test]
 fn test_outbound_serde_roundtrip() {
-    let msg = OutboundMessage {
-        channel: "discord".to_string(),
-        chat_id: "general".to_string(),
-        content: "reply text".to_string(),
-        reply_to: Some("msg123".to_string()),
-        media: vec!["image.png".to_string()],
-        metadata: HashMap::new(),
-    };
+    let msg = OutboundMessage::builder("discord", "general", "reply text")
+        .reply_to("msg123")
+        .media(vec!["image.png".to_string()])
+        .build();
     let json = serde_json::to_string(&msg).unwrap();
     let deserialized: OutboundMessage = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.channel, "discord");
     assert_eq!(deserialized.reply_to, Some("msg123".to_string()));
     assert_eq!(deserialized.media, vec!["image.png"]);
+}
+
+#[test]
+fn test_inbound_builder_defaults() {
+    let before = Utc::now();
+    let msg = InboundMessage::builder("telegram", "user1", "chat1", "hi").build();
+    assert_eq!(msg.channel, "telegram");
+    assert_eq!(msg.sender_id, "user1");
+    assert_eq!(msg.chat_id, "chat1");
+    assert_eq!(msg.content, "hi");
+    assert!(msg.timestamp >= before);
+    assert!(msg.media.is_empty());
+    assert!(msg.metadata.is_empty());
+}
+
+#[test]
+fn test_inbound_builder_is_group() {
+    let msg = InboundMessage::builder("discord", "u1", "c1", "hey")
+        .is_group(true)
+        .build();
+    assert_eq!(
+        msg.metadata.get(meta::IS_GROUP),
+        Some(&serde_json::Value::Bool(true))
+    );
+}
+
+#[test]
+fn test_inbound_builder_meta_chaining() {
+    let msg = InboundMessage::builder("slack", "u1", "c1", "msg")
+        .meta(meta::TS, serde_json::json!("123.456"))
+        .meta(meta::THREAD_TS, serde_json::json!("100.000"))
+        .build();
+    assert_eq!(msg.metadata.len(), 2);
+    assert_eq!(msg.metadata[meta::TS], serde_json::json!("123.456"));
+    assert_eq!(msg.metadata[meta::THREAD_TS], serde_json::json!("100.000"));
+}
+
+#[test]
+fn test_outbound_from_inbound() {
+    let inbound = InboundMessage::builder("telegram", "user1", "chat42", "question")
+        .meta(meta::TS, serde_json::json!("999"))
+        .build();
+    let outbound = OutboundMessage::from_inbound(inbound, "answer").build();
+    assert_eq!(outbound.channel, "telegram");
+    assert_eq!(outbound.chat_id, "chat42");
+    assert_eq!(outbound.content, "answer");
+    assert_eq!(outbound.metadata[meta::TS], serde_json::json!("999"));
+    assert!(outbound.reply_to.is_none());
+    assert!(outbound.media.is_empty());
+}
+
+#[test]
+fn test_outbound_builder_defaults() {
+    let msg = OutboundMessage::builder("discord", "general", "hello").build();
+    assert_eq!(msg.channel, "discord");
+    assert_eq!(msg.chat_id, "general");
+    assert_eq!(msg.content, "hello");
+    assert!(msg.reply_to.is_none());
+    assert!(msg.media.is_empty());
+    assert!(msg.metadata.is_empty());
 }

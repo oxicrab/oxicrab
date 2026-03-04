@@ -7,7 +7,6 @@ use crate::providers::base::{LLMProvider, Message};
 use crate::safety::prompt_guard::PromptGuard;
 use activity_log::ActivityLog;
 use anyhow::Result;
-use chrono::Utc;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -589,14 +588,13 @@ async fn announce_result(
         "[Subagent '{label}' {status_text}]\n\nTask: {task}\n\nResult:\n{result}\n\nSummarize this naturally for the user. Keep it brief (1-2 sentences). Do not mention technical details like \"subagent\" or task IDs."
     );
 
-    let msg = InboundMessage {
-        channel: "system".to_string(),
-        sender_id: "subagent".to_string(),
-        chat_id: format!("{}:{}", origin.0, origin.1),
-        content: announce_content,
-        timestamp: Utc::now(),
-        ..Default::default()
-    };
+    let msg = InboundMessage::builder(
+        "system",
+        "subagent",
+        format!("{}:{}", origin.0, origin.1),
+        announce_content,
+    )
+    .build();
 
     if let Err(e) = bus.publish_inbound(msg).await {
         warn!("Failed to publish inbound message from subagent: {}", e);

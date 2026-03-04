@@ -4,12 +4,9 @@ use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn simple_chat_request(content: &str) -> ChatRequest {
-    ChatRequest {
-        messages: vec![Message::user(content)],
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    }
+    ChatRequest::builder(vec![Message::user(content)], 1024)
+        .temperature(0.7)
+        .build()
 }
 
 #[tokio::test]
@@ -142,15 +139,15 @@ async fn test_chat_with_system_message() {
         .await;
 
     let provider = AnthropicProvider::with_base_url("test_key".to_string(), None, server.uri());
-    let req = ChatRequest {
-        messages: vec![
+    let req = ChatRequest::builder(
+        vec![
             Message::system("You are a helpful assistant."),
             Message::user("Hello"),
         ],
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    };
+        1024,
+    )
+    .temperature(0.7)
+    .build();
     let result = provider.chat(req).await.unwrap();
 
     assert_eq!(result.content.unwrap(), "I am a helpful assistant.");
