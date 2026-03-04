@@ -111,9 +111,7 @@ async fn test_empty_llm_response_handled() {
             reasoning_content: None,
             input_tokens: None,
             output_tokens: None,
-            cache_creation_input_tokens: None,
-            cache_read_input_tokens: None,
-            actual_model: None,
+            ..Default::default()
         },
         LLMResponse {
             content: None,
@@ -121,9 +119,7 @@ async fn test_empty_llm_response_handled() {
             reasoning_content: None,
             input_tokens: None,
             output_tokens: None,
-            cache_creation_input_tokens: None,
-            cache_read_input_tokens: None,
-            actual_model: None,
+            ..Default::default()
         },
         LLMResponse {
             content: None,
@@ -131,9 +127,7 @@ async fn test_empty_llm_response_handled() {
             reasoning_content: None,
             input_tokens: None,
             output_tokens: None,
-            cache_creation_input_tokens: None,
-            cache_read_input_tokens: None,
-            actual_model: None,
+            ..Default::default()
         },
         text_response("Finally responding."),
     ]);

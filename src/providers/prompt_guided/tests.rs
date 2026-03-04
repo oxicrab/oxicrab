@@ -269,9 +269,7 @@ async fn integration_text_tool_call_parsed() {
         reasoning_content: None,
         input_tokens: None,
         output_tokens: None,
-        cache_creation_input_tokens: None,
-        cache_read_input_tokens: None,
-        actual_model: None,
+        ..Default::default()
     };
 
     let inner = Arc::new(MockProvider::with_response(inner_response));
@@ -333,9 +331,7 @@ impl MockProvider {
                 reasoning_content: None,
                 input_tokens: None,
                 output_tokens: None,
-                cache_creation_input_tokens: None,
-                cache_read_input_tokens: None,
-                actual_model: None,
+                ..Default::default()
             },
         }
     }

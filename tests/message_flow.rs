@@ -546,9 +546,7 @@ async fn test_empty_response_exhaustion_returns_empty() {
         reasoning_content: None,
         input_tokens: None,
         output_tokens: None,
-        cache_creation_input_tokens: None,
-        cache_read_input_tokens: None,
-        actual_model: None,
+        ..Default::default()
     };
     // 3 empty responses (initial + 2 retries = EMPTY_RESPONSE_RETRIES)
     let provider =

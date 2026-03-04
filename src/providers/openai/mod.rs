@@ -145,9 +145,7 @@ impl OpenAIProvider {
             reasoning_content,
             input_tokens,
             output_tokens,
-            cache_creation_input_tokens: None,
-            cache_read_input_tokens: None,
-            actual_model: None,
+            ..Default::default()
         })
     }
 }
