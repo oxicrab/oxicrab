@@ -681,11 +681,19 @@ async fn deliver_to_targets(
         return;
     };
 
+    // Scan for leaked secrets before delivery (this path bypasses MessageBus,
+    // so we must run leak detection ourselves)
+    let detector = crate::safety::leak_detector::LeakDetector::new();
+    let safe_content = detector.redact(content);
+    if safe_content != content {
+        warn!("webhook {webhook_name}: redacted leaked secrets from target delivery");
+    }
+
     for target in targets {
         let msg = OutboundMessage {
             channel: target.channel.clone(),
             chat_id: target.chat_id.clone(),
-            content: content.to_string(),
+            content: safe_content.clone(),
             metadata: {
                 let mut meta = HashMap::new();
                 meta.insert(

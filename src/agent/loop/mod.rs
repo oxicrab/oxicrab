@@ -1543,20 +1543,28 @@ impl AgentLoop {
             ContextBuilder::add_tool_result(messages, &tc.id, &tc.name, &result_str, is_error);
         }
 
-        // Scan tool results for prompt injection (warn only)
+        // Scan tool results for prompt injection
         if let Some(ref guard) = self.prompt_guard {
             for tc in tool_calls {
                 if let Some(msg) = messages
-                    .iter()
+                    .iter_mut()
                     .rev()
                     .find(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some(&tc.id))
                 {
                     let tool_matches = guard.scan(&msg.content);
-                    for m in &tool_matches {
-                        warn!(
-                            "prompt injection in tool '{}' output ({:?}): {}",
-                            tc.name, m.category, m.pattern_name
-                        );
+                    if !tool_matches.is_empty() {
+                        for m in &tool_matches {
+                            warn!(
+                                "prompt injection in tool '{}' output ({:?}): {}",
+                                tc.name, m.category, m.pattern_name
+                            );
+                        }
+                        if self.prompt_guard_config.should_block() {
+                            msg.content = format!(
+                                "[tool output redacted: prompt injection detected in '{}']",
+                                tc.name
+                            );
+                        }
                     }
                 }
             }

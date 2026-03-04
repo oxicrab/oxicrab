@@ -188,8 +188,10 @@ impl AgentLoop {
                     }
 
                     // Return recovery-enriched summary + recent messages
+                    // Use "user" role so build_messages() includes it (role="system"
+                    // is intentionally rejected to prevent prompt override injection).
                     let mut result = vec![HashMap::from([
-                        ("role".to_string(), Value::String("system".to_string())),
+                        ("role".to_string(), Value::String("user".to_string())),
                         (
                             "content".to_string(),
                             Value::String(format!(
