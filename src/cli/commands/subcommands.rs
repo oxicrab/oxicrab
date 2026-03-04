@@ -186,14 +186,7 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                     targets,
                     origin_metadata: std::collections::HashMap::new(),
                 },
-                state: CronJobState {
-                    next_run_at_ms: None, // Will be computed by service
-                    last_run_at_ms: None,
-                    last_status: None,
-                    last_error: None,
-                    run_count: 0,
-                    last_fired_at_ms: None,
-                },
+                state: CronJobState::default(),
                 created_at_ms: now_ms,
                 updated_at_ms: now_ms,
                 delete_after_run: false,

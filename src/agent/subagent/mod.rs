@@ -582,8 +582,7 @@ async fn execute_subagent_tool(
         let ctx = crate::agent::tools::base::ExecutionContext {
             channel: origin.0.clone(),
             chat_id: origin.1.clone(),
-            context_summary: None,
-            metadata: std::collections::HashMap::new(),
+            ..Default::default()
         };
         match registry.execute(tool_name, tool_args.clone(), &ctx).await {
             Ok(result) => (result.content, result.is_error),
