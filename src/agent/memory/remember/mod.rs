@@ -32,10 +32,13 @@ pub fn extract_remember_content(message: &str) -> Option<String> {
             if interrogatives.iter().any(|q| content.starts_with(q)) {
                 return None;
             }
-            // Return the original-case content (trim same prefix length from original)
+            // Return the original-case content (trim same prefix length from original).
+            // All REMEMBER_PATTERNS are pure ASCII, so pattern.len() == byte length
+            // in both the lowercased and original string. Use get() for safety.
             let original_trimmed = message.trim();
-            let prefix_start = original_trimmed.to_lowercase().find(pattern).unwrap_or(0);
-            let original_rest = &original_trimmed[prefix_start + pattern.len()..];
+            let original_rest = original_trimmed
+                .get(pattern.len()..)
+                .unwrap_or(original_trimmed);
             return Some(original_rest.trim().to_string());
         }
     }

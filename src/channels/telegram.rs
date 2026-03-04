@@ -10,6 +10,9 @@ use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::fmt::Write as _;
+
+/// Maximum file download size for Telegram media (25 MB).
+const MAX_TELEGRAM_DOWNLOAD: u32 = 25 * 1024 * 1024;
 use std::sync::Arc;
 use teloxide::net::Download;
 use teloxide::prelude::*;
@@ -115,6 +118,9 @@ impl BaseChannel for TelegramChannel {
 
                                     // Download the photo
                                     match bot.get_file(photo.file.id.clone()).await {
+                                        Ok(file) if file.size > MAX_TELEGRAM_DOWNLOAD => {
+                                            warn!("telegram photo too large ({} bytes), skipping", file.size);
+                                        }
                                         Ok(file) => {
                                             let Ok(media_dir) = crate::utils::media::media_dir() else {
                                                 warn!("Failed to create media directory");
@@ -181,6 +187,9 @@ impl BaseChannel for TelegramChannel {
                                 let mut content = text;
 
                                 match bot.get_file(voice.file.id.clone()).await {
+                                    Ok(file) if file.size > MAX_TELEGRAM_DOWNLOAD => {
+                                        warn!("telegram voice too large ({} bytes), skipping", file.size);
+                                    }
                                     Ok(file) => {
                                         let Ok(media_dir) = crate::utils::media::media_dir() else {
                                             warn!("Failed to create media directory");
@@ -247,13 +256,17 @@ impl BaseChannel for TelegramChannel {
                                 let mut content = text;
 
                                 match bot.get_file(doc.file.id.clone()).await {
+                                    Ok(file) if file.size > MAX_TELEGRAM_DOWNLOAD => {
+                                        warn!("telegram document too large ({} bytes), skipping", file.size);
+                                    }
                                     Ok(file) => {
                                         let Ok(media_dir) = crate::utils::media::media_dir() else {
                                             warn!("Failed to create media directory");
                                             return Ok(());
                                         };
-                                        // Use original extension, fall back to mime type
-                                        let ext = doc
+                                        // Use original extension, fall back to mime type.
+                                        // Sanitize to alphanumeric to prevent path traversal.
+                                        let raw_ext = doc
                                             .file_name
                                             .as_deref()
                                             .and_then(|n| n.rsplit_once('.').map(|(_, ext)| ext))
@@ -263,6 +276,12 @@ impl BaseChannel for TelegramChannel {
                                                     .map(|m| m.subtype().as_str())
                                             })
                                             .unwrap_or("bin");
+                                        let ext: String = raw_ext
+                                            .chars()
+                                            .filter(char::is_ascii_alphanumeric)
+                                            .take(10)
+                                            .collect();
+                                        let ext = if ext.is_empty() { "bin".to_string() } else { ext };
                                         let file_path = media_dir.join(format!(
                                             "telegram_{}.{}",
                                             doc.file.unique_id, ext

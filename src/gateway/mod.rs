@@ -89,6 +89,22 @@ pub struct HttpApiState {
     outbound_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>,
 }
 
+/// Drop guard that removes a pending response entry when the handler is dropped
+/// (e.g., on client disconnect). If the response already arrived via `route_response()`,
+/// the entry will already be consumed and the remove is a harmless no-op.
+struct PendingCleanup {
+    pending: Arc<Mutex<HashMap<String, oneshot::Sender<OutboundMessage>>>>,
+    id: String,
+}
+
+impl Drop for PendingCleanup {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(&self.id);
+        }
+    }
+}
+
 /// Request body for POST /api/chat.
 #[derive(Debug, Deserialize)]
 pub struct ChatRequest {
@@ -350,6 +366,14 @@ async fn chat_handler(
         });
         pending.insert(request_id.clone(), tx);
     }
+
+    // Drop guard: remove pending entry if the handler is dropped (client disconnect).
+    // When the response arrives normally, the entry is consumed by route_response()
+    // so this guard's remove is a harmless no-op.
+    let _cleanup = PendingCleanup {
+        pending: state.pending.clone(),
+        id: request_id.clone(),
+    };
 
     // Convert gateway response format to provider-level enum and serialize
     // into metadata so the agent loop can extract it.

@@ -363,7 +363,9 @@ impl Tool for ExecTool {
         if self.sandbox_config.enabled {
             let rules = crate::utils::sandbox::SandboxRules::for_shell(&cwd, &self.sandbox_config);
             if let Err(e) = crate::utils::sandbox::apply_to_command(&mut cmd, &rules) {
-                warn!("failed to apply sandbox: {}, continuing without", e);
+                return Ok(ToolResult::error(format!(
+                    "sandbox is required but failed to apply: {e}"
+                )));
             }
         }
 

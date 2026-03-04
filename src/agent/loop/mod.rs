@@ -1224,6 +1224,7 @@ impl AgentLoop {
         user_has_action_intent: bool,
     ) -> Result<AgentLoopResult> {
         let effective_model = overrides.model.as_deref().unwrap_or(&self.model);
+        let effective_provider = overrides.provider.as_ref().unwrap_or(&self.provider);
         let effective_max_iterations = overrides.max_iterations.unwrap_or(self.max_iterations);
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut any_tools_called = false;
@@ -1329,7 +1330,6 @@ impl AgentLoop {
                 });
             }
 
-            let effective_provider = overrides.provider.as_ref().unwrap_or(&self.provider);
             let response = effective_provider
                 .chat_with_retry(
                     crate::providers::base::ChatRequest {
@@ -1471,6 +1471,7 @@ impl AgentLoop {
                 .generate_post_loop_summary(
                     &mut messages,
                     effective_model,
+                    effective_provider.as_ref(),
                     overrides.request_id.as_deref(),
                 )
                 .await?
@@ -1747,6 +1748,7 @@ impl AgentLoop {
         &self,
         messages: &mut Vec<Message>,
         effective_model: &str,
+        effective_provider: &dyn LLMProvider,
         request_id: Option<&str>,
     ) -> Result<Option<String>> {
         // Cost guard pre-flight check for summary call
@@ -1760,8 +1762,7 @@ impl AgentLoop {
         messages.push(Message::user(
             "Provide a brief summary of what you accomplished for the user.".to_string(),
         ));
-        match self
-            .provider
+        match effective_provider
             .chat_with_retry(
                 crate::providers::base::ChatRequest {
                     messages: messages.clone(),

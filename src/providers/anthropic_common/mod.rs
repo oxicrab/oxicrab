@@ -93,10 +93,13 @@ pub fn convert_messages(messages: Vec<Message>) -> (Option<String>, Vec<Anthropi
                     }
                 }
 
-                anthropic_messages.push(AnthropicMessage {
-                    role: "assistant".to_string(),
-                    content: Value::Array(content),
-                });
+                // Skip assistant messages with no content (Anthropic rejects empty arrays)
+                if !content.is_empty() {
+                    anthropic_messages.push(AnthropicMessage {
+                        role: "assistant".to_string(),
+                        content: Value::Array(content),
+                    });
+                }
             }
             "tool" => {
                 if let Some(tool_call_id) = msg.tool_call_id {

@@ -189,6 +189,14 @@ impl PairingStore {
     }
 
     fn save_allowlist(&self, channel: &str) -> Result<()> {
+        // Reject channel names containing path separators or traversal sequences
+        if channel.contains('/')
+            || channel.contains('\\')
+            || channel.contains("..")
+            || channel.contains('\0')
+        {
+            anyhow::bail!("invalid channel name for allowlist: {channel}");
+        }
         let _lock = self.lock_exclusive()?;
         let path = self.base_dir.join(format!("{channel}-allowlist.json"));
         let data = self.allowlists.get(channel).cloned().unwrap_or_default();
