@@ -965,6 +965,7 @@
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
             <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable this channel</td></tr>
             <tr><td>allowFrom</td><td>string[]</td><td>[]</td><td>Authorized sender IDs. Empty = deny-all. Use <code>["*"]</code> for open access.</td></tr>
+            <tr><td>allowGroups</td><td>string[]</td><td>[]</td><td>Restrict which groups/channels the bot responds in. Empty = all groups allowed. Non-empty = only listed group IDs.</td></tr>
             <tr><td>dmPolicy</td><td>string</td><td>"allowlist"</td><td>DM access policy: <code>"allowlist"</code>, <code>"pairing"</code>, or <code>"open"</code></td></tr>
         </table>
 
