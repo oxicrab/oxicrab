@@ -686,8 +686,6 @@ async fn deliver_to_targets(
             channel: target.channel.clone(),
             chat_id: target.chat_id.clone(),
             content: content.to_string(),
-            reply_to: None,
-            media: vec![],
             metadata: {
                 let mut meta = HashMap::new();
                 meta.insert(
@@ -696,6 +694,7 @@ async fn deliver_to_targets(
                 );
                 meta
             },
+            ..Default::default()
         };
         if let Err(e) = outbound_tx.send(msg).await {
             error!(

@@ -19,9 +19,7 @@ fn make_outbound(channel: &str, chat_id: &str, content: &str) -> OutboundMessage
         channel: channel.to_string(),
         chat_id: chat_id.to_string(),
         content: content.to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     }
 }
 

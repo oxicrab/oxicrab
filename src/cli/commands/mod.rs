@@ -651,9 +651,8 @@ async fn gateway_echo() -> Result<()> {
                         channel: msg.channel,
                         chat_id: msg.chat_id,
                         content: echo_text,
-                        reply_to: None,
-                        media: vec![],
                         metadata: msg.metadata,
+                        ..Default::default()
                     })
                     .await;
             }
@@ -855,9 +854,8 @@ async fn cron_job_execute(
                     channel: target.channel.clone(),
                     chat_id: target.to.clone(),
                     content: job.payload.message.clone(),
-                    reply_to: None,
-                    media: vec![],
                     metadata: job.payload.origin_metadata.clone(),
+                    ..Default::default()
                 })
                 .await
             {
@@ -896,9 +894,8 @@ async fn cron_job_execute(
                     channel: target.channel.clone(),
                     chat_id: target.to.clone(),
                     content: response.clone(),
-                    reply_to: None,
-                    media: vec![],
                     metadata: job.payload.origin_metadata.clone(),
+                    ..Default::default()
                 })
                 .await
             {
@@ -1090,8 +1087,8 @@ fn start_channels_loop(
                             channel: msg.channel.clone(),
                             chat_id: msg.chat_id.clone(),
                             reply_to: msg.reply_to.clone(),
-                            media: vec![],
                             metadata: msg.metadata.clone(),
+                            ..Default::default()
                         };
                         match channels.send_and_get_id(&status_msg).await {
                             Ok(Some(id)) => {

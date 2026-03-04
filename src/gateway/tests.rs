@@ -39,9 +39,7 @@ fn test_route_response_non_http_returns_false() {
         channel: "telegram".to_string(),
         chat_id: "123".to_string(),
         content: "hello".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     };
     assert!(!route_response(&state, msg));
 }
@@ -60,9 +58,7 @@ fn test_route_response_http_with_pending() {
         channel: "http".to_string(),
         chat_id: "req-1".to_string(),
         content: "response text".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     };
     assert!(route_response(&state, msg));
     let received = rx.try_recv().unwrap();
@@ -76,9 +72,7 @@ fn test_route_response_http_no_pending() {
         channel: "http".to_string(),
         chat_id: "nonexistent".to_string(),
         content: "orphan".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     };
     // Should not panic, just return true (consumed) and warn
     assert!(route_response(&state, msg));
@@ -466,9 +460,7 @@ async fn test_webhook_agent_turn_routes_through_agent() {
         channel: "http".to_string(),
         chat_id: request_id,
         content: "I'm investigating the server issue.".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     })
     .unwrap();
 
@@ -525,9 +517,7 @@ async fn test_chat_handler_sends_inbound_and_returns_response() {
         channel: "http".to_string(),
         chat_id: request_id,
         content: "world".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     })
     .unwrap();
 
@@ -572,9 +562,7 @@ async fn test_chat_handler_with_session_id() {
         channel: "http".to_string(),
         chat_id: request_id,
         content: "reply".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     })
     .unwrap();
 
@@ -895,9 +883,7 @@ async fn test_chat_handler_with_response_format_metadata() {
         channel: "http".to_string(),
         chat_id: request_id,
         content: r#"{"items":[]}"#.to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     })
     .unwrap();
 
@@ -938,9 +924,7 @@ async fn test_chat_handler_without_response_format_no_metadata() {
         channel: "http".to_string(),
         chat_id: request_id,
         content: "world".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     })
     .unwrap();
 

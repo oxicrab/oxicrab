@@ -19,7 +19,7 @@ impl InboundMessage {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct OutboundMessage {
     pub channel: String,
     pub chat_id: String,

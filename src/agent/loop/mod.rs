@@ -843,9 +843,8 @@ impl AgentLoop {
                         channel: msg.channel,
                         chat_id: msg.chat_id,
                         content: "I can't process this message as it appears to contain prompt injection patterns.".to_string(),
-                        reply_to: None,
-                        media: vec![],
                         metadata: msg.metadata,
+                        ..Default::default()
                     }));
                 }
             }
@@ -867,9 +866,8 @@ impl AgentLoop {
                     channel: msg.channel,
                     chat_id: msg.chat_id,
                     content: response_text,
-                    reply_to: None,
-                    media: vec![],
                     metadata: msg.metadata,
+                    ..Default::default()
                 }));
             }
         }
@@ -1126,9 +1124,9 @@ impl AgentLoop {
                 channel: msg.channel,
                 chat_id: msg.chat_id,
                 content,
-                reply_to: None,
                 media: collected_media,
                 metadata: msg.metadata,
+                ..Default::default()
             }))
         } else {
             warn!(
@@ -1139,9 +1137,8 @@ impl AgentLoop {
                 channel: msg.channel,
                 chat_id: msg.chat_id,
                 content: "I wasn't able to generate a response. Please try again.".to_string(),
-                reply_to: None,
-                media: vec![],
                 metadata: msg.metadata,
+                ..Default::default()
             }))
         }
     }
@@ -1845,9 +1842,9 @@ impl AgentLoop {
             channel: origin_channel.clone(),
             chat_id: origin_chat_id.clone(),
             content: final_content,
-            reply_to: None,
             media: collected_media,
             metadata: msg.metadata,
+            ..Default::default()
         }))
     }
 
