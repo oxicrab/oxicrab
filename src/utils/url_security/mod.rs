@@ -58,13 +58,17 @@ pub async fn validate_and_resolve(url_str: &str) -> Result<ResolvedUrl, String> 
             .await
             .map_err(|_| format!("DNS resolution timed out for domain: {domain}"))?
             .map_err(|_| format!("DNS resolution failed for domain: {domain}"))?;
-            let addrs: Vec<SocketAddr> = resolved.collect();
+            let mut addrs: Vec<SocketAddr> = resolved.collect();
             for addr in &addrs {
                 check_ip_allowed(addr.ip())?;
             }
             if addrs.is_empty() {
                 return Err(format!("DNS resolved no addresses for: {domain}"));
             }
+            // Prefer IPv4: many hosts advertise AAAA records but have broken
+            // IPv6 connectivity.  Sorting IPv4-first lets the pinned client
+            // reach a working address on the first attempt.
+            addrs.sort_by_key(|a| matches!(a.ip(), IpAddr::V6(_)));
             addrs
         }
     };
