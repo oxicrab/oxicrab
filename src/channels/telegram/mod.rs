@@ -8,8 +8,6 @@ use crate::config::TelegramConfig;
 use crate::utils::regex::RegexPatterns;
 use anyhow::Result;
 use async_trait::async_trait;
-use chrono::Utc;
-use std::collections::HashMap;
 use std::fmt::Write as _;
 
 /// Maximum file download size for Telegram media (25 MB).
@@ -175,18 +173,11 @@ impl BaseChannel for TelegramChannel {
                                     }
 
                                     if !content.trim().is_empty() || !media_paths.is_empty() {
-                                        let mut metadata = HashMap::new();
                                         let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
-                                        metadata.insert(crate::bus::meta::IS_GROUP.to_string(), serde_json::Value::Bool(is_group));
-                                        let inbound_msg = InboundMessage {
-                                            channel: "telegram".to_string(),
-                                            sender_id,
-                                            chat_id: msg.chat.id.to_string(),
-                                            content,
-                                            timestamp: Utc::now(),
-                                            media: media_paths,
-                                            metadata,
-                                        };
+                                        let inbound_msg = InboundMessage::builder("telegram", sender_id, msg.chat.id.to_string(), content)
+                                            .media(media_paths)
+                                            .is_group(is_group)
+                                            .build();
                                         if let Err(e) = inbound_tx.send(inbound_msg).await {
                                             error!(
                                                 "Failed to send Telegram inbound message: {}",
@@ -244,18 +235,11 @@ impl BaseChannel for TelegramChannel {
                                 }
 
                                 if !content.trim().is_empty() || !media_paths.is_empty() {
-                                    let mut metadata = HashMap::new();
                                     let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
-                                    metadata.insert(crate::bus::meta::IS_GROUP.to_string(), serde_json::Value::Bool(is_group));
-                                    let inbound_msg = InboundMessage {
-                                        channel: "telegram".to_string(),
-                                        sender_id,
-                                        chat_id: msg.chat.id.to_string(),
-                                        content,
-                                        timestamp: Utc::now(),
-                                        media: media_paths,
-                                        metadata,
-                                    };
+                                    let inbound_msg = InboundMessage::builder("telegram", sender_id, msg.chat.id.to_string(), content)
+                                        .media(media_paths)
+                                        .is_group(is_group)
+                                        .build();
                                     if let Err(e) = inbound_tx.send(inbound_msg).await {
                                         error!(
                                             "Failed to send Telegram inbound message: {}",
@@ -339,18 +323,11 @@ impl BaseChannel for TelegramChannel {
                                 }
 
                                 if !content.trim().is_empty() || !media_paths.is_empty() {
-                                    let mut metadata = HashMap::new();
                                     let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
-                                    metadata.insert(crate::bus::meta::IS_GROUP.to_string(), serde_json::Value::Bool(is_group));
-                                    let inbound_msg = InboundMessage {
-                                        channel: "telegram".to_string(),
-                                        sender_id,
-                                        chat_id: msg.chat.id.to_string(),
-                                        content,
-                                        timestamp: Utc::now(),
-                                        media: media_paths,
-                                        metadata,
-                                    };
+                                    let inbound_msg = InboundMessage::builder("telegram", sender_id, msg.chat.id.to_string(), content)
+                                        .media(media_paths)
+                                        .is_group(is_group)
+                                        .build();
                                     if let Err(e) = inbound_tx.send(inbound_msg).await {
                                         error!(
                                             "Failed to send Telegram inbound message: {}",
@@ -363,18 +340,10 @@ impl BaseChannel for TelegramChannel {
 
                             // Handle text-only messages
                             if let Some(text) = msg.text() {
-                                let mut metadata = HashMap::new();
                                 let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
-                                metadata.insert(crate::bus::meta::IS_GROUP.to_string(), serde_json::Value::Bool(is_group));
-                                let inbound_msg = InboundMessage {
-                                    channel: "telegram".to_string(),
-                                    sender_id,
-                                    chat_id: msg.chat.id.to_string(),
-                                    content: text.to_string(),
-                                    timestamp: Utc::now(),
-                                    metadata,
-                                    ..Default::default()
-                                };
+                                let inbound_msg = InboundMessage::builder("telegram", sender_id, msg.chat.id.to_string(), text.to_string())
+                                    .is_group(is_group)
+                                    .build();
 
                                 if let Err(e) = inbound_tx.send(inbound_msg).await {
                                     error!("Failed to send Telegram inbound message: {}", e);

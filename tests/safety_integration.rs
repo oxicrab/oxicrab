@@ -196,13 +196,12 @@ async fn test_leak_detector_redacts_api_key_in_outbound() {
     let bus = MessageBus::new(30, 60.0, 100, 100);
     let mut rx = bus.take_outbound_rx().expect("take outbound rx");
 
-    let msg = OutboundMessage {
-        channel: "telegram".to_string(),
-        chat_id: "test".to_string(),
-        content: "Here is the key: sk-ant-api03-abcdefghijklmnopqrst12345 you asked for"
-            .to_string(),
-        ..Default::default()
-    };
+    let msg = OutboundMessage::builder(
+        "telegram",
+        "test",
+        "Here is the key: sk-ant-api03-abcdefghijklmnopqrst12345 you asked for",
+    )
+    .build();
 
     bus.publish_outbound(msg).await.expect("publish outbound");
 
@@ -238,12 +237,12 @@ async fn test_leak_detector_with_known_secrets_via_bus() {
     let custom_secret = "my-super-secret-custom-api-key-12345";
     bus.add_known_secrets(&[("custom", custom_secret)]);
 
-    let msg = OutboundMessage {
-        channel: "telegram".to_string(),
-        chat_id: "test".to_string(),
-        content: format!("The secret is: {}", custom_secret),
-        ..Default::default()
-    };
+    let msg = OutboundMessage::builder(
+        "telegram",
+        "test",
+        format!("The secret is: {}", custom_secret),
+    )
+    .build();
 
     // publish_outbound redacts the message before sending
     bus.publish_outbound(msg).await.expect("publish outbound");

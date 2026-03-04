@@ -49,14 +49,7 @@ impl BaseChannel for MockChannel {
 }
 
 fn make_outbound(channel: &str) -> OutboundMessage {
-    OutboundMessage {
-        channel: channel.to_string(),
-        chat_id: "chat1".to_string(),
-        content: "hello".to_string(),
-        reply_to: None,
-        media: vec![],
-        metadata: std::collections::HashMap::new(),
-    }
+    OutboundMessage::builder(channel, "chat1", "hello").build()
 }
 
 #[tokio::test]

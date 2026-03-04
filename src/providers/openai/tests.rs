@@ -6,12 +6,9 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 // --- Wiremock tests ---
 
 fn simple_chat_request(content: &str) -> ChatRequest {
-    ChatRequest {
-        messages: vec![Message::user(content)],
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    }
+    ChatRequest::builder(vec![Message::user(content)], 1024)
+        .temperature(0.7)
+        .build()
 }
 
 #[tokio::test]
@@ -320,13 +317,10 @@ async fn test_chat_with_json_object_format() {
         .await;
 
     let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
-    let req = ChatRequest {
-        messages: vec![Message::user("return json")],
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        response_format: Some(crate::providers::base::ResponseFormat::JsonObject),
-        ..Default::default()
-    };
+    let req = ChatRequest::builder(vec![Message::user("return json")], 1024)
+        .temperature(0.7)
+        .response_format(crate::providers::base::ResponseFormat::JsonObject)
+        .build();
     let result = provider.chat(req).await.unwrap();
     assert_eq!(result.content.unwrap(), "{\"answer\": 42}");
 }
@@ -358,16 +352,13 @@ async fn test_chat_with_json_schema_format() {
         },
         "required": ["name", "age"]
     });
-    let req = ChatRequest {
-        messages: vec![Message::user("return a person")],
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        response_format: Some(crate::providers::base::ResponseFormat::JsonSchema {
+    let req = ChatRequest::builder(vec![Message::user("return a person")], 1024)
+        .temperature(0.7)
+        .response_format(crate::providers::base::ResponseFormat::JsonSchema {
             name: "person".into(),
             schema,
-        }),
-        ..Default::default()
-    };
+        })
+        .build();
     let result = provider.chat(req).await.unwrap();
     assert!(result.content.unwrap().contains("Alice"));
 }
@@ -437,18 +428,15 @@ async fn test_chat_tool_choice_any_mapped_to_required() {
         .await;
 
     let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
-    let req = ChatRequest {
-        messages: vec![Message::user("do something")],
-        tools: Some(vec![crate::providers::base::ToolDefinition {
+    let req = ChatRequest::builder(vec![Message::user("do something")], 1024)
+        .tools(vec![crate::providers::base::ToolDefinition {
             name: "my_tool".to_string(),
             description: "a test tool".to_string(),
             parameters: json!({"type": "object", "properties": {}}),
-        }]),
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        tool_choice: Some("any".to_string()),
-        ..Default::default()
-    };
+        }])
+        .temperature(0.7)
+        .tool_choice("any")
+        .build();
     let result = provider.chat(req).await.unwrap();
     assert!(result.has_tool_calls());
     assert_eq!(result.tool_calls[0].name, "my_tool");
@@ -470,18 +458,18 @@ async fn test_chat_with_image_in_message() {
         .await;
 
     let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
-    let req = ChatRequest {
-        messages: vec![Message::user_with_images(
+    let req = ChatRequest::builder(
+        vec![Message::user_with_images(
             "What is this?",
             vec![crate::providers::base::ImageData {
                 media_type: "image/png".to_string(),
                 data: "iVBORw0KGgoAAAANSUhEUg==".to_string(),
             }],
         )],
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    };
+        1024,
+    )
+    .temperature(0.7)
+    .build();
     let result = provider.chat(req).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("I see an image"));
 }
@@ -502,18 +490,18 @@ async fn test_chat_with_document_in_message() {
         .await;
 
     let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
-    let req = ChatRequest {
-        messages: vec![Message::user_with_images(
+    let req = ChatRequest::builder(
+        vec![Message::user_with_images(
             "Summarize this document",
             vec![crate::providers::base::ImageData {
                 media_type: "application/pdf".to_string(),
                 data: "JVBERi0xLjQK".to_string(),
             }],
         )],
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    };
+        1024,
+    )
+    .temperature(0.7)
+    .build();
     let result = provider.chat(req).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("I read the PDF"));
 }

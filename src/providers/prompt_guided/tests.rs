@@ -164,13 +164,10 @@ fn parse_no_tool_calls_returns_empty() {
 #[test]
 fn rewrite_request_moves_tools_to_system_prompt() {
     let tools = vec![web_search_tool()];
-    let req = ChatRequest {
-        messages: vec![Message::system("You are a helpful assistant.")],
-        tools: Some(tools),
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    };
+    let req = ChatRequest::builder(vec![Message::system("You are a helpful assistant.")], 1024)
+        .tools(tools)
+        .temperature(0.7)
+        .build();
 
     let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
     assert!(rewritten.tools.is_none());
@@ -181,17 +178,17 @@ fn rewrite_request_moves_tools_to_system_prompt() {
 
 #[test]
 fn rewrite_request_tool_result_to_user_message() {
-    let req = ChatRequest {
-        messages: vec![
+    let req = ChatRequest::builder(
+        vec![
             Message::system("You are helpful."),
             Message::user("search for rust"),
             Message::tool_result("tc_1", "Found 10 results", false),
         ],
-        tools: Some(vec![web_search_tool()]),
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    };
+        1024,
+    )
+    .tools(vec![web_search_tool()])
+    .temperature(0.7)
+    .build();
 
     let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
     // tool result should be converted to user message
@@ -209,16 +206,16 @@ fn rewrite_request_assistant_tool_calls_to_inline_text() {
         arguments: json!({"query": "rust"}),
     }];
 
-    let req = ChatRequest {
-        messages: vec![
+    let req = ChatRequest::builder(
+        vec![
             Message::system("You are helpful."),
             Message::assistant("Let me search.", Some(tool_calls)),
         ],
-        tools: Some(vec![web_search_tool()]),
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    };
+        1024,
+    )
+    .tools(vec![web_search_tool()])
+    .temperature(0.7)
+    .build();
 
     let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
     let assistant_msg = &rewritten.messages[1];
@@ -230,14 +227,11 @@ fn rewrite_request_assistant_tool_calls_to_inline_text() {
 
 #[test]
 fn rewrite_request_tool_choice_any_adds_force_instruction() {
-    let req = ChatRequest {
-        messages: vec![Message::system("You are helpful.")],
-        tools: Some(vec![web_search_tool()]),
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        tool_choice: Some("any".into()),
-        ..Default::default()
-    };
+    let req = ChatRequest::builder(vec![Message::system("You are helpful.")], 1024)
+        .tools(vec![web_search_tool()])
+        .temperature(0.7)
+        .tool_choice("any")
+        .build();
 
     let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
     assert!(
@@ -264,16 +258,16 @@ async fn integration_text_tool_call_parsed() {
     let inner = Arc::new(MockProvider::with_response(inner_response));
     let provider = PromptGuidedToolsProvider::wrap(inner);
 
-    let req = ChatRequest {
-        messages: vec![
+    let req = ChatRequest::builder(
+        vec![
             Message::system("You are helpful."),
             Message::user("search for rust async"),
         ],
-        tools: Some(vec![web_search_tool()]),
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    };
+        1024,
+    )
+    .tools(vec![web_search_tool()])
+    .temperature(0.7)
+    .build();
 
     let response = provider.chat(req).await.unwrap();
     assert_eq!(response.tool_calls.len(), 1);
@@ -288,12 +282,9 @@ async fn passthrough_when_no_tools() {
     let inner = Arc::new(MockProvider::text("just text"));
     let provider = PromptGuidedToolsProvider::wrap(inner);
 
-    let req = ChatRequest {
-        messages: vec![Message::user("hello")],
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    };
+    let req = ChatRequest::builder(vec![Message::user("hello")], 1024)
+        .temperature(0.7)
+        .build();
 
     let response = provider.chat(req).await.unwrap();
     assert_eq!(response.content.as_deref(), Some("just text"));

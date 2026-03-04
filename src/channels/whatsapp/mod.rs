@@ -8,9 +8,7 @@ use crate::config::WhatsAppConfig;
 use crate::utils::get_oxicrab_home;
 use anyhow::Result;
 use async_trait::async_trait;
-use chrono::Utc;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -305,24 +303,12 @@ impl BaseChannel for WhatsAppChannel {
                                         sender.clone()
                                     };
 
-                                    let inbound_msg = InboundMessage {
-                                        channel: "whatsapp".to_string(),
-                                        sender_id: chat_id.clone(),
-                                        chat_id: session_chat_id,
-                                        content,
-                                        timestamp: Utc::now(),
-                                        media: media_paths,
-                                        metadata: {
-                                            let mut meta = HashMap::new();
-                                            meta.insert("message_id".to_string(),
-                                                Value::String(info.id.clone()));
-                                            meta.insert("whatsapp_timestamp".to_string(),
-                                                Value::Number(serde_json::Number::from(info.timestamp.timestamp_millis())));
-                                            meta.insert(crate::bus::meta::IS_GROUP.to_string(),
-                                                Value::Bool(info.source.is_group));
-                                            meta
-                                        },
-                                    };
+                                    let inbound_msg = InboundMessage::builder("whatsapp", chat_id.clone(), session_chat_id, content)
+                                        .media(media_paths)
+                                        .meta("message_id", Value::String(info.id.clone()))
+                                        .meta("whatsapp_timestamp", Value::Number(serde_json::Number::from(info.timestamp.timestamp_millis())))
+                                        .is_group(info.source.is_group)
+                                        .build();
 
                                     if let Err(e) = inbound_tx.send(inbound_msg).await {
                                         error!("Failed to send WhatsApp inbound message: {}", e);

@@ -6,12 +6,9 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 // --- Wiremock tests ---
 
 fn simple_chat_request(content: &str) -> ChatRequest {
-    ChatRequest {
-        messages: vec![Message::user(content)],
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    }
+    ChatRequest::builder(vec![Message::user(content)], 1024)
+        .temperature(0.7)
+        .build()
 }
 
 #[tokio::test]
@@ -204,12 +201,12 @@ async fn test_system_message_as_system_instruction() {
         .await;
 
     let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
-    let req = ChatRequest {
-        messages: vec![Message::system("You are helpful."), Message::user("Hello")],
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        ..Default::default()
-    };
+    let req = ChatRequest::builder(
+        vec![Message::system("You are helpful."), Message::user("Hello")],
+        1024,
+    )
+    .temperature(0.7)
+    .build();
     let result = provider.chat(req).await.unwrap();
 
     assert_eq!(result.content.unwrap(), "I'm a helpful bot.");
@@ -334,13 +331,10 @@ async fn test_chat_with_json_object_format() {
         .await;
 
     let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
-    let req = ChatRequest {
-        messages: vec![Message::user("return json")],
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        response_format: Some(crate::providers::base::ResponseFormat::JsonObject),
-        ..Default::default()
-    };
+    let req = ChatRequest::builder(vec![Message::user("return json")], 1024)
+        .temperature(0.7)
+        .response_format(crate::providers::base::ResponseFormat::JsonObject)
+        .build();
     let result = provider.chat(req).await.unwrap();
     assert_eq!(result.content.unwrap(), "{\"key\": \"value\"}");
 }

@@ -7,7 +7,6 @@ use crate::channels::utils::{
 use crate::config::{DiscordCommand, DiscordConfig};
 use anyhow::Result;
 use async_trait::async_trait;
-use chrono::Utc;
 use serenity::async_trait as serenity_async_trait;
 use serenity::builder::{
     CreateActionRow, CreateButton, CreateCommand, CreateCommandOption, CreateEmbed,
@@ -109,15 +108,10 @@ impl Handler {
             serde_json::Value::Bool(cmd.guild_id.is_some()),
         );
 
-        let inbound_msg = InboundMessage {
-            channel: "discord".to_string(),
-            sender_id,
-            chat_id: cmd.channel_id.to_string(),
-            content,
-            timestamp: Utc::now(),
-            metadata,
-            ..Default::default()
-        };
+        let inbound_msg =
+            InboundMessage::builder("discord", sender_id, cmd.channel_id.to_string(), content)
+                .metadata(metadata)
+                .build();
 
         if let Err(e) = self.inbound_tx.send(inbound_msg).await {
             error!("Failed to send Discord slash command to bus: {}", e);
@@ -189,15 +183,10 @@ impl Handler {
             serde_json::Value::Bool(comp.guild_id.is_some()),
         );
 
-        let inbound_msg = InboundMessage {
-            channel: "discord".to_string(),
-            sender_id,
-            chat_id: comp.channel_id.to_string(),
-            content,
-            timestamp: Utc::now(),
-            metadata,
-            ..Default::default()
-        };
+        let inbound_msg =
+            InboundMessage::builder("discord", sender_id, comp.channel_id.to_string(), content)
+                .metadata(metadata)
+                .build();
 
         if let Err(e) = self.inbound_tx.send(inbound_msg).await {
             error!("Failed to send Discord component interaction to bus: {}", e);
@@ -335,15 +324,11 @@ impl EventHandler for Handler {
             crate::bus::meta::IS_GROUP.to_string(),
             serde_json::Value::Bool(is_group),
         );
-        let inbound_msg = InboundMessage {
-            channel: "discord".to_string(),
-            sender_id,
-            chat_id: msg.channel_id.to_string(),
-            content,
-            timestamp: Utc::now(),
-            media: media_paths,
-            metadata,
-        };
+        let inbound_msg =
+            InboundMessage::builder("discord", sender_id, msg.channel_id.to_string(), content)
+                .media(media_paths)
+                .metadata(metadata)
+                .build();
 
         if let Err(e) = self.inbound_tx.send(inbound_msg).await {
             error!("Failed to send Discord inbound message: {}", e);

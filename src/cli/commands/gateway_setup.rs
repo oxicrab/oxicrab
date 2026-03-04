@@ -183,13 +183,7 @@ pub(super) async fn gateway_echo() -> Result<()> {
                     msg.channel, msg.sender_id, msg.content
                 );
                 let _ = outbound_tx
-                    .send(crate::bus::OutboundMessage {
-                        channel: msg.channel,
-                        chat_id: msg.chat_id,
-                        content: echo_text,
-                        metadata: msg.metadata,
-                        ..Default::default()
-                    })
+                    .send(crate::bus::OutboundMessage::from_inbound(msg, echo_text).build())
                     .await;
             }
         })
@@ -388,13 +382,15 @@ async fn cron_job_execute(
         // Echo mode: deliver message directly without invoking the LLM
         for target in &job.payload.targets {
             if let Err(e) = bus
-                .publish_outbound(crate::bus::OutboundMessage {
-                    channel: target.channel.clone(),
-                    chat_id: target.to.clone(),
-                    content: job.payload.message.clone(),
-                    metadata: job.payload.origin_metadata.clone(),
-                    ..Default::default()
-                })
+                .publish_outbound(
+                    crate::bus::OutboundMessage::builder(
+                        target.channel.clone(),
+                        target.to.clone(),
+                        job.payload.message.clone(),
+                    )
+                    .metadata(job.payload.origin_metadata.clone())
+                    .build(),
+                )
                 .await
             {
                 error!(
@@ -427,13 +423,15 @@ async fn cron_job_execute(
     if job.payload.agent_echo {
         for target in &job.payload.targets {
             if let Err(e) = bus
-                .publish_outbound(crate::bus::OutboundMessage {
-                    channel: target.channel.clone(),
-                    chat_id: target.to.clone(),
-                    content: response.clone(),
-                    metadata: job.payload.origin_metadata.clone(),
-                    ..Default::default()
-                })
+                .publish_outbound(
+                    crate::bus::OutboundMessage::builder(
+                        target.channel.clone(),
+                        target.to.clone(),
+                        response.clone(),
+                    )
+                    .metadata(job.payload.origin_metadata.clone())
+                    .build(),
+                )
                 .await
             {
                 error!(

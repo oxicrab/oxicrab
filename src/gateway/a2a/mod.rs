@@ -211,14 +211,7 @@ pub async fn create_task_handler(
         .update_status(&task_id, TaskStatus::Working, None);
 
     // Publish inbound message to the agent
-    let msg = InboundMessage {
-        channel: "http".to_string(),
-        sender_id: "a2a".to_string(),
-        chat_id: task_id.clone(),
-        content: body.message,
-        timestamp: Utc::now(),
-        ..Default::default()
-    };
+    let msg = InboundMessage::builder("http", "a2a", task_id.clone(), body.message).build();
 
     if let Err(e) = state.inbound_tx.send(msg).await {
         let mut pending = state

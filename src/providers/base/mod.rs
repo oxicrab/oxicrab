@@ -189,6 +189,56 @@ pub struct ChatRequest {
     pub response_format: Option<ResponseFormat>,
 }
 
+impl ChatRequest {
+    /// Start building a `ChatRequest` with the required fields.
+    pub fn builder(messages: Vec<Message>, max_tokens: u32) -> ChatRequestBuilder {
+        ChatRequestBuilder {
+            inner: ChatRequest {
+                messages,
+                max_tokens,
+                ..Default::default()
+            },
+        }
+    }
+}
+
+/// Builder for [`ChatRequest`]. Created via [`ChatRequest::builder()`].
+#[must_use]
+pub struct ChatRequestBuilder {
+    inner: ChatRequest,
+}
+
+impl ChatRequestBuilder {
+    pub fn model(mut self, model: impl Into<String>) -> Self {
+        self.inner.model = Some(model.into());
+        self
+    }
+
+    pub fn temperature(mut self, temp: f32) -> Self {
+        self.inner.temperature = Some(temp);
+        self
+    }
+
+    pub fn tools(mut self, tools: Vec<ToolDefinition>) -> Self {
+        self.inner.tools = Some(tools);
+        self
+    }
+
+    pub fn tool_choice(mut self, choice: impl Into<String>) -> Self {
+        self.inner.tool_choice = Some(choice.into());
+        self
+    }
+
+    pub fn response_format(mut self, fmt: ResponseFormat) -> Self {
+        self.inner.response_format = Some(fmt);
+        self
+    }
+
+    pub fn build(self) -> ChatRequest {
+        self.inner
+    }
+}
+
 #[async_trait]
 pub trait LLMProvider: Send + Sync {
     async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse>;

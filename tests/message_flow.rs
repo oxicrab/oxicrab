@@ -709,16 +709,9 @@ async fn test_end_to_end_bus_pipeline() {
     let agent = create_test_agent_with(provider, &tmp, TestAgentOverrides::default()).await;
 
     // Publish inbound message through the bus
-    bus.publish_inbound(InboundMessage {
-        channel: "test".to_string(),
-        sender_id: "user1".to_string(),
-        chat_id: "chat1".to_string(),
-        content: "Hello via bus".to_string(),
-        timestamp: chrono::Utc::now(),
-        ..Default::default()
-    })
-    .await
-    .expect("publish inbound");
+    bus.publish_inbound(InboundMessage::builder("test", "user1", "chat1", "Hello via bus").build())
+        .await
+        .expect("publish inbound");
 
     // Receive the inbound message
     let msg = inbound_rx.try_recv().expect("receive inbound message");
