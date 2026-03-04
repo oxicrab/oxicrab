@@ -198,6 +198,12 @@ impl LLMProvider for OpenAIProvider {
                     "content": content_value,
                 });
 
+                // Include reasoning_content for thinking models (e.g. kimi-k2.5,
+                // DeepSeek-R1) that require it on assistant messages
+                if let Some(ref reasoning) = msg.reasoning_content {
+                    m["reasoning_content"] = json!(reasoning);
+                }
+
                 if let Some(tool_calls) = msg.tool_calls {
                     m["tool_calls"] = json!(
                         tool_calls
