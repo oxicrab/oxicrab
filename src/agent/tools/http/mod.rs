@@ -47,6 +47,7 @@ impl HttpTool {
         let mut builder = Client::builder()
             .user_agent(user_agent)
             .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30));
         for addr in &resolved.addrs {
             builder = builder.resolve(&resolved.host, *addr);

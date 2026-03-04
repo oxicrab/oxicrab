@@ -434,6 +434,7 @@ impl Tool for WebFetchTool {
         let pinned = {
             let mut builder = Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
+                .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(30));
             for addr in &resolved.addrs {
                 builder = builder.resolve(&resolved.host, *addr);
