@@ -1602,6 +1602,21 @@ impl AgentLoop {
             ContextBuilder::add_tool_result(messages, &tc.id, &tc.name, &result_str, is_error);
         }
 
+        // Scan tool results for leaked secrets before they enter LLM context
+        for tc in tool_calls {
+            if let Some(msg) = messages
+                .iter_mut()
+                .rev()
+                .find(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some(&tc.id))
+            {
+                let redacted = self.leak_detector.redact(&msg.content);
+                if redacted != msg.content {
+                    warn!("secret detected in tool '{}' output — redacting", tc.name);
+                    msg.content = redacted;
+                }
+            }
+        }
+
         // Scan tool results for prompt injection
         if let Some(ref guard) = self.prompt_guard {
             for tc in tool_calls {

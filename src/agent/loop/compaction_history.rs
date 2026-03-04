@@ -129,9 +129,21 @@ impl AgentLoop {
             }
         }
 
-        // Compact old messages
+        // Compact old messages. Strip checkpoint/recovery annotations from the
+        // previous summary before feeding it to the compaction LLM, so they don't
+        // accumulate across cycles (annotations are re-appended below).
+        let clean_summary = previous_summary
+            .split("\n\n[Checkpoint]")
+            .next()
+            .unwrap_or(&previous_summary)
+            .split("\n\n[Cognitive")
+            .next()
+            .unwrap_or(&previous_summary)
+            .split("\n\n[Recovery")
+            .next()
+            .unwrap_or(&previous_summary);
         if let Some(ref compactor) = self.compactor {
-            match compactor.compact(old_messages, &previous_summary).await {
+            match compactor.compact(old_messages, clean_summary).await {
                 Ok(summary) => {
                     // Build recovery-enriched summary
                     let mut recovery_summary = summary.clone();
