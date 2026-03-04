@@ -2,17 +2,9 @@ use super::*;
 use crate::agent::memory::MemoryDB;
 use std::collections::HashMap;
 
-fn default_config() -> CostGuardConfig {
-    CostGuardConfig {
-        daily_budget_cents: None,
-        max_actions_per_hour: None,
-        model_costs: HashMap::new(),
-    }
-}
-
 #[test]
 fn test_no_limits_always_allowed() {
-    let guard = CostGuard::new(default_config());
+    let guard = CostGuard::new(CostGuardConfig::default());
     assert!(guard.check_allowed().is_ok());
     guard.record_llm_call(
         "claude-sonnet-4-5-20250929",
@@ -29,8 +21,7 @@ fn test_no_limits_always_allowed() {
 fn test_daily_budget_exceeded() {
     let config = CostGuardConfig {
         daily_budget_cents: Some(1), // 1 cent budget
-        max_actions_per_hour: None,
-        model_costs: HashMap::new(),
+        ..Default::default()
     };
     let guard = CostGuard::new(config);
     assert!(guard.check_allowed().is_ok());
@@ -56,8 +47,7 @@ fn test_daily_budget_exceeded() {
 fn test_daily_reset_at_midnight() {
     let config = CostGuardConfig {
         daily_budget_cents: Some(1),
-        max_actions_per_hour: None,
-        model_costs: HashMap::new(),
+        ..Default::default()
     };
     let guard = CostGuard::new(config);
 
@@ -78,7 +68,7 @@ fn test_hourly_rate_limit() {
     let config = CostGuardConfig {
         daily_budget_cents: None,
         max_actions_per_hour: Some(3),
-        model_costs: HashMap::new(),
+        ..Default::default()
     };
     let guard = CostGuard::new(config);
 
@@ -96,7 +86,7 @@ fn test_hourly_sliding_window_expiry() {
     let config = CostGuardConfig {
         daily_budget_cents: None,
         max_actions_per_hour: Some(2),
-        model_costs: HashMap::new(),
+        ..Default::default()
     };
     let guard = CostGuard::new(config);
 
@@ -123,7 +113,7 @@ fn test_pricing_data_parses() {
 
 #[test]
 fn test_lookup_known_models() {
-    let guard = CostGuard::new(default_config());
+    let guard = CostGuard::new(CostGuardConfig::default());
 
     let claude_sonnet = guard.lookup_cost("claude-sonnet-4-5-20250929");
     assert!(
@@ -158,9 +148,8 @@ fn test_lookup_config_override() {
         },
     );
     let config = CostGuardConfig {
-        daily_budget_cents: None,
-        max_actions_per_hour: None,
         model_costs,
+        ..Default::default()
     };
     let guard = CostGuard::new(config);
 
@@ -173,7 +162,7 @@ fn test_lookup_config_override() {
 
 #[test]
 fn test_lookup_unknown_model_uses_default() {
-    let guard = CostGuard::new(default_config());
+    let guard = CostGuard::new(CostGuardConfig::default());
     let cost = guard.lookup_cost("totally-unknown-model-xyz");
     assert!((cost.input_per_million - DEFAULT_INPUT_PER_MILLION).abs() < 0.01);
     assert!((cost.output_per_million - DEFAULT_OUTPUT_PER_MILLION).abs() < 0.01);
@@ -183,8 +172,7 @@ fn test_lookup_unknown_model_uses_default() {
 fn test_budget_exceeded_blocks() {
     let config = CostGuardConfig {
         daily_budget_cents: Some(1),
-        max_actions_per_hour: None,
-        model_costs: HashMap::new(),
+        ..Default::default()
     };
     let guard = CostGuard::new(config);
 
@@ -200,7 +188,7 @@ fn test_budget_exceeded_blocks() {
 #[test]
 fn test_cost_tracked_without_budget_limits() {
     // Even with no daily budget or rate limit, costs should be accumulated
-    let guard = CostGuard::new(default_config());
+    let guard = CostGuard::new(CostGuardConfig::default());
 
     assert!(guard.daily_cost.lock().unwrap().total_cents.abs() < f64::EPSILON);
 
@@ -227,7 +215,7 @@ fn test_cost_tracked_without_budget_limits() {
 
 #[test]
 fn test_cache_read_discount() {
-    let guard = CostGuard::new(default_config());
+    let guard = CostGuard::new(CostGuardConfig::default());
     // Use a known model: claude-sonnet-4 at $3/1M input
     // 1M cache read tokens should cost 10% of $3 = $0.30 = 30 cents
     let cost = guard.estimate_cost_cents("claude-sonnet-4-5-20250929", 0, 0, 0, 1_000_000);
@@ -242,7 +230,7 @@ fn test_cache_read_discount() {
 
 #[test]
 fn test_cache_creation_surcharge() {
-    let guard = CostGuard::new(default_config());
+    let guard = CostGuard::new(CostGuardConfig::default());
     // Use a known model: claude-sonnet-4 at $3/1M input
     // 1M cache creation tokens should cost 125% of $3 = $3.75 = 375 cents
     let cost = guard.estimate_cost_cents("claude-sonnet-4-5-20250929", 0, 0, 1_000_000, 0);
@@ -257,7 +245,7 @@ fn test_cache_creation_surcharge() {
 
 #[test]
 fn test_cache_tokens_combined_with_regular() {
-    let guard = CostGuard::new(default_config());
+    let guard = CostGuard::new(CostGuardConfig::default());
     // 500k regular input + 500k cache read + 200k cache creation + 100k output
     // at claude-sonnet-4: $3/1M input, $15/1M output
     let cost = guard.estimate_cost_cents(
@@ -286,7 +274,7 @@ fn test_cache_tokens_combined_with_regular() {
 fn test_with_db_persists_costs() {
     let dir = tempfile::tempdir().unwrap();
     let db = std::sync::Arc::new(MemoryDB::new(dir.path().join("test.db")).unwrap());
-    let guard = CostGuard::with_db(default_config(), db.clone());
+    let guard = CostGuard::with_db(CostGuardConfig::default(), db.clone());
 
     guard.record_llm_call(
         "claude-sonnet-4-5-20250929",
@@ -313,7 +301,7 @@ fn test_with_db_restores_daily_cost() {
         .unwrap();
 
     // Create a new CostGuard with the same db — should restore daily total
-    let guard = CostGuard::with_db(default_config(), db);
+    let guard = CostGuard::with_db(CostGuardConfig::default(), db);
     let daily = guard.daily_cost.lock().unwrap().total_cents;
     assert!(
         (daily - 42.5).abs() < 0.01,
@@ -325,7 +313,7 @@ fn test_with_db_restores_daily_cost() {
 #[test]
 fn test_without_db_still_works() {
     // CostGuard::new (no db) should still function normally
-    let guard = CostGuard::new(default_config());
+    let guard = CostGuard::new(CostGuardConfig::default());
     guard.record_llm_call("test-model", Some(1000), Some(500), None, None, None);
     assert!(guard.check_allowed().is_ok());
 }

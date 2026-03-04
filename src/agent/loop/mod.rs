@@ -1739,7 +1739,7 @@ impl AgentLoop {
             channel: channel.to_string(),
             chat_id: chat_id.to_string(),
             context_summary,
-            metadata: HashMap::new(),
+            ..Default::default()
         }
     }
 

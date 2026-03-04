@@ -137,9 +137,7 @@ fn make_webhook_config(enabled: bool, secret: &str) -> WebhookConfig {
     WebhookConfig {
         enabled,
         secret: secret.to_string(),
-        template: "{{body}}".to_string(),
-        targets: vec![],
-        agent_turn: false,
+        ..Default::default()
     }
 }
 
@@ -350,7 +348,6 @@ async fn test_webhook_direct_delivery_to_targets() {
     webhooks.insert(
         "deploy".to_string(),
         WebhookConfig {
-            enabled: true,
             secret: "deploy-secret".to_string(),
             template: "Deploy event: {{body}}".to_string(),
             targets: vec![
@@ -363,7 +360,7 @@ async fn test_webhook_direct_delivery_to_targets() {
                     chat_id: "456".to_string(),
                 },
             ],
-            agent_turn: false,
+            ..Default::default()
         },
     );
 
@@ -416,7 +413,6 @@ async fn test_webhook_agent_turn_routes_through_agent() {
     webhooks.insert(
         "alert".to_string(),
         WebhookConfig {
-            enabled: true,
             secret: "alert-secret".to_string(),
             template: "Alert: {{body}}".to_string(),
             targets: vec![WebhookTarget {
@@ -424,6 +420,7 @@ async fn test_webhook_agent_turn_routes_through_agent() {
                 chat_id: "G789".to_string(),
             }],
             agent_turn: true,
+            ..Default::default()
         },
     );
 
@@ -637,14 +634,13 @@ async fn test_webhook_template_with_json_fields() {
     webhooks.insert(
         "gh-push".to_string(),
         WebhookConfig {
-            enabled: true,
             secret: "json-secret".to_string(),
             template: "{{action}} on {{repo}}".to_string(),
             targets: vec![WebhookTarget {
                 channel: "slack".to_string(),
                 chat_id: "C456".to_string(),
             }],
-            agent_turn: false,
+            ..Default::default()
         },
     );
 

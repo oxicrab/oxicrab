@@ -208,6 +208,18 @@ pub struct WebhookConfig {
     pub agent_turn: bool,
 }
 
+impl Default for WebhookConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            secret: String::new(),
+            template: default_webhook_template(),
+            targets: vec![],
+            agent_turn: false,
+        }
+    }
+}
+
 fn default_webhook_template() -> String {
     "{{body}}".to_string()
 }
