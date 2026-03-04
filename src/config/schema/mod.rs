@@ -319,24 +319,6 @@ impl Config {
                 "agents.defaults.maxToolIterations is unreasonably large (> 1000)".into(),
             ));
         }
-        for (model_name, cost) in &d.cost_guard.model_costs {
-            if cost.input_per_million.is_nan()
-                || cost.input_per_million.is_infinite()
-                || cost.input_per_million < 0.0
-            {
-                return Err(OxicrabError::Config(format!(
-                    "agents.defaults.costGuard.modelCosts.{model_name}.inputPerMillion must be a non-negative finite number"
-                )));
-            }
-            if cost.output_per_million.is_nan()
-                || cost.output_per_million.is_infinite()
-                || cost.output_per_million < 0.0
-            {
-                return Err(OxicrabError::Config(format!(
-                    "agents.defaults.costGuard.modelCosts.{model_name}.outputPerMillion must be a non-negative finite number"
-                )));
-            }
-        }
         if d.daemon.enabled {
             if d.daemon.interval == 0 {
                 return Err(OxicrabError::Config(

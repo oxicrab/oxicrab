@@ -32,7 +32,6 @@ use tool_filter::infer_tool_categories;
 
 use crate::agent::compaction::MessageCompactor;
 use crate::agent::context::ContextBuilder;
-use crate::agent::cost_guard::CostGuard;
 use crate::agent::memory::MemoryStore;
 use crate::agent::subagent::{SubagentConfig, SubagentManager};
 use crate::agent::tools::ToolRegistry;
@@ -94,7 +93,6 @@ pub struct AgentLoop {
     /// blocking the async runtime with a `std::sync::Mutex`)
     event_matcher_last_rebuild: Arc<std::sync::atomic::AtomicU64>,
     cron_service: Option<Arc<CronService>>,
-    cost_guard: Option<Arc<CostGuard>>,
     /// Most recent checkpoint summary (updated periodically during long loops)
     last_checkpoint: Arc<Mutex<Option<String>>>,
     /// Handle for the most recent background checkpoint task
@@ -147,7 +145,6 @@ impl AgentLoop {
                 },
             safety:
                 SafetyConfig {
-                    cost_guard: cost_guard_config,
                     exfiltration_guard,
                     prompt_guard: prompt_guard_config,
                 },
@@ -204,13 +201,6 @@ impl AgentLoop {
         // Start background memory indexer
         memory.start_indexer().await?;
 
-        // Create cost guard — always enabled for cost logging, optionally enforces limits
-        info!(
-            "cost guard active (daily_budget={:?} cents, max_actions_per_hour={:?})",
-            cost_guard_config.daily_budget_cents, cost_guard_config.max_actions_per_hour
-        );
-        let cost_guard = Some(Arc::new(CostGuard::with_db(cost_guard_config, memory.db())));
-
         let workspace_manager = Some(Arc::new(crate::agent::workspace::WorkspaceManager::new(
             workspace.clone(),
             Some(memory.db()),
@@ -252,7 +242,6 @@ impl AgentLoop {
                     max_tokens,
                     tool_temperature,
                     max_concurrent: max_concurrent_subagents,
-                    cost_guard: cost_guard.clone(),
                     prompt_guard_config: prompt_guard_config.clone(),
                     exfil_guard: exfiltration_guard.clone(),
                     main_tools: None, // set after register_all_tools()
@@ -372,7 +361,6 @@ impl AgentLoop {
                     .map_or(0, |d| d.as_secs()),
             )),
             cron_service,
-            cost_guard,
             last_checkpoint: Arc::new(Mutex::new(None)),
             checkpoint_handle: Arc::new(Mutex::new(None)),
             cognitive_config,

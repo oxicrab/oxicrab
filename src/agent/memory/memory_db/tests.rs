@@ -295,39 +295,28 @@ fn test_source_hit_count() {
 }
 
 #[test]
-fn test_cost_record_and_query() {
+fn test_token_record_and_summary() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory.db");
     let db = MemoryDB::new(&db_path).unwrap();
 
-    db.record_cost("claude-sonnet-4", 1000, 500, 0, 0, 4.5, "main", None)
+    db.record_tokens("claude-sonnet-4", 1000, 500, 0, 0, "main", None)
         .unwrap();
-    db.record_cost("gpt-4o", 2000, 1000, 100, 200, 3.2, "subagent", None)
+    db.record_tokens("claude-sonnet-4", 2000, 1000, 0, 0, "main", None)
         .unwrap();
-
-    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-    let daily = db.get_daily_cost(&today).unwrap();
-    assert!((daily - 7.7).abs() < 0.01, "expected 7.7, got {daily}");
-}
-
-#[test]
-fn test_cost_summary() {
-    let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("test_memory.db");
-    let db = MemoryDB::new(&db_path).unwrap();
-
-    db.record_cost("claude-sonnet-4", 1000, 500, 0, 0, 4.5, "main", None)
-        .unwrap();
-    db.record_cost("claude-sonnet-4", 2000, 1000, 0, 0, 9.0, "main", None)
-        .unwrap();
-    db.record_cost("gpt-4o", 500, 200, 0, 0, 1.0, "main", None)
+    db.record_tokens("gpt-4o", 500, 200, 0, 0, "main", None)
         .unwrap();
 
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-    let summary = db.get_cost_summary(&today).unwrap();
+    let summary = db.get_token_summary(&today).unwrap();
     assert!(!summary.is_empty());
     // Should have two groups: claude-sonnet-4 and gpt-4o
     assert_eq!(summary.len(), 2);
+    // claude-sonnet-4 should be first (more input tokens)
+    assert_eq!(summary[0].model, "claude-sonnet-4");
+    assert_eq!(summary[0].total_input_tokens, 3000);
+    assert_eq!(summary[0].total_output_tokens, 1500);
+    assert_eq!(summary[0].call_count, 2);
 }
 
 #[test]
@@ -1018,16 +1007,16 @@ fn test_get_complexity_stats() {
     )
     .unwrap();
 
-    // Insert correlated cost data
-    db.record_cost("haiku", 100, 50, 0, 0, 0.5, "main", Some("req-1"))
+    // Insert correlated token data
+    db.record_tokens("haiku", 100, 50, 0, 0, "main", Some("req-1"))
         .unwrap();
-    db.record_cost("haiku", 120, 60, 0, 0, 0.6, "main", Some("req-2"))
+    db.record_tokens("haiku", 120, 60, 0, 0, "main", Some("req-2"))
         .unwrap();
-    db.record_cost("sonnet", 500, 200, 0, 0, 3.0, "main", Some("req-3"))
+    db.record_tokens("sonnet", 500, 200, 0, 0, "main", Some("req-3"))
         .unwrap();
-    db.record_cost("opus", 800, 400, 0, 0, 15.0, "main", Some("req-4"))
+    db.record_tokens("opus", 800, 400, 0, 0, "main", Some("req-4"))
         .unwrap();
-    db.record_cost("opus", 700, 350, 0, 0, 12.0, "main", Some("req-5"))
+    db.record_tokens("opus", 700, 350, 0, 0, "main", Some("req-5"))
         .unwrap();
 
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -1050,7 +1039,7 @@ fn test_get_complexity_stats() {
         .unwrap();
     assert_eq!(heavy.count, 2);
     assert!(heavy.avg_score > 0.7);
-    assert!(heavy.total_cost_cents > 20.0);
+    assert!(heavy.total_tokens > 2000);
 
     // Force overrides: greeting + reasoning_keywords
     assert_eq!(stats.force_counts.len(), 2);

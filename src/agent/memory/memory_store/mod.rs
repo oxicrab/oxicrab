@@ -208,7 +208,7 @@ impl MemoryStore {
         })
     }
 
-    /// Accessor for the inner database (used by `CostGuard` for persistence).
+    /// Accessor for the inner database (used for token logging and stats).
     pub fn db(&self) -> Arc<MemoryDB> {
         self.db.clone()
     }

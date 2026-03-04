@@ -75,7 +75,6 @@ fn make_manager(provider: Arc<dyn LLMProvider>, max_concurrent: usize) -> Subage
             max_tokens: 1024,
             tool_temperature: Some(0.0),
             max_concurrent,
-            cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
             exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
             main_tools: None,
@@ -273,7 +272,6 @@ async fn test_silent_mode_no_bus_message() {
             max_tokens: 1024,
             tool_temperature: Some(0.0),
             max_concurrent: 5,
-            cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
             exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
             main_tools: None,
@@ -323,7 +321,6 @@ async fn test_non_silent_mode_publishes_bus_message() {
             max_tokens: 1024,
             tool_temperature: Some(0.0),
             max_concurrent: 5,
-            cost_guard: None,
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
             exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
             main_tools: None,
@@ -479,7 +476,6 @@ fn make_inner_with_tools(
         model: "mock".to_string(),
         max_tokens: 1024,
         tool_temperature: Some(0.0),
-        cost_guard: None,
         prompt_guard: None,
         prompt_guard_config: crate::config::PromptGuardConfig::default(),
         exfil_guard,
@@ -693,12 +689,10 @@ fn test_activity_log_truncates_long_content() {
 #[test]
 fn test_activity_log_special_entries() {
     let mut log = super::ActivityLog::new("spectest").unwrap();
-    log.log_cost_blocked("monthly budget exceeded");
     log.log_max_iterations(15);
     log.log_iteration_empty(3, 1);
 
     let content = std::fs::read_to_string(log.path()).unwrap();
-    assert!(content.contains("COST GUARD BLOCKED: monthly budget exceeded"));
     assert!(content.contains("MAX ITERATIONS REACHED (15)"));
     assert!(content.contains("ITERATION 3: LLM returned empty response (retries left: 1)"));
 

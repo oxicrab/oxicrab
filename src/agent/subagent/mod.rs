@@ -1,6 +1,5 @@
 mod activity_log;
 
-use crate::agent::cost_guard::CostGuard;
 use crate::agent::tools::ToolRegistry;
 use crate::bus::{InboundMessage, MessageBus};
 use crate::config::PromptGuardConfig;
@@ -32,8 +31,6 @@ pub struct SubagentConfig {
     pub max_tokens: u32,
     pub tool_temperature: Option<f32>,
     pub max_concurrent: usize,
-    /// Shared cost guard for budget/rate enforcement across main agent and subagents.
-    pub cost_guard: Option<Arc<CostGuard>>,
     /// Prompt guard config for injection scanning on subagent inputs/outputs.
     pub prompt_guard_config: PromptGuardConfig,
     /// Exfiltration guard config — network-outbound tools are excluded unless allow-listed.
@@ -57,7 +54,6 @@ struct SubagentInner {
     model: String,
     max_tokens: u32,
     tool_temperature: Option<f32>,
-    cost_guard: Option<Arc<CostGuard>>,
     prompt_guard: Option<PromptGuard>,
     prompt_guard_config: PromptGuardConfig,
     exfil_guard: crate::config::ExfiltrationGuardConfig,
@@ -81,7 +77,6 @@ impl SubagentManager {
             model,
             max_tokens: config.max_tokens,
             tool_temperature: config.tool_temperature,
-            cost_guard: config.cost_guard,
             prompt_guard,
             prompt_guard_config: config.prompt_guard_config,
             exfil_guard: config.exfil_guard,
@@ -391,21 +386,6 @@ async fn run_subagent_inner(
     while iteration < max_iterations {
         iteration += 1;
 
-        // Cost guard pre-flight check
-        if let Some(ref cg) = config.cost_guard
-            && let Err(msg) = cg.check_allowed()
-        {
-            warn!(
-                "Subagent [{}] cost guard blocked LLM call: {}",
-                task_id, msg
-            );
-            if let Some(ref mut l) = log {
-                l.log_cost_blocked(&msg);
-                l.log_end("cost-blocked");
-            }
-            return Ok(format!("Budget limit reached: {msg}"));
-        }
-
         let response = config
             .provider
             .chat_with_retry(
@@ -420,19 +400,6 @@ async fn run_subagent_inner(
                 Some(crate::providers::base::RetryConfig::default()),
             )
             .await?;
-
-        // Record cost for budget tracking — use actual_model from fallback
-        let cost_model = response.actual_model.as_deref().unwrap_or(&config.model);
-        if let Some(ref cg) = config.cost_guard {
-            cg.record_llm_call(
-                cost_model,
-                response.input_tokens,
-                response.output_tokens,
-                response.cache_creation_input_tokens,
-                response.cache_read_input_tokens,
-                None,
-            );
-        }
 
         if response.has_tool_calls() {
             let call_count = response.tool_calls.len();

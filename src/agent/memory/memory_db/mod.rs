@@ -12,7 +12,7 @@ mod search;
 mod stats;
 mod workspace;
 
-pub use cost::CostSummaryRow;
+pub use cost::TokenSummaryRow;
 pub use dlq::DlqEntry;
 pub use search::MemoryHit;
 pub use stats::{

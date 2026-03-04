@@ -109,9 +109,9 @@ JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in 
 
 `OxicrabError` in `src/errors.rs` — typed variants: `Config`, `Provider { retryable }`, `RateLimit { retry_after }`, `Auth`, `Internal(anyhow::Error)`. See [Code Style & Patterns](CLAUDE.md#code-style--patterns) for usage conventions.
 
-## CostGuard (`src/agent/cost_guard/mod.rs`)
+## Token Logging (`src/agent/memory/memory_db/cost.rs`)
 
-Pre-flight budget gating and post-flight cost tracking. `CostGuard::check_allowed()` blocks if daily budget exceeded or hourly rate limit hit. `record_llm_call()` takes cache token params (`cache_creation_input_tokens`, `cache_read_input_tokens`) for Anthropic prompt caching — cache reads billed at 10% of input rate, cache creation at 125%. Embedded `pricing_data.json` covers 40 models; config overrides via `agents.defaults.costGuard.modelCosts`. Daily budget resets at midnight UTC. AtomicBool fast-path skips mutex when budget already exceeded. Config fields (all optional): `dailyBudgetCents` (u64), `maxActionsPerHour` (u64), `modelCosts` (HashMap of prefix → {input_per_million, output_per_million}).
+Raw token usage logging to the `llm_cost_log` SQLite table via `MemoryDB::record_tokens()`. Tracks model, input/output tokens, cache creation/read tokens, caller, and request_id. No dollar amount estimation — token counts are the ground truth. `get_token_summary()` returns usage grouped by date and model. The old CostGuard pricing system was removed in favor of raw token logging.
 
 ## Circuit Breaker (`src/providers/circuit_breaker/mod.rs`)
 

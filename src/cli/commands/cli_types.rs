@@ -57,7 +57,7 @@ pub(super) enum Commands {
         #[command(subcommand)]
         cmd: CredentialCommands,
     },
-    /// Show memory and cost statistics
+    /// Show memory and token usage statistics
     Stats {
         #[command(subcommand)]
         cmd: StatsCommands,
@@ -185,16 +185,14 @@ pub(super) enum ChannelCommands {
 
 #[derive(Subcommand)]
 pub(super) enum StatsCommands {
-    /// Show LLM cost summary
-    Costs {
+    /// Show LLM token usage summary
+    Tokens {
         /// Number of days to look back (default: 7)
         #[arg(long, short = 'd', default_value = "7")]
         days: u32,
     },
     /// Show memory search statistics
     Search,
-    /// Show cost for today
-    Today,
     /// Show intent classification and hallucination detection metrics
     Intent {
         /// Number of days to look back (default: 7)

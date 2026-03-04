@@ -551,10 +551,10 @@ max_width: 1120px
         </div>
       </div>
       <div class="feature-row">
-        <div class="feature-name">CostGuard</div>
+        <div class="feature-name">Token Logging</div>
         <div class="feature-detail">
-          <h3>Daily budget and rate limiting</h3>
-          <p>Set a daily spending cap in cents and an hourly action limit. Embedded pricing data for 40 models with automatic midnight UTC reset. AtomicBool fast-path for exceeded budgets.</p>
+          <h3>Raw LLM token usage tracking</h3>
+          <p>All LLM calls log token usage (input, output, cache) to SQLite. View usage by model and date with <code>oxicrab stats tokens</code>. No estimated pricing — token counts are the ground truth.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -783,10 +783,6 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
         <span class="hl-key">"searchFusionStrategy"</span>: <span class="hl-str">"weighted_score"</span>,
         <span class="hl-key">"rrfK"</span>: <span class="hl-num">60</span>,
         <span class="hl-key">"embeddingCacheSize"</span>: <span class="hl-num">10000</span>
-      },
-      <span class="hl-key">"costGuard"</span>: {
-        <span class="hl-key">"dailyBudgetCents"</span>: <span class="hl-num">500</span>,
-        <span class="hl-key">"maxActionsPerHour"</span>: <span class="hl-num">100</span>
       }
     }
   },

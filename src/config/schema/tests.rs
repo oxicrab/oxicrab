@@ -106,32 +106,6 @@ fn test_invalid_nan_hybrid_weight() {
 }
 
 #[test]
-fn test_invalid_model_cost_negative() {
-    let mut config = Config::default();
-    config.agents.defaults.cost_guard.model_costs.insert(
-        "test-model".to_string(),
-        ModelCost {
-            input_per_million: -1.0,
-            output_per_million: 3.0,
-        },
-    );
-    assert!(config.validate().is_err());
-}
-
-#[test]
-fn test_invalid_model_cost_nan() {
-    let mut config = Config::default();
-    config.agents.defaults.cost_guard.model_costs.insert(
-        "test-model".to_string(),
-        ModelCost {
-            input_per_million: f64::NAN,
-            output_per_million: 3.0,
-        },
-    );
-    assert!(config.validate().is_err());
-}
-
-#[test]
 fn test_telegram_enabled_without_token() {
     let mut config = Config::default();
     config.channels.telegram.enabled = true;

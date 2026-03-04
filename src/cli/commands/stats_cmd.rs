@@ -17,56 +17,44 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
     let db = crate::agent::memory::MemoryDB::new(&db_path)?;
 
     match cmd {
-        StatsCommands::Today => {
-            let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-            let daily = db.get_daily_cost(&today)?;
-            println!(
-                "Cost today ({}): {:.2} cents (${:.4})",
-                today,
-                daily,
-                daily / 100.0
-            );
-        }
-        StatsCommands::Costs { days } => {
+        StatsCommands::Tokens { days } => {
             let since = (chrono::Utc::now().date_naive()
                 - chrono::Duration::days(i64::from(*days)))
             .format("%Y-%m-%d")
             .to_string();
-            let summary = db.get_cost_summary(&since)?;
+            let summary = db.get_token_summary(&since)?;
 
             if summary.is_empty() {
-                println!("No cost data in the last {days} days.");
+                println!("No token usage data in the last {days} days.");
                 return Ok(());
             }
 
             println!(
-                "{:<12} {:<30} {:>8} {:>10} {:>10} {:>6}",
-                "Date", "Model", "Cents", "Input", "Output", "Calls"
+                "{:<12} {:<30} {:>10} {:>10} {:>6}",
+                "Date", "Model", "Input", "Output", "Calls"
             );
-            println!("{}", "\u{2500}".repeat(80));
+            println!("{}", "\u{2500}".repeat(72));
 
-            let mut total_cents = 0.0;
+            let mut total_input = 0i64;
+            let mut total_output = 0i64;
             let mut total_calls = 0i64;
             for row in &summary {
                 println!(
-                    "{:<12} {:<30} {:>8.2} {:>10} {:>10} {:>6}",
+                    "{:<12} {:<30} {:>10} {:>10} {:>6}",
                     row.date,
                     row.model,
-                    row.total_cents,
                     row.total_input_tokens,
                     row.total_output_tokens,
                     row.call_count,
                 );
-                total_cents += row.total_cents;
+                total_input += row.total_input_tokens;
+                total_output += row.total_output_tokens;
                 total_calls += row.call_count;
             }
 
-            println!("{}", "\u{2500}".repeat(80));
+            println!("{}", "\u{2500}".repeat(72));
             println!(
-                "Total: {:.2} cents (${:.4}) across {} calls",
-                total_cents,
-                total_cents / 100.0,
-                total_calls
+                "Total: {total_input} input + {total_output} output tokens across {total_calls} calls"
             );
         }
         StatsCommands::Search => {
@@ -153,12 +141,12 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
             for tier in &stats.tier_counts {
                 let pct = (tier.count as f64 / stats.total_scored as f64) * 100.0;
                 println!(
-                    "  {:<16} {:>4} ({:>5.1}%)  avg score: {:.2}   cost: {:.2} cents",
+                    "  {:<16} {:>4} ({:>5.1}%)  avg score: {:.2}   tokens: {}",
                     format!("{}:", tier.tier),
                     tier.count,
                     pct,
                     tier.avg_score,
-                    tier.total_cost_cents,
+                    tier.total_tokens,
                 );
             }
 

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Configuration - oxicrab</title>
-  <meta name="description" content="Complete configuration reference for oxicrab. Models, credentials, agent defaults, cost guard, circuit breaker, and logging.">
+  <meta name="description" content="Complete configuration reference for oxicrab. Models, credentials, agent defaults, circuit breaker, and logging.">
   <meta name="theme-color" content="#0ea5e9">
   <link rel="icon" href="oxicrab.png">
   <style>
@@ -135,7 +135,6 @@
             <li><a href="#models">Models</a></li>
             <li><a href="#credentials">Credentials</a></li>
             <li><a href="#agent-defaults">Agent Defaults</a></li>
-            <li><a href="#cost-guard">Cost Guard</a></li>
             <li><a href="#circuit-breaker">Circuit Breaker</a></li>
             <li><a href="#cognitive-routines">Cognitive Routines</a></li>
             <li><a href="#exfiltration-guard">Exfiltration Guard</a></li>
@@ -598,61 +597,6 @@
             <tr><td>models.heavy</td><td>string</td><td>&mdash;</td><td>Model for high-complexity messages (required)</td></tr>
             <tr><td>weights.*</td><td>float</td><td>varies</td><td>Per-dimension scoring weights. Adjust to tune how strongly each dimension influences the final score.</td></tr>
         </table>
-    </div>
-
-    <!-- COST GUARD -->
-    <div id="cost-guard" class="cfg-section">
-        <h2>Cost Guard</h2>
-        <p>Pre-flight budget gating and post-flight cost tracking. Blocks LLM calls if the daily budget is exceeded or the hourly rate limit is hit. Daily budget resets at midnight UTC.</p>
-
-        <p>Config path: <code>agents.defaults.costGuard</code></p>
-        <pre><code>{
-  "agents": {
-    "defaults": {
-      "costGuard": {
-        "dailyBudgetCents": 500,
-        "maxActionsPerHour": 100,
-        "modelCosts": {
-          "claude-sonnet": {
-            "inputPerMillion": 3.0,
-            "outputPerMillion": 15.0
-          }
-        }
-      }
-    }
-  }
-}</code></pre>
-
-        <table class="cfg-table">
-            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
-            <tr><td>dailyBudgetCents</td><td>u64?</td><td>null</td><td>Maximum daily spend in cents (null = unlimited)</td></tr>
-            <tr><td>maxActionsPerHour</td><td>u64?</td><td>null</td><td>Maximum LLM calls per hour (null = unlimited)</td></tr>
-            <tr><td>modelCosts</td><td>object</td><td>{}</td><td>Per-model cost overrides keyed by model name prefix</td></tr>
-        </table>
-
-        <p>Each entry in <code>modelCosts</code> has:</p>
-        <ul class="plain">
-            <li><strong>inputPerMillion</strong> &mdash; cost in dollars per million input tokens</li>
-            <li><strong>outputPerMillion</strong> &mdash; cost in dollars per million output tokens</li>
-        </ul>
-
-        <p>Embedded pricing data covers 40 models. Config overrides take precedence for any model name prefix match.</p>
-
-        <h3>Prompt Cache-Aware Pricing</h3>
-        <p>For Anthropic providers, prompt caching tokens are priced differently:</p>
-        <ul class="plain">
-            <li><strong>Cache read tokens</strong> &mdash; billed at <strong>10%</strong> of the input token rate (90% discount)</li>
-            <li><strong>Cache creation tokens</strong> &mdash; billed at <strong>125%</strong> of the input token rate (25% surcharge)</li>
-        </ul>
-        <p>This is applied automatically when the Anthropic API reports <code>cache_read_input_tokens</code> and <code>cache_creation_input_tokens</code> in the response usage.</p>
-
-        <h3>Cost Persistence</h3>
-        <p>All LLM call costs are persisted to the memory SQLite database (<code>memory/memory.sqlite3</code>). This means:</p>
-        <ul class="plain">
-            <li><strong>Daily budget survives restarts</strong> &mdash; accumulated cost is restored from the database on startup</li>
-            <li><strong>Historical data</strong> &mdash; query past costs via <code>oxicrab stats costs</code> and <code>oxicrab stats today</code></li>
-            <li><strong>Per-call breakdown</strong> &mdash; model, input/output tokens, cache tokens, cost in cents, and caller</li>
-        </ul>
     </div>
 
     <!-- CIRCUIT BREAKER -->

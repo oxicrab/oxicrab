@@ -101,24 +101,6 @@ fn default_max_iterations() -> usize {
     25
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelCost {
-    #[serde(default, rename = "inputPerMillion")]
-    pub input_per_million: f64,
-    #[serde(default, rename = "outputPerMillion")]
-    pub output_per_million: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CostGuardConfig {
-    #[serde(default, rename = "dailyBudgetCents")]
-    pub daily_budget_cents: Option<u64>,
-    #[serde(default, rename = "maxActionsPerHour")]
-    pub max_actions_per_hour: Option<u64>,
-    #[serde(default, rename = "modelCosts")]
-    pub model_costs: std::collections::HashMap<String, ModelCost>,
-}
-
 /// Action to take when prompt injection is detected.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -599,8 +581,6 @@ pub struct AgentDefaults {
     pub max_concurrent_subagents: usize,
     #[serde(default)]
     pub memory: MemoryConfig,
-    #[serde(default, rename = "costGuard")]
-    pub cost_guard: CostGuardConfig,
     #[serde(default)]
     pub cognitive: CognitiveConfig,
     #[serde(default, rename = "promptGuard")]
@@ -627,7 +607,6 @@ impl Default for AgentDefaults {
             media_ttl_days: default_media_ttl_days(),
             max_concurrent_subagents: default_max_concurrent_subagents(),
             memory: MemoryConfig::default(),
-            cost_guard: CostGuardConfig::default(),
             cognitive: CognitiveConfig::default(),
             prompt_guard: PromptGuardConfig::default(),
             context_providers: vec![],

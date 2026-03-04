@@ -144,23 +144,6 @@ impl AgentLoop {
             // in handle_text_response() catches false action claims as a safety net.
             let tool_choice: Option<String> = None;
 
-            // Cost guard pre-flight check
-            if let Some(ref cg) = self.cost_guard
-                && let Err(msg) = cg.check_allowed()
-            {
-                warn!("cost guard blocked LLM call: {}", msg);
-                if let Some(h) = typing_handle {
-                    h.abort();
-                }
-                return Ok(AgentLoopResult {
-                    content: Some(msg),
-                    input_tokens: last_input_tokens,
-                    tools_used,
-                    media: collected_media,
-                    discourse: discourse_register,
-                });
-            }
-
             let response = effective_provider
                 .chat_with_retry(
                     crate::providers::base::ChatRequest {
@@ -188,18 +171,19 @@ impl AgentLoop {
                 last_input_tokens = response.input_tokens;
             }
 
-            // Record cost for budget tracking — use actual_model from fallback
-            // provider when the primary failed and a different provider served it
+            // Record token usage — use actual_model from fallback provider when
+            // the primary failed and a different provider served it
             let cost_model = response.actual_model.as_deref().unwrap_or(effective_model);
-            if let Some(ref cg) = self.cost_guard {
-                cg.record_llm_call(
-                    cost_model,
-                    response.input_tokens,
-                    response.output_tokens,
-                    response.cache_creation_input_tokens,
-                    response.cache_read_input_tokens,
-                    overrides.request_id.as_deref(),
-                );
+            if let Err(e) = self.memory.db().record_tokens(
+                cost_model,
+                response.input_tokens.unwrap_or(0),
+                response.output_tokens.unwrap_or(0),
+                response.cache_creation_input_tokens.unwrap_or(0),
+                response.cache_read_input_tokens.unwrap_or(0),
+                "main",
+                overrides.request_id.as_deref(),
+            ) {
+                warn!("failed to record token usage: {}", e);
             }
 
             if response.has_tool_calls() {
@@ -563,14 +547,6 @@ impl AgentLoop {
         effective_provider: &dyn LLMProvider,
         request_id: Option<&str>,
     ) -> Result<Option<String>> {
-        // Cost guard pre-flight check for summary call
-        if let Some(ref cg) = self.cost_guard
-            && let Err(msg) = cg.check_allowed()
-        {
-            warn!("cost guard blocked post-loop summary: {}", msg);
-            return Ok(Some(msg));
-        }
-
         messages.push(Message::user(
             "Provide a brief summary of what you accomplished for the user.".to_string(),
         ));
@@ -589,15 +565,16 @@ impl AgentLoop {
         {
             Ok(response) => {
                 let cost_model = response.actual_model.as_deref().unwrap_or(effective_model);
-                if let Some(ref cg) = self.cost_guard {
-                    cg.record_llm_call(
-                        cost_model,
-                        response.input_tokens,
-                        response.output_tokens,
-                        response.cache_creation_input_tokens,
-                        response.cache_read_input_tokens,
-                        request_id,
-                    );
+                if let Err(e) = self.memory.db().record_tokens(
+                    cost_model,
+                    response.input_tokens.unwrap_or(0),
+                    response.output_tokens.unwrap_or(0),
+                    response.cache_creation_input_tokens.unwrap_or(0),
+                    response.cache_read_input_tokens.unwrap_or(0),
+                    "main",
+                    request_id,
+                ) {
+                    warn!("failed to record token usage: {}", e);
                 }
                 Ok(response.content)
             }

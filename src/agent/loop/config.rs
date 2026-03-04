@@ -71,8 +71,6 @@ pub struct LifecycleConfig {
 
 /// Safety and guardrail configuration.
 pub struct SafetyConfig {
-    /// Cost guard configuration for budget and rate limiting
-    pub cost_guard: crate::config::CostGuardConfig,
     /// Exfiltration guard configuration for hiding outbound tools from LLM
     pub exfiltration_guard: crate::config::ExfiltrationGuardConfig,
     /// Prompt injection detection configuration
@@ -212,7 +210,6 @@ impl AgentLoopConfig {
                 memory_indexer_interval: config.agents.defaults.memory_indexer_interval,
             },
             safety: SafetyConfig {
-                cost_guard: config.agents.defaults.cost_guard.clone(),
                 exfiltration_guard: config.tools.exfiltration_guard.clone(),
                 prompt_guard: config.agents.defaults.prompt_guard.clone(),
             },
@@ -283,7 +280,6 @@ impl AgentLoopConfig {
                 memory_indexer_interval: 300,
             },
             safety: SafetyConfig {
-                cost_guard: crate::config::CostGuardConfig::default(),
                 exfiltration_guard: crate::config::ExfiltrationGuardConfig::default(),
                 prompt_guard: crate::config::PromptGuardConfig::default(),
             },

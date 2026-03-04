@@ -28,7 +28,6 @@ fn make_tool() -> SpawnTool {
         max_tokens: 1024,
         tool_temperature: Some(0.0),
         max_concurrent: 2,
-        cost_guard: None,
         prompt_guard_config: PromptGuardConfig::default(),
         exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
         main_tools: None,

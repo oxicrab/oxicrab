@@ -35,7 +35,7 @@ pub struct ComplexityTierStats {
     pub tier: String,
     pub count: u64,
     pub avg_score: f64,
-    pub total_cost_cents: f64,
+    pub total_tokens: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -388,12 +388,12 @@ impl MemoryDB {
             )
             .unwrap_or(0);
 
-        // Per-tier stats with cost correlation via request_id JOIN
+        // Per-tier stats with token correlation via request_id JOIN
         let mut stmt = conn.prepare(
             "SELECT c.resolved_tier,
                     COUNT(*) as cnt,
                     AVG(c.composite_score) as avg_score,
-                    COALESCE(SUM(l.cost_cents), 0.0) as total_cost
+                    COALESCE(SUM(l.input_tokens + l.output_tokens), 0) as total_tokens
              FROM complexity_routing_log c
              LEFT JOIN llm_cost_log l ON c.request_id = l.request_id
              WHERE DATE(c.timestamp) >= ?
@@ -406,7 +406,7 @@ impl MemoryDB {
                     tier: row.get(0)?,
                     count: row.get::<_, i64>(1)? as u64,
                     avg_score: row.get(2)?,
-                    total_cost_cents: row.get(3)?,
+                    total_tokens: row.get(3)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()

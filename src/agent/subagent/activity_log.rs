@@ -112,10 +112,6 @@ impl ActivityLog {
         ));
     }
 
-    pub fn log_cost_blocked(&mut self, msg: &str) {
-        self.write_line(&format!("COST GUARD BLOCKED: {msg}"));
-    }
-
     pub fn log_max_iterations(&mut self, max: usize) {
         self.write_line(&format!(
             "MAX ITERATIONS REACHED ({max}) — exiting without final response"
