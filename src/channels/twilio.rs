@@ -182,8 +182,8 @@ async fn webhook_handler(
         chat_id,
         content: body_text,
         timestamp: Utc::now(),
-        media: Vec::new(),
         metadata,
+        ..Default::default()
     };
 
     if let Err(e) = state.inbound_tx.send(message).await {

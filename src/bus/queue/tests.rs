@@ -1,6 +1,5 @@
 use super::*;
 use chrono::Utc;
-use std::collections::HashMap;
 
 fn make_inbound(channel: &str, sender_id: &str) -> InboundMessage {
     InboundMessage {
@@ -9,8 +8,7 @@ fn make_inbound(channel: &str, sender_id: &str) -> InboundMessage {
         chat_id: "chat1".to_string(),
         content: "hello".to_string(),
         timestamp: Utc::now(),
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     }
 }
 

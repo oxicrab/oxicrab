@@ -627,8 +627,7 @@ async fn announce_result(
         chat_id: format!("{}:{}", origin.0, origin.1),
         content: announce_content,
         timestamp: Utc::now(),
-        media: vec![],
-        metadata: HashMap::new(),
+        ..Default::default()
     };
 
     if let Err(e) = bus.lock().await.publish_inbound(msg).await {

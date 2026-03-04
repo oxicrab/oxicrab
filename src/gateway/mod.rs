@@ -404,7 +404,6 @@ async fn chat_handler(
         chat_id: request_id.clone(),
         content: body.message,
         timestamp: chrono::Utc::now(),
-        media: vec![],
         metadata: {
             let mut meta = HashMap::new();
             meta.insert(
@@ -416,6 +415,7 @@ async fn chat_handler(
             }
             meta
         },
+        ..Default::default()
     };
 
     if let Err(e) = state.inbound_tx.send(msg).await {
@@ -610,7 +610,6 @@ async fn webhook_handler(
             chat_id: request_id.clone(),
             content: message,
             timestamp: chrono::Utc::now(),
-            media: vec![],
             metadata: {
                 let mut meta = HashMap::new();
                 meta.insert(
@@ -619,6 +618,7 @@ async fn webhook_handler(
                 );
                 meta
             },
+            ..Default::default()
         };
 
         if let Err(e) = state.inbound_tx.send(inbound).await {

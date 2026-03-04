@@ -336,8 +336,8 @@ impl BaseChannel for TelegramChannel {
                                     chat_id: msg.chat.id.to_string(),
                                     content: text.to_string(),
                                     timestamp: Utc::now(),
-                                    media: vec![],
                                     metadata,
+                                    ..Default::default()
                                 };
 
                                 if let Err(e) = inbound_tx.send(inbound_msg).await {

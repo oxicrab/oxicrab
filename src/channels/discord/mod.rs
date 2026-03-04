@@ -113,8 +113,8 @@ impl Handler {
             chat_id: cmd.channel_id.to_string(),
             content,
             timestamp: Utc::now(),
-            media: Vec::new(),
             metadata,
+            ..Default::default()
         };
 
         if let Err(e) = self.inbound_tx.send(inbound_msg).await {
@@ -193,8 +193,8 @@ impl Handler {
             chat_id: comp.channel_id.to_string(),
             content,
             timestamp: Utc::now(),
-            media: Vec::new(),
             metadata,
+            ..Default::default()
         };
 
         if let Err(e) = self.inbound_tx.send(inbound_msg).await {
