@@ -2,6 +2,70 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.0] - 2026-03-04
+
+### Added
+- add tool pre-filtering by category ([a8733e6](https://github.com/oxicrab/oxicrab/commit/a8733e6093b9f952d7e77936d698f65a2508df51))
+- feature-gate heavy dependencies (browser, local-whisper, embeddings) ([ebce120](https://github.com/oxicrab/oxicrab/commit/ebce120c497ff572fd265f4872f3ade9f6a9c9fa))
+- **config:** add optional per-provider temperature override ([50dcf8d](https://github.com/oxicrab/oxicrab/commit/50dcf8d5391e9aa45d4d5291de2377af072ce99c))
+- **cli:** add stats complexity subcommand ([a159064](https://github.com/oxicrab/oxicrab/commit/a159064b6c7b847ed30d978019dd4189283a0703))
+- **db:** add get_complexity_stats() with cost correlation ([117389e](https://github.com/oxicrab/oxicrab/commit/117389ee7c4768fc4a80f6e85eef2e37af414cc1))
+- **complexity:** thread request_id through agent loop for correlation ([f561e01](https://github.com/oxicrab/oxicrab/commit/f561e0182a20816f5fc545fa1b47c1334c2e5616))
+- **db:** add record_complexity_event() ([ae09563](https://github.com/oxicrab/oxicrab/commit/ae09563474175b2eeafe9c64236f941a3f6c8e5a))
+- **db:** add complexity_routing_log table and request_id columns ([5b1d8c1](https://github.com/oxicrab/oxicrab/commit/5b1d8c129ef9f93e7a15f857222a3201961c8caa))
+
+
+### Changed
+- split CLI commands into focused submodules ([74f37b8](https://github.com/oxicrab/oxicrab/commit/74f37b87c3197521bdd22f194b4f84b9a3eddf0e))
+- extract all inline tests to directory module pattern ([0a391d9](https://github.com/oxicrab/oxicrab/commit/0a391d91583d1c3a9f903061b1985ff4547e7a5d))
+- split agent loop module into focused submodules ([f1bb9db](https://github.com/oxicrab/oxicrab/commit/f1bb9dbc92fcb2e1f47b40261efac52485e44205))
+- migrate sessions from file-based JSONL to SQLite ([76b13ff](https://github.com/oxicrab/oxicrab/commit/76b13ffb9313d143b6786c99560363fca44075d2))
+- decouple MessageBus from outer Arc<Mutex<>> ([86f9169](https://github.com/oxicrab/oxicrab/commit/86f9169320e492fad229908cacf641dbf4bb8703))
+- per-session processing locks for concurrent session support (A3) ([bfd214b](https://github.com/oxicrab/oxicrab/commit/bfd214b54c5e530393fdd90be68075db113a26fc))
+- group AgentLoopConfig into LifecycleConfig + SafetyConfig (A6) ([04ff7de](https://github.com/oxicrab/oxicrab/commit/04ff7de3e313b763bcf84b3b192ab76bdb6c45da))
+- add AgentLoopResult struct and metadata key constants (A7, A8) ([d2ef6c1](https://github.com/oxicrab/oxicrab/commit/d2ef6c194009bc256a4d90527530708cf8c9ed1c))
+- inline format args, remove uninlined_format_args allow ([11104b1](https://github.com/oxicrab/oxicrab/commit/11104b1267d6f72aa0684c2cadb04ae209d7945b))
+- use unwrap_or_default() for "", false, 0.0 fallbacks ([db0f79b](https://github.com/oxicrab/oxicrab/commit/db0f79baeb2e7875439fa006afc349ad4a75cd96))
+- add Default to WebhookConfig, use defaults in CostGuardConfig tests ([8aa46fd](https://github.com/oxicrab/oxicrab/commit/8aa46fd40ee40c74d9e705da8a69865ed4900410))
+- use CronJobState::default() and ExecutionContext defaults ([106757b](https://github.com/oxicrab/oxicrab/commit/106757bf91b02bebdfb0341aa1ca459ff97e03ba))
+- add Default to InboundMessage, drop redundant fields ([f2855f6](https://github.com/oxicrab/oxicrab/commit/f2855f6e4bf4f3d0e3f25258739a45c0e48509b1))
+- use ..Default::default() for ToolCapabilities construction ([d5bfbd4](https://github.com/oxicrab/oxicrab/commit/d5bfbd433ce8be55aa8727e901d187e3a6edfd49))
+- add Default to OutboundMessage, drop redundant fields ([e2aa1d7](https://github.com/oxicrab/oxicrab/commit/e2aa1d78997e4a82396444a8fed904f16dd08a09))
+- remove lifetime from ChatRequest, add Default ([e974afe](https://github.com/oxicrab/oxicrab/commit/e974afe248a77e2ac0091edfc9118001044f4441))
+- drop redundant Default-value fields from LLMResponse sites ([aaed980](https://github.com/oxicrab/oxicrab/commit/aaed98016206aab549e16e5077b7b98015afdbca))
+- use ..Default::default() for LLMResponse construction ([369f136](https://github.com/oxicrab/oxicrab/commit/369f136667a94fa7575b99de99aaf55ac933d5dc))
+- **routing:** simplify model routing config from 6 concepts to 3 ([b5962f5](https://github.com/oxicrab/oxicrab/commit/b5962f55a907851a606319d899c49f6064ebe33e))
+- **search:** add request_id parameter to log_search ([fd98e76](https://github.com/oxicrab/oxicrab/commit/fd98e760d45b8307c97638dde39ddd3138afe16b))
+- **intent:** add request_id parameter to record_intent_event and handle_text_response ([5eb9935](https://github.com/oxicrab/oxicrab/commit/5eb993581f7753a458cd550288c3335822cae703))
+- **cost:** add request_id parameter to record_cost and record_llm_call ([74b41f3](https://github.com/oxicrab/oxicrab/commit/74b41f3285099f9af30b8308c1d65f94772030fb))
+
+
+### Documentation
+- add allowGroups to channel config documentation ([a6eeb50](https://github.com/oxicrab/oxicrab/commit/a6eeb50a5b72a01012d099b1af32c126c6596563))
+- update CLAUDE.md for M-series fixes ([a087389](https://github.com/oxicrab/oxicrab/commit/a0873897fe7f4c1c25d66e264e54380b867f7c44))
+- update CLAUDE.md for architectural changes ([c2fd5e6](https://github.com/oxicrab/oxicrab/commit/c2fd5e640975336cddbb3be33b18f6f73c9d9cbd))
+- **cli:** add stats complexity subcommand ([ee493e3](https://github.com/oxicrab/oxicrab/commit/ee493e36be47576ad510f430cdab7a653ce1ee06))
+
+
+### Fixed
+- gate markdown_code_block behind channel-telegram feature ([ff66bc8](https://github.com/oxicrab/oxicrab/commit/ff66bc8136e680a5058161608d427026766190a7))
+- session cleanup with TTL 0 deletes all sessions ([3ea5ba8](https://github.com/oxicrab/oxicrab/commit/3ea5ba8e0479e5d5742731a3baad6b52a89a72e0))
+- resolve clippy warnings from architectural changes ([615124a](https://github.com/oxicrab/oxicrab/commit/615124ad9908ad247ceb7ce435f3840edb02aa42))
+- low-severity findings from code review (L1-L5,L7,L8,L11-L14) ([8b9725c](https://github.com/oxicrab/oxicrab/commit/8b9725cf6eab4d0ffead70b1965f655e5dbf52ba))
+- group access control and webhook replay protection (M6, M11) ([5114ca2](https://github.com/oxicrab/oxicrab/commit/5114ca2bb7c1f626699d92302abfa7dd296016af))
+- browser SSRF check after eval/click/navigate actions (M4) ([61e63cf](https://github.com/oxicrab/oxicrab/commit/61e63cfb1e1f23debff8e6ffde82206de410d921))
+- reconstruct tool_calls and tool_call_id from session history (M14) ([3999820](https://github.com/oxicrab/oxicrab/commit/3999820d770c7e5048b4be3f823604bd050ff968))
+- remaining medium-severity findings (M2, M9) ([1e3521b](https://github.com/oxicrab/oxicrab/commit/1e3521b16157b2414f2758a69a5e6c1590cde53c))
+- medium-severity findings from code review (M1,M3,M5,M7,M8,M10,M12,M13,M15) ([5775a4a](https://github.com/oxicrab/oxicrab/commit/5775a4ae7332222f3710ccb92ca0c018f4dfb5b5))
+- three high-priority bugs from code review ([6d415e2](https://github.com/oxicrab/oxicrab/commit/6d415e25b549d69323c8baadda675c410a02c062))
+- **cost:** attribute fallback provider costs to actual serving model ([b9e5e71](https://github.com/oxicrab/oxicrab/commit/b9e5e710ce534ddd5d38a2c1bd28e240ce794304))
+- **deps:** update aws-lc-sys to 0.38.0 for PKCS7_verify bypass fix ([6a85982](https://github.com/oxicrab/oxicrab/commit/6a8598299bd87bce410a52b1efc6898fda83894c))
+- **routing:** support "default" tier for complexity routing fallback to default model ([ae31bd3](https://github.com/oxicrab/oxicrab/commit/ae31bd37c257c21d48c05d207ff91a82b4e484af))
+
+
+### Testing
+- add end-to-end bus pipeline integration test (A5) ([7ee586b](https://github.com/oxicrab/oxicrab/commit/7ee586bf817bf6904aeac88a6925479b01bf93d9))
+
 ## [0.12.0] - 2026-03-03
 
 ### Added
