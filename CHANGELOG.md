@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.2] - 2026-03-04
+
+### Fixed
+- openrouter reasoning ([7bf9085](https://github.com/oxicrab/oxicrab/commit/7bf908512e9f0389cd5922ed896556b824d38c00))
+- respect per-provider temperature for tool iterations ([2ca47b6](https://github.com/oxicrab/oxicrab/commit/2ca47b6efdad5f646b89802acd01fed0927cb666))
+- preserve Anthropic thinking block signature across message lifecycle ([7735ae6](https://github.com/oxicrab/oxicrab/commit/7735ae65cae25cc5ea80c1f26351f7276ef2481d))
+
 ## [0.13.1] - 2026-03-04
 
 ### Fixed
