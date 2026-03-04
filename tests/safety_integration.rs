@@ -7,7 +7,6 @@ use common::{
 use oxicrab::bus::{MessageBus, OutboundMessage};
 use oxicrab::config::{ExfiltrationGuardConfig, PromptGuardAction, PromptGuardConfig};
 use serde_json::json;
-use std::collections::HashMap;
 use tempfile::TempDir;
 
 // ===========================================================================

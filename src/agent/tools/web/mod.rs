@@ -144,7 +144,7 @@ impl Tool for WebSearchTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::Full,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
@@ -391,7 +391,7 @@ impl Tool for WebFetchTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::Full,
-            actions: vec![],
+            ..Default::default()
         }
     }
 

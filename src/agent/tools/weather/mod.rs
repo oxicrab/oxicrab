@@ -160,7 +160,7 @@ impl Tool for WeatherTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::Full,
-            actions: vec![],
+            ..Default::default()
         }
     }
 

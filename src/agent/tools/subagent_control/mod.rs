@@ -1,5 +1,5 @@
 use crate::agent::subagent::SubagentManager;
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -47,9 +47,7 @@ impl Tool for SubagentControlTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
-            network_outbound: false,
-            subagent_access: SubagentAccess::Denied,
-            actions: vec![],
+            ..Default::default()
         }
     }
 

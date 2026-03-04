@@ -1,4 +1,4 @@
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -250,8 +250,7 @@ impl Tool for ImageGenTool {
         ToolCapabilities {
             built_in: true,
             network_outbound: true,
-            subagent_access: SubagentAccess::Denied,
-            actions: vec![],
+            ..Default::default()
         }
     }
 

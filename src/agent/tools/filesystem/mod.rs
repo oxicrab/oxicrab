@@ -185,9 +185,8 @@ impl Tool for ReadFileTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
-            network_outbound: false,
             subagent_access: SubagentAccess::Full,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
@@ -359,9 +358,8 @@ impl Tool for WriteFileTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
-            network_outbound: false,
             subagent_access: SubagentAccess::Full,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
@@ -503,9 +501,7 @@ impl Tool for EditFileTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
-            network_outbound: false,
-            subagent_access: SubagentAccess::Denied,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
@@ -677,9 +673,8 @@ impl Tool for ListDirTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
-            network_outbound: false,
             subagent_access: SubagentAccess::Full,
-            actions: vec![],
+            ..Default::default()
         }
     }
 
