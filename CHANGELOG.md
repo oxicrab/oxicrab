@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.3] - 2026-03-04
+
+### Added
+- add minimax provider for OpenAI-compatible API ([dc469f9](https://github.com/oxicrab/oxicrab/commit/dc469f9506fca93768e484f7c84467467a69591a))
+- add builder patterns for ChatRequest, InboundMessage, OutboundMessage ([a587562](https://github.com/oxicrab/oxicrab/commit/a587562481d2458c82ecf91312a58c5fe51ac387))
+- **costguard:** Removed CostGuard ([1d3ed47](https://github.com/oxicrab/oxicrab/commit/1d3ed4788e6ecc88d98afd5854de7163513f351e))
+
+
+### Changed
+- replace fragile credential count assertions with bounds checks ([df7654d](https://github.com/oxicrab/oxicrab/commit/df7654dfa0d0adec68c9c1f818670a8bbe35beaa))
+
+
+### Fixed
+- address 12 bugs in subagent, tools, and cron from deep audit ([223f1a1](https://github.com/oxicrab/oxicrab/commit/223f1a1bbc9d1a6a0e81dd4236afd673c8a800ec))
+- address 12 bugs found in tools audit ([ed31b28](https://github.com/oxicrab/oxicrab/commit/ed31b28c25a8fe52ae598cbc23589324627ea862))
+- prefer IPv4 in DNS resolution order for pinned clients ([fecbd85](https://github.com/oxicrab/oxicrab/commit/fecbd851bc5dd260d7993bd937e5469261c2b18e))
+- add connect timeout to pinned HTTP clients in web_fetch and http tools ([5a20815](https://github.com/oxicrab/oxicrab/commit/5a20815eb25224271db2a07bef0d4782c7c049e2))
+- address 6 bugs found in codebase audit ([ac3afec](https://github.com/oxicrab/oxicrab/commit/ac3afec83487a11913bafc527261fb45d11c23fe))
+- strip provider prefix from model names in routing resolution ([66bfc7b](https://github.com/oxicrab/oxicrab/commit/66bfc7bba406a9ae622d92d0f50f4b91bc4de337))
+- update credential env vars count for minimax ([68797b4](https://github.com/oxicrab/oxicrab/commit/68797b46e932c11b071ceb6348d31c88e3d78883))
+
+
+### Maintenance
+- add .worktrees to gitignore ([ec511ce](https://github.com/oxicrab/oxicrab/commit/ec511ce3a4add2ebce14ac3eed0136c674145940))
+
 ## [0.13.2] - 2026-03-04
 
 ### Fixed
