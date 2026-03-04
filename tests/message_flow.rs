@@ -704,9 +704,7 @@ async fn test_end_to_end_bus_pipeline() {
     // Create bus and extract channels before wrapping in Arc<Mutex>
     let mut bus = MessageBus::default();
     let mut inbound_rx = bus.take_inbound_rx().expect("take inbound rx");
-    let mut outbound_rx = bus.take_outbound_rx().expect("take outbound rx");
-    let (outbound_tx, _) = tokio::sync::mpsc::channel::<oxicrab::bus::OutboundMessage>(100);
-    let outbound_tx = Arc::new(outbound_tx);
+    let _outbound_rx = bus.take_outbound_rx().expect("take outbound rx");
     let bus = Arc::new(Mutex::new(bus));
 
     let agent = create_test_agent_with(provider, &tmp, TestAgentOverrides::default()).await;

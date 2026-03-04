@@ -753,7 +753,10 @@ impl AgentLoop {
     /// Get or create a per-session lock, enabling concurrent processing of
     /// independent sessions while serializing within each session.
     fn session_lock(&self, session_key: &str) -> Arc<tokio::sync::Mutex<()>> {
-        let mut locks = self.session_locks.lock().unwrap_or_else(|p| p.into_inner());
+        let mut locks = self
+            .session_locks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         locks
             .entry(session_key.to_string())
             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
