@@ -154,7 +154,7 @@ impl BaseChannel for TelegramChannel {
                                     if !content.trim().is_empty() || !media_paths.is_empty() {
                                         let mut metadata = HashMap::new();
                                         let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
-                                        metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
+                                        metadata.insert(crate::bus::meta::IS_GROUP.to_string(), serde_json::Value::Bool(is_group));
                                         let inbound_msg = InboundMessage {
                                             channel: "telegram".to_string(),
                                             sender_id,
@@ -220,7 +220,7 @@ impl BaseChannel for TelegramChannel {
                                 if !content.trim().is_empty() || !media_paths.is_empty() {
                                     let mut metadata = HashMap::new();
                                     let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
-                                    metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
+                                    metadata.insert(crate::bus::meta::IS_GROUP.to_string(), serde_json::Value::Bool(is_group));
                                     let inbound_msg = InboundMessage {
                                         channel: "telegram".to_string(),
                                         sender_id,
@@ -305,7 +305,7 @@ impl BaseChannel for TelegramChannel {
                                 if !content.trim().is_empty() || !media_paths.is_empty() {
                                     let mut metadata = HashMap::new();
                                     let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
-                                    metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
+                                    metadata.insert(crate::bus::meta::IS_GROUP.to_string(), serde_json::Value::Bool(is_group));
                                     let inbound_msg = InboundMessage {
                                         channel: "telegram".to_string(),
                                         sender_id,
@@ -329,7 +329,7 @@ impl BaseChannel for TelegramChannel {
                             if let Some(text) = msg.text() {
                                 let mut metadata = HashMap::new();
                                 let is_group = msg.chat.is_group() || msg.chat.is_supergroup();
-                                metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
+                                metadata.insert(crate::bus::meta::IS_GROUP.to_string(), serde_json::Value::Bool(is_group));
                                 let inbound_msg = InboundMessage {
                                     channel: "telegram".to_string(),
                                     sender_id,

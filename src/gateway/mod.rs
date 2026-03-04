@@ -407,11 +407,14 @@ async fn chat_handler(
         metadata: {
             let mut meta = HashMap::new();
             meta.insert(
-                "session_id".to_string(),
+                crate::bus::meta::SESSION_ID.to_string(),
                 serde_json::Value::String(session_id.clone()),
             );
             if let Some(ref rf) = response_format_value {
-                meta.insert("response_format".to_string(), response_format_to_json(rf));
+                meta.insert(
+                    crate::bus::meta::RESPONSE_FORMAT.to_string(),
+                    response_format_to_json(rf),
+                );
             }
             meta
         },
@@ -613,7 +616,7 @@ async fn webhook_handler(
             metadata: {
                 let mut meta = HashMap::new();
                 meta.insert(
-                    "webhook_name".to_string(),
+                    crate::bus::meta::WEBHOOK_NAME.to_string(),
                     serde_json::Value::String(name.clone()),
                 );
                 meta
@@ -697,7 +700,7 @@ async fn deliver_to_targets(
             metadata: {
                 let mut meta = HashMap::new();
                 meta.insert(
-                    "webhook_source".to_string(),
+                    crate::bus::meta::WEBHOOK_SOURCE.to_string(),
                     serde_json::Value::String(webhook_name.to_string()),
                 );
                 meta

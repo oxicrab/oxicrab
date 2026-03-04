@@ -1033,7 +1033,10 @@ async fn handle_slack_event(
             meta.insert("user_id".to_string(), Value::String(user_id.to_string()));
             // Slack DM channels start with 'D', public channels with 'C', private/group with 'G'
             let is_group = !channel_id.starts_with('D');
-            meta.insert("is_group".to_string(), Value::Bool(is_group));
+            meta.insert(
+                crate::bus::meta::IS_GROUP.to_string(),
+                Value::Bool(is_group),
+            );
             meta
         },
     };

@@ -318,7 +318,7 @@ impl BaseChannel for WhatsAppChannel {
                                                 Value::String(info.id.clone()));
                                             meta.insert("whatsapp_timestamp".to_string(),
                                                 Value::Number(serde_json::Number::from(info.timestamp.timestamp_millis())));
-                                            meta.insert("is_group".to_string(),
+                                            meta.insert(crate::bus::meta::IS_GROUP.to_string(),
                                                 Value::Bool(info.source.is_group));
                                             meta
                                         },

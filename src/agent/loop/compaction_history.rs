@@ -26,7 +26,7 @@ impl AgentLoop {
         // Prefer provider-reported input tokens (precise), fall back to heuristic
         let token_est = session
             .metadata
-            .get("last_input_tokens")
+            .get(crate::bus::meta::LAST_INPUT_TOKENS)
             .and_then(serde_json::Value::as_u64)
             .unwrap_or_else(|| {
                 crate::agent::compaction::estimate_messages_tokens(&full_history) as u64

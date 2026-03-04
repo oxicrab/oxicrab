@@ -103,7 +103,7 @@ impl Handler {
             serde_json::Value::String(cmd.application_id.to_string()),
         );
         metadata.insert(
-            "is_group".to_string(),
+            crate::bus::meta::IS_GROUP.to_string(),
             serde_json::Value::Bool(cmd.guild_id.is_some()),
         );
 
@@ -183,7 +183,7 @@ impl Handler {
             serde_json::Value::String(custom_id),
         );
         metadata.insert(
-            "is_group".to_string(),
+            crate::bus::meta::IS_GROUP.to_string(),
             serde_json::Value::Bool(comp.guild_id.is_some()),
         );
 
@@ -321,7 +321,10 @@ impl EventHandler for Handler {
         }
 
         let mut metadata = HashMap::new();
-        metadata.insert("is_group".to_string(), serde_json::Value::Bool(is_group));
+        metadata.insert(
+            crate::bus::meta::IS_GROUP.to_string(),
+            serde_json::Value::Bool(is_group),
+        );
         let inbound_msg = InboundMessage {
             channel: "discord".to_string(),
             sender_id,

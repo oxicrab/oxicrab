@@ -89,6 +89,20 @@ pub struct ToolConfigs {
     pub workspace_ttl: crate::config::WorkspaceTtlConfig,
 }
 
+/// Result of a single agent loop run.
+pub struct AgentLoopResult {
+    /// Final text response from the agent (if any).
+    pub content: Option<String>,
+    /// Input token count from the last LLM call (for compaction threshold checks).
+    pub input_tokens: Option<u64>,
+    /// Names of tools invoked during the loop.
+    pub tools_used: Vec<String>,
+    /// Filesystem paths of media produced by tools (screenshots, generated images, etc.).
+    pub media: Vec<String>,
+    /// Discourse entity register populated during the loop.
+    pub discourse: crate::agent::discourse::DiscourseRegister,
+}
+
 /// Configuration for creating an [`AgentLoop`] instance.
 pub struct AgentLoopConfig {
     pub bus: Arc<Mutex<MessageBus>>,
@@ -912,7 +926,7 @@ impl AgentLoop {
         debug!("Acquiring context lock");
         let is_group = msg
             .metadata
-            .get("is_group")
+            .get(crate::bus::meta::IS_GROUP)
             .and_then(serde_json::Value::as_bool)
             .unwrap_or_default();
         // Load discourse entity register from session for reference resolution
@@ -978,7 +992,7 @@ impl AgentLoop {
         // the gateway HTTP API when callers request structured JSON output).
         let response_format = msg
             .metadata
-            .get("response_format")
+            .get(crate::bus::meta::RESPONSE_FORMAT)
             .and_then(crate::gateway::response_format_from_json);
 
         let overrides = match (complexity_overrides, response_format) {
@@ -1018,7 +1032,7 @@ impl AgentLoop {
         }
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
-        let (final_content, input_tokens, tools_used, collected_media, loop_discourse) = self
+        let loop_result = self
             .run_agent_loop_with_overrides(
                 messages,
                 typing_ctx,
@@ -1029,8 +1043,8 @@ impl AgentLoop {
             .await?;
 
         // Merge loop-extracted entities into the session's discourse register
-        discourse_register.turn = loop_discourse.turn;
-        discourse_register.register(loop_discourse.entities);
+        discourse_register.turn = loop_result.discourse.turn;
+        discourse_register.register(loop_result.discourse.entities);
 
         // Reload session in case compaction updated it during the agent loop
         // (compaction saves a compaction_summary to session metadata)
@@ -1042,14 +1056,22 @@ impl AgentLoop {
         // Always save an assistant message to maintain user/assistant alternation.
         // Broken alternation causes the Anthropic provider to merge consecutive user
         // messages, which garbles conversation context for future turns.
-        let response_text = final_content
+        let response_text = loop_result
+            .content
             .as_deref()
             .unwrap_or("I wasn't able to generate a response.");
         let mut assistant_extra = HashMap::new();
-        if !tools_used.is_empty() {
+        if !loop_result.tools_used.is_empty() {
             assistant_extra.insert(
-                "tools_used".to_string(),
-                Value::Array(tools_used.into_iter().map(Value::String).collect()),
+                crate::bus::meta::TOOLS_USED.to_string(),
+                Value::Array(
+                    loop_result
+                        .tools_used
+                        .iter()
+                        .cloned()
+                        .map(Value::String)
+                        .collect(),
+                ),
             );
         }
         session.add_message(
@@ -1058,9 +1080,9 @@ impl AgentLoop {
             assistant_extra,
         );
         // Store provider-reported input tokens for precise compaction threshold checks
-        if let Some(tokens) = input_tokens {
+        if let Some(tokens) = loop_result.input_tokens {
             session.metadata.insert(
-                "last_input_tokens".to_string(),
+                crate::bus::meta::LAST_INPUT_TOKENS.to_string(),
                 Value::Number(serde_json::Number::from(tokens)),
             );
         }
@@ -1069,7 +1091,7 @@ impl AgentLoop {
         self.sessions.save(&session).await?;
 
         // Background fact extraction
-        if let (Some(compactor), Some(assistant_content)) = (&self.compactor, &final_content)
+        if let (Some(compactor), Some(assistant_content)) = (&self.compactor, &loop_result.content)
             && self.compaction_config.extraction_enabled
             && msg.channel != "system"
         {
@@ -1114,7 +1136,7 @@ impl AgentLoop {
                 .await;
         }
 
-        if let Some(content) = final_content {
+        if let Some(content) = loop_result.content {
             // Suppress sending if the LLM returned a [SILENT] response
             if content.starts_with("[SILENT]") {
                 debug!("Suppressing silent response");
@@ -1124,7 +1146,7 @@ impl AgentLoop {
                 channel: msg.channel,
                 chat_id: msg.chat_id,
                 content,
-                media: collected_media,
+                media: loop_result.media,
                 metadata: msg.metadata,
                 ..Default::default()
             }))
@@ -1158,13 +1180,7 @@ impl AgentLoop {
         exec_ctx: &ExecutionContext,
         overrides: &AgentRunOverrides,
         user_has_action_intent: bool,
-    ) -> Result<(
-        Option<String>,
-        Option<u64>,
-        Vec<String>,
-        Vec<String>,
-        crate::agent::discourse::DiscourseRegister,
-    )> {
+    ) -> Result<AgentLoopResult> {
         let effective_model = overrides.model.as_deref().unwrap_or(&self.model);
         let effective_max_iterations = overrides.max_iterations.unwrap_or(self.max_iterations);
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
@@ -1262,13 +1278,13 @@ impl AgentLoop {
                 if let Some(h) = typing_handle {
                     h.abort();
                 }
-                return Ok((
-                    Some(msg),
-                    last_input_tokens,
+                return Ok(AgentLoopResult {
+                    content: Some(msg),
+                    input_tokens: last_input_tokens,
                     tools_used,
-                    collected_media,
-                    discourse_register,
-                ));
+                    media: collected_media,
+                    discourse: discourse_register,
+                });
             }
 
             let effective_provider = overrides.provider.as_ref().unwrap_or(&self.provider);
@@ -1378,13 +1394,13 @@ impl AgentLoop {
                 ) {
                     TextAction::Continue => {}
                     TextAction::Return => {
-                        return Ok((
-                            Some(content),
-                            last_input_tokens,
+                        return Ok(AgentLoopResult {
+                            content: Some(content),
+                            input_tokens: last_input_tokens,
                             tools_used,
-                            collected_media,
-                            discourse_register,
-                        ));
+                            media: collected_media,
+                            discourse: discourse_register,
+                        });
                     }
                 }
             } else {
@@ -1417,22 +1433,22 @@ impl AgentLoop {
                 )
                 .await?
         {
-            return Ok((
-                Some(content),
-                last_input_tokens,
+            return Ok(AgentLoopResult {
+                content: Some(content),
+                input_tokens: last_input_tokens,
                 tools_used,
-                collected_media,
-                discourse_register,
-            ));
+                media: collected_media,
+                discourse: discourse_register,
+            });
         }
 
-        Ok((
-            None,
-            last_input_tokens,
+        Ok(AgentLoopResult {
+            content: None,
+            input_tokens: last_input_tokens,
             tools_used,
-            collected_media,
-            discourse_register,
-        ))
+            media: collected_media,
+            discourse: discourse_register,
+        })
     }
 
     /// Execute tool calls — single-tool fast-path or parallel `spawn`+`join_all`.
@@ -1812,7 +1828,7 @@ impl AgentLoop {
             request_id: Some(request_id),
             ..AgentRunOverrides::default()
         };
-        let (final_content, _, tools_used, collected_media, _discourse) = self
+        let loop_result = self
             .run_agent_loop_with_overrides(
                 messages,
                 typing_ctx,
@@ -1821,8 +1837,9 @@ impl AgentLoop {
                 user_action_intent,
             )
             .await?;
-        let final_content =
-            final_content.unwrap_or_else(|| "Background task completed.".to_string());
+        let final_content = loop_result
+            .content
+            .unwrap_or_else(|| "Background task completed.".to_string());
 
         let mut session = self.sessions.get_or_create(&session_key).await?;
         let extra = HashMap::new();
@@ -1832,10 +1849,16 @@ impl AgentLoop {
             extra.clone(),
         );
         let mut assistant_extra = HashMap::new();
-        if !tools_used.is_empty() {
+        if !loop_result.tools_used.is_empty() {
             assistant_extra.insert(
-                "tools_used".to_string(),
-                Value::Array(tools_used.into_iter().map(Value::String).collect()),
+                crate::bus::meta::TOOLS_USED.to_string(),
+                Value::Array(
+                    loop_result
+                        .tools_used
+                        .into_iter()
+                        .map(Value::String)
+                        .collect(),
+                ),
             );
         }
         session.add_message(
@@ -1849,7 +1872,7 @@ impl AgentLoop {
             channel: origin_channel.clone(),
             chat_id: origin_chat_id.clone(),
             content: final_content,
-            media: collected_media,
+            media: loop_result.media,
             metadata: msg.metadata,
             ..Default::default()
         }))
@@ -2015,7 +2038,7 @@ impl AgentLoop {
             }
         };
 
-        let (response, _, tools_used, _collected_media, _discourse) = self
+        let loop_result = self
             .run_agent_loop_with_overrides(
                 messages,
                 typing_ctx,
@@ -2024,16 +2047,24 @@ impl AgentLoop {
                 user_action_intent,
             )
             .await?;
-        let response = response.unwrap_or_else(|| "No response generated.".to_string());
+        let response = loop_result
+            .content
+            .unwrap_or_else(|| "No response generated.".to_string());
 
         let mut session = self.sessions.get_or_create(session_key).await?;
         let extra = HashMap::new();
         session.add_message("user".to_string(), content.to_string(), extra.clone());
         let mut assistant_extra = HashMap::new();
-        if !tools_used.is_empty() {
+        if !loop_result.tools_used.is_empty() {
             assistant_extra.insert(
-                "tools_used".to_string(),
-                Value::Array(tools_used.into_iter().map(Value::String).collect()),
+                crate::bus::meta::TOOLS_USED.to_string(),
+                Value::Array(
+                    loop_result
+                        .tools_used
+                        .into_iter()
+                        .map(Value::String)
+                        .collect(),
+                ),
             );
         }
         session.add_message("assistant".to_string(), response.clone(), assistant_extra);
