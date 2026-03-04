@@ -1,4 +1,4 @@
-use crate::agent::tools::base::{ExecutionContext, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::utils::regex::compile_security_patterns;
 use anyhow::Result;
@@ -93,6 +93,7 @@ impl Tool for TmuxTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
+            category: ToolCategory::System,
             ..Default::default()
         }
     }

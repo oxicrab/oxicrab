@@ -1,4 +1,4 @@
-use crate::agent::tools::base::{ExecutionContext, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -249,6 +249,7 @@ impl Tool for ImageGenTool {
         ToolCapabilities {
             built_in: true,
             network_outbound: true,
+            category: ToolCategory::Media,
             ..Default::default()
         }
     }

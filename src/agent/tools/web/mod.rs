@@ -1,4 +1,4 @@
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::utils::media::{extension_from_content_type, save_media_file};
 use crate::utils::regex::{RegexPatterns, compile_regex};
@@ -144,6 +144,7 @@ impl Tool for WebSearchTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::Full,
+            category: ToolCategory::Web,
             ..Default::default()
         }
     }
@@ -390,6 +391,7 @@ impl Tool for WebFetchTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::Full,
+            category: ToolCategory::Web,
             ..Default::default()
         }
     }

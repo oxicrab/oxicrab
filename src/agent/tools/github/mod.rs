@@ -1,5 +1,5 @@
 use crate::actions;
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -638,6 +638,7 @@ impl Tool for GitHubTool {
                 get_workflow_runs: ro,
                 notifications: ro,
             ],
+            category: ToolCategory::Development,
         }
     }
 

@@ -122,6 +122,34 @@ impl ToolRegistry {
         defs
     }
 
+    /// Get tool definitions filtered to only tools in the given categories.
+    pub fn get_filtered_definitions(
+        &self,
+        categories: &[crate::agent::tools::base::ToolCategory],
+    ) -> Vec<crate::providers::base::ToolDefinition> {
+        let mut defs: Vec<_> = self
+            .tools
+            .values()
+            .filter(|t| categories.contains(&t.capabilities().category))
+            .map(|t| {
+                let schema = t.to_schema();
+                crate::providers::base::ToolDefinition {
+                    name: schema["function"]["name"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
+                    description: schema["function"]["description"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
+                    parameters: schema["function"]["parameters"].clone(),
+                }
+            })
+            .collect();
+        defs.sort_by(|a, b| a.name.cmp(&b.name));
+        defs
+    }
+
     /// Execute a tool through the full middleware pipeline:
     /// 1. Run `before_execute` middleware (any can short-circuit with cached/precomputed result)
     /// 2. Spawn tool in `tokio::task` with timeout (panic guard)

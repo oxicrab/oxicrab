@@ -1,5 +1,5 @@
 use crate::actions;
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::google_common::GoogleApiClient;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::auth::google::GoogleCredentials;
@@ -44,6 +44,7 @@ impl Tool for GoogleCalendarTool {
                 delete_event,
                 list_calendars: ro,
             ],
+            category: ToolCategory::Scheduling,
         }
     }
 

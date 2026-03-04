@@ -1,6 +1,6 @@
 use crate::actions;
 use crate::agent::memory::memory_db::MemoryDB;
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::config::ChannelsConfig;
 use crate::cron::service::CronService;
@@ -274,6 +274,7 @@ impl Tool for CronTool {
                 dlq_replay,
                 dlq_clear,
             ],
+            category: ToolCategory::Scheduling,
         }
     }
 

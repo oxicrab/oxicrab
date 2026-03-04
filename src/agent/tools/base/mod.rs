@@ -136,6 +136,31 @@ pub trait Tool: Send + Sync {
     }
 }
 
+/// Broad functional category for tool pre-filtering.
+///
+/// When the total tool count exceeds `TOOL_FILTER_THRESHOLD`, only tools
+/// in message-relevant categories (plus `Core` and `System` which are always
+/// included) are sent to the LLM, reducing prompt noise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ToolCategory {
+    /// Shell, filesystem, memory_search — always included
+    Core,
+    /// web_search, web_fetch, http, browser
+    Web,
+    /// google_mail
+    Communication,
+    /// github
+    Development,
+    /// cron, google_calendar
+    Scheduling,
+    /// image_gen, media (radarr/sonarr)
+    Media,
+    /// todoist, obsidian, workspace, reddit
+    Productivity,
+    /// spawn, subagent_control, tmux
+    System,
+}
+
 /// How a tool should be exposed in subagent contexts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubagentAccess {
@@ -193,6 +218,8 @@ pub struct ToolCapabilities {
     /// Per-action metadata. Empty for single-purpose tools.
     /// For action-based tools, every action MUST be listed.
     pub actions: Vec<ActionDescriptor>,
+    /// Functional category for pre-filtering. Defaults to `Core`.
+    pub category: ToolCategory,
 }
 
 impl Default for ToolCapabilities {
@@ -202,6 +229,7 @@ impl Default for ToolCapabilities {
             network_outbound: false,
             subagent_access: SubagentAccess::Denied,
             actions: vec![],
+            category: ToolCategory::Core,
         }
     }
 }

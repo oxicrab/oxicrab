@@ -22,7 +22,7 @@ use crate::agent::cost_guard::CostGuard;
 use crate::agent::memory::MemoryStore;
 use crate::agent::subagent::{SubagentConfig, SubagentManager};
 use crate::agent::tools::ToolRegistry;
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{ExecutionContext, ToolCategory};
 use crate::agent::tools::setup::ToolBuildContext;
 use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
 use crate::cron::event_matcher::EventMatcher;
@@ -47,6 +47,8 @@ const RETRY_BACKOFF_BASE: u64 = 2;
 const MAX_RETRY_DELAY_SECS: f64 = 10.0;
 const DEFAULT_HISTORY_SIZE: usize = 50;
 const RECOVERY_CONTEXT_MAX_CHARS: usize = 200;
+/// Skip tool pre-filtering when total tools are at or below this count.
+const TOOL_FILTER_THRESHOLD: usize = 30;
 
 /// Per-invocation overrides for the agent loop. Allows callers (e.g. the daemon
 /// heartbeat) to use a different model or iteration cap without constructing a
@@ -1233,7 +1235,30 @@ impl AgentLoop {
         let mut checkpoint_tracker = CheckpointTracker::new(self.cognitive_config.clone());
         let mut discourse_register = crate::agent::discourse::DiscourseRegister::default();
 
-        let tools_defs = self.tools.get_tool_definitions();
+        // Tool pre-filtering: when total tools > threshold, select only
+        // categories relevant to the user's message to reduce prompt noise.
+        let tools_defs = {
+            let total_tools = self.tools.tool_names().len();
+            if total_tools > TOOL_FILTER_THRESHOLD {
+                let user_content = messages
+                    .iter()
+                    .rev()
+                    .find(|m| m.role == "user")
+                    .map(|m| m.content.as_str())
+                    .unwrap_or("");
+                let categories = infer_tool_categories(user_content);
+                let defs = self.tools.get_filtered_definitions(&categories);
+                debug!(
+                    "tool pre-filter: {}/{} tools in {} categories",
+                    defs.len(),
+                    total_tools,
+                    categories.len()
+                );
+                defs
+            } else {
+                self.tools.get_tool_definitions()
+            }
+        };
 
         // Exfiltration guard: hide network-outbound tools from the LLM
         let tools_defs = if self.exfiltration_guard.enabled {
@@ -2135,6 +2160,104 @@ impl AgentLoop {
 
         Ok(response)
     }
+}
+
+/// Infer which tool categories are relevant for a user message.
+/// Core and System are always included.
+fn infer_tool_categories(content: &str) -> Vec<ToolCategory> {
+    use ToolCategory::*;
+
+    let lower = content.to_lowercase();
+    let mut cats = vec![Core, System];
+
+    // Web
+    if lower.contains("search")
+        || lower.contains("look up")
+        || lower.contains("lookup")
+        || lower.contains("find online")
+        || lower.contains("browse")
+        || lower.contains("website")
+        || lower.contains("url")
+        || lower.contains("http")
+        || lower.contains("weather")
+        || lower.contains("forecast")
+        || lower.contains("fetch")
+    {
+        cats.push(Web);
+    }
+
+    // Communication
+    if lower.contains("email")
+        || lower.contains("mail")
+        || lower.contains("send")
+        || lower.contains("inbox")
+        || lower.contains("draft")
+    {
+        cats.push(Communication);
+    }
+
+    // Development
+    if lower.contains("github")
+        || lower.contains("pr")
+        || lower.contains("pull request")
+        || lower.contains("issue")
+        || lower.contains("commit")
+        || lower.contains("repo")
+        || lower.contains("branch")
+        || lower.contains("workflow")
+    {
+        cats.push(Development);
+    }
+
+    // Scheduling
+    if lower.contains("schedule")
+        || lower.contains("cron")
+        || lower.contains("calendar")
+        || lower.contains("reminder")
+        || lower.contains("event")
+        || lower.contains("appointment")
+    {
+        cats.push(Scheduling);
+    }
+
+    // Media
+    if lower.contains("image")
+        || lower.contains("photo")
+        || lower.contains("picture")
+        || lower.contains("generate")
+        || lower.contains("movie")
+        || lower.contains("tv show")
+        || lower.contains("radarr")
+        || lower.contains("sonarr")
+        || lower.contains("download")
+    {
+        cats.push(Media);
+    }
+
+    // Productivity
+    if lower.contains("todo")
+        || lower.contains("task")
+        || lower.contains("obsidian")
+        || lower.contains("note")
+        || lower.contains("workspace")
+        || lower.contains("reddit")
+    {
+        cats.push(Productivity);
+    }
+
+    // If no specific categories matched (ambiguous message), include all
+    if cats.len() <= 2 {
+        cats.extend([
+            Web,
+            Communication,
+            Development,
+            Scheduling,
+            Media,
+            Productivity,
+        ]);
+    }
+
+    cats
 }
 
 #[cfg(test)]

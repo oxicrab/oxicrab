@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::tools::base::{ActionDescriptor, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ActionDescriptor, SubagentAccess, ToolCapabilities, ToolCategory};
 
 struct MockActionTool;
 
@@ -50,6 +50,7 @@ impl Tool for MockActionTool {
                     read_only: false,
                 },
             ],
+            category: ToolCategory::Core,
         }
     }
 }
@@ -140,6 +141,7 @@ fn test_wrapper_returns_none_for_all_mutating() {
                     name: "delete",
                     read_only: false,
                 }],
+                category: ToolCategory::Core,
             }
         }
     }

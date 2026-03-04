@@ -1,5 +1,5 @@
 use crate::actions;
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::config::MediaConfig;
 use anyhow::Result;
@@ -414,6 +414,7 @@ impl Tool for MediaTool {
                 profiles: ro,
                 root_folders: ro,
             ],
+            category: ToolCategory::Media,
         }
     }
 

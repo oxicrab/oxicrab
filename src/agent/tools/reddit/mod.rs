@@ -1,5 +1,5 @@
 use crate::actions;
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -208,6 +208,7 @@ impl Tool for RedditTool {
                 top: ro,
                 search: ro,
             ],
+            category: ToolCategory::Productivity,
         }
     }
 

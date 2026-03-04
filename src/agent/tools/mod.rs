@@ -27,7 +27,7 @@ pub mod web;
 pub mod workspace_tool;
 
 pub use base::{
-    ActionDescriptor, ExecutionContext, SubagentAccess, Tool, ToolCapabilities, ToolMiddleware,
-    ToolResult, ToolVersion,
+    ActionDescriptor, ExecutionContext, SubagentAccess, Tool, ToolCapabilities, ToolCategory,
+    ToolMiddleware, ToolResult, ToolVersion,
 };
 pub use registry::ToolRegistry;

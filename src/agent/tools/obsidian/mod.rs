@@ -7,7 +7,7 @@ use cache::ObsidianCache;
 use client::ObsidianApiClient;
 
 use crate::actions;
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -119,6 +119,7 @@ impl Tool for ObsidianTool {
                 search: ro,
                 list: ro,
             ],
+            category: ToolCategory::Productivity,
         }
     }
 

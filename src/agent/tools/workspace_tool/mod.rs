@@ -1,4 +1,4 @@
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use crate::agent::workspace::{FileCategory, WorkspaceManager};
 use crate::config::schema::WorkspaceTtlConfig;
@@ -380,6 +380,7 @@ impl Tool for WorkspaceTool {
                     read_only: false,
                 },
             ],
+            category: ToolCategory::Productivity,
         }
     }
 

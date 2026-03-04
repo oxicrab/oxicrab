@@ -1,4 +1,4 @@
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult, ToolVersion};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -147,6 +147,7 @@ impl Tool for WeatherTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::Full,
+            category: ToolCategory::Web,
             ..Default::default()
         }
     }

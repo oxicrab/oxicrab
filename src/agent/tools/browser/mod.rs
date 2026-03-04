@@ -1,5 +1,5 @@
 use crate::actions;
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::utils::media::save_media_file;
 use anyhow::Result;
@@ -708,6 +708,7 @@ impl Tool for BrowserTool {
                 close,
                 navigate,
             ],
+            category: ToolCategory::Web,
         }
     }
 

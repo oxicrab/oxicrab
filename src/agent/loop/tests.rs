@@ -1274,3 +1274,51 @@ fn test_extract_media_paths_deduplicates() {
     let paths = extract_media_paths(&text);
     assert_eq!(paths.len(), 1);
 }
+
+// --- Tool category filtering tests ---
+
+#[test]
+fn test_infer_categories_web_keywords() {
+    use crate::agent::tools::base::ToolCategory::*;
+    let cats = infer_tool_categories("search for the latest news");
+    assert!(cats.contains(&Web));
+    assert!(cats.contains(&Core)); // always included
+    assert!(cats.contains(&System)); // always included
+}
+
+#[test]
+fn test_infer_categories_github_keywords() {
+    use crate::agent::tools::base::ToolCategory::*;
+    let cats = infer_tool_categories("create a github issue for the bug");
+    assert!(cats.contains(&Development));
+}
+
+#[test]
+fn test_infer_categories_scheduling_keywords() {
+    use crate::agent::tools::base::ToolCategory::*;
+    let cats = infer_tool_categories("schedule a reminder for tomorrow");
+    assert!(cats.contains(&Scheduling));
+}
+
+#[test]
+fn test_infer_categories_ambiguous_includes_all() {
+    use crate::agent::tools::base::ToolCategory::*;
+    // A message that doesn't match any specific category keywords
+    let cats = infer_tool_categories("hello, how are you?");
+    // Should include all categories (ambiguous fallback)
+    assert!(cats.contains(&Web));
+    assert!(cats.contains(&Communication));
+    assert!(cats.contains(&Development));
+    assert!(cats.contains(&Scheduling));
+    assert!(cats.contains(&Media));
+    assert!(cats.contains(&Productivity));
+}
+
+#[test]
+fn test_infer_categories_multiple_matches() {
+    use crate::agent::tools::base::ToolCategory::*;
+    let cats = infer_tool_categories("search github for issues about email");
+    assert!(cats.contains(&Web));
+    assert!(cats.contains(&Development));
+    assert!(cats.contains(&Communication));
+}
