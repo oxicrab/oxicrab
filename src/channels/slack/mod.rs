@@ -541,11 +541,20 @@ impl BaseChannel for SlackChannel {
         let content = Self::format_for_slack(&msg.content);
 
         // Split long messages (Slack limit is ~40k but 4000 is more readable)
+        // Thread replies: use reply_to or inbound ts metadata for threading
+        let thread_ts = msg.reply_to.as_deref().or_else(|| {
+            msg.metadata
+                .get(crate::bus::meta::TS)
+                .and_then(|v| v.as_str())
+        });
         for chunk in split_message(&content, 4000) {
             let mut params = HashMap::new();
             params.insert("channel", Value::String(msg.chat_id.clone()));
             params.insert("text", Value::String(chunk));
             params.insert("mrkdwn", Value::Bool(true));
+            if let Some(ts) = thread_ts {
+                params.insert("thread_ts", Value::String(ts.to_string()));
+            }
 
             if let Err(e) = self.send_slack_api("chat.postMessage", &params).await {
                 error!("Error sending Slack message: {}", e);

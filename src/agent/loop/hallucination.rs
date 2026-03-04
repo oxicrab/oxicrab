@@ -159,6 +159,7 @@ pub(super) fn handle_text_response(
         && !tool_names.is_empty()
         && user_has_action_intent
         && !intent::is_clarification_question(content)
+        && !is_legitimate_refusal(content)
     {
         warn!("Intent mismatch: user requested action but LLM returned text without calling tools");
         if let Some(db) = db
@@ -186,4 +187,28 @@ pub(super) fn handle_text_response(
     }
 
     TextAction::Return
+}
+
+/// Check if the response is a legitimate refusal to perform an action
+/// (as opposed to a hallucinated "I did it" without calling tools).
+fn is_legitimate_refusal(content: &str) -> bool {
+    let lower = content.to_lowercase();
+    let refusal_patterns = [
+        "i don't have a tool",
+        "i don't have access",
+        "no tool available",
+        "isn't configured",
+        "not configured",
+        "i'm unable to",
+        "i am unable to",
+        "i cannot perform",
+        "i can't perform",
+        "this requires manual",
+        "requires manual",
+        "not supported",
+        "beyond my capabilities",
+        "outside my capabilities",
+        "i don't have the ability",
+    ];
+    refusal_patterns.iter().any(|p| lower.contains(p))
 }

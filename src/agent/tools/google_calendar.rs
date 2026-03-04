@@ -235,7 +235,7 @@ impl Tool for GoogleCalendarTool {
                 if all_day {
                     // Validate date format (YYYY-MM-DD) for all-day events
                     let start_date = if start_raw.len() >= 10 {
-                        &start_raw[..10]
+                        start_raw.get(..10).unwrap_or(start_raw)
                     } else {
                         return Ok(ToolResult::error(format!(
                             "invalid date format for all-day event: '{start_raw}' (expected YYYY-MM-DD)"
@@ -249,7 +249,7 @@ impl Tool for GoogleCalendarTool {
                     body["start"] = serde_json::json!({"date": start_date});
                     let end_raw = params["end"].as_str().unwrap_or(start_raw);
                     let end_date = if end_raw.len() >= 10 {
-                        &end_raw[..10]
+                        end_raw.get(..10).unwrap_or(end_raw)
                     } else {
                         start_date
                     };

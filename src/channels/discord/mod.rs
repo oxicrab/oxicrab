@@ -803,7 +803,25 @@ impl BaseChannel for DiscordChannel {
             return Ok(None);
         }
         let id_val = msg.chat_id.parse::<u64>()?;
-        let target = serenity::model::id::ChannelId::new(id_val);
+        // Resolve DM channel for user IDs (same logic as send())
+        let is_user_id = self
+            .config
+            .allow_from
+            .iter()
+            .any(|a| a.trim_start_matches('+') == msg.chat_id);
+        let target = if is_user_id {
+            let mut cache = self.dm_channel_cache.lock().await;
+            if let Some(&cached_id) = cache.get(&id_val) {
+                cached_id
+            } else {
+                let user_id = serenity::model::id::UserId::new(id_val);
+                let dm_channel = user_id.create_dm_channel(&self.serenity_http).await?;
+                cache.insert(id_val, dm_channel.id);
+                dm_channel.id
+            }
+        } else {
+            serenity::model::id::ChannelId::new(id_val)
+        };
         let chunks = split_message(&msg.content, 2000);
         let mut last_id = None;
         for chunk in &chunks {

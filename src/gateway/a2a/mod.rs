@@ -73,6 +73,16 @@ impl A2aTaskStore {
             .tasks
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Expire completed/failed tasks older than 1 hour
+        let now = chrono::Utc::now();
+        tasks.retain(|_, t| {
+            if matches!(t.status, TaskStatus::Completed | TaskStatus::Failed)
+                && let Ok(created) = chrono::DateTime::parse_from_rfc3339(&t.created_at)
+            {
+                return now.signed_duration_since(created).num_seconds() < 3600;
+            }
+            true
+        });
         // Evict oldest task if at capacity
         if tasks.len() >= MAX_A2A_TASKS
             && let Some(oldest_id) = tasks

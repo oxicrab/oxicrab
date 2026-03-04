@@ -198,9 +198,10 @@ impl ToolRegistry {
                         .map(String::as_str)
                         .or_else(|| panic_payload.downcast_ref::<&str>().copied())
                         .unwrap_or("unknown cause");
-                    error!("Tool '{}' panicked: {}", tool_name, panic_msg);
+                    error!("Tool '{tool_name}' panicked: {panic_msg}");
+                    // Return generic message to LLM (details stay in error log)
                     Ok(ToolResult::error(format!(
-                        "Tool '{tool_name}' crashed: {panic_msg}"
+                        "Tool '{tool_name}' crashed unexpectedly"
                     )))
                 } else {
                     Err(anyhow::anyhow!("Tool '{tool_name}' was cancelled"))

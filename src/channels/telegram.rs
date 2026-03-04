@@ -569,6 +569,12 @@ fn markdown_to_telegram_html(text: &str) -> String {
         html = html.replace(&placeholder, &link_html);
     }
 
+    // Fenced code blocks: ```lang\n...\n``` → <pre><code>...</code></pre>
+    // Must run before inline code to avoid partial matches
+    html = RegexPatterns::markdown_code_block()
+        .replace_all(&html, r"<pre><code>$2</code></pre>")
+        .to_string();
+
     // Convert remaining markdown using shared regex patterns
     html = RegexPatterns::markdown_bold()
         .replace_all(&html, r"<b>$1</b>")
