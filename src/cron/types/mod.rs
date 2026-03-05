@@ -118,18 +118,6 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CronStore {
-    #[serde(default = "default_version")]
-    pub version: i32,
-    #[serde(default)]
-    pub jobs: Vec<CronJob>,
-}
-
-fn default_version() -> i32 {
-    1
-}
-
 impl CronSchedule {
     /// Human-readable description of the schedule.
     pub fn describe(&self) -> String {
