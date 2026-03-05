@@ -3,7 +3,7 @@ services:
     image: ghcr.io/oxicrab/oxicrab:latest
     restart: unless-stopped
     volumes:
-      - ${OXICRAB_HOME:-./data}:/home/oxicrab/.oxicrab
+      - ${OXICRAB_HOME:-~/.oxicrab}:/home/oxicrab/.oxicrab
     ports:
       - "${OXICRAB_PORT:-18790}:18790"
     environment:

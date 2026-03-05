@@ -330,7 +330,7 @@ docker run -d \
     <div class="config-label">docker-compose.yml</div>
     <pre><code>services:
   oxicrab:
-    build: .
+    image: ghcr.io/oxicrab/oxicrab:latest
     container_name: oxicrab
     restart: unless-stopped
     volumes:
@@ -346,8 +346,8 @@ docker compose up -d
 # Logs
 docker compose logs -f
 
-# Rebuild after updates
-docker compose up -d --build</code></pre>
+# Pull latest image and restart
+docker compose pull &amp;&amp; docker compose up -d</code></pre>
   </div>
 
   <!-- SYSTEMD -->
@@ -577,15 +577,17 @@ launchctl unload ~/Library/LaunchAgents/com.oxicrab.gateway.plist</code></pre>
     <p>Five commands to go from a fresh VPS to a running oxicrab instance:</p>
     <pre><code>ssh root@your-vps
 curl -fsSL https://get.docker.com | sh
-git clone https://github.com/oxicrab/oxicrab.git &amp;&amp; cd oxicrab
-mkdir -p ./data &amp;&amp; cp config.example.json ./data/config.json
+mkdir -p ~/.oxicrab
+curl -LO https://raw.githubusercontent.com/oxicrab/oxicrab/main/config.example.json
+cp config.example.json ~/.oxicrab/config.json
+curl -LO https://raw.githubusercontent.com/oxicrab/oxicrab/main/docker-compose.yml
 docker compose up -d</code></pre>
-    <p>Edit <code>./data/config.json</code> with your API keys before starting. The <code>data</code> directory is bind-mounted into the container at <code>/home/oxicrab/.oxicrab</code>, so config, memory, and workspace files persist across restarts.</p>
+    <p>Edit <code>~/.oxicrab/config.json</code> with your API keys before starting. The <code>~/.oxicrab</code> directory is bind-mounted into the container at <code>/home/oxicrab/.oxicrab</code>, so config, memory, and workspace files persist across restarts.</p>
 
     <h3>docker-compose Configuration</h3>
     <p>The repository includes a <code>docker-compose.yml</code> at the project root. Key configuration is controlled through environment variables:</p>
     <ul class="plain">
-      <li><strong>OXICRAB_HOME</strong> &mdash; host directory mounted as the data volume (default: <code>./data</code>). Set this to use an absolute path, e.g. <code>OXICRAB_HOME=/opt/oxicrab/data docker compose up -d</code>.</li>
+      <li><strong>OXICRAB_HOME</strong> &mdash; host directory mounted as the data volume (default: <code>~/.oxicrab</code>). Set this to use a different path, e.g. <code>OXICRAB_HOME=/opt/oxicrab/data docker compose up -d</code>.</li>
       <li><strong>OXICRAB_PORT</strong> &mdash; host port mapped to the gateway (default: <code>18790</code>). The container always listens on port 18790 internally.</li>
     </ul>
     <p>The service uses <code>restart: unless-stopped</code>, so it survives reboots and only stays down if you explicitly stop it. The health check calls <code>/api/health</code> every 30 seconds and marks the container unhealthy after 3 consecutive failures.</p>
@@ -595,8 +597,8 @@ OXICRAB_HOME=/opt/oxicrab/data OXICRAB_PORT=9090 docker compose up -d
 # View health status
 docker compose ps
 
-# Rebuild after pulling updates
-git pull &amp;&amp; docker compose up -d --build</code></pre>
+# Pull latest image and restart
+docker compose pull &amp;&amp; docker compose up -d</code></pre>
 
     <h3>Securing with Tailscale</h3>
     <p>Bind the gateway to your <a href="https://tailscale.com/">Tailscale</a> IP so it is only reachable over your private tailnet. This removes the need for public-facing ports or firewall rules.</p>
