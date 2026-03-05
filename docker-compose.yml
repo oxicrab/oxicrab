@@ -1,6 +1,6 @@
 services:
   oxicrab:
-    build: .
+    image: ghcr.io/oxicrab/oxicrab:latest
     restart: unless-stopped
     volumes:
       - ${OXICRAB_HOME:-./data}:/home/oxicrab/.oxicrab
