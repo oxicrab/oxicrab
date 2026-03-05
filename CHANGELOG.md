@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.5] - 2026-03-05
+
+### Changed
+- replace file-based memory with DB-only storage ([1aeaf08](https://github.com/oxicrab/oxicrab/commit/1aeaf087ae8d7e7045db1a0fad03458b7aaeffed))
+- remove heartbeat service entirely ([2eabbd1](https://github.com/oxicrab/oxicrab/commit/2eabbd146190ffc630d97f8110b9e058444af09b))
+
+
+### Fixed
+- address 8 bugs from full codebase audit ([2696bf9](https://github.com/oxicrab/oxicrab/commit/2696bf9a5efa2b6864dc3e133840bb315b7bb434))
+- address all memory system audit findings ([2b36aaf](https://github.com/oxicrab/oxicrab/commit/2b36aaf4933536c63f756e34201bdc1213dc579e))
+- address memory system audit findings ([176bde8](https://github.com/oxicrab/oxicrab/commit/176bde8fdf79d16e32b2e9c57bf10996c8d899ed))
+- create workspace template files on gateway startup ([0ac695b](https://github.com/oxicrab/oxicrab/commit/0ac695bd36f0a768c6f5449f2dd646c405ab75b8))
+
 ## [0.13.4] - 2026-03-05
 
 ### Added
