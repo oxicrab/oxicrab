@@ -65,8 +65,6 @@ pub struct LifecycleConfig {
     pub session_ttl_days: u32,
     /// Media file TTL in days for cleanup (default 7)
     pub media_ttl_days: u32,
-    /// Memory indexer interval in seconds (default 300)
-    pub memory_indexer_interval: u64,
 }
 
 /// Safety and guardrail configuration.
@@ -207,7 +205,6 @@ impl AgentLoopConfig {
             lifecycle: LifecycleConfig {
                 session_ttl_days: config.agents.defaults.session_ttl_days,
                 media_ttl_days: config.agents.defaults.media_ttl_days,
-                memory_indexer_interval: config.agents.defaults.memory_indexer_interval,
             },
             safety: SafetyConfig {
                 exfiltration_guard: config.tools.exfiltration_guard.clone(),
@@ -277,7 +274,6 @@ impl AgentLoopConfig {
             lifecycle: LifecycleConfig {
                 session_ttl_days: 0,
                 media_ttl_days: 0,
-                memory_indexer_interval: 300,
             },
             safety: SafetyConfig {
                 exfiltration_guard: crate::config::ExfiltrationGuardConfig::default(),

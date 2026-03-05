@@ -338,15 +338,13 @@
 
   <div id="memory_search" class="tool-section">
     <h2>memory_search <span class="badge badge-core">Core</span></h2>
-    <p class="desc">Search long-term memory and daily notes. Recall user preferences, past conversations, and important facts. Uses SQLite FTS5 full-text search, with optional hybrid vector+keyword search via local ONNX embeddings.</p>
+    <p class="desc">Search long-term memory. Recall user preferences, past conversations, and important facts. Uses SQLite FTS5 full-text search, with optional hybrid vector+keyword search via local ONNX embeddings.</p>
 
     <h3>Memory configuration</h3>
     <pre><code>{
   "agents": {
     "defaults": {
       "memory": {
-        "archiveAfterDays": 30,
-        "purgeAfterDays": 90,
         "embeddingsEnabled": false,
         "embeddingsModel": "BAAI/bge-small-en-v1.5",
         "hybridWeight": 0.5
@@ -378,7 +376,7 @@
 
     <h3>File Organization</h3>
     <p>Files written via <code>write_file</code> to workspace category directories (<code>code/</code>, <code>documents/</code>, <code>data/</code>, <code>images/</code>, <code>downloads/</code>, <code>temp/</code>) are automatically tracked in the manifest. Categories are inferred from file extensions. Files are organized into date-based subdirectories (<code>{category}/{YYYY-MM-DD}/{filename}</code>).</p>
-    <p>Reserved directories (<code>memory/</code>, <code>knowledge/</code>, <code>skills/</code>, <code>sessions/</code>) are not managed by the workspace tool. TTL-based expiration is configured via <a href="config.html#agent-defaults"><code>agents.defaults.workspaceTtl</code></a>.</p>
+    <p>Reserved directories (<code>memory/</code>, <code>skills/</code>, <code>sessions/</code>) are not managed by the workspace tool. TTL-based expiration is configured via <a href="config.html#agent-defaults"><code>agents.defaults.workspaceTtl</code></a>.</p>
   </div>
 
   <!-- ============ CONFIGURABLE TOOLS ============ -->

@@ -492,7 +492,6 @@
       <span class="success">INFO  discord channel started</span><br>
       <span class="success">INFO  slack channel started (websocket)</span><br>
       <span class="output">INFO  cron service started (3 jobs)</span><br>
-      <span class="output">INFO  memory indexer running (300s interval)</span><br>
       <span class="success">INFO  oxicrab is ready</span><br>
       <br>
       <span class="comment"># or single-turn CLI mode</span><br>
@@ -544,10 +543,10 @@
         </div>
       </div>
       <div class="feature-row">
-        <div class="feature-name">Long-Term Memory + RAG</div>
+        <div class="feature-name">Long-Term Memory</div>
         <div class="feature-detail">
-          <h3>SQLite FTS5 with optional vector search and knowledge ingestion</h3>
-          <p>Background indexing, automatic fact extraction from conversations, daily notes, and optional hybrid vector+keyword search via local ONNX embeddings. Quality gates filter low-signal content and reframe negative memories before persistence. Drop .md, .txt, or .html files into <code>knowledge/</code> for automatic RAG indexing.</p>
+          <h3>SQLite-backed memory with optional hybrid vector search</h3>
+          <p>SQLite-backed memory with automatic fact extraction from conversations, optional hybrid vector+keyword search via local ONNX embeddings, and configurable fusion strategies. Quality gates filter low-signal content and reframe negative memories before persistence.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -755,7 +754,7 @@ cargo build --release --no-default-features \
           <div class="tool-item" data-detail="Spawn a subagent to handle a task in the background. Tools are filtered by capability metadata: full access (filesystem, shell, web_search), read-only access (GitHub, Gmail, Calendar, etc.), or denied (http, MCP, spawn). Reports back when done."><span class="tool-dot core"></span><div><span class="tool-name">spawn</span><br><span class="tool-desc">Launch background subagents</span></div></div>
           <div class="tool-item" data-detail="List or cancel running subagents. Use to track background tasks or stop one by ID. Semaphore-based concurrency control limits parallel agents."><span class="tool-dot core"></span><div><span class="tool-name">subagent_control</span><br><span class="tool-desc">List and cancel running agents</span></div></div>
           <div class="tool-item" data-detail="Schedule recurring or one-shot tasks. Two job types: 'agent' processes the message as a full LLM turn with all tools; 'echo' delivers messages directly without invoking the LLM. Supports cron expressions, intervals, and one-shot ISO 8601 times. Optional expires_at and max_runs limits."><span class="tool-dot core"></span><div><span class="tool-name">cron</span><br><span class="tool-desc">Schedule recurring tasks</span></div></div>
-          <div class="tool-item" data-detail="Search long-term memory and daily notes. Use to recall user preferences, past conversations, and important facts. Supports FTS5 full-text search with optional hybrid vector+keyword search via local ONNX embeddings."><span class="tool-dot core"></span><div><span class="tool-name">memory_search</span><br><span class="tool-desc">FTS5 + hybrid vector search</span></div></div>
+          <div class="tool-item" data-detail="Search long-term memory. Use to recall user preferences, past conversations, and important facts. Supports FTS5 full-text search with optional hybrid vector+keyword search via local ONNX embeddings."><span class="tool-dot core"></span><div><span class="tool-name">memory_search</span><br><span class="tool-desc">FTS5 + hybrid vector search</span></div></div>
         </div>
       </div>
       <div>
@@ -853,7 +852,6 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
       <span class="hl-key">"temperature"</span>: <span class="hl-num">0.7</span>,
       <span class="hl-key">"maxToolIterations"</span>: <span class="hl-num">20</span>,
       <span class="hl-key">"sessionTtlDays"</span>: <span class="hl-num">30</span>,
-      <span class="hl-key">"memoryIndexerInterval"</span>: <span class="hl-num">300</span>,
       <span class="hl-key">"mediaTtlDays"</span>: <span class="hl-num">7</span>,
       <span class="hl-key">"maxConcurrentSubagents"</span>: <span class="hl-num">5</span>,
       <span class="hl-key">"contextProviders"</span>: [],
@@ -866,8 +864,6 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
         <span class="hl-key">"preFlushEnabled"</span>: <span class="hl-num">false</span>
       },
       <span class="hl-key">"memory"</span>: {
-        <span class="hl-key">"archiveAfterDays"</span>: <span class="hl-num">30</span>,
-        <span class="hl-key">"purgeAfterDays"</span>: <span class="hl-num">90</span>,
         <span class="hl-key">"embeddingsEnabled"</span>: <span class="hl-num">false</span>,
         <span class="hl-key">"embeddingsModel"</span>: <span class="hl-str">"BAAI/bge-small-en-v1.5"</span>,
         <span class="hl-key">"hybridWeight"</span>: <span class="hl-num">0.5</span>,

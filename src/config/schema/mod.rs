@@ -360,14 +360,6 @@ impl Config {
                     .into(),
             ));
         }
-        if m.archive_after_days > 0
-            && m.purge_after_days > 0
-            && m.purge_after_days <= m.archive_after_days
-        {
-            return Err(OxicrabError::Config(
-                "agents.defaults.memory.purgeAfterDays must be > archiveAfterDays".into(),
-            ));
-        }
         Ok(())
     }
 

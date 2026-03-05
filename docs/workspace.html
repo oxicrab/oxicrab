@@ -142,9 +142,7 @@
       <li><a href="#agents-md">AGENTS.md</a></li>
       <li><a href="#user-md">USER.md</a></li>
       <li><a href="#tools-md">TOOLS.md</a></li>
-      <li><a href="#memory-md">MEMORY.md</a></li>
-      <li><a href="#daily-notes">Daily Notes</a></li>
-      <li><a href="#knowledge">Knowledge Directory</a></li>
+      <li><a href="#memory-db">Memory Database</a></li>
       <li><a href="#skills">Skills</a></li>
       <li><a href="#sessions">Sessions</a></li>
       <li><a href="#other-files">Other Files</a></li>
@@ -166,14 +164,7 @@
 <span class="file">    USER.md</span>                <span class="desc"># user profile &amp; preferences</span>
 <span class="file">    TOOLS.md</span>               <span class="desc"># tool configuration notes</span>
 <span class="dir">    memory/</span>
-<span class="file">      MEMORY.md</span>            <span class="desc"># long-term persistent memory</span>
-<span class="file">      2026-02-16.md</span>        <span class="desc"># today's daily notes</span>
-<span class="file">      memory.sqlite3</span>       <span class="desc"># full-text search index</span>
-<span class="dir">      archive/</span>             <span class="desc"># archived daily notes</span>
-<span class="dir">    knowledge/</span>             <span class="desc"># RAG document ingestion (optional)</span>
-<span class="file">      faq.md</span>             <span class="desc"># indexed knowledge document</span>
-<span class="file">      reference.txt</span>      <span class="desc"># plain text knowledge</span>
-<span class="file">      guide.html</span>         <span class="desc"># HTML (tags stripped on indexing)</span>
+<span class="file">      memory.sqlite3</span>       <span class="desc"># memory database (FTS5 + optional embeddings)</span>
 <span class="dir">    skills/</span>
 <span class="dir">      my-skill/</span>
 <span class="file">        SKILL.md</span>           <span class="desc"># custom skill definition</span>
@@ -295,104 +286,47 @@ additional configuration.
 - GitHub: configured via PAT</code></pre>
   </div>
 
-  <!-- MEMORY.MD -->
-  <div id="memory-md" class="ws-section">
-    <h2>MEMORY.md <span class="badge badge-manual">manual + agent</span></h2>
+  <!-- MEMORY DATABASE -->
+  <div id="memory-db" class="ws-section">
+    <h2>Memory Database <span class="badge badge-auto">automatic</span></h2>
 
     <div class="file-card">
-      <div class="file-card-name">MEMORY.md</div>
-      <div class="file-card-path">~/.oxicrab/workspace/memory/MEMORY.md</div>
-      <p>Long-term persistent memory. Important facts, user preferences, and context that should survive across all sessions. Both you and the agent can edit this file.</p>
+      <div class="file-card-name">memory.sqlite3</div>
+      <div class="file-card-path">~/.oxicrab/workspace/memory/memory.sqlite3</div>
+      <p>All long-term memory is stored directly in a SQLite database. The agent writes facts, user preferences, and conversation context here automatically. The <code>memory_search</code> tool queries this database.</p>
     </div>
 
     <h3>How it's used</h3>
-    <p>Always included in the memory context section of the system prompt. Also indexed by the full-text search database for the <code>memory_search</code> tool.</p>
+    <p>Recent memory entries are included in the system prompt for session continuity. The <code>memory_search</code> tool queries the database using SQLite FTS5 full-text search, with optional hybrid vector+keyword search when embeddings are enabled.</p>
 
-    <h3>What to put here</h3>
+    <h3>What gets stored</h3>
     <ul>
       <li>Important facts the agent should always know</li>
       <li>User preferences discovered over time</li>
-      <li>Project context, account details (no secrets)</li>
-      <li>Corrections to previous misunderstandings</li>
+      <li>Extracted context from conversations (automatic fact extraction during compaction)</li>
+      <li>Quick notes via the "remember that..." fast path</li>
     </ul>
 
-    <div class="note"><strong>Note:</strong> The agent will update this file on its own when it learns something important. It's also indexed for <code>memory_search</code> queries, so structure it with clear headings.</div>
-  </div>
-
-  <!-- DAILY NOTES -->
-  <div id="daily-notes" class="ws-section">
-    <h2>Daily Notes <span class="badge badge-auto">automatic</span></h2>
-
-    <div class="file-card">
-      <div class="file-card-name">YYYY-MM-DD.md</div>
-      <div class="file-card-path">~/.oxicrab/workspace/memory/2026-02-16.md</div>
-      <p>One file per day, created automatically. The agent writes session summaries and daily context here. Facts are also extracted automatically after conversations via the memory indexer.</p>
-    </div>
-
-    <h3>How it's used</h3>
-    <p>Today's note is included in the system prompt for session continuity. All daily notes are indexed by the full-text search database. Older notes are managed by the memory hygiene system.</p>
-
-    <h3>Lifecycle</h3>
-    <ul>
-      <li><strong>Created</strong> &mdash; Automatically on first write each day (UTC date)</li>
-      <li><strong>Indexed</strong> &mdash; Background indexer runs every 5 minutes (configurable via <code>memoryIndexerInterval</code>)</li>
-      <li><strong>Archived</strong> &mdash; Moved to <code>memory/archive/</code> after <code>archiveAfterDays</code> (default: 30)</li>
-      <li><strong>Purged</strong> &mdash; Deleted after <code>purgeAfterDays</code> (default: 90)</li>
-    </ul>
-
-    <h3>Memory search</h3>
-    <p>The <code>memory_search</code> tool queries a SQLite FTS5 database (<code>memory.sqlite3</code>) that indexes all memory files. If embeddings are enabled, it uses hybrid vector + keyword search for better relevance.</p>
+    <h3>Quality gates</h3>
+    <p>Before writing to memory, content passes through quality gates that reject greetings, filler, and very short content. Negative memories are automatically reframed to be constructive unless they already contain resolution markers.</p>
 
     <h3>Configuration</h3>
     <pre><code>{
   "agents": {
     "defaults": {
-      "memoryIndexerInterval": 300,
       "memory": {
-        "archiveAfterDays": 30,
-        "purgeAfterDays": 90,
         "embeddingsEnabled": false,
         "embeddingsModel": "BAAI/bge-small-en-v1.5",
-        "hybridWeight": 0.5
+        "hybridWeight": 0.5,
+        "searchFusionStrategy": "weighted_score",
+        "rrfK": 60,
+        "embeddingCacheSize": 10000,
+        "recencyHalfLifeDays": 90
       }
     }
   }
 }</code></pre>
-  </div>
-
-  <!-- KNOWLEDGE DIRECTORY -->
-  <div id="knowledge" class="ws-section">
-    <h2>Knowledge Directory <span class="badge badge-manual">manual</span></h2>
-
-    <div class="file-card">
-      <div class="file-card-name">workspace/knowledge/</div>
-      <div class="file-card-desc">Optional directory for RAG document ingestion. Files placed here are automatically chunked, indexed into SQLite FTS5 (with optional vector embeddings), and appear in memory search results.</div>
-    </div>
-
-    <h3>Supported Formats</h3>
-    <table class="cfg-table">
-      <tr><th>Extension</th><th>Processing</th></tr>
-      <tr><td>.md</td><td>Markdown &mdash; indexed as-is, split on double newlines</td></tr>
-      <tr><td>.txt</td><td>Plain text &mdash; indexed as-is, split on double newlines</td></tr>
-      <tr><td>.html</td><td>HTML &mdash; tags stripped, text content extracted, then chunked</td></tr>
-    </table>
-
-    <h3>How It Works</h3>
-    <ul>
-      <li>Source keys are prefixed with <code>knowledge:</code> (e.g., <code>knowledge:faq.md</code>) to distinguish from memory notes</li>
-      <li>Chunks are 12&ndash;1200 bytes, split on paragraph boundaries (double newlines)</li>
-      <li>Knowledge entries appear in hybrid search alongside memory notes</li>
-      <li>Knowledge is <strong>permanent</strong> &mdash; not subject to archive or purge (unlike daily notes)</li>
-      <li>Knowledge is included in group chat search results (shared reference, not personal)</li>
-      <li>If embeddings are enabled, knowledge chunks get vector embeddings for semantic search</li>
-    </ul>
-
-    <h3>Usage</h3>
-    <p>Create the <code>knowledge/</code> directory in your workspace and add files. The background indexer picks them up automatically (default interval: 300 seconds). Changes to existing files are detected via modification time.</p>
-
-    <pre><code>mkdir -p ~/.oxicrab/workspace/knowledge
-cp my-docs/faq.md ~/.oxicrab/workspace/knowledge/
-cp my-docs/reference.html ~/.oxicrab/workspace/knowledge/</code></pre>
+    <p>Set <code>embeddingsEnabled: true</code> for hybrid vector+keyword search. The embeddings model is downloaded automatically on first use.</p>
   </div>
 
   <!-- SKILLS -->

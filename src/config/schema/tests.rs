@@ -56,14 +56,6 @@ fn test_invalid_zero_max_results() {
 }
 
 #[test]
-fn test_invalid_memory_purge_before_archive() {
-    let mut config = Config::default();
-    config.agents.defaults.memory.archive_after_days = 30;
-    config.agents.defaults.memory.purge_after_days = 10; // less than archive
-    assert!(config.validate().is_err());
-}
-
-#[test]
 fn test_invalid_nan_temperature() {
     let mut config = Config::default();
     config.agents.defaults.temperature = Some(f32::NAN);

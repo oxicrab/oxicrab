@@ -141,7 +141,6 @@ impl AgentLoop {
                 LifecycleConfig {
                     session_ttl_days,
                     media_ttl_days,
-                    memory_indexer_interval,
                 },
             safety:
                 SafetyConfig {
@@ -189,17 +188,10 @@ impl AgentLoop {
 
         let sessions: Arc<dyn SessionStore> = Arc::new(session_mgr);
         let memory = Arc::new(if let Some(ref mem_cfg) = memory_config {
-            MemoryStore::with_config(
-                &workspace,
-                memory_indexer_interval,
-                mem_cfg,
-                tool_configs.workspace_ttl.to_map(),
-            )?
+            MemoryStore::with_config(&workspace, mem_cfg, &tool_configs.workspace_ttl.to_map())?
         } else {
-            MemoryStore::with_indexer_interval(&workspace, memory_indexer_interval)?
+            MemoryStore::new(&workspace)?
         });
-        // Start background memory indexer
-        memory.start_indexer().await?;
 
         let workspace_manager = Some(Arc::new(crate::agent::workspace::WorkspaceManager::new(
             workspace.clone(),
@@ -466,7 +458,6 @@ impl AgentLoop {
             *guard = false;
         }
         self.task_tracker.cancel_all().await;
-        self.memory.stop_indexer().await;
     }
 
     /// Get or create a per-session lock, enabling concurrent processing of

@@ -6,6 +6,45 @@ use std::path::Path;
 use tracing::debug;
 
 impl MemoryDB {
+    /// Insert a single memory entry directly into the DB (no backing file required).
+    pub fn insert_memory(&self, source_key: &str, content: &str) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        let hash = hash_text(content);
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        conn.execute(
+            "INSERT OR IGNORE INTO memory_entries (source_key, content, content_hash, created_at) VALUES (?, ?, ?, ?)",
+            params![source_key, content, hash, now],
+        )?;
+        // Update source record (use 0 for mtime since there's no file)
+        conn.execute(
+            "INSERT INTO memory_sources (source_key, mtime_ns, updated_at) VALUES (?, 0, ?) ON CONFLICT(source_key) DO UPDATE SET updated_at = excluded.updated_at",
+            params![source_key, now],
+        )?;
+        // Invalidate embedding cache
+        if let Ok(mut cache) = self.embedding_cache.lock() {
+            *cache = None;
+        }
+        Ok(())
+    }
+
+    /// Get recent entries for a source key (for deduplication).
+    pub fn get_recent_entries(&self, source_key: &str, limit: usize) -> Result<Vec<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT content FROM memory_entries WHERE source_key = ? ORDER BY created_at DESC LIMIT ?",
+        )?;
+        let rows: Result<Vec<_>, _> = stmt
+            .query_map(rusqlite::params![source_key, limit], |row| row.get(0))?
+            .collect();
+        rows.map_err(|e| anyhow::anyhow!("failed to get recent entries: {e}"))
+    }
+
     fn get_mtime_ms(path: &Path) -> i64 {
         path.metadata()
             .and_then(|m| {

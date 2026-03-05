@@ -83,6 +83,23 @@ pub fn is_duplicate(content: &str, existing_notes: &str) -> bool {
     false
 }
 
+/// Check if content is a near-duplicate of any recent DB entries.
+pub fn is_duplicate_of_entries(content: &str, entries: &[String]) -> bool {
+    let threshold = 0.7;
+    for entry in entries {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        // Strip leading "- " for comparison
+        let entry_content = entry.strip_prefix("- ").unwrap_or(entry);
+        if jaccard_similarity(content, entry_content) >= threshold {
+            return true;
+        }
+    }
+    false
+}
+
 fn word_set(text: &str) -> HashSet<String> {
     text.split_whitespace().map(str::to_lowercase).collect()
 }

@@ -151,18 +151,6 @@ impl Default for CognitiveConfig {
     }
 }
 
-fn default_memory_indexer_interval() -> u64 {
-    300
-}
-
-fn default_memory_archive_after_days() -> u32 {
-    30
-}
-
-fn default_memory_purge_after_days() -> u32 {
-    90
-}
-
 fn default_embeddings_model() -> String {
     "BAAI/bge-small-en-v1.5".to_string()
 }
@@ -196,13 +184,6 @@ fn default_recency_half_life_days() -> u32 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConfig {
-    #[serde(
-        default = "default_memory_archive_after_days",
-        rename = "archiveAfterDays"
-    )]
-    pub archive_after_days: u32,
-    #[serde(default = "default_memory_purge_after_days", rename = "purgeAfterDays")]
-    pub purge_after_days: u32,
     #[serde(default, rename = "embeddingsEnabled")]
     pub embeddings_enabled: bool,
     #[serde(default = "default_embeddings_model", rename = "embeddingsModel")]
@@ -234,8 +215,6 @@ pub struct MemoryConfig {
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
-            archive_after_days: default_memory_archive_after_days(),
-            purge_after_days: default_memory_purge_after_days(),
             embeddings_enabled: false,
             embeddings_model: default_embeddings_model(),
             hybrid_weight: default_hybrid_weight(),
@@ -527,11 +506,6 @@ pub struct AgentDefaults {
     pub compaction: CompactionConfig,
     #[serde(default = "default_session_ttl_days", rename = "sessionTtlDays")]
     pub session_ttl_days: u32,
-    #[serde(
-        default = "default_memory_indexer_interval",
-        rename = "memoryIndexerInterval"
-    )]
-    pub memory_indexer_interval: u64,
     #[serde(default = "default_media_ttl_days", rename = "mediaTtlDays")]
     pub media_ttl_days: u32,
     #[serde(
@@ -562,7 +536,6 @@ impl Default for AgentDefaults {
             max_tool_iterations: default_max_tool_iterations(),
             compaction: CompactionConfig::default(),
             session_ttl_days: default_session_ttl_days(),
-            memory_indexer_interval: default_memory_indexer_interval(),
             media_ttl_days: default_media_ttl_days(),
             max_concurrent_subagents: default_max_concurrent_subagents(),
             memory: MemoryConfig::default(),

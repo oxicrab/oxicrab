@@ -22,8 +22,8 @@ This is largely a personal toy with features I want or care about. For example, 
 - **MCP support**: Connect external tool servers via the Model Context Protocol
 - **Subagents**: Background task execution with concurrency limiting and context injection
 - **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode, multi-channel targeting
-- **Memory system**: SQLite FTS5 with background indexing, optional hybrid vector+keyword search (local ONNX embeddings), configurable fusion strategy (weighted score or reciprocal rank fusion), knowledge directory for RAG document ingestion, and automatic memory hygiene
-- **Group chat isolation**: Personal memory (MEMORY.md, daily notes) automatically excluded from group chat contexts; knowledge shared across all contexts
+- **Memory system**: SQLite-backed memory with FTS5 full-text search, optional hybrid vector+keyword search (local ONNX embeddings), configurable fusion strategy (weighted score or reciprocal rank fusion), automatic fact extraction, and quality gates
+- **Group chat isolation**: Personal memory automatically excluded from group chat contexts
 - **Session management**: Persistent sessions with automatic compaction and context summarization
 - **Voice transcription**: Local whisper.cpp with cloud API fallback
 - **Token logging**: Raw LLM token usage tracking per model in SQLite
@@ -180,10 +180,7 @@ Access control: `allowFrom` (pre-authorized senders), `dmPolicy` (`"allowlist"`,
 │   ├── USER.md              # User preferences
 │   ├── TOOLS.md             # Tool usage guide
 │   ├── memory/
-│   │   ├── MEMORY.md        # Long-term memory
-│   │   ├── memory.sqlite3   # FTS5 search index + embeddings
-│   │   └── YYYY-MM-DD.md    # Daily notes (auto-extracted facts)
-│   ├── knowledge/           # RAG document ingestion (.md, .txt, .html)
+│   │   └── memory.sqlite3   # Memory database (FTS5 + optional embeddings)
 │   ├── sessions/            # Conversation sessions
 │   └── skills/              # Custom skills (SKILL.md per skill)
 ├── models/                  # Whisper model files

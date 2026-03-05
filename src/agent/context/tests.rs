@@ -38,7 +38,7 @@ fn test_default_identity_contains_required_sections() {
         "missing workspace injection"
     );
     assert!(
-        identity.contains("/workspace/memory/MEMORY.md"),
+        identity.contains("/workspace/memory/"),
         "missing memory path"
     );
 }
@@ -73,7 +73,7 @@ fn test_build_identity_with_context_appends_context() {
     assert!(result.contains("I am a custom bot."));
     assert!(result.contains("## Current Context"));
     assert!(result.contains("**Date**: 2026-02-09"));
-    assert!(result.contains("/my/workspace/memory/MEMORY.md"));
+    assert!(result.contains("/my/workspace/memory/"));
     // Should NOT contain hardcoded behavioral rules
     assert!(
         !result.contains("## Behavioral Rules"),
@@ -358,16 +358,18 @@ async fn test_build_messages_group_excludes_personal_memory() {
     let tmp = tempfile::TempDir::new().unwrap();
     let mut ctx = create_test_context(tmp.path());
 
-    // Write personal memory
+    // Write personal memory into DB via MemoryStore
     let memory_dir = tmp.path().join("memory");
     std::fs::create_dir_all(&memory_dir).unwrap();
-    std::fs::write(memory_dir.join("MEMORY.md"), "# Personal\nMy secret notes.").unwrap();
+    let db = crate::agent::memory::MemoryDB::new(memory_dir.join("memory.sqlite3")).unwrap();
+    db.insert_memory("daily:2026-03-05", "My secret notes about personal stuff")
+        .unwrap();
 
-    // DM mode: should include personal memory
+    // DM mode: should include personal memory in search results
     let dm_msgs = ctx
         .build_messages(
             &[],
-            "hello",
+            "secret notes personal",
             Some("telegram"),
             Some("123"),
             None,
@@ -378,15 +380,15 @@ async fn test_build_messages_group_excludes_personal_memory() {
         .unwrap();
     let dm_system = &dm_msgs[0].content;
     assert!(
-        dm_system.contains("My secret notes"),
+        dm_system.contains("secret notes"),
         "DM should include personal memory"
     );
 
-    // Group mode: should NOT include personal memory
+    // Group mode: should NOT include daily notes
     let group_msgs = ctx
         .build_messages(
             &[],
-            "hello",
+            "secret notes personal",
             Some("telegram"),
             Some("-123"),
             None,
@@ -397,7 +399,7 @@ async fn test_build_messages_group_excludes_personal_memory() {
         .unwrap();
     let group_system = &group_msgs[0].content;
     assert!(
-        !group_system.contains("My secret notes"),
+        !group_system.contains("secret notes"),
         "group chat should NOT include personal memory"
     );
 }

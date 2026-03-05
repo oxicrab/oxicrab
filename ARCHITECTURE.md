@@ -57,11 +57,11 @@ This enables the Anthropic prompt cache (5-minute TTL), reducing input token cos
 
 ### Group Chat Memory Isolation
 
-When `is_group` metadata is true on an inbound message, `build_system_prompt_inner()` passes `is_group=true` to `MemoryStore::get_memory_context_scoped()`, which excludes personal memory (MEMORY.md content, daily notes content) from the system prompt and excludes MEMORY.md and daily note hits from search results. Each channel sets `is_group` in metadata: Telegram (`chat.is_group()/is_supergroup()`), Discord (`guild_id.is_some()`), Slack (channel ID not starting with 'D').
+When `is_group` metadata is true on an inbound message, `build_system_prompt_inner()` passes `is_group=true` to `MemoryStore::get_memory_context_scoped()`, which excludes personal memory entries from the system prompt and search results. Each channel sets `is_group` in metadata: Telegram (`chat.is_group()/is_supergroup()`), Discord (`guild_id.is_some()`), Slack (channel ID not starting with 'D').
 
 ## Memory System (`src/agent/memory/`)
 
-`MemoryStore` wraps `MemoryDB` (SQLite FTS5) + `EmbeddingService` (fastembed ONNX) + `MemoryIndexer` (background task). Indexed files: `memory/*.md` (long-term notes, daily notes). Queries trigger background indexing via `MemoryIndexer::trigger_index()`.
+`MemoryStore` wraps `MemoryDB` (SQLite FTS5) + `EmbeddingService` (fastembed ONNX). Memory entries are stored directly in the SQLite database (no file-based notes or background indexer). The `memory_search` tool and system prompt context injection query the database directly.
 
 ### Hybrid Search
 

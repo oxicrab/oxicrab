@@ -17,10 +17,9 @@ async fn test_memory_store_daily_note_creation() {
         .append_today("Test fact: user likes Rust")
         .expect("append daily note");
 
-    let today_file = store.get_today_file();
-    assert!(today_file.exists());
-    let content = std::fs::read_to_string(&today_file).expect("read daily note file");
-    assert!(content.contains("Test fact: user likes Rust"));
+    let entries = store.get_recent_daily_entries(10).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].contains("user likes Rust"));
 }
 
 #[tokio::test]
@@ -33,50 +32,44 @@ async fn test_memory_store_daily_note_append_multiple() {
         .append_today("Second fact")
         .expect("append daily note");
 
-    let content = std::fs::read_to_string(store.get_today_file()).expect("read daily note file");
-    assert!(content.contains("First fact"));
-    assert!(content.contains("Second fact"));
+    let entries = store.get_recent_daily_entries(10).unwrap();
+    assert_eq!(entries.len(), 2);
 }
 
 #[tokio::test]
-async fn test_memory_store_context_includes_memory_md() {
+async fn test_memory_store_context_from_db() {
     let tmp = TempDir::new().expect("create temp dir");
-    let memory_dir = tmp.path().join("memory");
-    std::fs::create_dir_all(&memory_dir).expect("create memory dir");
-    std::fs::write(
-        memory_dir.join("MEMORY.md"),
-        "# Long-term Memory\n\nUser prefers dark mode.",
-    )
-    .expect("write test file");
-
     let store = MemoryStore::new(tmp.path()).expect("create memory store");
-    let context = store.get_memory_context(None).expect("get memory context");
+
+    // Insert content directly into DB
+    store
+        .db()
+        .insert_memory("notes:prefs", "User prefers dark mode.")
+        .unwrap();
+
+    let context = store
+        .get_memory_context(Some("dark mode"))
+        .expect("get memory context");
 
     assert!(
         context.contains("dark mode"),
-        "Context should include MEMORY.md content: {}",
+        "Context should include DB content: {}",
         context
     );
 }
 
 #[test]
-fn test_memory_db_index_and_search_roundtrip() {
+fn test_memory_db_insert_and_search_roundtrip() {
     let tmp = TempDir::new().expect("create temp dir");
     let db_path = tmp.path().join("test_memory.sqlite3");
     let db = MemoryDB::new(&db_path).expect("create memory db");
 
-    // Create files to index
-    let file1 = tmp.path().join("notes1.md");
-    let file2 = tmp.path().join("notes2.md");
-    let file3 = tmp.path().join("notes3.md");
-    std::fs::write(&file1, "Rust programming language is great for systems")
-        .expect("write test file");
-    std::fs::write(&file2, "Python is popular for machine learning").expect("write test file");
-    std::fs::write(&file3, "JavaScript dominates web development").expect("write test file");
-
-    db.index_file("notes1.md", &file1).expect("index file");
-    db.index_file("notes2.md", &file2).expect("index file");
-    db.index_file("notes3.md", &file3).expect("index file");
+    db.insert_memory("notes:1", "Rust programming language is great for systems")
+        .unwrap();
+    db.insert_memory("notes:2", "Python is popular for machine learning")
+        .unwrap();
+    db.insert_memory("notes:3", "JavaScript dominates web development")
+        .unwrap();
 
     // Search for Rust-related content
     let results = db
@@ -103,14 +96,14 @@ fn test_memory_db_search_empty_query() {
 async fn test_memory_search_tool_through_agent_loop() {
     let tmp = TempDir::new().expect("create temp dir");
 
-    // Pre-write memory content so the tool can find it
+    // Pre-write memory content into DB
     let memory_dir = tmp.path().join("memory");
     std::fs::create_dir_all(&memory_dir).expect("create memory dir");
-    std::fs::write(
-        memory_dir.join("MEMORY.md"),
-        "# Memory\n\nUser's favorite color is blue.\nUser works at Acme Corp.",
-    )
-    .expect("write test file");
+    let db = MemoryDB::new(memory_dir.join("memory.sqlite3")).expect("create db");
+    db.insert_memory("notes:prefs", "User's favorite color is blue.")
+        .unwrap();
+    db.insert_memory("notes:work", "User works at Acme Corp.")
+        .unwrap();
 
     let provider = MockLLMProvider::with_responses(vec![
         tool_response(vec![tool_call(
@@ -135,7 +128,7 @@ async fn test_memory_search_tool_through_agent_loop() {
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(!tool_msg.is_error);
-    // Should contain either search results or the MEMORY.md content
+    // Should contain either search results or the DB content
     assert!(
         tool_msg.content.contains("blue") || tool_msg.content.contains("color"),
         "Memory search should return relevant content: {}",

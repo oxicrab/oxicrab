@@ -340,7 +340,6 @@ max_width: 820px
             <tr><td>temperature</td><td>f32?</td><td>0.7</td><td>LLM sampling temperature (0.0&ndash;2.0). Set to <code>null</code> to let the provider use its default. Can be overridden per-provider via <code>providers.&lt;name&gt;.temperature</code>.</td></tr>
             <tr><td>maxToolIterations</td><td>usize</td><td>20</td><td>Max agent loop iterations per turn</td></tr>
             <tr><td>sessionTtlDays</td><td>u32</td><td>30</td><td>Days before inactive sessions are pruned</td></tr>
-            <tr><td>memoryIndexerInterval</td><td>u64</td><td>300</td><td>Seconds between memory indexer runs</td></tr>
             <tr><td>mediaTtlDays</td><td>u32</td><td>7</td><td>Days before cached media files are cleaned up</td></tr>
             <tr><td>maxConcurrentSubagents</td><td>usize</td><td>5</td><td>Max simultaneous background subagents</td></tr>
         </table>
@@ -385,8 +384,6 @@ max_width: 820px
         <p>Config path: <code>agents.defaults.memory</code></p>
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
-            <tr><td>archiveAfterDays</td><td>u32</td><td>30</td><td>Days before notes are archived</td></tr>
-            <tr><td>purgeAfterDays</td><td>u32</td><td>90</td><td>Days before archived notes are purged (must be &gt; archiveAfterDays)</td></tr>
             <tr><td>embeddingsEnabled</td><td>bool</td><td>false</td><td>Enable hybrid vector+keyword search via local ONNX embeddings</td></tr>
             <tr><td>embeddingsModel</td><td>string</td><td>BAAI/bge-small-en-v1.5</td><td>Embedding model for vector search</td></tr>
             <tr><td>hybridWeight</td><td>f32</td><td>0.5</td><td>Blend weight: 0.0 = keyword only, 1.0 = vector only</td></tr>
@@ -396,9 +393,7 @@ max_width: 820px
             <tr><td>recencyHalfLifeDays</td><td>u32</td><td>90</td><td>Half-life in days for BM25 recency decay. Older entries get lower keyword search scores. 0 disables decay.</td></tr>
         </table>
 
-        <p>When embeddings are enabled, the system prompt context injection automatically uses hybrid search (combined keyword + vector similarity) instead of keyword-only search. Missing embeddings are back-filled automatically during indexing.</p>
-
-        <p><strong>Utility-based archiving:</strong> Notes between <code>archiveAfterDays / 2</code> and <code>archiveAfterDays</code> are archived early if they have zero search hits. Notes that are frequently retrieved are kept longer. Use <code>oxicrab stats search</code> to see hit counts.</p>
+        <p>When embeddings are enabled, the system prompt context injection automatically uses hybrid search (combined keyword + vector similarity) instead of keyword-only search. Missing embeddings are back-filled automatically.</p>
 
         <h3>Model Routing</h3>
         <p>Config path: <code>agents.defaults.modelRouting</code></p>

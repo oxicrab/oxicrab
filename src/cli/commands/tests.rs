@@ -11,7 +11,8 @@ fn test_create_workspace_templates() {
     assert!(workspace.join("USER.md").exists());
     assert!(workspace.join("AGENTS.md").exists());
     assert!(workspace.join("TOOLS.md").exists());
-    assert!(workspace.join("memory").join("MEMORY.md").exists());
+    // Memory directory should exist (DB lives there)
+    assert!(workspace.join("memory").is_dir());
 }
 
 #[test]
@@ -45,7 +46,4 @@ fn test_create_workspace_templates_content() {
 
     let tools = std::fs::read_to_string(workspace.join("TOOLS.md")).unwrap();
     assert!(tools.contains("Tool Notes"));
-
-    let memory = std::fs::read_to_string(workspace.join("memory").join("MEMORY.md")).unwrap();
-    assert!(memory.contains("Long-term Memory"));
 }

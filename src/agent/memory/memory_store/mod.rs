@@ -1,53 +1,17 @@
+use crate::agent::memory::MemoryDB;
 #[cfg(feature = "embeddings")]
 use crate::agent::memory::embeddings::{EmbeddingService, LazyEmbeddingService};
-use crate::agent::memory::{MemoryDB, MemoryIndexer};
 use crate::config::MemoryConfig;
 use anyhow::{Context, Result};
-use chrono::Utc;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use tracing::debug;
 #[cfg(feature = "embeddings")]
 use tracing::warn;
 
-/// Find a `## Section` header that is on its own line (not a prefix of another header).
-/// Prevents `"## Fact"` from matching `"## FactSheet"`.
-fn find_section_header(text: &str, header: &str) -> Option<usize> {
-    let mut search_from = 0;
-    while let Some(pos) = text[search_from..].find(header) {
-        let abs = search_from + pos;
-        let at_start = abs == 0 || text.as_bytes()[abs - 1] == b'\n';
-        let end = abs + header.len();
-        let at_end = end >= text.len() || matches!(text.as_bytes()[end], b'\n' | b'\r');
-        if at_start && at_end {
-            return Some(abs);
-        }
-        search_from = abs + header.len();
-    }
-    None
-}
-
-/// Check if a source key is a daily note file (e.g. "2026-02-22.md").
-fn is_daily_note_key(key: &str) -> bool {
-    key.len() == 13
-        && Path::new(key)
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
-        && key.as_bytes()[4] == b'-'
-        && key.as_bytes()[7] == b'-'
-        && key[..4].bytes().all(|b| b.is_ascii_digit())
-        && key.as_bytes()[5].is_ascii_digit()
-        && key.as_bytes()[6].is_ascii_digit()
-        && key.as_bytes()[8].is_ascii_digit()
-        && key.as_bytes()[9].is_ascii_digit()
-}
-
 pub struct MemoryStore {
-    memory_dir: PathBuf,
-    knowledge_dir: PathBuf,
     db: Arc<MemoryDB>,
-    indexer: Option<Arc<MemoryIndexer>>,
     #[cfg(feature = "embeddings")]
     embedding_service: Option<Arc<LazyEmbeddingService>>,
     #[cfg(feature = "embeddings")]
@@ -62,19 +26,10 @@ pub struct MemoryStore {
 
 impl MemoryStore {
     pub fn new(workspace: impl AsRef<Path>) -> Result<Self> {
-        Self::with_indexer_interval(workspace, 300)
-    }
-
-    pub fn with_config(
-        workspace: impl AsRef<Path>,
-        indexer_interval_secs: u64,
-        memory_config: &MemoryConfig,
-        workspace_ttl: std::collections::HashMap<String, Option<u64>>,
-    ) -> Result<Self> {
         let workspace = workspace.as_ref();
         let memory_dir = workspace.join("memory");
-        let knowledge_dir = workspace.join("knowledge");
 
+        // Ensure workspace and memory dir exist (DB still lives in memory/)
         std::fs::create_dir_all(workspace).with_context(|| {
             format!(
                 "Failed to create workspace directory: {}",
@@ -89,12 +44,51 @@ impl MemoryStore {
             )
         })?;
 
-        // Knowledge directory is optional — create only if it exists or on first use
-        let knowledge_path = if knowledge_dir.is_dir() {
-            Some(knowledge_dir.clone())
-        } else {
-            None
-        };
+        let db_path = memory_dir.join("memory.sqlite3");
+        let db_path_clone = db_path.clone();
+        let db = Arc::new(MemoryDB::new(db_path).with_context(|| {
+            format!(
+                "Failed to create memory database at: {}",
+                db_path_clone.display()
+            )
+        })?);
+
+        Ok(Self {
+            db,
+            #[cfg(feature = "embeddings")]
+            embedding_service: None,
+            #[cfg(feature = "embeddings")]
+            hybrid_weight: 0.5,
+            #[cfg(feature = "embeddings")]
+            fusion_strategy: crate::config::FusionStrategy::default(),
+            #[cfg(feature = "embeddings")]
+            rrf_k: 60,
+            #[cfg(feature = "embeddings")]
+            recency_half_life_days: 90,
+        })
+    }
+
+    pub fn with_config(
+        workspace: impl AsRef<Path>,
+        memory_config: &MemoryConfig,
+        _workspace_ttl: &std::collections::HashMap<String, Option<u64>>,
+    ) -> Result<Self> {
+        let workspace = workspace.as_ref();
+        let memory_dir = workspace.join("memory");
+
+        std::fs::create_dir_all(workspace).with_context(|| {
+            format!(
+                "Failed to create workspace directory: {}",
+                workspace.display()
+            )
+        })?;
+
+        std::fs::create_dir_all(&memory_dir).with_context(|| {
+            format!(
+                "Failed to create memory directory: {}",
+                memory_dir.display()
+            )
+        })?;
 
         let db_path = memory_dir.join("memory.sqlite3");
         let db_path_clone = db_path.clone();
@@ -116,27 +110,8 @@ impl MemoryStore {
             None
         };
 
-        #[cfg(feature = "embeddings")]
-        let emb_for_indexer = embedding_service.clone();
-        #[cfg(not(feature = "embeddings"))]
-        let emb_for_indexer = None;
-
-        let indexer = Arc::new(MemoryIndexer::with_full_config(
-            db.clone(),
-            memory_dir.clone(),
-            knowledge_path.clone(),
-            indexer_interval_secs,
-            memory_config.archive_after_days,
-            memory_config.purge_after_days,
-            emb_for_indexer,
-            workspace_ttl,
-        ));
-
         Ok(Self {
-            memory_dir,
-            knowledge_dir,
             db,
-            indexer: Some(indexer),
             #[cfg(feature = "embeddings")]
             embedding_service,
             #[cfg(feature = "embeddings")]
@@ -150,72 +125,9 @@ impl MemoryStore {
         })
     }
 
-    pub fn with_indexer_interval(
-        workspace: impl AsRef<Path>,
-        indexer_interval_secs: u64,
-    ) -> Result<Self> {
-        let workspace = workspace.as_ref();
-        let memory_dir = workspace.join("memory");
-        let knowledge_dir = workspace.join("knowledge");
-
-        // Ensure workspace exists first
-        std::fs::create_dir_all(workspace).with_context(|| {
-            format!(
-                "Failed to create workspace directory: {}",
-                workspace.display()
-            )
-        })?;
-
-        std::fs::create_dir_all(&memory_dir).with_context(|| {
-            format!(
-                "Failed to create memory directory: {}",
-                memory_dir.display()
-            )
-        })?;
-
-        let db_path = memory_dir.join("memory.sqlite3");
-        let db_path_clone = db_path.clone();
-        let db = Arc::new(MemoryDB::new(db_path).with_context(|| {
-            format!(
-                "Failed to create memory database at: {}",
-                db_path_clone.display()
-            )
-        })?);
-
-        // Create background indexer
-        // Note: Indexer will be started separately via start_indexer() to allow sync initialization
-        let indexer = Arc::new(MemoryIndexer::new(
-            db.clone(),
-            memory_dir.clone(),
-            indexer_interval_secs,
-        ));
-
-        Ok(Self {
-            memory_dir,
-            knowledge_dir,
-            db,
-            indexer: Some(indexer),
-            #[cfg(feature = "embeddings")]
-            embedding_service: None,
-            #[cfg(feature = "embeddings")]
-            hybrid_weight: 0.5,
-            #[cfg(feature = "embeddings")]
-            fusion_strategy: crate::config::FusionStrategy::default(),
-            #[cfg(feature = "embeddings")]
-            rrf_k: 60,
-            #[cfg(feature = "embeddings")]
-            recency_half_life_days: 90,
-        })
-    }
-
     /// Accessor for the inner database (used for token logging and stats).
     pub fn db(&self) -> Arc<MemoryDB> {
         self.db.clone()
-    }
-
-    /// Path to the knowledge directory for document ingestion.
-    pub fn knowledge_dir(&self) -> &Path {
-        &self.knowledge_dir
     }
 
     /// Get the embedding service if ready (None if disabled or still initializing).
@@ -268,62 +180,16 @@ impl MemoryStore {
         Ok(hits)
     }
 
-    /// Start the background memory indexer
-    /// This should be called after construction if background indexing is desired
-    pub async fn start_indexer(&self) -> Result<()> {
-        if let Some(ref indexer) = self.indexer {
-            indexer.start().await?;
-        }
-        Ok(())
-    }
-
-    /// Stop the background memory indexer
-    pub async fn stop_indexer(&self) {
-        if let Some(ref indexer) = self.indexer {
-            indexer.stop().await;
-        }
-    }
-
     pub fn get_memory_context(&self, query: Option<&str>) -> Result<String> {
         self.get_memory_context_scoped(query, false)
     }
 
     /// Get memory context with optional group scoping.
-    /// When `is_group` is true, personal memory (MEMORY.md, daily notes) is excluded.
+    /// When `is_group` is true, personal daily notes are excluded from search results.
     pub fn get_memory_context_scoped(&self, query: Option<&str>, is_group: bool) -> Result<String> {
-        // Trigger background indexing if indexer is available
-        // This ensures fresh indexing without blocking the query
-        if let Some(ref indexer) = self.indexer {
-            indexer.trigger_index();
-        } else {
-            // Fallback: index synchronously if indexer not available
-            // This should rarely happen, but provides backward compatibility
-            self.db.index_directory(&self.memory_dir)?;
-            let memory_file = self.memory_dir.join("MEMORY.md");
-            if memory_file.exists() {
-                self.db.index_file("MEMORY.md", &memory_file)?;
-            }
-            let today = Utc::now();
-            let today_key = format!("{}.md", today.format("%Y-%m-%d"));
-            let today_file = self.memory_dir.join(&today_key);
-            if today_file.exists() {
-                self.db.index_file(&today_key, &today_file)?;
-            }
-        }
-
-        // Get today's date for daily notes
-        let today = Utc::now();
-        let today_key = format!("{}.md", today.format("%Y-%m-%d"));
-        let today_file = self.memory_dir.join(&today_key);
-
-        // Search for relevant chunks if query provided
         let mut chunks = Vec::new();
         if let Some(query) = query {
-            let mut exclude: HashSet<String> = [today_key.clone()].into_iter().collect();
-            // In group chats, also exclude personal memory files from search results
-            if is_group {
-                exclude.insert("MEMORY.md".to_string());
-            }
+            let exclude: HashSet<String> = HashSet::new();
             let fetch_limit = if is_group { 16 } else { 8 };
             let result_limit = 8;
             let hits = if self.has_embeddings() {
@@ -345,8 +211,8 @@ impl MemoryStore {
                 self.db.search(query, fetch_limit, Some(&exclude))?
             };
             for hit in hits {
-                // In group mode, skip hits from daily notes (YYYY-MM-DD.md pattern)
-                if is_group && is_daily_note_key(&hit.source_key) {
+                // In group mode, skip hits from daily notes (daily:YYYY-MM-DD prefix)
+                if is_group && hit.source_key.starts_with("daily:") {
                     continue;
                 }
                 chunks.push(format!("**{}**: {}", hit.source_key, hit.content));
@@ -362,178 +228,37 @@ impl MemoryStore {
             is_group
         );
 
-        // Include MEMORY.md content only in DM/private chats
-        if !is_group
-            && (chunks.is_empty() || query.is_none())
-            && let Ok(long_term) = self.read_long_term()
-            && !long_term.trim().is_empty()
-        {
-            chunks.insert(0, format!("## Long-term Memory\n{long_term}"));
-        }
-
-        // Include today's note only in DM/private chats
-        if !is_group && today_file.exists() {
-            let _lock = Self::lock_daily_shared(&today_file);
-            if let Ok(content) = std::fs::read_to_string(&today_file)
-                && !content.trim().is_empty()
-            {
-                chunks.push(format!("**Today's Notes ({today_key})**:\n{content}"));
-            }
-        }
-
         Ok(chunks.join("\n\n---\n\n"))
     }
 
-    pub fn get_today_file(&self) -> PathBuf {
-        let today = Utc::now();
-        self.memory_dir
-            .join(format!("{}.md", today.format("%Y-%m-%d")))
-    }
-
-    /// Read today's daily notes file, returning empty string if it doesn't exist.
-    pub fn read_today(&self) -> Result<String> {
-        let path = self.get_today_file();
-        if path.exists() {
-            Ok(std::fs::read_to_string(&path)?)
-        } else {
-            Ok(String::new())
-        }
-    }
-
+    /// Append content to today's daily notes in the DB.
     pub fn append_today(&self, content: &str) -> Result<()> {
-        use fs2::FileExt;
-        use std::io::Write;
-        let today_file = self.get_today_file();
-        let today = Utc::now();
-        let date_str = today.format("%Y-%m-%d").to_string();
-
-        // Cross-process lock to prevent CLI + gateway from corrupting daily notes
-        let lock_path = today_file.with_extension("md.lock");
-        let lock_file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&lock_path)
-            .with_context(|| "failed to open memory notes lock file")?;
-        lock_file
-            .lock_exclusive()
-            .with_context(|| "failed to acquire memory notes lock")?;
-
-        if !today_file.exists() {
-            let header = format!("# {date_str}\n\n");
-            std::fs::write(&today_file, header)?;
-        }
-        let mut file = std::fs::OpenOptions::new().append(true).open(&today_file)?;
-        writeln!(file, "{content}")?;
-        // lock released when lock_file drops
-        Ok(())
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let source_key = format!("daily:{today}");
+        self.db.insert_memory(&source_key, content.trim())
     }
 
-    /// Append content under a `## Section` header in today's daily notes.
-    ///
-    /// If the section already exists, content is appended at the end of that section
-    /// (before the next `## ` header or end of file). If it doesn't exist, the section
-    /// header and content are appended at the end.
+    /// Append content under a named section for today's notes in the DB.
+    /// The section name is embedded in the source key for organization.
     pub fn append_to_section(&self, section: &str, content: &str) -> Result<()> {
-        use fs2::FileExt;
-        use std::fmt::Write;
-        let today_file = self.get_today_file();
-        let today = Utc::now();
-        let date_str = today.format("%Y-%m-%d").to_string();
-
-        let lock_path = today_file.with_extension("md.lock");
-        let lock_file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&lock_path)
-            .with_context(|| "failed to open memory notes lock file")?;
-        lock_file
-            .lock_exclusive()
-            .with_context(|| "failed to acquire memory notes lock")?;
-
-        let mut text = if today_file.exists() {
-            std::fs::read_to_string(&today_file)?
-        } else {
-            format!("# {date_str}\n")
-        };
-
-        let header = format!("## {section}");
-        // Find header on its own line (prevent "## Fact" matching "## FactSheet")
-        if let Some(section_start) = find_section_header(&text, &header) {
-            // Find the end of this section (next ## header or end of file)
-            let after_header = section_start + header.len();
-            let insert_pos = text[after_header..]
-                .find("\n## ")
-                .map_or(text.len(), |p| after_header + p);
-
-            // Ensure we end with a newline before inserting
-            if !text[..insert_pos].ends_with('\n') {
-                text.insert(insert_pos, '\n');
-            }
-            let insert_pos = if text[..insert_pos].ends_with('\n') {
-                insert_pos
-            } else {
-                insert_pos + 1
-            };
-            text.insert_str(insert_pos, content);
-            text.insert(insert_pos + content.len(), '\n');
-        } else {
-            // Section doesn't exist — append it
-            if !text.ends_with('\n') {
-                text.push('\n');
-            }
-            write!(text, "\n{header}\n\n{content}\n").unwrap();
-        }
-
-        std::fs::write(&today_file, text)?;
-        Ok(())
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let source_key = format!("daily:{today}:{section}");
+        self.db.insert_memory(&source_key, content.trim())
     }
 
-    /// Read content under a specific `## Section` header from today's daily notes.
-    /// Returns empty string if the section doesn't exist.
+    /// Get recent daily entries for deduplication.
+    pub fn get_recent_daily_entries(&self, limit: usize) -> Result<Vec<String>> {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let source_key = format!("daily:{today}");
+        self.db.get_recent_entries(&source_key, limit)
+    }
+
+    /// Read entries from a specific section of today's notes.
     pub fn read_today_section(&self, section: &str) -> Result<String> {
-        let today_content = self.read_today()?;
-        if today_content.is_empty() {
-            return Ok(String::new());
-        }
-        let header = format!("## {section}");
-        if let Some(start) = find_section_header(&today_content, &header) {
-            let after_header = start + header.len();
-            // Skip past the header line
-            let content_start = today_content[after_header..]
-                .find('\n')
-                .map_or(today_content.len(), |p| after_header + p + 1);
-            let content_end = today_content[content_start..]
-                .find("\n## ")
-                .map_or(today_content.len(), |p| content_start + p);
-            Ok(today_content[content_start..content_end].to_string())
-        } else {
-            Ok(String::new())
-        }
-    }
-
-    pub fn read_long_term(&self) -> Result<String> {
-        let memory_file = self.memory_dir.join("MEMORY.md");
-        if memory_file.exists() {
-            Ok(std::fs::read_to_string(&memory_file)?)
-        } else {
-            Ok(String::new())
-        }
-    }
-
-    /// Acquire a shared lock on the daily notes lock file.
-    /// Returns None if the lock file cannot be created (non-fatal).
-    fn lock_daily_shared(today_file: &Path) -> Option<std::fs::File> {
-        let lock_path = today_file.with_extension("md.lock");
-        let lock_file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&lock_path)
-            .ok()?;
-        fs2::FileExt::lock_shared(&lock_file).ok()?;
-        Some(lock_file)
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let source_key = format!("daily:{today}:{section}");
+        let entries = self.db.get_recent_entries(&source_key, 100)?;
+        Ok(entries.join("\n"))
     }
 }
 

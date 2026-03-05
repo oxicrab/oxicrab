@@ -6,7 +6,6 @@
       "temperature": 0.7,
       "maxToolIterations": 20,
       "sessionTtlDays": 30,
-      "memoryIndexerInterval": 300,
       "mediaTtlDays": 7,
       "maxConcurrentSubagents": 5,
       "contextProviders": [],
@@ -23,8 +22,6 @@
         }
       },
       "memory": {
-        "archiveAfterDays": 30,
-        "purgeAfterDays": 90,
         "embeddingsEnabled": false,
         "embeddingsModel": "BAAI/bge-small-en-v1.5",
         "hybridWeight": 0.5,

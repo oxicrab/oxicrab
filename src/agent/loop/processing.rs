@@ -547,7 +547,7 @@ impl AgentLoop {
         session_key: &str,
     ) -> Result<Option<String>> {
         use crate::agent::memory::quality::{QualityVerdict, check_quality};
-        use crate::agent::memory::remember::is_duplicate;
+        use crate::agent::memory::remember::is_duplicate_of_entries;
 
         // Quality gate: reject low-signal content
         let response = match check_quality(content) {
@@ -557,13 +557,12 @@ impl AgentLoop {
                     .to_string()
             }
             QualityVerdict::Reframed(reframed) => {
-                // Read today's notes for dedup (use reframed text)
-                let today_notes = self.memory.read_today().unwrap_or_default();
-                if is_duplicate(&reframed, &today_notes) {
+                let recent = self.memory.get_recent_daily_entries(50).unwrap_or_default();
+                if is_duplicate_of_entries(&reframed, &recent) {
                     info!("remember fast path: duplicate detected, skipping write");
                     "I already have that noted.".to_string()
                 } else {
-                    self.memory.append_today(&format!("\n- {reframed}\n"))?;
+                    self.memory.append_today(&reframed)?;
                     info!(
                         "remember fast path: wrote {} chars to daily notes (reframed)",
                         reframed.len()
@@ -572,12 +571,12 @@ impl AgentLoop {
                 }
             }
             QualityVerdict::Pass => {
-                let today_notes = self.memory.read_today().unwrap_or_default();
-                if is_duplicate(content, &today_notes) {
+                let recent = self.memory.get_recent_daily_entries(50).unwrap_or_default();
+                if is_duplicate_of_entries(content, &recent) {
                     info!("remember fast path: duplicate detected, skipping write");
                     "I already have that noted.".to_string()
                 } else {
-                    self.memory.append_today(&format!("\n- {content}\n"))?;
+                    self.memory.append_today(content)?;
                     info!(
                         "remember fast path: wrote {} chars to daily notes",
                         content.len()
