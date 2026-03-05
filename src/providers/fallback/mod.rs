@@ -45,6 +45,12 @@ fn validate_tool_calls(tool_calls: &[ToolCallRequest]) -> bool {
 
 #[async_trait]
 impl LLMProvider for FallbackProvider {
+    /// Try each provider in the chain until one succeeds with valid tool calls.
+    ///
+    /// `req.model` is intentionally ignored — each provider in the chain has
+    /// its own pre-configured model name (stored alongside the provider Arc).
+    /// The request is cloned with `model: None` for each attempt so the
+    /// provider uses its own `default_model()`.
     async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
         let mut last_error = None;
         for (i, (provider, model_name)) in self.providers.iter().enumerate() {

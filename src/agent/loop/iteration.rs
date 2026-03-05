@@ -22,7 +22,7 @@ impl AgentLoop {
     /// `handle_text_response()` catches false action claims. At 70% of max iterations, a wrap-up
     /// nudge is injected.
     ///
-    /// Returns `(response_text, last_message_id, collected_media, tool_names_used, discourse_register)`.
+    /// Returns an `AgentLoopResult` with response text, input tokens, tool names used, and media paths.
     pub(super) async fn run_agent_loop_with_overrides(
         &self,
         mut messages: Vec<Message>,
@@ -127,7 +127,7 @@ impl AgentLoop {
             }
 
             // Start periodic typing indicator before LLM call
-            let typing_handle = start_typing(self.typing_tx.as_ref(), typing_context.as_ref());
+            let typing_guard = start_typing(self.typing_tx.as_ref(), typing_context.as_ref());
 
             // Temperature strategy: use low temperature after any tool calls for
             // deterministic tool sequences, normal temperature before the first tool
@@ -157,10 +157,8 @@ impl AgentLoop {
                 )
                 .await;
 
-            // Stop typing indicator after LLM call returns
-            if let Some(h) = typing_handle {
-                h.abort();
-            }
+            // Stop typing indicator after LLM call returns (guard aborts on drop)
+            drop(typing_guard);
 
             let response = response?;
 
@@ -196,7 +194,7 @@ impl AgentLoop {
                 );
 
                 // Start periodic typing indicator before tool execution
-                let typing_handle = start_typing(self.typing_tx.as_ref(), typing_context.as_ref());
+                let typing_guard = start_typing(self.typing_tx.as_ref(), typing_context.as_ref());
 
                 let exfil_ref = if self.exfiltration_guard.enabled {
                     Some(&self.exfiltration_guard)
@@ -207,10 +205,8 @@ impl AgentLoop {
                     .execute_tools(&response.tool_calls, &tool_names, exec_ctx, exfil_ref)
                     .await;
 
-                // Stop typing indicator after tool execution
-                if let Some(h) = typing_handle {
-                    h.abort();
-                }
+                // Stop typing indicator after tool execution (guard aborts on drop)
+                drop(typing_guard);
 
                 self.handle_tool_results(
                     &mut messages,
@@ -352,8 +348,8 @@ impl AgentLoop {
         }
     }
 
-    /// Collect media from tool results, extract discourse entities, scan for
-    /// prompt injection, update cognitive tracking, and fire periodic checkpoints.
+    /// Collect media from tool results, scan for prompt injection, update
+    /// cognitive tracking, and fire periodic checkpoints.
     #[allow(clippy::too_many_arguments)]
     async fn handle_tool_results(
         &self,

@@ -491,6 +491,13 @@ impl AgentLoop {
 
     /// Remove session locks that are only held by the map (strong count == 1).
     /// This prevents the `session_locks` `HashMap` from growing unboundedly.
+    ///
+    /// Safety of `Arc::strong_count`: This is called under the outer
+    /// `std::sync::Mutex` lock on `session_locks`, which serializes all
+    /// calls to `session_lock()` and `evict_stale_session_locks()`. No
+    /// other code clones the `Arc` without holding that mutex, so the
+    /// strong count cannot change between the check and the retain
+    /// decision — no TOCTOU race is possible.
     fn evict_stale_session_locks(&self) {
         let mut locks = self
             .session_locks

@@ -444,6 +444,11 @@ pub(super) async fn transcribe_audio_tags(
 }
 
 /// Delete media files older than the given TTL (in days).
+///
+/// Uses flat `read_dir` (not recursive `walkdir`) because all channel
+/// implementations save media directly into `~/.oxicrab/media/` with
+/// flat naming (`telegram_{id}.{ext}`, `discord_{id}.{ext}`, etc.).
+/// No channel creates subdirectories, so recursion is unnecessary.
 pub(super) fn cleanup_old_media(ttl_days: u32) -> Result<()> {
     let media_dir = dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
@@ -473,15 +478,25 @@ pub(super) fn cleanup_old_media(ttl_days: u32) -> Result<()> {
     Ok(())
 }
 
-/// Periodic typing indicator: sends every 4s until the returned handle is aborted.
+/// Guard that aborts the typing indicator background task on drop.
+/// This prevents unbounded background tasks if the caller forgets to abort.
+pub(super) struct TypingGuard(tokio::task::JoinHandle<()>);
+
+impl Drop for TypingGuard {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Periodic typing indicator: sends every 4s until the returned guard is dropped.
 pub(super) fn start_typing(
     typing_tx: Option<&Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     ctx: Option<&(String, String)>,
-) -> Option<tokio::task::JoinHandle<()>> {
+) -> Option<TypingGuard> {
     if let (Some(tx), Some(ctx)) = (typing_tx, ctx) {
         let tx = tx.clone();
         let ctx = ctx.clone();
-        Some(tokio::spawn(async move {
+        Some(TypingGuard(tokio::spawn(async move {
             let mut interval =
                 tokio::time::interval(Duration::from_secs(TYPING_INDICATOR_INTERVAL_SECS));
             loop {
@@ -490,7 +505,7 @@ pub(super) fn start_typing(
                     break;
                 }
             }
-        }))
+        })))
     } else {
         None
     }

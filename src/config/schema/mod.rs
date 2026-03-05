@@ -596,7 +596,7 @@ impl Config {
 
                     // Weights must be finite
                     let w = &chat_config.weights;
-                    for (name, val) in [
+                    let weight_values = [
                         ("messageLength", w.message_length),
                         ("reasoningKeywords", w.reasoning_keywords),
                         ("technicalVocabulary", w.technical_vocabulary),
@@ -604,12 +604,25 @@ impl Config {
                         ("codePresence", w.code_presence),
                         ("instructionComplexity", w.instruction_complexity),
                         ("conversationalSimplicity", w.conversational_simplicity),
-                    ] {
+                    ];
+                    for (name, val) in &weight_values {
                         if !val.is_finite() {
                             return Err(OxicrabError::Config(format!(
                                 "modelRouting.tasks.chat.weights.{name} must be finite, got {val}"
                             )));
                         }
+                    }
+
+                    // Warn when the absolute sum of weights is outside the
+                    // reasonable range — the scorer's sigmoid may saturate or
+                    // become insensitive with extreme total magnitudes.
+                    let abs_sum: f64 = weight_values.iter().map(|(_, v)| v.abs()).sum();
+                    if !(0.3..=2.0).contains(&abs_sum) {
+                        warn!(
+                            "modelRouting.tasks.chat.weights: absolute sum is {:.2} \
+                             (expected 0.3..2.0) — scoring may be overly sensitive or insensitive",
+                            abs_sum
+                        );
                     }
                 }
             }

@@ -69,6 +69,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
         } else {
             Some(config.gateway.api_key.clone())
         };
+        let secrets = config.collect_secrets();
         let (_http_task, state) = crate::gateway::start(
             &config.gateway.host,
             config.gateway.port,
@@ -78,6 +79,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
             a2a_config,
             api_key,
             &config.gateway.rate_limit,
+            &secrets,
         )
         .await?;
         Some(state)
@@ -139,6 +141,7 @@ pub(super) async fn gateway_echo() -> Result<()> {
         } else {
             Some(config.gateway.api_key.clone())
         };
+        let secrets = config.collect_secrets();
         let (http_task, state) = crate::gateway::start(
             &config.gateway.host,
             config.gateway.port,
@@ -148,6 +151,7 @@ pub(super) async fn gateway_echo() -> Result<()> {
             None, // A2A not available in echo mode
             api_key,
             &config.gateway.rate_limit,
+            &secrets,
         )
         .await?;
         drop(http_task);

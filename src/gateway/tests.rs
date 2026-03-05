@@ -6,6 +6,7 @@ fn make_state() -> HttpApiState {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     }
 }
 
@@ -132,6 +133,7 @@ fn make_state_with_webhooks(webhooks: HashMap<String, WebhookConfig>) -> HttpApi
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(webhooks),
         outbound_tx: None,
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     }
 }
 
@@ -353,6 +355,7 @@ async fn test_webhook_direct_delivery_to_targets() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(webhooks),
         outbound_tx: Some(Arc::new(outbound_tx)),
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     };
     let app = build_router(state, None, None, None);
 
@@ -413,6 +416,7 @@ async fn test_webhook_agent_turn_routes_through_agent() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(webhooks),
         outbound_tx: Some(Arc::new(outbound_tx)),
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -468,6 +472,7 @@ async fn test_chat_handler_sends_inbound_and_returns_response() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -513,6 +518,7 @@ async fn test_chat_handler_with_session_id() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -553,6 +559,7 @@ async fn test_chat_handler_creates_pending_and_publishes_inbound() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -585,6 +592,7 @@ async fn test_deliver_to_targets_no_outbound_tx() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     };
     let targets = vec![WebhookTarget {
         channel: "slack".to_string(),
@@ -620,6 +628,7 @@ async fn test_webhook_template_with_json_fields() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(webhooks),
         outbound_tx: Some(Arc::new(outbound_tx)),
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     };
     let app = build_router(state, None, None, None);
 
@@ -661,6 +670,7 @@ async fn test_chat_handler_rejects_oversized_message() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     };
     let app = build_router(state, None, None, None);
 
@@ -691,6 +701,7 @@ async fn test_chat_handler_inbound_send_fails() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     };
     let app = build_router(state, None, None, None);
 
@@ -822,6 +833,7 @@ async fn test_chat_handler_with_response_format_metadata() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -864,6 +876,7 @@ async fn test_chat_handler_without_response_format_no_metadata() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -900,6 +913,7 @@ async fn test_chat_handler_rejects_oversized_schema() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     };
     let app = build_router(state, None, None, None);
 
@@ -952,6 +966,7 @@ async fn test_chat_handler_rejects_oversized_schema_name() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
+        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
     };
     let app = build_router(state, None, None, None);
 

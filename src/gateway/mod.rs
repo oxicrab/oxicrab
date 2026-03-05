@@ -90,6 +90,10 @@ pub struct HttpApiState {
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<OutboundMessage>>>>,
     webhooks: Arc<HashMap<String, WebhookConfig>>,
     outbound_tx: Option<Arc<mpsc::Sender<OutboundMessage>>>,
+    /// Pre-configured leak detector with known secrets registered.
+    /// Used by `deliver_to_targets()` which bypasses `MessageBus` and must
+    /// run its own leak detection.
+    leak_detector: Arc<crate::safety::leak_detector::LeakDetector>,
 }
 
 /// Drop guard that removes a pending response entry when the handler is dropped
@@ -719,9 +723,9 @@ async fn deliver_to_targets(
     };
 
     // Scan for leaked secrets before delivery (this path bypasses MessageBus,
-    // so we must run leak detection ourselves)
-    let detector = crate::safety::leak_detector::LeakDetector::new();
-    let safe_content = detector.redact(content);
+    // so we must run leak detection ourselves). Uses the pre-configured
+    // detector that has known secrets registered, matching what MessageBus does.
+    let safe_content = state.leak_detector.redact(content);
     if safe_content != content {
         warn!("webhook {webhook_name}: redacted leaked secrets from target delivery");
     }
@@ -753,6 +757,10 @@ async fn deliver_to_targets(
 
 /// Start the HTTP API server. Returns a join handle and the shared state
 /// (needed by the outbound router to deliver responses).
+///
+/// `known_secrets` are registered with the leak detector used by
+/// `deliver_to_targets()` — this path bypasses `MessageBus` so it needs
+/// its own detector with the same secrets.
 #[allow(clippy::too_many_arguments)]
 pub async fn start<S: BuildHasher>(
     host: &str,
@@ -763,6 +771,7 @@ pub async fn start<S: BuildHasher>(
     a2a_config: Option<crate::config::A2aConfig>,
     api_key: Option<String>,
     rate_limit: &crate::config::schema::RateLimitConfig,
+    known_secrets: &[(&str, &str)],
 ) -> Result<(tokio::task::JoinHandle<()>, HttpApiState)> {
     let webhook_map: HashMap<String, WebhookConfig> = webhooks.into_iter().collect();
     let active: Vec<_> = webhook_map
@@ -780,11 +789,21 @@ pub async fn start<S: BuildHasher>(
 
     let pending = Arc::new(Mutex::new(HashMap::new()));
 
+    let mut detector = crate::safety::leak_detector::LeakDetector::new();
+    if !known_secrets.is_empty() {
+        detector.add_known_secrets(known_secrets);
+        debug!(
+            "gateway leak detector registered {} known secret(s)",
+            known_secrets.len()
+        );
+    }
+
     let state = HttpApiState {
         inbound_tx: inbound_tx.clone(),
         pending: pending.clone(),
         webhooks: Arc::new(webhook_map),
         outbound_tx,
+        leak_detector: Arc::new(detector),
     };
 
     // Set up A2A state if enabled
