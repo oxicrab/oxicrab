@@ -4,7 +4,6 @@ use crate::channels::manager::ChannelManager;
 use crate::config::{Config, load_config};
 use crate::cron::service::CronService;
 use crate::cron::types::CronJob;
-use crate::heartbeat::service::HeartbeatService;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -57,7 +56,6 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
         memory_db_for_dlq,
     )
     .await?;
-    let heartbeat = setup_heartbeat(&config, &agent);
 
     // Start HTTP API server (needs inbound_tx clone before channels takes ownership)
     let http_state = if config.gateway.enabled {
@@ -102,7 +100,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     }
 
     // Start services
-    start_services(cron.clone(), heartbeat.clone()).await?;
+    start_services(cron.clone()).await?;
 
     // Run agent and channels
     let agent_task = start_agent_loop(agent.clone());
@@ -114,7 +112,6 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
             println!("\nShutting down...");
-            heartbeat.stop().await;
             cron.stop().await;
             agent.stop().await;
             // Channels will stop themselves when the task ends
@@ -448,63 +445,6 @@ async fn cron_job_execute(
     Ok(Some(response))
 }
 
-fn setup_heartbeat(config: &Config, agent: &Arc<AgentLoop>) -> Arc<HeartbeatService> {
-    debug!("Initializing heartbeat service...");
-    debug!("  - Enabled: {}", config.agents.defaults.daemon.enabled);
-    debug!("  - Interval: {}s", config.agents.defaults.daemon.interval);
-    debug!(
-        "  - Strategy file: {}",
-        config.agents.defaults.daemon.strategy_file
-    );
-
-    // Build daemon-specific overrides: prefer model routing, fall back to config
-    let daemon_cfg = &config.agents.defaults.daemon;
-    let daemon_overrides = {
-        let routed = agent.resolve_overrides("daemon");
-        if routed.provider.is_some() {
-            info!(
-                "daemon using routed model: {}",
-                routed.model.as_deref().unwrap_or("(provider default)")
-            );
-            Arc::new(crate::agent::AgentRunOverrides {
-                max_iterations: Some(daemon_cfg.max_iterations),
-                ..routed
-            })
-        } else {
-            if daemon_cfg.execution_model.is_some() {
-                info!(
-                    "daemon will use model override: {}",
-                    daemon_cfg.execution_model.as_deref().unwrap_or("(none)")
-                );
-            }
-            Arc::new(crate::agent::AgentRunOverrides {
-                model: daemon_cfg.execution_model.clone(),
-                max_iterations: Some(daemon_cfg.max_iterations),
-                ..Default::default()
-            })
-        }
-    };
-    let agent_for_heartbeat = agent.clone();
-    let heartbeat = HeartbeatService::new(
-        config.workspace_path(),
-        Some(Arc::new(move |prompt| {
-            debug!("Heartbeat triggered with prompt: {}", prompt);
-            let agent = agent_for_heartbeat.clone();
-            let overrides = daemon_overrides.clone();
-            Box::pin(async move {
-                agent
-                    .process_direct_with_overrides(&prompt, "daemon", "cli", "direct", &overrides)
-                    .await
-            })
-        })),
-        config.agents.defaults.daemon.interval,
-        config.agents.defaults.daemon.enabled,
-        config.agents.defaults.daemon.strategy_file.clone(),
-    );
-    debug!("Heartbeat service initialized");
-    Arc::new(heartbeat)
-}
-
 fn setup_channels(
     config: &Config,
     inbound_tx: tokio::sync::mpsc::Sender<crate::bus::InboundMessage>,
@@ -518,14 +458,10 @@ fn setup_channels(
     channels
 }
 
-async fn start_services(cron: Arc<CronService>, heartbeat: Arc<HeartbeatService>) -> Result<()> {
+async fn start_services(cron: Arc<CronService>) -> Result<()> {
     info!("Starting cron service...");
     cron.start().await?;
     info!("Cron service started");
-
-    info!("Starting heartbeat service...");
-    heartbeat.start().await?;
-    info!("Heartbeat service started");
     Ok(())
 }
 

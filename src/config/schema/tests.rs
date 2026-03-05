@@ -884,7 +884,6 @@ fn test_model_routing_config_deserializes() {
                     "default": "moonshot/kimi-k2.5",
                     "fallbacks": ["anthropic/claude-sonnet-4-5-20250929"],
                     "tasks": {
-                        "daemon": "anthropic/claude-haiku-4-5-20251001",
                         "cron": "anthropic/claude-haiku-4-5-20251001"
                     }
                 }
@@ -894,7 +893,7 @@ fn test_model_routing_config_deserializes() {
     let config: Config = serde_json::from_str(json).unwrap();
     let routing = &config.agents.defaults.model_routing;
     assert_eq!(routing.default, "moonshot/kimi-k2.5");
-    assert_eq!(routing.tasks.len(), 2);
+    assert_eq!(routing.tasks.len(), 1);
     assert_eq!(
         routing.fallbacks,
         vec!["anthropic/claude-sonnet-4-5-20250929"]
@@ -953,7 +952,7 @@ fn test_model_routing_invalid_empty_task_model() {
         "agents": {
             "defaults": {
                 "modelRouting": {
-                    "tasks": { "daemon": "" }
+                    "tasks": { "cron": "" }
                 }
             }
         }
@@ -1011,7 +1010,7 @@ fn test_model_routing_chat_only_on_chat_key() {
             "defaults": {
                 "modelRouting": {
                     "tasks": {
-                        "daemon": {
+                        "cron": {
                             "thresholds": { "standard": 0.3, "heavy": 0.65 },
                             "models": {
                                 "standard": "model-a",

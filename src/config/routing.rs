@@ -27,7 +27,7 @@ impl ResolvedRouting {
         Self { tasks, chat }
     }
 
-    /// Resolve overrides for a task type (e.g. "daemon", "cron", "subagent").
+    /// Resolve overrides for a task type (e.g. "cron", "subagent").
     /// Direct task→provider lookup with no tier indirection.
     pub fn resolve_overrides(&self, task_type: &str) -> AgentRunOverrides {
         if let Some((provider, model)) = self.tasks.get(task_type) {

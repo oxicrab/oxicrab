@@ -686,7 +686,7 @@ impl AgentLoop {
     }
 
     /// Like [`process_direct`](Self::process_direct) but accepts per-invocation
-    /// overrides for model and `max_iterations` (used by daemon heartbeats).
+    /// overrides for model and `max_iterations` (used by cron jobs).
     pub async fn process_direct_with_overrides(
         &self,
         content: &str,

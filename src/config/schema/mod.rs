@@ -319,16 +319,6 @@ impl Config {
                 "agents.defaults.maxToolIterations is unreasonably large (> 1000)".into(),
             ));
         }
-        if d.daemon.enabled {
-            if d.daemon.interval == 0 {
-                return Err(OxicrabError::Config(
-                    "agents.defaults.daemon.interval must be > 0 when enabled".into(),
-                ));
-            }
-            if d.daemon.interval < 60 {
-                warn!("Daemon interval is very short (< 60s), this may cause high resource usage");
-            }
-        }
         Ok(())
     }
 

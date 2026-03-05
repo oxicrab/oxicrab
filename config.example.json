@@ -22,13 +22,6 @@
           "intervalIterations": 10
         }
       },
-      "daemon": {
-        "enabled": true,
-        "interval": 300,
-        "executionModel": null,
-        "strategyFile": "HEARTBEAT.md",
-        "maxIterations": 25
-      },
       "memory": {
         "archiveAfterDays": 30,
         "purgeAfterDays": 90,

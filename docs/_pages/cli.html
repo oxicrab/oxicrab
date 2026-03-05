@@ -50,7 +50,7 @@ max_width: 820px
     <!-- GATEWAY -->
     <h2 id="gateway">gateway</h2>
     <div class="cmd-sig">oxicrab gateway [--model &lt;MODEL&gt;] [--echo]</div>
-    <p>Start the multi-channel gateway daemon. Loads configuration, initializes the LLM provider (with optional circuit breaker), starts all enabled channels, the agent loop, cron service, and heartbeat service. Runs until interrupted with Ctrl+C.</p>
+    <p>Start the multi-channel gateway daemon. Loads configuration, initializes the LLM provider (with optional circuit breaker), starts all enabled channels, the agent loop, and cron service. Runs until interrupted with Ctrl+C.</p>
     <table class="flag-table">
         <tr><th>Flag</th><th>Description</th></tr>
         <tr><td>--model</td><td>Override the default LLM model for this session (use <code>provider/model</code> prefix notation to specify a provider, e.g. <code>groq/llama-3.1-70b</code>)</td></tr>

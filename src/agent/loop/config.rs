@@ -4,9 +4,9 @@ use crate::providers::base::LLMProvider;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// Per-invocation overrides for the agent loop. Allows callers (e.g. the daemon
-/// heartbeat) to use a different model or iteration cap without constructing a
-/// separate `AgentLoop`.
+/// Per-invocation overrides for the agent loop. Allows callers (e.g. cron jobs)
+/// to use a different model or iteration cap without constructing a separate
+/// `AgentLoop`.
 #[derive(Default, Clone)]
 pub struct AgentRunOverrides {
     /// Override the model used for LLM calls.

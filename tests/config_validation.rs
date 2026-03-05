@@ -81,15 +81,6 @@ fn test_compaction_disabled_ignores_bad_values() {
 }
 
 #[test]
-fn test_daemon_zero_interval() {
-    let mut config = default_config();
-    config.agents.defaults.daemon.enabled = true;
-    config.agents.defaults.daemon.interval = 0;
-    let err = config.validate().unwrap_err();
-    assert!(err.to_string().contains("interval"));
-}
-
-#[test]
 fn test_exec_timeout_zero() {
     let mut config = default_config();
     config.tools.exec.timeout = 0;

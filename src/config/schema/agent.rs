@@ -63,44 +63,6 @@ fn default_keep_recent() -> usize {
     10
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DaemonConfig {
-    #[serde(default = "super::default_true")]
-    pub enabled: bool,
-    #[serde(default = "default_interval")]
-    pub interval: u64,
-    #[serde(default, rename = "executionModel")]
-    pub execution_model: Option<String>,
-    #[serde(default = "default_strategy_file", rename = "strategyFile")]
-    pub strategy_file: String,
-    #[serde(default = "default_max_iterations", rename = "maxIterations")]
-    pub max_iterations: usize,
-}
-
-impl Default for DaemonConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            interval: default_interval(),
-            execution_model: None,
-            strategy_file: default_strategy_file(),
-            max_iterations: default_max_iterations(),
-        }
-    }
-}
-
-fn default_interval() -> u64 {
-    300
-}
-
-fn default_strategy_file() -> String {
-    "HEARTBEAT.md".to_string()
-}
-
-fn default_max_iterations() -> usize {
-    25
-}
-
 /// Action to take when prompt injection is detected.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -397,7 +359,7 @@ pub struct ModelRoutingConfig {
     /// Ordered fallback chain of `provider/model` strings for resilience.
     #[serde(default)]
     pub fallbacks: Vec<String>,
-    /// Per-task model overrides. Simple tasks (daemon, cron, compaction, subagent)
+    /// Per-task model overrides. Simple tasks (cron, compaction, subagent)
     /// use a plain model string. The `chat` key accepts an object with complexity
     /// escalation thresholds.
     #[serde(default)]
@@ -419,7 +381,7 @@ impl Default for ModelRoutingConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum TaskRouting {
-    /// Simple model override: `"daemon": "anthropic/claude-haiku-4-5-20251001"`
+    /// Simple model override: `"cron": "anthropic/claude-haiku-4-5-20251001"`
     Model(String),
     /// Chat routing with complexity-based model escalation.
     Chat(ChatRoutingConfig),
@@ -563,8 +525,6 @@ pub struct AgentDefaults {
     pub max_tool_iterations: usize,
     #[serde(default)]
     pub compaction: CompactionConfig,
-    #[serde(default)]
-    pub daemon: DaemonConfig,
     #[serde(default = "default_session_ttl_days", rename = "sessionTtlDays")]
     pub session_ttl_days: u32,
     #[serde(
@@ -601,7 +561,6 @@ impl Default for AgentDefaults {
             temperature: default_temperature(),
             max_tool_iterations: default_max_tool_iterations(),
             compaction: CompactionConfig::default(),
-            daemon: DaemonConfig::default(),
             session_ttl_days: default_session_ttl_days(),
             memory_indexer_interval: default_memory_indexer_interval(),
             media_ttl_days: default_media_ttl_days(),

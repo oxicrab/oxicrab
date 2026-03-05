@@ -407,7 +407,7 @@ impl MemoryStore {
         let today = Utc::now();
         let date_str = today.format("%Y-%m-%d").to_string();
 
-        // Cross-process lock to prevent CLI + daemon from corrupting daily notes
+        // Cross-process lock to prevent CLI + gateway from corrupting daily notes
         let lock_path = today_file.with_extension("md.lock");
         let lock_file = std::fs::OpenOptions::new()
             .create(true)
