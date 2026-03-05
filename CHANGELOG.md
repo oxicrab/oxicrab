@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.4] - 2026-03-05
+
+### Added
+- auto-download whisper GGML model when localModelPath is missing ([b42b459](https://github.com/oxicrab/oxicrab/commit/b42b459d6c41d9caf2db34bc4b1c0c9323db3b11))
+- Add Contributor Covenant Code of Conduct ([6b3647d](https://github.com/oxicrab/oxicrab/commit/6b3647d5a8fac9dd1dfe596d7e3225918d29bfd6))
+
+
+### Documentation
+- update deploy docs for pre-built GHCR image and ~/.oxicrab default ([d357667](https://github.com/oxicrab/oxicrab/commit/d357667488cbd50a906120606d08ebb131768f13))
+
+
+### Fixed
+- install rustls ring crypto provider at startup ([3032b7b](https://github.com/oxicrab/oxicrab/commit/3032b7b45481295f03b44cd3c3feab76539b9018))
+- add CMD prefix to docker-compose healthcheck test ([7ec76d1](https://github.com/oxicrab/oxicrab/commit/7ec76d1b86e8fc9ad49efb3c8c879a7eaf2ab28f))
+- use parsed URLs for Twilio API calls to satisfy CodeQL CWE-319 ([5cdb64f](https://github.com/oxicrab/oxicrab/commit/5cdb64f507ea03c9fd1997e8d0ae2d3d468c3527))
+
+
+### Maintenance
+- use pre-built GHCR image instead of building from source ([eb1773c](https://github.com/oxicrab/oxicrab/commit/eb1773cf15f9b33497935fc16ccce0003cf9fa4b))
+
 ## [0.13.3] - 2026-03-04
 
 ### Added
