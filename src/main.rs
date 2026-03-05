@@ -2,6 +2,8 @@ use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info,whatsapp_rust=warn".parse().unwrap())
         .add_directive("selectors=off".parse().unwrap())
