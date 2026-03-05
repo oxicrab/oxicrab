@@ -9,7 +9,7 @@ services:
     environment:
       - OXICRAB_PORT=18790
     healthcheck:
-      test: ["/usr/local/bin/healthcheck.sh"]
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
       interval: 30s
       timeout: 5s
       retries: 3
