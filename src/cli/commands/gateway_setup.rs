@@ -19,6 +19,9 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     info!("Configuration loaded. Using model: {}", effective_model);
     debug!("Workspace: {:?}", config.workspace_path());
 
+    // Ensure workspace template files exist (AGENTS.md, USER.md, etc.)
+    super::create_workspace_templates(&config.workspace_path())?;
+
     // Setup components
     let provider = setup_provider(&config, model.as_deref())?;
 

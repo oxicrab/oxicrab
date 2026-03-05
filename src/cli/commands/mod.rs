@@ -12,8 +12,6 @@ mod tests;
 
 use cli_types::{Cli, Commands};
 
-// Re-export for tests.rs
-#[cfg(test)]
 use onboard::create_workspace_templates;
 
 use anyhow::Result;
