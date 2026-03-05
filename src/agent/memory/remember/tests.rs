@@ -96,24 +96,3 @@ fn test_jaccard_single_word() {
     let sim = jaccard_similarity("hello", "world");
     assert!((sim - 0.0).abs() < f64::EPSILON);
 }
-
-#[test]
-fn test_is_duplicate_finds_match() {
-    let notes = "# Notes\n\n- I prefer dark mode for all editors\n- Deploy on Fridays\n";
-    assert!(is_duplicate("I prefer dark mode for editors", notes));
-}
-
-#[test]
-fn test_is_duplicate_no_match() {
-    let notes = "# Notes\n\n- I prefer dark mode\n- Deploy on Fridays\n";
-    assert!(!is_duplicate(
-        "The server runs on port 8080 with TLS enabled",
-        notes
-    ));
-}
-
-#[test]
-fn test_is_duplicate_skips_headers() {
-    let notes = "# Remember\n\n## Section\n\n- actual note here about something";
-    assert!(!is_duplicate("Remember", notes));
-}

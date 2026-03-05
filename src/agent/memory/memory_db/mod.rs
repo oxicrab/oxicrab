@@ -27,11 +27,6 @@ use search::MAX_FTS_TERMS;
 #[cfg(test)]
 use search::fts_query;
 
-/// Minimum size for a memory chunk (paragraphs shorter than this are skipped)
-const MIN_CHUNK_SIZE: usize = 12;
-/// Maximum size for a memory chunk (longer paragraphs are truncated)
-const MAX_CHUNK_SIZE: usize = 1200;
-
 /// Compute a recency decay multiplier for a BM25 score.
 ///
 /// Uses exponential decay: `0.5 ^ (age_days / half_life_days)`.
@@ -96,13 +91,6 @@ impl MemoryDB {
                     parent.display()
                 )
             })?;
-        }
-
-        const {
-            assert!(
-                MIN_CHUNK_SIZE < MAX_CHUNK_SIZE,
-                "MIN_CHUNK_SIZE must be less than MAX_CHUNK_SIZE"
-            );
         }
 
         let conn = Connection::open(db_path)
@@ -425,49 +413,6 @@ fn hash_text(s: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(s.as_bytes());
     hex::encode(hasher.finalize())
-}
-
-fn split_into_chunks(text: &str) -> Vec<String> {
-    let re = crate::utils::regex::RegexPatterns::double_newlines();
-    let raw: Vec<&str> = re.split(text.trim()).collect();
-    let mut chunks = Vec::new();
-
-    for part in raw {
-        let p = part.trim();
-        if p.is_empty() || p.len() < MIN_CHUNK_SIZE {
-            continue;
-        }
-        let chunk = if p.len() > MAX_CHUNK_SIZE {
-            let mut end = MAX_CHUNK_SIZE;
-            while end > 0 && !p.is_char_boundary(end) {
-                end -= 1;
-            }
-            p[..end].to_string()
-        } else {
-            p.to_string()
-        };
-        chunks.push(chunk);
-    }
-
-    chunks
-}
-
-/// Strip HTML tags and return plain text content.
-fn strip_html_tags(html: &str) -> String {
-    let document = scraper::Html::parse_document(html);
-    let mut text = String::with_capacity(html.len() / 2);
-    for node in document.tree.values() {
-        if let scraper::node::Node::Text(t) = node {
-            let s = t.text.trim();
-            if !s.is_empty() {
-                if !text.is_empty() {
-                    text.push(' ');
-                }
-                text.push_str(s);
-            }
-        }
-    }
-    text
 }
 
 #[cfg(test)]

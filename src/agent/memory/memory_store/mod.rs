@@ -3,6 +3,7 @@ use crate::agent::memory::MemoryDB;
 use crate::agent::memory::embeddings::{EmbeddingService, LazyEmbeddingService};
 use crate::config::MemoryConfig;
 use anyhow::{Context, Result};
+use rusqlite::params;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
@@ -189,32 +190,40 @@ impl MemoryStore {
     pub fn get_memory_context_scoped(&self, query: Option<&str>, is_group: bool) -> Result<String> {
         let mut chunks = Vec::new();
         if let Some(query) = query {
-            let exclude: HashSet<String> = HashSet::new();
-            let fetch_limit = if is_group { 16 } else { 8 };
+            let exclude = if is_group {
+                // In group mode, exclude daily: prefixed keys at query time
+                // to avoid fetching results we'd discard.
+                let daily_keys: HashSet<String> = self
+                    .db
+                    .list_source_keys()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|k| k.starts_with("daily:"))
+                    .collect();
+                daily_keys
+            } else {
+                HashSet::new()
+            };
             let result_limit = 8;
             let hits = if self.has_embeddings() {
                 #[cfg(feature = "embeddings")]
                 {
-                    match self.hybrid_search(query, fetch_limit, Some(&exclude)) {
+                    match self.hybrid_search(query, result_limit, Some(&exclude)) {
                         Ok(h) => h,
                         Err(e) => {
                             warn!("hybrid search failed, falling back to keyword: {}", e);
-                            self.db.search(query, fetch_limit, Some(&exclude))?
+                            self.db.search(query, result_limit, Some(&exclude))?
                         }
                     }
                 }
                 #[cfg(not(feature = "embeddings"))]
                 {
-                    self.db.search(query, fetch_limit, Some(&exclude))?
+                    self.db.search(query, result_limit, Some(&exclude))?
                 }
             } else {
-                self.db.search(query, fetch_limit, Some(&exclude))?
+                self.db.search(query, result_limit, Some(&exclude))?
             };
             for hit in hits {
-                // In group mode, skip hits from daily notes (daily:YYYY-MM-DD prefix)
-                if is_group && hit.source_key.starts_with("daily:") {
-                    continue;
-                }
                 chunks.push(format!("**{}**: {}", hit.source_key, hit.content));
                 if chunks.len() >= result_limit {
                     break;
@@ -235,7 +244,9 @@ impl MemoryStore {
     pub fn append_today(&self, content: &str) -> Result<()> {
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
         let source_key = format!("daily:{today}");
-        self.db.insert_memory(&source_key, content.trim())
+        self.db.insert_memory(&source_key, content.trim())?;
+        self.backfill_embeddings();
+        Ok(())
     }
 
     /// Append content under a named section for today's notes in the DB.
@@ -243,14 +254,51 @@ impl MemoryStore {
     pub fn append_to_section(&self, section: &str, content: &str) -> Result<()> {
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
         let source_key = format!("daily:{today}:{section}");
-        self.db.insert_memory(&source_key, content.trim())
+        self.db.insert_memory(&source_key, content.trim())?;
+        self.backfill_embeddings();
+        Ok(())
     }
 
-    /// Get recent daily entries for deduplication.
+    /// Generate embeddings for any entries that don't have them yet.
+    /// Best-effort: logs warnings on failure but never errors out.
+    fn backfill_embeddings(&self) {
+        #[cfg(feature = "embeddings")]
+        if let Some(svc) = self.embedding_service() {
+            match self.db.get_entries_missing_embeddings() {
+                Ok(entries) if !entries.is_empty() => {
+                    let texts: Vec<&str> = entries.iter().map(|(_, _, c)| c.as_str()).collect();
+                    match svc.embed_texts(&texts) {
+                        Ok(vectors) => {
+                            for ((id, _, _), vec) in entries.iter().zip(vectors.iter()) {
+                                let bytes =
+                                    crate::agent::memory::embeddings::serialize_embedding(vec);
+                                if let Err(e) = self.db.store_embedding(*id, &bytes) {
+                                    warn!("failed to store embedding for entry {id}: {e}");
+                                }
+                            }
+                            debug!("back-filled {} embeddings", entries.len());
+                        }
+                        Err(e) => warn!("embedding back-fill failed: {e}"),
+                    }
+                }
+                Err(e) => warn!("failed to check for missing embeddings: {e}"),
+                _ => {}
+            }
+        }
+    }
+
+    /// Get recent daily entries across all days for deduplication.
     pub fn get_recent_daily_entries(&self, limit: usize) -> Result<Vec<String>> {
-        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        let source_key = format!("daily:{today}");
-        self.db.get_recent_entries(&source_key, limit)
+        let conn = self
+            .db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT content FROM memory_entries WHERE source_key LIKE 'daily:%' ORDER BY created_at DESC LIMIT ?",
+        )?;
+        let rows: Result<Vec<_>, _> = stmt.query_map(params![limit], |row| row.get(0))?.collect();
+        rows.map_err(|e| anyhow::anyhow!("failed to get recent daily entries: {e}"))
     }
 
     /// Read entries from a specific section of today's notes.

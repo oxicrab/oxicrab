@@ -137,14 +137,6 @@ impl RegexPatterns {
         &RE
     }
 
-    /// Regex for matching double newlines (paragraph breaks)
-    pub fn double_newlines() -> &'static Regex {
-        static RE: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r"\n\s*\n+").expect("Failed to compile double newlines regex")
-        });
-        &RE
-    }
-
     /// Regex for matching data URIs (`data:mime/type;base64,...`)
     pub fn data_uri() -> &'static Regex {
         static RE: LazyLock<Regex> = LazyLock::new(|| {

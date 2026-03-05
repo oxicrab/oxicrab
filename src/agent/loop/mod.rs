@@ -193,6 +193,21 @@ impl AgentLoop {
             MemoryStore::new(&workspace)?
         });
 
+        // Run memory hygiene in background (search log purge, workspace file cleanup)
+        {
+            let db = memory.db();
+            let ws = workspace.clone();
+            let ttl_map = tool_configs.workspace_ttl.to_map();
+            tokio::task::spawn_blocking(move || {
+                crate::agent::memory::hygiene::run_hygiene(&db, 90);
+                if let Err(e) =
+                    crate::agent::memory::hygiene::cleanup_workspace_files(&db, &ws, &ttl_map)
+                {
+                    warn!("workspace file cleanup failed: {}", e);
+                }
+            });
+        }
+
         let workspace_manager = Some(Arc::new(crate::agent::workspace::WorkspaceManager::new(
             workspace.clone(),
             Some(memory.db()),

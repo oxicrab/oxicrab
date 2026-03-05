@@ -65,24 +65,6 @@ pub fn jaccard_similarity(a: &str, b: &str) -> f64 {
     intersection as f64 / union as f64
 }
 
-/// Check if content is a near-duplicate of any existing note line.
-pub fn is_duplicate(content: &str, existing_notes: &str) -> bool {
-    let threshold = 0.7;
-    for line in existing_notes.lines() {
-        let line = line.trim();
-        // Skip empty lines and headers
-        if line.is_empty() || line.starts_with('#') || (line.starts_with("- ") && line.len() < 4) {
-            continue;
-        }
-        // Strip leading "- " for comparison
-        let line_content = line.strip_prefix("- ").unwrap_or(line);
-        if jaccard_similarity(content, line_content) >= threshold {
-            return true;
-        }
-    }
-    false
-}
-
 /// Check if content is a near-duplicate of any recent DB entries.
 pub fn is_duplicate_of_entries(content: &str, entries: &[String]) -> bool {
     let threshold = 0.7;

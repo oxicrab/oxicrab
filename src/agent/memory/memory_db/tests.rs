@@ -15,49 +15,6 @@ fn test_hash_text_different_inputs() {
 }
 
 #[test]
-fn test_split_into_chunks_skips_short() {
-    let text = "short\n\nalso short\n\nthis is long enough to be a chunk";
-    let chunks = split_into_chunks(text);
-    // "short" and "also short" are < MIN_CHUNK_SIZE (12), should be skipped
-    assert!(!chunks.iter().any(|c| c == "short"));
-    assert!(!chunks.iter().any(|c| c == "also short"));
-}
-
-#[test]
-fn test_split_into_chunks_truncates_long() {
-    let long_paragraph = "a".repeat(2000);
-    let chunks = split_into_chunks(&long_paragraph);
-    assert_eq!(chunks.len(), 1);
-    assert!(chunks[0].len() <= MAX_CHUNK_SIZE);
-}
-
-#[test]
-fn test_split_into_chunks_utf8_safe_truncation() {
-    // Create a string of multi-byte chars longer than MAX_CHUNK_SIZE
-    let text = "\u{1F600}".repeat(500); // 500 * 4 = 2000 bytes
-    let chunks = split_into_chunks(&text);
-    // Each chunk should be valid UTF-8
-    for chunk in &chunks {
-        for c in chunk.chars() {
-            assert_eq!(c, '\u{1F600}');
-        }
-    }
-}
-
-#[test]
-fn test_split_into_chunks_normal_paragraphs() {
-    let text = "This is paragraph one with enough text.\n\nThis is paragraph two with enough text.";
-    let chunks = split_into_chunks(text);
-    assert_eq!(chunks.len(), 2);
-}
-
-#[test]
-fn test_split_into_chunks_empty_input() {
-    let chunks = split_into_chunks("");
-    assert!(chunks.is_empty());
-}
-
-#[test]
 fn test_fts_query_simple() {
     let q = fts_query("hello world");
     assert!(q.contains("hello"));
@@ -108,21 +65,18 @@ fn test_memory_db_new_creates_schema() {
 }
 
 #[test]
-fn test_memory_db_index_and_search() {
+fn test_insert_memory_and_search() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory.db");
+    let db = MemoryDB::new(&db_path).unwrap();
 
-    // Write a test file
-    let test_file = dir.path().join("notes.md");
-    std::fs::write(
-        &test_file,
-        "This is a test document about Rust programming.\n\n\
-         Another paragraph about async runtime and tokio.",
+    db.insert_memory("notes.md", "This is a test document about Rust programming")
+        .unwrap();
+    db.insert_memory(
+        "notes.md",
+        "Another paragraph about async runtime and tokio",
     )
     .unwrap();
-
-    let db = MemoryDB::new(&db_path).unwrap();
-    db.index_file("notes.md", &test_file).unwrap();
 
     let results = db.search("Rust programming", 10, None).unwrap();
     assert!(!results.is_empty());
@@ -130,37 +84,30 @@ fn test_memory_db_index_and_search() {
 }
 
 #[test]
-fn test_memory_db_search_no_results() {
+fn test_search_no_results() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory.db");
-
-    let test_file = dir.path().join("notes.md");
-    std::fs::write(
-        &test_file,
-        "This document is about cooking recipes.\n\nAnother paragraph about food.",
-    )
-    .unwrap();
-
     let db = MemoryDB::new(&db_path).unwrap();
-    db.index_file("notes.md", &test_file).unwrap();
+
+    db.insert_memory("notes.md", "This document is about cooking recipes")
+        .unwrap();
+    db.insert_memory("notes.md", "Another paragraph about food")
+        .unwrap();
 
     let results = db.search("quantum physics", 10, None).unwrap();
     assert!(results.is_empty());
 }
 
 #[test]
-fn test_memory_db_exclude_sources() {
+fn test_insert_memory_exclude_sources() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory.db");
-
-    let file1 = dir.path().join("notes1.md");
-    std::fs::write(&file1, "This is about Rust programming language.").unwrap();
-    let file2 = dir.path().join("notes2.md");
-    std::fs::write(&file2, "This is also about Rust async patterns.").unwrap();
-
     let db = MemoryDB::new(&db_path).unwrap();
-    db.index_file("notes1.md", &file1).unwrap();
-    db.index_file("notes2.md", &file2).unwrap();
+
+    db.insert_memory("notes1.md", "This is about Rust programming language")
+        .unwrap();
+    db.insert_memory("notes2.md", "This is also about Rust async patterns")
+        .unwrap();
 
     let mut exclude = std::collections::HashSet::new();
     exclude.insert("notes1.md".to_string());
@@ -173,66 +120,16 @@ fn test_memory_db_exclude_sources() {
 }
 
 #[test]
-fn test_memory_db_reindex_unchanged_file_is_noop() {
-    let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("test_memory.db");
-
-    let test_file = dir.path().join("notes.md");
-    std::fs::write(
-        &test_file,
-        "Content about database indexing and memory systems.",
-    )
-    .unwrap();
-
-    let db = MemoryDB::new(&db_path).unwrap();
-    db.index_file("notes.md", &test_file).unwrap();
-    // Indexing the same unchanged file again should be a no-op
-    db.index_file("notes.md", &test_file).unwrap();
-
-    let results = db.search("database", 10, None).unwrap();
-    assert!(!results.is_empty());
-}
-
-#[test]
-fn test_memory_db_index_directory() {
-    let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("test_memory.db");
-    let memory_dir = dir.path().join("memory");
-    std::fs::create_dir(&memory_dir).unwrap();
-
-    std::fs::write(
-        memory_dir.join("file1.md"),
-        "This file is about artificial intelligence and machine learning.",
-    )
-    .unwrap();
-    std::fs::write(
-        memory_dir.join("file2.md"),
-        "This file is about web development and JavaScript frameworks.",
-    )
-    .unwrap();
-    // Non-md file should be ignored
-    std::fs::write(memory_dir.join("file3.txt"), "This should be ignored.").unwrap();
-
-    let db = MemoryDB::new(&db_path).unwrap();
-    db.index_directory(&memory_dir).unwrap();
-
-    let results = db.search("artificial intelligence", 10, None).unwrap();
-    assert!(!results.is_empty());
-}
-
-#[test]
-fn test_memory_db_clone_works() {
+fn test_insert_memory_clone_works() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory.db");
     let db = MemoryDB::new(&db_path).unwrap();
 
-    let test_file = dir.path().join("notes.md");
-    std::fs::write(
-        &test_file,
-        "Content about cloning and testing database connections.",
+    db.insert_memory(
+        "notes.md",
+        "Content about cloning and testing database connections",
     )
     .unwrap();
-    db.index_file("notes.md", &test_file).unwrap();
 
     let db2 = db.clone();
     let results = db2.search("cloning", 10, None).unwrap();
@@ -243,16 +140,13 @@ fn test_memory_db_clone_works() {
 fn test_search_logging_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory.db");
+    let db = MemoryDB::new(&db_path).unwrap();
 
-    let test_file = dir.path().join("notes.md");
-    std::fs::write(
-        &test_file,
-        "This is a document about Rust programming and memory safety.",
+    db.insert_memory(
+        "notes.md",
+        "This is a document about Rust programming and memory safety",
     )
     .unwrap();
-
-    let db = MemoryDB::new(&db_path).unwrap();
-    db.index_file("notes.md", &test_file).unwrap();
 
     // search() internally calls log_search()
     let results = db.search("Rust programming", 10, None).unwrap();
@@ -267,16 +161,13 @@ fn test_search_logging_roundtrip() {
 fn test_source_hit_count() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory.db");
+    let db = MemoryDB::new(&db_path).unwrap();
 
-    let test_file = dir.path().join("notes.md");
-    std::fs::write(
-        &test_file,
-        "This is a document about Rust programming and concurrency.",
+    db.insert_memory(
+        "notes.md",
+        "This is a document about Rust programming and concurrency",
     )
     .unwrap();
-
-    let db = MemoryDB::new(&db_path).unwrap();
-    db.index_file("notes.md", &test_file).unwrap();
 
     // Before any search, hit count should be 0
     assert_eq!(db.get_source_hit_count("notes.md").unwrap(), 0);
@@ -292,6 +183,92 @@ fn test_source_hit_count() {
     let _ = db.search("programming", 10, None).unwrap();
     let count2 = db.get_source_hit_count("notes.md").unwrap();
     assert!(count2 >= count);
+}
+
+#[test]
+fn test_entries_missing_embeddings() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test_memory.db");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    db.insert_memory("notes.md", "This is about embeddings and vector search")
+        .unwrap();
+    db.insert_memory("notes.md", "Another paragraph about neural networks")
+        .unwrap();
+
+    let missing = db.get_entries_missing_embeddings().unwrap();
+    assert!(!missing.is_empty());
+
+    // Store an embedding for the first entry
+    let (entry_id, _, _) = &missing[0];
+    let fake_embedding = vec![0u8; 128];
+    db.store_embedding(*entry_id, &fake_embedding).unwrap();
+
+    // Now one fewer should be missing
+    let missing_after = db.get_entries_missing_embeddings().unwrap();
+    assert_eq!(missing_after.len(), missing.len() - 1);
+}
+
+#[test]
+fn test_insert_memory_empty_content_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test_memory.db");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    // Empty and whitespace-only content should be silently ignored
+    db.insert_memory("test", "").unwrap();
+    db.insert_memory("test", "   ").unwrap();
+    db.insert_memory("test", "\n\t\n").unwrap();
+
+    let entries = db.get_recent_entries("test", 10).unwrap();
+    assert!(entries.is_empty());
+}
+
+#[test]
+fn test_insert_memory_dedup_by_hash() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test_memory.db");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    // Insert the same content twice under the same source key
+    db.insert_memory("test", "duplicate content here").unwrap();
+    db.insert_memory("test", "duplicate content here").unwrap();
+
+    let entries = db.get_recent_entries("test", 10).unwrap();
+    assert_eq!(entries.len(), 1, "duplicate content should be ignored");
+}
+
+#[test]
+fn test_get_recent_entries_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test_memory.db");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    db.insert_memory("test", "first entry").unwrap();
+    // Ensure different timestamps by inserting different content
+    db.insert_memory("test", "second entry").unwrap();
+    db.insert_memory("test", "third entry").unwrap();
+
+    let entries = db.get_recent_entries("test", 10).unwrap();
+    assert_eq!(entries.len(), 3);
+    // Newest first (ORDER BY created_at DESC)
+    assert_eq!(entries[0], "third entry");
+    assert_eq!(entries[2], "first entry");
+}
+
+#[test]
+fn test_get_recent_entries_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test_memory.db");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    for i in 0..10 {
+        db.insert_memory("test", &format!("entry number {i}"))
+            .unwrap();
+    }
+
+    let entries = db.get_recent_entries("test", 3).unwrap();
+    assert_eq!(entries.len(), 3, "limit should cap results");
 }
 
 #[test]
@@ -320,34 +297,6 @@ fn test_token_record_and_summary() {
 }
 
 #[test]
-fn test_entries_missing_embeddings() {
-    let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("test_memory.db");
-
-    let test_file = dir.path().join("notes.md");
-    std::fs::write(
-        &test_file,
-        "This is about embeddings and vector search.\n\nAnother paragraph about neural networks.",
-    )
-    .unwrap();
-
-    let db = MemoryDB::new(&db_path).unwrap();
-    db.index_file("notes.md", &test_file).unwrap();
-
-    let missing = db.get_entries_missing_embeddings().unwrap();
-    assert!(!missing.is_empty());
-
-    // Store an embedding for the first entry
-    let (entry_id, _, _) = &missing[0];
-    let fake_embedding = vec![0u8; 128];
-    db.store_embedding(*entry_id, &fake_embedding).unwrap();
-
-    // Now one fewer should be missing
-    let missing_after = db.get_entries_missing_embeddings().unwrap();
-    assert_eq!(missing_after.len(), missing.len() - 1);
-}
-
-#[test]
 fn test_fusion_strategy_default_is_weighted_score() {
     assert_eq!(
         crate::config::FusionStrategy::default(),
@@ -366,92 +315,6 @@ fn test_fusion_strategy_serde_roundtrip() {
 
     let parsed: crate::config::FusionStrategy = serde_json::from_str("\"rrf\"").unwrap();
     assert_eq!(parsed, crate::config::FusionStrategy::Rrf);
-}
-
-#[test]
-fn test_strip_html_tags() {
-    let html = "<html><body><h1>Title</h1><p>Some <b>bold</b> text.</p></body></html>";
-    let text = super::strip_html_tags(html);
-    assert!(text.contains("Title"));
-    assert!(text.contains("Some"));
-    assert!(text.contains("bold"));
-    assert!(text.contains("text."));
-    assert!(!text.contains("<h1>"));
-    assert!(!text.contains("<p>"));
-}
-
-#[test]
-fn test_strip_html_tags_empty() {
-    assert!(super::strip_html_tags("").is_empty());
-}
-
-#[test]
-fn test_index_knowledge_directory() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let knowledge_dir = tmp.path().join("knowledge");
-    std::fs::create_dir_all(&knowledge_dir).unwrap();
-
-    // Create test files
-    std::fs::write(
-        knowledge_dir.join("faq.md"),
-        "## FAQ\n\nQ: What is oxicrab?\n\nA: A multi-channel AI assistant.",
-    )
-    .unwrap();
-    std::fs::write(
-        knowledge_dir.join("notes.txt"),
-        "Important notes about the project.\n\nSecond paragraph with details.",
-    )
-    .unwrap();
-    std::fs::write(
-        knowledge_dir.join("page.html"),
-        "<html><body><h1>Reference</h1><p>HTML reference content here.</p></body></html>",
-    )
-    .unwrap();
-    // Non-supported file should be ignored
-    std::fs::write(knowledge_dir.join("data.json"), "{}").unwrap();
-
-    let db_path = tmp.path().join("memory.sqlite3");
-    let db = super::MemoryDB::new(db_path).unwrap();
-
-    db.index_knowledge_directory(&knowledge_dir).unwrap();
-
-    // Search should find content from all three files
-    let results = db.search("oxicrab", 10, None).unwrap();
-    assert!(!results.is_empty());
-    assert!(results.iter().any(|h| h.source_key == "knowledge:faq.md"));
-
-    let results = db.search("notes project", 10, None).unwrap();
-    assert!(
-        results
-            .iter()
-            .any(|h| h.source_key == "knowledge:notes.txt")
-    );
-
-    let results = db.search("reference content", 10, None).unwrap();
-    assert!(
-        results
-            .iter()
-            .any(|h| h.source_key == "knowledge:page.html")
-    );
-
-    // JSON file should not be indexed
-    let all_results = db.search("json", 10, None).unwrap();
-    assert!(
-        all_results
-            .iter()
-            .all(|h| h.source_key != "knowledge:data.json")
-    );
-}
-
-#[test]
-fn test_index_knowledge_directory_nonexistent() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let db_path = tmp.path().join("memory.sqlite3");
-    let db = super::MemoryDB::new(db_path).unwrap();
-
-    // Should not error on nonexistent directory
-    let result = db.index_knowledge_directory(&tmp.path().join("nonexistent"));
-    assert!(result.is_ok());
 }
 
 // ── DLQ tests ────────────────────────────────────────────
