@@ -70,8 +70,6 @@ max_width: 820px
 <span class="dir">      my-skill/</span>
 <span class="file">        SKILL.md</span>           <span class="desc"># custom skill definition</span>
 <span class="dir">    sessions/</span>              <span class="desc"># conversation history</span>
-<span class="dir">  cron/</span>
-<span class="file">    jobs.json</span>              <span class="desc"># scheduled tasks</span>
 <span class="dir">  media/</span>                   <span class="desc"># downloaded images/files (auto-cleaned)</span>
     </div>
 
@@ -314,12 +312,6 @@ Describe the situations where this skill applies.
       <div class="file-card-name">google_tokens.json</div>
       <div class="file-card-path">~/.oxicrab/google_tokens.json</div>
       <p>Google OAuth tokens for Gmail and Calendar access. Created by running <code>oxicrab auth google</code>. Refreshed automatically when expired.</p>
-    </div>
-
-    <div class="file-card">
-      <div class="file-card-name">cron/jobs.json</div>
-      <div class="file-card-path">~/.oxicrab/cron/jobs.json</div>
-      <p>Scheduled task definitions. Managed via the <code>cron</code> tool or <code>oxicrab cron</code> CLI command. Supports recurring (cron expressions, intervals) and one-shot (<code>at_time</code>) schedules.</p>
     </div>
 
     <div class="file-card">
