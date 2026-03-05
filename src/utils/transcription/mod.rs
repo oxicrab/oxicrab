@@ -8,6 +8,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::fs;
 use tracing::{debug, info, warn};
+
+#[cfg(feature = "local-whisper")]
+const WHISPER_MODEL_URL: &str =
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin";
 #[cfg(feature = "local-whisper")]
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
@@ -23,6 +27,73 @@ pub struct TranscriptionService {
     prefer_local: bool,
     #[cfg(feature = "local-whisper")]
     whisper_threads: u16,
+}
+
+/// Download the whisper GGML model to the given path.
+/// Writes to a `.tmp` sibling first, then atomically renames.
+#[cfg(feature = "local-whisper")]
+fn download_model(dest: &Path) -> anyhow::Result<()> {
+    use std::io::{Read, Write};
+
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+    }
+
+    let tmp_path = dest.with_extension("bin.tmp");
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_mins(10))
+        .build()
+        .unwrap_or_else(|_| reqwest::blocking::Client::new());
+
+    let mut response = client
+        .get(WHISPER_MODEL_URL)
+        .send()
+        .context("failed to start whisper model download")?;
+
+    if !response.status().is_success() {
+        bail!("whisper model download returned HTTP {}", response.status());
+    }
+
+    let mut file = std::fs::File::create(&tmp_path)
+        .with_context(|| format!("failed to create {}", tmp_path.display()))?;
+
+    let mut downloaded: u64 = 0;
+    let mut buf = vec![0u8; 256 * 1024];
+    loop {
+        let n = response
+            .read(&mut buf)
+            .context("error reading whisper model download")?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n])
+            .context("error writing whisper model to disk")?;
+        downloaded += n as u64;
+        // Log progress every ~100MB
+        if downloaded % (100 * 1024 * 1024) < (256 * 1024) as u64 {
+            info!("whisper model download: {}MB", downloaded / (1024 * 1024));
+        }
+    }
+
+    file.flush().context("failed to flush whisper model file")?;
+    drop(file);
+
+    std::fs::rename(&tmp_path, dest).with_context(|| {
+        format!(
+            "failed to rename {} to {}",
+            tmp_path.display(),
+            dest.display()
+        )
+    })?;
+
+    info!(
+        "whisper model saved to {} ({}MB)",
+        dest.display(),
+        downloaded / (1024 * 1024)
+    );
+    Ok(())
 }
 
 /// Expand a leading `~/` in a path to the user's home directory.
@@ -74,11 +145,41 @@ impl TranscriptionService {
                     }
                 }
             } else {
-                warn!(
-                    "whisper model not found at {}, local transcription disabled",
+                info!(
+                    "whisper model not found at {}, attempting download (~547MB)",
                     model_path.display()
                 );
-                None
+                match download_model(&model_path) {
+                    Ok(()) => {
+                        info!("whisper model downloaded, loading");
+                        let mut ctx_params = WhisperContextParameters::default();
+                        ctx_params.use_gpu(false);
+                        let Some(path_str) = model_path.to_str() else {
+                            warn!(
+                                "whisper model path is not valid UTF-8: {}",
+                                model_path.display()
+                            );
+                            return None;
+                        };
+                        match WhisperContext::new_with_params(path_str, ctx_params) {
+                            Ok(ctx) => {
+                                info!("whisper model loaded successfully");
+                                Some(Arc::new(ctx))
+                            }
+                            Err(e) => {
+                                warn!("failed to load whisper model: {}", e);
+                                None
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "whisper model download failed: {}, local transcription disabled",
+                            e
+                        );
+                        None
+                    }
+                }
             }
         };
 
