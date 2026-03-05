@@ -51,8 +51,8 @@ impl AgentLoop {
                         std::sync::atomic::Ordering::Relaxed,
                     )
                     .is_ok();
-            if needs_rebuild && let Ok(store) = cron_svc.load_store(true).await {
-                let new_matcher = crate::cron::event_matcher::EventMatcher::from_jobs(&store.jobs);
+            if needs_rebuild && let Ok(jobs) = cron_svc.list_jobs(true) {
+                let new_matcher = crate::cron::event_matcher::EventMatcher::from_jobs(&jobs);
                 if let Some(ref matcher_mutex) = self.event_matcher
                     && let Ok(mut guard) = matcher_mutex.lock()
                 {

@@ -303,15 +303,13 @@ impl AgentLoop {
         // cron_service exists so that new event-triggered jobs added after
         // startup can be picked up by the periodic rebuild.
         let event_matcher = if let Some(ref cron_svc) = cron_service {
-            let matcher = match cron_svc.load_store(false).await {
-                Ok(store) => {
-                    let m = EventMatcher::from_jobs(&store.jobs);
+            let matcher = match cron_svc.list_jobs(true) {
+                Ok(jobs) => {
+                    let m = EventMatcher::from_jobs(&jobs);
                     if !m.is_empty() {
                         info!(
                             "Event matcher initialized with {} event-triggered job(s)",
-                            store
-                                .jobs
-                                .iter()
+                            jobs.iter()
                                 .filter(|j| matches!(
                                     j.schedule,
                                     crate::cron::types::CronSchedule::Event { .. }
@@ -322,7 +320,7 @@ impl AgentLoop {
                     m
                 }
                 Err(e) => {
-                    warn!("Failed to load cron store for event matcher: {}", e);
+                    warn!("Failed to load cron jobs for event matcher: {}", e);
                     EventMatcher::from_jobs(&[])
                 }
             };

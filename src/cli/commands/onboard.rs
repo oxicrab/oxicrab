@@ -141,9 +141,5 @@ Notes and configuration details for tools.
     let memory_dir = workspace.join("memory");
     crate::utils::ensure_dir(&memory_dir)?;
 
-    // Create cron directory (scheduled jobs store lives here)
-    let cron_dir = crate::utils::get_oxicrab_home()?.join("cron");
-    crate::utils::ensure_dir(&cron_dir)?;
-
     Ok(())
 }

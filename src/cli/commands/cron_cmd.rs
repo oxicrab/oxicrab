@@ -7,15 +7,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[allow(clippy::too_many_lines)]
 pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
-    let _config = load_config(None)?;
-    let cron_dir = crate::utils::get_oxicrab_home()?.join("cron");
-    std::fs::create_dir_all(&cron_dir)?;
-    let cron_store_path = cron_dir.join("jobs.json");
-    let cron = CronService::new(cron_store_path);
+    let config = load_config(None)?;
+    let workspace = config.workspace_path();
+    let db_path = workspace.join("memory").join("memory.db");
+    let db = std::sync::Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path)?);
+    let cron = CronService::new(db);
 
     match cmd {
         CronCommands::List { all } => {
-            let jobs = cron.list_jobs(all).await?;
+            let jobs = cron.list_jobs(all)?;
             if jobs.is_empty() {
                 println!("No cron jobs found.");
             } else {
@@ -127,10 +127,10 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                 max_concurrent: None,
             };
 
-            cron.add_job(job).await?;
+            cron.add_job(job)?;
             println!("Cron job added successfully.");
         }
-        CronCommands::Remove { id } => match cron.remove_job(&id).await? {
+        CronCommands::Remove { id } => match cron.remove_job(&id)? {
             Some(job) => {
                 println!("Removed cron job: {} ({})", job.name, job.id);
             }
@@ -138,7 +138,7 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                 println!("Cron job {id} not found.");
             }
         },
-        CronCommands::Enable { id, disable } => match cron.enable_job(&id, !disable).await? {
+        CronCommands::Enable { id, disable } => match cron.enable_job(&id, !disable)? {
             Some(job) => {
                 let status = if job.enabled { "enabled" } else { "disabled" };
                 println!("Job {} ({}) {}", job.name, job.id, status);
@@ -191,7 +191,7 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                 })
             } else if tz.is_some() {
                 // Just updating timezone - need to get current job
-                let jobs = cron.list_jobs(true).await?;
+                let jobs = cron.list_jobs(true)?;
                 let current_job = jobs.iter().find(|j| j.id == id);
                 if let Some(job) = current_job {
                     if let CronSchedule::Cron { expr, .. } = &job.schedule {
@@ -225,19 +225,16 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                 None
             };
 
-            match cron
-                .update_job(
-                    &id,
-                    crate::cron::types::UpdateJobParams {
-                        name,
-                        message,
-                        schedule,
-                        agent_echo,
-                        targets,
-                    },
-                )
-                .await?
-            {
+            match cron.update_job(
+                &id,
+                &crate::cron::types::UpdateJobParams {
+                    name,
+                    message,
+                    schedule,
+                    agent_echo,
+                    targets,
+                },
+            )? {
                 Some(job) => {
                     println!("Updated job: {} ({})", job.name, job.id);
                 }

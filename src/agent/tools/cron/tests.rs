@@ -148,7 +148,10 @@ fn test_resolve_wildcard_only_excluded() {
 #[test]
 fn test_cron_capabilities() {
     use crate::agent::tools::base::SubagentAccess;
-    let cron_service = Arc::new(CronService::new(std::path::PathBuf::from("/tmp/test-cron")));
+    let db = std::sync::Arc::new(
+        crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"),
+    );
+    let cron_service = Arc::new(CronService::new(db));
     let tool = CronTool::new(cron_service, None, None);
     let caps = tool.capabilities();
     assert!(caps.built_in);
@@ -177,7 +180,10 @@ fn test_cron_capabilities() {
 
 #[test]
 fn test_cron_actions_match_schema() {
-    let cron_service = Arc::new(CronService::new(std::path::PathBuf::from("/tmp/test-cron")));
+    let db = std::sync::Arc::new(
+        crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"),
+    );
+    let cron_service = Arc::new(CronService::new(db));
     let tool = CronTool::new(cron_service, None, None);
     let caps = tool.capabilities();
     let params = tool.parameters();

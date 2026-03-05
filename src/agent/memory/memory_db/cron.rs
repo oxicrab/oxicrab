@@ -182,7 +182,8 @@ impl MemoryDB {
         // Load all targets into a map
         let mut target_map: HashMap<String, Vec<CronTarget>> = HashMap::new();
         {
-            let mut stmt = conn.prepare("SELECT job_id, channel, target FROM cron_job_targets")?;
+            let mut stmt = conn
+                .prepare("SELECT job_id, channel, target FROM cron_job_targets ORDER BY rowid")?;
             let rows = stmt.query_map([], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -309,8 +310,9 @@ impl MemoryDB {
         let job_id: String = row.get(0)?;
 
         // Load targets for this job
-        let mut target_stmt =
-            conn.prepare("SELECT channel, target FROM cron_job_targets WHERE job_id = ?1")?;
+        let mut target_stmt = conn.prepare(
+            "SELECT channel, target FROM cron_job_targets WHERE job_id = ?1 ORDER BY rowid",
+        )?;
         let targets = target_stmt
             .query_map(params![job_id], |r| {
                 Ok(CronTarget {

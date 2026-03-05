@@ -30,7 +30,9 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     }
 
     let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) = setup_message_bus(&config)?;
-    let cron = setup_cron_service()?;
+    let db_path = config.workspace_path().join("memory").join("memory.db");
+    let memory_db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path)?);
+    let cron = setup_cron_service(memory_db);
     // Create typing indicator channel
     let (typing_tx, typing_rx) = tokio::sync::mpsc::channel::<(String, String)>(100);
     let typing_tx = Arc::new(typing_tx);
@@ -270,14 +272,11 @@ pub(super) fn setup_message_bus(config: &Config) -> Result<MessageBusSetup> {
     Ok((inbound_tx, outbound_tx, outbound_rx, bus_for_channels))
 }
 
-fn setup_cron_service() -> Result<Arc<CronService>> {
+fn setup_cron_service(db: Arc<crate::agent::memory::memory_db::MemoryDB>) -> Arc<CronService> {
     debug!("Initializing cron service...");
-    let cron_dir = crate::utils::get_oxicrab_home()?.join("cron");
-    std::fs::create_dir_all(&cron_dir)?;
-    let cron_store_path = cron_dir.join("jobs.json");
-    let cron = CronService::new(cron_store_path);
+    let cron = CronService::new(db);
     debug!("Cron service initialized");
-    Ok(Arc::new(cron))
+    Arc::new(cron)
 }
 
 pub(super) struct SetupAgentParams {
