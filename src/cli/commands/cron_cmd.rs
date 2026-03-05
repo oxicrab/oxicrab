@@ -116,7 +116,6 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                     message,
                     agent_echo,
                     targets,
-                    origin_metadata: std::collections::HashMap::new(),
                 },
                 state: CronJobState::default(),
                 created_at_ms: now_ms,

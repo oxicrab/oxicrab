@@ -123,7 +123,7 @@ Raw token usage logging to the `llm_cost_log` SQLite table via `MemoryDB::record
 
 ## Cron System (`src/cron/`)
 
-`CronService` manages scheduled and event-triggered jobs. Supports 4 schedule types: `At` (one-shot), `Every` (interval), `Cron` (5-field expression), `Event` (regex match on inbound messages). Jobs are persisted to `cron/jobs.json`. `CronPayload` specifies execution semantics: `kind` ("agent_turn" or "echo"), `message`, `targets` (channel + recipient), `agent_echo`, and `origin_metadata` (channel-specific metadata from the originating message, propagated to outbound messages so responses land in the correct thread/context). `EventMatcher` checks inbound messages against event-triggered jobs with regex matching, channel filtering, cooldown enforcement, expiry, and max_runs. The cron tool supports actions: add, list, remove, run.
+`CronService` manages scheduled and event-triggered jobs. Supports 4 schedule types: `At` (one-shot), `Every` (interval), `Cron` (5-field expression), `Event` (regex match on inbound messages). Jobs are persisted to `cron/jobs.json`. `CronPayload` specifies execution semantics: `kind` ("agent_turn" or "echo"), `message`, `targets` (channel + recipient), and `agent_echo`. `EventMatcher` checks inbound messages against event-triggered jobs with regex matching, channel filtering, cooldown enforcement, expiry, and max_runs. The cron tool supports actions: add, list, remove, run.
 
 ## Doctor (`src/cli/doctor.rs`)
 

@@ -453,7 +453,6 @@ impl Tool for CronTool {
                         message,
                         agent_echo: job_type == "agent",
                         targets,
-                        origin_metadata: ctx.metadata.clone(),
                     },
                     state: CronJobState::default(),
                     created_at_ms: now_ms,

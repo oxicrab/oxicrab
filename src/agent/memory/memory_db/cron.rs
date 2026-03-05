@@ -254,7 +254,6 @@ impl MemoryDB {
                     message: r.payload_message,
                     agent_echo: r.agent_echo,
                     targets,
-                    origin_metadata: HashMap::new(),
                 },
                 state: CronJobState {
                     next_run_at_ms: r.next_run_at_ms,
@@ -332,7 +331,6 @@ impl MemoryDB {
                 message: row.get(11)?,
                 agent_echo: row.get(12)?,
                 targets,
-                origin_metadata: HashMap::new(),
             },
             state: CronJobState {
                 next_run_at_ms: row.get(13)?,
@@ -553,7 +551,6 @@ mod tests {
     use crate::cron::types::{
         CronJob, CronJobState, CronPayload, CronSchedule, CronTarget, UpdateJobParams,
     };
-    use std::collections::HashMap;
 
     fn make_test_job(id: &str, name: &str, schedule: CronSchedule) -> CronJob {
         CronJob {
@@ -569,7 +566,6 @@ mod tests {
                     channel: "slack".to_string(),
                     to: "C123".to_string(),
                 }],
-                origin_metadata: HashMap::new(),
             },
             state: CronJobState::default(),
             created_at_ms: 1000,

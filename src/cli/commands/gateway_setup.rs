@@ -392,7 +392,6 @@ async fn cron_job_execute(
                         target.to.clone(),
                         job.payload.message.clone(),
                     )
-                    .metadata(job.payload.origin_metadata.clone())
                     .build(),
                 )
                 .await
@@ -433,7 +432,6 @@ async fn cron_job_execute(
                         target.to.clone(),
                         response.clone(),
                     )
-                    .metadata(job.payload.origin_metadata.clone())
                     .build(),
                 )
                 .await

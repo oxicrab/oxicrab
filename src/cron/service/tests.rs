@@ -135,7 +135,6 @@ async fn test_expired_job_auto_disables() {
             message: "ping".to_string(),
             agent_echo: false,
             targets: vec![],
-            origin_metadata: std::collections::HashMap::new(),
         },
         state: CronJobState {
             next_run_at_ms: Some(now + 5000),
@@ -181,7 +180,6 @@ async fn test_max_runs_auto_disables() {
             message: "ping".to_string(),
             agent_echo: false,
             targets: vec![],
-            origin_metadata: std::collections::HashMap::new(),
         },
         state: CronJobState {
             next_run_at_ms: Some(now + 5000),
@@ -227,7 +225,6 @@ async fn test_add_job_deduplicates_names() {
             message: "ping".to_string(),
             agent_echo: false,
             targets: vec![],
-            origin_metadata: std::collections::HashMap::new(),
         },
         state: CronJobState::default(),
         created_at_ms: now,
@@ -272,7 +269,6 @@ async fn test_run_job_increments_run_count() {
             message: "ping".to_string(),
             agent_echo: false,
             targets: vec![],
-            origin_metadata: std::collections::HashMap::new(),
         },
         state: CronJobState::default(),
         created_at_ms: now,
