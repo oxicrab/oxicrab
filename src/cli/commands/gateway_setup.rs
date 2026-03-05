@@ -272,9 +272,9 @@ pub(super) fn setup_message_bus(config: &Config) -> Result<MessageBusSetup> {
 
 fn setup_cron_service() -> Result<Arc<CronService>> {
     debug!("Initializing cron service...");
-    let cron_store_path = crate::utils::get_oxicrab_home()?
-        .join("cron")
-        .join("jobs.json");
+    let cron_dir = crate::utils::get_oxicrab_home()?.join("cron");
+    std::fs::create_dir_all(&cron_dir)?;
+    let cron_store_path = cron_dir.join("jobs.json");
     let cron = CronService::new(cron_store_path);
     debug!("Cron service initialized");
     Ok(Arc::new(cron))

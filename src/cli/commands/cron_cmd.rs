@@ -8,9 +8,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[allow(clippy::too_many_lines)]
 pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
     let _config = load_config(None)?;
-    let cron_store_path = crate::utils::get_oxicrab_home()?
-        .join("cron")
-        .join("jobs.json");
+    let cron_dir = crate::utils::get_oxicrab_home()?.join("cron");
+    std::fs::create_dir_all(&cron_dir)?;
+    let cron_store_path = cron_dir.join("jobs.json");
     let cron = CronService::new(cron_store_path);
 
     match cmd {

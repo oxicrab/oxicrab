@@ -5,6 +5,7 @@ use std::path::Path;
 use tracing::warn;
 
 mod cost;
+mod cron;
 mod dlq;
 mod embeddings;
 mod indexing;
@@ -275,6 +276,54 @@ impl MemoryDB {
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_complexity_log_ts ON complexity_routing_log(timestamp);
              CREATE INDEX IF NOT EXISTS idx_complexity_log_req ON complexity_routing_log(request_id);",
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS cron_jobs (
+                id               TEXT PRIMARY KEY,
+                name             TEXT NOT NULL,
+                enabled          INTEGER NOT NULL DEFAULT 1,
+                schedule_type    TEXT NOT NULL,
+                at_ms            INTEGER,
+                every_ms         INTEGER,
+                cron_expr        TEXT,
+                cron_tz          TEXT,
+                event_pattern    TEXT,
+                event_channel    TEXT,
+                payload_kind     TEXT NOT NULL DEFAULT 'agent_turn',
+                payload_message  TEXT NOT NULL DEFAULT '',
+                agent_echo       INTEGER NOT NULL DEFAULT 1,
+                next_run_at_ms   INTEGER,
+                last_run_at_ms   INTEGER,
+                last_status      TEXT,
+                last_error       TEXT,
+                run_count        INTEGER NOT NULL DEFAULT 0,
+                last_fired_at_ms INTEGER,
+                created_at_ms    INTEGER NOT NULL,
+                updated_at_ms    INTEGER NOT NULL,
+                delete_after_run INTEGER NOT NULL DEFAULT 0,
+                expires_at_ms    INTEGER,
+                max_runs         INTEGER,
+                cooldown_secs    INTEGER,
+                max_concurrent   INTEGER
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled_next
+             ON cron_jobs(enabled, next_run_at_ms)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS cron_job_targets (
+                job_id   TEXT NOT NULL REFERENCES cron_jobs(id) ON DELETE CASCADE,
+                channel  TEXT NOT NULL,
+                target   TEXT NOT NULL,
+                PRIMARY KEY (job_id, channel, target)
+            )",
+            [],
         )?;
 
         // Add request_id to existing tables (idempotent: ignore if column already exists)

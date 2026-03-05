@@ -165,6 +165,10 @@ impl CronService {
             if !store_path.exists() {
                 return Ok(None);
             }
+            // Ensure parent directory exists before creating lock file
+            if let Some(parent) = store_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
             // Use the same lock file as save_store for proper coordination
             let lock_path = store_path.with_extension("json.lock");
             let lock_file = std::fs::OpenOptions::new()
@@ -201,6 +205,10 @@ impl CronService {
         drop(store_guard);
         let store_path = self.store_path.clone();
         tokio::task::spawn_blocking(move || -> Result<()> {
+            // Ensure parent directory exists before creating lock file
+            if let Some(parent) = store_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
             let lock_path = store_path.with_extension("json.lock");
             let lock_file = std::fs::OpenOptions::new()
                 .create(true)
