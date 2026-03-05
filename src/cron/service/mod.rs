@@ -451,30 +451,16 @@ impl CronService {
         };
         let now = now_ms();
 
-        // If schedule changed and job is enabled, recompute next_run
-        if let Some(ref new_schedule) = params.schedule {
-            if !job.enabled {
-                self.db.update_cron_job(job_id, params, now)?;
-                return self.db.get_cron_job(job_id);
+        // If schedule changed and job is enabled, recompute next_run in the same write
+        let next_run = params.schedule.as_ref().and_then(|new_schedule| {
+            if job.enabled {
+                Some(compute_next_run(new_schedule, now))
+            } else {
+                None
             }
-            let next_run = compute_next_run(new_schedule, now);
-            // First update the job fields
-            self.db.update_cron_job(job_id, params, now)?;
-            // Then update the next_run via state update
-            self.db.update_cron_job_state(
-                job_id,
-                job.state.last_status.as_deref(),
-                job.state.last_error.as_deref(),
-                job.state.run_count,
-                next_run,
-                job.state.last_run_at_ms,
-                job.state.last_fired_at_ms,
-                now,
-            )?;
-        } else {
-            self.db.update_cron_job(job_id, params, now)?;
-        }
+        });
 
+        self.db.update_cron_job(job_id, params, next_run, now)?;
         self.db.get_cron_job(job_id)
     }
 

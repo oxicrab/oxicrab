@@ -417,10 +417,14 @@ impl MemoryDB {
         Ok(updated > 0)
     }
 
+    /// Update a cron job's fields. Only `Some` fields are updated.
+    /// When `next_run_at_ms` is `Some`, it is also set (used when schedule changes
+    /// require recomputing the next run time in the same write).
     pub fn update_cron_job(
         &self,
         id: &str,
         params_upd: &UpdateJobParams,
+        next_run_at_ms: Option<Option<i64>>,
         updated_at_ms: i64,
     ) -> Result<bool> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -468,6 +472,11 @@ impl MemoryDB {
 
             param_values.push(Box::new(cols.event_channel.map(ToString::to_string)));
             set_clauses.push(format!("event_channel = ?{}", param_values.len()));
+        }
+
+        if let Some(next_run) = next_run_at_ms {
+            param_values.push(Box::new(next_run));
+            set_clauses.push(format!("next_run_at_ms = ?{}", param_values.len()));
         }
 
         // Add id as last parameter
@@ -816,7 +825,9 @@ mod tests {
             name: Some("new name".to_string()),
             ..Default::default()
         };
-        let ok = db.update_cron_job("job-partial", &params, 5000).unwrap();
+        let ok = db
+            .update_cron_job("job-partial", &params, None, 5000)
+            .unwrap();
         assert!(ok);
 
         let got = db.get_cron_job("job-partial").unwrap().unwrap();
@@ -857,7 +868,8 @@ mod tests {
             ]),
             ..Default::default()
         };
-        db.update_cron_job("job-targets", &params, 6000).unwrap();
+        db.update_cron_job("job-targets", &params, None, 6000)
+            .unwrap();
 
         let got = db.get_cron_job("job-targets").unwrap().unwrap();
         assert_eq!(got.payload.targets.len(), 2);
