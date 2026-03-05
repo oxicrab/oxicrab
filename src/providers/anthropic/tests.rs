@@ -152,26 +152,3 @@ async fn test_chat_with_system_message() {
 
     assert_eq!(result.content.unwrap(), "I am a helpful assistant.");
 }
-
-#[tokio::test]
-async fn test_chat_metrics_updated() {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "content": [{"type": "text", "text": "Hi"}],
-            "model": "claude-sonnet-4-5-20250929",
-            "role": "assistant",
-            "stop_reason": "end_turn",
-            "usage": {"input_tokens": 5, "output_tokens": 3}
-        })))
-        .mount(&server)
-        .await;
-
-    let provider = AnthropicProvider::with_base_url("test_key".to_string(), None, server.uri());
-    provider.chat(simple_chat_request("Hi")).await.unwrap();
-
-    let metrics = provider.metrics.lock().unwrap();
-    assert_eq!(metrics.request_count, 1);
-    assert_eq!(metrics.token_count, 8); // 5 input + 3 output
-}

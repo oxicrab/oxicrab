@@ -27,16 +27,17 @@ impl MemoryDB {
             params![entry_id, embedding],
         )?;
         // Invalidate cached embeddings so hybrid_search reloads from DB
-        if let Ok(mut cache) = self.embedding_cache.lock() {
-            *cache = None;
-        }
+        *self
+            .embedding_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         Ok(())
     }
 
     /// Get all embeddings, optionally excluding certain source keys.
     /// Returns (`entry_id`, `source_key`, content, `embedding_blob`).
     #[allow(clippy::type_complexity)]
-    pub fn get_all_embeddings(
+    pub(super) fn get_all_embeddings(
         &self,
         exclude_sources: Option<&std::collections::HashSet<String>>,
     ) -> Result<Vec<(i64, String, String, Vec<u8>)>> {
@@ -84,14 +85,18 @@ impl MemoryDB {
         let exclude = exclude_sources.unwrap_or(&default_set);
 
         // Check cache first
-        if let Ok(cache) = self.embedding_cache.lock()
-            && let Some(ref cached) = *cache
         {
-            return Ok(cached
-                .iter()
-                .filter(|e| !exclude.contains(&e.source_key))
-                .cloned()
-                .collect());
+            let cache = self
+                .embedding_cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(ref cached) = *cache {
+                return Ok(cached
+                    .iter()
+                    .filter(|e| !exclude.contains(&e.source_key))
+                    .cloned()
+                    .collect());
+            }
         }
 
         // Cache miss — load from DB, deserialize, and cache
@@ -112,9 +117,10 @@ impl MemoryDB {
         }
 
         // Store in cache (unfiltered so it can be reused with different excludes)
-        if let Ok(mut cache) = self.embedding_cache.lock() {
-            *cache = Some(entries.clone());
-        }
+        *self
+            .embedding_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(entries.clone());
 
         Ok(entries
             .into_iter()

@@ -25,9 +25,10 @@ impl MemoryDB {
             params![source_key, now],
         )?;
         // Invalidate embedding cache
-        if let Ok(mut cache) = self.embedding_cache.lock() {
-            *cache = None;
-        }
+        *self
+            .embedding_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         Ok(())
     }
 

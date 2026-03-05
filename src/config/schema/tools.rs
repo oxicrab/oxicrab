@@ -82,12 +82,6 @@ fn default_max_results() -> usize {
     5
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct WebToolsConfig {
-    #[serde(default)]
-    pub search: WebSearchConfig,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SandboxConfig {
     /// Enable Landlock filesystem/network sandboxing for shell commands.
@@ -492,8 +486,8 @@ pub struct VoiceConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ToolsConfig {
-    #[serde(default)]
-    pub web: WebToolsConfig,
+    #[serde(default, rename = "webSearch")]
+    pub web_search: WebSearchConfig,
     #[serde(default)]
     pub exec: ExecToolConfig,
     #[serde(default, rename = "restrictToWorkspace")]

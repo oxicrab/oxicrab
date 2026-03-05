@@ -51,7 +51,7 @@ fn test_invalid_zero_exec_timeout() {
 #[test]
 fn test_invalid_zero_max_results() {
     let mut config = Config::default();
-    config.tools.web.search.max_results = 0;
+    config.tools.web_search.max_results = 0;
     assert!(config.validate().is_err());
 }
 
@@ -384,28 +384,6 @@ fn test_invalid_compaction_keep_recent_zero() {
 }
 
 // -----------------------------------------------------------------------
-// Validation: checkpoint interval=0 when enabled
-// -----------------------------------------------------------------------
-
-#[test]
-fn test_invalid_checkpoint_interval_zero() {
-    let mut config = Config::default();
-    config.agents.defaults.compaction.checkpoint.enabled = true;
-    config
-        .agents
-        .defaults
-        .compaction
-        .checkpoint
-        .interval_iterations = 0;
-    let err = config.validate().unwrap_err();
-    let msg = err.to_string();
-    assert!(
-        msg.contains("intervalIterations must be > 0"),
-        "expected intervalIterations error in: {msg}"
-    );
-}
-
-// -----------------------------------------------------------------------
 // Validation: cognitive thresholds misordered
 // -----------------------------------------------------------------------
 
@@ -723,7 +701,7 @@ fn credential_overlays() -> Vec<(&'static str, serde_json::Value)> {
         ),
         // --- Tool credentials ---
         (
-            "/tools/web/search/apiKey",
+            "/tools/webSearch/apiKey",
             json!("your-brave-search-api-key"),
         ),
         ("/tools/github/token", json!("ghp_your-github-token")),

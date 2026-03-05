@@ -219,7 +219,7 @@ fn test_get_credential_field_tool_tokens() {
     assert_eq!(config.tools.github.token, "gh");
     assert_eq!(config.tools.weather.api_key, "wx");
     assert_eq!(config.tools.todoist.token, "td");
-    assert_eq!(config.tools.web.search.api_key, "ws");
+    assert_eq!(config.tools.web_search.api_key, "ws");
     assert_eq!(config.tools.google.client_secret, "gc");
     assert_eq!(config.tools.obsidian.api_key, "ob");
     assert_eq!(config.tools.media.radarr.api_key, "ra");
@@ -352,7 +352,7 @@ fn test_apply_env_overrides_tool_vars() {
     apply_env_overrides(&mut config);
 
     assert_eq!(config.tools.todoist.token, "todoist-tok");
-    assert_eq!(config.tools.web.search.api_key, "brave-key");
+    assert_eq!(config.tools.web_search.api_key, "brave-key");
     assert_eq!(config.tools.google.client_secret, "google-secret");
     assert_eq!(config.tools.obsidian.api_key, "obsidian-key");
     assert_eq!(config.tools.media.radarr.api_key, "radarr-key");

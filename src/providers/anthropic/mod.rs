@@ -1,5 +1,5 @@
 use crate::providers::anthropic_common;
-use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse, ProviderMetrics};
+use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse};
 use crate::providers::errors::ProviderErrorHandler;
 use crate::providers::{PROVIDER_REQUEST_TIMEOUT_SECS, provider_http_client};
 use anyhow::{Context, Result};
@@ -16,7 +16,6 @@ pub struct AnthropicProvider {
     default_model: String,
     base_url: String,
     client: Client,
-    metrics: std::sync::Arc<std::sync::Mutex<ProviderMetrics>>,
     custom_headers: std::collections::HashMap<String, String>,
 }
 
@@ -28,7 +27,6 @@ impl AnthropicProvider {
                 .unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
             base_url: API_URL.to_string(),
             client: provider_http_client(),
-            metrics: std::sync::Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),
             custom_headers: std::collections::HashMap::new(),
         }
     }
@@ -45,7 +43,6 @@ impl AnthropicProvider {
                 .unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
             base_url,
             client: provider_http_client(),
-            metrics: std::sync::Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),
             custom_headers,
         }
     }
@@ -63,7 +60,6 @@ impl AnthropicProvider {
                 ))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
-            metrics: std::sync::Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),
             custom_headers: std::collections::HashMap::new(),
         }
     }
@@ -142,28 +138,7 @@ impl LLMProvider for AnthropicProvider {
             .await
             .context("Failed to send request to Anthropic API")?;
 
-        let json = ProviderErrorHandler::check_response(resp, "Anthropic", &self.metrics).await?;
-
-        // Update metrics on success
-        {
-            if let Ok(mut metrics) = self.metrics.lock() {
-                metrics.request_count += 1;
-                if let Some(usage) = json.get("usage").and_then(|u| u.as_object()) {
-                    if let Some(tokens) = usage
-                        .get("input_tokens")
-                        .and_then(serde_json::Value::as_u64)
-                    {
-                        metrics.token_count += tokens;
-                    }
-                    if let Some(tokens) = usage
-                        .get("output_tokens")
-                        .and_then(serde_json::Value::as_u64)
-                    {
-                        metrics.token_count += tokens;
-                    }
-                }
-            }
-        }
+        let json = ProviderErrorHandler::check_response(resp, "Anthropic").await?;
 
         let response = anthropic_common::parse_response(&json);
         debug!(
@@ -175,12 +150,6 @@ impl LLMProvider for AnthropicProvider {
 
     fn default_model(&self) -> &str {
         &self.default_model
-    }
-
-    fn metrics(&self) -> ProviderMetrics {
-        self.metrics
-            .lock()
-            .map_or_else(|_| ProviderMetrics::default(), |m| m.clone())
     }
 
     async fn warmup(&self) -> Result<()> {

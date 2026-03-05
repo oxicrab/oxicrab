@@ -1,13 +1,10 @@
-use crate::providers::base::{
-    ChatRequest, LLMProvider, LLMResponse, ProviderMetrics, ToolCallRequest,
-};
+use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse, ToolCallRequest};
 use crate::providers::errors::ProviderErrorHandler;
 use crate::providers::provider_http_client;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::{Value, json};
-use std::sync::Mutex;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -19,7 +16,6 @@ pub struct OpenAIProvider {
     base_url: String,
     provider_name: String,
     client: Client,
-    metrics: std::sync::Arc<Mutex<ProviderMetrics>>,
     custom_headers: std::collections::HashMap<String, String>,
 }
 
@@ -31,7 +27,6 @@ impl OpenAIProvider {
             base_url: API_URL.to_string(),
             provider_name: "OpenAI".to_string(),
             client: provider_http_client(),
-            metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
             custom_headers: std::collections::HashMap::new(),
         }
     }
@@ -48,7 +43,6 @@ impl OpenAIProvider {
             base_url,
             provider_name,
             client: provider_http_client(),
-            metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
             custom_headers: std::collections::HashMap::new(),
         }
     }
@@ -67,7 +61,6 @@ impl OpenAIProvider {
             base_url,
             provider_name,
             client: provider_http_client(),
-            metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
             custom_headers,
         }
     }
@@ -80,7 +73,6 @@ impl OpenAIProvider {
             base_url,
             provider_name: "OpenAI".to_string(),
             client: provider_http_client(),
-            metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
             custom_headers: std::collections::HashMap::new(),
         }
     }
@@ -298,22 +290,7 @@ impl LLMProvider for OpenAIProvider {
             .await
             .with_context(|| format!("Failed to send request to {provider_name} API"))?;
 
-        let json =
-            ProviderErrorHandler::check_response(resp, &self.provider_name, &self.metrics).await?;
-
-        // Update metrics on success
-        {
-            if let Ok(mut metrics) = self.metrics.lock() {
-                metrics.request_count += 1;
-                if let Some(usage) = json.get("usage").and_then(|u| u.as_object())
-                    && let Some(tokens) = usage
-                        .get("total_tokens")
-                        .and_then(serde_json::Value::as_u64)
-                {
-                    metrics.token_count += tokens;
-                }
-            }
-        }
+        let json = ProviderErrorHandler::check_response(resp, &self.provider_name).await?;
 
         let response = Self::parse_response(&json)?;
         debug!(
@@ -325,12 +302,6 @@ impl LLMProvider for OpenAIProvider {
 
     fn default_model(&self) -> &str {
         &self.default_model
-    }
-
-    fn metrics(&self) -> ProviderMetrics {
-        self.metrics
-            .lock()
-            .map_or_else(|_| ProviderMetrics::default(), |m| m.clone())
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {

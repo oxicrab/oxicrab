@@ -3,7 +3,6 @@ pub mod agent_loop;
 pub mod cognitive;
 pub mod compaction;
 pub mod context;
-pub mod discourse;
 pub mod memory;
 pub mod skills;
 pub mod subagent;

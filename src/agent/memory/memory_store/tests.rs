@@ -10,8 +10,7 @@ fn test_with_config_wires_fusion_strategy() {
     config.rrf_k = 42;
     config.hybrid_weight = 0.3;
 
-    let store =
-        MemoryStore::with_config(tmp.path(), &config, &std::collections::HashMap::new()).unwrap();
+    let store = MemoryStore::with_config(tmp.path(), &config).unwrap();
     assert_eq!(store.fusion_strategy, crate::config::FusionStrategy::Rrf);
     assert_eq!(store.rrf_k, 42);
     assert!((store.hybrid_weight - 0.3).abs() < f32::EPSILON);

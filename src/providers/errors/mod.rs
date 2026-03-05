@@ -1,7 +1,5 @@
 use crate::errors::OxicrabError;
-use crate::providers::base::ProviderMetrics;
 use serde_json::Value;
-use std::sync::{Arc, Mutex};
 use tracing::{error, warn};
 
 /// Common error handling utilities for LLM providers
@@ -136,17 +134,8 @@ impl ProviderErrorHandler {
     pub async fn check_response(
         resp: reqwest::Response,
         provider: &str,
-        metrics: &Arc<Mutex<ProviderMetrics>>,
     ) -> Result<Value, anyhow::Error> {
-        let resp = match Self::check_http_status(resp, provider).await {
-            Ok(resp) => resp,
-            Err(e) => {
-                if let Ok(mut m) = metrics.lock() {
-                    m.error_count += 1;
-                }
-                return Err(e);
-            }
-        };
+        let resp = Self::check_http_status(resp, provider).await?;
 
         let json: Value = resp
             .json()
@@ -155,9 +144,6 @@ impl ProviderErrorHandler {
 
         // Check for API-level errors in the JSON body
         if let Some(error_val) = json.get("error") {
-            if let Ok(mut m) = metrics.lock() {
-                m.error_count += 1;
-            }
             let error_text =
                 serde_json::to_string(error_val).unwrap_or_else(|_| "Unknown error".to_string());
             Self::log_and_handle_error(&anyhow::anyhow!("API error in response"), provider, "chat");

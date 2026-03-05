@@ -205,10 +205,6 @@ impl AgentLoop {
             .get(crate::bus::meta::IS_GROUP)
             .and_then(serde_json::Value::as_bool)
             .unwrap_or_default();
-        // Load discourse entity register from session for reference resolution
-        let mut discourse_register =
-            crate::agent::discourse::DiscourseRegister::from_session_metadata(&session.metadata);
-        let entity_context = discourse_register.to_context_string();
 
         let messages = {
             let mut ctx = self.context.lock().await;
@@ -221,7 +217,7 @@ impl AgentLoop {
                 Some(&msg.sender_id),
                 images,
                 is_group,
-                entity_context.as_deref(),
+                None,
             )?
         };
         debug!("Built {} messages, starting agent loop", messages.len());
@@ -318,10 +314,6 @@ impl AgentLoop {
             )
             .await?;
 
-        // Merge loop-extracted entities into the session's discourse register
-        discourse_register.turn = loop_result.discourse.turn;
-        discourse_register.register(loop_result.discourse.entities);
-
         // Reload session in case compaction updated it during the agent loop
         // (compaction saves a compaction_summary to session metadata)
         let mut session = self.sessions.get_or_create(&session_key).await?;
@@ -362,8 +354,6 @@ impl AgentLoop {
                 Value::Number(serde_json::Number::from(tokens)),
             );
         }
-        // Persist discourse entity register for next-turn reference resolution
-        discourse_register.to_session_metadata(&mut session.metadata);
         self.sessions.save(&session).await?;
 
         // Background fact extraction

@@ -23,9 +23,6 @@ fn test_workspace_tool_name_and_capabilities() {
     let (_tmp, tool) = test_tool();
 
     assert_eq!(tool.name(), "workspace");
-    assert_eq!(tool.version().major, 0);
-    assert_eq!(tool.version().minor, 1);
-    assert_eq!(tool.version().patch, 0);
 
     let caps = tool.capabilities();
     assert!(caps.built_in);

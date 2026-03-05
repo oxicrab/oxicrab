@@ -1,27 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CheckpointConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default = "default_checkpoint_interval", rename = "intervalIterations")]
-    pub interval_iterations: u32,
-}
-
-impl Default for CheckpointConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            interval_iterations: default_checkpoint_interval(),
-        }
-    }
-}
-
-fn default_checkpoint_interval() -> u32 {
-    10
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompactionConfig {
     #[serde(default = "super::default_true")]
     pub enabled: bool,
@@ -33,8 +12,6 @@ pub struct CompactionConfig {
     pub extraction_enabled: bool,
     #[serde(default)]
     pub model: Option<String>,
-    #[serde(default)]
-    pub checkpoint: CheckpointConfig,
     /// Before compaction, make a silent LLM call to extract important context
     /// from about-to-be-compacted messages and persist to daily notes.
     #[serde(default, rename = "preFlushEnabled")]
@@ -49,7 +26,6 @@ impl Default for CompactionConfig {
             keep_recent: default_keep_recent(),
             extraction_enabled: true,
             model: None,
-            checkpoint: CheckpointConfig::default(),
             pre_flush_enabled: false,
         }
     }

@@ -1,5 +1,5 @@
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
-use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::agent::tools::{Tool, ToolResult};
 use crate::agent::workspace::{FileCategory, WorkspaceManager};
 use crate::config::schema::WorkspaceTtlConfig;
 use anyhow::Result;
@@ -326,10 +326,6 @@ impl Tool for WorkspaceTool {
 
     fn description(&self) -> &'static str {
         "Manage workspace files: list, search, organize, clean up, and send files to the current conversation channel."
-    }
-
-    fn version(&self) -> ToolVersion {
-        ToolVersion::new(0, 1, 0)
     }
 
     fn capabilities(&self) -> ToolCapabilities {

@@ -134,14 +134,6 @@ pub struct ToolDefinition {
     pub parameters: Value, // JSON Schema
 }
 
-/// Metrics for provider operations
-#[derive(Debug, Clone, Default)]
-pub struct ProviderMetrics {
-    pub request_count: u64,
-    pub token_count: u64,
-    pub error_count: u64,
-}
-
 /// Configuration for retry behavior
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
@@ -249,12 +241,6 @@ pub trait LLMProvider: Send + Sync {
     /// Default is a no-op. Providers may override to make a lightweight request.
     async fn warmup(&self) -> anyhow::Result<()> {
         Ok(())
-    }
-
-    /// Return accumulated provider metrics (requests, tokens, errors).
-    /// Default returns zeroed metrics for providers that don't track them.
-    fn metrics(&self) -> ProviderMetrics {
-        ProviderMetrics::default()
     }
 
     /// Chat with automatic retry on transient errors.

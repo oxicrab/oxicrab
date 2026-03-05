@@ -55,8 +55,6 @@ pub struct AgentLoopResult {
     pub tools_used: Vec<String>,
     /// Filesystem paths of media produced by tools (screenshots, generated images, etc.).
     pub media: Vec<String>,
-    /// Discourse entity register populated during the loop.
-    pub discourse: crate::agent::discourse::DiscourseRegister,
 }
 
 /// Lifecycle-related configuration (TTLs, intervals).
@@ -184,7 +182,7 @@ impl AgentLoopConfig {
             cognitive_config: config.agents.defaults.cognitive.clone(),
             context_providers: config.agents.defaults.context_providers.clone(),
             tool_configs: ToolConfigs {
-                web_search_config: Some(config.tools.web.search.clone()),
+                web_search_config: Some(config.tools.web_search.clone()),
                 exec_timeout: config.tools.exec.timeout,
                 restrict_to_workspace: config.tools.restrict_to_workspace,
                 allowed_commands: config.tools.exec.allowed_commands.clone(),
@@ -235,7 +233,6 @@ impl AgentLoopConfig {
                 keep_recent: 10,
                 extraction_enabled: false,
                 model: None,
-                checkpoint: crate::config::CheckpointConfig::default(),
                 pre_flush_enabled: false,
             },
             outbound_tx,

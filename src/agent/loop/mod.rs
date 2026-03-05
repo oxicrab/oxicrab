@@ -156,14 +156,22 @@ impl AgentLoop {
                 .ok_or_else(|| anyhow::anyhow!("Inbound receiver already taken"))?,
         ));
         let model = model.unwrap_or_else(|| provider.default_model().to_string());
-        let mut context_builder = ContextBuilder::new(&workspace)?;
+
+        let sessions: Arc<dyn SessionStore> = Arc::new(SessionManager::new(&workspace)?);
+        let memory = Arc::new(if let Some(ref mem_cfg) = memory_config {
+            MemoryStore::with_config(&workspace, mem_cfg)?
+        } else {
+            MemoryStore::new(&workspace)?
+        });
+
+        // Share the (embedding-configured) memory store with context builder
+        let mut context_builder = ContextBuilder::with_memory(&workspace, memory.clone())?;
         if !context_providers.is_empty() {
             use crate::agent::context::providers::ContextProviderRunner;
             let runner = Arc::new(ContextProviderRunner::new(context_providers));
             context_builder.set_providers(runner);
         }
         let context = Arc::new(Mutex::new(context_builder));
-        let session_mgr = SessionManager::new(&workspace)?;
 
         // Clean up expired sessions in background
         if session_ttl_days > 0 {
@@ -185,13 +193,6 @@ impl AgentLoop {
                 }
             });
         }
-
-        let sessions: Arc<dyn SessionStore> = Arc::new(session_mgr);
-        let memory = Arc::new(if let Some(ref mem_cfg) = memory_config {
-            MemoryStore::with_config(&workspace, mem_cfg, &tool_configs.workspace_ttl.to_map())?
-        } else {
-            MemoryStore::new(&workspace)?
-        });
 
         // Run memory hygiene in background (search log purge, workspace file cleanup)
         {
@@ -488,7 +489,21 @@ impl AgentLoop {
             .clone()
     }
 
+    /// Remove session locks that are only held by the map (strong count == 1).
+    /// This prevents the `session_locks` `HashMap` from growing unboundedly.
+    fn evict_stale_session_locks(&self) {
+        let mut locks = self
+            .session_locks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        locks.retain(|_, arc| Arc::strong_count(arc) > 1);
+    }
+
     async fn process_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
+        // Periodically evict stale session locks to prevent unbounded growth.
+        // Strong count == 1 means only the map holds a reference (no active processing).
+        self.evict_stale_session_locks();
+
         let session_key = msg.session_key();
         let lock = self.session_lock(&session_key);
         let _guard = lock.lock().await;

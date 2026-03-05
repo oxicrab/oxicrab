@@ -377,19 +377,6 @@ impl MemoryDB {
         Ok(())
     }
 
-    /// Delete a session by key. Returns true if a row was deleted.
-    pub fn delete_session(&self, key: &str) -> Result<bool> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        let deleted = conn.execute(
-            "DELETE FROM sessions WHERE key = ?1",
-            rusqlite::params![key],
-        )?;
-        Ok(deleted > 0)
-    }
-
     /// Delete sessions not updated within `ttl_days`. Returns count deleted.
     /// A TTL of 0 deletes all sessions.
     pub fn cleanup_sessions(&self, ttl_days: u32) -> Result<usize> {

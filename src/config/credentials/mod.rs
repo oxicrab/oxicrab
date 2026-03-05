@@ -71,7 +71,7 @@ define_credentials! {
     "github-token",            "OXICRAB_GITHUB_TOKEN"            => tools.github.token;
     "weather-api-key",         "OXICRAB_WEATHER_API_KEY"         => tools.weather.api_key;
     "todoist-token",           "OXICRAB_TODOIST_TOKEN"           => tools.todoist.token;
-    "web-search-api-key",      "OXICRAB_WEB_SEARCH_API_KEY"      => tools.web.search.api_key;
+    "web-search-api-key",      "OXICRAB_WEB_SEARCH_API_KEY"      => tools.web_search.api_key;
     "google-client-secret",    "OXICRAB_GOOGLE_CLIENT_SECRET"    => tools.google.client_secret;
     "obsidian-api-key",        "OXICRAB_OBSIDIAN_API_KEY"        => tools.obsidian.api_key;
     "media-radarr-api-key",    "OXICRAB_MEDIA_RADARR_API_KEY"    => tools.media.radarr.api_key;

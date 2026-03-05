@@ -1,6 +1,6 @@
 use crate::actions;
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
-use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
@@ -465,10 +465,6 @@ impl Tool for TodoistTool {
 
     fn description(&self) -> &'static str {
         "Manage Todoist tasks and projects. Actions: list_tasks, get_task, create_task, update_task, complete_task, delete_task, add_comment, list_comments, list_projects."
-    }
-
-    fn version(&self) -> ToolVersion {
-        ToolVersion::new(1, 1, 0)
     }
 
     fn capabilities(&self) -> ToolCapabilities {

@@ -468,8 +468,45 @@ impl MemoryDB {
         rows.map_err(|e| anyhow::anyhow!("recent complexity events query failed: {e}"))
     }
 
+    /// Purge intent metrics older than `days`. Returns number of rows deleted.
+    pub fn purge_old_intent_metrics(&self, days: u32) -> Result<usize> {
+        if days == 0 {
+            return Ok(0);
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
+        let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
+        let deleted = conn.execute(
+            "DELETE FROM intent_metrics WHERE timestamp < ?",
+            [&cutoff_str],
+        )?;
+        Ok(deleted)
+    }
+
+    /// Purge complexity routing logs older than `days`. Returns number of rows deleted.
+    pub fn purge_old_complexity_logs(&self, days: u32) -> Result<usize> {
+        if days == 0 {
+            return Ok(0);
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
+        let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
+        let deleted = conn.execute(
+            "DELETE FROM complexity_routing_log WHERE timestamp < ?",
+            [&cutoff_str],
+        )?;
+        Ok(deleted)
+    }
+
     /// Purge search access logs older than `days`. Returns number of rows deleted.
     /// Also cleans up orphaned `memory_search_hits` referencing deleted logs.
+    /// Both deletes run in a single transaction to avoid partial cleanup.
     pub fn purge_old_search_logs(&self, days: u32) -> Result<usize> {
         if days == 0 {
             return Ok(0);
@@ -480,17 +517,19 @@ impl MemoryDB {
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
         let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
+        let tx = conn.unchecked_transaction()?;
         // Delete orphaned hits first (FK has no CASCADE)
-        conn.execute(
+        tx.execute(
             "DELETE FROM memory_search_hits WHERE access_log_id IN (
                  SELECT id FROM memory_access_log WHERE created_at < ?
              )",
             [&cutoff_str],
         )?;
-        let deleted = conn.execute(
+        let deleted = tx.execute(
             "DELETE FROM memory_access_log WHERE created_at < ?",
             [&cutoff_str],
         )?;
+        tx.commit()?;
         Ok(deleted)
     }
 }

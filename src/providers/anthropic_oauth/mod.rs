@@ -1,5 +1,5 @@
 use crate::providers::anthropic_common;
-use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse, ProviderMetrics};
+use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse};
 use crate::providers::errors::ProviderErrorHandler;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -45,7 +45,6 @@ pub struct AnthropicOAuthProvider {
     default_model: String,
     credentials_path: Option<PathBuf>,
     client: Client,
-    metrics: Arc<std::sync::Mutex<ProviderMetrics>>,
 }
 
 impl AnthropicOAuthProvider {
@@ -79,7 +78,6 @@ impl AnthropicOAuthProvider {
             ),
             credentials_path,
             client,
-            metrics: Arc::new(std::sync::Mutex::new(ProviderMetrics::default())),
         };
 
         // Load cached tokens if available (synchronous — called before tokio runtime
@@ -511,28 +509,6 @@ impl AnthropicOAuthProvider {
     }
 }
 
-impl AnthropicOAuthProvider {
-    fn update_metrics(&self, json: &Value) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.request_count += 1;
-            if let Some(usage) = json.get("usage").and_then(|u| u.as_object()) {
-                if let Some(tokens) = usage
-                    .get("input_tokens")
-                    .and_then(serde_json::Value::as_u64)
-                {
-                    metrics.token_count += tokens;
-                }
-                if let Some(tokens) = usage
-                    .get("output_tokens")
-                    .and_then(serde_json::Value::as_u64)
-                {
-                    metrics.token_count += tokens;
-                }
-            }
-        }
-    }
-}
-
 #[async_trait]
 impl LLMProvider for AnthropicOAuthProvider {
     async fn chat(&self, req: ChatRequest) -> Result<LLMResponse> {
@@ -612,13 +588,9 @@ impl LLMProvider for AnthropicOAuthProvider {
                     Ok(()) => {
                         let new_token = self.access_token.lock().await.clone();
                         let retry_resp = self.send_chat_request(&new_token, &payload).await?;
-                        let json = ProviderErrorHandler::check_response(
-                            retry_resp,
-                            "AnthropicOAuth",
-                            &self.metrics,
-                        )
-                        .await?;
-                        self.update_metrics(&json);
+                        let json =
+                            ProviderErrorHandler::check_response(retry_resp, "AnthropicOAuth")
+                                .await?;
                         return Ok(anthropic_common::parse_response(&json));
                     }
                     Err(e) => {
@@ -633,20 +605,12 @@ impl LLMProvider for AnthropicOAuthProvider {
             );
         }
 
-        let json =
-            ProviderErrorHandler::check_response(resp, "AnthropicOAuth", &self.metrics).await?;
-        self.update_metrics(&json);
+        let json = ProviderErrorHandler::check_response(resp, "AnthropicOAuth").await?;
         Ok(anthropic_common::parse_response(&json))
     }
 
     fn default_model(&self) -> &str {
         &self.default_model
-    }
-
-    fn metrics(&self) -> ProviderMetrics {
-        self.metrics
-            .lock()
-            .map_or_else(|_| ProviderMetrics::default(), |m| m.clone())
     }
 
     async fn warmup(&self) -> Result<()> {

@@ -138,29 +138,6 @@ async fn test_chat_server_error() {
 }
 
 #[tokio::test]
-async fn test_chat_metrics_updated() {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "choices": [{
-                "message": {"role": "assistant", "content": "Hi"},
-                "finish_reason": "stop"
-            }],
-            "usage": {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7}
-        })))
-        .mount(&server)
-        .await;
-
-    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
-    provider.chat(simple_chat_request("Hi")).await.unwrap();
-
-    let metrics = provider.metrics.lock().unwrap();
-    assert_eq!(metrics.request_count, 1);
-    assert_eq!(metrics.token_count, 7);
-}
-
-#[tokio::test]
 async fn test_chat_custom_model() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -552,13 +529,4 @@ fn test_default_model_with_config() {
         "DeepSeek".to_string(),
     );
     assert_eq!(provider.default_model(), "deepseek-r1");
-}
-
-#[test]
-fn test_metrics_fresh_provider() {
-    let provider = OpenAIProvider::new("key".to_string(), None);
-    let metrics = provider.metrics();
-    assert_eq!(metrics.request_count, 0);
-    assert_eq!(metrics.token_count, 0);
-    assert_eq!(metrics.error_count, 0);
 }

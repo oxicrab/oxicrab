@@ -911,3 +911,175 @@ fn test_get_complexity_stats() {
     let recent = db.get_recent_complexity_events("heavy", 5).unwrap();
     assert_eq!(recent.len(), 2);
 }
+
+#[test]
+fn test_hybrid_search_with_manual_embeddings() {
+    use crate::agent::memory::embeddings::serialize_embedding;
+    use crate::config::FusionStrategy;
+
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test_memory.db");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    // Insert entries
+    db.insert_memory("doc1.md", "Rust is a systems programming language")
+        .unwrap();
+    db.insert_memory("doc2.md", "Python is great for data science")
+        .unwrap();
+    db.insert_memory("doc3.md", "JavaScript runs in the browser")
+        .unwrap();
+
+    // Store fake embeddings for each entry (unit vectors in different directions)
+    let missing = db.get_entries_missing_embeddings().unwrap();
+    assert_eq!(missing.len(), 3);
+
+    // doc1: mostly dimension 0
+    let emb1 = serialize_embedding(&[0.9, 0.1, 0.0, 0.0]);
+    // doc2: mostly dimension 1
+    let emb2 = serialize_embedding(&[0.1, 0.9, 0.0, 0.0]);
+    // doc3: mostly dimension 2
+    let emb3 = serialize_embedding(&[0.0, 0.0, 0.9, 0.1]);
+
+    for (id, _, content) in &missing {
+        let emb = if content.contains("Rust") {
+            &emb1
+        } else if content.contains("Python") {
+            &emb2
+        } else {
+            &emb3
+        };
+        db.store_embedding(*id, emb).unwrap();
+    }
+
+    // Query embedding close to doc1 (Rust)
+    let query_emb = [0.8, 0.2, 0.0, 0.0];
+    let hits = db
+        .hybrid_search(
+            "Rust programming",
+            &query_emb,
+            3,
+            None,
+            0.5,
+            FusionStrategy::WeightedScore,
+            60,
+            0,
+        )
+        .unwrap();
+    assert!(!hits.is_empty(), "hybrid search should return results");
+    // The top hit should be the Rust entry (best keyword + best vector match)
+    assert!(
+        hits[0].content.contains("Rust"),
+        "top hit should be Rust doc, got: {}",
+        hits[0].content
+    );
+
+    // Test with RRF fusion strategy
+    let rrf_hits = db
+        .hybrid_search(
+            "Rust programming",
+            &query_emb,
+            3,
+            None,
+            0.5,
+            FusionStrategy::Rrf,
+            60,
+            0,
+        )
+        .unwrap();
+    assert!(
+        !rrf_hits.is_empty(),
+        "RRF hybrid search should return results"
+    );
+    assert!(
+        rrf_hits[0].content.contains("Rust"),
+        "RRF top hit should be Rust doc, got: {}",
+        rrf_hits[0].content
+    );
+
+    // Test exclude_sources
+    let mut exclude = std::collections::HashSet::new();
+    exclude.insert("doc1.md".to_string());
+    let filtered_hits = db
+        .hybrid_search(
+            "Rust programming",
+            &query_emb,
+            3,
+            Some(&exclude),
+            0.5,
+            FusionStrategy::WeightedScore,
+            60,
+            0,
+        )
+        .unwrap();
+    for hit in &filtered_hits {
+        assert_ne!(
+            hit.source_key, "doc1.md",
+            "excluded source should not appear"
+        );
+    }
+}
+
+#[test]
+fn test_list_daily_source_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test_memory.db");
+    let db = MemoryDB::new(&db_path).unwrap();
+
+    db.insert_memory("daily:2026-03-01", "note 1").unwrap();
+    db.insert_memory("daily:2026-03-02", "note 2").unwrap();
+    db.insert_memory("knowledge:faq.md", "faq content").unwrap();
+    db.insert_memory("notes.md", "general notes").unwrap();
+
+    let daily_keys = db.list_daily_source_keys().unwrap();
+    assert_eq!(daily_keys.len(), 2);
+    assert!(daily_keys.iter().all(|k| k.starts_with("daily:")));
+
+    let all_keys = db.list_source_keys().unwrap();
+    assert_eq!(all_keys.len(), 4);
+}
+
+#[test]
+fn test_purge_old_intent_metrics() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    db.record_intent_event(
+        "classification",
+        Some("regex"),
+        None,
+        None,
+        "test message",
+        None,
+    )
+    .unwrap();
+
+    // Purge with 0 days should be a no-op
+    assert_eq!(db.purge_old_intent_metrics(0).unwrap(), 0);
+
+    // Purge with very large days should not delete recent entries
+    assert_eq!(db.purge_old_intent_metrics(365).unwrap(), 0);
+}
+
+#[test]
+fn test_purge_old_complexity_logs() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    db.record_complexity_event("req-1", 0.5, "standard", None, None, None, "test")
+        .unwrap();
+
+    assert_eq!(db.purge_old_complexity_logs(0).unwrap(), 0);
+    assert_eq!(db.purge_old_complexity_logs(365).unwrap(), 0);
+}
+
+#[test]
+fn test_purge_old_cost_logs() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    db.record_tokens("test-model", 100, 50, 0, 0, "main", None)
+        .unwrap();
+
+    assert_eq!(db.purge_old_cost_logs(0).unwrap(), 0);
+    assert_eq!(db.purge_old_cost_logs(365).unwrap(), 0);
+}

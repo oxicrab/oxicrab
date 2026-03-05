@@ -1,5 +1,5 @@
 use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
-use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
 use base64::Engine;
@@ -239,10 +239,6 @@ impl Tool for ImageGenTool {
 
     fn description(&self) -> &'static str {
         "Generate images from text prompts using AI (OpenAI gpt-image-1 or Google Imagen 3)"
-    }
-
-    fn version(&self) -> ToolVersion {
-        ToolVersion::new(1, 0, 0)
     }
 
     fn capabilities(&self) -> ToolCapabilities {

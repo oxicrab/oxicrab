@@ -45,6 +45,24 @@ impl MemoryDB {
         Ok(())
     }
 
+    /// Purge cost log entries older than `days`. Returns number of rows deleted.
+    pub fn purge_old_cost_logs(&self, days: u32) -> Result<usize> {
+        if days == 0 {
+            return Ok(0);
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
+        let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
+        let deleted = conn.execute(
+            "DELETE FROM llm_cost_log WHERE timestamp < ?",
+            [&cutoff_str],
+        )?;
+        Ok(deleted)
+    }
+
     /// Get token usage summary grouped by date and model since a given date (YYYY-MM-DD).
     pub fn get_token_summary(&self, since_date: &str) -> Result<Vec<TokenSummaryRow>> {
         let conn = self

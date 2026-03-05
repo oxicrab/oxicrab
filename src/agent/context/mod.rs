@@ -15,7 +15,7 @@ const MAX_CONTEXT_FILE_SIZE: u64 = 500 * 1024;
 
 pub struct ContextBuilder {
     workspace: PathBuf,
-    memory: MemoryStore,
+    memory: Arc<MemoryStore>,
     skills: SkillsLoader,
     bootstrap_cache: Option<String>,
     bootstrap_mtimes: HashMap<String, u64>,
@@ -24,20 +24,16 @@ pub struct ContextBuilder {
 }
 
 impl ContextBuilder {
-    pub fn new(workspace: impl AsRef<Path>) -> Result<Self> {
+    /// Create a new `ContextBuilder` with an externally-owned `MemoryStore`.
+    /// This ensures the context builder shares the same (embedding-configured)
+    /// memory store as the rest of the agent loop.
+    pub fn with_memory(workspace: impl AsRef<Path>, memory: Arc<MemoryStore>) -> Result<Self> {
         let workspace = workspace.as_ref().to_path_buf();
 
         // Ensure workspace exists and is accessible
         std::fs::create_dir_all(&workspace).with_context(|| {
             format!(
                 "Failed to create workspace directory: {}",
-                workspace.display()
-            )
-        })?;
-
-        let memory = MemoryStore::new(&workspace).with_context(|| {
-            format!(
-                "Failed to initialize memory store for workspace: {}",
                 workspace.display()
             )
         })?;
@@ -68,6 +64,28 @@ impl ContextBuilder {
             providers: None,
             cached_provider_context: None,
         })
+    }
+
+    /// Create a new `ContextBuilder` with its own `MemoryStore`.
+    /// Convenience for tests and standalone usage where no shared store exists.
+    pub fn new(workspace: impl AsRef<Path>) -> Result<Self> {
+        let workspace = workspace.as_ref();
+
+        std::fs::create_dir_all(workspace).with_context(|| {
+            format!(
+                "Failed to create workspace directory: {}",
+                workspace.display()
+            )
+        })?;
+
+        let memory = Arc::new(MemoryStore::new(workspace).with_context(|| {
+            format!(
+                "Failed to initialize memory store for workspace: {}",
+                workspace.display()
+            )
+        })?);
+
+        Self::with_memory(workspace, memory)
     }
 
     pub fn set_providers(&mut self, runner: Arc<providers::ContextProviderRunner>) {

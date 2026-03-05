@@ -1,5 +1,5 @@
 use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
-use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::agent::tools::{Tool, ToolResult};
 use crate::utils::media::{extension_from_content_type, save_media_file};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -233,10 +233,6 @@ impl Tool for HttpTool {
 
     fn description(&self) -> &'static str {
         "Make HTTP requests (GET/POST/PUT/PATCH/DELETE). For REST APIs, webhooks, and services."
-    }
-
-    fn version(&self) -> ToolVersion {
-        ToolVersion::new(1, 0, 0)
     }
 
     fn capabilities(&self) -> ToolCapabilities {

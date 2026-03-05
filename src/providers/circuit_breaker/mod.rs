@@ -222,10 +222,6 @@ impl LLMProvider for CircuitBreakerProvider {
         self.inner.default_model()
     }
 
-    fn metrics(&self) -> crate::providers::base::ProviderMetrics {
-        self.inner.metrics()
-    }
-
     async fn warmup(&self) -> anyhow::Result<()> {
         self.inner.warmup().await
     }

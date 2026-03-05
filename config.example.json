@@ -15,11 +15,7 @@
         "keepRecent": 10,
         "extractionEnabled": true,
         "model": null,
-        "preFlushEnabled": false,
-        "checkpoint": {
-          "enabled": false,
-          "intervalIterations": 10
-        }
+        "preFlushEnabled": false
       },
       "memory": {
         "embeddingsEnabled": false,
@@ -198,12 +194,10 @@
       "enabled": false,
       "allowTools": []
     },
-    "web": {
-      "search": {
-        "provider": "brave",
-        "apiKey": "your-brave-search-api-key",
-        "maxResults": 5
-      }
+    "webSearch": {
+      "provider": "brave",
+      "apiKey": "your-brave-search-api-key",
+      "maxResults": 5
     },
     "exec": {
       "timeout": 60,

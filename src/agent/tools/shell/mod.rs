@@ -1,5 +1,5 @@
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
-use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::agent::tools::{Tool, ToolResult};
 use crate::config::SandboxConfig;
 use crate::utils::regex::compile_security_patterns;
 use anyhow::{Context, Result};
@@ -311,10 +311,6 @@ impl Tool for ExecTool {
             },
             "required": ["command"]
         })
-    }
-
-    fn version(&self) -> ToolVersion {
-        ToolVersion::new(1, 1, 0) // Version 1.1.0 - includes security improvements
     }
 
     fn execution_timeout(&self) -> Duration {

@@ -1,5 +1,5 @@
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
-use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::agent::tools::{Tool, ToolResult};
 use crate::utils::media::{extension_from_content_type, save_media_file};
 use crate::utils::regex::{RegexPatterns, compile_regex};
 #[cfg(test)]
@@ -129,10 +129,6 @@ impl Tool for WebSearchTool {
 
     fn description(&self) -> &'static str {
         "Search the web. Returns titles, URLs, and snippets. Uses Brave Search if API key is configured, otherwise falls back to DuckDuckGo."
-    }
-
-    fn version(&self) -> ToolVersion {
-        ToolVersion::new(1, 0, 0)
     }
 
     fn cacheable(&self) -> bool {
@@ -381,10 +377,6 @@ impl Tool for WebFetchTool {
 
     fn description(&self) -> &'static str {
         "Fetch URL and extract readable content (HTML → markdown/text)."
-    }
-
-    fn version(&self) -> ToolVersion {
-        ToolVersion::new(1, 0, 0)
     }
 
     fn cacheable(&self) -> bool {

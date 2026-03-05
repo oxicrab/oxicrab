@@ -1,6 +1,4 @@
-use crate::providers::base::{
-    ChatRequest, LLMProvider, LLMResponse, ProviderMetrics, ToolCallRequest,
-};
+use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse, ToolCallRequest};
 use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::warn;
@@ -105,17 +103,6 @@ impl LLMProvider for FallbackProvider {
 
     fn default_model(&self) -> &str {
         &self.providers[0].1
-    }
-
-    fn metrics(&self) -> ProviderMetrics {
-        let mut total = ProviderMetrics::default();
-        for (provider, _) in &self.providers {
-            let m = provider.metrics();
-            total.request_count += m.request_count;
-            total.token_count += m.token_count;
-            total.error_count += m.error_count;
-        }
-        total
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {

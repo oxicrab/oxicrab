@@ -12,7 +12,6 @@ use crate::providers::base::{LLMProvider, Message, ToolCallRequest};
 use super::helpers::{execute_tool_call, extract_media_paths, start_typing};
 use crate::agent::tools::base::ExecutionContext;
 use anyhow::Result;
-use serde_json::Value;
 use tracing::{debug, error, warn};
 
 impl AgentLoop {
@@ -42,7 +41,6 @@ impl AgentLoop {
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
         let mut checkpoint_tracker = CheckpointTracker::new(self.cognitive_config.clone());
-        let mut discourse_register = crate::agent::discourse::DiscourseRegister::default();
 
         // Tool pre-filtering: when total tools > threshold, select only
         // categories relevant to the user's message to reduce prompt noise.
@@ -214,30 +212,15 @@ impl AgentLoop {
                     h.abort();
                 }
 
-                discourse_register.advance_turn();
                 self.handle_tool_results(
                     &mut messages,
                     &response.tool_calls,
                     results,
                     &mut collected_media,
-                    &mut discourse_register,
                     &mut checkpoint_tracker,
-                    iteration,
                 )
                 .await;
             } else if let Some(content) = response.content {
-                // Extract entities from assistant text for reference resolution.
-                // This catches entities even when the LLM summarizes tool results
-                // in prose or (as a safety net) hallucinates actions.
-                let text_entities =
-                    crate::agent::discourse::DiscourseRegister::extract_from_assistant_text(
-                        &content,
-                        discourse_register.turn,
-                    );
-                if !text_entities.is_empty() {
-                    discourse_register.register(text_entities);
-                }
-
                 match hallucination::handle_text_response(
                     &content,
                     &mut messages,
@@ -257,7 +240,6 @@ impl AgentLoop {
                             input_tokens: last_input_tokens,
                             tools_used,
                             media: collected_media,
-                            discourse: discourse_register,
                         });
                     }
                 }
@@ -297,7 +279,6 @@ impl AgentLoop {
                 input_tokens: last_input_tokens,
                 tools_used,
                 media: collected_media,
-                discourse: discourse_register,
             });
         }
 
@@ -306,7 +287,6 @@ impl AgentLoop {
             input_tokens: last_input_tokens,
             tools_used,
             media: collected_media,
-            discourse: discourse_register,
         })
     }
 
@@ -381,9 +361,7 @@ impl AgentLoop {
         tool_calls: &[ToolCallRequest],
         results: Vec<(String, bool)>,
         collected_media: &mut Vec<String>,
-        discourse_register: &mut crate::agent::discourse::DiscourseRegister,
         checkpoint_tracker: &mut CheckpointTracker,
-        iteration: usize,
     ) {
         // Add all results to messages in order and collect media
         if tool_calls.len() != results.len() {
@@ -405,15 +383,6 @@ impl AgentLoop {
         for (tc, (result_str, is_error)) in tool_calls.iter().zip(results.into_iter()) {
             if !is_error {
                 collected_media.extend(extract_media_paths(&result_str));
-                // Extract discourse entities from successful tool results
-                let entities = crate::agent::discourse::DiscourseRegister::extract_from_tool_result(
-                    &tc.name,
-                    &result_str,
-                    discourse_register.turn,
-                );
-                if !entities.is_empty() {
-                    discourse_register.register(entities);
-                }
             }
             ContextBuilder::add_tool_result(messages, &tc.id, &tc.name, &result_str, is_error);
         }
@@ -472,65 +441,6 @@ impl AgentLoop {
         // Update cognitive breadcrumb for compaction recovery
         if self.cognitive_config.enabled {
             *self.cognitive_breadcrumb.lock().await = Some(checkpoint_tracker.breadcrumb());
-        }
-
-        // Periodic checkpoint: summarize progress via compactor
-        if self.compaction_config.checkpoint.enabled
-            && iteration > 1
-            && self.compaction_config.checkpoint.interval_iterations > 0
-            && (iteration as u32)
-                .is_multiple_of(self.compaction_config.checkpoint.interval_iterations)
-            && let Some(ref compactor) = self.compactor
-        {
-            // Abort any in-flight checkpoint before spawning a new one to prevent
-            // stale data from a slow old task overwriting the newer summary
-            if let Some(old) = self.checkpoint_handle.lock().await.take() {
-                old.abort();
-            }
-
-            let compactor = compactor.clone();
-            let msgs_snapshot = messages.clone();
-            let last_cp = self.last_checkpoint.clone();
-            let handle = tokio::spawn(async move {
-                let history: Vec<std::collections::HashMap<String, Value>> = msgs_snapshot
-                    .iter()
-                    .map(|m| {
-                        let mut map = std::collections::HashMap::new();
-                        map.insert("role".to_string(), Value::String(m.role.clone()));
-                        // Annotate content with tool names so the checkpoint
-                        // summary reflects tool usage in long agentic loops.
-                        let content = if let Some(ref tcs) = m.tool_calls
-                            && !tcs.is_empty()
-                        {
-                            let names: Vec<&str> = tcs.iter().map(|tc| tc.name.as_str()).collect();
-                            format!("{}\n[tools used: {}]", m.content, names.join(", "))
-                        } else {
-                            m.content.clone()
-                        };
-                        map.insert("content".to_string(), Value::String(content));
-                        map
-                    })
-                    .collect();
-                match compactor.compact(&history, "").await {
-                    Ok(summary) => {
-                        debug!(
-                            "checkpoint at iteration {}: {} chars",
-                            iteration,
-                            summary.len()
-                        );
-                        *last_cp.lock().await = Some(summary);
-                    }
-                    Err(e) => {
-                        warn!("checkpoint generation failed: {}", e);
-                    }
-                }
-            });
-            *self.checkpoint_handle.lock().await = Some(handle);
-            // Reset tracker only after spawning — the checkpoint task captures
-            // the current message snapshot, so the tracker should start fresh
-            // for the next interval regardless of whether compaction succeeds
-            // (a failed checkpoint will be retried at the next interval anyway)
-            checkpoint_tracker.reset();
         }
     }
 

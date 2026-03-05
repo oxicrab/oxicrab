@@ -129,32 +129,6 @@ async fn test_chat_server_error() {
 }
 
 #[tokio::test]
-async fn test_chat_metrics_updated() {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/models/gemini-pro:generateContent"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "candidates": [{
-                "content": {
-                    "parts": [{"text": "Hi"}],
-                    "role": "model"
-                },
-                "finishReason": "STOP"
-            }],
-            "usageMetadata": {"totalTokenCount": 12}
-        })))
-        .mount(&server)
-        .await;
-
-    let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
-    provider.chat(simple_chat_request("Hi")).await.unwrap();
-
-    let metrics = provider.metrics.lock().unwrap();
-    assert_eq!(metrics.request_count, 1);
-    assert_eq!(metrics.token_count, 12);
-}
-
-#[tokio::test]
 async fn test_chat_custom_model() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

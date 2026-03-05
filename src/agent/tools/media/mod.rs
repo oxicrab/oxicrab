@@ -1,6 +1,6 @@
 use crate::actions;
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
-use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::agent::tools::{Tool, ToolResult};
 use crate::config::MediaConfig;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -391,10 +391,6 @@ impl Tool for MediaTool {
          search_series, add_series (by TVDB ID), get_series, list_series, \
          profiles (list quality profiles), root_folders (list root folders). \
          For add_movie/add_series, quality profile and root folder are auto-selected if omitted."
-    }
-
-    fn version(&self) -> ToolVersion {
-        ToolVersion::new(1, 0, 0)
     }
 
     fn capabilities(&self) -> ToolCapabilities {

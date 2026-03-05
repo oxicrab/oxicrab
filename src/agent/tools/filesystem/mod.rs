@@ -1,5 +1,5 @@
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
-use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::agent::tools::{Tool, ToolResult};
 use crate::agent::workspace::WorkspaceManager;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -188,10 +188,6 @@ impl Tool for ReadFileTool {
             subagent_access: SubagentAccess::Full,
             ..Default::default()
         }
-    }
-
-    fn version(&self) -> ToolVersion {
-        ToolVersion::new(1, 0, 0)
     }
 
     fn parameters(&self) -> Value {

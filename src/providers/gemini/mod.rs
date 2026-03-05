@@ -1,13 +1,10 @@
-use crate::providers::base::{
-    ChatRequest, LLMProvider, LLMResponse, ProviderMetrics, ToolCallRequest,
-};
+use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse, ToolCallRequest};
 use crate::providers::errors::ProviderErrorHandler;
 use crate::providers::provider_http_client;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::{Value, json};
-use std::sync::Mutex;
 use std::time::Duration;
 use tracing::{debug, info};
 
@@ -18,7 +15,6 @@ pub struct GeminiProvider {
     default_model: String,
     base_url: String,
     client: Client,
-    metrics: std::sync::Arc<Mutex<ProviderMetrics>>,
     custom_headers: std::collections::HashMap<String, String>,
 }
 
@@ -29,7 +25,6 @@ impl GeminiProvider {
             default_model: default_model.unwrap_or_else(|| "gemini-pro".to_string()),
             base_url: BASE_URL.to_string(),
             client: provider_http_client(),
-            metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
             custom_headers: std::collections::HashMap::new(),
         }
     }
@@ -45,7 +40,6 @@ impl GeminiProvider {
             default_model: default_model.unwrap_or_else(|| "gemini-pro".to_string()),
             base_url,
             client: provider_http_client(),
-            metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
             custom_headers,
         }
     }
@@ -57,7 +51,6 @@ impl GeminiProvider {
             default_model: default_model.unwrap_or_else(|| "gemini-pro".to_string()),
             base_url,
             client: provider_http_client(),
-            metrics: std::sync::Arc::new(Mutex::new(ProviderMetrics::default())),
             custom_headers: std::collections::HashMap::new(),
         }
     }
@@ -303,21 +296,7 @@ impl LLMProvider for GeminiProvider {
             .await
             .context("Failed to send request to Gemini API")?;
 
-        let json = ProviderErrorHandler::check_response(resp, "Gemini", &self.metrics).await?;
-
-        // Update metrics on success
-        {
-            if let Ok(mut metrics) = self.metrics.lock() {
-                metrics.request_count += 1;
-                if let Some(usage) = json.get("usageMetadata").and_then(|u| u.as_object())
-                    && let Some(tokens) = usage
-                        .get("totalTokenCount")
-                        .and_then(serde_json::Value::as_u64)
-                {
-                    metrics.token_count += tokens;
-                }
-            }
-        }
+        let json = ProviderErrorHandler::check_response(resp, "Gemini").await?;
 
         let response = Self::parse_response(&json)?;
         debug!(
@@ -329,12 +308,6 @@ impl LLMProvider for GeminiProvider {
 
     fn default_model(&self) -> &str {
         &self.default_model
-    }
-
-    fn metrics(&self) -> ProviderMetrics {
-        self.metrics
-            .lock()
-            .map_or_else(|_| ProviderMetrics::default(), |m| m.clone())
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {

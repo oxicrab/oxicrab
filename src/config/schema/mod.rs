@@ -338,12 +338,6 @@ impl Config {
                 ));
             }
         }
-        if c.checkpoint.enabled && c.checkpoint.interval_iterations == 0 {
-            return Err(OxicrabError::Config(
-                "agents.defaults.compaction.checkpoint.intervalIterations must be > 0 when enabled"
-                    .into(),
-            ));
-        }
         Ok(())
     }
 
@@ -464,13 +458,13 @@ impl Config {
                 ));
             }
         }
-        if self.tools.web.search.max_results == 0 {
+        if self.tools.web_search.max_results == 0 {
             return Err(OxicrabError::Config(
-                "tools.web.search.maxResults must be > 0".into(),
+                "tools.web_search.maxResults must be > 0".into(),
             ));
         }
-        if self.tools.web.search.max_results > 100 {
-            warn!("tools.web.search.maxResults is very large (> 100), this may be slow");
+        if self.tools.web_search.max_results > 100 {
+            warn!("tools.web_search.maxResults is very large (> 100), this may be slow");
         }
         Ok(())
     }
@@ -693,7 +687,7 @@ impl Config {
             ("weather_api_key", &self.tools.weather.api_key),
             ("todoist_token", &self.tools.todoist.token),
             ("obsidian_api_key", &self.tools.obsidian.api_key),
-            ("web_search_api_key", &self.tools.web.search.api_key),
+            ("web_search_api_key", &self.tools.web_search.api_key),
             ("vllm_api_key", &self.providers.vllm.base.api_key),
             ("ollama_api_key", &self.providers.ollama.base.api_key),
             ("google_client_secret", &self.tools.google.client_secret),

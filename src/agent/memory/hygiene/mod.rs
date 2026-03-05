@@ -34,11 +34,27 @@ pub fn cleanup_workspace_files<S: ::std::hash::BuildHasher>(
     Ok(total_removed)
 }
 
-/// Run all hygiene tasks (purge old search logs).
+/// Run all hygiene tasks (purge old search logs, intent metrics,
+/// complexity routing logs, and cost logs).
 pub fn run_hygiene(db: &MemoryDB, purge_log_days: u32) {
     match db.purge_old_search_logs(purge_log_days) {
         Ok(n) if n > 0 => info!("purged {} old search log entries", n),
         Err(e) => warn!("search log purge failed: {}", e),
+        _ => {}
+    }
+    match db.purge_old_intent_metrics(purge_log_days) {
+        Ok(n) if n > 0 => info!("purged {} old intent metric entries", n),
+        Err(e) => warn!("intent metrics purge failed: {}", e),
+        _ => {}
+    }
+    match db.purge_old_complexity_logs(purge_log_days) {
+        Ok(n) if n > 0 => info!("purged {} old complexity routing log entries", n),
+        Err(e) => warn!("complexity log purge failed: {}", e),
+        _ => {}
+    }
+    match db.purge_old_cost_logs(purge_log_days) {
+        Ok(n) if n > 0 => info!("purged {} old cost log entries", n),
+        Err(e) => warn!("cost log purge failed: {}", e),
         _ => {}
     }
 }

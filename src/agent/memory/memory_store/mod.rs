@@ -69,11 +69,7 @@ impl MemoryStore {
         })
     }
 
-    pub fn with_config(
-        workspace: impl AsRef<Path>,
-        memory_config: &MemoryConfig,
-        _workspace_ttl: &std::collections::HashMap<String, Option<u64>>,
-    ) -> Result<Self> {
+    pub fn with_config(workspace: impl AsRef<Path>, memory_config: &MemoryConfig) -> Result<Self> {
         let workspace = workspace.as_ref();
         let memory_dir = workspace.join("memory");
 
@@ -195,10 +191,9 @@ impl MemoryStore {
                 // to avoid fetching results we'd discard.
                 let daily_keys: HashSet<String> = self
                     .db
-                    .list_source_keys()
+                    .list_daily_source_keys()
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|k| k.starts_with("daily:"))
                     .collect();
                 daily_keys
             } else {

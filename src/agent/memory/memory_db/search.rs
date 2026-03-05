@@ -174,7 +174,7 @@ impl MemoryDB {
                     .enumerate()
                     .map(|(rank, (id, _))| (*id, rank + 1))
                     .collect();
-                let fts_absent_rank = fts_ranked.len() + 1;
+                let fts_absent_rank = fts_ranked.len().max(1) + 1;
 
                 // Build vector rank map
                 let mut vec_ranked: Vec<(i64, f32)> =
@@ -186,7 +186,7 @@ impl MemoryDB {
                     .enumerate()
                     .map(|(rank, (id, _))| (*id, rank + 1))
                     .collect();
-                let vec_absent_rank = vec_ranked.len() + 1;
+                let vec_absent_rank = vec_ranked.len().max(1) + 1;
 
                 all_ids
                     .into_iter()
@@ -243,22 +243,6 @@ impl MemoryDB {
         Ok(hits)
     }
 
-    /// Return entry IDs and content for a given source key (for embedding generation).
-    pub fn get_entries_for_source(&self, source_key: &str) -> Result<Vec<(i64, String)>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        let mut stmt =
-            conn.prepare("SELECT id, content FROM memory_entries WHERE source_key = ?")?;
-        let rows: Result<Vec<_>, _> = stmt
-            .query_map([source_key], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })?
-            .collect();
-        rows.map_err(|e| anyhow::anyhow!("Failed to get entries: {e}"))
-    }
-
     /// List all source keys in the database.
     pub fn list_source_keys(&self) -> Result<Vec<String>> {
         let conn = self
@@ -270,36 +254,18 @@ impl MemoryDB {
         keys.map_err(|e| anyhow::anyhow!("Failed to list source keys: {e}"))
     }
 
-    /// Remove a source and all its entries from the database.
-    pub fn remove_source(&self, source_key: &str) -> Result<()> {
-        let mut conn = self
+    /// List source keys matching the `daily:` prefix.
+    /// More efficient than `list_source_keys()` + client-side filtering for
+    /// group-mode daily note exclusion.
+    pub fn list_daily_source_keys(&self) -> Result<Vec<String>> {
+        let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        // Wrap all deletes in a transaction so a crash between them doesn't
-        // leave partial state (e.g. embeddings deleted but entries remaining).
-        let tx = conn.transaction()?;
-        // Explicitly delete embeddings (CASCADE requires PRAGMA foreign_keys=ON
-        // which may not have been set on older databases)
-        tx.execute(
-            "DELETE FROM memory_embeddings WHERE entry_id IN \
-             (SELECT id FROM memory_entries WHERE source_key = ?)",
-            [source_key],
-        )?;
-        tx.execute(
-            "DELETE FROM memory_entries WHERE source_key = ?",
-            [source_key],
-        )?;
-        tx.execute(
-            "DELETE FROM memory_sources WHERE source_key = ?",
-            [source_key],
-        )?;
-        tx.commit()?;
-        // Invalidate embedding cache since entries were removed
-        if let Ok(mut cache) = self.embedding_cache.lock() {
-            *cache = None;
-        }
-        Ok(())
+        let mut stmt =
+            conn.prepare("SELECT source_key FROM memory_sources WHERE source_key LIKE 'daily:%'")?;
+        let keys: Result<Vec<_>, _> = stmt.query_map([], |row| row.get(0))?.collect();
+        keys.map_err(|e| anyhow::anyhow!("failed to list daily source keys: {e}"))
     }
 
     pub fn search(

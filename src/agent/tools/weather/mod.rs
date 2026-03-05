@@ -1,5 +1,5 @@
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
-use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
@@ -132,10 +132,6 @@ impl Tool for WeatherTool {
 
     fn description(&self) -> &'static str {
         "Get current weather or forecast for a location. Uses OpenWeatherMap."
-    }
-
-    fn version(&self) -> ToolVersion {
-        ToolVersion::new(1, 0, 0)
     }
 
     fn cacheable(&self) -> bool {

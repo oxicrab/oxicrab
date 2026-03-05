@@ -1,6 +1,6 @@
 use crate::actions;
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
-use crate::agent::tools::{Tool, ToolResult, ToolVersion};
+use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
 use base64::Engine;
@@ -619,10 +619,6 @@ impl Tool for GitHubTool {
         "Interact with GitHub. Actions: list_issues, create_issue, get_issue, list_prs, get_pr, \
          get_pr_files, create_pr_review, get_file_content, trigger_workflow, get_workflow_runs, \
          notifications."
-    }
-
-    fn version(&self) -> ToolVersion {
-        ToolVersion::new(1, 1, 0)
     }
 
     fn capabilities(&self) -> ToolCapabilities {
