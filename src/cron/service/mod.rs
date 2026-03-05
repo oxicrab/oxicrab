@@ -144,24 +144,11 @@ impl CronService {
         *self.on_job.lock().await = Some(Arc::new(callback));
     }
 
-    /// Update a job's runtime state (status, error) by ID.
-    /// Called from the job completion callback.
-    fn update_job_state(&self, job_id: &str, status: &str, error: Option<&str>) -> Result<()> {
-        // We need the current job to get run_count and other state fields
-        let job = self.db.get_cron_job(job_id)?;
-        if let Some(job) = job {
-            self.db.update_cron_job_state(
-                job_id,
-                Some(status),
-                error,
-                job.state.run_count,
-                job.state.next_run_at_ms,
-                job.state.last_run_at_ms,
-                job.state.last_fired_at_ms,
-                now_ms(),
-            )?;
-        }
-        Ok(())
+    /// Update only a job's completion status and error by ID.
+    /// Called from the job completion callback. Uses a targeted SQL UPDATE
+    /// to avoid a read-modify-write race with the polling loop.
+    fn update_job_status(&self, job_id: &str, status: &str, error: Option<&str>) -> Result<()> {
+        self.db.update_cron_job_status(job_id, status, error)
     }
 
     pub async fn start(&self) -> Result<()> {
@@ -361,7 +348,8 @@ impl CronService {
                                     ("error".to_string(), Some(e.to_string()))
                                 }
                             };
-                            if let Err(e) = svc.update_job_state(&job_id, &status, error.as_deref())
+                            if let Err(e) =
+                                svc.update_job_status(&job_id, &status, error.as_deref())
                             {
                                 warn!("Failed to update cron job '{}' state: {}", job_id, e);
                             }

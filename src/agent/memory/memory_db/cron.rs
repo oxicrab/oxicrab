@@ -91,63 +91,72 @@ impl MemoryDB {
         let stype = schedule_type_str(&job.schedule);
         let cols = schedule_columns(&job.schedule);
 
-        conn.execute(
-            "INSERT INTO cron_jobs (
-                id, name, enabled, schedule_type,
-                at_ms, every_ms, cron_expr, cron_tz, event_pattern, event_channel,
-                payload_kind, payload_message, agent_echo,
-                next_run_at_ms, last_run_at_ms, last_status, last_error,
-                run_count, last_fired_at_ms,
-                created_at_ms, updated_at_ms, delete_after_run,
-                expires_at_ms, max_runs, cooldown_secs, max_concurrent
-            ) VALUES (
-                ?1, ?2, ?3, ?4,
-                ?5, ?6, ?7, ?8, ?9, ?10,
-                ?11, ?12, ?13,
-                ?14, ?15, ?16, ?17,
-                ?18, ?19,
-                ?20, ?21, ?22,
-                ?23, ?24, ?25, ?26
-            )",
-            params![
-                job.id,
-                job.name,
-                job.enabled,
-                stype,
-                cols.at_ms,
-                cols.every_ms,
-                cols.cron_expr,
-                cols.cron_tz,
-                cols.event_pattern,
-                cols.event_channel,
-                job.payload.kind,
-                job.payload.message,
-                job.payload.agent_echo,
-                job.state.next_run_at_ms,
-                job.state.last_run_at_ms,
-                job.state.last_status,
-                job.state.last_error,
-                job.state.run_count,
-                job.state.last_fired_at_ms,
-                job.created_at_ms,
-                job.updated_at_ms,
-                job.delete_after_run,
-                job.expires_at_ms,
-                job.max_runs,
-                job.cooldown_secs.map(|v| v as i64),
-                job.max_concurrent,
-            ],
-        )?;
-
-        for target in &job.payload.targets {
+        conn.execute_batch("BEGIN")?;
+        let result = (|| -> Result<()> {
             conn.execute(
-                "INSERT INTO cron_job_targets (job_id, channel, target)
-                 VALUES (?1, ?2, ?3)",
-                params![job.id, target.channel, target.to],
+                "INSERT INTO cron_jobs (
+                    id, name, enabled, schedule_type,
+                    at_ms, every_ms, cron_expr, cron_tz, event_pattern, event_channel,
+                    payload_kind, payload_message, agent_echo,
+                    next_run_at_ms, last_run_at_ms, last_status, last_error,
+                    run_count, last_fired_at_ms,
+                    created_at_ms, updated_at_ms, delete_after_run,
+                    expires_at_ms, max_runs, cooldown_secs, max_concurrent
+                ) VALUES (
+                    ?1, ?2, ?3, ?4,
+                    ?5, ?6, ?7, ?8, ?9, ?10,
+                    ?11, ?12, ?13,
+                    ?14, ?15, ?16, ?17,
+                    ?18, ?19,
+                    ?20, ?21, ?22,
+                    ?23, ?24, ?25, ?26
+                )",
+                params![
+                    job.id,
+                    job.name,
+                    job.enabled,
+                    stype,
+                    cols.at_ms,
+                    cols.every_ms,
+                    cols.cron_expr,
+                    cols.cron_tz,
+                    cols.event_pattern,
+                    cols.event_channel,
+                    job.payload.kind,
+                    job.payload.message,
+                    job.payload.agent_echo,
+                    job.state.next_run_at_ms,
+                    job.state.last_run_at_ms,
+                    job.state.last_status,
+                    job.state.last_error,
+                    job.state.run_count,
+                    job.state.last_fired_at_ms,
+                    job.created_at_ms,
+                    job.updated_at_ms,
+                    job.delete_after_run,
+                    job.expires_at_ms,
+                    job.max_runs,
+                    job.cooldown_secs.map(|v| v as i64),
+                    job.max_concurrent,
+                ],
             )?;
-        }
 
-        Ok(())
+            for target in &job.payload.targets {
+                conn.execute(
+                    "INSERT INTO cron_job_targets (job_id, channel, target)
+                     VALUES (?1, ?2, ?3)",
+                    params![job.id, target.channel, target.to],
+                )?;
+            }
+            Ok(())
+        })();
+
+        if result.is_ok() {
+            conn.execute_batch("COMMIT")?;
+        } else {
+            let _ = conn.execute_batch("ROLLBACK");
+        }
+        result
     }
 
     pub fn delete_cron_job(&self, id: &str) -> Result<bool> {
@@ -179,11 +188,18 @@ impl MemoryDB {
              FROM cron_jobs WHERE enabled = 1 ORDER BY created_at_ms"
         };
 
-        // Load all targets into a map
+        // Load targets only for jobs matching the filter
+        let target_sql = if include_disabled {
+            "SELECT job_id, channel, target FROM cron_job_targets ORDER BY rowid"
+        } else {
+            "SELECT t.job_id, t.channel, t.target FROM cron_job_targets t
+             INNER JOIN cron_jobs j ON j.id = t.job_id
+             WHERE j.enabled = 1
+             ORDER BY t.rowid"
+        };
         let mut target_map: HashMap<String, Vec<CronTarget>> = HashMap::new();
         {
-            let mut stmt = conn
-                .prepare("SELECT job_id, channel, target FROM cron_job_targets ORDER BY rowid")?;
+            let mut stmt = conn.prepare(target_sql)?;
             let rows = stmt.query_map([], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -468,22 +484,49 @@ impl MemoryDB {
             param_values.iter().map(AsRef::as_ref).collect();
         let updated = conn.execute(&sql, params_ref.as_slice())?;
 
-        // Update targets if provided
+        // Update targets if provided (transactional delete+re-insert)
         if let Some(targets) = &params_upd.targets {
-            conn.execute(
-                "DELETE FROM cron_job_targets WHERE job_id = ?1",
-                params![id],
-            )?;
-            for target in targets {
+            conn.execute_batch("SAVEPOINT update_targets")?;
+            let target_result = (|| -> Result<()> {
                 conn.execute(
-                    "INSERT INTO cron_job_targets (job_id, channel, target)
-                     VALUES (?1, ?2, ?3)",
-                    params![id, target.channel, target.to],
+                    "DELETE FROM cron_job_targets WHERE job_id = ?1",
+                    params![id],
                 )?;
+                for target in targets {
+                    conn.execute(
+                        "INSERT INTO cron_job_targets (job_id, channel, target)
+                         VALUES (?1, ?2, ?3)",
+                        params![id, target.channel, target.to],
+                    )?;
+                }
+                Ok(())
+            })();
+            if target_result.is_ok() {
+                conn.execute_batch("RELEASE update_targets")?;
+            } else {
+                let _ = conn.execute_batch("ROLLBACK TO update_targets");
             }
+            target_result?;
         }
 
         Ok(updated > 0)
+    }
+
+    /// Update only the completion status and error of a cron job.
+    /// Does not touch `run_count`, `next_run_at_ms`, or other state fields,
+    /// avoiding a read-modify-write race with the polling loop.
+    pub fn update_cron_job_status(
+        &self,
+        id: &str,
+        status: &str,
+        error: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        conn.execute(
+            "UPDATE cron_jobs SET last_status = ?1, last_error = ?2 WHERE id = ?3",
+            params![status, error, id],
+        )?;
+        Ok(())
     }
 
     pub fn count_cron_jobs_by_name(&self, name: &str) -> Result<usize> {
