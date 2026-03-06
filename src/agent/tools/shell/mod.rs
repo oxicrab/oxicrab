@@ -250,6 +250,30 @@ impl ExecTool {
                         )
                     ));
                 }
+            } else if cleaned.starts_with('~') {
+                // Tilde expansion: resolve ~ to home dir and check against workspace
+                let expanded = if cleaned == "~" {
+                    dirs::home_dir().unwrap_or_default()
+                } else if let Some(rest) = cleaned.strip_prefix("~/") {
+                    dirs::home_dir().unwrap_or_default().join(rest)
+                } else {
+                    // ~otheruser — can't resolve, block conservatively
+                    return Some(format!(
+                        "path '{cleaned}' uses tilde expansion outside workspace"
+                    ));
+                };
+                let resolved = expanded
+                    .canonicalize()
+                    .unwrap_or_else(|_| lexical_normalize(&expanded));
+                if !resolved.starts_with(workspace) {
+                    return Some(format!(
+                        "path '{}' resolves outside workspace",
+                        crate::utils::path_sanitize::sanitize_path(
+                            Path::new(cleaned),
+                            Some(workspace),
+                        )
+                    ));
+                }
             } else if cleaned.contains("..") {
                 // Check for relative path traversal
                 let resolved = working_dir.join(cleaned);

@@ -359,22 +359,19 @@ impl AgentLoop {
         collected_media: &mut Vec<String>,
         checkpoint_tracker: &mut CheckpointTracker,
     ) {
-        // Add all results to messages in order and collect media
-        if tool_calls.len() != results.len() {
+        // Add all results to messages in order and collect media.
+        // Pad if lengths mismatch (should not happen, but ensures every tool call
+        // gets a result so safety checks below still scan all entries).
+        let mut results = results;
+        if results.len() < tool_calls.len() {
             error!(
                 "tool_calls and results length mismatch: {} vs {} — adding error results for missing entries",
                 tool_calls.len(),
                 results.len()
             );
-            // Pad results to match tool_calls length so every tool call gets a response
-            let mut results = results;
             while results.len() < tool_calls.len() {
                 results.push(("Tool execution result was lost".to_string(), true));
             }
-            for (tc, (result_str, is_error)) in tool_calls.iter().zip(results.into_iter()) {
-                ContextBuilder::add_tool_result(messages, &tc.id, &tc.name, &result_str, is_error);
-            }
-            return;
         }
         for (tc, (result_str, is_error)) in tool_calls.iter().zip(results.into_iter()) {
             if !is_error {

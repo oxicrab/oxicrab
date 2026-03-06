@@ -300,12 +300,11 @@ pub fn apply_to_command(
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-#[allow(clippy::unnecessary_wraps)]
 pub fn apply_to_command(
     _cmd: &mut tokio::process::Command,
     _rules: &SandboxRules,
 ) -> anyhow::Result<()> {
-    Ok(())
+    anyhow::bail!("sandbox not available on this platform (only Linux and macOS are supported)")
 }
 
 #[cfg(test)]

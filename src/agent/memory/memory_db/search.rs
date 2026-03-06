@@ -97,9 +97,16 @@ impl MemoryDB {
                             ((max_score - score) / range) as f32
                         };
                         let age_days = chrono::DateTime::parse_from_rfc3339(&created_at)
-                            .map_or(0.0, |dt| {
-                                (now - dt.with_timezone(&Utc)).num_seconds() as f64 / 86400.0
-                            });
+                            .map(|dt| dt.with_timezone(&Utc))
+                            .or_else(|_| {
+                                // Fallback for entries with SQLite datetime('now') format
+                                chrono::NaiveDateTime::parse_from_str(
+                                    &created_at,
+                                    "%Y-%m-%d %H:%M:%S",
+                                )
+                                .map(|ndt| ndt.and_utc())
+                            })
+                            .map_or(0.0, |dt| (now - dt).num_seconds() as f64 / 86400.0);
                         let decayed = normalized * recency_decay(age_days, recency_half_life_days);
                         fts_scores.insert(id, (decayed, key, content));
                     }
