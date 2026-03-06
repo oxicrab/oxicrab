@@ -219,7 +219,7 @@ impl Tool for GoogleTasksTool {
                     body["status"] = Value::String(status.to_string());
                 }
 
-                if body.as_object().map_or(true, |o| o.is_empty()) {
+                if body.as_object().is_none_or(serde_json::Map::is_empty) {
                     return Ok(ToolResult::error(
                         "update_task requires at least one field: title, notes, due, or status"
                             .to_string(),
