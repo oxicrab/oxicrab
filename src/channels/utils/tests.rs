@@ -3,6 +3,16 @@ use super::*;
 /// Serialize tests that mutate the `OXICRAB_HOME` env var to prevent races.
 static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// RAII guard that removes an env var on drop, ensuring cleanup even on panic.
+struct EnvVarGuard(&'static str);
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        // SAFETY: serialized by ENV_MUTEX
+        unsafe { std::env::remove_var(self.0) };
+    }
+}
+
 #[test]
 fn test_empty_allow_list_denies_all() {
     // No pairing DB exists in test env, so this is pure deny
@@ -52,12 +62,13 @@ fn test_no_substring_match() {
 
 #[test]
 fn test_pairing_store_fallback() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-
-    // Set up a temp dir with a MemoryDB containing pairing data
+    let _lock = ENV_MUTEX
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let dir = tempfile::tempdir().unwrap();
-    // SAFETY: serialized by ENV_MUTEX; env var is restored before returning
+    // SAFETY: serialized by ENV_MUTEX; cleaned up by EnvVarGuard on drop
     unsafe { std::env::set_var("OXICRAB_HOME", dir.path().as_os_str()) };
+    let _env = EnvVarGuard("OXICRAB_HOME");
 
     // Create the workspace/memory directory and populate the DB
     let db_dir = dir.path().join("workspace").join("memory");
@@ -72,9 +83,6 @@ fn test_pairing_store_fallback() {
     assert!(check_allowed_sender("user789", &[], "telegram"));
     // Not in allowFrom and not paired → denied
     assert!(!check_allowed_sender("unknown", &[], "telegram"));
-
-    // SAFETY: restoring env var after test
-    unsafe { std::env::remove_var("OXICRAB_HOME") };
 }
 
 #[test]
@@ -111,11 +119,13 @@ fn test_dm_access_allowlist_allows_known() {
 
 #[test]
 fn test_dm_access_pairing_returns_code() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-
+    let _lock = ENV_MUTEX
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let dir = tempfile::tempdir().unwrap();
-    // SAFETY: serialized by ENV_MUTEX; env var is restored before returning
+    // SAFETY: serialized by ENV_MUTEX; cleaned up by EnvVarGuard on drop
     unsafe { std::env::set_var("OXICRAB_HOME", dir.path().as_os_str()) };
+    let _env = EnvVarGuard("OXICRAB_HOME");
 
     // Create the workspace/memory directory so PairingStore::open_default() can work
     // But open_default() uses load_config — in tests, we need a config file.
@@ -130,9 +140,6 @@ fn test_dm_access_pairing_returns_code() {
         .unwrap()
         .unwrap();
     assert_eq!(code.len(), 8);
-
-    // SAFETY: restoring env var
-    unsafe { std::env::remove_var("OXICRAB_HOME") };
 }
 
 #[test]
