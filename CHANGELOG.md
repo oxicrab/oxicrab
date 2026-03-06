@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.1] - 2026-03-06
+
+### Added
+- **memory:** add explain_last action to memory_search tool ([3ca2ea2](https://github.com/oxicrab/oxicrab/commit/3ca2ea28bef2b2e38818f8ab31bdc8aff2f92fb6))
+
+
+### CI/CD
+- restructure pipeline for faster PRs and better security ([7127e23](https://github.com/oxicrab/oxicrab/commit/7127e237d77e4c3982f4be8d7e9735a27f3998d3))
+
+
+### Fixed
+- move struct definition before statements to satisfy clippy ([efdbabe](https://github.com/oxicrab/oxicrab/commit/efdbabe8499033dd8463f2866c8141a1c629a149))
+- **pairing:** revert CSPRNG code generation — uuid::new_v4() hangs ([eaceed8](https://github.com/oxicrab/oxicrab/commit/eaceed88093d2b7c93c957dbf014370770544294))
+- update extract_media_paths tests for media dir restriction ([fb9804f](https://github.com/oxicrab/oxicrab/commit/fb9804fdb7a40a40b2d9bcfdded759b49ac94fd6))
+- **memory:** clarify query is required for search action in schema description ([75f7510](https://github.com/oxicrab/oxicrab/commit/75f75108480ebde2e1bc43257614a87a3df57f68))
+- **pairing:** revert CSPRNG code generation — uuid::new_v4() hangs ([304ee49](https://github.com/oxicrab/oxicrab/commit/304ee49da57dfc8ab99b843376549e3df31084b4))
+- address 3 remaining audit findings ([0d7a1a0](https://github.com/oxicrab/oxicrab/commit/0d7a1a0678989b17ca8487788761a0b74e90711b))
+- restrict media path extraction to trusted media directory ([6ccdb01](https://github.com/oxicrab/oxicrab/commit/6ccdb01987cee091844a273f67bcce8632c77836))
+- address 6 bugs from focused cron/memory audit ([fc384a7](https://github.com/oxicrab/oxicrab/commit/fc384a7e7737358a6a94f6b080014ec3b9c8ef3a))
+
 ## [0.14.0] - 2026-03-06
 
 ### Added
