@@ -44,15 +44,18 @@ pub fn write_json_locked<T: Serialize>(path: &Path, value: &T) -> Result<()> {
 
     let content = serde_json::to_string_pretty(value)?;
     crate::utils::atomic_write(path, &content)?;
-    set_owner_only_permissions(path);
+    set_owner_only_permissions(path)?;
     Ok(())
 }
 
 /// Set owner-only file permissions (0600) on Unix. No-op on non-Unix.
-pub fn set_owner_only_permissions(path: &Path) {
+pub fn set_owner_only_permissions(path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).with_context(
+            || format!("Failed to set owner-only permissions on {}", path.display()),
+        )?;
     }
+    Ok(())
 }

@@ -652,7 +652,7 @@ fn save_credentials_to_store(creds: &GoogleCredentials, store: &dyn OAuthTokenSt
     });
     let extra_str = serde_json::to_string(&extra)?;
     let expires_at = creds.expiry.unwrap_or(0) as i64;
-    let _ = credential_store::save_oauth_token(
+    credential_store::save_oauth_token(
         Some(store),
         "google",
         &creds.token,

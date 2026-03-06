@@ -1,17 +1,15 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use rusqlite::Connection;
 
 const MIGRATION_0001_BASE: &str = include_str!("migrations/0001_base.sql");
 
 pub fn apply_migrations(conn: &Connection) -> Result<()> {
-    let current: u32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-
-    if current < 1 {
+    if user_version(conn)? < 1 {
         conn.execute_batch(MIGRATION_0001_BASE)?;
         conn.execute("PRAGMA user_version = 1", [])?;
     }
 
-    if current < 2 {
+    if user_version(conn)? < 2 {
         add_column_if_missing(conn, "llm_cost_log", "request_id", "TEXT")?;
         add_column_if_missing(conn, "intent_metrics", "request_id", "TEXT")?;
         add_column_if_missing(conn, "memory_access_log", "request_id", "TEXT")?;
@@ -70,22 +68,47 @@ pub fn ensure_fts_objects(conn: &Connection) -> Result<bool> {
 
 fn add_column_if_missing(
     conn: &Connection,
-    table: &str,
-    column: &str,
-    definition: &str,
+    table: &'static str,
+    column: &'static str,
+    definition: &'static str,
 ) -> Result<()> {
-    let pragma = format!("PRAGMA table_info({table})");
-    let mut stmt = conn.prepare(&pragma)?;
-    let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    ensure_allowed_column_addition(table, column, definition)?;
+
+    let mut stmt = conn.prepare("SELECT name FROM pragma_table_info(?1)")?;
+    let columns = stmt.query_map([table], |row| row.get::<_, String>(0))?;
     for c in columns {
         if c? == column {
             return Ok(());
         }
     }
 
-    let alter = format!("ALTER TABLE {table} ADD COLUMN {column} {definition}");
+    let alter = format!(
+        "ALTER TABLE \"{}\" ADD COLUMN \"{}\" {}",
+        table, column, definition
+    );
     conn.execute(&alter, [])?;
     Ok(())
+}
+
+fn user_version(conn: &Connection) -> Result<u32> {
+    let current: u32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    Ok(current)
+}
+
+fn ensure_allowed_column_addition(
+    table: &'static str,
+    column: &'static str,
+    definition: &'static str,
+) -> Result<()> {
+    if matches!(
+        (table, column, definition),
+        ("llm_cost_log", "request_id", "TEXT")
+            | ("intent_metrics", "request_id", "TEXT")
+            | ("memory_access_log", "request_id", "TEXT")
+    ) {
+        return Ok(());
+    }
+    bail!("Unsupported migration column addition: {table}.{column} {definition}")
 }
 
 #[cfg(test)]
