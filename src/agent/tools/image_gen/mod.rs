@@ -160,7 +160,7 @@ impl ImageGenTool {
             anyhow::bail!("image data too large ({} bytes encoded)", b64.len());
         }
         let bytes = base64::engine::general_purpose::STANDARD.decode(b64)?;
-        let path = crate::utils::media::save_media_file(&bytes, "imagegen", "png", None)?;
+        let path = crate::utils::media::save_media_file(&bytes, "imagegen", "png")?;
         Ok(path)
     }
 
@@ -226,7 +226,7 @@ impl ImageGenTool {
             anyhow::bail!("image data too large ({} bytes encoded)", b64.len());
         }
         let bytes = base64::engine::general_purpose::STANDARD.decode(b64)?;
-        let path = crate::utils::media::save_media_file(&bytes, "imagegen", ext, None)?;
+        let path = crate::utils::media::save_media_file(&bytes, "imagegen", ext)?;
         Ok(path)
     }
 }

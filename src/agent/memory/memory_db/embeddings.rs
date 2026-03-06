@@ -68,7 +68,7 @@ impl MemoryDB {
         Ok(rows
             .map_err(|e| anyhow::anyhow!("Failed to get embeddings: {e}"))?
             .into_iter()
-            .filter(|(_, _, key, _)| !exclude.contains(key))
+            .filter(|(_, source_key, _, _)| !exclude.contains(source_key))
             .collect())
     }
 

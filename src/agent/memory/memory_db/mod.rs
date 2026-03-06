@@ -178,7 +178,7 @@ impl MemoryDB {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS memory_search_hits (
                 id INTEGER PRIMARY KEY,
-                access_log_id INTEGER NOT NULL REFERENCES memory_access_log(id),
+                access_log_id INTEGER NOT NULL REFERENCES memory_access_log(id) ON DELETE CASCADE,
                 source_key TEXT NOT NULL
             )",
             [],

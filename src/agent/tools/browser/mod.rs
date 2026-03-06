@@ -381,7 +381,7 @@ impl BrowserTool {
                     .await
                     .map_err(|e| format!("screenshot failed: {e}"))?;
 
-                let path = save_media_file(&bytes, "screenshot", "png", None)
+                let path = save_media_file(&bytes, "screenshot", "png")
                     .map_err(|e| format!("failed to save screenshot: {e}"))?;
                 Ok(format!(
                     "Screenshot saved to: {path}\nSize: {} bytes\nThe screenshot will be attached to your response automatically.",

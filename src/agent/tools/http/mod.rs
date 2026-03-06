@@ -174,7 +174,7 @@ impl HttpTool {
                             )));
                         }
                     };
-                    return match save_media_file(&bytes, "http", ext, None) {
+                    return match save_media_file(&bytes, "http", ext) {
                         Ok(path) => Ok(ToolResult::new(format!(
                             "HTTP {} {}{}\n\nBinary content saved to: {}\nSize: {} bytes\nType: {}",
                             status,
