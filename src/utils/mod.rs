@@ -1,4 +1,6 @@
+pub mod credential_store;
 pub mod http;
+pub mod io_safe;
 pub mod media;
 pub mod path_sanitize;
 pub mod regex;
