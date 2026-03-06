@@ -147,6 +147,7 @@ impl AgentLoop {
                     exfiltration_guard,
                     prompt_guard: prompt_guard_config,
                 },
+            memory_db: shared_db,
         } = config;
 
         // Extract receiver from the bus (called once at startup).
@@ -158,7 +159,14 @@ impl AgentLoop {
         let model = model.unwrap_or_else(|| provider.default_model().to_string());
 
         let sessions: Arc<dyn SessionStore> = Arc::new(SessionManager::new(&workspace)?);
-        let memory = Arc::new(if let Some(ref mem_cfg) = memory_config {
+        // Reuse a pre-opened MemoryDB when available (avoids duplicate connections)
+        let memory = Arc::new(if let Some(db) = shared_db {
+            if let Some(ref mem_cfg) = memory_config {
+                MemoryStore::with_db_and_config(db, mem_cfg)
+            } else {
+                MemoryStore::with_db(db)
+            }
+        } else if let Some(ref mem_cfg) = memory_config {
             MemoryStore::with_config(&workspace, mem_cfg)?
         } else {
             MemoryStore::new(&workspace)?
@@ -253,6 +261,7 @@ impl AgentLoop {
                     prompt_guard_config: prompt_guard_config.clone(),
                     exfil_guard: exfiltration_guard.clone(),
                     main_tools: None, // set after register_all_tools()
+                    memory_db: Some(memory.db()),
                 }
             },
             allowed_commands: tool_configs.allowed_commands,
@@ -303,15 +312,13 @@ impl AgentLoop {
         // cron_service exists so that new event-triggered jobs added after
         // startup can be picked up by the periodic rebuild.
         let event_matcher = if let Some(ref cron_svc) = cron_service {
-            let matcher = match cron_svc.load_store(false).await {
-                Ok(store) => {
-                    let m = EventMatcher::from_jobs(&store.jobs);
+            let matcher = match cron_svc.list_jobs(true) {
+                Ok(jobs) => {
+                    let m = EventMatcher::from_jobs(&jobs);
                     if !m.is_empty() {
                         info!(
                             "Event matcher initialized with {} event-triggered job(s)",
-                            store
-                                .jobs
-                                .iter()
+                            jobs.iter()
                                 .filter(|j| matches!(
                                     j.schedule,
                                     crate::cron::types::CronSchedule::Event { .. }
@@ -322,7 +329,7 @@ impl AgentLoop {
                     m
                 }
                 Err(e) => {
-                    warn!("Failed to load cron store for event matcher: {}", e);
+                    warn!("Failed to load cron jobs for event matcher: {}", e);
                     EventMatcher::from_jobs(&[])
                 }
             };

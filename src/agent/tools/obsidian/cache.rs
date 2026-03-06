@@ -25,11 +25,11 @@
 //! pending writes, or every `sync_interval` otherwise).
 
 use super::client::ObsidianApiClient;
+use crate::agent::memory::memory_db::MemoryDB;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -83,52 +83,72 @@ pub(crate) fn safe_vault_name(name: &str) -> String {
 }
 
 /// Local file cache for an Obsidian vault, backed by the REST API.
+/// State and queue are persisted to `MemoryDB` when available.
+/// Cached markdown files remain on disk.
 pub struct ObsidianCache {
     cache_dir: PathBuf,
-    state_path: PathBuf,
-    queue_path: PathBuf,
+    vault_name: String,
+    db: Option<Arc<MemoryDB>>,
     pub(crate) client: Arc<ObsidianApiClient>,
     pub(crate) state: Arc<Mutex<SyncState>>,
     pub(crate) write_queue: Arc<Mutex<Vec<QueuedWrite>>>,
 }
 
 impl ObsidianCache {
-    pub fn new(client: Arc<ObsidianApiClient>, vault_name: &str) -> Result<Self> {
-        let home =
-            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
-        let base = home
-            .join(".oxicrab")
+    pub fn new(
+        client: Arc<ObsidianApiClient>,
+        vault_name: &str,
+        db: Option<Arc<MemoryDB>>,
+    ) -> Result<Self> {
+        let base = crate::utils::get_oxicrab_home()?
             .join("obsidian_cache")
             .join(safe_vault_name(vault_name));
         std::fs::create_dir_all(&base)?;
 
-        let state_path = base.join("sync_state.json");
-        let queue_path = base.join("write_queue.json");
+        let safe_name = safe_vault_name(vault_name);
 
-        let state = if state_path.exists() {
-            let mut file = std::fs::File::open(&state_path)?;
-            fs2::FileExt::lock_shared(&file)?;
-            let mut data = String::new();
-            file.read_to_string(&mut data)?;
-            serde_json::from_str(&data).unwrap_or_default()
-        } else {
-            SyncState::default()
-        };
+        let (state, write_queue) = if let Some(ref db) = db {
+            let files_map = db.list_obsidian_sync(&safe_name)?;
+            let last_full_sync_at = db.get_last_full_sync(&safe_name)?;
+            let files: HashMap<String, CachedFileMeta> = files_map
+                .into_iter()
+                .map(|(path, row)| {
+                    (
+                        path,
+                        CachedFileMeta {
+                            content_hash: row.content_hash,
+                            last_synced_at: row.last_synced_at,
+                            size: row.size,
+                        },
+                    )
+                })
+                .collect();
+            let state = SyncState {
+                files,
+                last_full_sync_at,
+            };
 
-        let write_queue = if queue_path.exists() {
-            let mut file = std::fs::File::open(&queue_path)?;
-            fs2::FileExt::lock_shared(&file)?;
-            let mut data = String::new();
-            file.read_to_string(&mut data)?;
-            serde_json::from_str(&data).unwrap_or_default()
+            let queue_rows = db.list_obsidian_queue(&safe_name)?;
+            let write_queue: Vec<QueuedWrite> = queue_rows
+                .into_iter()
+                .map(|row| QueuedWrite {
+                    path: row.path,
+                    content: row.content,
+                    operation: row.operation,
+                    queued_at: row.queued_at,
+                    pre_write_hash: row.pre_write_hash,
+                })
+                .collect();
+
+            (state, write_queue)
         } else {
-            Vec::new()
+            (SyncState::default(), Vec::new())
         };
 
         Ok(Self {
             cache_dir: base,
-            state_path,
-            queue_path,
+            vault_name: safe_name,
+            db,
             client,
             state: Arc::new(Mutex::new(state)),
             write_queue: Arc::new(Mutex::new(write_queue)),
@@ -136,13 +156,15 @@ impl ObsidianCache {
     }
 
     #[cfg(test)]
-    pub fn with_dir(client: Arc<ObsidianApiClient>, cache_dir: PathBuf) -> Self {
-        let state_path = cache_dir.join("sync_state.json");
-        let queue_path = cache_dir.join("write_queue.json");
+    pub fn with_dir(
+        client: Arc<ObsidianApiClient>,
+        cache_dir: PathBuf,
+        db: Option<Arc<MemoryDB>>,
+    ) -> Self {
         Self {
             cache_dir,
-            state_path,
-            queue_path,
+            vault_name: "test_vault".to_string(),
+            db,
             client,
             state: Arc::new(Mutex::new(SyncState::default())),
             write_queue: Arc::new(Mutex::new(Vec::new())),
@@ -345,8 +367,9 @@ impl ObsidianCache {
         }
 
         *queue = remaining;
+        let snapshot: Vec<QueuedWrite> = queue.clone();
         drop(queue);
-        self.persist_queue().await?;
+        self.persist_queue(&snapshot)?;
         Ok(())
     }
 
@@ -427,7 +450,7 @@ impl ObsidianCache {
         let state_clone = state.clone();
         drop(state);
 
-        self.persist_state(&state_clone).await?;
+        self.persist_state(&state_clone)?;
 
         if added > 0 || updated > 0 || removed > 0 {
             info!(
@@ -470,7 +493,7 @@ impl ObsidianCache {
         );
         let state_clone = state.clone();
         drop(state);
-        if let Err(e) = self.persist_state(&state_clone).await {
+        if let Err(e) = self.persist_state(&state_clone) {
             warn!("Failed to persist sync state: {}", e);
         }
     }
@@ -494,43 +517,23 @@ impl ObsidianCache {
             queued_at: chrono::Utc::now().timestamp(),
             pre_write_hash: pre_hash,
         });
+        let snapshot: Vec<QueuedWrite> = queue.clone();
         drop(queue);
-        self.persist_queue().await
+        self.persist_queue(&snapshot)
     }
 
-    async fn persist_state(&self, state: &SyncState) -> Result<()> {
-        let json = serde_json::to_string_pretty(state)?;
-        let state_path = self.state_path.clone();
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let lock_path = state_path.with_extension("json.lock");
-            let lock_file = std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&lock_path)?;
-            fs2::FileExt::lock_exclusive(&lock_file)?;
-            crate::utils::atomic_write(&state_path, &json)
-        })
-        .await?
+    fn persist_state(&self, state: &SyncState) -> Result<()> {
+        if let Some(ref db) = self.db {
+            db.replace_obsidian_sync(&self.vault_name, &state.files)?;
+        }
+        Ok(())
     }
 
-    async fn persist_queue(&self) -> Result<()> {
-        let queue = self.write_queue.lock().await;
-        let json = serde_json::to_string_pretty(&*queue)?;
-        drop(queue);
-
-        let queue_path = self.queue_path.clone();
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let lock_path = queue_path.with_extension("json.lock");
-            let lock_file = std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&lock_path)?;
-            fs2::FileExt::lock_exclusive(&lock_file)?;
-            crate::utils::atomic_write(&queue_path, &json)
-        })
-        .await?
+    fn persist_queue(&self, queue: &[QueuedWrite]) -> Result<()> {
+        if let Some(ref db) = self.db {
+            db.replace_obsidian_queue(&self.vault_name, queue)?;
+        }
+        Ok(())
     }
 }
 

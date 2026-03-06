@@ -430,7 +430,7 @@ cargo build --release --no-default-features</code></pre>
     <p>Sender access is resolved from three sources, checked in order. The first match wins:</p>
     <ol>
       <li><strong>Config allowlist</strong> (<code>allowFrom</code>) &mdash; sender IDs hardcoded in <code>config.json</code>. Checked first, always available. Use <code>["*"]</code> as a wildcard to allow everyone. Phone numbers are normalized (leading <code>+</code> stripped) so <code>"+15551234567"</code> and <code>"15551234567"</code> both match.</li>
-      <li><strong>Pairing store</strong> (<code>~/.oxicrab/pairing/{channel}-allowlist.json</code>) &mdash; sender IDs added dynamically via <code>oxicrab pairing approve</code>. Read from disk on every message, so approvals take effect without restarting the gateway.</li>
+      <li><strong>Pairing store</strong> (SQLite <code>pairing_allowlist</code> table in workspace <code>memory.db</code>) &mdash; sender IDs added dynamically via <code>oxicrab pairing approve</code>. Read from DB on every message, so approvals take effect without restarting the gateway.</li>
       <li><strong>DM policy fallback</strong> (<code>dmPolicy</code>) &mdash; what happens when a sender matches neither source above. This is where the three modes diverge.</li>
     </ol>
 
@@ -448,7 +448,7 @@ cargo build --release --no-default-features</code></pre>
         no
         v
   Sender in pairing store? ──yes──> ALLOW
-  (~/.oxicrab/pairing/{channel}-allowlist.json)
+  (pairing_allowlist table in memory.db)
         |
         no
         v
@@ -479,7 +479,7 @@ cargo build --release --no-default-features</code></pre>
         </ul>
       </li>
       <li><strong>The sender shares the code with you</strong> (out-of-band &mdash; in person, via another chat, etc.).</li>
-      <li><strong>You approve the pairing.</strong> Run <code>oxicrab pairing approve {channel} {code}</code>. This validates the code and adds the sender's ID to <code>~/.oxicrab/pairing/{channel}-allowlist.json</code>.</li>
+      <li><strong>You approve the pairing.</strong> Run <code>oxicrab pairing approve {channel} {code}</code>. This validates the code and adds the sender's ID to the <code>pairing_allowlist</code> table in the workspace database.</li>
       <li><strong>The sender is now permanently allowed.</strong> Their next message hits the pairing store check and passes. No gateway restart needed. You can revoke later with <code>oxicrab pairing revoke {channel} {sender_id}</code>.</li>
     </ol>
 

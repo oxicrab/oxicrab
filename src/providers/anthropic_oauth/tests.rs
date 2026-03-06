@@ -22,9 +22,15 @@ fn test_claude_code_headers_anthropic_version() {
 
 #[test]
 fn test_new_default_model() {
-    let provider =
-        AnthropicOAuthProvider::new("access".to_string(), "refresh".to_string(), 0, None, None)
-            .unwrap();
+    let provider = AnthropicOAuthProvider::new(
+        "access".to_string(),
+        "refresh".to_string(),
+        0,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
     assert_eq!(provider.default_model, "claude-opus-4-6");
 }
 
@@ -35,6 +41,7 @@ fn test_new_strips_anthropic_prefix() {
         "refresh".to_string(),
         0,
         Some("anthropic/claude-sonnet-4-5-20250929".to_string()),
+        None,
         None,
     )
     .unwrap();
@@ -48,6 +55,7 @@ fn test_new_no_prefix_preserved() {
         "refresh".to_string(),
         0,
         Some("claude-opus-4-6".to_string()),
+        None,
         None,
     )
     .unwrap();
@@ -102,7 +110,7 @@ fn test_from_credentials_file_invalid_json() {
 }
 
 #[test]
-fn test_load_cached_tokens_fresher_tokens_applied() {
+fn test_load_cached_tokens_from_file_fresher_applied() {
     let dir = tempfile::tempdir().unwrap();
     let cache_path = dir.path().join("oauth_cache.json");
     std::fs::write(
@@ -117,6 +125,7 @@ fn test_load_cached_tokens_fresher_tokens_applied() {
         1000, // very old
         None,
         Some(cache_path),
+        None,
     )
     .unwrap();
 
@@ -126,7 +135,7 @@ fn test_load_cached_tokens_fresher_tokens_applied() {
 }
 
 #[test]
-fn test_load_cached_tokens_stale_ignored() {
+fn test_load_cached_tokens_from_file_stale_ignored() {
     let dir = tempfile::tempdir().unwrap();
     let cache_path = dir.path().join("oauth_cache.json");
     std::fs::write(
@@ -141,6 +150,7 @@ fn test_load_cached_tokens_stale_ignored() {
         1000, // newer than cache
         None,
         Some(cache_path),
+        None,
     )
     .unwrap();
 
@@ -150,9 +160,57 @@ fn test_load_cached_tokens_stale_ignored() {
 }
 
 #[test]
+fn test_load_cached_tokens_from_db_fresher_applied() {
+    let db = Arc::new(MemoryDB::new(":memory:").unwrap());
+    db.save_oauth_token(
+        "anthropic",
+        "db_access",
+        Some("db_refresh"),
+        9_999_999_999_999,
+        None,
+    )
+    .unwrap();
+
+    let provider = AnthropicOAuthProvider::new(
+        "old_access".to_string(),
+        "old_refresh".to_string(),
+        1000,
+        None,
+        None,
+        Some(db),
+    )
+    .unwrap();
+
+    let token = provider.access_token.try_lock().unwrap().clone();
+    assert_eq!(token, "db_access");
+    let refresh = provider.refresh_token.try_lock().unwrap().clone();
+    assert_eq!(refresh, "db_refresh");
+}
+
+#[test]
+fn test_load_cached_tokens_from_db_stale_ignored() {
+    let db = Arc::new(MemoryDB::new(":memory:").unwrap());
+    db.save_oauth_token("anthropic", "stale_db", Some("stale_ref"), 500, None)
+        .unwrap();
+
+    let provider = AnthropicOAuthProvider::new(
+        "current_access".to_string(),
+        "current_refresh".to_string(),
+        1000,
+        None,
+        None,
+        Some(db),
+    )
+    .unwrap();
+
+    let token = provider.access_token.try_lock().unwrap().clone();
+    assert_eq!(token, "current_access");
+}
+
+#[test]
 fn test_from_claude_cli_missing_file() {
     // Won't find credentials at a non-existent home dir
-    let result = AnthropicOAuthProvider::from_claude_cli(None);
+    let result = AnthropicOAuthProvider::from_claude_cli(None, None);
     // Should return Ok(None) or Ok(Some(...)) depending on whether ~/.claude exists
     assert!(result.is_ok());
 }
@@ -164,6 +222,7 @@ fn test_default_model_trait() {
         "ref".to_string(),
         0,
         Some("custom-model".to_string()),
+        None,
         None,
     )
     .unwrap();

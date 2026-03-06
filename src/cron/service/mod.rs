@@ -1,11 +1,9 @@
-use crate::cron::types::{CronJob, CronSchedule, CronStore, UpdateJobParams};
-use crate::utils::atomic_write;
+use crate::cron::types::{CronJob, CronSchedule, UpdateJobParams};
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use cron::Schedule;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
@@ -117,27 +115,19 @@ type CronJobCallback = Arc<
 
 #[derive(Clone)]
 pub struct CronService {
-    store_path: PathBuf,
-    store: Arc<Mutex<Option<CronStore>>>,
-    on_job: Arc<tokio::sync::Mutex<Option<CronJobCallback>>>,
-    running: Arc<tokio::sync::Mutex<bool>>,
+    db: Arc<crate::agent::memory::memory_db::MemoryDB>,
+    on_job: Arc<Mutex<Option<CronJobCallback>>>,
+    running: Arc<Mutex<bool>>,
     task_tracker: Arc<TaskTracker>,
-    last_mtime: Arc<Mutex<Option<SystemTime>>>,
-    /// Serializes disk writes to prevent TOCTOU between dropping the in-memory
-    /// store lock and completing the file write.
-    save_mutex: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl CronService {
-    pub fn new(store_path: PathBuf) -> Self {
+    pub fn new(db: Arc<crate::agent::memory::memory_db::MemoryDB>) -> Self {
         Self {
-            store_path,
-            store: Arc::new(Mutex::new(None)),
-            on_job: Arc::new(tokio::sync::Mutex::new(None)),
-            running: Arc::new(tokio::sync::Mutex::new(false)),
+            db,
+            on_job: Arc::new(Mutex::new(None)),
+            running: Arc::new(Mutex::new(false)),
             task_tracker: Arc::new(TaskTracker::new()),
-            last_mtime: Arc::new(Mutex::new(None)),
-            save_mutex: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -154,85 +144,11 @@ impl CronService {
         *self.on_job.lock().await = Some(Arc::new(callback));
     }
 
-    pub async fn load_store(&self, force_reload: bool) -> Result<CronStore> {
-        let mut store_guard = self.store.lock().await;
-        if !force_reload && let Some(ref store) = *store_guard {
-            return Ok(store.clone());
-        }
-
-        let store_path = self.store_path.clone();
-        let loaded = tokio::task::spawn_blocking(move || -> Result<Option<CronStore>> {
-            if !store_path.exists() {
-                return Ok(None);
-            }
-            // Use the same lock file as save_store for proper coordination
-            let lock_path = store_path.with_extension("json.lock");
-            let lock_file = std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&lock_path)?;
-            fs2::FileExt::lock_shared(&lock_file)?;
-            let content = std::fs::read_to_string(&store_path)?;
-            // lock released when `lock_file` drops
-            let store: CronStore = serde_json::from_str(&content)?;
-            Ok(Some(store))
-        })
-        .await??;
-
-        let store = loaded.unwrap_or(CronStore {
-            version: 1,
-            jobs: vec![],
-        });
-        *store_guard = Some(store.clone());
-        Ok(store)
-    }
-
-    async fn save_store(&self) -> Result<()> {
-        // Acquire save_mutex first to serialize disk writes, preventing
-        // TOCTOU between dropping the in-memory store lock and completing
-        // the file write.
-        let _save_guard = self.save_mutex.lock().await;
-        let store_guard = self.store.lock().await;
-        let content = match store_guard.as_ref() {
-            Some(store) => serde_json::to_string_pretty(store)?,
-            None => return Ok(()),
-        };
-        drop(store_guard);
-        let store_path = self.store_path.clone();
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let lock_path = store_path.with_extension("json.lock");
-            let lock_file = std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&lock_path)?;
-            fs2::FileExt::lock_exclusive(&lock_file)?;
-            atomic_write(&store_path, &content)?;
-            // lock_file dropped here, releasing the exclusive lock
-            Ok(())
-        })
-        .await??;
-        Ok(())
-    }
-
-    /// Update a job's runtime state (status, error) by ID.
-    /// Called from the job completion callback.
-    async fn update_job_state(
-        &self,
-        job_id: &str,
-        status: String,
-        error: Option<String>,
-    ) -> Result<()> {
-        let mut store_guard = self.store.lock().await;
-        if let Some(store) = store_guard.as_mut()
-            && let Some(job) = store.jobs.iter_mut().find(|j| j.id == job_id)
-        {
-            job.state.last_status = Some(status);
-            job.state.last_error = error;
-        }
-        drop(store_guard);
-        self.save_store().await
+    /// Update only a job's completion status and error by ID.
+    /// Called from the job completion callback. Uses a targeted SQL UPDATE
+    /// to avoid a read-modify-write race with the polling loop.
+    fn update_job_status(&self, job_id: &str, status: &str, error: Option<&str>) -> Result<()> {
+        self.db.update_cron_job_status(job_id, status, error)
     }
 
     pub async fn start(&self) -> Result<()> {
@@ -248,55 +164,19 @@ impl CronService {
                     break;
                 }
 
-                // Reload from disk only when the file has changed (mtime check),
-                // to pick up external CLI changes without redundant I/O each tick.
-                let file_changed = match std::fs::metadata(&service.store_path)
-                    .and_then(|m| m.modified())
-                    .ok()
-                {
-                    None => true,
-                    Some(mtime) => {
-                        let mut prev = service.last_mtime.lock().await;
-                        if prev.is_none_or(|prev| mtime != prev) {
-                            *prev = Some(mtime);
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                };
-                if let Err(e) = service.load_store(file_changed).await {
-                    warn!("Failed to reload cron store: {}", e);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(POLL_WHEN_EMPTY_SEC)).await;
-                    continue;
-                }
-
                 // On first tick, recover jobs stuck in "running" from a prior crash
                 if first_tick {
-                    let mut guard = service.store.lock().await;
-                    if let Some(store) = guard.as_mut() {
-                        let mut recovered = 0usize;
-                        for job in &mut store.jobs {
-                            if job.state.last_status.as_deref() == Some("running") {
-                                job.state.last_status = Some("interrupted".to_string());
-                                job.state.last_error =
-                                    Some("process restarted while job was running".to_string());
-                                recovered += 1;
-                            }
-                        }
-                        if recovered > 0 {
+                    match service.db.recover_running_cron_jobs() {
+                        Ok(recovered) if recovered > 0 => {
                             warn!(
                                 "recovered {} cron job(s) stuck in 'running' from prior crash",
                                 recovered
                             );
-                            // Persist recovery immediately so it's not lost
-                            drop(guard);
-                            if let Err(e) = service.save_store().await {
-                                warn!("failed to persist recovered job state: {}", e);
-                            }
-                        } else {
-                            drop(guard);
                         }
+                        Err(e) => {
+                            warn!("failed to recover running cron jobs: {}", e);
+                        }
+                        _ => {}
                     }
                 }
 
@@ -306,21 +186,19 @@ impl CronService {
                 let callback_opt = on_job_guard.as_ref().map(std::clone::Clone::clone);
                 drop(on_job_guard);
 
-                let mut store_dirty = false;
                 let mut jobs_to_fire: Vec<(CronJob, CronJobCallback)> = vec![];
 
-                let mut store_guard = service.store.lock().await;
-                let Some(store) = store_guard.as_mut() else {
-                    drop(store_guard);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(POLL_WHEN_EMPTY_SEC)).await;
-                    continue;
-                };
-
-                for job in &mut store.jobs {
-                    if !job.enabled {
+                let jobs = match service.db.list_cron_jobs(false) {
+                    Ok(jobs) => jobs,
+                    Err(e) => {
+                        warn!("failed to list cron jobs: {}", e);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(POLL_WHEN_EMPTY_SEC))
+                            .await;
                         continue;
                     }
+                };
 
+                for job in &jobs {
                     // Check expiry: disable job if past its expires_at or max_runs
                     let expired = job.expires_at_ms.is_some_and(|exp| exp <= now);
                     let exhausted = job.max_runs.is_some_and(|max| job.state.run_count >= max);
@@ -331,10 +209,12 @@ impl CronService {
                             "max runs reached"
                         };
                         info!("Disabling cron job '{}' ({}): {}", job.name, job.id, reason);
-                        job.enabled = false;
-                        job.state.next_run_at_ms = None;
-                        job.updated_at_ms = now;
-                        store_dirty = true;
+                        if let Err(e) = service
+                            .db
+                            .update_cron_job_enabled(&job.id, false, None, now)
+                        {
+                            warn!("failed to disable cron job '{}': {}", job.id, e);
+                        }
                         continue;
                     }
 
@@ -351,10 +231,20 @@ impl CronService {
                                     "Skipping missed cron job '{}' (was due at {}ms, now {}ms)",
                                     job.id, job_next, now
                                 );
-                                job.state.next_run_at_ms = compute_next_run(&job.schedule, now);
-                                job.updated_at_ms = now;
-                                store_dirty = true;
-                                if let Some(next) = job.state.next_run_at_ms {
+                                let new_next = compute_next_run(&job.schedule, now);
+                                if let Err(e) = service.db.update_cron_job_state(
+                                    &job.id,
+                                    job.state.last_status.as_deref(),
+                                    job.state.last_error.as_deref(),
+                                    job.state.run_count,
+                                    new_next,
+                                    job.state.last_run_at_ms,
+                                    job.state.last_fired_at_ms,
+                                    now,
+                                ) {
+                                    warn!("failed to advance missed cron job '{}': {}", job.id, e);
+                                }
+                                if let Some(next) = new_next {
                                     next_run = Some(next_run.map_or(next, |n| n.min(next)));
                                 }
                                 continue;
@@ -362,54 +252,78 @@ impl CronService {
 
                             // Advance next_run_at_ms BEFORE executing so the job
                             // won't re-fire on the next tick.
-                            job.state.last_run_at_ms = Some(now);
-                            job.state.last_status = Some("running".to_string());
-                            job.state.last_error = None;
-                            job.state.run_count = job.state.run_count.saturating_add(1);
-                            job.state.next_run_at_ms =
+                            let new_next =
                                 compute_next_run_with_last(&job.schedule, now, Some(now));
-                            job.updated_at_ms = now;
-                            store_dirty = true;
+                            let new_run_count = job.state.run_count.saturating_add(1);
+                            let enabled_after = if job.delete_after_run {
+                                // Disable via update_cron_job_enabled
+                                if let Err(e) = service
+                                    .db
+                                    .update_cron_job_enabled(&job.id, false, None, now)
+                                {
+                                    warn!(
+                                        "failed to disable delete-after-run job '{}': {}",
+                                        job.id, e
+                                    );
+                                }
+                                false
+                            } else {
+                                true
+                            };
 
-                            if job.delete_after_run {
-                                job.enabled = false;
+                            if let Err(e) = service.db.update_cron_job_state(
+                                &job.id,
+                                Some("running"),
+                                None,
+                                new_run_count,
+                                if enabled_after { new_next } else { None },
+                                Some(now),
+                                job.state.last_fired_at_ms,
+                                now,
+                            ) {
+                                warn!(
+                                    "failed to update cron job '{}' state before run: {}",
+                                    job.id, e
+                                );
                             }
 
-                            // Collect job for firing outside the lock
+                            // Collect job for firing outside the loop
                             if let Some(ref callback) = callback_opt {
                                 info!("Firing cron job '{}' ({})", job.name, job.id);
-                                jobs_to_fire.push((job.clone(), callback.clone()));
+                                // Use a clone with updated state for the callback
+                                let mut job_for_callback = job.clone();
+                                job_for_callback.state.last_run_at_ms = Some(now);
+                                job_for_callback.state.last_status = Some("running".to_string());
+                                job_for_callback.state.last_error = None;
+                                job_for_callback.state.run_count = new_run_count;
+                                job_for_callback.state.next_run_at_ms =
+                                    if enabled_after { new_next } else { None };
+                                jobs_to_fire.push((job_for_callback, callback.clone()));
                             }
                         } else {
                             next_run = Some(next_run.map_or(job_next, |n| n.min(job_next)));
                         }
                     }
                 }
+
                 // Prune disabled jobs that haven't been updated in PRUNE_DISABLED_AFTER_DAYS
                 let prune_cutoff_ms = now - PRUNE_DISABLED_AFTER_DAYS * 24 * 60 * 60 * 1000;
-                let before_len = store.jobs.len();
-                store
-                    .jobs
-                    .retain(|j| j.enabled || j.updated_at_ms > prune_cutoff_ms);
-                let pruned = before_len - store.jobs.len();
-                if pruned > 0 {
-                    info!(
-                        "Pruned {} disabled cron jobs older than {} days",
-                        pruned, PRUNE_DISABLED_AFTER_DAYS
-                    );
-                    store_dirty = true;
+                match service.db.prune_disabled_cron_jobs(prune_cutoff_ms) {
+                    Ok(pruned) if pruned > 0 => {
+                        info!(
+                            "Pruned {} disabled cron jobs older than {} days",
+                            pruned, PRUNE_DISABLED_AFTER_DAYS
+                        );
+                    }
+                    Err(e) => {
+                        warn!("failed to prune disabled cron jobs: {}", e);
+                    }
+                    _ => {}
                 }
-
-                drop(store_guard);
 
                 first_tick = false;
 
-                // Persist updated state so fired jobs don't re-trigger
-                if store_dirty && let Err(e) = service.save_store().await {
-                    warn!("Failed to persist cron store after tick: {}", e);
-                }
-
-                // Spawn job tasks outside the lock
+                // Spawn job tasks
                 for (job_clone, callback) in jobs_to_fire {
                     let svc = service.clone();
                     let job_id = job_clone.id.clone();
@@ -434,7 +348,9 @@ impl CronService {
                                     ("error".to_string(), Some(e.to_string()))
                                 }
                             };
-                            if let Err(e) = svc.update_job_state(&job_id, status, error).await {
+                            if let Err(e) =
+                                svc.update_job_status(&job_id, &status, error.as_deref())
+                            {
                                 warn!("Failed to update cron job '{}' state: {}", job_id, e);
                             }
                         })
@@ -467,40 +383,11 @@ impl CronService {
         self.task_tracker.cancel_all().await;
     }
 
-    pub async fn add_job(&self, mut job: CronJob) -> Result<()> {
-        self.load_store(true).await?;
-        let mut store_guard = self.store.lock().await;
-        let store = store_guard
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("CronService store is not initialized"))?;
-
-        // Auto-deduplicate names (case-insensitive) by appending suffix
-        let base_lower = job.name.to_lowercase();
-        let has_dup = store
-            .jobs
-            .iter()
-            .any(|j| j.name.to_lowercase() == base_lower);
-        if has_dup {
-            // Find next available suffix (bounded to prevent pathological loops)
-            let mut n = 2u32;
-            let mut found = false;
-            for _ in 0..10_000 {
-                let candidate = format!("{} ({})", job.name, n);
-                let cand_lower = candidate.to_lowercase();
-                if !store
-                    .jobs
-                    .iter()
-                    .any(|j| j.name.to_lowercase() == cand_lower)
-                {
-                    job.name = candidate;
-                    found = true;
-                    break;
-                }
-                n += 1;
-            }
-            if !found {
-                anyhow::bail!("unable to find unique name for job after 10000 attempts");
-            }
+    pub fn add_job(&self, mut job: CronJob) -> Result<()> {
+        // Auto-deduplicate names (case-insensitive) by appending suffix.
+        // Single query fetches all matching names, dedup happens in memory.
+        if let Some(n) = self.db.next_cron_job_name_suffix(&job.name)? {
+            job.name = format!("{} ({n})", job.name);
         }
 
         // Compute first run time eagerly so `list` shows it immediately
@@ -508,119 +395,65 @@ impl CronService {
             job.state.next_run_at_ms = compute_next_run(&job.schedule, now_ms());
         }
 
-        store.jobs.push(job);
-        drop(store_guard);
-        self.save_store().await?;
+        self.db.insert_cron_job(&job)?;
         Ok(())
     }
 
-    pub async fn remove_job(&self, job_id: &str) -> Result<Option<CronJob>> {
-        self.load_store(true).await?;
-        let mut store_guard = self.store.lock().await;
-        let store = store_guard
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("CronService store is not initialized"))?;
-        let mut removed = None;
-        let mut remaining = Vec::new();
-        for job in store.jobs.drain(..) {
-            if job.id == job_id {
-                removed = Some(job);
-            } else {
-                remaining.push(job);
-            }
+    pub fn remove_job(&self, job_id: &str) -> Result<Option<CronJob>> {
+        let job = self.db.get_cron_job(job_id)?;
+        if job.is_some() {
+            self.db.delete_cron_job(job_id)?;
         }
-        store.jobs = remaining;
-        drop(store_guard);
-        if removed.is_some() {
-            self.save_store().await?;
-        }
-        Ok(removed)
+        Ok(job)
     }
 
-    pub async fn list_jobs(&self, include_disabled: bool) -> Result<Vec<CronJob>> {
-        // Force reload from disk to pick up external CLI changes
-        let store = self.load_store(true).await?;
-        let mut jobs: Vec<CronJob> = if include_disabled {
-            store.jobs
-        } else {
-            store.jobs.into_iter().filter(|j| j.enabled).collect()
-        };
+    pub fn list_jobs(&self, include_disabled: bool) -> Result<Vec<CronJob>> {
+        let mut jobs = self.db.list_cron_jobs(include_disabled)?;
         jobs.sort_by_key(|j| j.state.next_run_at_ms.unwrap_or(i64::MAX));
         Ok(jobs)
     }
 
-    pub async fn enable_job(&self, job_id: &str, enabled: bool) -> Result<Option<CronJob>> {
-        self.load_store(true).await?;
-        let mut store_guard = self.store.lock().await;
-        let store = store_guard
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("CronService store is not initialized"))?;
-
-        for job in &mut store.jobs {
-            if job.id == job_id {
-                let now = now_ms();
-                job.enabled = enabled;
-                job.updated_at_ms = now;
-                if enabled {
-                    job.state.next_run_at_ms = compute_next_run(&job.schedule, now);
-                } else {
-                    job.state.next_run_at_ms = None;
-                }
-                let result = Some(job.clone());
-                drop(store_guard);
-                self.save_store().await?;
-                return Ok(result);
-            }
+    pub fn enable_job(&self, job_id: &str, enabled: bool) -> Result<Option<CronJob>> {
+        let job = self.db.get_cron_job(job_id)?;
+        if job.is_none() {
+            return Ok(None);
         }
-        Ok(None)
+        let job = job.unwrap();
+        let now = now_ms();
+        let next_run = if enabled {
+            compute_next_run(&job.schedule, now)
+        } else {
+            None
+        };
+        self.db
+            .update_cron_job_enabled(job_id, enabled, next_run, now)?;
+        self.db.get_cron_job(job_id)
     }
 
-    pub async fn update_job(
-        &self,
-        job_id: &str,
-        params: UpdateJobParams,
-    ) -> Result<Option<CronJob>> {
-        self.load_store(true).await?;
-        let mut store_guard = self.store.lock().await;
-        let store = store_guard
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("CronService store is not initialized"))?;
+    pub fn update_job(&self, job_id: &str, params: &UpdateJobParams) -> Result<Option<CronJob>> {
+        let job = self.db.get_cron_job(job_id)?;
+        let Some(job) = job else {
+            return Ok(None);
+        };
+        let now = now_ms();
 
-        for job in &mut store.jobs {
-            if job.id == job_id {
-                if let Some(n) = params.name {
-                    job.name = n;
-                }
-                if let Some(m) = params.message {
-                    job.payload.message = m;
-                }
-                if let Some(s) = params.schedule {
-                    job.schedule = s.clone();
-                    if job.enabled {
-                        job.state.next_run_at_ms = compute_next_run(&s, now_ms());
-                    }
-                }
-                if let Some(d) = params.agent_echo {
-                    job.payload.agent_echo = d;
-                }
-                if let Some(targets) = params.targets {
-                    job.payload.targets = targets;
-                }
-                job.updated_at_ms = now_ms();
-                let result = Some(job.clone());
-                drop(store_guard);
-                self.save_store().await?;
-                return Ok(result);
+        // If schedule changed and job is enabled, recompute next_run in the same write
+        let next_run = params.schedule.as_ref().and_then(|new_schedule| {
+            if job.enabled {
+                Some(compute_next_run(new_schedule, now))
+            } else {
+                None
             }
-        }
-        Ok(None)
+        });
+
+        self.db.update_cron_job(job_id, params, next_run, now)?;
+        self.db.get_cron_job(job_id)
     }
 
     /// Run a job by ID. Returns `None` if job not found or no callback configured.
     /// Returns `Some(result)` with the callback's output on success.
     pub async fn run_job(&self, job_id: &str, force: bool) -> Result<Option<Option<String>>> {
-        let store = self.load_store(true).await?;
-        let job = store.jobs.iter().find(|j| j.id == job_id);
+        let job = self.db.get_cron_job(job_id)?;
 
         if let Some(job) = job {
             if !force && !job.enabled {
@@ -643,26 +476,18 @@ impl CronService {
 
                 // Update state regardless of success or failure
                 let now = now_ms();
-                let mut store_guard = self.store.lock().await;
-                if let Some(ref mut store) = *store_guard {
-                    for j in &mut store.jobs {
-                        if j.id == job_id {
-                            j.state.last_run_at_ms = Some(now);
-                            // Persist last_fired_at_ms so event cooldowns survive
-                            // the periodic EventMatcher rebuild (every 60s)
-                            j.state.last_fired_at_ms = Some(now);
-                            j.state.last_status = Some(status);
-                            j.state.last_error = error_msg;
-                            j.state.run_count = j.state.run_count.saturating_add(1);
-                            j.state.next_run_at_ms =
-                                compute_next_run_with_last(&j.schedule, now, Some(now));
-                            j.updated_at_ms = now;
-                            break;
-                        }
-                    }
-                }
-                drop(store_guard);
-                self.save_store().await?;
+                let new_next = compute_next_run_with_last(&job.schedule, now, Some(now));
+                self.db.update_cron_job_state(
+                    job_id,
+                    Some(status.as_str()),
+                    error_msg.as_deref(),
+                    job.state.run_count.saturating_add(1),
+                    new_next,
+                    Some(now),
+                    Some(now),
+                    now,
+                )?;
+
                 // Propagate the callback error after persisting state
                 Ok(Some(callback_result?))
             } else {

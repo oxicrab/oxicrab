@@ -1,3 +1,4 @@
+use crate::agent::memory::memory_db::MemoryDB;
 use crate::config::schema::{
     AnthropicOAuthConfig, ProviderConfig, ProvidersConfig, normalize_provider,
 };
@@ -115,6 +116,7 @@ pub fn infer_provider_from_model(model: &str) -> Option<&'static str> {
 pub struct ProviderFactory {
     providers_config: ProvidersConfig,
     oauth_config: AnthropicOAuthConfig,
+    db: Option<Arc<MemoryDB>>,
 }
 
 impl ProviderFactory {
@@ -122,6 +124,15 @@ impl ProviderFactory {
         Self {
             providers_config: config.providers.clone(),
             oauth_config: config.providers.anthropic_oauth.clone(),
+            db: None,
+        }
+    }
+
+    pub fn with_db(config: &crate::config::schema::Config, db: Option<Arc<MemoryDB>>) -> Self {
+        Self {
+            providers_config: config.providers.clone(),
+            oauth_config: config.providers.anthropic_oauth.clone(),
+            db,
         }
     }
 
@@ -252,11 +263,13 @@ impl ProviderFactory {
                     .credentials_path
                     .as_ref()
                     .map(std::path::PathBuf::from),
+                self.db.clone(),
             )?)));
         }
 
         // Try Claude CLI auto-detection
-        if let Ok(Some(provider)) = AnthropicOAuthProvider::from_claude_cli(Some(model.to_string()))
+        if let Ok(Some(provider)) =
+            AnthropicOAuthProvider::from_claude_cli(Some(model.to_string()), self.db.clone())
         {
             info!(
                 "using Anthropic OAuth provider (Claude CLI auto-detect) for model: {}",
@@ -266,7 +279,9 @@ impl ProviderFactory {
         }
 
         // Try OpenClaw auto-detection
-        if let Ok(Some(provider)) = AnthropicOAuthProvider::from_openclaw(Some(model.to_string())) {
+        if let Ok(Some(provider)) =
+            AnthropicOAuthProvider::from_openclaw(Some(model.to_string()), self.db.clone())
+        {
             info!(
                 "using Anthropic OAuth provider (OpenClaw auto-detect) for model: {}",
                 model

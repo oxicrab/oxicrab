@@ -99,15 +99,17 @@ fn register_filesystem(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
 
     let allowed_roots = if ctx.restrict_to_workspace {
         let mut roots = vec![ctx.workspace.clone()];
-        if let Some(home) = dirs::home_dir() {
-            roots.push(home.join(".oxicrab"));
+        if let Ok(oxicrab_home) = crate::utils::get_oxicrab_home() {
+            roots.push(oxicrab_home);
         }
         Some(roots)
     } else {
         None
     };
 
-    let backup_dir = dirs::home_dir().map(|h| h.join(".oxicrab/backups"));
+    let backup_dir = crate::utils::get_oxicrab_home()
+        .ok()
+        .map(|h| h.join("backups"));
     let workspace = Some(ctx.workspace.clone());
     let ws_mgr = ctx.workspace_manager.clone();
 
@@ -234,6 +236,7 @@ async fn create_google_tools(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
             &google_cfg.client_secret,
             Some(&google_cfg.scopes),
             None,
+            ctx.memory_db.as_ref(),
         )
         .await
         {
@@ -311,6 +314,7 @@ fn register_obsidian(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
             &obsidian_cfg.api_key,
             &obsidian_cfg.vault_name,
             obsidian_cfg.timeout,
+            ctx.memory_db.clone(),
         ) {
             Ok((tool, cache)) => {
                 registry.register(Arc::new(tool));

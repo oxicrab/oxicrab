@@ -103,7 +103,7 @@ fn test_is_valid_no_expiry() {
     assert!(!creds.is_valid());
 }
 
-// -- load / save credentials round-trip ----
+// -- load / save credentials round-trip (file-based) ----
 
 #[test]
 fn test_save_and_load_round_trip() {
@@ -111,9 +111,13 @@ fn test_save_and_load_round_trip() {
     let path = dir.path().join("tokens.json");
     let creds = make_creds(Some(9_999_999_999));
 
-    save_credentials(&creds, &path).unwrap();
-    let loaded =
-        load_credentials(&path, &["https://www.googleapis.com/auth/gmail.modify"]).unwrap();
+    save_credentials(&creds, &path, None).unwrap();
+    let loaded = load_credentials(
+        &path,
+        &["https://www.googleapis.com/auth/gmail.modify"],
+        None,
+    )
+    .unwrap();
     let loaded = loaded.expect("should load credentials");
     assert_eq!(loaded.token, "tok_test");
     assert_eq!(loaded.refresh_token, Some("rt_test".to_string()));
@@ -123,7 +127,7 @@ fn test_save_and_load_round_trip() {
 fn test_load_missing_file_returns_none() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("nonexistent.json");
-    let loaded = load_credentials(&path, &["scope"]).unwrap();
+    let loaded = load_credentials(&path, &["scope"], None).unwrap();
     assert!(loaded.is_none());
 }
 
@@ -132,11 +136,15 @@ fn test_load_scope_mismatch_returns_none() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("tokens.json");
     let creds = make_creds(Some(9_999_999_999));
-    save_credentials(&creds, &path).unwrap();
+    save_credentials(&creds, &path, None).unwrap();
 
     // Request a scope the saved credentials don't have
-    let loaded =
-        load_credentials(&path, &["https://www.googleapis.com/auth/drive.readonly"]).unwrap();
+    let loaded = load_credentials(
+        &path,
+        &["https://www.googleapis.com/auth/drive.readonly"],
+        None,
+    )
+    .unwrap();
     assert!(loaded.is_none());
 }
 
@@ -147,7 +155,7 @@ fn test_save_sets_restricted_permissions() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("tokens.json");
     let creds = make_creds(Some(9_999_999_999));
-    save_credentials(&creds, &path).unwrap();
+    save_credentials(&creds, &path, None).unwrap();
 
     let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
@@ -165,7 +173,7 @@ fn test_has_valid_with_valid_token() {
         .as_secs()
         + 3600;
     let creds = make_creds(Some(future));
-    save_credentials(&creds, &path).unwrap();
+    save_credentials(&creds, &path, None).unwrap();
 
     assert!(has_valid_credentials("cid", "csec", None, Some(&path)));
 }
@@ -175,7 +183,7 @@ fn test_has_valid_with_expired_but_refresh_token() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("tokens.json");
     let creds = make_creds(Some(1000)); // expired
-    save_credentials(&creds, &path).unwrap();
+    save_credentials(&creds, &path, None).unwrap();
 
     // Should return true because refresh_token is present
     assert!(has_valid_credentials("cid", "csec", None, Some(&path)));
@@ -186,4 +194,51 @@ fn test_has_valid_no_file() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("nope.json");
     assert!(!has_valid_credentials("cid", "csec", None, Some(&path)));
+}
+
+// -- DB-based load / save round-trip ----
+
+#[test]
+fn test_save_and_load_db_round_trip() {
+    let db = Arc::new(MemoryDB::new(":memory:").unwrap());
+    let creds = make_creds(Some(9_999_999_999));
+    let dummy_path = std::path::Path::new("/nonexistent");
+
+    save_credentials(&creds, dummy_path, Some(&db)).unwrap();
+    let loaded = load_credentials(
+        dummy_path,
+        &["https://www.googleapis.com/auth/gmail.modify"],
+        Some(&db),
+    )
+    .unwrap();
+    let loaded = loaded.expect("should load credentials from DB");
+    assert_eq!(loaded.token, "tok_test");
+    assert_eq!(loaded.refresh_token, Some("rt_test".to_string()));
+    assert_eq!(loaded.client_id, "cid");
+    assert_eq!(loaded.client_secret, "csec");
+    assert_eq!(loaded.expiry, Some(9_999_999_999));
+}
+
+#[test]
+fn test_db_scope_mismatch_returns_none() {
+    let db = Arc::new(MemoryDB::new(":memory:").unwrap());
+    let creds = make_creds(Some(9_999_999_999));
+    let dummy_path = std::path::Path::new("/nonexistent");
+
+    save_credentials(&creds, dummy_path, Some(&db)).unwrap();
+    let loaded = load_credentials(
+        dummy_path,
+        &["https://www.googleapis.com/auth/drive.readonly"],
+        Some(&db),
+    )
+    .unwrap();
+    assert!(loaded.is_none());
+}
+
+#[test]
+fn test_db_empty_returns_none() {
+    let db = Arc::new(MemoryDB::new(":memory:").unwrap());
+    let dummy_path = std::path::Path::new("/nonexistent");
+    let loaded = load_credentials(dummy_path, &["scope"], Some(&db)).unwrap();
+    assert!(loaded.is_none());
 }

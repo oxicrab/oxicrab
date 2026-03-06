@@ -255,7 +255,7 @@ oxicrab doctor
 
     <h3>pairing approve</h3>
     <div class="cmd-sig">oxicrab pairing approve &lt;CODE&gt;</div>
-    <p>Approve a pending request by its 8-character code. The sender is permanently added to the per-channel allowlist at <code>~/.oxicrab/pairing/</code>.</p>
+    <p>Approve a pending request by its 8-character code. The sender is permanently added to the <code>pairing_allowlist</code> table in the workspace database.</p>
     <table class="flag-table">
         <tr><th>Argument</th><th>Description</th></tr>
         <tr><td>CODE</td><td>The 8-character pairing code (e.g. <code>ABC12345</code>)</td></tr>

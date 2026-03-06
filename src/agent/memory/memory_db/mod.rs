@@ -5,20 +5,27 @@ use std::path::Path;
 use tracing::warn;
 
 mod cost;
+mod cron;
 mod dlq;
 mod embeddings;
 mod indexing;
+mod oauth;
+mod obsidian;
+mod pairing;
 mod search;
 mod stats;
+mod subagent_log;
 mod workspace;
 
 pub use cost::TokenSummaryRow;
 pub use dlq::DlqEntry;
+pub use oauth::OAuthTokenRow;
 pub use search::MemoryHit;
 pub use stats::{
     ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, IntentEvent,
     IntentStats, SearchStats,
 };
+pub use subagent_log::SubagentLogEntry;
 pub use workspace::WorkspaceFileEntry;
 
 use embeddings::CachedEmbedding;
@@ -277,6 +284,90 @@ impl MemoryDB {
              CREATE INDEX IF NOT EXISTS idx_complexity_log_req ON complexity_routing_log(request_id);",
         )?;
 
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS cron_jobs (
+                id               TEXT PRIMARY KEY,
+                name             TEXT NOT NULL,
+                enabled          INTEGER NOT NULL DEFAULT 1,
+                schedule_type    TEXT NOT NULL,
+                at_ms            INTEGER,
+                every_ms         INTEGER,
+                cron_expr        TEXT,
+                cron_tz          TEXT,
+                event_pattern    TEXT,
+                event_channel    TEXT,
+                payload_kind     TEXT NOT NULL DEFAULT 'agent_turn',
+                payload_message  TEXT NOT NULL DEFAULT '',
+                agent_echo       INTEGER NOT NULL DEFAULT 1,
+                next_run_at_ms   INTEGER,
+                last_run_at_ms   INTEGER,
+                last_status      TEXT,
+                last_error       TEXT,
+                run_count        INTEGER NOT NULL DEFAULT 0,
+                last_fired_at_ms INTEGER,
+                created_at_ms    INTEGER NOT NULL,
+                updated_at_ms    INTEGER NOT NULL,
+                delete_after_run INTEGER NOT NULL DEFAULT 0,
+                expires_at_ms    INTEGER,
+                max_runs         INTEGER,
+                cooldown_secs    INTEGER,
+                max_concurrent   INTEGER
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled_next
+             ON cron_jobs(enabled, next_run_at_ms)",
+            [],
+        )?;
+
+        // --- Pairing tables ---
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS pairing_allowlist (
+                channel    TEXT NOT NULL,
+                sender_id  TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (channel, sender_id)
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS pairing_pending (
+                channel    TEXT NOT NULL,
+                sender_id  TEXT NOT NULL,
+                code       TEXT NOT NULL UNIQUE,
+                created_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS pairing_failed_attempts (
+                client_id    TEXT NOT NULL,
+                attempted_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pairing_failed_client
+             ON pairing_failed_attempts(client_id)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS cron_job_targets (
+                job_id   TEXT NOT NULL REFERENCES cron_jobs(id) ON DELETE CASCADE,
+                channel  TEXT NOT NULL,
+                target   TEXT NOT NULL,
+                PRIMARY KEY (job_id, channel, target)
+            )",
+            [],
+        )?;
+
         // Add request_id to existing tables (idempotent: ignore if column already exists)
         for table in &["llm_cost_log", "intent_metrics", "memory_access_log"] {
             let _ = conn.execute(
@@ -291,6 +382,70 @@ impl MemoryDB {
                 data TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS oauth_tokens (
+                provider      TEXT PRIMARY KEY,
+                access_token  TEXT NOT NULL,
+                refresh_token TEXT,
+                expires_at    INTEGER NOT NULL,
+                extra_json    TEXT,
+                updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+            [],
+        )?;
+
+        // --- Obsidian cache tables ---
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS obsidian_sync_state (
+                vault_name     TEXT NOT NULL,
+                file_path      TEXT NOT NULL,
+                content_hash   TEXT NOT NULL,
+                last_synced_at INTEGER NOT NULL,
+                size           INTEGER NOT NULL,
+                PRIMARY KEY (vault_name, file_path)
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS obsidian_write_queue (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                vault_name     TEXT NOT NULL,
+                path           TEXT NOT NULL,
+                content        TEXT NOT NULL,
+                operation      TEXT NOT NULL,
+                queued_at      INTEGER NOT NULL,
+                pre_write_hash TEXT
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_obsidian_queue_vault
+             ON obsidian_write_queue(vault_name)",
+            [],
+        )?;
+
+        // --- Subagent log table ---
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS subagent_logs (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id    TEXT NOT NULL,
+                timestamp  TEXT NOT NULL DEFAULT (datetime('now')),
+                event_type TEXT NOT NULL,
+                content    TEXT NOT NULL,
+                metadata   TEXT
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_subagent_logs_task ON subagent_logs(task_id)",
             [],
         )?;
 

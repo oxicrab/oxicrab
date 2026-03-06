@@ -1,4 +1,9 @@
 use super::*;
+use crate::agent::memory::memory_db::MemoryDB;
+
+fn test_db() -> Arc<MemoryDB> {
+    Arc::new(MemoryDB::new(":memory:").expect("test db"))
+}
 
 #[test]
 fn test_generate_code_format() {
@@ -14,8 +19,7 @@ fn test_generate_code_format() {
 
 #[test]
 fn test_request_and_approve() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+    let store = PairingStore::new(test_db());
 
     assert!(!store.is_paired("telegram", "user123"));
 
@@ -38,8 +42,7 @@ fn test_request_and_approve() {
 
 #[test]
 fn test_approve_invalid_code() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+    let store = PairingStore::new(test_db());
 
     store
         .request_pairing("telegram", "user123")
@@ -51,8 +54,7 @@ fn test_approve_invalid_code() {
 
 #[test]
 fn test_revoke() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+    let store = PairingStore::new(test_db());
 
     let code = store
         .request_pairing("discord", "user456")
@@ -68,8 +70,7 @@ fn test_revoke() {
 
 #[test]
 fn test_duplicate_request_returns_same_code() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+    let store = PairingStore::new(test_db());
 
     let code1 = store
         .request_pairing("telegram", "user123")
@@ -83,28 +84,26 @@ fn test_duplicate_request_returns_same_code() {
 }
 
 #[test]
-fn test_persistence() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().to_path_buf();
+fn test_persistence_via_db() {
+    let db = test_db();
 
     // Create store, add a pairing
     {
-        let mut store = PairingStore::with_dir(path.clone()).unwrap();
+        let store = PairingStore::new(db.clone());
         let code = store.request_pairing("slack", "user789").unwrap().unwrap();
         store.approve(&code).unwrap();
     }
 
-    // Reload and check
+    // New store with same DB — should still be paired
     {
-        let store = PairingStore::with_dir(path).unwrap();
+        let store = PairingStore::new(db);
         assert!(store.is_paired("slack", "user789"));
     }
 }
 
 #[test]
 fn test_list_pending() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+    let store = PairingStore::new(test_db());
 
     store.request_pairing("telegram", "user1").unwrap();
     store.request_pairing("telegram", "user2").unwrap();
@@ -115,8 +114,7 @@ fn test_list_pending() {
 
 #[test]
 fn test_max_pending_per_channel() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+    let store = PairingStore::new(test_db());
 
     for i in 0..MAX_PENDING_PER_CHANNEL {
         let result = store
@@ -136,8 +134,7 @@ fn test_max_pending_per_channel() {
 
 #[test]
 fn test_approve_with_client_success() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+    let store = PairingStore::new(test_db());
 
     let code = store
         .request_pairing("telegram", "user123")
@@ -153,8 +150,8 @@ fn test_approve_with_client_success() {
 
 #[test]
 fn test_approve_with_client_records_failed_attempts() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+    let db = test_db();
+    let store = PairingStore::new(db.clone());
 
     store
         .request_pairing("telegram", "user123")
@@ -166,13 +163,15 @@ fn test_approve_with_client_records_failed_attempts() {
     assert!(result.is_none());
 
     // Should have recorded one failed attempt
-    assert_eq!(store.failed_attempts["admin1"].len(), 1);
+    let count = db
+        .count_recent_failed_attempts("admin1", FAILED_ATTEMPT_WINDOW_SECS)
+        .unwrap();
+    assert_eq!(count, 1);
 }
 
 #[test]
 fn test_approve_with_client_locks_out_after_max_failures() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+    let store = PairingStore::new(test_db());
 
     store
         .request_pairing("telegram", "user123")
@@ -197,8 +196,7 @@ fn test_approve_with_client_locks_out_after_max_failures() {
 
 #[test]
 fn test_approve_with_client_separate_limits_per_client() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+    let store = PairingStore::new(test_db());
 
     let code = store
         .request_pairing("telegram", "user123")
@@ -220,8 +218,8 @@ fn test_approve_with_client_separate_limits_per_client() {
 
 #[test]
 fn test_approve_default_uses_default_client() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+    let db = test_db();
+    let store = PairingStore::new(db.clone());
 
     store
         .request_pairing("telegram", "user123")
@@ -230,13 +228,15 @@ fn test_approve_default_uses_default_client() {
 
     // approve() delegates to approve_with_client("default")
     let _ = store.approve("BADCODE1");
-    assert!(store.failed_attempts.contains_key("default"));
+    let count = db
+        .count_recent_failed_attempts("default", FAILED_ATTEMPT_WINDOW_SECS)
+        .unwrap();
+    assert!(count > 0);
 }
 
 #[test]
 fn test_case_insensitive_code_matching() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = PairingStore::with_dir(dir.path().to_path_buf()).unwrap();
+    let store = PairingStore::new(test_db());
 
     let code = store
         .request_pairing("telegram", "user123")

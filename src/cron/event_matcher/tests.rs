@@ -18,7 +18,6 @@ fn make_event_job(id: &str, pattern: &str, channel: Option<&str>) -> CronJob {
                 channel: "telegram".to_string(),
                 to: "user1".to_string(),
             }],
-            origin_metadata: HashMap::new(),
         },
         state: CronJobState::default(),
         created_at_ms: 1000,

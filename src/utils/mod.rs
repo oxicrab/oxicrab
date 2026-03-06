@@ -39,6 +39,18 @@ pub fn get_oxicrab_home() -> Result<PathBuf> {
         .join(".oxicrab"))
 }
 
+/// Resolve the path to the shared `MemoryDB` file using the default workspace
+/// location (`{OXICRAB_HOME}/workspace/memory/memory.sqlite3`).
+///
+/// For config-aware resolution (custom workspace paths), use
+/// `config.workspace_path().join("memory").join("memory.sqlite3")` instead.
+pub fn get_memory_db_path() -> Result<PathBuf> {
+    Ok(get_oxicrab_home()?
+        .join("workspace")
+        .join("memory")
+        .join("memory.sqlite3"))
+}
+
 /// Write content atomically via tempfile + rename.
 ///
 /// Guarantees the file is either fully written or untouched.

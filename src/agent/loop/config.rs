@@ -109,6 +109,9 @@ pub struct AgentLoopConfig {
     pub lifecycle: LifecycleConfig,
     /// Safety guardrails
     pub safety: SafetyConfig,
+    /// Pre-opened `MemoryDB` to share with the agent (avoids duplicate connections).
+    /// When `Some`, the agent reuses this DB instead of opening its own.
+    pub memory_db: Option<Arc<crate::agent::memory::memory_db::MemoryDB>>,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -124,6 +127,8 @@ pub struct AgentLoopRuntimeParams {
     pub cron_service: Option<Arc<CronService>>,
     pub typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     pub channels_config: Option<crate::config::ChannelsConfig>,
+    /// Pre-opened `MemoryDB` to share (avoids duplicate connections to same file).
+    pub memory_db: Option<Arc<crate::agent::memory::memory_db::MemoryDB>>,
 }
 
 impl AgentLoopConfig {
@@ -208,6 +213,7 @@ impl AgentLoopConfig {
                 exfiltration_guard: config.tools.exfiltration_guard.clone(),
                 prompt_guard: config.agents.defaults.prompt_guard.clone(),
             },
+            memory_db: params.memory_db,
         }
     }
 
@@ -276,6 +282,7 @@ impl AgentLoopConfig {
                 exfiltration_guard: crate::config::ExfiltrationGuardConfig::default(),
                 prompt_guard: crate::config::PromptGuardConfig::default(),
             },
+            memory_db: None,
         }
     }
 }

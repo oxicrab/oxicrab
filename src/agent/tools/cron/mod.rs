@@ -453,7 +453,6 @@ impl Tool for CronTool {
                         message,
                         agent_echo: job_type == "agent",
                         targets,
-                        origin_metadata: ctx.metadata.clone(),
                     },
                     state: CronJobState::default(),
                     created_at_ms: now_ms,
@@ -465,7 +464,7 @@ impl Tool for CronTool {
                     max_concurrent,
                 };
 
-                self.cron_service.add_job(job.clone()).await?;
+                self.cron_service.add_job(job.clone())?;
                 Ok(ToolResult::new(format!(
                     "Created job '{}' (id: {}, targets: {})",
                     job.name,
@@ -474,7 +473,7 @@ impl Tool for CronTool {
                 )))
             }
             "list" => {
-                let jobs = self.cron_service.list_jobs(false).await?;
+                let jobs = self.cron_service.list_jobs(false)?;
                 if jobs.is_empty() {
                     return Ok(ToolResult::new("No scheduled jobs.".to_string()));
                 }
@@ -541,7 +540,7 @@ impl Tool for CronTool {
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'job_id' parameter for remove"))?;
 
-                match self.cron_service.remove_job(job_id).await? {
+                match self.cron_service.remove_job(job_id)? {
                     Some(_) => Ok(ToolResult::new(format!("Removed job {job_id}"))),
                     None => Ok(ToolResult::error(format!("job {job_id} not found"))),
                 }

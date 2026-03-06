@@ -1,5 +1,6 @@
 mod activity_log;
 
+use crate::agent::memory::memory_db::MemoryDB;
 use crate::agent::tools::ToolRegistry;
 use crate::bus::{InboundMessage, MessageBus};
 use crate::config::PromptGuardConfig;
@@ -38,6 +39,8 @@ pub struct SubagentConfig {
     /// Main agent's tool registry, used to build subagent tools from capabilities.
     /// Set after `register_all_tools()` returns via `SubagentManager::set_main_tools()`.
     pub main_tools: Option<Arc<ToolRegistry>>,
+    /// Memory database for subagent activity logging.
+    pub memory_db: Option<Arc<MemoryDB>>,
 }
 
 pub struct SubagentManager {
@@ -59,6 +62,7 @@ struct SubagentInner {
     leak_detector: LeakDetector,
     exfil_guard: crate::config::ExfiltrationGuardConfig,
     main_tools: std::sync::OnceLock<Arc<ToolRegistry>>,
+    memory_db: Option<Arc<MemoryDB>>,
 }
 
 impl SubagentManager {
@@ -89,6 +93,7 @@ impl SubagentManager {
                 }
                 lock
             },
+            memory_db: config.memory_db,
         });
         Self {
             config: inner,
@@ -334,13 +339,12 @@ async fn run_subagent_inner(
     context: Option<&str>,
     origin: &(String, String),
 ) -> Result<String> {
-    let mut log = ActivityLog::new(task_id);
+    let mut log = config
+        .memory_db
+        .as_ref()
+        .and_then(|db| ActivityLog::new(task_id, db.clone()));
     if let Some(ref mut l) = log {
-        info!(
-            "Subagent [{}] activity log: {}",
-            task_id,
-            l.path().display()
-        );
+        info!("Subagent [{}] activity log: db-backed", task_id);
         l.log_start(task);
     }
 

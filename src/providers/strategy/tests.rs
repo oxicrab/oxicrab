@@ -142,6 +142,7 @@ fn factory_with_config(providers: &ProvidersConfig) -> ProviderFactory {
     ProviderFactory {
         providers_config: providers.clone(),
         oauth_config: providers.anthropic_oauth.clone(),
+        db: None,
     }
 }
 

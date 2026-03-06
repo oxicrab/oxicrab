@@ -1,6 +1,11 @@
 use super::*;
+use crate::agent::memory::memory_db::MemoryDB;
 use crate::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule};
 use proptest::prelude::*;
+
+fn test_db() -> Arc<MemoryDB> {
+    Arc::new(MemoryDB::new(":memory:").expect("create test db"))
+}
 
 proptest! {
     #[test]
@@ -118,9 +123,7 @@ fn test_detect_system_timezone() {
 
 #[tokio::test]
 async fn test_expired_job_auto_disables() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let store_path = tmp.path().join("cron_jobs.json");
-    let svc = CronService::new(store_path.clone());
+    let svc = CronService::new(test_db());
 
     let now = now_ms();
     let job = CronJob {
@@ -135,7 +138,6 @@ async fn test_expired_job_auto_disables() {
             message: "ping".to_string(),
             agent_echo: false,
             targets: vec![],
-            origin_metadata: std::collections::HashMap::new(),
         },
         state: CronJobState {
             next_run_at_ms: Some(now + 5000),
@@ -150,23 +152,21 @@ async fn test_expired_job_auto_disables() {
         max_concurrent: None,
     };
 
-    svc.add_job(job).await.unwrap();
+    svc.add_job(job).unwrap();
 
     // Start the service — it should disable the expired job on first tick
     svc.start().await.unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     svc.stop().await;
 
-    let jobs = svc.list_jobs(true).await.unwrap();
+    let jobs = svc.list_jobs(true).unwrap();
     let j = jobs.iter().find(|j| j.id == "exp-1").unwrap();
     assert!(!j.enabled, "expired job should be disabled");
 }
 
 #[tokio::test]
 async fn test_max_runs_auto_disables() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let store_path = tmp.path().join("cron_jobs.json");
-    let svc = CronService::new(store_path.clone());
+    let svc = CronService::new(test_db());
 
     let now = now_ms();
     let job = CronJob {
@@ -181,7 +181,6 @@ async fn test_max_runs_auto_disables() {
             message: "ping".to_string(),
             agent_echo: false,
             targets: vec![],
-            origin_metadata: std::collections::HashMap::new(),
         },
         state: CronJobState {
             next_run_at_ms: Some(now + 5000),
@@ -197,22 +196,20 @@ async fn test_max_runs_auto_disables() {
         max_concurrent: None,
     };
 
-    svc.add_job(job).await.unwrap();
+    svc.add_job(job).unwrap();
 
     svc.start().await.unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     svc.stop().await;
 
-    let jobs = svc.list_jobs(true).await.unwrap();
+    let jobs = svc.list_jobs(true).unwrap();
     let j = jobs.iter().find(|j| j.id == "max-1").unwrap();
     assert!(!j.enabled, "job at max runs should be disabled");
 }
 
 #[tokio::test]
 async fn test_add_job_deduplicates_names() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let store_path = tmp.path().join("cron_jobs.json");
-    let svc = CronService::new(store_path.clone());
+    let svc = CronService::new(test_db());
 
     let now = now_ms();
     let make_job = |id: &str| CronJob {
@@ -227,7 +224,6 @@ async fn test_add_job_deduplicates_names() {
             message: "ping".to_string(),
             agent_echo: false,
             targets: vec![],
-            origin_metadata: std::collections::HashMap::new(),
         },
         state: CronJobState::default(),
         created_at_ms: now,
@@ -240,13 +236,13 @@ async fn test_add_job_deduplicates_names() {
     };
 
     // First job keeps its name
-    svc.add_job(make_job("a1")).await.unwrap();
+    svc.add_job(make_job("a1")).unwrap();
     // Second job with same name gets "(2)" suffix
-    svc.add_job(make_job("a2")).await.unwrap();
+    svc.add_job(make_job("a2")).unwrap();
     // Third gets "(3)"
-    svc.add_job(make_job("a3")).await.unwrap();
+    svc.add_job(make_job("a3")).unwrap();
 
-    let jobs = svc.list_jobs(false).await.unwrap();
+    let jobs = svc.list_jobs(false).unwrap();
     let names: Vec<&str> = jobs.iter().map(|j| j.name.as_str()).collect();
     assert!(names.contains(&"Daily Reminder"));
     assert!(names.contains(&"Daily Reminder (2)"));
@@ -255,9 +251,7 @@ async fn test_add_job_deduplicates_names() {
 
 #[tokio::test]
 async fn test_run_job_increments_run_count() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let store_path = tmp.path().join("cron_jobs.json");
-    let svc = CronService::new(store_path.clone());
+    let svc = CronService::new(test_db());
 
     let now = now_ms();
     let job = CronJob {
@@ -272,7 +266,6 @@ async fn test_run_job_increments_run_count() {
             message: "ping".to_string(),
             agent_echo: false,
             targets: vec![],
-            origin_metadata: std::collections::HashMap::new(),
         },
         state: CronJobState::default(),
         created_at_ms: now,
@@ -284,14 +277,14 @@ async fn test_run_job_increments_run_count() {
         max_concurrent: None,
     };
 
-    svc.add_job(job).await.unwrap();
+    svc.add_job(job).unwrap();
     svc.set_on_job(|_job| Box::pin(async { Ok(Some("done".to_string())) }))
         .await;
 
     svc.run_job("cnt-1", false).await.unwrap();
     svc.run_job("cnt-1", false).await.unwrap();
 
-    let jobs = svc.list_jobs(false).await.unwrap();
+    let jobs = svc.list_jobs(false).unwrap();
     let j = jobs.iter().find(|j| j.id == "cnt-1").unwrap();
     assert_eq!(
         j.state.run_count, 2,
