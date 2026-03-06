@@ -33,9 +33,7 @@ impl PairingStore {
     /// Open a `PairingStore` backed by the default workspace `MemoryDB`.
     /// Convenience for CLI commands and places that don't have a shared DB reference.
     pub fn open_default() -> Result<Self> {
-        let config = crate::config::load_config(None)?;
-        let workspace = config.workspace_path();
-        let db_path = workspace.join("memory").join("memory.sqlite3");
+        let db_path = crate::utils::get_memory_db_path()?;
         let db = Arc::new(MemoryDB::new(&db_path)?);
         Ok(Self { db })
     }

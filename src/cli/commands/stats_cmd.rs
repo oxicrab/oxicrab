@@ -3,9 +3,8 @@ use crate::config::load_config;
 use anyhow::Result;
 
 pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
-    let config = load_config(None)?;
-    let workspace = config.workspace_path();
-    let db_path = workspace.join("memory").join("memory.sqlite3");
+    let _config = load_config(None)?;
+    let db_path = crate::utils::get_memory_db_path()?;
 
     if !db_path.exists() {
         anyhow::bail!(
