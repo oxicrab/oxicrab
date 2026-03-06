@@ -45,33 +45,11 @@ impl PairingStore {
             .as_secs()
     }
 
-    /// Generate a pairing code using CSPRNG-backed randomness.
-    ///
-    /// Uses `uuid::Uuid::new_v4()` as the entropy source (backed by the OS
-    /// CSPRNG via `getrandom`), rather than `fastrand` which uses a
-    /// non-cryptographic PRNG. Pairing codes are security-sensitive since
-    /// they grant message access to new senders.
     fn generate_code() -> String {
         let mut code = String::with_capacity(CODE_LENGTH);
-        // Each UUID provides 16 random bytes (122 bits of entropy).
-        // We need CODE_LENGTH (8) indices into a 31-element alphabet.
-        // Use rejection sampling to avoid modulo bias.
-        let alphabet_len = CODE_ALPHABET.len() as u8; // 31
-        let mut bytes_used = 16; // force initial UUID generation
-        let mut random_bytes = [0u8; 16];
-        while code.len() < CODE_LENGTH {
-            if bytes_used >= 16 {
-                random_bytes = *uuid::Uuid::new_v4().as_bytes();
-                bytes_used = 0;
-            }
-            let b = random_bytes[bytes_used];
-            bytes_used += 1;
-            // Rejection sampling: discard values that would cause modulo bias.
-            // 256 / 31 = 8 remainder 8, so accept values < 31 * 8 = 248.
-            if b < alphabet_len.wrapping_mul(8) {
-                let idx = (b % alphabet_len) as usize;
-                code.push(CODE_ALPHABET[idx] as char);
-            }
+        for _ in 0..CODE_LENGTH {
+            let idx = fastrand::usize(0..CODE_ALPHABET.len());
+            code.push(CODE_ALPHABET[idx] as char);
         }
         code
     }
