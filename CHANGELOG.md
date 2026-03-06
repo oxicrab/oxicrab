@@ -2,6 +2,48 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.0] - 2026-03-06
+
+### Added
+- **subagent:** migrate activity logs to MemoryDB ([97b91d2](https://github.com/oxicrab/oxicrab/commit/97b91d244c843f710e31fee0c16d5f6ae8cacc2d))
+- **media:** add optional DB registration to save_media_file ([60613b1](https://github.com/oxicrab/oxicrab/commit/60613b1d2fa7f1e82758b2aaf23fad5b48a168fb))
+- **obsidian:** migrate cache state to MemoryDB ([5307012](https://github.com/oxicrab/oxicrab/commit/5307012767a8685d1724b7f162042f192af08173))
+- **auth:** migrate OAuth token caching to MemoryDB ([dbbc42a](https://github.com/oxicrab/oxicrab/commit/dbbc42a499b8df9d8fa1adeb47e5a81a720713aa))
+- **pairing:** migrate pairing state from JSON files to MemoryDB ([aa941c6](https://github.com/oxicrab/oxicrab/commit/aa941c67ba715fd6a48965d6500eaa07a53f744f))
+- **cron:** add cron_jobs tables and CRUD module to MemoryDB ([44f03e3](https://github.com/oxicrab/oxicrab/commit/44f03e39a1311d33c115dd44624a351823909ede))
+
+
+### Changed
+- **cron:** replace file-based CronService with MemoryDB backend ([20f2145](https://github.com/oxicrab/oxicrab/commit/20f21451f6d3c1e8a0320ee7afd826c84bdbfa2b))
+- **cron:** remove origin_metadata from CronPayload ([c27b0e9](https://github.com/oxicrab/oxicrab/commit/c27b0e90be47014e12aa62981545b9435340d243))
+
+
+### Documentation
+- add design for 5 file-to-DB migrations ([31d38f5](https://github.com/oxicrab/oxicrab/commit/31d38f548a50d1c400f48f62a5c8b0cabc33e03a))
+- update for cron SQLite migration ([ae7053b](https://github.com/oxicrab/oxicrab/commit/ae7053bec50cedcd4cb8d37b4c581ac2ef53ed0c))
+
+
+### Fixed
+- correct 8 stale/wrong comments and 4 stale doc references ([7668e07](https://github.com/oxicrab/oxicrab/commit/7668e0739f5b0f6cddfca3e15c990810bf677e47))
+- address findings from third full codebase audit ([599c9ac](https://github.com/oxicrab/oxicrab/commit/599c9acaa5e7c83a0dc4f65b1cb9dfc9a0f62a35))
+- address 8 findings from second full codebase audit ([e55d48b](https://github.com/oxicrab/oxicrab/commit/e55d48b7cf7432851af7019176db42f61794c89e))
+- address remaining findings from full codebase audit ([4ae5970](https://github.com/oxicrab/oxicrab/commit/4ae597077cdf91175b560015122ba9a3613ae3c7))
+- address 4 findings from full codebase security audit ([24e4542](https://github.com/oxicrab/oxicrab/commit/24e4542ec72a2905bbc66ed003d2854302ef2aa2))
+- use get_oxicrab_home() consistently for all oxicrab paths ([71353e2](https://github.com/oxicrab/oxicrab/commit/71353e2108a153253a54f23f5890465d8497c221))
+- add get_memory_db_path() utility for consistent DB path resolution ([e00a69f](https://github.com/oxicrab/oxicrab/commit/e00a69f8f21e4b649cf688b58d0f301cc39f6c81))
+- address deep review findings ([b5a1c33](https://github.com/oxicrab/oxicrab/commit/b5a1c330734b7bbdca077855f1793b5932f03706))
+- address PR review findings ([3dc4e53](https://github.com/oxicrab/oxicrab/commit/3dc4e530c7e7a98c179d28255edcaf55a414747b))
+- **cron:** consolidate update_cron_job to include next_run_at_ms ([898fe5e](https://github.com/oxicrab/oxicrab/commit/898fe5e43cab42766d5e26737df146b0c6e36baa))
+- **cron:** address 3 bugs from codebase audit ([276cdd4](https://github.com/oxicrab/oxicrab/commit/276cdd4e952e27aa8ebfa174688fef856842cafa))
+
+
+### Maintenance
+- **cron:** remove CronStore struct ([55506c9](https://github.com/oxicrab/oxicrab/commit/55506c9f2a662f331e97267f3df904647ba1e477))
+
+
+### Removed
+- Removed plan ([fdbc95e](https://github.com/oxicrab/oxicrab/commit/fdbc95e85730820829813e886cb5fa1eb216ca83))
+
 ## [0.13.5] - 2026-03-05
 
 ### Changed
