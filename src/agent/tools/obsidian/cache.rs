@@ -527,33 +527,14 @@ impl ObsidianCache {
 
     fn persist_state(&self, state: &SyncState) -> Result<()> {
         if let Some(ref db) = self.db {
-            db.clear_obsidian_sync(&self.vault_name)?;
-            for (path, meta) in &state.files {
-                db.upsert_obsidian_sync(
-                    &self.vault_name,
-                    path,
-                    &meta.content_hash,
-                    meta.last_synced_at,
-                    meta.size,
-                )?;
-            }
+            db.replace_obsidian_sync(&self.vault_name, &state.files)?;
         }
         Ok(())
     }
 
     fn persist_queue(&self, queue: &[QueuedWrite]) -> Result<()> {
         if let Some(ref db) = self.db {
-            db.clear_obsidian_queue(&self.vault_name)?;
-            for item in queue {
-                db.add_obsidian_queue(
-                    &self.vault_name,
-                    &item.path,
-                    &item.content,
-                    &item.operation,
-                    item.queued_at,
-                    item.pre_write_hash.as_deref(),
-                )?;
-            }
+            db.replace_obsidian_queue(&self.vault_name, queue)?;
         }
         Ok(())
     }

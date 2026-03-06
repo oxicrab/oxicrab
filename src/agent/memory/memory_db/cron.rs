@@ -566,10 +566,15 @@ impl MemoryDB {
             return Ok(None);
         }
 
-        // Fetch all existing names that match the base or the "{base} (N)" pattern
-        let pattern = format!("{base_lower}%");
-        let mut stmt =
-            conn.prepare("SELECT LOWER(name) FROM cron_jobs WHERE LOWER(name) LIKE ?1")?;
+        // Fetch all existing names that match the base or the "{base} (N)" pattern.
+        // Escape SQL LIKE wildcards in the base name to prevent false matches.
+        let escaped = base_lower
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let pattern = format!("{escaped}%");
+        let mut stmt = conn
+            .prepare("SELECT LOWER(name) FROM cron_jobs WHERE LOWER(name) LIKE ?1 ESCAPE '\\'")?;
         let existing: std::collections::HashSet<String> = stmt
             .query_map(params![pattern], |row| row.get(0))?
             .filter_map(Result::ok)
