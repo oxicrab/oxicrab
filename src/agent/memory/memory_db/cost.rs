@@ -8,6 +8,8 @@ pub struct TokenSummaryRow {
     pub model: String,
     pub total_input_tokens: i64,
     pub total_output_tokens: i64,
+    pub total_cache_creation_tokens: i64,
+    pub total_cache_read_tokens: i64,
     pub call_count: i64,
 }
 
@@ -73,6 +75,8 @@ impl MemoryDB {
             "SELECT DATE(timestamp) as day, model,
                     SUM(input_tokens) as total_input,
                     SUM(output_tokens) as total_output,
+                    COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation,
+                    COALESCE(SUM(cache_read_tokens), 0) as total_cache_read,
                     COUNT(*) as call_count
              FROM llm_cost_log
              WHERE DATE(timestamp) >= ?
@@ -86,7 +90,9 @@ impl MemoryDB {
                     model: row.get(1)?,
                     total_input_tokens: row.get(2)?,
                     total_output_tokens: row.get(3)?,
-                    call_count: row.get(4)?,
+                    total_cache_creation_tokens: row.get(4)?,
+                    total_cache_read_tokens: row.get(5)?,
+                    call_count: row.get(6)?,
                 })
             })?
             .collect();

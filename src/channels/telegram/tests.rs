@@ -85,8 +85,8 @@ fn test_markdown_to_html_multiple_links() {
 fn test_markdown_to_html_link_with_ampersand_in_url() {
     let input = "[search](https://example.com?a=1&b=2)";
     let output = markdown_to_telegram_html(input);
-    // URL should NOT be double-escaped -- links are extracted before HTML escaping
-    assert!(output.contains("href=\"https://example.com?a=1&b=2\""));
+    // URL ampersands must be HTML-escaped in href attributes
+    assert!(output.contains("href=\"https://example.com?a=1&amp;b=2\""));
 }
 
 #[test]

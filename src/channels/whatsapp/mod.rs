@@ -647,6 +647,9 @@ async fn download_whatsapp_media(
         ext
     ));
 
+    // NOTE: The whatsapp_rust Downloadable trait provides no file_length
+    // pre-check, so the full payload is downloaded before the size check.
+    // Network-level egress limits are the primary defense against OOM here.
     let data = client.download(downloadable).await?;
     if data.len() > MAX_MEDIA_DOWNLOAD {
         return Err(anyhow::anyhow!(

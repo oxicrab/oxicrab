@@ -29,31 +29,37 @@ pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
             }
 
             println!(
-                "{:<12} {:<30} {:>10} {:>10} {:>6}",
-                "Date", "Model", "Input", "Output", "Calls"
+                "{:<12} {:<30} {:>10} {:>10} {:>12} {:>12} {:>6}",
+                "Date", "Model", "Input", "Output", "Cache Write", "Cache Read", "Calls"
             );
-            println!("{}", "\u{2500}".repeat(72));
+            println!("{}", "\u{2500}".repeat(96));
 
             let mut total_input = 0i64;
             let mut total_output = 0i64;
+            let mut total_cache_write = 0i64;
+            let mut total_cache_read = 0i64;
             let mut total_calls = 0i64;
             for row in &summary {
                 println!(
-                    "{:<12} {:<30} {:>10} {:>10} {:>6}",
+                    "{:<12} {:<30} {:>10} {:>10} {:>12} {:>12} {:>6}",
                     row.date,
                     row.model,
                     row.total_input_tokens,
                     row.total_output_tokens,
+                    row.total_cache_creation_tokens,
+                    row.total_cache_read_tokens,
                     row.call_count,
                 );
                 total_input += row.total_input_tokens;
                 total_output += row.total_output_tokens;
+                total_cache_write += row.total_cache_creation_tokens;
+                total_cache_read += row.total_cache_read_tokens;
                 total_calls += row.call_count;
             }
 
-            println!("{}", "\u{2500}".repeat(72));
+            println!("{}", "\u{2500}".repeat(96));
             println!(
-                "Total: {total_input} input + {total_output} output tokens across {total_calls} calls"
+                "Total: {total_input} input + {total_output} output + {total_cache_write} cache-write + {total_cache_read} cache-read tokens across {total_calls} calls"
             );
         }
         StatsCommands::Search => {

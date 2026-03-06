@@ -534,7 +534,8 @@ fn markdown_to_telegram_html(text: &str) -> String {
     for (idx, (display, url)) in links.iter().enumerate() {
         let placeholder = format!("{placeholder_prefix}{idx}\x00");
         let escaped_display = html_escape::encode_text(display);
-        let link_html = format!(r#"<a href="{url}">{escaped_display}</a>"#);
+        let escaped_url = url.replace('&', "&amp;").replace('"', "&quot;");
+        let link_html = format!(r#"<a href="{escaped_url}">{escaped_display}</a>"#);
         html = html.replace(&placeholder, &link_html);
     }
 
