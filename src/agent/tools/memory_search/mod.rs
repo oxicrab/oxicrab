@@ -79,7 +79,7 @@ impl Tool for MemorySearchTool {
                 },
                 "query": {
                     "type": "string",
-                    "description": "Search query to find relevant memories (required for 'search')"
+                    "description": "Search query to find relevant memories. Required when action is 'search' (the default)."
                 }
             }
         })
