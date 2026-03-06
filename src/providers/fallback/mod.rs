@@ -1,4 +1,5 @@
 use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse, ToolCallRequest};
+use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::warn;
@@ -11,22 +12,24 @@ pub struct FallbackProvider {
 
 impl FallbackProvider {
     /// Create a fallback chain. Providers are tried in order.
-    pub fn new(providers: Vec<(Arc<dyn LLMProvider>, String)>) -> Self {
-        assert!(
-            !providers.is_empty(),
-            "FallbackProvider requires at least one provider"
-        );
-        Self { providers }
+    pub fn new(providers: Vec<(Arc<dyn LLMProvider>, String)>) -> Result<Self> {
+        if providers.is_empty() {
+            anyhow::bail!("FallbackProvider requires at least one provider");
+        }
+        Ok(Self { providers })
     }
 
     /// Convenience constructor for the common two-provider case.
+    /// Always succeeds since the vec is non-empty by construction.
     pub fn pair(
         primary: Arc<dyn LLMProvider>,
         fallback: Arc<dyn LLMProvider>,
         primary_model: String,
         fallback_model: String,
     ) -> Self {
-        Self::new(vec![(primary, primary_model), (fallback, fallback_model)])
+        Self {
+            providers: vec![(primary, primary_model), (fallback, fallback_model)],
+        }
     }
 }
 

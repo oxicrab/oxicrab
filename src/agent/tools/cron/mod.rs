@@ -428,9 +428,13 @@ impl Tool for CronTool {
                     None
                 };
 
-                let max_runs = params["max_runs"].as_u64().map(|n| n as u32);
+                let max_runs = params["max_runs"]
+                    .as_u64()
+                    .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
                 let cooldown_secs = params["cooldown_secs"].as_u64();
-                let max_concurrent = params["max_concurrent"].as_u64().map(|n| n as u32);
+                let max_concurrent = params["max_concurrent"]
+                    .as_u64()
+                    .map(|n| u32::try_from(n).unwrap_or(u32::MAX));
 
                 let now_ms = SystemTime::now()
                     .duration_since(UNIX_EPOCH)

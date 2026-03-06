@@ -295,7 +295,8 @@ impl AnthropicOAuthProvider {
             .duration_since(UNIX_EPOCH)
             .context("System time is before UNIX epoch")
             .map(|d| d.as_millis() as i64)?;
-        let expires_at = now_ms + (expires_in_secs * 1000) as i64 - 300_000;
+        let expires_at =
+            now_ms + expires_in_secs.saturating_mul(1000).min(i64::MAX as u64) as i64 - 300_000;
 
         // Update all three fields atomically (hold all locks at once)
         let (mut at_guard, mut rt_guard, mut ea_guard) = tokio::join!(

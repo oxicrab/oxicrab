@@ -859,7 +859,7 @@ impl Config {
                 chain.push((fb_provider, fb_bare));
             }
             return Ok(std::sync::Arc::new(
-                crate::providers::fallback::FallbackProvider::new(chain),
+                crate::providers::fallback::FallbackProvider::new(chain)?,
             ));
         }
 

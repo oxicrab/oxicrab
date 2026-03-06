@@ -265,7 +265,8 @@ async fn test_three_provider_chain_skips_to_third() {
         (p1, "model-a".to_string()),
         (p2, "model-b".to_string()),
         (p3, "model-c".to_string()),
-    ]);
+    ])
+    .unwrap();
 
     let result = provider.chat(make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("hello from third"));
@@ -281,7 +282,8 @@ async fn test_chain_all_fail_returns_last_error() {
         (p1, "model-a".to_string()),
         (p2, "model-b".to_string()),
         (p3, "model-c".to_string()),
-    ]);
+    ])
+    .unwrap();
 
     let err = provider.chat(make_request()).await.unwrap_err();
     assert!(err.to_string().contains("quota exceeded"));
@@ -304,7 +306,8 @@ async fn test_chain_malformed_tools_skip_to_next() {
     let provider = FallbackProvider::new(vec![
         (p1, "model-a".to_string()),
         (p2, "model-b".to_string()),
-    ]);
+    ])
+    .unwrap();
 
     let result = provider.chat(make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("good response from second"));
@@ -313,7 +316,7 @@ async fn test_chain_malformed_tools_skip_to_next() {
 #[tokio::test]
 async fn test_single_provider_chain() {
     let p1 = MockProvider::ok("model-a", text_response("only provider"));
-    let provider = FallbackProvider::new(vec![(p1, "model-a".to_string())]);
+    let provider = FallbackProvider::new(vec![(p1, "model-a".to_string())]).unwrap();
     let result = provider.chat(make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("only provider"));
 }
