@@ -109,3 +109,16 @@ fn test_format_task_detail_completed() {
     assert!(result.contains("completed"));
     assert!(result.contains("2026-03-05"));
 }
+
+#[tokio::test]
+async fn test_update_task_empty_body_rejected() {
+    let tool = GoogleTasksTool::new(test_credentials());
+    let params = serde_json::json!({
+        "action": "update_task",
+        "task_id": "abc123"
+    });
+    let ctx = crate::agent::tools::base::ExecutionContext::default();
+    let result = tool.execute(params, &ctx).await.unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("requires at least one field"));
+}
