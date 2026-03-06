@@ -1234,17 +1234,18 @@ fn test_cleanup_old_media_no_dir() {
 // extract_media_paths only accepts paths within ~/.oxicrab/media/.
 
 fn create_media_test_file() -> (String, impl Drop) {
-    let media_dir = crate::utils::media::media_dir().unwrap();
-    let name = format!("test_{}.tmp", fastrand::u32(..));
-    let path = media_dir.join(&name);
-    std::fs::write(&path, b"test").unwrap();
-    let path_str = path.to_string_lossy().to_string();
     struct Cleanup(std::path::PathBuf);
     impl Drop for Cleanup {
         fn drop(&mut self) {
             let _ = std::fs::remove_file(&self.0);
         }
     }
+
+    let media_dir = crate::utils::media::media_dir().unwrap();
+    let name = format!("test_{}.tmp", fastrand::u32(..));
+    let path = media_dir.join(&name);
+    std::fs::write(&path, b"test").unwrap();
+    let path_str = path.to_string_lossy().to_string();
     (path_str, Cleanup(path))
 }
 
