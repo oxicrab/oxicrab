@@ -9,6 +9,7 @@ mod cron;
 mod dlq;
 mod embeddings;
 mod indexing;
+mod oauth;
 mod pairing;
 mod search;
 mod stats;
@@ -16,6 +17,7 @@ mod workspace;
 
 pub use cost::TokenSummaryRow;
 pub use dlq::DlqEntry;
+pub use oauth::OAuthTokenRow;
 pub use search::MemoryHit;
 pub use stats::{
     ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, IntentEvent,
@@ -376,6 +378,18 @@ impl MemoryDB {
                 key TEXT PRIMARY KEY,
                 data TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS oauth_tokens (
+                provider      TEXT PRIMARY KEY,
+                access_token  TEXT NOT NULL,
+                refresh_token TEXT,
+                expires_at    INTEGER NOT NULL,
+                extra_json    TEXT,
+                updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
             )",
             [],
         )?;

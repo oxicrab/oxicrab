@@ -751,6 +751,7 @@ impl Config {
     /// Create providers for all configured model routing task overrides.
     pub fn create_routed_providers(
         &self,
+        db: Option<std::sync::Arc<crate::agent::memory::memory_db::MemoryDB>>,
     ) -> anyhow::Result<Option<crate::config::routing::ResolvedRouting>> {
         use crate::config::routing::ResolvedChatRouting;
         use crate::config::schema::agent::TaskRouting;
@@ -760,7 +761,7 @@ impl Config {
         if routing.tasks.is_empty() {
             return Ok(None);
         }
-        let factory = ProviderFactory::new(self);
+        let factory = ProviderFactory::with_db(self, db);
 
         // Deduplicated provider cache: model_str → (provider, model)
         let mut provider_cache: std::collections::HashMap<
@@ -827,11 +828,12 @@ impl Config {
     pub fn create_provider(
         &self,
         model: Option<&str>,
+        db: Option<std::sync::Arc<crate::agent::memory::memory_db::MemoryDB>>,
     ) -> anyhow::Result<std::sync::Arc<dyn crate::providers::base::LLMProvider>> {
         use crate::providers::strategy::ProviderFactory;
 
         let model = model.unwrap_or(&self.agents.defaults.model_routing.default);
-        let factory = ProviderFactory::new(self);
+        let factory = ProviderFactory::with_db(self, db);
 
         // Build fallback chain from modelRouting.fallbacks
         let routing = &self.agents.defaults.model_routing;

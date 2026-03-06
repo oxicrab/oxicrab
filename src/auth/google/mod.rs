@@ -1,3 +1,4 @@
+use crate::agent::memory::memory_db::MemoryDB;
 use anyhow::{Context, Result};
 use oauth2::{
     AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, TokenUrl,
@@ -6,8 +7,9 @@ use oauth2::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 const DEFAULT_SCOPES: &[&str] = &[
     "https://www.googleapis.com/auth/gmail.modify",
@@ -133,6 +135,7 @@ pub async fn get_credentials(
     _client_secret: &str,
     scopes: Option<&[String]>,
     token_path: Option<&Path>,
+    db: Option<&Arc<MemoryDB>>,
 ) -> Result<GoogleCredentials> {
     let scopes = scopes.map_or_else(
         || DEFAULT_SCOPES.to_vec(),
@@ -148,7 +151,7 @@ pub async fn get_credentials(
         Path::to_path_buf,
     );
 
-    let mut creds = load_credentials(&token_path, &scopes)?;
+    let mut creds = load_credentials(&token_path, &scopes, db)?;
 
     if let Some(ref mut c) = creds {
         if c.is_valid() {
@@ -158,7 +161,7 @@ pub async fn get_credentials(
         if c.refresh_token.is_some() {
             match c.refresh().await {
                 Ok(()) => {
-                    save_credentials(c, &token_path)?;
+                    save_credentials(c, &token_path, db)?;
                     return Ok(c.clone());
                 }
                 Err(e) => {
@@ -285,7 +288,7 @@ pub async fn run_oauth_flow(
 
     let creds = build_credentials_from_token(&token_data, client_id, client_secret, &scopes)?;
 
-    save_credentials(&creds, &token_path)?;
+    save_credentials(&creds, &token_path, None)?;
     info!("Google credentials saved to {}", token_path.display());
     Ok(creds)
 }
@@ -410,7 +413,7 @@ async fn run_manual_flow(
 
     let creds = build_credentials_from_token(&token_data, client_id, client_secret, scopes)?;
 
-    save_credentials(&creds, token_path)?;
+    save_credentials(&creds, token_path, None)?;
     info!("Google credentials saved to {}", token_path.display());
 
     Ok(creds)
@@ -517,13 +520,92 @@ pub fn has_valid_credentials(
     );
 
     // Check credentials synchronously without creating a nested runtime
-    match load_credentials(&token_path, &scopes_vec) {
+    match load_credentials(&token_path, &scopes_vec, None) {
         Ok(Some(creds)) => creds.is_valid() || creds.refresh_token.is_some(),
         _ => false,
     }
 }
 
-fn load_credentials(path: &Path, scopes: &[&str]) -> Result<Option<GoogleCredentials>> {
+fn load_credentials(
+    path: &Path,
+    scopes: &[&str],
+    db: Option<&Arc<MemoryDB>>,
+) -> Result<Option<GoogleCredentials>> {
+    // Try DB first
+    if let Some(db) = db
+        && let Some(creds) = load_credentials_from_db(db, scopes)?
+    {
+        return Ok(Some(creds));
+    }
+
+    // File fallback
+    load_credentials_from_file(path, scopes)
+}
+
+fn load_credentials_from_db(db: &MemoryDB, scopes: &[&str]) -> Result<Option<GoogleCredentials>> {
+    let Some(row) = db.load_oauth_token("google")? else {
+        return Ok(None);
+    };
+
+    let extra: serde_json::Value = match row.extra_json {
+        Some(ref json_str) => serde_json::from_str(json_str)
+            .context("failed to parse google extra_json from database")?,
+        None => return Ok(None),
+    };
+
+    let client_id = extra
+        .get("client_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let client_secret = extra
+        .get("client_secret")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let token_uri = extra
+        .get("token_uri")
+        .and_then(|v| v.as_str())
+        .unwrap_or("https://oauth2.googleapis.com/token")
+        .to_string();
+    let stored_scopes: Vec<String> = extra
+        .get("scopes")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(ToString::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Verify scopes match
+    let required_scopes: std::collections::HashSet<String> =
+        scopes.iter().map(ToString::to_string).collect();
+    let cred_scopes: std::collections::HashSet<String> = stored_scopes.iter().cloned().collect();
+    if !required_scopes.is_subset(&cred_scopes) {
+        warn!("database credential scopes don't match required scopes");
+        return Ok(None);
+    }
+
+    let expiry = if row.expires_at > 0 {
+        Some(row.expires_at as u64)
+    } else {
+        None
+    };
+
+    debug!("loaded Google credentials from database");
+    Ok(Some(GoogleCredentials {
+        token: row.access_token,
+        refresh_token: row.refresh_token,
+        token_uri,
+        client_id,
+        client_secret,
+        scopes: stored_scopes,
+        expiry,
+    }))
+}
+
+fn load_credentials_from_file(path: &Path, scopes: &[&str]) -> Result<Option<GoogleCredentials>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -564,7 +646,42 @@ fn load_credentials(path: &Path, scopes: &[&str]) -> Result<Option<GoogleCredent
     Ok(Some(creds))
 }
 
-fn save_credentials(creds: &GoogleCredentials, path: &Path) -> Result<()> {
+fn save_credentials(
+    creds: &GoogleCredentials,
+    path: &Path,
+    db: Option<&Arc<MemoryDB>>,
+) -> Result<()> {
+    // Try DB first
+    if let Some(db) = db {
+        if let Ok(()) = save_credentials_to_db(creds, db) {
+            debug!("Google credentials saved to database");
+            return Ok(());
+        }
+        warn!("failed to save Google credentials to database, falling back to file");
+    }
+
+    save_credentials_to_file(creds, path)
+}
+
+fn save_credentials_to_db(creds: &GoogleCredentials, db: &MemoryDB) -> Result<()> {
+    let extra = serde_json::json!({
+        "client_id": creds.client_id,
+        "client_secret": creds.client_secret,
+        "token_uri": creds.token_uri,
+        "scopes": creds.scopes,
+    });
+    let extra_str = serde_json::to_string(&extra)?;
+    let expires_at = creds.expiry.unwrap_or(0) as i64;
+    db.save_oauth_token(
+        "google",
+        &creds.token,
+        creds.refresh_token.as_deref(),
+        expires_at,
+        Some(&extra_str),
+    )
+}
+
+fn save_credentials_to_file(creds: &GoogleCredentials, path: &Path) -> Result<()> {
     use fs2::FileExt;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;

@@ -234,6 +234,7 @@ async fn create_google_tools(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
             &google_cfg.client_secret,
             Some(&google_cfg.scopes),
             None,
+            ctx.memory_db.as_ref(),
         )
         .await
         {

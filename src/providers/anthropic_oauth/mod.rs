@@ -1,3 +1,4 @@
+use crate::agent::memory::memory_db::MemoryDB;
 use crate::providers::anthropic_common;
 use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse};
 use crate::providers::errors::ProviderErrorHandler;
@@ -44,6 +45,7 @@ pub struct AnthropicOAuthProvider {
     expires_at: Arc<Mutex<i64>>,
     default_model: String,
     credentials_path: Option<PathBuf>,
+    db: Option<Arc<MemoryDB>>,
     client: Client,
 }
 
@@ -54,6 +56,7 @@ impl AnthropicOAuthProvider {
         expires_at: i64,
         default_model: Option<String>,
         credentials_path: Option<PathBuf>,
+        db: Option<Arc<MemoryDB>>,
     ) -> Result<Self> {
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(30))
@@ -77,19 +80,60 @@ impl AnthropicOAuthProvider {
                 },
             ),
             credentials_path,
+            db,
             client,
         };
 
         // Load cached tokens if available (synchronous — called before tokio runtime
         // is running for this provider, so std::sync primitives are fine)
+        provider.load_cached_tokens_from_db();
         if let Some(ref path) = provider.credentials_path {
-            provider.load_cached_tokens(path);
+            provider.load_cached_tokens_from_file(path);
         }
 
         Ok(provider)
     }
 
-    fn load_cached_tokens(&self, path: &Path) {
+    /// Try to load cached tokens from the `MemoryDB` (preferred over file).
+    fn load_cached_tokens_from_db(&self) {
+        let Some(ref db) = self.db else {
+            return;
+        };
+        match db.load_oauth_token("anthropic") {
+            Ok(Some(row)) => {
+                let current_expires = {
+                    let Ok(guard) = self.expires_at.try_lock() else {
+                        warn!(
+                            "could not acquire OAuth token lock during init, skipping DB cache load"
+                        );
+                        return;
+                    };
+                    *guard
+                };
+                if row.expires_at > current_expires {
+                    if let Ok(mut guard) = self.access_token.try_lock() {
+                        *guard = row.access_token;
+                    }
+                    if let Ok(mut guard) = self.refresh_token.try_lock() {
+                        *guard = row.refresh_token.unwrap_or_default();
+                    }
+                    if let Ok(mut guard) = self.expires_at.try_lock() {
+                        *guard = row.expires_at;
+                    }
+                    info!("loaded refreshed OAuth tokens from database");
+                }
+            }
+            Ok(None) => {
+                debug!("no cached OAuth tokens in database");
+            }
+            Err(e) => {
+                debug!("failed to load OAuth tokens from database: {}", e);
+            }
+        }
+    }
+
+    /// Try to load cached tokens from a JSON file (fallback when DB is unavailable).
+    fn load_cached_tokens_from_file(&self, path: &Path) {
         if !path.exists() {
             return;
         }
@@ -144,7 +188,7 @@ impl AnthropicOAuthProvider {
                             } else {
                                 warn!("could not acquire expires_at lock during init");
                             }
-                            info!("Loaded refreshed OAuth tokens from cache");
+                            info!("loaded refreshed OAuth tokens from file cache");
                         }
                     }
                 }
@@ -262,10 +306,8 @@ impl AnthropicOAuthProvider {
         *ea_guard = expires_at;
         drop((at_guard, rt_guard, ea_guard));
 
-        // Persist refreshed credentials if path is configured
-        if let Some(ref path) = self.credentials_path {
-            self.save_credentials(path).await;
-        }
+        // Persist refreshed credentials: DB preferred, file fallback
+        self.save_credentials().await;
 
         Ok(())
     }
@@ -287,11 +329,41 @@ impl AnthropicOAuthProvider {
             .context("failed to send request to Anthropic OAuth API")
     }
 
-    async fn save_credentials(&self, path: &Path) {
+    async fn save_credentials(&self) {
+        let access = self.access_token.lock().await.clone();
+        let refresh = self.refresh_token.lock().await.clone();
+        let expires = *self.expires_at.lock().await;
+
+        // Prefer DB storage
+        if let Some(ref db) = self.db {
+            let refresh_opt = if refresh.is_empty() {
+                None
+            } else {
+                Some(refresh.as_str())
+            };
+            match db.save_oauth_token("anthropic", &access, refresh_opt, expires, None) {
+                Ok(()) => {
+                    debug!("OAuth credentials saved to database");
+                    return;
+                }
+                Err(e) => {
+                    warn!(
+                        "failed to save OAuth credentials to database: {}, falling back to file",
+                        e
+                    );
+                }
+            }
+        }
+
+        // File fallback (when DB is not available)
+        let Some(ref path) = self.credentials_path else {
+            return;
+        };
+
         let data = json!({
-            "access_token": *self.access_token.lock().await,
-            "refresh_token": *self.refresh_token.lock().await,
-            "expires_at": *self.expires_at.lock().await,
+            "access_token": access,
+            "refresh_token": refresh,
+            "expires_at": expires,
         });
 
         let json_str = match serde_json::to_string_pretty(&data) {
@@ -301,7 +373,7 @@ impl AnthropicOAuthProvider {
                 return;
             }
         };
-        let path = path.to_path_buf();
+        let path = path.clone();
 
         // Perform all blocking I/O off the async runtime
         let result = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
@@ -330,9 +402,9 @@ impl AnthropicOAuthProvider {
         .await;
 
         match result {
-            Ok(Ok(())) => debug!("OAuth credentials saved"),
-            Ok(Err(e)) => warn!("Failed to save OAuth credentials: {}", e),
-            Err(e) => warn!("Failed to spawn credential save task: {}", e),
+            Ok(Ok(())) => debug!("OAuth credentials saved to file"),
+            Ok(Err(e)) => warn!("failed to save OAuth credentials to file: {}", e),
+            Err(e) => warn!("failed to spawn credential save task: {}", e),
         }
     }
 
@@ -380,10 +452,14 @@ impl AnthropicOAuthProvider {
             expires_at,
             default_model,
             Some(path.to_path_buf()),
+            None,
         )?))
     }
 
-    pub fn from_openclaw(default_model: Option<String>) -> Result<Option<Self>> {
+    pub fn from_openclaw(
+        default_model: Option<String>,
+        db: Option<Arc<MemoryDB>>,
+    ) -> Result<Option<Self>> {
         let store_path = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("No home directory"))?
             .join(".openclaw")
@@ -428,9 +504,14 @@ impl AnthropicOAuthProvider {
                 }
 
                 if let Some(cred_type) = cred.get("type").and_then(Value::as_str) {
-                    // Use oxicrab's own cache path for refreshed tokens so we
+                    // When DB is available, refreshed tokens go there.
+                    // Otherwise fall back to oxicrab's own cache file so we
                     // never overwrite OpenClaw's auth-profiles.json with our format.
-                    let cache_path = oxicrab_oauth_cache_path();
+                    let cache_path = if db.is_some() {
+                        None
+                    } else {
+                        oxicrab_oauth_cache_path()
+                    };
                     if cred_type == "oauth" {
                         if let Some(access) = cred.get("access").and_then(Value::as_str) {
                             let refresh = cred
@@ -445,6 +526,7 @@ impl AnthropicOAuthProvider {
                                 expires,
                                 default_model,
                                 cache_path,
+                                db,
                             )?));
                         }
                     } else if cred_type == "token"
@@ -458,6 +540,7 @@ impl AnthropicOAuthProvider {
                             expires,
                             default_model,
                             cache_path,
+                            db,
                         )?));
                     }
                 }
@@ -467,7 +550,10 @@ impl AnthropicOAuthProvider {
         Ok(None)
     }
 
-    pub fn from_claude_cli(default_model: Option<String>) -> Result<Option<Self>> {
+    pub fn from_claude_cli(
+        default_model: Option<String>,
+        db: Option<Arc<MemoryDB>>,
+    ) -> Result<Option<Self>> {
         let cred_path = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("No home directory"))?
             .join(".claude")
@@ -494,14 +580,21 @@ impl AnthropicOAuthProvider {
                 .unwrap_or_default();
             let expires = oauth.get("expiresAt").and_then(Value::as_i64).unwrap_or(0);
 
-            // Use oxicrab's own cache path for refreshed tokens so we
+            // When DB is available, refreshed tokens go there.
+            // Otherwise use oxicrab's own cache file so we
             // never overwrite Claude CLI's .credentials.json with our format.
+            let cache_path = if db.is_some() {
+                None
+            } else {
+                oxicrab_oauth_cache_path()
+            };
             return Ok(Some(Self::new(
                 access.to_string(),
                 refresh.to_string(),
                 expires,
                 default_model,
-                oxicrab_oauth_cache_path(),
+                cache_path,
+                db,
             )?));
         }
 

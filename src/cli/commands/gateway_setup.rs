@@ -21,8 +21,12 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     // Ensure workspace template files exist (AGENTS.md, USER.md, etc.)
     super::create_workspace_templates(&config.workspace_path())?;
 
+    // Create MemoryDB early so OAuth providers can use it for token caching
+    let db_path = config.workspace_path().join("memory").join("memory.db");
+    let memory_db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path)?);
+
     // Setup components
-    let provider = setup_provider(&config, model.as_deref())?;
+    let provider = setup_provider(&config, model.as_deref(), Some(memory_db.clone()))?;
 
     // Warmup provider connection (non-blocking, non-fatal)
     if let Err(e) = provider.warmup().await {
@@ -30,8 +34,6 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     }
 
     let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) = setup_message_bus(&config)?;
-    let db_path = config.workspace_path().join("memory").join("memory.db");
-    let memory_db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path)?);
     let cron = setup_cron_service(memory_db);
     // Create typing indicator channel
     let (typing_tx, typing_rx) = tokio::sync::mpsc::channel::<(String, String)>(100);
@@ -213,10 +215,11 @@ pub(super) async fn gateway_echo() -> Result<()> {
 fn setup_provider(
     config: &Config,
     model: Option<&str>,
+    db: Option<Arc<crate::agent::memory::memory_db::MemoryDB>>,
 ) -> Result<Arc<dyn crate::providers::base::LLMProvider>> {
     let effective_model = model.unwrap_or(&config.agents.defaults.model_routing.default);
     info!("Creating LLM provider for model: {}", effective_model);
-    let provider = config.create_provider(model)?;
+    let provider = config.create_provider(model, db)?;
     info!(
         "Provider created successfully. Default model: {}",
         provider.default_model()
@@ -309,7 +312,7 @@ pub(super) async fn setup_agent(
     );
 
     // Create model routing providers if configured
-    let routing = match config.create_routed_providers() {
+    let routing = match config.create_routed_providers(None) {
         Ok(Some(r)) => {
             info!("model routing active with {} task(s)", r.task_count());
             Some(Arc::new(r))

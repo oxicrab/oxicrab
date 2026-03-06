@@ -10,7 +10,7 @@ pub(super) async fn agent(message: Option<String>, session: String) -> Result<()
     let config = load_config(None)?;
     config.validate()?;
 
-    let provider = config.create_provider(None)?;
+    let provider = config.create_provider(None, None)?;
 
     let mut bus = MessageBus::default();
     let secrets = config.collect_secrets();
