@@ -14,6 +14,7 @@ mod obsidian;
 mod pairing;
 mod search;
 mod stats;
+mod subagent_log;
 mod workspace;
 
 pub use cost::TokenSummaryRow;
@@ -24,6 +25,7 @@ pub use stats::{
     ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, IntentEvent,
     IntentStats, SearchStats,
 };
+pub use subagent_log::SubagentLogEntry;
 pub use workspace::WorkspaceFileEntry;
 
 use embeddings::CachedEmbedding;
@@ -425,6 +427,25 @@ impl MemoryDB {
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_obsidian_queue_vault
              ON obsidian_write_queue(vault_name)",
+            [],
+        )?;
+
+        // --- Subagent log table ---
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS subagent_logs (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id    TEXT NOT NULL,
+                timestamp  TEXT NOT NULL DEFAULT (datetime('now')),
+                event_type TEXT NOT NULL,
+                content    TEXT NOT NULL,
+                metadata   TEXT
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_subagent_logs_task ON subagent_logs(task_id)",
             [],
         )?;
 

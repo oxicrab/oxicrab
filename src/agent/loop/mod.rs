@@ -253,6 +253,7 @@ impl AgentLoop {
                     prompt_guard_config: prompt_guard_config.clone(),
                     exfil_guard: exfiltration_guard.clone(),
                     main_tools: None, // set after register_all_tools()
+                    memory_db: Some(memory.db()),
                 }
             },
             allowed_commands: tool_configs.allowed_commands,

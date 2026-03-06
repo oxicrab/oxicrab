@@ -78,6 +78,7 @@ fn make_manager(provider: Arc<dyn LLMProvider>, max_concurrent: usize) -> Subage
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
             exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
             main_tools: None,
+            memory_db: None,
         },
         bus,
     );
@@ -275,6 +276,7 @@ async fn test_silent_mode_no_bus_message() {
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
             exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
             main_tools: None,
+            memory_db: None,
         },
         bus.clone(),
     );
@@ -324,6 +326,7 @@ async fn test_non_silent_mode_publishes_bus_message() {
             prompt_guard_config: crate::config::PromptGuardConfig::default(),
             exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
             main_tools: None,
+            memory_db: None,
         },
         bus.clone(),
     );
@@ -481,6 +484,7 @@ fn make_inner_with_tools(
         leak_detector: crate::safety::leak_detector::LeakDetector::new(),
         exfil_guard,
         main_tools: lock,
+        memory_db: None,
     }
 }
 
@@ -629,28 +633,25 @@ fn test_subagent_tools_exfil_allows_specific_tool() {
 
 // --- Activity log tests ---
 
+fn make_test_db() -> Arc<crate::agent::memory::memory_db::MemoryDB> {
+    Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").unwrap())
+}
+
 #[test]
-fn test_activity_log_creates_file() {
-    let log = super::ActivityLog::new("test1234");
+fn test_activity_log_creates_entries() {
+    let db = make_test_db();
+    let log = super::ActivityLog::new("test1234", db.clone());
     assert!(log.is_some(), "ActivityLog should be creatable");
-    let log = log.unwrap();
-    assert!(log.path().exists(), "Log file should exist on disk");
-    assert!(
-        log.path()
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .starts_with("subagent-test1234-"),
-        "Log filename should contain task ID"
-    );
-    // Cleanup
-    let _ = std::fs::remove_file(log.path());
+
+    // The constructor writes an initial sentinel entry
+    let entries = db.list_subagent_logs("test1234").unwrap();
+    assert!(!entries.is_empty(), "DB should have an initial entry");
 }
 
 #[test]
 fn test_activity_log_writes_content() {
-    let mut log = super::ActivityLog::new("logtest").unwrap();
+    let db = make_test_db();
+    let mut log = super::ActivityLog::new("logtest", db.clone()).unwrap();
     log.log_start("test task for logging");
     log.log_tools(&["exec".to_string(), "read_file".to_string()]);
     log.log_iteration_tool_calls(1, 2);
@@ -660,48 +661,58 @@ fn test_activity_log_writes_content() {
     log.log_iteration_text(2, 100);
     log.log_end("ok");
 
-    let content = std::fs::read_to_string(log.path()).unwrap();
+    let entries = db.list_subagent_logs("logtest").unwrap();
+    let all_content: String = entries
+        .iter()
+        .map(|e| e.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    assert!(content.contains("SUBAGENT START task_id=logtest"));
-    assert!(content.contains("TASK: test task for logging"));
-    assert!(content.contains("TOOLS REGISTERED: exec, read_file"));
-    assert!(content.contains("ITERATION 1: LLM responded with 2 tool call(s)"));
-    assert!(content.contains("TOOL CALL: exec {\"command\":\"ls\"}"));
-    assert!(content.contains("TOOL RESULT: exec (19 chars): file1.txt file2.txt"));
-    assert!(content.contains("TOOL ERROR: exec (17 chars): command not found"));
-    assert!(content.contains("ITERATION 2: LLM responded with text (100 chars)"));
-    assert!(content.contains("SUBAGENT END task_id=logtest status=ok duration="));
-
-    // Cleanup
-    let _ = std::fs::remove_file(log.path());
+    assert!(all_content.contains("SUBAGENT START task_id=logtest"));
+    assert!(all_content.contains("TASK: test task for logging"));
+    assert!(all_content.contains("TOOLS REGISTERED: exec, read_file"));
+    assert!(all_content.contains("ITERATION 1: LLM responded with 2 tool call(s)"));
+    assert!(all_content.contains("TOOL CALL: exec {\"command\":\"ls\"}"));
+    assert!(all_content.contains("TOOL RESULT: exec (19 chars): file1.txt file2.txt"));
+    assert!(all_content.contains("TOOL ERROR: exec (17 chars): command not found"));
+    assert!(all_content.contains("ITERATION 2: LLM responded with text (100 chars)"));
+    assert!(all_content.contains("SUBAGENT END task_id=logtest status=ok duration="));
 }
 
 #[test]
 fn test_activity_log_truncates_long_content() {
-    let mut log = super::ActivityLog::new("trunctest").unwrap();
+    let db = make_test_db();
+    let mut log = super::ActivityLog::new("trunctest", db.clone()).unwrap();
     let long_result = "x".repeat(1000);
     log.log_tool_result("exec", &long_result, false);
 
-    let content = std::fs::read_to_string(log.path()).unwrap();
+    let entries = db.list_subagent_logs("trunctest").unwrap();
+    let all_content: String = entries
+        .iter()
+        .map(|e| e.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
     // Should contain "..." suffix indicating truncation
-    assert!(content.contains("..."));
+    assert!(all_content.contains("..."));
     // Should contain the char count of the full content
-    assert!(content.contains("(1000 chars)"));
-
-    let _ = std::fs::remove_file(log.path());
+    assert!(all_content.contains("(1000 chars)"));
 }
 
 #[test]
 fn test_activity_log_special_entries() {
-    let mut log = super::ActivityLog::new("spectest").unwrap();
+    let db = make_test_db();
+    let mut log = super::ActivityLog::new("spectest", db.clone()).unwrap();
     log.log_max_iterations(15);
     log.log_iteration_empty(3, 1);
 
-    let content = std::fs::read_to_string(log.path()).unwrap();
-    assert!(content.contains("MAX ITERATIONS REACHED (15)"));
-    assert!(content.contains("ITERATION 3: LLM returned empty response (retries left: 1)"));
-
-    let _ = std::fs::remove_file(log.path());
+    let entries = db.list_subagent_logs("spectest").unwrap();
+    let all_content: String = entries
+        .iter()
+        .map(|e| e.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(all_content.contains("MAX ITERATIONS REACHED (15)"));
+    assert!(all_content.contains("ITERATION 3: LLM returned empty response (retries left: 1)"));
 }
 
 // --- ToolRegistry::tool_names test ---

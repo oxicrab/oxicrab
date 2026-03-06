@@ -31,6 +31,7 @@ fn make_tool() -> SpawnTool {
         prompt_guard_config: PromptGuardConfig::default(),
         exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
         main_tools: None,
+        memory_db: None,
     };
     let manager = Arc::new(SubagentManager::new(config, bus));
     SpawnTool::new(manager)
