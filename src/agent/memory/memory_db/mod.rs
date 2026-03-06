@@ -9,6 +9,7 @@ mod cron;
 mod dlq;
 mod embeddings;
 mod indexing;
+mod pairing;
 mod search;
 mod stats;
 mod workspace;
@@ -313,6 +314,42 @@ impl MemoryDB {
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled_next
              ON cron_jobs(enabled, next_run_at_ms)",
+            [],
+        )?;
+
+        // --- Pairing tables ---
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS pairing_allowlist (
+                channel    TEXT NOT NULL,
+                sender_id  TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (channel, sender_id)
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS pairing_pending (
+                channel    TEXT NOT NULL,
+                sender_id  TEXT NOT NULL,
+                code       TEXT NOT NULL UNIQUE,
+                created_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS pairing_failed_attempts (
+                client_id    TEXT NOT NULL,
+                attempted_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pairing_failed_client
+             ON pairing_failed_attempts(client_id)",
             [],
         )?;
 

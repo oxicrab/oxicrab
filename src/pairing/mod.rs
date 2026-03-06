@@ -1,7 +1,6 @@
-use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::PathBuf;
+use crate::agent::memory::memory_db::MemoryDB;
+use anyhow::Result;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, warn};
 
@@ -14,7 +13,7 @@ const MAX_FAILED_ATTEMPTS: usize = 10;
 const FAILED_ATTEMPT_WINDOW_SECS: u64 = 5 * 60; // 5 minutes
 const MAX_LOCKOUT_CLIENTS: usize = 1000;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct PendingRequest {
     pub channel: String,
     pub sender_id: String,
@@ -22,187 +21,23 @@ pub struct PendingRequest {
     pub created_at: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct AllowlistData {
-    senders: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct PendingData {
-    requests: Vec<PendingRequest>,
-}
-
-/// Persisted failed approval attempts for brute-force lockout.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct FailedAttemptsData {
-    /// Map from `client_id` → list of attempt timestamps (unix secs)
-    clients: HashMap<String, Vec<u64>>,
-}
-
 pub struct PairingStore {
-    base_dir: PathBuf,
-    allowlists: HashMap<String, AllowlistData>,
-    pending: PendingData,
-    failed_attempts: HashMap<String, Vec<u64>>,
+    db: Arc<MemoryDB>,
 }
 
 impl PairingStore {
-    /// Acquire an exclusive lock on the pairing directory for cross-process safety.
-    /// Lock released when the returned file is dropped.
-    fn lock_exclusive(&self) -> Result<std::fs::File> {
-        use fs2::FileExt;
-        let lock_path = self.base_dir.join(".lock");
-        let lock_file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&lock_path)
-            .with_context(|| "failed to open pairing lock file")?;
-        lock_file
-            .lock_exclusive()
-            .with_context(|| "failed to acquire pairing lock")?;
-        Ok(lock_file)
+    pub fn new(db: Arc<MemoryDB>) -> Self {
+        Self { db }
     }
 
-    pub fn new() -> Result<Self> {
-        let base_dir = crate::utils::get_oxicrab_home()?.join("pairing");
-        std::fs::create_dir_all(&base_dir)
-            .with_context(|| format!("failed to create pairing dir: {}", base_dir.display()))?;
-
-        let mut store = Self {
-            base_dir,
-            allowlists: HashMap::new(),
-            pending: PendingData::default(),
-            failed_attempts: HashMap::new(),
-        };
-        store.load_all()?;
-        // Persist pruned failed attempts to clean up stale entries on disk
-        if !store.failed_attempts.is_empty()
-            && let Err(e) = store.save_failed_attempts()
-        {
-            warn!("failed to persist pruned failed attempts: {}", e);
-        }
-        Ok(store)
-    }
-
-    #[cfg(test)]
-    fn with_dir(base_dir: PathBuf) -> Result<Self> {
-        std::fs::create_dir_all(&base_dir)?;
-        let mut store = Self {
-            base_dir,
-            allowlists: HashMap::new(),
-            pending: PendingData::default(),
-            failed_attempts: HashMap::new(),
-        };
-        store.load_all()?;
-        Ok(store)
-    }
-
-    /// Acquire a shared (read) lock on the pairing directory for cross-process safety.
-    /// Lock released when the returned file is dropped.
-    fn lock_shared(&self) -> Result<std::fs::File> {
-        let lock_path = self.base_dir.join(".lock");
-        // Use write(true) because fs2 shared locks need a writable fd on some
-        // platforms, but truncate(false) to avoid destroying file content.
-        let lock_file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&lock_path)
-            .with_context(|| "failed to open pairing lock file")?;
-        fs2::FileExt::lock_shared(&lock_file)
-            .with_context(|| "failed to acquire pairing shared lock")?;
-        Ok(lock_file)
-    }
-
-    fn load_all(&mut self) -> Result<()> {
-        let _lock = self.lock_shared()?;
-
-        // Load pending requests
-        let pending_path = self.base_dir.join("pending.json");
-        if pending_path.exists() {
-            let content = std::fs::read_to_string(&pending_path)?;
-            match serde_json::from_str(&content) {
-                Ok(data) => self.pending = data,
-                Err(e) => {
-                    warn!("failed to parse pending.json (using empty): {}", e);
-                    self.pending = PendingData::default();
-                }
-            }
-        }
-
-        // Load persisted failed attempts for brute-force lockout
-        let failed_path = self.base_dir.join("failed-attempts.json");
-        if failed_path.exists()
-            && let Ok(content) = std::fs::read_to_string(&failed_path)
-            && let Ok(data) = serde_json::from_str::<FailedAttemptsData>(&content)
-        {
-            self.failed_attempts = data.clients;
-            // Prune expired entries on load
-            let now = Self::now_secs();
-            self.failed_attempts.retain(|_, ts| {
-                ts.retain(|&t| now.saturating_sub(t) < FAILED_ATTEMPT_WINDOW_SECS);
-                !ts.is_empty()
-            });
-        }
-
-        // Load per-channel allowlists
-        for entry in std::fs::read_dir(&self.base_dir)? {
-            let entry = entry?;
-            let name = entry.file_name().to_string_lossy().to_string();
-            if let Some(channel) = name.strip_suffix("-allowlist.json") {
-                let content = std::fs::read_to_string(entry.path())?;
-                match serde_json::from_str::<AllowlistData>(&content) {
-                    Ok(data) => {
-                        self.allowlists.insert(channel.to_string(), data);
-                    }
-                    Err(e) => {
-                        warn!(
-                            "failed to parse {}-allowlist.json (using empty): {}",
-                            channel, e
-                        );
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn save_pending(&self) -> Result<()> {
-        let _lock = self.lock_exclusive()?;
-        let path = self.base_dir.join("pending.json");
-        let content = serde_json::to_string_pretty(&self.pending)?;
-        crate::utils::atomic_write(&path, &content)?;
-        Ok(())
-    }
-
-    fn save_failed_attempts(&self) -> Result<()> {
-        let _lock = self.lock_exclusive()?;
-        let path = self.base_dir.join("failed-attempts.json");
-        let data = FailedAttemptsData {
-            clients: self.failed_attempts.clone(),
-        };
-        let content = serde_json::to_string(&data)?;
-        crate::utils::atomic_write(&path, &content)?;
-        Ok(())
-    }
-
-    fn save_allowlist(&self, channel: &str) -> Result<()> {
-        // Reject channel names containing path separators or traversal sequences
-        if channel.contains('/')
-            || channel.contains('\\')
-            || channel.contains("..")
-            || channel.contains('\0')
-        {
-            anyhow::bail!("invalid channel name for allowlist: {channel}");
-        }
-        let _lock = self.lock_exclusive()?;
-        let path = self.base_dir.join(format!("{channel}-allowlist.json"));
-        let data = self.allowlists.get(channel).cloned().unwrap_or_default();
-        let content = serde_json::to_string_pretty(&data)?;
-        crate::utils::atomic_write(&path, &content)?;
-        Ok(())
+    /// Open a `PairingStore` backed by the default workspace `MemoryDB`.
+    /// Convenience for CLI commands and places that don't have a shared DB reference.
+    pub fn open_default() -> Result<Self> {
+        let config = crate::config::load_config(None)?;
+        let workspace = config.workspace_path();
+        let db_path = workspace.join("memory").join("memory.db");
+        let db = Arc::new(MemoryDB::new(&db_path)?);
+        Ok(Self { db })
     }
 
     fn now_secs() -> u64 {
@@ -223,7 +58,7 @@ impl PairingStore {
 
     /// Request pairing for a sender on a channel.
     /// Returns `Some(code)` if a new code was issued, `None` if rate-limited.
-    pub fn request_pairing(&mut self, channel: &str, sender_id: &str) -> Result<Option<String>> {
+    pub fn request_pairing(&self, channel: &str, sender_id: &str) -> Result<Option<String>> {
         self.cleanup_expired();
 
         // Check if already paired
@@ -232,12 +67,7 @@ impl PairingStore {
         }
 
         // Check pending count per channel
-        let pending_count = self
-            .pending
-            .requests
-            .iter()
-            .filter(|r| r.channel == channel)
-            .count();
+        let pending_count = self.db.count_pending_for_channel(channel, CODE_TTL_SECS)?;
         if pending_count >= MAX_PENDING_PER_CHANNEL {
             debug!(
                 "max pending pairing requests for channel {} reached",
@@ -248,22 +78,15 @@ impl PairingStore {
 
         // Check if this sender already has a pending request
         if let Some(existing) = self
-            .pending
-            .requests
-            .iter()
-            .find(|r| r.channel == channel && r.sender_id == sender_id)
+            .db
+            .get_pending_for_sender(channel, sender_id, CODE_TTL_SECS)?
         {
-            return Ok(Some(existing.code.clone()));
+            return Ok(Some(existing.code));
         }
 
         let code = Self::generate_code();
-        self.pending.requests.push(PendingRequest {
-            channel: channel.to_string(),
-            sender_id: sender_id.to_string(),
-            code: code.clone(),
-            created_at: Self::now_secs(),
-        });
-        self.save_pending()?;
+        self.db
+            .add_pending_request(channel, sender_id, &code, Self::now_secs())?;
 
         Ok(Some(code))
     }
@@ -271,145 +94,116 @@ impl PairingStore {
     /// Approve a pairing request by code, with per-client lockout.
     /// `client_id` identifies the approver (e.g. CLI user, admin session).
     /// Returns `(channel, sender_id)` on success.
+    ///
+    /// SECURITY: Code comparison uses `subtle::ConstantTimeEq` in Rust,
+    /// not SQL matching, to prevent timing side-channels.
     pub fn approve_with_client(
-        &mut self,
+        &self,
         code: &str,
         client_id: &str,
     ) -> Result<Option<(String, String)>> {
         let now = Self::now_secs();
 
         // Evict oldest client entries if map is too large (DoS protection)
-        if self.failed_attempts.len() > MAX_LOCKOUT_CLIENTS {
-            // Find the client with the oldest most-recent attempt and remove it
-            if let Some(oldest_key) = self
-                .failed_attempts
-                .iter()
-                .min_by_key(|(_, attempts)| attempts.last().copied().unwrap_or(0))
-                .map(|(k, _)| k.clone())
-            {
-                self.failed_attempts.remove(&oldest_key);
-            }
-        }
+        self.db.evict_oldest_lockout_client(MAX_LOCKOUT_CLIENTS)?;
 
         // Per-client rate limiting
         let attempts = self
-            .failed_attempts
-            .entry(client_id.to_string())
-            .or_default();
-        attempts.retain(|&t| now.saturating_sub(t) < FAILED_ATTEMPT_WINDOW_SECS);
-        if attempts.len() >= MAX_FAILED_ATTEMPTS {
+            .db
+            .count_recent_failed_attempts(client_id, FAILED_ATTEMPT_WINDOW_SECS)?;
+        if attempts >= MAX_FAILED_ATTEMPTS {
             anyhow::bail!("too many failed approval attempts, try again later");
         }
 
+        // Fetch ALL non-expired pending requests and do constant-time compare in Rust
+        let all_pending = self.db.get_all_pending(CODE_TTL_SECS)?;
+
         let code_upper = code.to_uppercase();
-        // Check for expired codes separately to provide clear feedback
-        let has_expired_match = self.pending.requests.iter().any(|r| {
+
+        // Also check expired codes for user-friendly feedback
+        let all_including_expired = self.db.get_all_pending(u64::MAX)?;
+        let has_expired_match = all_including_expired.iter().any(|r| {
             use subtle::ConstantTimeEq;
             let code_match: bool = r.code.as_bytes().ct_eq(code_upper.as_bytes()).into();
             code_match && now.saturating_sub(r.created_at) >= CODE_TTL_SECS
         });
-        let idx = self.pending.requests.iter().position(|r| {
+
+        let matched = all_pending.iter().find(|r| {
             use subtle::ConstantTimeEq;
-            let code_match = r.code.as_bytes().ct_eq(code_upper.as_bytes()).into();
-            code_match && now.saturating_sub(r.created_at) < CODE_TTL_SECS
+            r.code.as_bytes().ct_eq(code_upper.as_bytes()).into()
         });
 
-        let Some(idx) = idx else {
+        let Some(request) = matched else {
             if has_expired_match {
                 warn!("pairing code matched but expired (TTL: {}s)", CODE_TTL_SECS);
             }
-            self.failed_attempts
-                .entry(client_id.to_string())
-                .or_default()
-                .push(now);
-            // Persist so lockout survives PairingStore recreation
-            if let Err(e) = self.save_failed_attempts() {
-                warn!("failed to persist failed attempts: {}", e);
-            }
+            self.db.record_failed_attempt(client_id, now)?;
             return Ok(None);
         };
 
-        let request = self.pending.requests.remove(idx);
         let channel = request.channel.clone();
         let sender_id = request.sender_id.clone();
+        let matched_code = request.code.clone();
 
-        // Add to allowlist
-        let allowlist = self.allowlists.entry(channel.clone()).or_default();
-        if !allowlist.senders.contains(&sender_id) {
-            allowlist.senders.push(sender_id.clone());
-        }
-
-        self.save_pending()?;
-        self.save_allowlist(&channel)?;
+        // Remove the pending request and add to allowlist
+        self.db.remove_pending(&matched_code)?;
+        self.db.add_paired_sender(&channel, &sender_id)?;
 
         Ok(Some((channel, sender_id)))
     }
 
     /// Approve a pairing request by code. Returns `(channel, sender_id)` on success.
     /// Uses a default client ID for lockout tracking.
-    pub fn approve(&mut self, code: &str) -> Result<Option<(String, String)>> {
+    pub fn approve(&self, code: &str) -> Result<Option<(String, String)>> {
         self.approve_with_client(code, "default")
     }
 
     /// Check if a sender is in the pairing store's allowlist for a channel.
     pub fn is_paired(&self, channel: &str, sender_id: &str) -> bool {
-        self.allowlists
-            .get(channel)
-            .is_some_and(|data| data.senders.iter().any(|s| s == sender_id))
+        self.db
+            .is_sender_paired(channel, sender_id)
+            .unwrap_or(false)
     }
 
     /// List all pending pairing requests (non-expired).
-    pub fn list_pending(&self) -> Vec<&PendingRequest> {
-        let now = Self::now_secs();
-        self.pending
-            .requests
-            .iter()
-            .filter(|r| now.saturating_sub(r.created_at) < CODE_TTL_SECS)
+    pub fn list_pending(&self) -> Vec<PendingRequest> {
+        self.db
+            .get_all_pending(CODE_TTL_SECS)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| PendingRequest {
+                channel: r.channel,
+                sender_id: r.sender_id,
+                code: r.code,
+                created_at: r.created_at,
+            })
             .collect()
     }
 
     /// List all paired senders across all channels.
     pub fn paired_count(&self) -> usize {
-        self.allowlists.values().map(|a| a.senders.len()).sum()
+        self.db.count_paired_senders().unwrap_or(0)
     }
 
     /// Revoke a sender's pairing for a channel.
-    pub fn revoke(&mut self, channel: &str, sender_id: &str) -> Result<bool> {
-        if let Some(allowlist) = self.allowlists.get_mut(channel) {
-            let before = allowlist.senders.len();
-            allowlist.senders.retain(|s| s != sender_id);
-            if allowlist.senders.len() < before {
-                self.save_allowlist(channel)?;
-                return Ok(true);
-            }
-        }
-        Ok(false)
+    pub fn revoke(&self, channel: &str, sender_id: &str) -> Result<bool> {
+        self.db.remove_paired_sender(channel, sender_id)
     }
 
     /// Remove expired pending requests.
-    pub fn cleanup_expired(&mut self) {
-        let now = Self::now_secs();
-        let before = self.pending.requests.len();
-        self.pending
-            .requests
-            .retain(|r| now.saturating_sub(r.created_at) < CODE_TTL_SECS);
-        if self.pending.requests.len() < before
-            && let Err(e) = self.save_pending()
-        {
-            warn!("failed to save pending after cleanup: {}", e);
+    pub fn cleanup_expired(&self) {
+        if let Err(e) = self.db.cleanup_expired_pending(CODE_TTL_SECS) {
+            warn!("failed to cleanup expired pending: {}", e);
         }
     }
 
     /// List all paired senders for a specific channel.
     pub fn list_channel_senders(&self, channel: &str) -> Option<Vec<String>> {
-        self.allowlists
-            .get(channel)
-            .map(|data| data.senders.clone())
-    }
-
-    /// Check if the pairing store directory exists.
-    pub fn store_exists() -> bool {
-        crate::utils::get_oxicrab_home().is_ok_and(|h| h.join("pairing").exists())
+        match self.db.list_paired_senders(channel) {
+            Ok(senders) if senders.is_empty() => None,
+            Ok(senders) => Some(senders),
+            Err(_) => None,
+        }
     }
 }
 

@@ -239,9 +239,10 @@ pub(super) fn status_command() -> Result<()> {
 }
 
 pub(super) fn pairing_command(cmd: PairingCommands) -> Result<()> {
+    let store = crate::pairing::PairingStore::open_default()?;
+
     match cmd {
         PairingCommands::List => {
-            let store = crate::pairing::PairingStore::new()?;
             let pending = store.list_pending();
             if pending.is_empty() {
                 println!("No pending pairing requests.");
@@ -266,19 +267,15 @@ pub(super) fn pairing_command(cmd: PairingCommands) -> Result<()> {
             }
             println!("\nPaired senders: {}", store.paired_count());
         }
-        PairingCommands::Approve { code } => {
-            let mut store = crate::pairing::PairingStore::new()?;
-            match store.approve(&code)? {
-                Some((channel, sender_id)) => {
-                    println!("Approved: {channel}:{sender_id}");
-                }
-                None => {
-                    println!("Invalid or expired code: {code}");
-                }
+        PairingCommands::Approve { code } => match store.approve(&code)? {
+            Some((channel, sender_id)) => {
+                println!("Approved: {channel}:{sender_id}");
             }
-        }
+            None => {
+                println!("Invalid or expired code: {code}");
+            }
+        },
         PairingCommands::Revoke { channel, sender_id } => {
-            let mut store = crate::pairing::PairingStore::new()?;
             if store.revoke(&channel, &sender_id)? {
                 println!("Revoked: {channel}:{sender_id}");
             } else {

@@ -356,7 +356,7 @@ fn check_empty_allowlists() -> CheckResult {
         return CheckResult::Skip("config not available".to_string());
     };
 
-    let pairing_store = crate::pairing::PairingStore::new().ok();
+    let pairing_store = crate::pairing::PairingStore::open_default().ok();
     let has_paired = |channel: &str| -> bool {
         pairing_store
             .as_ref()
@@ -469,11 +469,7 @@ fn check_sandbox() -> CheckResult {
 }
 
 fn check_pairing_store() -> CheckResult {
-    if !crate::pairing::PairingStore::store_exists() {
-        return CheckResult::Skip("not initialized (run oxicrab pairing list)".to_string());
-    }
-
-    match crate::pairing::PairingStore::new() {
+    match crate::pairing::PairingStore::open_default() {
         Ok(store) => {
             let paired = store.paired_count();
             let pending = store.list_pending().len();
