@@ -372,7 +372,7 @@ max_width: 1120px
   <div class="hero-text">
     <img src="oxicrab.png" alt="oxicrab" class="hero-logo">
     <h1>Multi-channel AI agents, built in Rust.</h1>
-    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 24 built-in tools, long-term memory, subagents, cron scheduling, and MCP support.</p>
+    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 25 built-in tools, long-term memory, subagents, cron scheduling, and MCP support.</p>
     <div class="hero-actions">
       <a href="#install" class="btn btn-primary">Get Started</a>
       <a href="https://github.com/oxicrab/oxicrab" class="btn btn-ghost">View Source</a>
@@ -619,7 +619,7 @@ cargo build --release --no-default-features \
 <section id="tools" class="tools-section">
   <div class="container">
     <div class="section-label">Tools</div>
-    <div class="section-title">24 built-in tools + MCP</div>
+    <div class="section-title">25 built-in tools + MCP</div>
     <div class="section-desc">A comprehensive toolkit for autonomous agents. Every tool features timeout protection, panic isolation, and result caching.</div>
 
     <div class="tools-legend">
@@ -664,6 +664,7 @@ cargo build --release --no-default-features \
         <div class="tool-grid">
           <div class="tool-item" data-detail="Interact with Gmail. Requires Google OAuth configuration."><span class="tool-dot setup"></span><div><span class="tool-name">google_mail</span><br><span class="tool-desc">Gmail read, send, and manage</span></div></div>
           <div class="tool-item" data-detail="Interact with Google Calendar. Requires Google OAuth configuration."><span class="tool-dot setup"></span><div><span class="tool-name">google_calendar</span><br><span class="tool-desc">Event management</span></div></div>
+          <div class="tool-item" data-detail="Interact with Google Tasks. Requires Google OAuth configuration."><span class="tool-dot setup"></span><div><span class="tool-name">google_tasks</span><br><span class="tool-desc">Task management</span></div></div>
           <div class="tool-item" data-detail="Interact with GitHub. Issues, pull requests, file content, PR reviews, and CI/CD workflows. Requires a GitHub personal access token."><span class="tool-dot setup"></span><div><span class="tool-name">github</span><br><span class="tool-desc">Issues, PRs, and repos</span></div></div>
           <div class="tool-item" data-detail="Get current weather or forecast for a location. Uses OpenWeatherMap API."><span class="tool-dot setup"></span><div><span class="tool-name">weather</span><br><span class="tool-desc">OpenWeatherMap forecasts</span></div></div>
           <div class="tool-item" data-detail="Manage Todoist tasks and projects with comments. Requires a Todoist API token."><span class="tool-dot setup"></span><div><span class="tool-name">todoist</span><br><span class="tool-desc">Task management</span></div></div>
@@ -1013,7 +1014,7 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
     <div class="structure-pre">
       <pre><span class="hl-comment">src/</span>
 &#x251C;&#x2500;&#x2500; agent/          <span class="hl-comment"># Agent loop, context, memory, tools, subagents</span>
-&#x2502;   &#x2514;&#x2500;&#x2500; tools/      <span class="hl-comment"># 24 built-in tools + MCP integration</span>
+&#x2502;   &#x2514;&#x2500;&#x2500; tools/      <span class="hl-comment"># 25 built-in tools + MCP integration</span>
 &#x251C;&#x2500;&#x2500; auth/           <span class="hl-comment"># OAuth authentication (Google)</span>
 &#x251C;&#x2500;&#x2500; bus/            <span class="hl-comment"># Message bus for channel-agent communication</span>
 &#x251C;&#x2500;&#x2500; channels/       <span class="hl-comment"># Telegram, Discord, Slack, WhatsApp, Twilio</span>
