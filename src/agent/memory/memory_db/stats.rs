@@ -4,6 +4,16 @@ use anyhow::Result;
 use rusqlite::params;
 
 #[derive(Debug, Clone)]
+pub struct SearchDetails {
+    pub query: String,
+    pub search_type: String,
+    pub result_count: usize,
+    pub top_score: Option<f64>,
+    pub source_keys: Vec<String>,
+    pub timestamp: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct SearchStats {
     pub total_searches: u64,
     pub total_hits: u64,
@@ -90,6 +100,46 @@ impl MemoryDB {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Return provenance details for the most recent memory search.
+    pub fn get_last_search_details(&self) -> Result<Option<SearchDetails>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, query, search_type, result_count, top_score, created_at
+             FROM memory_access_log ORDER BY id DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query([])?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+
+        let log_id: i64 = row.get(0)?;
+        let query: String = row.get(1)?;
+        let search_type: String = row.get(2)?;
+        let result_count: i64 = row.get(3)?;
+        let top_score: Option<f64> = row.get(4)?;
+        let created_at: String = row.get(5)?;
+
+        let mut hit_stmt =
+            conn.prepare("SELECT source_key FROM memory_search_hits WHERE access_log_id = ?")?;
+        let source_keys: Vec<String> = hit_stmt
+            .query_map([log_id], |r| r.get(0))?
+            .filter_map(Result::ok)
+            .collect();
+
+        Ok(Some(SearchDetails {
+            query,
+            search_type,
+            result_count: result_count as usize,
+            top_score,
+            source_keys,
+            timestamp: created_at,
+        }))
     }
 
     /// Count how many times a source key appeared in search results.

@@ -21,6 +21,7 @@ pub use cost::TokenSummaryRow;
 pub use dlq::DlqEntry;
 pub use oauth::OAuthTokenRow;
 pub use search::MemoryHit;
+pub use stats::SearchDetails;
 pub use stats::{
     ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, IntentEvent,
     IntentStats, SearchStats,
