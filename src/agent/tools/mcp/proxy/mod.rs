@@ -10,6 +10,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{debug, warn};
 
+/// Maximum size for MCP tool response content (10 MB).
+const MCP_RESULT_MAX_BYTES: usize = 10 * 1024 * 1024;
+
 /// Wraps a single MCP server tool as an `impl Tool` for the oxicrab agent.
 pub struct McpProxyTool {
     peer: Peer<RoleClient>,
@@ -139,6 +142,16 @@ impl Tool for McpProxyTool {
 
         if output.is_empty() {
             output = "(no output)".to_string();
+        }
+
+        // Cap MCP tool output to prevent unbounded memory usage
+        if output.len() > MCP_RESULT_MAX_BYTES {
+            output.truncate(MCP_RESULT_MAX_BYTES);
+            // Ensure truncation lands on a valid UTF-8 char boundary
+            while !output.is_char_boundary(output.len()) {
+                output.pop();
+            }
+            output.push_str("\n[truncated: MCP response exceeded 10MB]");
         }
 
         debug!(

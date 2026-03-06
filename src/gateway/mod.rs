@@ -99,9 +99,9 @@ pub struct HttpApiState {
 /// Drop guard that removes a pending response entry when the handler is dropped
 /// (e.g., on client disconnect). If the response already arrived via `route_response()`,
 /// the entry will already be consumed and the remove is a harmless no-op.
-struct PendingCleanup {
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<OutboundMessage>>>>,
-    id: String,
+pub(crate) struct PendingCleanup {
+    pub(crate) pending: Arc<Mutex<HashMap<String, oneshot::Sender<OutboundMessage>>>>,
+    pub(crate) id: String,
 }
 
 impl Drop for PendingCleanup {
@@ -561,7 +561,11 @@ fn apply_template(template: &str, body_str: &str, json: Option<&serde_json::Valu
                 "webhook template output exceeded {}B limit, truncating",
                 WEBHOOK_MAX_BODY
             );
-            result.truncate(WEBHOOK_MAX_BODY);
+            let mut end = WEBHOOK_MAX_BODY;
+            while !result.is_char_boundary(end) {
+                end -= 1;
+            }
+            result.truncate(end);
             return result;
         }
     }
@@ -649,6 +653,12 @@ async fn webhook_handler(
             });
             pending.insert(request_id.clone(), tx);
         }
+
+        // Drop guard: remove pending entry if the handler is dropped or panics.
+        let _cleanup = PendingCleanup {
+            pending: state.pending.clone(),
+            id: request_id.clone(),
+        };
 
         let inbound = InboundMessage::builder(
             "http",

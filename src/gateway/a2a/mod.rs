@@ -231,11 +231,19 @@ pub async fn create_task_handler(
         );
     }
 
-    // Spawn async processing — response will update the task store
+    // Spawn async processing — response will update the task store.
+    // A drop guard ensures the pending map entry is cleaned up if the
+    // spawned task panics before the oneshot is consumed.
     let store = state.store.clone();
     let pending = state.pending.clone();
     let tid = task_id.clone();
     tokio::spawn(async move {
+        // Drop guard: remove pending entry on panic or early return
+        let _cleanup = super::PendingCleanup {
+            pending: pending.clone(),
+            id: tid.clone(),
+        };
+
         match tokio::time::timeout(Duration::from_secs(A2A_TIMEOUT_SECS), rx).await {
             Ok(Ok(response)) => {
                 store.update_status(&tid, TaskStatus::Completed, Some(response.content));
@@ -249,11 +257,6 @@ pub async fn create_task_handler(
                 );
             }
             Err(_) => {
-                // Clean up dead pending entry
-                pending
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .remove(&tid);
                 warn!("A2A task {} timed out after {}s", tid, A2A_TIMEOUT_SECS);
                 store.update_status(&tid, TaskStatus::Failed, Some("timeout".to_string()));
             }

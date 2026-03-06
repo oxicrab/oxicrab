@@ -131,7 +131,7 @@ impl CronSchedule {
             CronSchedule::Every { every_ms } => every_ms.map_or_else(
                 || "recurring (no interval set)".to_string(),
                 |ms| {
-                    let dur = std::time::Duration::from_millis(ms as u64);
+                    let dur = std::time::Duration::from_millis(ms.max(0) as u64);
                     format!("every {}", humantime::format_duration(dur))
                 },
             ),

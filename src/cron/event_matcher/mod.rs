@@ -98,6 +98,17 @@ impl EventMatcher {
         matched
     }
 
+    /// Merge local fired timestamps from an older matcher into this one.
+    /// Keeps the more recent timestamp for each job.
+    pub fn merge_fired_state(&mut self, other: &EventMatcher) {
+        for (id, &ts) in &other.last_fired {
+            let entry = self.last_fired.entry(id.clone()).or_insert(0);
+            if ts > *entry {
+                *entry = ts;
+            }
+        }
+    }
+
     /// Returns true if there are no event matchers.
     pub fn is_empty(&self) -> bool {
         self.matchers.is_empty()

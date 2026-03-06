@@ -52,10 +52,11 @@ impl AgentLoop {
                     )
                     .is_ok();
             if needs_rebuild && let Ok(jobs) = cron_svc.list_jobs(true) {
-                let new_matcher = crate::cron::event_matcher::EventMatcher::from_jobs(&jobs);
+                let mut new_matcher = crate::cron::event_matcher::EventMatcher::from_jobs(&jobs);
                 if let Some(ref matcher_mutex) = self.event_matcher
                     && let Ok(mut guard) = matcher_mutex.lock()
                 {
+                    new_matcher.merge_fired_state(&guard);
                     *guard = new_matcher;
                 }
             }

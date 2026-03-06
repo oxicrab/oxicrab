@@ -414,11 +414,9 @@ impl CronService {
     }
 
     pub fn enable_job(&self, job_id: &str, enabled: bool) -> Result<Option<CronJob>> {
-        let job = self.db.get_cron_job(job_id)?;
-        if job.is_none() {
+        let Some(job) = self.db.get_cron_job(job_id)? else {
             return Ok(None);
-        }
-        let job = job.unwrap();
+        };
         let now = now_ms();
         let next_run = if enabled {
             compute_next_run(&job.schedule, now)
