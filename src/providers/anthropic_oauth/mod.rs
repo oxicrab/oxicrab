@@ -2,6 +2,7 @@ use crate::agent::memory::memory_db::MemoryDB;
 use crate::providers::anthropic_common;
 use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse};
 use crate::providers::errors::ProviderErrorHandler;
+use crate::utils::credential_store::{self, OAuthTokenStore};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
@@ -98,10 +99,10 @@ impl AnthropicOAuthProvider {
 
     /// Try to load cached tokens from the `MemoryDB` (preferred over file).
     fn load_cached_tokens_from_db(&self) {
-        let Some(ref db) = self.db else {
+        let Some(store) = self.db.as_ref().map(|d| d.as_ref() as &dyn OAuthTokenStore) else {
             return;
         };
-        match db.load_oauth_token("anthropic") {
+        match credential_store::load_oauth_token(Some(store), "anthropic") {
             Ok(Some(row)) => {
                 let current_expires = {
                     let Ok(guard) = self.expires_at.try_lock() else {
@@ -136,70 +137,47 @@ impl AnthropicOAuthProvider {
 
     /// Try to load cached tokens from a JSON file (fallback when DB is unavailable).
     fn load_cached_tokens_from_file(&self, path: &Path) {
-        if !path.exists() {
-            return;
-        }
-
-        // Acquire shared lock for consistent reads (save_credentials holds exclusive)
-        let _lock = (|| -> Option<std::fs::File> {
-            let lock_path = path.with_extension("json.lock");
-            let lock_file = std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&lock_path)
-                .ok()?;
-            fs2::FileExt::lock_shared(&lock_file).ok()?;
-            Some(lock_file)
-        })();
-
-        match std::fs::read_to_string(path) {
-            Ok(content) => match serde_json::from_str::<Value>(&content) {
-                Ok(data) => {
-                    if let Some(cached_at) = data.get("expires_at").and_then(Value::as_i64) {
-                        // Use try_lock since we're in a sync context during construction.
-                        // These locks are uncontested at this point (single-threaded init).
-                        let current_expires = {
-                            let Ok(guard) = self.expires_at.try_lock() else {
-                                warn!(
-                                    "could not acquire OAuth token lock during init, skipping cache load"
-                                );
-                                return;
-                            };
-                            *guard
-                            // guard dropped here before acquiring other locks
-                        };
-                        if cached_at > current_expires
-                            && let (Some(access), Some(refresh)) = (
-                                data.get("access_token").and_then(Value::as_str),
-                                data.get("refresh_token").and_then(Value::as_str),
-                            )
-                        {
-                            if let Ok(mut guard) = self.access_token.try_lock() {
-                                *guard = access.to_string();
-                            } else {
-                                warn!("could not acquire access_token lock during init");
-                            }
-                            if let Ok(mut guard) = self.refresh_token.try_lock() {
-                                *guard = refresh.to_string();
-                            } else {
-                                warn!("could not acquire refresh_token lock during init");
-                            }
-                            if let Ok(mut guard) = self.expires_at.try_lock() {
-                                *guard = cached_at;
-                            } else {
-                                warn!("could not acquire expires_at lock during init");
-                            }
-                            info!("loaded refreshed OAuth tokens from file cache");
-                        }
-                    }
-                }
-                Err(e) => {
-                    debug!("No cached OAuth tokens: {}", e);
-                }
-            },
+        let data = match credential_store::read_json_locked::<Value>(path) {
+            Ok(Some(v)) => v,
+            Ok(None) => return,
             Err(e) => {
                 debug!("Failed to read cached tokens: {}", e);
+                return;
+            }
+        };
+        if let Some(cached_at) = data.get("expires_at").and_then(Value::as_i64) {
+            // Use try_lock since we're in a sync context during construction.
+            // These locks are uncontested at this point (single-threaded init).
+            let current_expires = {
+                let Ok(guard) = self.expires_at.try_lock() else {
+                    warn!("could not acquire OAuth token lock during init, skipping cache load");
+                    return;
+                };
+                *guard
+                // guard dropped here before acquiring other locks
+            };
+            if cached_at > current_expires
+                && let (Some(access), Some(refresh)) = (
+                    data.get("access_token").and_then(Value::as_str),
+                    data.get("refresh_token").and_then(Value::as_str),
+                )
+            {
+                if let Ok(mut guard) = self.access_token.try_lock() {
+                    *guard = access.to_string();
+                } else {
+                    warn!("could not acquire access_token lock during init");
+                }
+                if let Ok(mut guard) = self.refresh_token.try_lock() {
+                    *guard = refresh.to_string();
+                } else {
+                    warn!("could not acquire refresh_token lock during init");
+                }
+                if let Ok(mut guard) = self.expires_at.try_lock() {
+                    *guard = cached_at;
+                } else {
+                    warn!("could not acquire expires_at lock during init");
+                }
+                info!("loaded refreshed OAuth tokens from file cache");
             }
         }
     }
@@ -338,17 +316,25 @@ impl AnthropicOAuthProvider {
         let expires = *self.expires_at.lock().await;
 
         // Prefer DB storage
-        if let Some(ref db) = self.db {
+        if let Some(store) = self.db.as_ref().map(|d| d.as_ref() as &dyn OAuthTokenStore) {
             let refresh_opt = if refresh.is_empty() {
                 None
             } else {
                 Some(refresh.as_str())
             };
-            match db.save_oauth_token("anthropic", &access, refresh_opt, expires, None) {
-                Ok(()) => {
+            match credential_store::save_oauth_token(
+                Some(store),
+                "anthropic",
+                &access,
+                refresh_opt,
+                expires,
+                None,
+            ) {
+                Ok(true) => {
                     debug!("OAuth credentials saved to database");
                     return;
                 }
+                Ok(false) => {}
                 Err(e) => {
                     warn!(
                         "failed to save OAuth credentials to database: {}, falling back to file",
@@ -369,37 +355,11 @@ impl AnthropicOAuthProvider {
             "expires_at": expires,
         });
 
-        let json_str = match serde_json::to_string_pretty(&data) {
-            Ok(s) => s,
-            Err(e) => {
-                warn!("failed to serialize OAuth credentials: {}", e);
-                return;
-            }
-        };
         let path = path.clone();
 
         // Perform all blocking I/O off the async runtime
         let result = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            // Cross-process lock to prevent concurrent token refresh races.
-            // Hold the lock through the write to prevent TOCTOU races.
-            let lock_path = path.with_extension("json.lock");
-            let _lock_file = std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&lock_path)
-                .ok()
-                .and_then(|f| fs2::FileExt::lock_exclusive(&f).ok().map(|()| f));
-            crate::utils::atomic_write(&path, &json_str)?;
-            // Restrict permissions to owner-only (0o600) to protect tokens
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-            }
+            credential_store::write_json_locked(&path, &data)?;
             Ok(())
         })
         .await;
@@ -415,27 +375,9 @@ impl AnthropicOAuthProvider {
         path: &Path,
         default_model: Option<String>,
     ) -> Result<Option<Self>> {
-        if !path.exists() {
+        let Some(data) = credential_store::read_json_locked::<Value>(path)? else {
             return Ok(None);
-        }
-
-        // Acquire shared lock for consistent reads (save_credentials holds exclusive)
-        let _lock = (|| -> Option<std::fs::File> {
-            let lock_path = path.with_extension("json.lock");
-            let lock_file = std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&lock_path)
-                .ok()?;
-            fs2::FileExt::lock_shared(&lock_file).ok()?;
-            Some(lock_file)
-        })();
-
-        let content = std::fs::read_to_string(path).context("Failed to read credentials file")?;
-
-        let data: Value =
-            serde_json::from_str(&content).context("Failed to parse credentials file")?;
+        };
 
         let access_token = data["access_token"]
             .as_str()

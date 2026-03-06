@@ -1,4 +1,5 @@
 use crate::agent::memory::memory_db::MemoryDB;
+use crate::utils::credential_store::{self, OAuthTokenStore};
 use anyhow::{Context, Result};
 use oauth2::{
     AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, TokenUrl,
@@ -532,8 +533,8 @@ fn load_credentials(
     db: Option<&Arc<MemoryDB>>,
 ) -> Result<Option<GoogleCredentials>> {
     // Try DB first
-    if let Some(db) = db
-        && let Some(creds) = load_credentials_from_db(db, scopes)?
+    if let Some(store) = db.map(|d| d.as_ref() as &dyn OAuthTokenStore)
+        && let Some(creds) = load_credentials_from_store(store, scopes)?
     {
         return Ok(Some(creds));
     }
@@ -542,8 +543,11 @@ fn load_credentials(
     load_credentials_from_file(path, scopes)
 }
 
-fn load_credentials_from_db(db: &MemoryDB, scopes: &[&str]) -> Result<Option<GoogleCredentials>> {
-    let Some(row) = db.load_oauth_token("google")? else {
+fn load_credentials_from_store(
+    store: &dyn OAuthTokenStore,
+    scopes: &[&str],
+) -> Result<Option<GoogleCredentials>> {
+    let Some(row) = credential_store::load_oauth_token(Some(store), "google")? else {
         return Ok(None);
     };
 
@@ -606,33 +610,9 @@ fn load_credentials_from_db(db: &MemoryDB, scopes: &[&str]) -> Result<Option<Goo
 }
 
 fn load_credentials_from_file(path: &Path, scopes: &[&str]) -> Result<Option<GoogleCredentials>> {
-    if !path.exists() {
+    let Some(creds) = credential_store::read_json_locked::<GoogleCredentials>(path)? else {
         return Ok(None);
-    }
-
-    // Acquire shared lock for consistent reads (save_credentials holds exclusive)
-    let lock_path = path.with_extension("json.lock");
-    let _lock = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(&lock_path)
-        .ok()
-        .and_then(|f| {
-            fs2::FileExt::lock_shared(&f)
-                .map_err(|e| warn!("failed to acquire shared lock on credentials: {}", e))
-                .ok()
-                .map(|()| f)
-        });
-
-    let content = std::fs::read_to_string(path).context(format!(
-        "Failed to read credentials from {}",
-        path.display()
-    ))?;
-    let creds: GoogleCredentials = serde_json::from_str(&content).context(format!(
-        "Failed to parse credentials from {}",
-        path.display()
-    ))?;
+    };
 
     // Verify scopes match
     let required_scopes: std::collections::HashSet<String> =
@@ -652,8 +632,8 @@ fn save_credentials(
     db: Option<&Arc<MemoryDB>>,
 ) -> Result<()> {
     // Try DB first
-    if let Some(db) = db {
-        if let Ok(()) = save_credentials_to_db(creds, db) {
+    if let Some(store) = db.map(|d| d.as_ref() as &dyn OAuthTokenStore) {
+        if let Ok(()) = save_credentials_to_store(creds, store) {
             debug!("Google credentials saved to database");
             return Ok(());
         }
@@ -663,7 +643,7 @@ fn save_credentials(
     save_credentials_to_file(creds, path)
 }
 
-fn save_credentials_to_db(creds: &GoogleCredentials, db: &MemoryDB) -> Result<()> {
+fn save_credentials_to_store(creds: &GoogleCredentials, store: &dyn OAuthTokenStore) -> Result<()> {
     let extra = serde_json::json!({
         "client_id": creds.client_id,
         "client_secret": creds.client_secret,
@@ -672,42 +652,19 @@ fn save_credentials_to_db(creds: &GoogleCredentials, db: &MemoryDB) -> Result<()
     });
     let extra_str = serde_json::to_string(&extra)?;
     let expires_at = creds.expiry.unwrap_or(0) as i64;
-    db.save_oauth_token(
+    let _ = credential_store::save_oauth_token(
+        Some(store),
         "google",
         &creds.token,
         creds.refresh_token.as_deref(),
         expires_at,
         Some(&extra_str),
-    )
+    )?;
+    Ok(())
 }
 
 fn save_credentials_to_file(creds: &GoogleCredentials, path: &Path) -> Result<()> {
-    use fs2::FileExt;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    let lock_path = path.with_extension("json.lock");
-    let lock_file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(&lock_path)?;
-    lock_file.lock_exclusive()?;
-
-    let content = serde_json::to_string_pretty(creds)?;
-    crate::utils::atomic_write(path, &content)?;
-
-    // Restrict permissions on Unix
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(path)?.permissions();
-        perms.set_mode(0o600);
-        std::fs::set_permissions(path, perms)?;
-    }
-
-    Ok(())
+    credential_store::write_json_locked(path, creds)
 }
 
 #[cfg(test)]
