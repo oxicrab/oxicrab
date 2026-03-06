@@ -356,6 +356,10 @@ impl Tool for CronTool {
                 "dlq_status": {
                     "type": "string",
                     "description": "Filter DLQ entries by status (for dlq_list and dlq_clear). E.g. 'pending_retry', 'replayed', 'discarded'."
+                },
+                "max_concurrent": {
+                    "type": "integer",
+                    "description": "Maximum concurrent executions for event-triggered jobs."
                 }
             },
             "required": ["action"]

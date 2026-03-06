@@ -401,6 +401,27 @@ impl MemoryDB {
         Ok(updated > 0)
     }
 
+    /// Atomically mark a job as firing: increment `run_count` via SQL (no
+    /// read-modify-write race), set status to running, and update timestamps.
+    pub fn fire_cron_job(
+        &self,
+        id: &str,
+        next_run_at_ms: Option<i64>,
+        last_run_at_ms: i64,
+        updated_at_ms: i64,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let updated = conn.execute(
+            "UPDATE cron_jobs SET
+                last_status = 'running', last_error = NULL,
+                run_count = run_count + 1,
+                next_run_at_ms = ?1, last_run_at_ms = ?2, updated_at_ms = ?3
+             WHERE id = ?4",
+            params![next_run_at_ms, last_run_at_ms, updated_at_ms, id],
+        )?;
+        Ok(updated > 0)
+    }
+
     pub fn update_cron_job_enabled(
         &self,
         id: &str,

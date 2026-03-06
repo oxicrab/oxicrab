@@ -32,6 +32,23 @@ impl Drop for BrowserSession {
     }
 }
 
+/// Check if the current page URL is in a blocked range.
+/// Free function to avoid lock conflicts with action methods that hold `self.session`.
+async fn is_url_blocked(session: &BrowserSession) -> Option<String> {
+    let url = session.page.url().await.ok().flatten().unwrap_or_default();
+    if url.is_empty() {
+        return None;
+    }
+    if let Err(e) = crate::utils::url_security::validate_and_resolve(&url).await {
+        warn!("browser SSRF blocked: {url} ({e})");
+        Some(format!(
+            "current page URL is blocked: {url} ({e}). Navigate to an allowed URL first"
+        ))
+    } else {
+        None
+    }
+}
+
 pub struct BrowserTool {
     session: Arc<Mutex<Option<BrowserSession>>>,
     headless: bool,
@@ -77,12 +94,29 @@ impl BrowserTool {
         ));
 
         let mut builder = ChromeBrowserConfig::builder()
-            // no_sandbox is required when running as root (e.g. Docker containers).
-            // Chrome refuses to start with sandbox when running as root.
-            .no_sandbox()
             .user_data_dir(&user_data_dir)
             .launch_timeout(Duration::from_secs(self.timeout))
             .request_timeout(Duration::from_secs(self.timeout));
+
+        // Only disable Chrome sandbox when running as root (e.g. Docker containers).
+        // Chrome refuses to start with sandbox when running as root, but non-root
+        // users benefit from the additional process isolation.
+        #[cfg(unix)]
+        let needs_no_sandbox = std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("Uid:"))
+                    .and_then(|l| l.split_whitespace().nth(2)) // effective UID
+                    .map(|uid| uid == "0")
+            })
+            .unwrap_or(false);
+        #[cfg(not(unix))]
+        let needs_no_sandbox = false;
+
+        if needs_no_sandbox {
+            builder = builder.no_sandbox();
+        }
 
         if !self.headless {
             builder = builder.with_head();
@@ -203,16 +237,7 @@ impl BrowserTool {
     /// navigation (eval, click, navigate). Returns an error message if the
     /// page navigated to an internal/blocked URL.
     async fn check_post_action_url(&self, session: &BrowserSession) -> Option<String> {
-        let url = session.page.url().await.ok().flatten().unwrap_or_default();
-        if url.is_empty() {
-            return None;
-        }
-        if let Err(e) = crate::utils::url_security::validate_and_resolve(&url).await {
-            warn!("browser SSRF blocked after action: {url} ({e})");
-            Some(format!("action navigated to blocked URL: {url} ({e})"))
-        } else {
-            None
-        }
+        is_url_blocked(session).await
     }
 
     async fn action_click(&self, selector: &str) -> Result<ToolResult> {
@@ -332,6 +357,10 @@ impl BrowserTool {
             ));
         };
 
+        if let Some(err) = is_url_blocked(session).await {
+            return Ok(ToolResult::error(err));
+        }
+
         let result = self
             .with_timeout(async {
                 let bytes = session
@@ -374,6 +403,10 @@ impl BrowserTool {
                 "no browser session. Use 'open' action first".to_string(),
             ));
         };
+
+        if let Some(err) = is_url_blocked(session).await {
+            return Ok(ToolResult::error(err));
+        }
 
         let js = r"
         (() => {
@@ -472,6 +505,10 @@ impl BrowserTool {
                 "no browser session. Use 'open' action first".to_string(),
             ));
         };
+
+        if let Some(err) = is_url_blocked(session).await {
+            return Ok(ToolResult::error(err));
+        }
 
         let result = self
             .with_timeout(async {
