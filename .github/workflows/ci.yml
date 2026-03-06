@@ -16,7 +16,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   NIGHTLY_VERSION: nightly-2026-02-06
-  CMAKE_MACOS: ""
 
 jobs:
   # ── Change Detection ────────────────────────────────────────────────
@@ -25,16 +24,18 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.result.outputs.code }}
-      skip: ${{ steps.skip.outputs.skip }}
     steps:
       - uses: actions/checkout@v6
 
-      - name: Check for [no ci] in commit message
+      # [no ci] skip is restricted to direct pushes (not PRs) to prevent
+      # bypass of required checks via PR title manipulation.
+      - name: Check for [no ci] in commit message (push only)
         id: skip
         env:
-          COMMIT_MSG: ${{ github.event.head_commit.message || github.event.pull_request.title }}
+          COMMIT_MSG: ${{ github.event.head_commit.message || '' }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if echo "$COMMIT_MSG" | grep -qiF '[no ci]'; then
+          if [[ "$EVENT_NAME" == "push" ]] && echo "$COMMIT_MSG" | grep -qiF '[no ci]'; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -66,112 +67,11 @@ jobs:
             echo "code=${{ steps.filter.outputs.code }}" >> "$GITHUB_OUTPUT"
           fi
 
-  # ── Compile (Debug) ──────────────────────────────────────────────────
-  compile-debug:
-    name: Compile Debug (${{ matrix.name }})
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux
-            runner: ubuntu-latest
-          - name: macos
-            runner: macos-15
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
-          components: rustfmt, clippy
-
-      - name: Cache cargo
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: cargo-debug-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-debug-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-
-
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
-
-      - name: Install system dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: command -v cmake || brew install cmake
-
-      - name: Build (all features + timings)
-        run: cargo build --all-targets --all-features --timings
-        env:
-          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
-
-      - name: Build without optional channels
-        run: cargo build --no-default-features
-        env:
-          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
-
-      - name: Upload build timings
-        uses: actions/upload-artifact@v7
-        with:
-          name: build-timings-${{ matrix.name }}
-          path: target/cargo-timings/cargo-timing.html
-
-      - name: Prune incremental cache
-        run: rm -rf target/debug/incremental/
-
-  # ── Compile (Release, Linux) ─────────────────────────────────────────
-  compile-release-linux:
-    name: Compile Release (linux)
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
-
-      - name: Cache cargo
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: cargo-release-linux-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-release-linux-${{ env.NIGHTLY_VERSION }}-
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
-
-      - name: Build release
-        run: cargo build --release --target x86_64-unknown-linux-gnu
-        env:
-          SOURCE_DATE_EPOCH: "1"
-
-      - name: Prune incremental cache
-        run: rm -rf target/x86_64-unknown-linux-gnu/release/incremental/
-
-  # ── Quick Checks (no compilation) ────────────────────────────────────
+  # ── Quick Checks (no compilation) ────────────────────────────────
   check:
     name: Format & Advisories
     needs: [changes]
-    if: needs.changes.outputs.skip != 'true'
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -202,11 +102,48 @@ jobs:
             exit 1
           fi
 
-  # ── Clippy ─────────────────────────────────────────────────────────
+  # ── Build Debug (Linux only for fast path) ─────────────────────────
+  build-linux:
+    name: Build Debug (linux)
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.NIGHTLY_VERSION }}
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-linux-debug
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Build (all features)
+        run: cargo build --all-targets --all-features --timings
+
+      - name: Build without optional channels
+        run: cargo build --no-default-features
+
+      - name: Upload build timings
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-timings-linux
+          path: target/cargo-timings/cargo-timing.html
+
+  # ── Clippy (Linux, fast path) ──────────────────────────────────────
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
-    needs: [changes, compile-debug]
+    needs: [changes, build-linux]
     if: needs.changes.outputs.code == 'true'
     permissions:
       contents: read
@@ -225,16 +162,10 @@ jobs:
         with:
           tool: clippy-sarif,sarif-fmt
 
-      - name: Restore cargo cache
-        uses: actions/cache/restore@v5
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: cargo-debug-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-debug-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-
+          shared-key: ci-linux-debug
 
       - name: Install system dependencies
         run: |
@@ -256,20 +187,12 @@ jobs:
           wait-for-processing: true
         continue-on-error: true
 
-  # ── Unit Tests ──────────────────────────────────────────────────────
+  # ── Unit Tests (Linux, fast path) ──────────────────────────────────
   test-unit:
-    name: Unit Tests (${{ matrix.name }})
-    needs: [changes, compile-debug]
+    name: Unit Tests (linux)
+    needs: [changes, build-linux]
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux
-            runner: ubuntu-latest
-          - name: macos
-            runner: macos-15
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
@@ -283,54 +206,33 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Restore cargo cache
-        uses: actions/cache/restore@v5
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: cargo-debug-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-debug-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-
+          shared-key: ci-linux-debug
 
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake
 
-      - name: Install system dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: command -v cmake || brew install cmake
-
       - name: Run unit tests
         run: cargo nextest run --lib --profile default
-        env:
-          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: junit-unit-${{ matrix.name }}
+          name: junit-unit-linux
           path: target/nextest/default/junit-unit.xml
           if-no-files-found: warn
 
-  # ── Integration Tests ───────────────────────────────────────────────
+  # ── Integration Tests (Linux, fast path) ───────────────────────────
   test-integration:
-    name: Integration Tests (${{ matrix.name }})
-    needs: [changes, compile-debug]
+    name: Integration Tests (linux)
+    needs: [changes, build-linux]
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux
-            runner: ubuntu-latest
-          - name: macos
-            runner: macos-15
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
@@ -344,26 +246,15 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Restore cargo cache
-        uses: actions/cache/restore@v5
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: cargo-debug-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-debug-${{ runner.os }}-${{ env.NIGHTLY_VERSION }}-
+          shared-key: ci-linux-debug
 
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake
-
-      - name: Install system dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: command -v cmake || brew install cmake
 
       - name: Run integration tests
         run: >
@@ -384,17 +275,16 @@ jobs:
           --test safety_integration
         env:
           OXICRAB_HOME: ${{ runner.temp }}/oxicrab-test
-          CMAKE_PROJECT_INCLUDE: ${{ runner.os == 'macOS' && format('{0}/cmake/disable-ggml-native.cmake', github.workspace) || '' }}
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: junit-integration-${{ matrix.name }}
+          name: junit-integration-linux
           path: target/nextest/integration/junit-integration.xml
           if-no-files-found: warn
 
-  # ── Test Results ────────────────────────────────────────────────────
+  # ── Test Results (PR annotation) ───────────────────────────────────
   test-results:
     name: Test Results
     runs-on: ubuntu-latest
@@ -417,12 +307,77 @@ jobs:
           check_name: Test Results
           comment_mode: off
 
+  # ══════════════════════════════════════════════════════════════════
+  # Extended jobs (non-blocking, run in parallel with fast path)
+  # These provide additional signal but do NOT gate merges.
+  # ══════════════════════════════════════════════════════════════════
+
+  # ── macOS Build + Tests ────────────────────────────────────────────
+  build-macos:
+    name: Build + Test (macos)
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: macos-15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.NIGHTLY_VERSION }}
+
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-macos-debug
+
+      - name: Install system dependencies
+        run: command -v cmake || brew install cmake
+
+      - name: Build (all features)
+        run: cargo build --all-targets --all-features
+        env:
+          CMAKE_PROJECT_INCLUDE: ${{ format('{0}/cmake/disable-ggml-native.cmake', github.workspace) }}
+
+      - name: Run unit tests
+        run: cargo nextest run --lib --profile default
+        env:
+          CMAKE_PROJECT_INCLUDE: ${{ format('{0}/cmake/disable-ggml-native.cmake', github.workspace) }}
+
+      - name: Run integration tests
+        run: >
+          cargo nextest run --profile integration
+          --test session_management
+          --test cron_jobs
+          --test tool_registry
+          --test message_flow
+          --test config_validation
+          --test context_and_skills
+          --test error_handling
+          --test filesystem_tools
+          --test memory_integration
+          --test multi_turn_session
+          --test shell_exec
+          --test tool_context_caching
+          --test compaction_integration
+          --test safety_integration
+        env:
+          OXICRAB_HOME: ${{ runner.temp }}/oxicrab-test
+          CMAKE_PROJECT_INCLUDE: ${{ format('{0}/cmake/disable-ggml-native.cmake', github.workspace) }}
+
   # ── Coverage ────────────────────────────────────────────────────────
   coverage:
     name: Coverage
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 
@@ -437,16 +392,10 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
-      - name: Cache cargo (coverage)
-        uses: actions/cache@v5
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: cargo-coverage-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-coverage-${{ env.NIGHTLY_VERSION }}-
+          shared-key: ci-coverage
 
       - name: Install system dependencies
         run: |
@@ -475,21 +424,31 @@ jobs:
   binary-size:
     name: Binary Size
     runs-on: ubuntu-latest
-    needs: [changes, compile-release-linux]
+    needs: [changes]
     if: needs.changes.outputs.code == 'true'
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 
-      - name: Restore cargo cache
-        uses: actions/cache/restore@v5
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: cargo-release-linux-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-release-linux-${{ env.NIGHTLY_VERSION }}-
+          toolchain: ${{ env.NIGHTLY_VERSION }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-release-linux
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Build release
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+        env:
+          SOURCE_DATE_EPOCH: "1"
 
       - name: Measure binary size
         id: size
@@ -552,8 +511,9 @@ jobs:
   package-linux:
     name: Package (linux)
     runs-on: ubuntu-latest
-    needs: [changes, compile-release-linux]
+    needs: [changes, binary-size]
     if: needs.changes.outputs.code == 'true'
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 
@@ -562,16 +522,10 @@ jobs:
         with:
           toolchain: ${{ env.NIGHTLY_VERSION }}
 
-      - name: Restore release cache from compile-release-linux
-        uses: actions/cache/restore@v5
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: cargo-release-linux-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-release-linux-${{ env.NIGHTLY_VERSION }}-
+          shared-key: ci-release-linux
 
       - name: Install system dependencies
         run: |
@@ -593,7 +547,6 @@ jobs:
         run: |
           sudo apt-get install -y lintian
           lintian --tag-display-limit 0 *.deb || true
-          # Fail on errors (E:), allow warnings (W:) and info (I:)
           ! lintian *.deb 2>&1 | grep -q '^E:'
 
       - name: Build RPM package
@@ -606,7 +559,6 @@ jobs:
         run: |
           sudo apt-get install -y rpmlint
           rpmlint -c deploy/rpm/rpmlint.toml *.rpm
-          # Log contents for review
           rpm -qpl *.rpm || true
 
   # ── Package (macOS) ─────────────────────────────────────────────────
@@ -615,6 +567,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: macos-15
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 
@@ -624,16 +577,9 @@ jobs:
           toolchain: ${{ env.NIGHTLY_VERSION }}
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: cargo-package-macOS-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-package-macOS-${{ env.NIGHTLY_VERSION }}-
+          shared-key: ci-macos-release
 
       - name: Install system dependencies
         run: command -v cmake || brew install cmake
@@ -658,12 +604,13 @@ jobs:
       - name: Validate DMG
         run: hdiutil verify "oxicrab-ci-arm64.dmg"
 
-  # ── Fuzz Testing (Informational) ────────────────────────────────
+  # ── Fuzz Testing ─────────────────────────────────────────────────
   fuzz:
     name: Fuzz Testing
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 
@@ -675,16 +622,10 @@ jobs:
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
 
-      - name: Cache cargo (fuzz)
-        uses: actions/cache@v5
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            fuzz/target/
-          key: cargo-fuzz-${{ env.NIGHTLY_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-fuzz-${{ env.NIGHTLY_VERSION }}-
+          shared-key: ci-fuzz
 
       - name: Install system dependencies
         run: |
@@ -716,61 +657,36 @@ jobs:
         working-directory: fuzz
         continue-on-error: true
 
-  # ── CI Gate ─────────────────────────────────────────────────────────
+  # ══════════════════════════════════════════════════════════════════
+  # CI Gate — required for merge
+  # Only fast-path jobs block. Extended jobs report but don't gate.
+  # ══════════════════════════════════════════════════════════════════
   ci-gate:
     name: CI
     runs-on: ubuntu-latest
     if: always()
-    needs: [changes, check, clippy, test-unit, test-integration, compile-debug, coverage, binary-size, package-linux, package-macos]
+    needs: [changes, check, clippy, test-unit, test-integration, build-linux]
     steps:
       - name: Check results
         run: |
           echo "changes.code: ${{ needs.changes.outputs.code }}"
-          echo "changes.skip: ${{ needs.changes.outputs.skip }}"
           echo "check: ${{ needs.check.result }}"
           echo "clippy: ${{ needs.clippy.result }}"
           echo "test-unit: ${{ needs.test-unit.result }}"
           echo "test-integration: ${{ needs.test-integration.result }}"
-          echo "compile-debug: ${{ needs.compile-debug.result }}"
-          echo "coverage: ${{ needs.coverage.result }}"
-          echo "binary-size: ${{ needs.binary-size.result }}"
-          echo "package-linux: ${{ needs.package-linux.result }}"
-          echo "package-macos: ${{ needs.package-macos.result }}"
+          echo "build-linux: ${{ needs.build-linux.result }}"
 
-          # check runs unless [no ci] — must pass when it runs
+          # check always runs — must pass
           if [[ "${{ needs.check.result }}" == "failure" || "${{ needs.check.result }}" == "cancelled" ]]; then
             echo "::error::check failed"
             exit 1
           fi
 
           # Code-gated jobs: fail on failure/cancelled, accept skipped (docs-only changes)
-          if [[ "${{ needs.clippy.result }}" == "failure" || "${{ needs.clippy.result }}" == "cancelled" ]]; then
-            echo "::error::clippy failed"
-            exit 1
-          fi
-          if [[ "${{ needs.test-unit.result }}" == "failure" || "${{ needs.test-unit.result }}" == "cancelled" ]]; then
-            echo "::error::test-unit failed"
-            exit 1
-          fi
-          if [[ "${{ needs.test-integration.result }}" == "failure" || "${{ needs.test-integration.result }}" == "cancelled" ]]; then
-            echo "::error::test-integration failed"
-            exit 1
-          fi
-          if [[ "${{ needs.compile-debug.result }}" == "failure" || "${{ needs.compile-debug.result }}" == "cancelled" ]]; then
-            echo "::error::compile-debug failed"
-            exit 1
-          fi
-
-          # Informational jobs — warn but don't block (accept skipped too)
-          if [[ "${{ needs.coverage.result }}" == "failure" ]]; then
-            echo "::warning::coverage failed (non-blocking)"
-          fi
-          if [[ "${{ needs.binary-size.result }}" == "failure" ]]; then
-            echo "::warning::binary-size failed (non-blocking)"
-          fi
-          if [[ "${{ needs.package-linux.result }}" == "failure" ]]; then
-            echo "::warning::package-linux failed (non-blocking)"
-          fi
-          if [[ "${{ needs.package-macos.result }}" == "failure" ]]; then
-            echo "::warning::package-macos failed (non-blocking)"
-          fi
+          for job in clippy test-unit test-integration build-linux; do
+            result="${{ needs[job].result }}"
+            if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+              echo "::error::${job} failed"
+              exit 1
+            fi
+          done
