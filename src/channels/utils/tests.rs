@@ -1,5 +1,8 @@
 use super::*;
 
+/// Serialize tests that mutate the `OXICRAB_HOME` env var to prevent races.
+static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn test_empty_allow_list_denies_all() {
     // No pairing DB exists in test env, so this is pure deny
@@ -49,9 +52,11 @@ fn test_no_substring_match() {
 
 #[test]
 fn test_pairing_store_fallback() {
+    let _guard = ENV_MUTEX.lock().unwrap();
+
     // Set up a temp dir with a MemoryDB containing pairing data
     let dir = tempfile::tempdir().unwrap();
-    // SAFETY: test runs single-threaded; env var is restored before returning
+    // SAFETY: serialized by ENV_MUTEX; env var is restored before returning
     unsafe { std::env::set_var("OXICRAB_HOME", dir.path().as_os_str()) };
 
     // Create the workspace/memory directory and populate the DB
@@ -106,8 +111,10 @@ fn test_dm_access_allowlist_allows_known() {
 
 #[test]
 fn test_dm_access_pairing_returns_code() {
+    let _guard = ENV_MUTEX.lock().unwrap();
+
     let dir = tempfile::tempdir().unwrap();
-    // SAFETY: test runs single-threaded
+    // SAFETY: serialized by ENV_MUTEX; env var is restored before returning
     unsafe { std::env::set_var("OXICRAB_HOME", dir.path().as_os_str()) };
 
     // Create the workspace/memory directory so PairingStore::open_default() can work

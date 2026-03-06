@@ -467,9 +467,7 @@ async fn run_subagent_inner(
             let results = futures_util::future::join_all(futs).await;
 
             // Add all tool results to messages in order
-            for ((tc, _), (mut result_str, is_error)) in
-                tool_lookups.iter().zip(results.into_iter())
-            {
+            for ((tc, _), (mut result_str, is_error)) in tool_lookups.iter().zip(results) {
                 // Log tool results
                 if let Some(ref mut l) = log {
                     l.log_tool_result(&tc.name, &result_str, is_error);

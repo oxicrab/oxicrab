@@ -15,7 +15,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  NIGHTLY_VERSION: nightly-2026-02-06
+  NIGHTLY_VERSION: nightly-2026-03-05
 
 jobs:
   # ── Change Detection ────────────────────────────────────────────────

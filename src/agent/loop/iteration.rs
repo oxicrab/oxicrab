@@ -373,7 +373,7 @@ impl AgentLoop {
                 results.push(("Tool execution result was lost".to_string(), true));
             }
         }
-        for (tc, (result_str, is_error)) in tool_calls.iter().zip(results.into_iter()) {
+        for (tc, (result_str, is_error)) in tool_calls.iter().zip(results) {
             if !is_error {
                 collected_media.extend(extract_media_paths(&result_str));
             }
