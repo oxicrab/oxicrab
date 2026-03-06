@@ -1230,12 +1230,27 @@ fn test_cleanup_old_media_no_dir() {
 }
 
 // --- extract_media_paths tests ---
+// These tests create files inside the media directory because
+// extract_media_paths only accepts paths within ~/.oxicrab/media/.
+
+fn create_media_test_file() -> (String, impl Drop) {
+    let media_dir = crate::utils::media::media_dir().unwrap();
+    let name = format!("test_{}.tmp", fastrand::u32(..));
+    let path = media_dir.join(&name);
+    std::fs::write(&path, b"test").unwrap();
+    let path_str = path.to_string_lossy().to_string();
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    (path_str, Cleanup(path))
+}
 
 #[test]
 fn test_extract_media_paths_json_media_path() {
-    // Create a temp file so the path exists
-    let tmp = tempfile::NamedTempFile::new().unwrap();
-    let path = tmp.path().to_string_lossy().to_string();
+    let (path, _guard) = create_media_test_file();
     let json =
         format!(r#"{{"url":"https://example.com/img.png","mediaPath":"{path}","mediaSize":1234}}"#);
     let paths = extract_media_paths(&json);
@@ -1244,8 +1259,7 @@ fn test_extract_media_paths_json_media_path() {
 
 #[test]
 fn test_extract_media_paths_saved_to_pattern() {
-    let tmp = tempfile::NamedTempFile::new().unwrap();
-    let path = tmp.path().to_string_lossy().to_string();
+    let (path, _guard) = create_media_test_file();
     let text = format!("Screenshot saved to: {path}\nSize: 12345 bytes");
     let paths = extract_media_paths(&text);
     assert_eq!(paths, vec![path]);
@@ -1259,6 +1273,19 @@ fn test_extract_media_paths_nonexistent_path_ignored() {
 }
 
 #[test]
+fn test_extract_media_paths_outside_media_dir_rejected() {
+    // File exists but is outside media dir — should be rejected
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    let path = tmp.path().to_string_lossy().to_string();
+    let json = format!(r#"{{"mediaPath":"{path}"}}"#);
+    let paths = extract_media_paths(&json);
+    assert!(
+        paths.is_empty(),
+        "paths outside media dir should be rejected"
+    );
+}
+
+#[test]
 fn test_extract_media_paths_plain_text_no_match() {
     let paths = extract_media_paths("Just a normal tool result with no media");
     assert!(paths.is_empty());
@@ -1266,11 +1293,9 @@ fn test_extract_media_paths_plain_text_no_match() {
 
 #[test]
 fn test_extract_media_paths_deduplicates() {
-    let tmp = tempfile::NamedTempFile::new().unwrap();
-    let path = tmp.path().to_string_lossy().to_string();
+    let (path, _guard) = create_media_test_file();
     // Both JSON and text pattern point to same file
     let text = format!(r#"{{"mediaPath":"{path}"}}"#);
-    // Only returns once despite being findable via JSON parse
     let paths = extract_media_paths(&text);
     assert_eq!(paths.len(), 1);
 }
