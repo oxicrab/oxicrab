@@ -11,7 +11,11 @@ async fn setup() -> (MockServer, tempfile::TempDir, Arc<ObsidianCache>) {
     let server = MockServer::start().await;
     let tmp = tempfile::TempDir::new().unwrap();
     let client = Arc::new(ObsidianApiClient::with_base_url(server.uri(), "test_key"));
-    let cache = Arc::new(ObsidianCache::with_dir(client, tmp.path().to_path_buf()));
+    let cache = Arc::new(ObsidianCache::with_dir(
+        client,
+        tmp.path().to_path_buf(),
+        None,
+    ));
     (server, tmp, cache)
 }
 

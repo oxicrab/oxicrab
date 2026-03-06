@@ -312,6 +312,7 @@ fn register_obsidian(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
             &obsidian_cfg.api_key,
             &obsidian_cfg.vault_name,
             obsidian_cfg.timeout,
+            ctx.memory_db.clone(),
         ) {
             Ok((tool, cache)) => {
                 registry.register(Arc::new(tool));

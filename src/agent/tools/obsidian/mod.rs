@@ -7,6 +7,7 @@ use cache::ObsidianCache;
 use client::ObsidianApiClient;
 
 use crate::actions;
+use crate::agent::memory::memory_db::MemoryDB;
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
@@ -27,9 +28,10 @@ impl ObsidianTool {
         api_key: &str,
         vault_name: &str,
         timeout: u64,
+        db: Option<Arc<MemoryDB>>,
     ) -> Result<(Self, Arc<ObsidianCache>)> {
         let client = Arc::new(ObsidianApiClient::new(api_url, api_key, timeout));
-        let cache = Arc::new(ObsidianCache::new(client, vault_name)?);
+        let cache = Arc::new(ObsidianCache::new(client, vault_name, db)?);
         Ok((
             Self {
                 cache: cache.clone(),

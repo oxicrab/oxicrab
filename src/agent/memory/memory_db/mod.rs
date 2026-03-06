@@ -10,6 +10,7 @@ mod dlq;
 mod embeddings;
 mod indexing;
 mod oauth;
+mod obsidian;
 mod pairing;
 mod search;
 mod stats;
@@ -391,6 +392,39 @@ impl MemoryDB {
                 extra_json    TEXT,
                 updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
             )",
+            [],
+        )?;
+
+        // --- Obsidian cache tables ---
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS obsidian_sync_state (
+                vault_name     TEXT NOT NULL,
+                file_path      TEXT NOT NULL,
+                content_hash   TEXT NOT NULL,
+                last_synced_at INTEGER NOT NULL,
+                size           INTEGER NOT NULL,
+                PRIMARY KEY (vault_name, file_path)
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS obsidian_write_queue (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                vault_name     TEXT NOT NULL,
+                path           TEXT NOT NULL,
+                content        TEXT NOT NULL,
+                operation      TEXT NOT NULL,
+                queued_at      INTEGER NOT NULL,
+                pre_write_hash TEXT
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_obsidian_queue_vault
+             ON obsidian_write_queue(vault_name)",
             [],
         )?;
 
