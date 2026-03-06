@@ -79,7 +79,7 @@ fn test_ext_unknown_text() {
 
 #[test]
 fn test_save_empty_data() {
-    let result = save_media_file(&[], "test", "bin", None);
+    let result = save_media_file(&[], "test", "bin");
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("empty"));
 }
@@ -87,14 +87,14 @@ fn test_save_empty_data() {
 #[test]
 fn test_save_too_large() {
     let big = vec![0u8; MAX_MEDIA_SIZE + 1];
-    let result = save_media_file(&big, "test", "bin", None);
+    let result = save_media_file(&big, "test", "bin");
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("too large"));
 }
 
 #[test]
 fn test_save_image_magic_mismatch() {
-    let result = save_media_file(b"not a png file", "test", "png", None);
+    let result = save_media_file(b"not a png file", "test", "png");
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("does not match"));
 }
@@ -102,7 +102,7 @@ fn test_save_image_magic_mismatch() {
 #[test]
 fn test_save_valid_png() {
     let png_bytes = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-    let result = save_media_file(&png_bytes, "test", "png", None);
+    let result = save_media_file(&png_bytes, "test", "png");
     assert!(result.is_ok());
     let path = result.unwrap();
     assert!(path.contains("test_"));
@@ -117,7 +117,7 @@ fn test_save_valid_png() {
 
 #[test]
 fn test_save_binary_no_magic_check() {
-    let result = save_media_file(b"arbitrary binary data", "test", "bin", None);
+    let result = save_media_file(b"arbitrary binary data", "test", "bin");
     assert!(result.is_ok());
     let path = result.unwrap();
     assert!(

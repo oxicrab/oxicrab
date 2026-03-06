@@ -591,6 +591,14 @@ async fn webhook_handler(
         return StatusCode::NOT_FOUND.into_response();
     }
 
+    // Reject webhooks with empty secrets (deny-by-default). An empty HMAC
+    // secret would accept any signature, so we refuse to process the request
+    // until the operator configures a proper secret.
+    if config.secret.is_empty() {
+        warn!("webhook {name}: no secret configured, rejecting all requests");
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
     // Enforce max body size
     if body.len() > WEBHOOK_MAX_BODY {
         warn!("webhook {}: payload too large ({} bytes)", name, body.len());
@@ -617,6 +625,10 @@ async fn webhook_handler(
 
     // Replay protection: reject payloads with timestamps older than 5 minutes.
     // Checks X-Webhook-Timestamp (Unix seconds) if present.
+    // NOTE: The timestamp is NOT included in the HMAC signature, so a captured
+    // body+signature can be replayed with a fresh timestamp. For stronger replay
+    // protection, webhook senders should include the timestamp in the HMAC input.
+    // This check is defense-in-depth for senders that include timestamps.
     if let Some(ts_header) = headers
         .get("X-Webhook-Timestamp")
         .and_then(|v| v.to_str().ok())

@@ -152,7 +152,12 @@ impl CronService {
     }
 
     pub async fn start(&self) -> Result<()> {
-        *self.running.lock().await = true;
+        let mut running = self.running.lock().await;
+        if *running {
+            return Ok(());
+        }
+        *running = true;
+        drop(running);
         let service = self.clone();
         let task_tracker_for_service = self.task_tracker.clone();
 
@@ -254,51 +259,26 @@ impl CronService {
                             // won't re-fire on the next tick.
                             let new_next =
                                 compute_next_run_with_last(&job.schedule, now, Some(now));
-                            let new_run_count = job.state.run_count.saturating_add(1);
-                            let enabled_after = if job.delete_after_run {
-                                // Disable via update_cron_job_enabled
-                                if let Err(e) = service
+                            if job.delete_after_run
+                                && let Err(e) = service
                                     .db
                                     .update_cron_job_enabled(&job.id, false, None, now)
-                                {
-                                    warn!(
-                                        "failed to disable delete-after-run job '{}': {}",
-                                        job.id, e
-                                    );
-                                }
-                                false
-                            } else {
-                                true
-                            };
+                            {
+                                warn!("failed to disable delete-after-run job '{}': {}", job.id, e);
+                            }
 
-                            if let Err(e) = service.db.update_cron_job_state(
-                                &job.id,
-                                Some("running"),
-                                None,
-                                new_run_count,
-                                if enabled_after { new_next } else { None },
-                                Some(now),
-                                job.state.last_fired_at_ms,
-                                now,
-                            ) {
-                                warn!(
-                                    "failed to update cron job '{}' state before run: {}",
-                                    job.id, e
-                                );
+                            // Atomically increment run_count and set status to running
+                            let effective_next = if job.delete_after_run { None } else { new_next };
+                            if let Err(e) =
+                                service.db.fire_cron_job(&job.id, effective_next, now, now)
+                            {
+                                warn!("failed to fire cron job '{}': {}", job.id, e);
                             }
 
                             // Collect job for firing outside the loop
                             if let Some(ref callback) = callback_opt {
                                 info!("Firing cron job '{}' ({})", job.name, job.id);
-                                // Use a clone with updated state for the callback
-                                let mut job_for_callback = job.clone();
-                                job_for_callback.state.last_run_at_ms = Some(now);
-                                job_for_callback.state.last_status = Some("running".to_string());
-                                job_for_callback.state.last_error = None;
-                                job_for_callback.state.run_count = new_run_count;
-                                job_for_callback.state.next_run_at_ms =
-                                    if enabled_after { new_next } else { None };
-                                jobs_to_fire.push((job_for_callback, callback.clone()));
+                                jobs_to_fire.push((job.clone(), callback.clone()));
                             }
                         } else {
                             next_run = Some(next_run.map_or(job_next, |n| n.min(job_next)));
@@ -472,19 +452,14 @@ impl CronService {
                     }
                 };
 
-                // Update state regardless of success or failure
+                // Update state regardless of success or failure.
+                // Use fire_cron_job for atomic run_count increment, then
+                // update_job_status for the completion result.
                 let now = now_ms();
                 let new_next = compute_next_run_with_last(&job.schedule, now, Some(now));
-                self.db.update_cron_job_state(
-                    job_id,
-                    Some(status.as_str()),
-                    error_msg.as_deref(),
-                    job.state.run_count.saturating_add(1),
-                    new_next,
-                    Some(now),
-                    Some(now),
-                    now,
-                )?;
+                self.db.fire_cron_job(job_id, new_next, now, now)?;
+                self.db
+                    .update_cron_job_status(job_id, status.as_str(), error_msg.as_deref())?;
 
                 // Propagate the callback error after persisting state
                 Ok(Some(callback_result?))

@@ -20,13 +20,17 @@ pub(super) const MAX_IMAGES: usize = 5;
 /// Looks for:
 /// - JSON `"mediaPath"` fields (from `web_fetch` / `http` binary downloads)
 /// - "Screenshot saved to: /path" or "Binary content saved to: /path" patterns
+///
+/// Only paths inside the oxicrab media directory are accepted to prevent
+/// untrusted tool output (e.g. MCP servers) from exfiltrating arbitrary files.
 pub(super) fn extract_media_paths(result: &str) -> Vec<String> {
+    let media_dir = crate::utils::media::media_dir().ok();
     let mut paths = Vec::new();
 
     // Try JSON parsing for mediaPath
     if let Ok(json) = serde_json::from_str::<Value>(result)
         && let Some(path) = json.get("mediaPath").and_then(Value::as_str)
-        && std::path::Path::new(path).exists()
+        && is_safe_media_path(path, media_dir.as_deref())
     {
         paths.push(path.to_string());
     }
@@ -35,7 +39,7 @@ pub(super) fn extract_media_paths(result: &str) -> Vec<String> {
     for line in result.lines() {
         if let Some(idx) = line.find(SAVED_TO_PREFIX) {
             let path = line[idx + SAVED_TO_PREFIX.len()..].trim();
-            if !path.is_empty() && std::path::Path::new(path).exists() {
+            if !path.is_empty() && is_safe_media_path(path, media_dir.as_deref()) {
                 paths.push(path.to_string());
             }
         }
@@ -44,6 +48,19 @@ pub(super) fn extract_media_paths(result: &str) -> Vec<String> {
     paths.sort();
     paths.dedup();
     paths
+}
+
+/// Check that a path exists and is inside the trusted media directory.
+fn is_safe_media_path(path: &str, media_dir: Option<&std::path::Path>) -> bool {
+    let p = std::path::Path::new(path);
+    if !p.exists() {
+        return false;
+    }
+    let Some(media) = media_dir else {
+        return false;
+    };
+    p.canonicalize()
+        .is_ok_and(|canonical| canonical.starts_with(media))
 }
 
 /// Validate tool arguments against the tool's JSON schema.

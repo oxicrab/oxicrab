@@ -210,10 +210,14 @@ impl Tool for ReadFileTool {
 
         let file_path = PathBuf::from(path_str);
         let expanded = tokio::fs::canonicalize(&file_path).await.or_else(|_| {
-            let home = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
-            let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
-            Ok::<PathBuf, anyhow::Error>(home.join(stripped))
+            if file_path.starts_with("~") {
+                let home = dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
+                let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
+                Ok::<PathBuf, anyhow::Error>(home.join(stripped))
+            } else {
+                Ok(crate::agent::tools::shell::lexical_normalize(&file_path))
+            }
         })?;
 
         let ws = self.workspace.as_deref();
@@ -383,10 +387,14 @@ impl Tool for WriteFileTool {
 
         let file_path = PathBuf::from(path_str);
         let expanded = tokio::fs::canonicalize(&file_path).await.or_else(|_| {
-            let home = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
-            let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
-            Ok::<PathBuf, anyhow::Error>(home.join(stripped))
+            if file_path.starts_with("~") {
+                let home = dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
+                let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
+                Ok::<PathBuf, anyhow::Error>(home.join(stripped))
+            } else {
+                Ok(crate::agent::tools::shell::lexical_normalize(&file_path))
+            }
         })?;
 
         let ws = self.workspace.as_deref();
@@ -532,10 +540,14 @@ impl Tool for EditFileTool {
 
         let file_path = PathBuf::from(path_str);
         let expanded = tokio::fs::canonicalize(&file_path).await.or_else(|_| {
-            let home = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
-            let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
-            Ok::<PathBuf, anyhow::Error>(home.join(stripped))
+            if file_path.starts_with("~") {
+                let home = dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
+                let stripped = file_path.strip_prefix("~").unwrap_or(file_path.as_path());
+                Ok::<PathBuf, anyhow::Error>(home.join(stripped))
+            } else {
+                Ok(crate::agent::tools::shell::lexical_normalize(&file_path))
+            }
         })?;
 
         let ws = self.workspace.as_deref();
@@ -712,10 +724,14 @@ impl Tool for ListDirTool {
 
         let dir_path = PathBuf::from(path_str);
         let expanded = tokio::fs::canonicalize(&dir_path).await.or_else(|_| {
-            let home = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
-            let stripped = dir_path.strip_prefix("~").unwrap_or(dir_path.as_path());
-            Ok::<PathBuf, anyhow::Error>(home.join(stripped))
+            if dir_path.starts_with("~") {
+                let home = dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
+                let stripped = dir_path.strip_prefix("~").unwrap_or(dir_path.as_path());
+                Ok::<PathBuf, anyhow::Error>(home.join(stripped))
+            } else {
+                Ok(crate::agent::tools::shell::lexical_normalize(&dir_path))
+            }
         })?;
 
         let ws = self.workspace.as_deref();

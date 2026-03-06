@@ -99,7 +99,10 @@ async fn webhook_handler(
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
         .collect();
 
-    // Validate signature
+    // Validates against the configured webhook_url, not the inbound request URL.
+    // This is standard for Twilio integrations behind reverse proxies — the URL
+    // must match what Twilio was configured to call. If validation fails, check
+    // that the webhookUrl config matches the URL configured in Twilio's console.
     if !validate_twilio_signature(&state.auth_token, &signature, &state.webhook_url, &params) {
         warn!("twilio webhook: invalid signature");
         return StatusCode::FORBIDDEN.into_response();

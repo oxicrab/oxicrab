@@ -281,7 +281,7 @@ impl WebFetchTool {
                         crate::utils::http::DEFAULT_MAX_BODY_BYTES,
                     )
                     .await?;
-                    match save_media_file(&bytes, "fetch", ext, None) {
+                    match save_media_file(&bytes, "fetch", ext) {
                         Ok(path) => {
                             let result = serde_json::json!({
                                 "url": url_str,

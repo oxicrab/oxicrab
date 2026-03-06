@@ -21,12 +21,7 @@ pub fn media_dir() -> Result<PathBuf> {
 /// If `db` is provided, registers the file in the `workspace_files` table
 /// under category "media" for cleanup tracking. Registration failure is
 /// silently ignored — it should not prevent the media from being returned.
-pub fn save_media_file(
-    bytes: &[u8],
-    prefix: &str,
-    extension: &str,
-    db: Option<&crate::agent::memory::memory_db::MemoryDB>,
-) -> Result<String> {
+pub fn save_media_file(bytes: &[u8], prefix: &str, extension: &str) -> Result<String> {
     if bytes.is_empty() {
         bail!("empty media data");
     }
@@ -57,17 +52,6 @@ pub fn save_media_file(
 
     std::fs::write(&path, bytes)
         .with_context(|| format!("failed to write media file: {}", path.display()))?;
-
-    if let Some(db) = db {
-        let _ = db.register_workspace_file(
-            &path.to_string_lossy(),
-            "media",
-            Some(&filename),
-            bytes.len() as i64,
-            Some(prefix), // source_tool hint
-            None,         // no session
-        );
-    }
 
     Ok(path.to_string_lossy().to_string())
 }

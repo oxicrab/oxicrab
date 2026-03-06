@@ -39,7 +39,8 @@ impl MemoryDB {
                original_name = excluded.original_name,
                size_bytes = excluded.size_bytes,
                source_tool = excluded.source_tool,
-               session_key = excluded.session_key",
+               session_key = excluded.session_key,
+               created_at = datetime('now')",
             params![
                 path,
                 category,

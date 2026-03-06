@@ -16,6 +16,37 @@ impl MemorySearchTool {
     }
 }
 
+impl MemorySearchTool {
+    fn action_explain_last(&self) -> Result<ToolResult> {
+        let details = self.memory.db().get_last_search_details()?;
+        let Some(d) = details else {
+            return Ok(ToolResult::new(
+                "No memory searches recorded yet.".to_string(),
+            ));
+        };
+
+        let score_str = d
+            .top_score
+            .map_or_else(|| "n/a".to_string(), |s| format!("{s:.3}"));
+        let sources = if d.source_keys.is_empty() {
+            "(none)".to_string()
+        } else {
+            d.source_keys.join(", ")
+        };
+
+        Ok(ToolResult::new(format!(
+            "Last memory search:\n\
+             - Query: \"{}\"\n\
+             - Method: {}\n\
+             - Results: {}\n\
+             - Top score: {}\n\
+             - Sources: {}\n\
+             - Time: {}",
+            d.query, d.search_type, d.result_count, score_str, sources, d.timestamp
+        )))
+    }
+}
+
 #[async_trait]
 impl Tool for MemorySearchTool {
     fn name(&self) -> &'static str {
@@ -23,7 +54,7 @@ impl Tool for MemorySearchTool {
     }
 
     fn description(&self) -> &'static str {
-        "Search long-term memory and daily notes. Use to recall user preferences, past conversations, important facts."
+        "Search long-term memory and daily notes. Actions: 'search' (default) finds relevant memories; 'explain_last' shows provenance details of the most recent search (query, method, scores, sources)."
     }
 
     fn cacheable(&self) -> bool {
@@ -41,16 +72,26 @@ impl Tool for MemorySearchTool {
         serde_json::json!({
             "type": "object",
             "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["search", "explain_last"],
+                    "description": "Action to perform. 'search' (default) retrieves memories; 'explain_last' returns provenance of the most recent search."
+                },
                 "query": {
                     "type": "string",
-                    "description": "Search query to find relevant memories"
+                    "description": "Search query to find relevant memories. Required when action is 'search' (the default)."
                 }
-            },
-            "required": ["query"]
+            }
         })
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
+        let action = params["action"].as_str().unwrap_or("search");
+
+        if action == "explain_last" {
+            return self.action_explain_last();
+        }
+
         let query = match params["query"].as_str() {
             Some(q) if !q.trim().is_empty() => q,
             _ => {

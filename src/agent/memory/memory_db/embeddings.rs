@@ -46,7 +46,7 @@ impl MemoryDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT me.id, me.content, me.source_key, emb.embedding
+            "SELECT me.id, me.source_key, me.content, emb.embedding
              FROM memory_embeddings emb
              JOIN memory_entries me ON emb.entry_id = me.id",
         )?;
@@ -68,7 +68,7 @@ impl MemoryDB {
         Ok(rows
             .map_err(|e| anyhow::anyhow!("Failed to get embeddings: {e}"))?
             .into_iter()
-            .filter(|(_, _, key, _)| !exclude.contains(key))
+            .filter(|(_, source_key, _, _)| !exclude.contains(source_key))
             .collect())
     }
 
