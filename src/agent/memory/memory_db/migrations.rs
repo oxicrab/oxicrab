@@ -82,10 +82,7 @@ fn add_column_if_missing(
         }
     }
 
-    let alter = format!(
-        "ALTER TABLE \"{}\" ADD COLUMN \"{}\" {}",
-        table, column, definition
-    );
+    let alter = format!("ALTER TABLE \"{table}\" ADD COLUMN \"{column}\" {definition}");
     conn.execute(&alter, [])?;
     Ok(())
 }
@@ -102,9 +99,11 @@ fn ensure_allowed_column_addition(
 ) -> Result<()> {
     if matches!(
         (table, column, definition),
-        ("llm_cost_log", "request_id", "TEXT")
-            | ("intent_metrics", "request_id", "TEXT")
-            | ("memory_access_log", "request_id", "TEXT")
+        (
+            "llm_cost_log" | "intent_metrics" | "memory_access_log",
+            "request_id",
+            "TEXT"
+        )
     ) {
         return Ok(());
     }
