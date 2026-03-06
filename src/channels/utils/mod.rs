@@ -49,7 +49,7 @@ fn is_sender_paired(channel: &str, sender: &str) -> bool {
     let Ok(home) = crate::utils::get_oxicrab_home() else {
         return false;
     };
-    let db_path = home.join("workspace").join("memory").join("memory.db");
+    let db_path = home.join("workspace").join("memory").join("memory.sqlite3");
 
     let Ok(conn) = rusqlite::Connection::open_with_flags(
         &db_path,

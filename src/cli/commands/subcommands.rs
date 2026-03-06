@@ -29,6 +29,7 @@ pub(super) async fn agent(message: Option<String>, session: String) -> Result<()
             cron: None,
             typing_tx: None,
             channels_config: None,
+            memory_db: None,
         },
         &config,
     )

@@ -57,7 +57,7 @@ fn test_pairing_store_fallback() {
     // Create the workspace/memory directory and populate the DB
     let db_dir = dir.path().join("workspace").join("memory");
     std::fs::create_dir_all(&db_dir).unwrap();
-    let db_path = db_dir.join("memory.db");
+    let db_path = db_dir.join("memory.sqlite3");
     let db = crate::agent::memory::memory_db::MemoryDB::new(&db_path).unwrap();
     db.add_paired_sender("telegram", "user789").unwrap();
     // Drop the DB to release the connection before is_sender_paired opens its own
@@ -115,7 +115,7 @@ fn test_dm_access_pairing_returns_code() {
     // Instead, test the pairing store directly and verify code format.
     let db_dir = dir.path().join("workspace").join("memory");
     std::fs::create_dir_all(&db_dir).unwrap();
-    let db_path = db_dir.join("memory.db");
+    let db_path = db_dir.join("memory.sqlite3");
     let db = std::sync::Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path).unwrap());
     let store = crate::pairing::PairingStore::new(db);
     let code = store

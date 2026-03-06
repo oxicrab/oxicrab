@@ -384,24 +384,10 @@ impl CronService {
     }
 
     pub fn add_job(&self, mut job: CronJob) -> Result<()> {
-        // Auto-deduplicate names (case-insensitive) by appending suffix
-        if self.db.count_cron_jobs_by_name(&job.name)? > 0 {
-            // Find next available suffix (bounded to prevent pathological loops)
-            let base_name = job.name.clone();
-            let mut n = 2u32;
-            let mut found = false;
-            for _ in 0..10_000 {
-                let candidate = format!("{base_name} ({n})");
-                if self.db.count_cron_jobs_by_name(&candidate)? == 0 {
-                    job.name = candidate;
-                    found = true;
-                    break;
-                }
-                n += 1;
-            }
-            if !found {
-                anyhow::bail!("unable to find unique name for job after 10000 attempts");
-            }
+        // Auto-deduplicate names (case-insensitive) by appending suffix.
+        // Single query fetches all matching names, dedup happens in memory.
+        if let Some(n) = self.db.next_cron_job_name_suffix(&job.name)? {
+            job.name = format!("{} ({n})", job.name);
         }
 
         // Compute first run time eagerly so `list` shows it immediately

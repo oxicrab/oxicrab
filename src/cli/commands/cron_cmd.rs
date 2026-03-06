@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
     let config = load_config(None)?;
     let workspace = config.workspace_path();
-    let db_path = workspace.join("memory").join("memory.db");
+    let db_path = workspace.join("memory").join("memory.sqlite3");
     let db = std::sync::Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path)?);
     let cron = CronService::new(db);
 

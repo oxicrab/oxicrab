@@ -491,12 +491,13 @@ impl MemoryDB {
 
         let params_ref: Vec<&dyn rusqlite::types::ToSql> =
             param_values.iter().map(AsRef::as_ref).collect();
-        let updated = conn.execute(&sql, params_ref.as_slice())?;
 
-        // Update targets if provided (transactional delete+re-insert)
-        if let Some(targets) = &params_upd.targets {
-            conn.execute_batch("SAVEPOINT update_targets")?;
-            let target_result = (|| -> Result<()> {
+        // Wrap UPDATE + target replacement in a single transaction
+        conn.execute_batch("BEGIN")?;
+        let result = (|| -> Result<bool> {
+            let updated = conn.execute(&sql, params_ref.as_slice())?;
+
+            if let Some(targets) = &params_upd.targets {
                 conn.execute(
                     "DELETE FROM cron_job_targets WHERE job_id = ?1",
                     params![id],
@@ -508,17 +509,17 @@ impl MemoryDB {
                         params![id, target.channel, target.to],
                     )?;
                 }
-                Ok(())
-            })();
-            if target_result.is_ok() {
-                conn.execute_batch("RELEASE update_targets")?;
-            } else {
-                let _ = conn.execute_batch("ROLLBACK TO update_targets");
             }
-            target_result?;
-        }
 
-        Ok(updated > 0)
+            Ok(updated > 0)
+        })();
+
+        if result.is_ok() {
+            conn.execute_batch("COMMIT")?;
+        } else {
+            let _ = conn.execute_batch("ROLLBACK");
+        }
+        result
     }
 
     /// Update only the completion status and error of a cron job.
@@ -546,6 +547,41 @@ impl MemoryDB {
             |row| row.get(0),
         )?;
         Ok(count as usize)
+    }
+
+    /// Find the next available suffix number for a job name.
+    /// Returns `None` if the base name is available. Returns `Some(n)` where
+    /// the caller should use `"{name} ({n})"`.
+    pub fn next_cron_job_name_suffix(&self, name: &str) -> Result<Option<u32>> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let base_lower = name.to_lowercase();
+
+        // Check if the base name is taken
+        let base_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM cron_jobs WHERE LOWER(name) = LOWER(?1)",
+            params![name],
+            |row| row.get(0),
+        )?;
+        if base_count == 0 {
+            return Ok(None);
+        }
+
+        // Fetch all existing names that match the base or the "{base} (N)" pattern
+        let pattern = format!("{base_lower}%");
+        let mut stmt =
+            conn.prepare("SELECT LOWER(name) FROM cron_jobs WHERE LOWER(name) LIKE ?1")?;
+        let existing: std::collections::HashSet<String> = stmt
+            .query_map(params![pattern], |row| row.get(0))?
+            .filter_map(Result::ok)
+            .collect();
+
+        for n in 2..10_002u32 {
+            let candidate = format!("{base_lower} ({n})");
+            if !existing.contains(&candidate) {
+                return Ok(Some(n));
+            }
+        }
+        anyhow::bail!("unable to find unique name suffix after 10000 attempts")
     }
 
     pub fn prune_disabled_cron_jobs(&self, cutoff_ms: i64) -> Result<usize> {

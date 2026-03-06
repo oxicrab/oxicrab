@@ -69,6 +69,51 @@ impl MemoryStore {
         })
     }
 
+    /// Create a `MemoryStore` using an existing `MemoryDB` instance.
+    /// Avoids opening a second `SQLite` connection to the same file.
+    pub fn with_db(db: Arc<MemoryDB>) -> Self {
+        Self {
+            db,
+            #[cfg(feature = "embeddings")]
+            embedding_service: None,
+            #[cfg(feature = "embeddings")]
+            hybrid_weight: 0.5,
+            #[cfg(feature = "embeddings")]
+            fusion_strategy: crate::config::FusionStrategy::default(),
+            #[cfg(feature = "embeddings")]
+            rrf_k: 60,
+            #[cfg(feature = "embeddings")]
+            recency_half_life_days: 90,
+        }
+    }
+
+    /// Create a `MemoryStore` using an existing `MemoryDB` instance with config.
+    pub fn with_db_and_config(db: Arc<MemoryDB>, memory_config: &MemoryConfig) -> Self {
+        #[cfg(feature = "embeddings")]
+        let embedding_service = if memory_config.embeddings_enabled {
+            Some(Arc::new(LazyEmbeddingService::new(
+                memory_config.embeddings_model.clone(),
+                memory_config.embedding_cache_size,
+            )))
+        } else {
+            None
+        };
+
+        Self {
+            db,
+            #[cfg(feature = "embeddings")]
+            embedding_service,
+            #[cfg(feature = "embeddings")]
+            hybrid_weight: memory_config.hybrid_weight,
+            #[cfg(feature = "embeddings")]
+            fusion_strategy: memory_config.fusion_strategy,
+            #[cfg(feature = "embeddings")]
+            rrf_k: memory_config.rrf_k,
+            #[cfg(feature = "embeddings")]
+            recency_half_life_days: memory_config.recency_half_life_days,
+        }
+    }
+
     pub fn with_config(workspace: impl AsRef<Path>, memory_config: &MemoryConfig) -> Result<Self> {
         let workspace = workspace.as_ref();
         let memory_dir = workspace.join("memory");

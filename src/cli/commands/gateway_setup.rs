@@ -22,7 +22,10 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     super::create_workspace_templates(&config.workspace_path())?;
 
     // Create MemoryDB early so OAuth providers can use it for token caching
-    let db_path = config.workspace_path().join("memory").join("memory.db");
+    let db_path = config
+        .workspace_path()
+        .join("memory")
+        .join("memory.sqlite3");
     let memory_db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path)?);
 
     // Setup components
@@ -34,7 +37,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     }
 
     let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) = setup_message_bus(&config)?;
-    let cron = setup_cron_service(memory_db);
+    let cron = setup_cron_service(memory_db.clone());
     // Create typing indicator channel
     let (typing_tx, typing_rx) = tokio::sync::mpsc::channel::<(String, String)>(100);
     let typing_tx = Arc::new(typing_tx);
@@ -48,6 +51,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
             cron: Some(cron.clone()),
             typing_tx: Some(typing_tx),
             channels_config: Some(config.channels.clone()),
+            memory_db: Some(memory_db),
         },
         &config,
     )
@@ -290,6 +294,7 @@ pub(super) struct SetupAgentParams {
     pub(super) cron: Option<Arc<CronService>>,
     pub(super) typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     pub(super) channels_config: Option<crate::config::ChannelsConfig>,
+    pub(super) memory_db: Option<Arc<crate::agent::memory::memory_db::MemoryDB>>,
 }
 
 pub(super) async fn setup_agent(
@@ -335,6 +340,7 @@ pub(super) async fn setup_agent(
                 cron_service: params.cron,
                 typing_tx: params.typing_tx,
                 channels_config: params.channels_config,
+                memory_db: params.memory_db,
             },
             routing,
         ))

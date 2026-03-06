@@ -147,6 +147,7 @@ impl AgentLoop {
                     exfiltration_guard,
                     prompt_guard: prompt_guard_config,
                 },
+            memory_db: shared_db,
         } = config;
 
         // Extract receiver from the bus (called once at startup).
@@ -158,7 +159,14 @@ impl AgentLoop {
         let model = model.unwrap_or_else(|| provider.default_model().to_string());
 
         let sessions: Arc<dyn SessionStore> = Arc::new(SessionManager::new(&workspace)?);
-        let memory = Arc::new(if let Some(ref mem_cfg) = memory_config {
+        // Reuse a pre-opened MemoryDB when available (avoids duplicate connections)
+        let memory = Arc::new(if let Some(db) = shared_db {
+            if let Some(ref mem_cfg) = memory_config {
+                MemoryStore::with_db_and_config(db, mem_cfg)
+            } else {
+                MemoryStore::with_db(db)
+            }
+        } else if let Some(ref mem_cfg) = memory_config {
             MemoryStore::with_config(&workspace, mem_cfg)?
         } else {
             MemoryStore::new(&workspace)?

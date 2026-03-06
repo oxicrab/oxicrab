@@ -35,7 +35,7 @@ impl PairingStore {
     pub fn open_default() -> Result<Self> {
         let config = crate::config::load_config(None)?;
         let workspace = config.workspace_path();
-        let db_path = workspace.join("memory").join("memory.db");
+        let db_path = workspace.join("memory").join("memory.sqlite3");
         let db = Arc::new(MemoryDB::new(&db_path)?);
         Ok(Self { db })
     }
