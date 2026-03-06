@@ -48,6 +48,7 @@ fn default_google_scopes() -> Vec<String> {
         "https://www.googleapis.com/auth/gmail.send".to_string(),
         "https://www.googleapis.com/auth/calendar.events".to_string(),
         "https://www.googleapis.com/auth/calendar.readonly".to_string(),
+        "https://www.googleapis.com/auth/tasks".to_string(),
     ]
 }
 

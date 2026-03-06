@@ -223,6 +223,7 @@ fn register_cron(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
 async fn create_google_tools(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
     use crate::agent::tools::google_calendar::GoogleCalendarTool;
     use crate::agent::tools::google_mail::GoogleMailTool;
+    use crate::agent::tools::google_tasks::GoogleTasksTool;
 
     let mut result: Vec<Arc<dyn Tool>> = Vec::new();
 
@@ -242,8 +243,9 @@ async fn create_google_tools(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
         {
             Ok(creds) => {
                 result.push(Arc::new(GoogleMailTool::new(creds.clone())));
-                result.push(Arc::new(GoogleCalendarTool::new(creds)));
-                info!("Google tools registered (gmail, calendar)");
+                result.push(Arc::new(GoogleCalendarTool::new(creds.clone())));
+                result.push(Arc::new(GoogleTasksTool::new(creds)));
+                info!("Google tools registered (gmail, calendar, tasks)");
             }
             Err(e) => {
                 warn!("Google tools not available: {}", e);

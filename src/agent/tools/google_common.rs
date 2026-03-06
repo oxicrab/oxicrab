@@ -85,6 +85,7 @@ impl GoogleApiClient {
             "GET" => self.client.get(url),
             "POST" => self.client.post(url),
             "PUT" => self.client.put(url),
+            "PATCH" => self.client.patch(url),
             "DELETE" => self.client.delete(url),
             _ => return Err(anyhow::anyhow!("Unsupported HTTP method: {method}")),
         };

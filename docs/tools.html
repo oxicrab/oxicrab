@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tool Reference - oxicrab</title>
-  <meta name="description" content="Complete reference for all 24 built-in tools in oxicrab, including setup instructions for configurable tools.">
+  <meta name="description" content="Complete reference for all 25 built-in tools in oxicrab, including setup instructions for configurable tools.">
   <meta name="theme-color" content="#0ea5e9">
   <link rel="icon" href="oxicrab.png">
   <style>
@@ -136,7 +136,7 @@
 
 <div class="page-header">
   <h1>Tool Reference</h1>
-  <p>24 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, and result caching.</p>
+  <p>25 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, and result caching.</p>
 </div>
 
 <div class="content">
@@ -168,6 +168,7 @@
       <ul>
         <li><a href="#google_mail" class="needs-config">google_mail</a></li>
         <li><a href="#google_calendar" class="needs-config">google_calendar</a></li>
+        <li><a href="#google_tasks" class="needs-config">google_tasks</a></li>
         <li><a href="#github" class="needs-config">github</a></li>
         <li><a href="#weather" class="needs-config">weather</a></li>
         <li><a href="#todoist" class="needs-config">todoist</a></li>
@@ -295,7 +296,7 @@
       <thead><tr><th>Access Level</th><th>Behavior</th><th>Tools</th></tr></thead>
       <tbody>
         <tr><td>Full</td><td>Passed through directly</td><td>read_file, write_file, list_dir, exec, web_search</td></tr>
-        <tr><td>ReadOnly</td><td>Wrapped &mdash; only read-only actions exposed, mutating actions hidden from schema and blocked at execution</td><td>github, google_mail, google_calendar, cron, todoist, reddit, media, obsidian, browser, weather</td></tr>
+        <tr><td>ReadOnly</td><td>Wrapped &mdash; only read-only actions exposed, mutating actions hidden from schema and blocked at execution</td><td>github, google_mail, google_calendar, google_tasks, cron, todoist, reddit, media, obsidian, browser, weather</td></tr>
         <tr><td>Denied</td><td>Not available</td><td>edit_file, http, tmux, spawn, subagent_control, memory_search, image_gen, all MCP tools</td></tr>
       </tbody>
     </table>
@@ -438,6 +439,27 @@
 
     <h3>Setup</h3>
     <p>Uses the same Google OAuth config as <a href="#google_mail">google_mail</a>. Enable the <strong>Google Calendar API</strong> in your Cloud project.</p>
+  </div>
+
+  <div id="google_tasks" class="tool-section">
+    <h2>google_tasks <span class="badge badge-config">Requires config</span></h2>
+    <p class="desc">Interact with Google Tasks. Create, list, update, and complete tasks across task lists.</p>
+
+    <h3>Actions</h3>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th><th>Subagent</th></tr></thead>
+      <tbody>
+        <tr><td>list_task_lists</td><td>List all task lists</td><td>&#x2713;</td></tr>
+        <tr><td>list_tasks</td><td>List tasks in a task list</td><td>&#x2713;</td></tr>
+        <tr><td>get_task</td><td>Get details of a specific task</td><td>&#x2713;</td></tr>
+        <tr><td>create_task</td><td>Create a new task</td><td>&mdash;</td></tr>
+        <tr><td>update_task</td><td>Update a task (title, notes, status, due date)</td><td>&mdash;</td></tr>
+        <tr><td>delete_task</td><td>Delete a task</td><td>&mdash;</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Setup</h3>
+    <p>Uses the same Google OAuth config as <a href="#google_mail">google_mail</a>. Enable the <strong>Google Tasks API</strong> in your Cloud project.</p>
   </div>
 
   <div class="cat-header">Integrations</div>
