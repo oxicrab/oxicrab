@@ -86,8 +86,8 @@ impl AnthropicOAuthProvider {
             client,
         };
 
-        // Load cached tokens if available (synchronous — called before tokio runtime
-        // is running for this provider, so std::sync primitives are fine)
+        // Load cached tokens if available (sync constructor — uses try_lock()
+        // instead of .lock().await since this is not an async method)
         provider.load_cached_tokens_from_db();
         if let Some(ref path) = provider.credentials_path {
             provider.load_cached_tokens_from_file(path);

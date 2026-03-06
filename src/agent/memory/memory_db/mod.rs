@@ -131,7 +131,7 @@ impl MemoryDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
 
-        // Column named mtime_ns for backwards compat (actually stores milliseconds)
+        // Column named mtime_ns for backwards compat (no longer used; always 0)
         conn.execute(
             "CREATE TABLE IF NOT EXISTS memory_sources (
                 source_key TEXT PRIMARY KEY,

@@ -437,10 +437,6 @@ impl AgentLoop {
         }
     }
 
-    /// Handle a text-only LLM response: false no-tools correction or
-    /// hallucination detection. Returns [`TextAction::Continue`] if a
-    /// correction was injected, or [`TextAction::Return`] if the response is final.
-    ///
     /// Post-loop LLM call with no tools to force a text summary when the loop
     /// ended after tool calls without producing a final text response.
     async fn generate_post_loop_summary(

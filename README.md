@@ -180,11 +180,11 @@ Access control: `allowFrom` (pre-authorized senders), `dmPolicy` (`"allowlist"`,
 │   ├── USER.md              # User preferences
 │   ├── TOOLS.md             # Tool usage guide
 │   ├── memory/
-│   │   └── memory.sqlite3   # Memory database (FTS5 + optional embeddings)
+│   │   └── memory.sqlite3   # Memory database (FTS5, cron, pairing, tokens, logs)
 │   ├── sessions/            # Conversation sessions
 │   └── skills/              # Custom skills (SKILL.md per skill)
 ├── models/                  # Whisper model files
-└── cron/jobs.json           # Scheduled jobs
+└── media/                   # Downloaded media files (auto-cleaned)
 ```
 
 ## Architecture

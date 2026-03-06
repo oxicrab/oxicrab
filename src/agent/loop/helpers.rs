@@ -118,8 +118,9 @@ fn value_type_name(v: &Value) -> &'static str {
 
 /// Execute a tool call via the registry's middleware pipeline.
 ///
-/// The registry handles: param validation, caching, timeout, panic isolation,
-/// truncation, and logging. This function is a thin wrapper that handles the
+/// Performs pre-execution checks (exfiltration guard, MCP approval, param
+/// validation) before delegating to the registry, which handles caching,
+/// timeout, panic isolation, truncation, and logging. Also handles the
 /// "tool not found" case and converts the result to `(String, bool)`.
 pub(super) async fn execute_tool_call(
     registry: &ToolRegistry,

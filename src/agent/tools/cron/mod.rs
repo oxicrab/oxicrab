@@ -556,9 +556,9 @@ impl Tool for CronTool {
                     .to_string();
 
                 // Spawn job execution on a separate task to avoid deadlock.
-                // The agent loop holds `processing_lock` during tool execution,
-                // and the cron callback calls `process_direct()` which re-acquires
-                // the same lock — awaiting inline would deadlock.
+                // The agent loop holds a per-session lock during tool execution,
+                // and the cron callback calls `process_direct_with_overrides()`
+                // which re-acquires the same session lock.
                 let cron = self.cron_service.clone();
                 let job_id_clone = job_id.clone();
                 tokio::spawn(async move {
@@ -620,7 +620,7 @@ impl Tool for CronTool {
                 };
 
                 // Spawn replay on a separate task to avoid deadlock (same
-                // reason as the "run" action — processing_lock re-entrancy).
+                // reason as the "run" action — session lock re-entrancy).
                 let job_id = entry.job_id.clone();
                 db.increment_dlq_retry(dlq_id)?;
                 db.update_dlq_status(dlq_id, "replayed")?;

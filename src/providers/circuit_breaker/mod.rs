@@ -55,8 +55,8 @@ impl CircuitBreakerProvider {
     }
 
     fn is_transient(error: &str) -> bool {
-        // First, try typed error downcasting for precise classification
-        // (This method receives a string, so we use pattern matching as fallback)
+        // Classify error transience via string pattern matching.
+        // Known non-transient patterns (auth, model, config) → not retryable.
         let lower = error.to_lowercase();
         let non_transient_patterns = [
             "authentication",

@@ -326,7 +326,7 @@ impl SessionManager {
         Ok(session)
     }
 
-    /// Delete session files older than `ttl_days` days.
+    /// Delete sessions older than `ttl_days` days from the database.
     pub fn cleanup_old_sessions(&self, ttl_days: u32) -> Result<usize> {
         let deleted = self.db.cleanup_sessions(ttl_days)?;
         if deleted > 0 {

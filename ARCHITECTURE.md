@@ -123,7 +123,7 @@ Raw token usage logging to the `llm_cost_log` SQLite table via `MemoryDB::record
 
 ## Cron System (`src/cron/`)
 
-`CronService` manages scheduled and event-triggered jobs. Supports 4 schedule types: `At` (one-shot), `Every` (interval), `Cron` (5-field expression), `Event` (regex match on inbound messages). Jobs are persisted to `cron/jobs.json`. `CronPayload` specifies execution semantics: `kind` ("agent_turn" or "echo"), `message`, `targets` (channel + recipient), and `agent_echo`. `EventMatcher` checks inbound messages against event-triggered jobs with regex matching, channel filtering, cooldown enforcement, expiry, and max_runs. The cron tool supports actions: add, list, remove, run.
+`CronService` manages scheduled and event-triggered jobs. Supports 4 schedule types: `At` (one-shot), `Every` (interval), `Cron` (5-field expression), `Event` (regex match on inbound messages). Jobs are persisted to SQLite `cron_jobs` + `cron_job_targets` tables in MemoryDB. `CronService::new(db: Arc<MemoryDB>)`. `CronPayload` specifies execution semantics: `kind` ("agent_turn" or "echo"), `message`, `targets` (channel + recipient), and `agent_echo`. `EventMatcher` checks inbound messages against event-triggered jobs with regex matching, channel filtering, cooldown enforcement (preserved across rebuilds via `merge_fired_state`), expiry, and max_runs. The cron tool supports actions: add, list, remove, run, dlq_list, dlq_replay, dlq_clear.
 
 ## Doctor (`src/cli/doctor.rs`)
 
