@@ -450,10 +450,7 @@ pub(super) async fn transcribe_audio_tags(
 /// flat naming (`telegram_{id}.{ext}`, `discord_{id}.{ext}`, etc.).
 /// No channel creates subdirectories, so recursion is unnecessary.
 pub(super) fn cleanup_old_media(ttl_days: u32) -> Result<()> {
-    let media_dir = dirs::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
-        .join(".oxicrab")
-        .join("media");
+    let media_dir = crate::utils::get_oxicrab_home()?.join("media");
     if !media_dir.exists() {
         return Ok(());
     }

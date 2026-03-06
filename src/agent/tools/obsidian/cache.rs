@@ -100,10 +100,7 @@ impl ObsidianCache {
         vault_name: &str,
         db: Option<Arc<MemoryDB>>,
     ) -> Result<Self> {
-        let home =
-            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
-        let base = home
-            .join(".oxicrab")
+        let base = crate::utils::get_oxicrab_home()?
             .join("obsidian_cache")
             .join(safe_vault_name(vault_name));
         std::fs::create_dir_all(&base)?;

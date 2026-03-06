@@ -23,7 +23,9 @@ const DEFAULT_EXPIRES_IN_SECS: u64 = 3600;
 /// Used when borrowing credentials from external sources (Claude CLI, `OpenClaw`)
 /// so that token refresh writes go here instead of corrupting the source files.
 fn oxicrab_oauth_cache_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".oxicrab").join(".oauth-cache.json"))
+    crate::utils::get_oxicrab_home()
+        .ok()
+        .map(|h| h.join(".oauth-cache.json"))
 }
 
 // Headers that identify the request as a Claude Code client
