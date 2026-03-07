@@ -57,9 +57,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Read toolchain version
+        id: toolchain
+        run: echo "version=$(grep 'channel' rust-toolchain.toml | sed 's/.*"\(.*\)"/\1/')" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.toolchain.outputs.version }}
           targets: ${{ matrix.target }}
 
       - name: Install system dependencies (Linux)
