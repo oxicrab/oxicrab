@@ -412,10 +412,10 @@ docker run -d \
   --name oxicrab \
   --restart unless-stopped \
   -v ~/.oxicrab:/home/oxicrab/.oxicrab \
-  -p 8080:8080 \
+  -p 18790:18790 \
   oxicrab</code></pre>
 
-    <p>The <code>-p 8080:8080</code> port mapping is only needed if you use the Twilio channel (webhook server). Other channels use outbound connections only.</p>
+    <p>The <code>-p 18790:18790</code> port mapping is needed for the gateway HTTP API (chat, health, webhooks, A2A). Other channels use outbound connections only.</p>
 
     <h3>CLI mode</h3>
     <pre><code># Single message
@@ -454,15 +454,24 @@ docker exec -it oxicrab oxicrab auth google --headless</code></pre>
     <div class="config-label">docker-compose.yml</div>
     <pre><code>services:
   oxicrab:
-    image: ghcr.io/oxicrab/oxicrab:latest
-    container_name: oxicrab
+    image: ghcr.io/oxicrab/oxicrab:${OXICRAB_TAG:-latest}
     restart: unless-stopped
     volumes:
-      - ~/.oxicrab:/home/oxicrab/.oxicrab
+      - ${OXICRAB_HOME:-~/.oxicrab}:/home/oxicrab/.oxicrab
     ports:
-      - "8080:8080"  # Only needed for Twilio webhooks
+      - "${OXICRAB_PORT:-18790}:18790"
     environment:
-      - RUST_LOG=info</code></pre>
+      - OXICRAB_PORT=18790
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s</code></pre>
+
+    <p><strong><code>OXICRAB_TAG</code></strong> selects the image tag. Defaults to <code>latest</code> (all channels). A <code>slack-only</code> tag is also published &mdash; it includes only the Slack channel and omits Whisper, producing a smaller image.</p>
+
+    <div class="note"><strong>Docker healthcheck:</strong> The container includes a <code>healthcheck.sh</code> script that calls <code>/api/health</code>. Docker marks the container as unhealthy after 3 consecutive failures (checked every 30s). Use <code>docker compose ps</code> to see health status.</div>
 
     <pre><code># Start
 docker compose up -d

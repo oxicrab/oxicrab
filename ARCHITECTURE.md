@@ -14,18 +14,18 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 
 ## Key Abstractions (3 traits + middleware)
 
-- **`Tool`** (`src/agent/tools/base/mod.rs`): `name()`, `description()`, `version()`, `parameters()` (JSON Schema), `capabilities()`, `execute(Value, &ExecutionContext) → ToolResult`. Optional: `cacheable()`, `requires_approval()`, `execution_timeout()`.
+- **`Tool`** (`src/agent/tools/base/mod.rs`): `name()`, `description()`, `parameters()` (JSON Schema), `capabilities()`, `execute(Value, &ExecutionContext) → ToolResult`. Optional: `to_schema()`, `cacheable()`, `requires_approval()`, `execution_timeout()`.
 - **`ToolMiddleware`** (`src/agent/tools/base/mod.rs`): `before_execute()` (can short-circuit), `after_execute()` (can modify result). Built-in: `CacheMiddleware`, `TruncationMiddleware`, `LoggingMiddleware`.
 - **`ExecutionContext`** (`src/agent/tools/base/mod.rs`): Passed to every `execute()` call. Fields: `channel`, `chat_id`, `context_summary`, `metadata` (channel-specific metadata from the originating inbound message, e.g. Slack `ts` for threading).
-- **`BaseChannel`** (`src/channels/base.rs`): `start()`, `stop()`, `send()`. Optional: `send_typing()`, `send_and_get_id()`, `edit_message()`, `delete_message()`. Discord supports slash commands, button component interactions, embeds, and interaction webhook followups — metadata keys `discord_interaction_token`/`discord_application_id` route responses through webhook API instead of channel messages.
-- **`LLMProvider`** (`src/providers/base.rs`): `chat(ChatRequest) → LLMResponse`, `default_model()`, `warmup()`. Has default `chat_with_retry()` with exponential backoff. `warmup()` pre-warms HTTP connections on startup (default no-op, implemented for Anthropic/OpenAI/Gemini).
+- **`BaseChannel`** (`src/channels/base/mod.rs`): `start()`, `stop()`, `send()`. Optional: `send_typing()`, `send_and_get_id()`, `edit_message()`, `delete_message()`. Discord supports slash commands, button component interactions, embeds, and interaction webhook followups — metadata keys `discord_interaction_token`/`discord_application_id` route responses through webhook API instead of channel messages.
+- **`LLMProvider`** (`src/providers/base/mod.rs`): `chat(ChatRequest) → LLMResponse`, `default_model()`, `warmup()`. Has default `chat_with_retry()` with exponential backoff. `warmup()` pre-warms HTTP connections on startup (default no-op, implemented for Anthropic/OpenAI/Gemini).
 
 ## Provider Selection
 
 `ProviderFactory` in `src/providers/strategy/mod.rs` uses 2-tier resolution to pick a provider:
 
-1. **Prefix notation** — `provider/model` syntax (e.g. `groq/llama-3.1-70b`). Only recognized prefixes (anthropic, openai, gemini, openrouter, deepseek, groq, moonshot, zhipu, dashscope, vllm, ollama) are split; unknown prefixes like `meta-llama/` are left intact.
-2. **Model-name inference** — `starts_with` patterns: `claude-*` → Anthropic, `gpt-*`/`o1`/`o3`/`o4` → OpenAI, `gemini*` → Gemini, `deepseek*` → DeepSeek.
+1. **Prefix notation** — `provider/model` syntax (e.g. `groq/llama-3.1-70b`). Only recognized prefixes (anthropic, openai, gemini, openrouter, deepseek, groq, minimax, moonshot, zhipu, dashscope, vllm, ollama) are split; unknown prefixes like `meta-llama/` are left intact.
+2. **Model-name inference** — `starts_with` patterns: `claude-*`/`claude_*` → Anthropic, `gpt-*`/`o1`/`o3`/`o4` → OpenAI, `gemini*` → Gemini, `deepseek*` → DeepSeek.
 
 For the `anthropic` provider, OAuth is tried first (Claude CLI → OpenClaw → credentials file), falling back to API key. For `openai`/`gemini`, the API key is used directly. All providers support `apiBase` (custom base URL) and `headers` (custom HTTP headers) in their config — first-party providers use `with_config()` constructors, OpenAI-compat providers use `OpenAIProvider::with_config_and_headers()`. When neither is set, the simpler `new()` constructor is used with hardcoded defaults. `promptGuidedTools` is a `LocalProviderConfig`-only field (ollama/vllm) — when true, `PromptGuidedToolsProvider::wrap()` is applied, injecting tool definitions into the system prompt and parsing `<tool_call>` XML blocks from text responses.
 
@@ -44,12 +44,29 @@ This enables the Anthropic prompt cache (5-minute TTL), reducing input token cos
 ## Tool System
 
 - **`ToolRegistry`** (`src/agent/tools/registry/mod.rs`): Central execution engine. Runs middleware pipeline: `before_execute` → `execute_with_guards` (timeout + panic isolation via `tokio::task::spawn`) → `after_execute`. Stored as `Arc<ToolRegistry>` (immutable after construction).
-- **`ToolBuildContext`** (`src/agent/tools/setup.rs`): Aggregates all config needed for tool construction. `register_all_tools()` calls per-module registration functions.
+- **`ToolBuildContext`** (`src/agent/tools/setup/mod.rs`): Aggregates all config needed for tool construction. `register_all_tools()` calls per-module registration functions.
 - **MCP** (`src/agent/tools/mcp/`): `McpManager` connects to external MCP servers via child processes (`rmcp` crate). `McpProxyTool` wraps each discovered tool as `impl Tool`. Config under `tools.mcp.servers`. Each server has a `sandbox` field (`SandboxConfig`) for Landlock kernel-level sandboxing of the child process (enabled by default). `McpManager::new()` takes a workspace path; `McpProxyTool` sanitizes error messages via `path_sanitize`.
+- **Deferred tool registry / tool_search** (`src/agent/tools/tool_search/mod.rs`): MCP tools register as "deferred" — their schemas are excluded from LLM requests to save tokens. The `tool_search` built-in meta-tool lets the LLM discover deferred tools by keyword. Activated tools are tracked via a shared `Arc<Mutex<HashSet<String>>>` and included in subsequent LLM requests.
+- **Tool output stash** (`src/agent/tools/stash/mod.rs`): In-memory LRU cache (32 entries, 32 MB total) that preserves large tool outputs before truncation. When `TruncationMiddleware` truncates a result, the full content is stashed and a `stash_retrieve` tool lets the LLM recover it with pagination (`offset`/`limit` params).
+- **Tool parameter auto-casting** (`src/agent/tools/registry/mod.rs`): `coerce_params_to_schema()` runs before tool execution, fixing common LLM type mismatches (string→integer, string→number, number→string, string→boolean, string→array/object). Saves a full round-trip per mismatch.
+- **Schema hint injection** (`src/agent/tools/registry/mod.rs`): `inject_schema_hint()` appends the tool's description and parameter schema to error messages when a tool returns `is_error: true`. Helps the LLM self-correct without needing full schemas in every request.
+- **Tool pre-filtering / ToolCategory** (`src/agent/loop/tool_filter.rs`): `ToolCategory` enum (declared in `src/agent/tools/base/mod.rs`) classifies tools by domain. `tool_filter.rs` uses the category and inbound message intent to select a relevant subset of tools per turn, reducing token overhead from tool definitions.
 
 ## Agent Loop (`src/agent/loop/mod.rs`)
 
 `AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. All iterations use `tool_choice=None` (auto). Safety against text-only hallucinations comes from `handle_text_response()` which detects false action claims and false no-tools claims. Hallucination detection runs on final text responses. Responses flow through the loop's return value (no message tool); the caller sends them exactly once. At 70% of `max_iterations`, a system message prompts the LLM to begin wrapping up. Post-compaction recovery instructions include the last user message and most recent checkpoint. Periodic checkpoints (configurable via `CompactionConfig.checkpoint`) snapshot conversation state every N iterations for recovery after compaction.
+
+### Intent Classification (`src/agent/loop/intent/mod.rs`)
+
+Classifies each inbound message by intent (e.g. code, research, conversational) using lightweight heuristics (AC automata + regex, no LLM call). Used by tool pre-filtering to select relevant tool subsets and by complexity scoring to inform model routing decisions.
+
+### Complexity-Aware Routing (`src/agent/loop/complexity/mod.rs`)
+
+`ComplexityScorer` scores inbound messages across 7 dimensions (message length, reasoning keywords, technical vocabulary, question complexity, code presence, instruction complexity, conversational simplicity) using AC automata and regex. Composite score maps to standard/heavy model thresholds defined in `ChatRoutingConfig`. Wired in `process_message_unlocked()` after intent classification.
+
+### Context Providers (`src/agent/context/providers/mod.rs`)
+
+Dynamic system prompt injection via external commands. Config: `agents.defaults.contextProviders` array with `name`, `command`, `args`, `enabled`, `timeout` (default 5s), `ttl` (default 300s), `requiresBins`, `requiresEnv`. Providers execute via `scrubbed_command()` (env-cleared). Output capped at 100 KB, cached by TTL, injected as `# Dynamic Context` section in the system prompt.
 
 ### Reasoning Content (Thinking Models)
 
@@ -70,6 +87,18 @@ When `is_group` metadata is true on an inbound message, `build_system_prompt_inn
 - **`WeightedScore`** (default): Normalizes BM25 scores to [0,1] (inverted, since BM25 is more-negative-is-better) and cosine similarity to [0,1]. Blends: `combined = keyword_weight * fts + (1 - keyword_weight) * vec`. `hybridWeight` controls the blend (0.0 = keyword only, 1.0 = vector only).
 - **`Rrf`** (reciprocal rank fusion): Ignores raw scores, ranks results from each source independently, then computes `score = 1/(k + fts_rank) + 1/(k + vec_rank)`. More robust to score distribution differences between BM25 and cosine. `rrfK` (default 60) controls emphasis on top ranks.
 
+### Recency-Weighted BM25
+
+`recency_decay()` in `src/agent/memory/memory_db/mod.rs` applies exponential decay (`0.5 ^ (age_days / half_life_days)`) to normalized BM25 scores during hybrid search. Config: `agents.defaults.memory.recencyHalfLifeDays` (default 90, 0 = disabled). Decay only affects keyword scores, not vector similarity. Applied after BM25 normalization, before fusion.
+
+### Remember Fast Path (`src/agent/memory/remember/mod.rs`)
+
+Six trigger patterns (e.g. "remember that ", "please remember ") bypass the LLM entirely, writing directly to daily notes. Rejects content < 8 chars, questions, and interrogative forms. Deduplication via Jaccard similarity (threshold 0.7) against recent DB entries. Intercepts messages in `process_message()` before image encoding.
+
+### Memory Quality Gates (`src/agent/memory/quality/mod.rs`)
+
+`check_quality()` returns `QualityVerdict`: `Pass`, `Reframed(String)`, or `Reject(RejectReason)`. Rejects greetings/filler (~45 patterns) and content < 15 chars. Reframes negative memories unless they contain constructive markers. `filter_lines()` applies quality gates per-line for multi-line LLM output. Used in `try_remember_fast_path()` and pre-compaction flush.
+
 ### Embedding Cache
 
 `EmbeddingService` caches `embed_query()` results in an LRU cache (default 10,000 entries, configurable via `agents.defaults.memory.embeddingCacheSize`). Avoids redundant ONNX inference for repeated search queries. `embed_texts()` (batch indexing) is not cached since indexed content changes infrequently and results are stored in SQLite.
@@ -86,32 +115,43 @@ Per-channel formatting hints are injected into the system prompt during `build_m
 ## Feature Flags (channel selection + optional features)
 
 ```toml
-default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio", "keyring-store"]
+default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio", "keyring-store", "browser", "local-whisper", "embeddings"]
 channel-telegram = ["dep:teloxide"]
 channel-discord = ["dep:serenity"]
 channel-slack = ["dep:tokio-tungstenite"]
 channel-whatsapp = ["dep:whatsapp-rust", ...]
 channel-twilio = ["dep:sha1"]
 keyring-store = ["dep:keyring"]
+browser = [...]          # headless browser tool (chromiumoxide)
+local-whisper = [...]    # local whisper.cpp voice transcription
+embeddings = [...]       # fastembed ONNX for vector search
 ```
 
 Channels are conditionally compiled via `#[cfg(feature = "channel-*")]` in `src/channels/mod.rs`. Keyring support (`keyring-store`) is default-on for desktop; containers should build with `--no-default-features` and use env vars instead.
 
-## Voice Transcription (`src/utils/transcription.rs`)
+## Voice Transcription (`src/utils/transcription/mod.rs`)
 
 `TranscriptionService` supports two backends: local (whisper-rs + ffmpeg) and cloud (Whisper API). Routing controlled by `prefer_local` config flag — tries preferred backend first, falls back to the other. Local inference runs whisper.cpp via `spawn_blocking`; audio converted to 16kHz mono f32 PCM via ffmpeg subprocess. `TranscriptionService::new()` returns `Some` if at least one backend is available.
 
 ## Config
 
-JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in JSON, snake_case in Rust (serde `rename` attrs). Schema in `src/config/schema/mod.rs` — 15 structs have custom `Debug` impls (via `redact_debug!` macro) that redact secrets. Validated on startup via `config.validate()`. Notable config fields: `providers.*.headers` (custom HTTP headers for OpenAI-compatible providers), `agents.defaults.compaction.checkpoint` (`CheckpointConfig` with `enabled` and `intervalIterations`), `tools.exfiltrationGuard` (`ExfiltrationGuardConfig` with `enabled` and `allowTools`), `tools.exec.sandbox` (`SandboxConfig` with `enabled`, `additionalReadPaths`, `additionalWritePaths`, `blockNetwork`), `agents.defaults.promptGuard` (`PromptGuardConfig` with `enabled` and `action`).
+JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in JSON, snake_case in Rust (serde `rename` attrs). Schema in `src/config/schema/mod.rs` — 22 structs have custom `Debug` impls (via `redact_debug!` macro) that redact secrets. Validated on startup via `config.validate()`. Notable config fields: `providers.*.headers` (custom HTTP headers for OpenAI-compatible providers), `agents.defaults.compaction.checkpoint` (`CheckpointConfig` with `enabled` and `intervalIterations`), `tools.exfiltrationGuard` (`ExfiltrationGuardConfig` with `enabled` and `allowTools`), `tools.exec.sandbox` (`SandboxConfig` with `enabled`, `additionalReadPaths`, `additionalWritePaths`, `blockNetwork`), `agents.defaults.promptGuard` (`PromptGuardConfig` with `enabled` and `action`).
 
 ## Error Handling
 
-`OxicrabError` in `src/errors.rs` — typed variants: `Config`, `Provider { retryable }`, `RateLimit { retry_after }`, `Auth`, `Internal(anyhow::Error)`. See [Code Style & Patterns](CLAUDE.md#code-style--patterns) for usage conventions.
+`OxicrabError` in `src/errors/mod.rs` — typed variants: `Config`, `Provider { retryable }`, `RateLimit { retry_after }`, `Auth`, `Internal(anyhow::Error)`. See [Code Style & Patterns](CLAUDE.md#code-style--patterns) for usage conventions.
 
 ## Token Logging (`src/agent/memory/memory_db/cost.rs`)
 
 Raw token usage logging to the `llm_cost_log` SQLite table via `MemoryDB::record_tokens()`. Tracks model, input/output tokens, cache creation/read tokens, caller, and request_id. No dollar amount estimation — token counts are the ground truth. `get_token_summary()` returns usage grouped by date and model. The old CostGuard pricing system was removed in favor of raw token logging.
+
+## Session Affinity
+
+`session_affinity_id()` in `src/providers/mod.rs` generates a per-process UUID sent as an `x-session-affinity` HTTP header on all LLM provider requests. Load balancers can use this to route requests to the same backend for prompt cache locality.
+
+## LLMResponse Extensions
+
+`LLMResponse` (`src/providers/base/mod.rs`) includes `finish_reason: Option<String>` (parsed from all providers: OpenAI `"stop"`/`"length"`/`"tool_calls"`, Anthropic `"end_turn"`/`"max_tokens"`/`"tool_use"`, Gemini `"STOP"`/`"MAX_TOKENS"`) and `reasoning_signature: Option<String>` (provider-specific reasoning trace identifier). Pre-compaction flush checks `finish_reason` and discards truncated output rather than writing corrupted data to memory.
 
 ## Circuit Breaker (`src/providers/circuit_breaker/mod.rs`)
 
@@ -125,15 +165,19 @@ Raw token usage logging to the `llm_cost_log` SQLite table via `MemoryDB::record
 
 `CronService` manages scheduled and event-triggered jobs. Supports 4 schedule types: `At` (one-shot), `Every` (interval), `Cron` (5-field expression), `Event` (regex match on inbound messages). Jobs are persisted to SQLite `cron_jobs` + `cron_job_targets` tables in MemoryDB. `CronService::new(db: Arc<MemoryDB>)`. `CronPayload` specifies execution semantics: `kind` ("agent_turn" or "echo"), `message`, `targets` (channel + recipient), and `agent_echo`. `EventMatcher` checks inbound messages against event-triggered jobs with regex matching, channel filtering, cooldown enforcement (preserved across rebuilds via `merge_fired_state`), expiry, and max_runs. The cron tool supports actions: add, list, remove, run, dlq_list, dlq_replay, dlq_clear.
 
-## Doctor (`src/cli/doctor.rs`)
+### Cron Dead Letter Queue (`src/agent/memory/memory_db/dlq.rs`)
+
+Failed cron job executions are stored in the `scheduled_task_dlq` SQLite table (`DlqEntry` struct). Auto-purge keeps only 100 most recent entries. Three cron tool actions expose it: `dlq_list` (with optional status filter), `dlq_replay` (by ID), `dlq_clear`.
+
+## Doctor (`src/cli/doctor/mod.rs`)
 
 `oxicrab doctor` — system diagnostics command. Checks: config exists/parses/validates, workspace writable, provider API keys configured, provider connectivity (warmup with latency), per-channel status (compiled + enabled + tokens), voice transcription backends, external tools (ffmpeg, git), MCP servers. Includes security audit: config file permissions, directory permissions, empty allowlists, pairing store status. Output: PASS/FAIL/SKIP per check with summary counts. Returns exit code 1 if config file missing.
 
 ## Credential Registry (`src/config/credentials/mod.rs`)
 
-Unified credential management via `define_credentials!` macro. Adding a new credential = one line in the macro. All backends (env vars, keyring, credential helper) are generated from a single declarative table of 28 credential slots. Resolution order: env var → credential helper → keyring → config.json.
+Unified credential management via `define_credentials!` macro. Adding a new credential = one line in the macro. All backends (env vars, keyring, credential helper) are generated from a single declarative table of 29 credential slots. Resolution order: env var → credential helper → keyring → config.json.
 
-- **`apply_env_overrides()`**: Checks `OXICRAB_*` env vars for all 28 credential slots
+- **`apply_env_overrides()`**: Checks `OXICRAB_*` env vars for all 29 credential slots
 - **`apply_credential_helper()`**: Fetches secrets from external processes (1Password, Bitwarden, custom scripts)
 - **`apply_keyring_overrides()`** (behind `keyring-store` feature): Loads from OS keychain
 - **`detect_source()`**: Identifies where a credential came from (env/keyring/config/helper/empty)
@@ -141,31 +185,39 @@ Unified credential management via `define_credentials!` macro. Adding a new cred
 
 ## Security Hardening
 
-- **Credential backends** (`src/config/credentials/mod.rs`): Three-tier credential resolution (env > helper > keyring > config.json). All 28 credential slots covered by `OXICRAB_*` env vars. OS keychain via `keyring` crate (optional, `keyring-store` feature). External helper protocol supports 1Password (`op`), Bitwarden (`bw`), and custom scripts.
-- **Default-deny allowlists** (`src/channels/utils.rs`): Empty `allowFrom` arrays now deny all senders. Use `["*"]` for open access.
-- **DM policy** (`src/channels/utils.rs`): Per-channel `dmPolicy` field controls access for unknown senders: `"allowlist"` (default, silent deny), `"pairing"` (send pairing code), `"open"` (allow all). `check_dm_access()` returns `DmCheckResult` (Allowed/Denied/PairingRequired). Each channel handles pairing replies natively (Telegram sends message, Discord sends ephemeral response, Slack posts via API, Twilio returns TwiML, WhatsApp logs the code). **DM access checks are skipped for group messages** — Telegram checks `is_group()/is_supergroup()`, Discord checks `guild_id.is_some()`, Slack checks channel ID prefix (DMs start with `D`). Discord slash commands and component interactions also skip the check for guild interactions.
+- **Credential backends** (`src/config/credentials/mod.rs`): Three-tier credential resolution (env > helper > keyring > config.json). All 29 credential slots covered by `OXICRAB_*` env vars. OS keychain via `keyring` crate (optional, `keyring-store` feature). External helper protocol supports 1Password (`op`), Bitwarden (`bw`), and custom scripts.
+- **Default-deny allowlists** (`src/channels/utils/mod.rs`): Empty `allowFrom` arrays now deny all senders. Use `["*"]` for open access.
+- **DM policy** (`src/channels/utils/mod.rs`): Per-channel `dmPolicy` field controls access for unknown senders: `"allowlist"` (default, silent deny), `"pairing"` (send pairing code), `"open"` (allow all). `check_dm_access()` returns `DmCheckResult` (Allowed/Denied/PairingRequired). Each channel handles pairing replies natively (Telegram sends message, Discord sends ephemeral response, Slack posts via API, Twilio returns TwiML, WhatsApp logs the code). **DM access checks are skipped for group messages** — Telegram checks `is_group()/is_supergroup()`, Discord checks `guild_id.is_some()`, Slack checks channel ID prefix (DMs start with `D`). Discord slash commands and component interactions also skip the check for guild interactions.
 - **DM pairing** (`src/pairing/mod.rs`): `PairingStore` provides SQLite-backed per-channel allowlists in the shared `MemoryDB` (tables: `pairing_allowlist`, `pairing_pending`, `pairing_failed_attempts`). 8-char human-friendly codes with 15-min TTL. Per-client lockout tracking prevents brute-force code guessing with bounded client set (1000 max). Code comparison uses `subtle::ConstantTimeEq` in Rust (not SQL) to prevent timing side-channels. CLI: `oxicrab pairing list|approve|revoke`.
-- **Leak detection** (`src/safety/leak_detector/mod.rs`): `LeakDetector` scans messages for API key patterns (Anthropic, OpenAI, Slack, GitHub, Groq, Telegram, Discord, Google, Stripe, SendGrid — 14 pattern types). Three-encoding scanning: plaintext patterns, base64-decoded candidates (20+ chars), and hex-decoded candidates (40+ chars). `add_known_secrets()` registers actual config secret values for exact-match detection across all three encodings. `Config::collect_secrets()` gathers all non-empty API keys and tokens; `setup_message_bus()` passes them to the leak detector at startup via `add_known_secrets()`. Bidirectional scanning: **inbound** scanning in `AgentLoop` (`process_message_unlocked()` and `process_direct_with_overrides()`) redacts secrets before they reach the LLM or get persisted in session history; **outbound** scanning in `MessageBus::publish_outbound()` redacts before sending to channels.
+- **Leak detection** (`src/safety/leak_detector/mod.rs`): `LeakDetector` scans messages for API key patterns (Anthropic, OpenAI, Slack, GitHub, Groq, Telegram, Discord, Google, Stripe, SendGrid — 15 pattern types). Three-encoding scanning: plaintext patterns, base64-decoded candidates (20+ chars), and hex-decoded candidates (40+ chars). `add_known_secrets()` registers actual config secret values for exact-match detection across all three encodings. `Config::collect_secrets()` gathers all non-empty API keys and tokens; `setup_message_bus()` passes them to the leak detector at startup via `add_known_secrets()`. Bidirectional scanning: **inbound** scanning in `AgentLoop` (`process_message_unlocked()` and `process_direct_with_overrides()`) redacts secrets before they reach the LLM or get persisted in session history; **outbound** scanning in `MessageBus::publish_outbound()` redacts before sending to channels.
 - **DNS rebinding defense** (`src/utils/url_security/mod.rs`): `validate_and_resolve()` resolves DNS and returns `ResolvedUrl` with pinned `SocketAddr`s. Callers (http, web_fetch tools) build one-shot reqwest clients with `.resolve()` to pin DNS, preventing TOCTOU rebinding attacks where DNS returns a different IP between validation and fetch. Blocked ranges: RFC 1918 private, loopback, link-local, multicast, documentation (`2001:db8::/32`), 6to4 (`2002::/16`), NAT64 (`64:ff9b::/96`), CGNAT/shared (`100.64.0.0/10`), Teredo tunneling (`2001:0000::/32`), and IPv4-mapped IPv6.
-- **Tool capability metadata** (`src/agent/tools/base/mod.rs`): Every tool declares `ToolCapabilities` via a `capabilities()` trait method: `built_in` (true for oxicrab tools, false for MCP), `network_outbound` (true if tool makes external network requests), `subagent_access` (`Full`/`ReadOnly`/`Denied`), and `actions` (vec of `ActionDescriptor` with `name` and `read_only` flag for action-based tools). Defaults are deny-by-default: `built_in: false`, `network_outbound: false`, `subagent_access: Denied`, `actions: []`. Used by the exfiltration guard, subagent tool builder, and MCP shadow protection.
+- **Tool capability metadata** (`src/agent/tools/base/mod.rs`): Every tool declares `ToolCapabilities` via a `capabilities()` trait method: `built_in` (true for oxicrab tools, false for MCP), `network_outbound` (true if tool makes external network requests), `subagent_access` (`Full`/`ReadOnly`/`Denied`), `category` (`ToolCategory` enum for pre-filtering by task type), and `actions` (vec of `ActionDescriptor` with `name` and `read_only` flag for action-based tools). Defaults are deny-by-default: `built_in: false`, `network_outbound: false`, `subagent_access: Denied`, `actions: []`. Used by the exfiltration guard, subagent tool builder, and MCP shadow protection.
 - **Subagent tool access** (`src/agent/subagent/mod.rs`): `build_subagent_tools()` iterates the main agent's tool registry and checks each tool's `SubagentAccess`. `Full` tools are passed through directly, `ReadOnly` tools are wrapped in `ReadOnlyToolWrapper` (schema filtering hides mutating actions, execution-time rejection blocks attempts), `Denied` tools are excluded. Network-outbound tools are additionally blocked when the exfiltration guard is enabled unless allow-listed.
 - **Exfiltration guard** (`src/config/schema/tools.rs`): `ExfiltrationGuardConfig` with `enabled` (default false) and `allowTools` (default: empty). When enabled, tools with `network_outbound` capability are filtered from `tools_defs` before sending to the LLM, AND blocked at dispatch time in `execute_tool_call()`. Use `allowTools` to selectively re-enable specific network tools. Config under `tools.exfiltrationGuard`.
 - **Prompt injection detection** (`src/safety/prompt_guard/mod.rs`): `PromptGuard` with regex patterns across 4 categories: role switching, instruction override, secret extraction, jailbreak. Scans user messages in `process_message_unlocked()` (configurable: warn or block) and tool output in `run_agent_loop()` (warn only). Config under `agents.defaults.promptGuard` with `enabled` (default false) and `action` ("warn" or "block").
-- **Subprocess env scrubbing** (`src/utils/subprocess.rs`): `scrubbed_command()` calls `env_clear()` then copies only allowlisted vars (`PATH`, `HOME`, `USER`, `LANG`, `LC_ALL`, `TZ`, `TERM`, `RUST_LOG`, `TMPDIR`, `XDG_RUNTIME_DIR`). Applied to all child processes: shell exec, MCP servers, ffmpeg, tmux.
+- **Subprocess env scrubbing** (`src/utils/subprocess/mod.rs`): `scrubbed_command()` calls `env_clear()` then copies only allowlisted vars (`PATH`, `HOME`, `USER`, `LANG`, `LC_ALL`, `TZ`, `TERM`, `RUST_LOG`, `TMPDIR`, `XDG_RUNTIME_DIR`). Applied to all child processes: shell exec, MCP servers, ffmpeg, tmux.
 - **Gateway authentication** (`src/gateway/mod.rs`): Optional `gateway.apiKey` config field enables bearer token auth for `/api/chat` and A2A task endpoints. Axum middleware checks `Authorization: Bearer <key>` or `X-API-Key: <key>` headers with constant-time comparison. Health, webhook (HMAC), and A2A discovery endpoints are exempt. Startup warning emitted when binding to non-loopback without auth.
 - **HTTP tool header blocklist** (`src/agent/tools/http/mod.rs`): LLM-supplied request headers are filtered against `BLOCKED_HEADERS` (Host, Authorization, Cookie, Set-Cookie, X-Forwarded-For, X-Forwarded-Host, X-Real-IP, Proxy-Authorization). Blocked headers are silently skipped with a warning log.
-- **HTTP body limits** (`src/utils/http.rs`): `limited_body()` and `limited_text()` stream response bodies with Content-Length pre-check and chunk-based size cap (default 10 MB). Applied to http tool, web_fetch, and web_search.
+- **HTTP body limits** (`src/utils/http/mod.rs`): `limited_body()` and `limited_text()` stream response bodies with Content-Length pre-check and chunk-based size cap (default 10 MB). Applied to http tool, web_fetch, and web_search.
 - **Shell output cap**: Combined stdout+stderr truncated at 1 MB with `[output truncated at 1MB]` marker. PCM audio capped at 50 MB.
 - **Shell AST analysis** (`src/utils/shell_ast/mod.rs`): Pre-execution structural analysis via `brush-parser` detects subshells, command/process substitution, `eval`/`source`, interpreter inline execution (`python -c`, `perl -e`), dangerous pipe targets (`| bash`), function definitions, and dangerous device redirections (`> /dev/sda`). Runs before allowlist and regex checks — even allowlisted commands like `python3` are blocked when used with inline exec flags. Unparseable commands return `ViolationKind::Unparseable` (fail-closed) instead of an empty violation list.
 - **Shell injection patterns** (`src/utils/regex/mod.rs`): Security blocklist includes patterns for `rm -rf`, raw device access, fork bombs, `eval`, piped downloads, netcat listeners, hex decode to shell, `$VAR` expansion, and input redirection from absolute/home paths.
 - **Process sandbox** (`src/utils/sandbox/mod.rs`): Kernel-level sandboxing applied to shell commands and MCP server child processes via `pre_exec`. On Linux, uses Landlock LSM (ABI V5); on macOS, uses Seatbelt (`sandbox_init()` FFI). Default read-only: `/usr`, `/lib`, `/lib64`, `/bin`, `/sbin`, `/etc` (+ `/System`, `/Library`, `/opt/homebrew`, `/usr/local` on macOS). Default read-write: workspace dir, `/tmp`, `/var/tmp` (+ `/private/tmp`, `/private/var/folders` on macOS). Network blocked by default. Config under `tools.exec.sandbox` (shell) and `tools.mcp.servers.*.sandbox` (MCP): `enabled` (default true), `additionalReadPaths`, `additionalWritePaths`, `blockNetwork` (default true). Degrades gracefully: BestEffort on older Linux kernels, no-op on unsupported platforms.
 - **Capability-based filesystem confinement** (`src/agent/tools/filesystem/mod.rs`): When `restrict_to_workspace` is enabled, filesystem tools use `cap_std::fs::Dir` (backed by `openat()`) for TOCTOU-safe confined operations. The root directory is opened once, and all subsequent file operations use relative paths through the capability handle, preventing symlink escape and race conditions between validation and access.
-- **Workspace path validation** (`src/agent/tools/shell.rs`): When `restrict_to_workspace` is enabled, absolute paths in commands are canonicalized and checked against the workspace boundary.
-- **Error path sanitization** (`src/utils/path_sanitize.rs`): `sanitize_path()` and `sanitize_error_message()` redact home directory paths in error messages sent to the LLM. Workspace-relative paths are collapsed to `~/...`, paths outside workspace under home become `<redacted>/filename`, system paths are unchanged. Applied to filesystem tool errors and MCP proxy errors.
+- **Workspace path validation** (`src/agent/tools/shell/mod.rs`): When `restrict_to_workspace` is enabled, absolute paths in commands are canonicalized and checked against the workspace boundary.
+- **Error path sanitization** (`src/utils/path_sanitize/mod.rs`): `sanitize_path()` and `sanitize_error_message()` redact home directory paths in error messages sent to the LLM. Workspace-relative paths are collapsed to `~/...`, paths outside workspace under home become `<redacted>/filename`, system paths are unchanged. Applied to filesystem tool errors and MCP proxy errors.
 - **Config file locking** (`src/config/loader/mod.rs`): `load_config()` acquires a shared (read) lock via `fs2::FileExt`. `save_config()` acquires an exclusive lock via a separate `.json.lock` lockfile (survives atomic renames). Prevents corruption from concurrent config reads/writes.
 - **Config permissions**: `check_file_permissions()` warns on startup if config file is world-readable (unix). `save_config()` uses atomic writes via `crate::utils::atomic_write()`.
 - **Constant-time comparison**: Twilio webhook signature uses `subtle::ConstantTimeEq` instead of `==`.
 - **TruffleHog CI** (`.github/workflows/trufflehog.yml`): Scans for verified secrets on push and pull request.
+
+## A2A Protocol (`src/gateway/a2a/mod.rs`)
+
+Agent-to-Agent protocol support. Config: `gateway.a2a` with `enabled` (default false), `agentName`, `agentDescription`. Three routes: `GET /.well-known/agent.json` (AgentCard, always public), `POST /a2a/tasks` (submit task, auth-gated), `GET /a2a/tasks/{id}` (get status, auth-gated). Tasks use `channel="http"`, `sender_id="a2a"` and route through the same pending map as the chat API. 120s timeout.
+
+## Workspace Manager (`src/agent/workspace/mod.rs`)
+
+Tracks files written to workspace category directories (`code/`, `documents/`, `data/`, `images/`, `downloads/`, `temp/`) in the `workspace_files` SQLite table. Provides category inference by extension, date-partitioned path resolution (`{category}/{YYYY-MM-DD}/{filename}`), manifest tracking, and TTL-based lifecycle cleanup. `WriteFileTool` auto-registers files; `ReadFileTool` updates `accessed_at`. Hygiene runs at startup.
 
 ## CLI Commands
 

@@ -65,14 +65,12 @@ max_width: 820px
       "enabled": true,
       "token": "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
       "allowFrom": ["123456789"],
-      "dmPolicy": "allowlist",
-      "proxy": null
+      "allowGroups": [],
+      "dmPolicy": "allowlist"
     }
   }
 }</code></pre>
     </div>
-
-    <div class="note"><strong>proxy</strong> is optional. Set it to an HTTP/SOCKS proxy URL if needed (e.g. <code>"socks5://127.0.0.1:1080"</code>).</div>
 
     <h3>Supported features</h3>
     <div class="features-list">
@@ -83,6 +81,7 @@ max_width: 820px
       <span>Message editing</span>
       <span>Message deletion</span>
       <span>HTML formatting</span>
+      <span>Group chat support</span>
       <span>Sender allowlist</span>
       <span>DM policy (pairing)</span>
     </div>
@@ -126,6 +125,7 @@ max_width: 820px
       "enabled": true,
       "token": "your-discord-bot-token",
       "allowFrom": ["123456789012345678"],
+      "allowGroups": [],
       "dmPolicy": "allowlist",
       "commands": [
         {
@@ -230,6 +230,7 @@ max_width: 820px
       "botToken": "xoxb-1234567890-1234567890123-abcdefghijklmnopqrstuvwx",
       "appToken": "xapp-1-A1234567890-1234567890123-abcdefghijklmnopqrstuvwxyz1234567890",
       "allowFrom": ["U01234567"],
+      "allowGroups": [],
       "dmPolicy": "allowlist"
     }
   }
@@ -457,7 +458,7 @@ cargo build --release --no-default-features</code></pre>
         no              Generate 8-char code (15-min TTL)
         v               Reply to sender with pairing instructions
       DENY              ── sender shares code with bot owner ──>
-  (silent drop)         Owner runs: oxicrab pairing approve {channel} {code}
+  (silent drop)         Owner runs: oxicrab pairing approve {code}
                                 |
                                 v
                         Sender added to pairing store
@@ -479,7 +480,7 @@ cargo build --release --no-default-features</code></pre>
         </ul>
       </li>
       <li><strong>The sender shares the code with you</strong> (out-of-band &mdash; in person, via another chat, etc.).</li>
-      <li><strong>You approve the pairing.</strong> Run <code>oxicrab pairing approve {channel} {code}</code>. This validates the code and adds the sender's ID to the <code>pairing_allowlist</code> table in the workspace database.</li>
+      <li><strong>You approve the pairing.</strong> Run <code>oxicrab pairing approve {code}</code>. This validates the code and adds the sender's ID to the <code>pairing_allowlist</code> table in the workspace database.</li>
       <li><strong>The sender is now permanently allowed.</strong> Their next message hits the pairing store check and passes. No gateway restart needed. You can revoke later with <code>oxicrab pairing revoke {channel} {sender_id}</code>.</li>
     </ol>
 

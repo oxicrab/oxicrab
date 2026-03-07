@@ -353,7 +353,9 @@ oxicrab cron add -n "Reminder" -m "Meeting in 5 minutes" --at "2026-03-01T14:55:
         <tr><td>-m, --message</td><td>New message</td></tr>
         <tr><td>-e, --every</td><td>New interval (seconds)</td></tr>
         <tr><td>-c, --cron</td><td>New cron expression</td></tr>
+        <tr><td>--at</td><td>New one-shot ISO 8601 datetime</td></tr>
         <tr><td>--tz</td><td>New timezone</td></tr>
+        <tr><td>--agent-echo</td><td>New agent echo setting</td></tr>
         <tr><td>--channel / --to / --all-channels</td><td>New targets</td></tr>
     </table>
 
@@ -524,7 +526,7 @@ oxicrab pairing approve ABC12345</pre>
 
     <h3>credentials list</h3>
     <div class="cmd-sig">oxicrab credentials list</div>
-    <p>Show all 28 credential slots with their source: <code>env</code>, <code>keyring</code>, <code>config</code>, <code>config/helper</code>, or <code>[empty]</code>.</p>
+    <p>Show all 29 credential slots with their source: <code>env</code>, <code>keyring</code>, <code>config</code>, <code>config/helper</code>, or <code>[empty]</code>.</p>
 
     <h3>credentials import</h3>
     <div class="cmd-sig">oxicrab credentials import</div>

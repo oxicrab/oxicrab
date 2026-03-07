@@ -510,7 +510,7 @@ max_width: 1120px
   <div class="hero-text">
     <img src="oxicrab.png" alt="oxicrab" class="hero-logo">
     <h1>Your AI assistant framework, <span class="rust-highlight">built in Rust.</span></h1>
-    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 26 built-in tools, long-term memory, subagents, cron scheduling, and MCP support.</p>
+    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 27 built-in tools, long-term memory, subagents, cron scheduling, and MCP support.</p>
     <div class="hero-actions">
       <a href="#install" class="btn btn-primary">Get Started</a>
       <a href="https://github.com/oxicrab/oxicrab" class="btn btn-ghost">View Source</a>
@@ -584,7 +584,7 @@ max_width: 1120px
         <div class="feature-name">LLM Providers</div>
         <div class="feature-detail">
           <h3>Anthropic, OpenAI, Google, and OpenAI-compatible</h3>
-          <p>Claude, GPT, Gemini natively, plus OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, and vLLM via OpenAI-compatible adapter. OAuth support and automatic provider selection by model name.</p>
+          <p>Claude, GPT, Gemini natively, plus OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, MiniMax, and vLLM via OpenAI-compatible adapter. OAuth support and automatic provider selection by model name.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -595,7 +595,7 @@ max_width: 1120px
         </div>
       </div>
       <div class="feature-row">
-        <div class="feature-name">23 Built-in Tools</div>
+        <div class="feature-name">27 Built-in Tools</div>
         <div class="feature-detail">
           <h3>Filesystem, shell, web, browser, and more</h3>
           <p>Every tool has timeout protection, panic isolation via tokio::spawn, result caching, binary blob sanitization, and truncation middleware. Plus MCP for external tool servers.</p>
@@ -619,7 +619,7 @@ max_width: 1120px
         <div class="feature-name">Hallucination Detection</div>
         <div class="feature-detail">
           <h3>Catches false claims and phantom actions</h3>
-          <p>Action claim detection, false no-tools-claim retry, tool facts injection, and reflection turns. Prevents the agent from claiming it did something it didn&rsquo;t.</p>
+          <p>Action claim detection, false no-tools-claim retry, false-claim regex detection, intent-based structural analysis, and wrap-up nudges. Prevents the agent from claiming it did something it didn&rsquo;t.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -647,7 +647,7 @@ max_width: 1120px
         <div class="feature-name">Credentials</div>
         <div class="feature-detail">
           <h3>Multi-backend credential management</h3>
-          <p>OS keyring (macOS Keychain, GNOME Keyring, Windows Credential Manager), external credential helpers (1Password, Bitwarden, custom scripts), and 28 OXICRAB_* env var overrides. Resolution: env &rarr; helper &rarr; keyring &rarr; config.json.</p>
+          <p>OS keyring (macOS Keychain, GNOME Keyring, Windows Credential Manager), external credential helpers (1Password, Bitwarden, custom scripts), and 29 OXICRAB_* env var overrides. Resolution: env &rarr; helper &rarr; keyring &rarr; config.json.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -767,7 +767,7 @@ cargo build --release --no-default-features \
 <section id="tools" class="tools-section">
   <div class="container fade-in">
     <div class="section-label">Tools</div>
-    <div class="section-title">26 built-in tools + MCP</div>
+    <div class="section-title">27 built-in tools + MCP</div>
     <div class="section-desc">A comprehensive toolkit for autonomous agents. Every tool features timeout protection, panic isolation, and result caching.</div>
 
     <div class="tools-legend">
@@ -786,6 +786,7 @@ cargo build --release --no-default-features \
           <div class="tool-item" data-detail="List the contents of a directory. Returns file names, sizes, and types."><span class="tool-dot core"></span><div><span class="tool-name">list_dir</span><br><span class="tool-desc">Directory listing</span></div></div>
           <div class="tool-item" data-detail="Execute a shell command and return its output. Secured with configurable allowlists and blocklists to restrict which commands can be run. Timeout-protected."><span class="tool-dot core"></span><div><span class="tool-name">exec</span><br><span class="tool-desc">Shell with allowlist security</span></div></div>
           <div class="tool-item" data-detail="Manage persistent tmux shell sessions. Create long-running sessions, send commands, and read output. Ideal for processes that outlive a single tool call."><span class="tool-dot core"></span><div><span class="tool-name">tmux</span><br><span class="tool-desc">Persistent terminal sessions</span></div></div>
+          <div class="tool-item" data-detail="Manage workspace files with category-based organization. Auto-tracks files in code, documents, data, images, downloads, and temp directories with TTL-based cleanup."><span class="tool-dot core"></span><div><span class="tool-name">workspace</span><br><span class="tool-desc">Category-based file management</span></div></div>
         </div>
       </div>
       <div>
@@ -806,6 +807,7 @@ cargo build --release --no-default-features \
           <div class="tool-item" data-detail="Schedule recurring or one-shot tasks. Two job types: 'agent' processes the message as a full LLM turn with all tools; 'echo' delivers messages directly without invoking the LLM. Supports cron expressions, intervals, and one-shot ISO 8601 times. Optional expires_at and max_runs limits."><span class="tool-dot core"></span><div><span class="tool-name">cron</span><br><span class="tool-desc">Schedule recurring tasks</span></div></div>
           <div class="tool-item" data-detail="Search long-term memory. Use to recall user preferences, past conversations, and important facts. Supports FTS5 full-text search with optional hybrid vector+keyword search via local ONNX embeddings."><span class="tool-dot core"></span><div><span class="tool-name">memory_search</span><br><span class="tool-desc">FTS5 + hybrid vector search</span></div></div>
           <div class="tool-item" data-detail="Retrieve truncated tool output from the in-memory stash. Recover large results that were truncated, with offset and limit for pagination."><span class="tool-dot core"></span><div><span class="tool-name">stash_retrieve</span><br><span class="tool-desc">Recover truncated tool output</span></div></div>
+          <div class="tool-item" data-detail="Search for and activate deferred tools by keyword. MCP tools are registered as deferred to save tokens; this meta-tool discovers them on demand."><span class="tool-dot core"></span><div><span class="tool-name">tool_search</span><br><span class="tool-desc">Discover deferred MCP tools</span></div></div>
         </div>
       </div>
       <div>
@@ -848,7 +850,8 @@ curl -LO https://github.com/oxicrab/oxicrab/releases/latest/download/oxicrab-VER
 sudo rpm -i oxicrab-*.x86_64.rpm
 
 <span class="hl-comment"># macOS (Apple Silicon)</span>
-brew install oxicrab/tap/oxicrab</pre>
+<span class="hl-comment"># Download the DMG from GitHub Releases, or build from source:</span>
+<span class="hl-comment"># cargo install --path .</span></pre>
         <p style="font-size: 0.8rem; color: var(--text-light); margin-top: 0.5rem;">ARM64 Linux and standalone tarballs also available on the <a href="https://github.com/oxicrab/oxicrab/releases/latest" style="color: var(--accent); text-decoration: none;">Releases</a> page.</p>
       </div>
       <div class="step">
@@ -899,7 +902,9 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
   <span class="hl-key">"agents"</span>: {
     <span class="hl-key">"defaults"</span>: {
       <span class="hl-key">"workspace"</span>: <span class="hl-str">"~/.oxicrab/workspace"</span>,
-      <span class="hl-key">"model"</span>: <span class="hl-str">"claude-sonnet-4-5-20250929"</span>,
+      <span class="hl-key">"modelRouting"</span>: {
+        <span class="hl-key">"default"</span>: <span class="hl-str">"anthropic/claude-sonnet-4-5-20250929"</span>
+      },
       <span class="hl-key">"maxTokens"</span>: <span class="hl-num">8192</span>,
       <span class="hl-key">"temperature"</span>: <span class="hl-num">0.7</span>,
       <span class="hl-key">"maxToolIterations"</span>: <span class="hl-num">20</span>,
@@ -930,8 +935,7 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
       <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
       <span class="hl-key">"token"</span>: <span class="hl-str">"your-telegram-bot-token"</span>,
       <span class="hl-key">"allowFrom"</span>: [],
-      <span class="hl-key">"dmPolicy"</span>: <span class="hl-str">"allowlist"</span>,
-      <span class="hl-key">"proxy"</span>: <span class="hl-num">null</span>
+      <span class="hl-key">"dmPolicy"</span>: <span class="hl-str">"allowlist"</span>
     },
     <span class="hl-key">"discord"</span>: {
       <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
@@ -976,7 +980,7 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
       <span class="hl-key">"apiKey"</span>: <span class="hl-str">""</span>,
       <span class="hl-key">"apiBase"</span>: <span class="hl-num">null</span>
     }
-    <span class="hl-comment">// Also: OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, vLLM</span>
+    <span class="hl-comment">// Also: OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, MiniMax, vLLM</span>
     <span class="hl-key">"circuitBreaker"</span>: {
       <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
       <span class="hl-key">"failureThreshold"</span>: <span class="hl-num">5</span>,
@@ -992,12 +996,10 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
     <span class="hl-key">"a2a"</span>: { <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span> }
   },
   <span class="hl-key">"tools"</span>: {
-    <span class="hl-key">"web"</span>: {
-      <span class="hl-key">"search"</span>: {
-        <span class="hl-key">"provider"</span>: <span class="hl-str">"brave"</span>,
-        <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-brave-search-api-key"</span>,
-        <span class="hl-key">"maxResults"</span>: <span class="hl-num">5</span>
-      }
+    <span class="hl-key">"webSearch"</span>: {
+      <span class="hl-key">"provider"</span>: <span class="hl-str">"brave"</span>,
+      <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-brave-search-api-key"</span>,
+      <span class="hl-key">"maxResults"</span>: <span class="hl-num">5</span>
     },
     <span class="hl-key">"exec"</span>: {
       <span class="hl-key">"timeout"</span>: <span class="hl-num">60</span>,
@@ -1098,6 +1100,7 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
       <div class="provider-tag">Moonshot</div>
       <div class="provider-tag">Zhipu</div>
       <div class="provider-tag">DashScope</div>
+      <div class="provider-tag">MiniMax</div>
     </div>
   </div>
 </section>
@@ -1169,7 +1172,7 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
     <div class="structure-pre">
       <pre><span class="hl-comment">src/</span>
 &#x251C;&#x2500;&#x2500; agent/          <span class="hl-comment"># Agent loop, context, memory, tools, subagents</span>
-&#x2502;   &#x2514;&#x2500;&#x2500; tools/      <span class="hl-comment"># 26 built-in tools + MCP integration</span>
+&#x2502;   &#x2514;&#x2500;&#x2500; tools/      <span class="hl-comment"># 27 built-in tools + MCP integration</span>
 &#x251C;&#x2500;&#x2500; auth/           <span class="hl-comment"># OAuth authentication (Google)</span>
 &#x251C;&#x2500;&#x2500; bus/            <span class="hl-comment"># Message bus for channel-agent communication</span>
 &#x251C;&#x2500;&#x2500; channels/       <span class="hl-comment"># Telegram, Discord, Slack, WhatsApp, Twilio</span>
@@ -1178,7 +1181,9 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
 &#x251C;&#x2500;&#x2500; cron/           <span class="hl-comment"># Cron job scheduling service</span>
 &#x251C;&#x2500;&#x2500; providers/      <span class="hl-comment"># Anthropic, OpenAI, Gemini, OpenAI-compat</span>
 &#x251C;&#x2500;&#x2500; session/        <span class="hl-comment"># SQLite-backed session management</span>
-&#x251C;&#x2500;&#x2500; errors.rs       <span class="hl-comment"># OxicrabError typed error enum</span>
+&#x251C;&#x2500;&#x2500; errors/         <span class="hl-comment"># OxicrabError typed error enum</span>
+&#x251C;&#x2500;&#x2500; gateway/        <span class="hl-comment"># HTTP API, webhooks, A2A protocol</span>
+&#x251C;&#x2500;&#x2500; safety/         <span class="hl-comment"># Leak detection, prompt guard</span>
 &#x2514;&#x2500;&#x2500; utils/          <span class="hl-comment"># URL security, transcription, media</span></pre>
     </div>
   </div>

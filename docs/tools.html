@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tool Reference - oxicrab</title>
-  <meta name="description" content="Complete reference for all 26 built-in tools in oxicrab, including setup instructions for configurable tools.">
+  <meta name="description" content="Complete reference for all 27 built-in tools in oxicrab, including setup instructions for configurable tools.">
   <meta name="theme-color" content="#ea580c">
   <link rel="icon" href="oxicrab.png">
   <style>
@@ -254,7 +254,7 @@
 
 <div class="page-header">
   <h1>Tool Reference</h1>
-  <p>26 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, and result caching.</p>
+  <p>27 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, and result caching.</p>
 </div>
 
 <div class="content">
@@ -280,6 +280,7 @@
         <li><a href="#memory_search">memory_search</a></li>
         <li><a href="#workspace">workspace</a></li>
         <li><a href="#stash_retrieve">stash_retrieve</a></li>
+        <li><a href="#tool_search">tool_search</a></li>
       </ul>
     </div>
     <div class="toc-group">
@@ -353,7 +354,7 @@
     "restrictToWorkspace": true
   }
 }</code></pre>
-    <p>The default allowlist includes 50+ commands: file ops (<code>ls</code>, <code>find</code>, <code>tree</code>), text processing (<code>grep</code>, <code>awk</code>, <code>sed</code>, <code>jq</code>), dev tools (<code>git</code>, <code>cargo</code>, <code>npm</code>, <code>python3</code>), and networking (<code>curl</code>, <code>wget</code>, <code>dig</code>). Override with your own list in config.</p>
+    <p>The default allowlist includes 80+ commands: file ops (<code>ls</code>, <code>find</code>, <code>tree</code>), text processing (<code>grep</code>, <code>awk</code>, <code>sed</code>, <code>jq</code>), dev tools (<code>git</code>, <code>cargo</code>, <code>npm</code>, <code>python3</code>), and networking (<code>curl</code>, <code>wget</code>, <code>dig</code>). Override with your own list in config.</p>
     <p>Set <code>restrictToWorkspace: true</code> to restrict filesystem access to the workspace directory.</p>
     <p>The <code>sandbox</code> block controls kernel-level process sandboxing. On <strong>Linux</strong>, uses Landlock LSM. On <strong>macOS</strong>, uses Seatbelt (<code>sandbox_init</code>). Default read-only: <code>/usr</code>, <code>/lib</code>, <code>/lib64</code>, <code>/bin</code>, <code>/sbin</code>, <code>/etc</code> (plus <code>/System</code>, <code>/Library</code>, <code>/opt/homebrew</code>, <code>/usr/local</code> on macOS). Default read-write: workspace dir, <code>/tmp</code>, <code>/var/tmp</code> (plus <code>/private/tmp</code>, <code>/private/var/folders</code> on macOS). Use <code>additionalReadPaths</code>/<code>additionalWritePaths</code> to extend. Set <code>blockNetwork: false</code> to allow outbound connections from shell commands.</p>
   </div>
@@ -414,13 +415,13 @@
     <table class="action-table">
       <thead><tr><th>Access Level</th><th>Behavior</th><th>Tools</th></tr></thead>
       <tbody>
-        <tr><td>Full</td><td>Passed through directly</td><td>read_file, write_file, list_dir, exec, web_search</td></tr>
-        <tr><td>ReadOnly</td><td>Wrapped &mdash; only read-only actions exposed, mutating actions hidden from schema and blocked at execution</td><td>github, google_mail, google_calendar, google_tasks, cron, todoist, reddit, media, obsidian, browser, weather</td></tr>
-        <tr><td>Denied</td><td>Not available</td><td>edit_file, http, tmux, spawn, subagent_control, memory_search, image_gen, all MCP tools</td></tr>
+        <tr><td>Full</td><td>Passed through directly</td><td>read_file, write_file, edit_file, list_dir, exec, web_search, web_fetch</td></tr>
+        <tr><td>ReadOnly</td><td>Wrapped &mdash; only read-only actions exposed, mutating actions hidden from schema and blocked at execution</td><td>github, google_mail, google_calendar, google_tasks, cron, todoist, reddit, media, obsidian, browser, weather, memory_search, workspace</td></tr>
+        <tr><td>Denied</td><td>Not available</td><td>http, tmux, spawn, subagent_control, image_gen, stash_retrieve, tool_search, all MCP tools</td></tr>
       </tbody>
     </table>
 
-    <p>When the <a href="config.html#exfiltration-guard">exfiltration guard</a> is enabled, tools with <code>network_outbound</code> capability are additionally blocked unless listed in <code>allowTools</code>. This affects <code>web_search</code> (Full) and all ReadOnly tools (which are network-based).</p>
+    <p>When the <a href="config.html#exfiltration-guard">exfiltration guard</a> is enabled, tools with <code>network_outbound</code> capability are additionally blocked unless listed in <code>allowTools</code>. This affects <code>web_search</code>, <code>web_fetch</code> (Full) and most ReadOnly tools that make network calls.</p>
   </div>
 
   <div id="subagent_control" class="tool-section">
@@ -437,6 +438,7 @@
       <li><strong>cron_expr</strong> &mdash; Standard 5-field cron expression (e.g. <code>0 9 * * *</code>)</li>
       <li><strong>every_seconds</strong> &mdash; Run every N seconds</li>
       <li><strong>at_time</strong> &mdash; One-shot at an ISO 8601 datetime</li>
+      <li><strong>event_pattern</strong> &mdash; Regex pattern that triggers the job when an inbound message matches. Additional params: <code>event_channel</code>, <code>cooldown_secs</code>, <code>max_concurrent</code>.</li>
     </ul>
 
     <h3>Actions</h3>
@@ -459,6 +461,15 @@
   <div id="memory_search" class="tool-section">
     <h2>memory_search <span class="badge badge-core">Core</span></h2>
     <p class="desc">Search long-term memory. Recall user preferences, past conversations, and important facts. Uses SQLite FTS5 full-text search, with optional hybrid vector+keyword search via local ONNX embeddings.</p>
+
+    <h3>Actions</h3>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th><th>Subagent</th></tr></thead>
+      <tbody>
+        <tr><td>search</td><td>Search memory by keyword or semantic query</td><td>&#x2713;</td></tr>
+        <tr><td>explain_last</td><td>Show provenance details of the most recent search</td><td>&#x2713;</td></tr>
+      </tbody>
+    </table>
 
     <h3>Memory configuration</h3>
     <pre><code>{
@@ -491,12 +502,13 @@
         <tr><td>delete</td><td>Delete a tracked workspace file</td><td>&mdash;</td></tr>
         <tr><td>tag</td><td>Add or update tags on a tracked file</td><td>&mdash;</td></tr>
         <tr><td>cleanup</td><td>Run workspace cleanup to remove expired files based on TTL config</td><td>&mdash;</td></tr>
+        <tr><td>send</td><td>Send a workspace file to the current conversation</td><td>&mdash;</td></tr>
       </tbody>
     </table>
 
     <h3>File Organization</h3>
     <p>Files written via <code>write_file</code> to workspace category directories (<code>code/</code>, <code>documents/</code>, <code>data/</code>, <code>images/</code>, <code>downloads/</code>, <code>temp/</code>) are automatically tracked in the manifest. Categories are inferred from file extensions. Files are organized into date-based subdirectories (<code>{category}/{YYYY-MM-DD}/{filename}</code>).</p>
-    <p>Reserved directories (<code>memory/</code>, <code>skills/</code>, <code>sessions/</code>) are not managed by the workspace tool. TTL-based expiration is configured via <a href="config.html#agent-defaults"><code>agents.defaults.workspaceTtl</code></a>.</p>
+    <p>Reserved directories (<code>memory/</code>, <code>knowledge/</code>, <code>skills/</code>, <code>sessions/</code>) are not managed by the workspace tool. TTL-based expiration is configured via <a href="config.html#agent-defaults"><code>agents.defaults.workspaceTtl</code></a>.</p>
   </div>
 
   <div id="stash_retrieve" class="tool-section">
@@ -510,6 +522,19 @@
         <tr><td>key</td><td>The stash key (provided in truncation notices). Required.</td></tr>
         <tr><td>offset</td><td>Character offset to start reading from. Default: 0.</td></tr>
         <tr><td>limit</td><td>Maximum number of characters to return. Default: 50000.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div id="tool_search" class="tool-section">
+    <h2>tool_search <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Discover deferred and MCP tools by keyword search. Registered automatically when MCP servers are configured.</p>
+
+    <h3>Parameters</h3>
+    <table class="action-table">
+      <thead><tr><th>Parameter</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>query</td><td>Keyword to search for among deferred tool names and descriptions.</td></tr>
       </tbody>
     </table>
   </div>
@@ -777,6 +802,25 @@
   <div id="browser" class="tool-section">
     <h2>browser <span class="badge badge-config">Requires config</span></h2>
     <p class="desc">Control a headless browser for web automation via Chrome DevTools Protocol. Open pages, click elements, type text, take screenshots, and execute JavaScript.</p>
+
+    <h3>Actions</h3>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th><th>Subagent</th></tr></thead>
+      <tbody>
+        <tr><td>open</td><td>Open a URL in the browser</td><td>&mdash;</td></tr>
+        <tr><td>click</td><td>Click an element by selector</td><td>&mdash;</td></tr>
+        <tr><td>type_text</td><td>Type text into a focused element</td><td>&mdash;</td></tr>
+        <tr><td>fill</td><td>Fill an input element by selector</td><td>&mdash;</td></tr>
+        <tr><td>screenshot</td><td>Take a screenshot of the current page</td><td>&mdash;</td></tr>
+        <tr><td>snapshot</td><td>Get the accessibility tree of the page</td><td>&#x2713;</td></tr>
+        <tr><td>eval</td><td>Execute JavaScript in the page context</td><td>&mdash;</td></tr>
+        <tr><td>get</td><td>Get page content as text or HTML</td><td>&#x2713;</td></tr>
+        <tr><td>scroll</td><td>Scroll the page by a given amount</td><td>&mdash;</td></tr>
+        <tr><td>wait</td><td>Wait for an element or a timeout</td><td>&mdash;</td></tr>
+        <tr><td>close</td><td>Close the browser session</td><td>&mdash;</td></tr>
+        <tr><td>navigate</td><td>Navigate back, forward, or reload</td><td>&mdash;</td></tr>
+      </tbody>
+    </table>
 
     <h3>Setup</h3>
     <ol>

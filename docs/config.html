@@ -336,6 +336,7 @@
             <tr><td>Moonshot</td><td>https://api.moonshot.cn/v1/chat/completions</td><td>Yes</td></tr>
             <tr><td>Zhipu</td><td>https://open.bigmodel.cn/api/paas/v4/chat/completions</td><td>Yes</td></tr>
             <tr><td>DashScope</td><td>https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions</td><td>Yes</td></tr>
+            <tr><td>MiniMax</td><td>https://api.minimaxi.chat/v1/text/chatcompletion_v2</td><td>Yes</td></tr>
             <tr><td>vLLM</td><td>http://localhost:8000/v1/chat/completions</td><td>No</td></tr>
             <tr><td>Ollama</td><td>http://localhost:11434/v1/chat/completions</td><td>No</td></tr>
         </table>
@@ -486,7 +487,7 @@
         </table>
 
         <h3 id="environment-variables">Environment Variables</h3>
-        <p>All 28 credential slots can be set via environment variables. Recommended for containers and CI.</p>
+        <p>All 29 credential slots can be set via environment variables. Recommended for containers and CI.</p>
 
         <h3>Providers</h3>
         <table class="cfg-table">
@@ -500,6 +501,7 @@
             <tr><td>OXICRAB_MOONSHOT_API_KEY</td><td>providers.moonshot.apiKey</td></tr>
             <tr><td>OXICRAB_ZHIPU_API_KEY</td><td>providers.zhipu.apiKey</td></tr>
             <tr><td>OXICRAB_DASHSCOPE_API_KEY</td><td>providers.dashscope.apiKey</td></tr>
+            <tr><td>OXICRAB_MINIMAX_API_KEY</td><td>providers.minimax.apiKey</td></tr>
             <tr><td>OXICRAB_VLLM_API_KEY</td><td>providers.vllm.apiKey</td></tr>
             <tr><td>OXICRAB_OLLAMA_API_KEY</td><td>providers.ollama.apiKey</td></tr>
         </table>
@@ -551,7 +553,6 @@
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
             <tr><td>workspace</td><td>string</td><td>~/.oxicrab/workspace</td><td>Path to workspace directory</td></tr>
-            <tr><td>model</td><td>string</td><td>claude-sonnet-4-5-20250929</td><td>Default LLM model</td></tr>
             <tr><td>maxTokens</td><td>u32</td><td>8192</td><td>Max tokens per LLM response</td></tr>
             <tr><td>temperature</td><td>f32?</td><td>0.7</td><td>LLM sampling temperature (0.0&ndash;2.0). Set to <code>null</code> to let the provider use its default. Can be overridden per-provider via <code>providers.&lt;name&gt;.temperature</code>.</td></tr>
             <tr><td>maxToolIterations</td><td>usize</td><td>20</td><td>Max agent loop iterations per turn</td></tr>
@@ -565,12 +566,12 @@
         <p>Per-category time-to-live (in days) for workspace files tracked by the workspace manager. Files older than their category's TTL are removed during the hygiene cycle. A <code>null</code> value means files in that category never expire.</p>
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
-            <tr><td>temp</td><td>u32?</td><td>7</td><td>Temporary files</td></tr>
-            <tr><td>downloads</td><td>u32?</td><td>30</td><td>Downloaded files</td></tr>
-            <tr><td>images</td><td>u32?</td><td>90</td><td>Image files</td></tr>
-            <tr><td>code</td><td>u32?</td><td>null</td><td>Code files (never expire by default)</td></tr>
-            <tr><td>documents</td><td>u32?</td><td>null</td><td>Document files (never expire by default)</td></tr>
-            <tr><td>data</td><td>u32?</td><td>null</td><td>Data files (never expire by default)</td></tr>
+            <tr><td>temp</td><td>u64?</td><td>7</td><td>Temporary files</td></tr>
+            <tr><td>downloads</td><td>u64?</td><td>30</td><td>Downloaded files</td></tr>
+            <tr><td>images</td><td>u64?</td><td>90</td><td>Image files</td></tr>
+            <tr><td>code</td><td>u64?</td><td>null</td><td>Code files (never expire by default)</td></tr>
+            <tr><td>documents</td><td>u64?</td><td>null</td><td>Document files (never expire by default)</td></tr>
+            <tr><td>data</td><td>u64?</td><td>null</td><td>Data files (never expire by default)</td></tr>
         </table>
 
         <h3>Compaction</h3>
@@ -921,8 +922,8 @@
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
             <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable A2A protocol endpoints</td></tr>
-            <tr><td>agentName</td><td>string</td><td>"oxicrab"</td><td>Agent name in the AgentCard</td></tr>
-            <tr><td>agentDescription</td><td>string</td><td>"AI assistant powered by oxicrab"</td><td>Agent description in the AgentCard</td></tr>
+            <tr><td>agentName</td><td>string</td><td>""</td><td>Agent name in the AgentCard</td></tr>
+            <tr><td>agentDescription</td><td>string</td><td>""</td><td>Agent description in the AgentCard</td></tr>
         </table>
         <p>Tasks are processed through the same agent loop as chat messages. The task lifecycle: <strong>submitted</strong> &rarr; <strong>working</strong> &rarr; <strong>completed</strong> (or <strong>failed</strong>). Poll <code>GET /a2a/tasks/{id}</code> to check status.</p>
 
@@ -1011,7 +1012,7 @@
         <table class="cfg-table">
             <tr><th>Value</th><th>Behavior</th></tr>
             <tr><td>"allowlist"</td><td>Check <code>allowFrom</code> + pairing store. Silently drop unrecognized senders. This is the default and preserves the original behavior.</td></tr>
-            <tr><td>"pairing"</td><td>Check <code>allowFrom</code> + pairing store. If unknown, generate an 8-character pairing code and send it to the sender. The bot owner can then approve with <code>oxicrab pairing approve {channel} {code}</code>.</td></tr>
+            <tr><td>"pairing"</td><td>Check <code>allowFrom</code> + pairing store. If unknown, generate an 8-character pairing code and send it to the sender. The bot owner can then approve with <code>oxicrab pairing approve {code}</code>.</td></tr>
             <tr><td>"open"</td><td>Allow all senders unconditionally. No access checks are performed.</td></tr>
         </table>
         <p>See <a href="channels.html#common-patterns">Channel Setup &rarr; Common patterns</a> for a detailed walkthrough and access check flowchart.</p>
@@ -1020,7 +1021,7 @@
         <p>Each channel has additional required fields. See <a href="channels.html">Channel Setup</a> for the complete config blocks. Quick reference:</p>
         <table class="cfg-table">
             <tr><th>Channel</th><th>Required Fields</th></tr>
-            <tr><td>telegram</td><td><code>token</code>. Optional: <code>proxy</code></td></tr>
+            <tr><td>telegram</td><td><code>token</code></td></tr>
             <tr><td>discord</td><td><code>token</code></td></tr>
             <tr><td>slack</td><td><code>botToken</code>, <code>appToken</code></td></tr>
             <tr><td>whatsapp</td><td>(none &mdash; scan QR on first run)</td></tr>

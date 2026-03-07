@@ -15,10 +15,10 @@ This is largely a personal toy with features I want or care about. For example, 
 ## Features
 
 - **Multi-channel**: Telegram, Discord (slash commands, embeds, buttons), Slack, WhatsApp, Twilio SMS/MMS
-- **LLM providers**: Anthropic (Claude), OpenAI, Google (Gemini), plus 8 OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, etc.), with OAuth and local model fallback
+- **LLM providers**: Anthropic (Claude), OpenAI, Google (Gemini), plus 9 OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, MiniMax, etc.), with OAuth and local model fallback
 - **Model routing**: Per-task provider/model assignment with N-way fallback chains and complexity-aware per-message routing
 - **Prompt caching**: Automatic Anthropic `cache_control` injection for up to 90% input token cost reduction
-- **26 built-in tools**: Filesystem, shell, web, HTTP, browser, image generation, Google Workspace, GitHub, scheduling, memory, media, and more
+- **27 built-in tools**: Filesystem, shell, web, HTTP, browser, image generation, Google Workspace, GitHub, scheduling, memory, media, and more
 - **MCP support**: Connect external tool servers via the Model Context Protocol
 - **Subagents**: Background task execution with concurrency limiting and context injection
 - **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode, multi-channel targeting
@@ -28,7 +28,13 @@ This is largely a personal toy with features I want or care about. For example, 
 - **Voice transcription**: Local whisper.cpp with cloud API fallback
 - **Token logging**: Raw LLM token usage tracking per model in SQLite
 - **HTTP gateway**: REST API (`POST /api/chat`, `GET /api/health`) and named webhook receivers with HMAC-SHA256 validation, template formatting, and multi-channel delivery
+- **Gateway authentication**: Bearer token auth on API endpoints with constant-time comparison
+- **A2A protocol**: Agent-to-Agent interoperability via `/.well-known/agent.json` discovery and task endpoints
+- **Echo gateway mode**: Start all channels without an LLM provider for connectivity testing
 - **Rate limiting**: Per-IP token bucket on gateway endpoints
+- **Context providers**: Dynamic system prompt injection from external commands with caching and TTL
+- **Tool output stash**: In-memory LRU cache for recovering large tool outputs after truncation
+- **Complexity-aware model routing**: Automatic per-message model escalation based on complexity scoring
 - **JSON mode**: Per-request structured output (JSON object and JSON schema) across all providers
 - **PDF/document support**: Native PDF document support in Anthropic, OpenAI, and Gemini providers
 - **Security**: Default-deny allowlists, DM pairing, bidirectional leak detection (inbound + outbound), DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement
@@ -62,10 +68,10 @@ All release artifacts are signed with [Sigstore cosign](https://docs.sigstore.de
 ```bash
 # Verify a binary archive
 cosign verify-blob \
-  --bundle oxicrab-0.11.7-linux-x86_64.tar.gz.bundle \
+  --bundle oxicrab-0.14.2-linux-x86_64.tar.gz.bundle \
   --certificate-identity-regexp "https://github.com/oxicrab/oxicrab/.github/workflows/release.yml@refs/tags/v.*" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  oxicrab-0.11.7-linux-x86_64.tar.gz
+  oxicrab-0.14.2-linux-x86_64.tar.gz
 
 # Verify the Docker image
 cosign verify \
@@ -89,7 +95,7 @@ cargo build --release --no-default-features --features channel-telegram,channel-
 cargo build --release --no-default-features
 ```
 
-Features: `channel-telegram`, `channel-discord`, `channel-slack`, `channel-whatsapp`, `channel-twilio`, `keyring-store` (all default-on).
+Features: `channel-telegram`, `channel-discord`, `channel-slack`, `channel-whatsapp`, `channel-twilio`, `keyring-store`, `browser`, `local-whisper`, `embeddings` (all default-on).
 
 ## Quick Start
 
@@ -104,6 +110,8 @@ oxicrab gateway
 oxicrab agent -m "What's the weather?"
 ```
 
+Other useful commands: `oxicrab doctor` (check config and dependencies), `oxicrab completion` (generate shell completions for bash/zsh/fish).
+
 > **Full CLI reference:** [oxicrab.github.io/oxicrab/cli.html](https://oxicrab.github.io/oxicrab/cli.html)
 
 ## Configuration
@@ -116,7 +124,9 @@ Minimal example:
 {
   "agents": {
     "defaults": {
-      "model": "claude-sonnet-4-5-20250929"
+      "modelRouting": {
+        "default": "anthropic/claude-sonnet-4-5-20250929"
+      }
     }
   },
   "providers": {
@@ -162,9 +172,9 @@ Access control: `allowFrom` (pre-authorized senders), `dmPolicy` (`"allowlist"`,
 
 > **Full tool reference:** [oxicrab.github.io/oxicrab/tools.html](https://oxicrab.github.io/oxicrab/tools.html)
 
-26 built-in tools with timeout protection, panic isolation, result caching, and truncation middleware.
+27 built-in tools with timeout protection, panic isolation, result caching, and truncation middleware.
 
-**Core**: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`, `tmux`, `web_search`, `web_fetch`, `http`, `spawn`, `subagent_control`, `cron`, `memory_search`, `reddit`, `workspace`, `stash_retrieve`
+**Core**: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`, `tmux`, `web_search`, `web_fetch`, `http`, `spawn`, `subagent_control`, `cron`, `memory_search`, `reddit`, `workspace`, `stash_retrieve`, `tool_search` — discover deferred/MCP tools by keyword
 
 **Configurable**: `google_mail`, `google_calendar`, `google_tasks`, `github`, `weather`, `todoist`, `media`, `obsidian`, `browser`, `image_gen`
 
