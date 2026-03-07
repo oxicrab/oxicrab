@@ -745,7 +745,16 @@ impl AgentLoop {
         };
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
-        let exec_ctx = Self::build_execution_context(channel, chat_id, None);
+        let exec_ctx = if overrides.metadata.is_empty() {
+            Self::build_execution_context(channel, chat_id, None)
+        } else {
+            Self::build_execution_context_with_metadata(
+                channel,
+                chat_id,
+                None,
+                overrides.metadata.clone(),
+            )
+        };
         let request_id = format!("req-{}", Uuid::new_v4());
         let user_action_intent = self.classify_and_record_intent(content, Some(&request_id));
 

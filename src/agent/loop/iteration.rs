@@ -42,6 +42,10 @@ impl AgentLoop {
         let mut collected_media: Vec<String> = Vec::new();
         let mut checkpoint_tracker = CheckpointTracker::new(self.cognitive_config.clone());
 
+        // Clear deferred tool activations from previous runs
+        self.tool_search_activated.lock().await.clear();
+        let mut activated_snapshot = std::collections::HashSet::new();
+
         // Tool pre-filtering: when total tools > threshold, select only
         // categories relevant to the user's message to reduce prompt noise.
         let tools_defs = {
@@ -53,7 +57,9 @@ impl AgentLoop {
                     .find(|m| m.role == "user")
                     .map_or("", |m| m.content.as_str());
                 let categories = infer_tool_categories(user_content);
-                let defs = self.tools.get_filtered_definitions(&categories);
+                let defs = self
+                    .tools
+                    .get_filtered_definitions_with_activated(&categories, &activated_snapshot);
                 debug!(
                     "tool pre-filter: {}/{} tools in {} categories",
                     defs.len(),
@@ -62,12 +68,13 @@ impl AgentLoop {
                 );
                 defs
             } else {
-                self.tools.get_tool_definitions()
+                self.tools
+                    .get_tool_definitions_with_activated(&activated_snapshot)
             }
         };
 
         // Exfiltration guard: hide network-outbound tools from the LLM
-        let tools_defs = if self.exfiltration_guard.enabled {
+        let mut tools_defs = if self.exfiltration_guard.enabled {
             let allowed = &self.exfiltration_guard.allow_tools;
             tools_defs
                 .into_iter()
@@ -83,8 +90,8 @@ impl AgentLoop {
             tools_defs
         };
 
-        // Extract tool names for hallucination detection (immutable snapshot for the full loop)
-        let tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
+        // Extract tool names for hallucination detection (may be rebuilt if tool_search activates deferred tools)
+        let mut tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
 
         // Anti-hallucination instruction in the system prompt. The tool definitions
         // sent via the API `tools` parameter already list all available tools with
@@ -218,6 +225,32 @@ impl AgentLoop {
                     &mut checkpoint_tracker,
                 )
                 .await;
+
+                // If tool_search activated new deferred tools, rebuild tool
+                // definitions so the LLM sees their schemas in the next iteration.
+                if self.tools.deferred_count() > 0 {
+                    let current = self.tool_search_activated.lock().await.clone();
+                    if current.len() > activated_snapshot.len() {
+                        let new_count = current.len() - activated_snapshot.len();
+                        debug!("tool_search activated {new_count} new deferred tool(s)");
+                        activated_snapshot = current;
+                        tools_defs = self
+                            .tools
+                            .get_tool_definitions_with_activated(&activated_snapshot);
+                        // Re-apply exfiltration guard
+                        if self.exfiltration_guard.enabled {
+                            let allowed = &self.exfiltration_guard.allow_tools;
+                            tools_defs.retain(|td| {
+                                let is_network = self
+                                    .tools
+                                    .get(&td.name)
+                                    .is_some_and(|t| t.capabilities().network_outbound);
+                                !is_network || allowed.contains(&td.name)
+                            });
+                        }
+                        tool_names = tools_defs.iter().map(|td| td.name.clone()).collect();
+                    }
+                }
             } else if let Some(content) = response.content {
                 match hallucination::handle_text_response(
                     &content,

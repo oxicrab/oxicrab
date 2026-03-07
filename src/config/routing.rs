@@ -34,9 +34,7 @@ impl ResolvedRouting {
             return AgentRunOverrides {
                 model: Some(model.clone()),
                 provider: Some(provider.clone()),
-                max_iterations: None,
-                response_format: None,
-                request_id: None,
+                ..Default::default()
             };
         }
         AgentRunOverrides::default()
@@ -60,9 +58,7 @@ impl ResolvedRouting {
         Some(AgentRunOverrides {
             model: Some(model.clone()),
             provider: Some(provider.clone()),
-            max_iterations: None,
-            response_format: None,
-            request_id: None,
+            ..Default::default()
         })
     }
 

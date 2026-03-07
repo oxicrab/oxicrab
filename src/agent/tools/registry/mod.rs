@@ -4,7 +4,7 @@ use crate::agent::truncation::truncate_tool_result;
 use anyhow::Result;
 use lru::LruCache;
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Instant;
@@ -48,6 +48,9 @@ struct CachedResult {
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn Tool>>,
     middleware: Vec<Arc<dyn ToolMiddleware>>,
+    /// Tools whose schemas are excluded from LLM requests until activated
+    /// via `tool_search`. Execution still works for all registered tools.
+    deferred: HashSet<String>,
 }
 
 impl ToolRegistry {
@@ -64,6 +67,7 @@ impl ToolRegistry {
                 )),
                 Arc::new(LoggingMiddleware),
             ],
+            deferred: HashSet::new(),
         }
     }
 
@@ -83,6 +87,24 @@ impl ToolRegistry {
         self.tools.insert(name, tool);
     }
 
+    /// Register a tool whose schema is hidden from LLM requests until
+    /// activated via `tool_search`. The tool can still be executed.
+    pub fn register_deferred(&mut self, tool: Arc<dyn Tool>) {
+        let name = tool.name().to_string();
+        self.deferred.insert(name.clone());
+        self.register(tool);
+    }
+
+    /// Check if a tool is deferred (schema hidden from LLM by default).
+    pub fn is_deferred(&self, name: &str) -> bool {
+        self.deferred.contains(name)
+    }
+
+    /// Number of deferred tools.
+    pub fn deferred_count(&self) -> usize {
+        self.deferred.len()
+    }
+
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.get(name).cloned()
     }
@@ -100,23 +122,19 @@ impl ToolRegistry {
     }
 
     pub fn get_tool_definitions(&self) -> Vec<crate::providers::base::ToolDefinition> {
+        self.get_tool_definitions_with_activated(&HashSet::new())
+    }
+
+    /// Get tool definitions, including deferred tools that have been activated.
+    pub fn get_tool_definitions_with_activated(
+        &self,
+        activated: &HashSet<String>,
+    ) -> Vec<crate::providers::base::ToolDefinition> {
         let mut defs: Vec<_> = self
             .tools
-            .values()
-            .map(|t| {
-                let schema = t.to_schema();
-                crate::providers::base::ToolDefinition {
-                    name: schema["function"]["name"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_string(),
-                    description: schema["function"]["description"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_string(),
-                    parameters: schema["function"]["parameters"].clone(),
-                }
-            })
+            .iter()
+            .filter(|(name, _)| !self.deferred.contains(*name) || activated.contains(*name))
+            .map(|(_, t)| Self::tool_to_definition(t))
             .collect();
         defs.sort_by(|a, b| a.name.cmp(&b.name));
         defs
@@ -127,27 +145,42 @@ impl ToolRegistry {
         &self,
         categories: &[crate::agent::tools::base::ToolCategory],
     ) -> Vec<crate::providers::base::ToolDefinition> {
+        self.get_filtered_definitions_with_activated(categories, &HashSet::new())
+    }
+
+    /// Get filtered definitions, including activated deferred tools in matching categories.
+    pub fn get_filtered_definitions_with_activated(
+        &self,
+        categories: &[crate::agent::tools::base::ToolCategory],
+        activated: &HashSet<String>,
+    ) -> Vec<crate::providers::base::ToolDefinition> {
         let mut defs: Vec<_> = self
             .tools
-            .values()
-            .filter(|t| categories.contains(&t.capabilities().category))
-            .map(|t| {
-                let schema = t.to_schema();
-                crate::providers::base::ToolDefinition {
-                    name: schema["function"]["name"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_string(),
-                    description: schema["function"]["description"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_string(),
-                    parameters: schema["function"]["parameters"].clone(),
-                }
+            .iter()
+            .filter(|(name, t)| {
+                let in_category = categories.contains(&t.capabilities().category);
+                let visible = !self.deferred.contains(*name) || activated.contains(*name);
+                in_category && visible
             })
+            .map(|(_, t)| Self::tool_to_definition(t))
             .collect();
         defs.sort_by(|a, b| a.name.cmp(&b.name));
         defs
+    }
+
+    fn tool_to_definition(t: &Arc<dyn Tool>) -> crate::providers::base::ToolDefinition {
+        let schema = t.to_schema();
+        crate::providers::base::ToolDefinition {
+            name: schema["function"]["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            description: schema["function"]["description"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            parameters: schema["function"]["parameters"].clone(),
+        }
     }
 
     /// Execute a tool through the full middleware pipeline:

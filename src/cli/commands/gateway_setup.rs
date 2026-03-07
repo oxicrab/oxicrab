@@ -420,7 +420,11 @@ async fn cron_job_execute(
         .first()
         .map_or(("cli", "direct"), |t| (t.channel.as_str(), t.to.as_str()));
 
-    let cron_overrides = agent.resolve_overrides("cron");
+    let mut cron_overrides = agent.resolve_overrides("cron");
+    cron_overrides.metadata.insert(
+        crate::bus::meta::IS_CRON_JOB.to_string(),
+        serde_json::Value::Bool(true),
+    );
     let response = agent
         .process_direct_with_overrides(
             &job.payload.message,

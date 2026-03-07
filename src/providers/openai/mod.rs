@@ -280,6 +280,10 @@ impl LLMProvider for OpenAIProvider {
             .post(&self.base_url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json");
+        req = req.header(
+            "x-session-affinity",
+            crate::providers::session_affinity_id(),
+        );
         for (k, v) in &self.custom_headers {
             req = req.header(k.as_str(), v.as_str());
         }
@@ -317,6 +321,10 @@ impl LLMProvider for OpenAIProvider {
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .timeout(Duration::from_secs(15));
+        req = req.header(
+            "x-session-affinity",
+            crate::providers::session_affinity_id(),
+        );
         for (k, v) in &self.custom_headers {
             req = req.header(k.as_str(), v.as_str());
         }

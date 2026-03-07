@@ -290,6 +290,10 @@ impl LLMProvider for GeminiProvider {
             .client
             .post(&url)
             .header("x-goog-api-key", &self.api_key);
+        req_builder = req_builder.header(
+            "x-session-affinity",
+            crate::providers::session_affinity_id(),
+        );
         for (k, v) in &self.custom_headers {
             req_builder = req_builder.header(k.as_str(), v.as_str());
         }
@@ -328,6 +332,10 @@ impl LLMProvider for GeminiProvider {
             .header("x-goog-api-key", &self.api_key)
             .header("Content-Type", "application/json")
             .timeout(Duration::from_secs(15));
+        req_builder = req_builder.header(
+            "x-session-affinity",
+            crate::providers::session_affinity_id(),
+        );
         for (k, v) in &self.custom_headers {
             req_builder = req_builder.header(k.as_str(), v.as_str());
         }

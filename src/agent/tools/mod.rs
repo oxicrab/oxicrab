@@ -23,6 +23,7 @@ pub mod spawn;
 pub mod subagent_control;
 pub mod tmux;
 pub mod todoist;
+pub mod tool_search;
 pub mod weather;
 pub mod web;
 pub mod workspace_tool;

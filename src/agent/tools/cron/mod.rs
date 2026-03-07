@@ -372,6 +372,19 @@ impl Tool for CronTool {
 
         match action {
             "add" => {
+                // Prevent infinite feedback loops: cron jobs cannot schedule new cron jobs
+                if ctx
+                    .metadata
+                    .get(crate::bus::meta::IS_CRON_JOB)
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    return Ok(ToolResult::error(
+                        "cannot schedule new cron jobs from within a cron job execution"
+                            .to_string(),
+                    ));
+                }
+
                 let job_type = params["type"].as_str().unwrap_or("agent");
                 if job_type != "agent" && job_type != "echo" {
                     return Ok(ToolResult::error(format!(

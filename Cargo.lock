@@ -3195,6 +3195,7 @@ dependencies = [
  "indexmap 2.13.0",
  "keyring",
  "landlock",
+ "libc",
  "lock_api",
  "lru",
  "oauth2",
