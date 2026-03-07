@@ -9,7 +9,7 @@ use crate::agent::cognitive::CheckpointTracker;
 use crate::agent::context::ContextBuilder;
 use crate::providers::base::{LLMProvider, Message, ToolCallRequest};
 
-use super::helpers::{execute_tool_call, extract_media_paths, start_typing};
+use super::helpers::{execute_tool_call, extract_media_paths, start_typing, strip_think_tags};
 use crate::agent::tools::base::ExecutionContext;
 use anyhow::Result;
 use tracing::{debug, error, warn};
@@ -266,6 +266,7 @@ impl AgentLoop {
                 ) {
                     TextAction::Continue => {}
                     TextAction::Return => {
+                        let content = strip_think_tags(&content);
                         return Ok(AgentLoopResult {
                             content: Some(content),
                             input_tokens: last_input_tokens,

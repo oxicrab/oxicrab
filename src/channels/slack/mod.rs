@@ -54,13 +54,112 @@ impl SlackChannel {
         if text.is_empty() {
             return String::new();
         }
+        // Convert markdown tables to Slack-friendly format (before other transforms)
+        let text = Self::convert_tables(text);
         // Slack uses *bold* not **bold**
-        let text = RegexPatterns::markdown_bold().replace_all(text, r"*$1*");
+        let text = RegexPatterns::markdown_bold().replace_all(&text, r"*$1*");
         // Slack uses ~strike~ not ~~strike~~
         let text = RegexPatterns::markdown_strike().replace_all(&text, r"~$1~");
         // Slack links: [text](url) -> <url|text>
         let re_link = RegexPatterns::markdown_link();
         re_link.replace_all(&text, r"<$2|$1>").to_string()
+    }
+
+    /// Convert markdown tables to Slack-friendly key-value format.
+    /// Slack mrkdwn has no table support, so we convert to plain text.
+    fn convert_tables(text: &str) -> String {
+        let separator = RegexPatterns::markdown_table_separator();
+        let mut result = String::with_capacity(text.len());
+        let mut table_lines: Vec<&str> = Vec::new();
+        let mut in_table = false;
+
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('|') && trimmed.ends_with('|') {
+                if separator.is_match(trimmed) {
+                    // Skip separator rows
+                    continue;
+                }
+                in_table = true;
+                table_lines.push(trimmed);
+            } else {
+                if in_table {
+                    Self::flush_table(&table_lines, &mut result);
+                    table_lines.clear();
+                    in_table = false;
+                }
+                result.push_str(line);
+                result.push('\n');
+            }
+        }
+
+        if in_table {
+            Self::flush_table(&table_lines, &mut result);
+        }
+
+        // Remove trailing newline added by line iteration
+        if result.ends_with('\n') && !text.ends_with('\n') {
+            result.pop();
+        }
+        result
+    }
+
+    /// Render collected table rows as Slack-friendly text.
+    fn flush_table(lines: &[&str], out: &mut String) {
+        if lines.is_empty() {
+            return;
+        }
+
+        let parse_cells = |line: &str| -> Vec<String> {
+            line.trim_matches('|')
+                .split('|')
+                .map(|c| c.trim().to_string())
+                .collect()
+        };
+
+        let header = parse_cells(lines[0]);
+        let rows = &lines[1..];
+
+        if header.len() == 2
+            && header[0].is_empty()
+            && rows.iter().all(|r| {
+                let cells = parse_cells(r);
+                cells.len() == 2 && cells[0].is_empty()
+            })
+        {
+            // Two-column table with empty first header = key-value list
+            for row in rows {
+                let cells = parse_cells(row);
+                if cells.len() >= 2 {
+                    use std::fmt::Write;
+                    let _ = writeln!(out, "  {} {}", cells[0], cells[1]);
+                }
+            }
+        } else if rows.is_empty() {
+            // Header only — just list values
+            out.push_str(&header.join(" · "));
+            out.push('\n');
+        } else {
+            // General table: header as labels, rows as indented entries
+            for row in rows {
+                let cells = parse_cells(row);
+                let parts: Vec<String> = header
+                    .iter()
+                    .zip(cells.iter())
+                    .filter(|(_, v)| !v.is_empty() && *v != "\u{2014}")
+                    .map(|(h, v)| {
+                        if h.is_empty() {
+                            v.clone()
+                        } else {
+                            format!("*{h}:* {v}")
+                        }
+                    })
+                    .collect();
+                out.push_str("  ");
+                out.push_str(&parts.join(" | "));
+                out.push('\n');
+            }
+        }
     }
 
     /// Upload a file to a Slack channel using the 3-step upload API.

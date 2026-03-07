@@ -169,6 +169,29 @@ impl RegexPatterns {
         });
         &RE
     }
+
+    /// Regex for matching `<think>...</think>` blocks (models like `DeepSeek`, `Qwen`)
+    pub fn think_tags() -> &'static Regex {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"(?si)<think>.*?</think>\s*").expect("Failed to compile think tags regex")
+        });
+        &RE
+    }
+
+    /// Regex for matching markdown table separator rows (e.g. `|---|---|`)
+    #[cfg(any(
+        feature = "channel-slack",
+        feature = "channel-discord",
+        feature = "channel-whatsapp",
+        feature = "channel-twilio",
+    ))]
+    pub fn markdown_table_separator() -> &'static Regex {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"^\|[-| :]+\|\s*$")
+                .expect("Failed to compile markdown table separator regex")
+        });
+        &RE
+    }
 }
 
 /// Compile a regex pattern with proper error handling

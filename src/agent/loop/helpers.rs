@@ -402,6 +402,19 @@ fn replace_bracketed_tags(content: &str, prefix: &str, replacement: Option<&str>
 /// Strip `[image: /path/to/file]` tags from message content.
 /// These tags are added by channels when images are downloaded, but become
 /// redundant (and misleading) once images are base64-encoded into content blocks.
+/// Strip `<think>...</think>` blocks from model output.
+/// Some models (`DeepSeek`, `Qwen`) emit inline thinking tags instead of using
+/// the structured `reasoning_content` field.
+pub(super) fn strip_think_tags(content: &str) -> String {
+    if !content.contains("<think>") {
+        return content.to_string();
+    }
+    crate::utils::regex::RegexPatterns::think_tags()
+        .replace_all(content, "")
+        .trim()
+        .to_string()
+}
+
 pub(super) fn strip_image_tags(content: &str) -> String {
     replace_bracketed_tags(content, "[image: ", None)
 }
