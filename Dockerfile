@@ -9,8 +9,11 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-RUN rustup toolchain install nightly-2026-03-05 \
-    && rustup default nightly-2026-03-05
+# Read nightly version from rust-toolchain.toml (single source of truth)
+COPY rust-toolchain.toml .
+RUN NIGHTLY=$(grep 'channel' rust-toolchain.toml | sed 's/.*"\(.*\)"/\1/') \
+    && rustup toolchain install "$NIGHTLY" \
+    && rustup default "$NIGHTLY"
 
 RUN cargo install cargo-chef --locked
 

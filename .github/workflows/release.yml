@@ -12,7 +12,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  NIGHTLY_VERSION: nightly-2026-03-05
 
 jobs:
   changelog:
@@ -61,7 +60,6 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
           targets: ${{ matrix.target }}
 
       - name: Install system dependencies (Linux)

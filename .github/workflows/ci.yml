@@ -15,7 +15,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  NIGHTLY_VERSION: nightly-2026-03-05
 
 jobs:
   # ── Change Detection ────────────────────────────────────────────────
@@ -79,7 +78,6 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
           components: rustfmt
 
       - name: Install cargo-deny
@@ -114,7 +112,6 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
           components: clippy
 
       - name: Cache cargo
@@ -154,7 +151,6 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
           components: clippy
 
       - name: Install tools
@@ -198,8 +194,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
 
       - name: Install nextest
         uses: taiki-e/install-action@v2
@@ -238,8 +232,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
 
       - name: Install nextest
         uses: taiki-e/install-action@v2
@@ -324,8 +316,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
 
       - name: Install nextest
         uses: taiki-e/install-action@v2
@@ -384,7 +374,6 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
           components: llvm-tools-preview
 
       - name: Install cargo-llvm-cov
@@ -432,8 +421,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -519,8 +506,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -573,8 +558,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -616,8 +599,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.NIGHTLY_VERSION }}
 
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
