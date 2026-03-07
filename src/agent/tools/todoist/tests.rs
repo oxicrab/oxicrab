@@ -137,7 +137,7 @@ async fn test_list_tasks_with_filter() {
 
     assert!(!result.is_error);
     assert!(result.content.contains("Morning standup"));
-    assert!(result.content.contains("!!"));
+    assert!(result.content.contains(" !"));
 }
 
 #[tokio::test]

@@ -140,11 +140,11 @@ impl TodoistTool {
                 } else {
                     format!(" [{}]", labels.join(", "))
                 };
-                // v1 API: priority 1=highest(urgent), 4=lowest(normal)
+                // v1 API: priority 1=normal(default), 4=urgent
                 let priority_str = match priority {
-                    1 => " !!!",
-                    2 => " !!",
-                    3 => " !",
+                    4 => " !!!",
+                    3 => " !!",
+                    2 => " !",
                     _ => "",
                 };
                 format!("- ({id}) {content}{priority_str} | due: {due}{label_str}")
@@ -524,7 +524,7 @@ impl Tool for TodoistTool {
                 "priority": {
                     "type": "integer",
                     "enum": [1, 2, 3, 4],
-                    "description": "Task priority (1=urgent, 4=normal)"
+                    "description": "Task priority (1=normal, 4=urgent)"
                 },
                 "labels": {
                     "type": "array",
@@ -563,7 +563,7 @@ impl Tool for TodoistTool {
                     && !(1..=4).contains(&p)
                 {
                     return Ok(ToolResult::error(
-                        "priority must be 1 (urgent) to 4 (normal)".to_string(),
+                        "priority must be 1 (normal) to 4 (urgent)".to_string(),
                     ));
                 }
                 let labels: Option<Vec<&str>> = params["labels"]

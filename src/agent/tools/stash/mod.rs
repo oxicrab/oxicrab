@@ -49,6 +49,11 @@ impl ToolOutputStash {
         let key = format!("stash_{id}");
         let content_len = content.len();
 
+        // Single entry larger than budget cannot fit — skip stashing
+        if content_len > self.max_total_bytes {
+            return key;
+        }
+
         // Evict until we have space
         while inner.total_bytes + content_len > self.max_total_bytes {
             if let Some((_, evicted)) = inner.entries.pop_lru() {
@@ -119,11 +124,11 @@ impl Tool for StashRetrieveTool {
                 },
                 "offset": {
                     "type": "integer",
-                    "description": "Character offset to start from (default: 0)"
+                    "description": "Byte offset to start from (default: 0)"
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum characters to return (default: 50000)"
+                    "description": "Maximum bytes to return (default: 50000)"
                 }
             },
             "required": ["key"]
@@ -158,7 +163,7 @@ impl Tool for StashRetrieveTool {
                     Ok(ToolResult::new(chunk))
                 } else {
                     Ok(ToolResult::new(format!(
-                        "{chunk}\n\n[Showing {offset}..{end} of {total} chars. Use offset={end} to continue.]"
+                        "{chunk}\n\n[Showing {offset}..{end} of {total} bytes. Use offset={end} to continue.]"
                     )))
                 }
             }
