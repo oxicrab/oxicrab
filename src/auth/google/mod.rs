@@ -184,6 +184,7 @@ pub async fn run_oauth_flow(
     token_path: Option<&Path>,
     port: u16,
     headless: bool,
+    db: Option<&Arc<MemoryDB>>,
 ) -> Result<GoogleCredentials> {
     let scopes = scopes.map_or_else(
         || DEFAULT_SCOPES.to_vec(),
@@ -229,6 +230,7 @@ pub async fn run_oauth_flow(
             auth_url.clone(),
             &redirect_uri,
             pkce_verifier.secret(),
+            db,
         )
         .await;
     }
@@ -246,6 +248,7 @@ pub async fn run_oauth_flow(
                 auth_url,
                 &redirect_uri,
                 pkce_verifier.secret(),
+                db,
             )
             .await;
         }
@@ -289,7 +292,7 @@ pub async fn run_oauth_flow(
 
     let creds = build_credentials_from_token(&token_data, client_id, client_secret, &scopes)?;
 
-    save_credentials(&creds, &token_path, None)?;
+    save_credentials(&creds, &token_path, db)?;
     info!("Google credentials saved to {}", token_path.display());
     Ok(creds)
 }
@@ -337,6 +340,7 @@ async fn get_code_via_browser(
     Ok(code)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_manual_flow(
     client_id: &str,
     client_secret: &str,
@@ -345,6 +349,7 @@ async fn run_manual_flow(
     auth_url: url::Url,
     redirect_uri: &str,
     pkce_verifier: &str,
+    db: Option<&Arc<MemoryDB>>,
 ) -> Result<GoogleCredentials> {
     use std::io::{self, Write};
 
@@ -414,7 +419,7 @@ async fn run_manual_flow(
 
     let creds = build_credentials_from_token(&token_data, client_id, client_secret, scopes)?;
 
-    save_credentials(&creds, token_path, None)?;
+    save_credentials(&creds, token_path, db)?;
     info!("Google credentials saved to {}", token_path.display());
 
     Ok(creds)

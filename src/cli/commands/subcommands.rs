@@ -113,6 +113,11 @@ pub(super) async fn auth_command(cmd: AuthCommands) -> Result<()> {
                 );
             }
 
+            let db_path = config
+                .workspace_path()
+                .join("memory")
+                .join("memory.sqlite3");
+            let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path)?);
             let _creds = crate::auth::google::run_oauth_flow(
                 &gcfg.client_id,
                 &gcfg.client_secret,
@@ -120,6 +125,7 @@ pub(super) async fn auth_command(cmd: AuthCommands) -> Result<()> {
                 None,
                 port,
                 headless,
+                Some(&db),
             )
             .await?;
 
