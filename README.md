@@ -34,7 +34,6 @@ This is largely a personal toy with features I want or care about. For example, 
 - **Rate limiting**: Per-IP token bucket on gateway endpoints
 - **Context providers**: Dynamic system prompt injection from external commands with caching and TTL
 - **Tool output stash**: In-memory LRU cache for recovering large tool outputs after truncation
-- **Complexity-aware model routing**: Automatic per-message model escalation based on complexity scoring
 - **JSON mode**: Per-request structured output (JSON object and JSON schema) across all providers
 - **PDF/document support**: Native PDF document support in Anthropic, OpenAI, and Gemini providers
 - **Security**: Default-deny allowlists, DM pairing, bidirectional leak detection (inbound + outbound), DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement

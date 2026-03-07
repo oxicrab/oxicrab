@@ -53,7 +53,7 @@ max_width: 820px
         <h2>Model Routing</h2>
         <p>oxicrab uses a 2-tier resolution strategy to determine which LLM provider handles a model:</p>
         <ol>
-            <li><strong>Prefix notation</strong> &mdash; <code>"model": "groq/llama-3.1-70b"</code> (provider before <code>/</code>, stripped before API call)</li>
+            <li><strong>Prefix notation</strong> &mdash; <code>groq/llama-3.1-70b</code> (provider before <code>/</code>, stripped before API call)</li>
             <li><strong>Auto-detection</strong> &mdash; Known model name prefixes: <code>claude-*</code> &rarr; Anthropic, <code>gpt-*</code>/<code>o1</code>/<code>o3</code>/<code>o4</code> &rarr; OpenAI, <code>gemini-*</code> &rarr; Gemini, <code>deepseek-*</code> &rarr; DeepSeek</li>
         </ol>
 
