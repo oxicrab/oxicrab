@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-RUN rustup toolchain install nightly-2026-02-06 \
-    && rustup default nightly-2026-02-06
+RUN rustup toolchain install nightly-2026-03-05 \
+    && rustup default nightly-2026-03-05
 
 RUN cargo install cargo-chef --locked
 
