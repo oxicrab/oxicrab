@@ -720,7 +720,7 @@
   <div class="hero-text">
     <img src="oxicrab.png" alt="oxicrab" class="hero-logo">
     <h1>Your AI assistant framework, <span class="rust-highlight">built in Rust.</span></h1>
-    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 25 built-in tools, long-term memory, subagents, cron scheduling, and MCP support.</p>
+    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 26 built-in tools, long-term memory, subagents, cron scheduling, and MCP support.</p>
     <div class="hero-actions">
       <a href="#install" class="btn btn-primary">Get Started</a>
       <a href="https://github.com/oxicrab/oxicrab" class="btn btn-ghost">View Source</a>
@@ -977,7 +977,7 @@ cargo build --release --no-default-features \
 <section id="tools" class="tools-section">
   <div class="container fade-in">
     <div class="section-label">Tools</div>
-    <div class="section-title">25 built-in tools + MCP</div>
+    <div class="section-title">26 built-in tools + MCP</div>
     <div class="section-desc">A comprehensive toolkit for autonomous agents. Every tool features timeout protection, panic isolation, and result caching.</div>
 
     <div class="tools-legend">
@@ -1015,6 +1015,7 @@ cargo build --release --no-default-features \
           <div class="tool-item" data-detail="List or cancel running subagents. Use to track background tasks or stop one by ID. Semaphore-based concurrency control limits parallel agents."><span class="tool-dot core"></span><div><span class="tool-name">subagent_control</span><br><span class="tool-desc">List and cancel running agents</span></div></div>
           <div class="tool-item" data-detail="Schedule recurring or one-shot tasks. Two job types: 'agent' processes the message as a full LLM turn with all tools; 'echo' delivers messages directly without invoking the LLM. Supports cron expressions, intervals, and one-shot ISO 8601 times. Optional expires_at and max_runs limits."><span class="tool-dot core"></span><div><span class="tool-name">cron</span><br><span class="tool-desc">Schedule recurring tasks</span></div></div>
           <div class="tool-item" data-detail="Search long-term memory. Use to recall user preferences, past conversations, and important facts. Supports FTS5 full-text search with optional hybrid vector+keyword search via local ONNX embeddings."><span class="tool-dot core"></span><div><span class="tool-name">memory_search</span><br><span class="tool-desc">FTS5 + hybrid vector search</span></div></div>
+          <div class="tool-item" data-detail="Retrieve truncated tool output from the in-memory stash. Recover large results that were truncated, with offset and limit for pagination."><span class="tool-dot core"></span><div><span class="tool-name">stash_retrieve</span><br><span class="tool-desc">Recover truncated tool output</span></div></div>
         </div>
       </div>
       <div>
@@ -1382,7 +1383,7 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
     <div class="structure-pre">
       <pre><span class="hl-comment">src/</span>
 &#x251C;&#x2500;&#x2500; agent/          <span class="hl-comment"># Agent loop, context, memory, tools, subagents</span>
-&#x2502;   &#x2514;&#x2500;&#x2500; tools/      <span class="hl-comment"># 25 built-in tools + MCP integration</span>
+&#x2502;   &#x2514;&#x2500;&#x2500; tools/      <span class="hl-comment"># 26 built-in tools + MCP integration</span>
 &#x251C;&#x2500;&#x2500; auth/           <span class="hl-comment"># OAuth authentication (Google)</span>
 &#x251C;&#x2500;&#x2500; bus/            <span class="hl-comment"># Message bus for channel-agent communication</span>
 &#x251C;&#x2500;&#x2500; channels/       <span class="hl-comment"># Telegram, Discord, Slack, WhatsApp, Twilio</span>
