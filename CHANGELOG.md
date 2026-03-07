@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.2] - 2026-03-07
+
+### Added
+- add param auto-casting, schema hints on errors, and finish_reason guard ([a43e6d6](https://github.com/oxicrab/oxicrab/commit/a43e6d606dfa1479c20ea5c49ebde59271e3745f))
+- add tool output stash and improve datetime prominence in system prompt ([292411f](https://github.com/oxicrab/oxicrab/commit/292411f0645fb34fc36501e449e18117b58f5168))
+- add cron self-scheduling guard, process group kill, deferred tool registry, and session affinity ([523ee50](https://github.com/oxicrab/oxicrab/commit/523ee5059c01de12fc40965c4c6b0d9942c41aea))
+- **tools:** add google_tasks tool with 6 actions ([942a980](https://github.com/oxicrab/oxicrab/commit/942a980c7f29d9edaab1c2039f1058ab05521102))
+
+
+### Changed
+- **db:** switch memory schema bootstrap to versioned migrations ([5f3790b](https://github.com/oxicrab/oxicrab/commit/5f3790bbbe020d6a9ee677b8472b0b50d820b4ab))
+- **auth:** share oauth credential persistence and safe file I/O ([927872b](https://github.com/oxicrab/oxicrab/commit/927872b3e6b81edb07395ff084a76d2ef8643f57))
+
+
+### Documentation
+- add stash_retrieve tool and datetime prominence to docs ([57ff872](https://github.com/oxicrab/oxicrab/commit/57ff872714e8ebc05dbd13a108ebf67d9b016a9d))
+- redesign with warm crafted theme ([de7856f](https://github.com/oxicrab/oxicrab/commit/de7856f27b9795209be89301a31e0456598f38e9))
+
+
+### Fixed
+- **docs:** SVG fill attribute, reduced-motion, and noscript fallback ([efd5f71](https://github.com/oxicrab/oxicrab/commit/efd5f7132373426d47fa65fdc61a5406e5e75ceb))
+- **test:** update error tool test for schema hint injection ([c329457](https://github.com/oxicrab/oxicrab/commit/c3294570246f32b749e2e779578b7d0038432c60))
+- **tools:** correct todoist priority ordering and stash documentation ([efa44f9](https://github.com/oxicrab/oxicrab/commit/efa44f971b285473b7a9fc0a5a97e01374eae682))
+- **shell:** pipe stdout/stderr for spawn and fix approx_constant in test ([7d8e59b](https://github.com/oxicrab/oxicrab/commit/7d8e59b43224580b08cd99af407c2414579c029e))
+- **tools:** use ToolResult::error for user-facing parameter validation ([b7eea60](https://github.com/oxicrab/oxicrab/commit/b7eea6041f903648eb293d08ed14a6244ed9b102))
+- harden security, capabilities, and correctness across subsystems ([c3203fc](https://github.com/oxicrab/oxicrab/commit/c3203fc44b83aa562961b9d1c3c7b25ebc34549a))
+- **clippy:** simplify map_or to is_none_or with method reference ([776aa35](https://github.com/oxicrab/oxicrab/commit/776aa356422b3196568dfc6e881ae92426dbef0f))
+- **tools:** reject empty update_task with no fields to modify ([5f95b11](https://github.com/oxicrab/oxicrab/commit/5f95b11a35f84b0f896e2167d67d4a37dbb2bc99))
+- **test:** use RAII guard for env var cleanup and tolerate mutex poisoning ([47d106b](https://github.com/oxicrab/oxicrab/commit/47d106bd0ec26f75ae9626f7a7d7374bfa2212f7))
+- **clippy:** inline format args and nest migration patterns ([03f4075](https://github.com/oxicrab/oxicrab/commit/03f4075f3e150e6a198364ba0104ce4ab55ea3eb))
+- **review:** address oauth permission and migration hardening feedback ([4570e71](https://github.com/oxicrab/oxicrab/commit/4570e71eac2b2f1ffe1a50e45837c7c1ada11cdf))
+
+
+### Maintenance
+- update Rust nightly to 2026-03-05 and fix flaky test ([73253d2](https://github.com/oxicrab/oxicrab/commit/73253d28f8352e411bd7dfe08e0c8a2184886883))
+
+
+### Removed
+- removed research ([4ae5e8f](https://github.com/oxicrab/oxicrab/commit/4ae5e8f775aeb17acd187e2c791d7b8d1ea6e3a3))
+
 ## [0.14.1] - 2026-03-06
 
 ### Added
