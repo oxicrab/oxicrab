@@ -267,24 +267,34 @@ async fn create_google_tools(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
     let mut result: Vec<Arc<dyn Tool>> = Vec::new();
 
     if let Some(ref google_cfg) = ctx.google_config
-        && google_cfg.enabled
-        && !google_cfg.client_id.is_empty()
-        && !google_cfg.client_secret.is_empty()
+        && google_cfg.is_configured()
+        && google_cfg.any_tool_enabled()
     {
+        let scopes = google_cfg.required_scopes();
         match crate::auth::google::get_credentials(
             &google_cfg.client_id,
             &google_cfg.client_secret,
-            Some(&google_cfg.scopes),
+            Some(&scopes),
             None,
             ctx.memory_db.as_ref(),
         )
         .await
         {
             Ok(creds) => {
-                result.push(Arc::new(GoogleMailTool::new(creds.clone())));
-                result.push(Arc::new(GoogleCalendarTool::new(creds.clone())));
-                result.push(Arc::new(GoogleTasksTool::new(creds)));
-                info!("Google tools registered (gmail, calendar, tasks)");
+                let mut names = Vec::new();
+                if google_cfg.gmail {
+                    result.push(Arc::new(GoogleMailTool::new(creds.clone())));
+                    names.push("gmail");
+                }
+                if google_cfg.calendar {
+                    result.push(Arc::new(GoogleCalendarTool::new(creds.clone())));
+                    names.push("calendar");
+                }
+                if google_cfg.tasks {
+                    result.push(Arc::new(GoogleTasksTool::new(creds)));
+                    names.push("tasks");
+                }
+                info!("Google tools registered ({})", names.join(", "));
             }
             Err(e) => {
                 warn!("Google tools not available: {}", e);

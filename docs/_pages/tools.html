@@ -328,13 +328,15 @@ max_width: 820px
     <pre><code>{
   "tools": {
     "google": {
-      "enabled": true,
       "clientId": "your-google-client-id",
-      "clientSecret": "your-google-client-secret"
+      "clientSecret": "your-google-client-secret",
+      "gmail": true,
+      "calendar": true,
+      "tasks": true
     }
   }
 }</code></pre>
-    <p>OAuth tokens are stored in the workspace database and auto-refresh. Run <code>oxicrab auth google</code> to authenticate.</p>
+    <p>Each tool can be individually enabled/disabled. OAuth scopes are derived automatically from which tools are enabled. Tokens are stored in the workspace database and auto-refresh. Run <code>oxicrab auth google</code> to authenticate.</p>
   </div>
 
   <div id="google_calendar" class="tool-section">
@@ -355,7 +357,7 @@ max_width: 820px
     </table>
 
     <h3>Setup</h3>
-    <p>Uses the same Google OAuth config as <a href="#google_mail">google_mail</a>. Enable the <strong>Google Calendar API</strong> in your Cloud project.</p>
+    <p>Uses the same Google OAuth config as <a href="#google_mail">google_mail</a>. Set <code>"calendar": true</code> and enable the <strong>Google Calendar API</strong> in your Cloud project.</p>
   </div>
 
   <div id="google_tasks" class="tool-section">
@@ -376,7 +378,7 @@ max_width: 820px
     </table>
 
     <h3>Setup</h3>
-    <p>Uses the same Google OAuth config as <a href="#google_mail">google_mail</a>. Enable the <strong>Google Tasks API</strong> in your Cloud project.</p>
+    <p>Uses the same Google OAuth config as <a href="#google_mail">google_mail</a>. Set <code>"tasks": true</code> and enable the <strong>Google Tasks API</strong> in your Cloud project.</p>
   </div>
 
   <div class="cat-header">Integrations</div>

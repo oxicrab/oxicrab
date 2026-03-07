@@ -13,43 +13,63 @@ pub struct ExfiltrationGuardConfig {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct GoogleConfig {
-    #[serde(default)]
-    pub enabled: bool,
     #[serde(default, rename = "clientId")]
     pub client_id: String,
     #[serde(default, rename = "clientSecret")]
     pub client_secret: String,
-    #[serde(default = "default_google_scopes")]
-    pub scopes: Vec<String>,
+    #[serde(default = "default_true")]
+    pub gmail: bool,
+    #[serde(default = "default_true")]
+    pub calendar: bool,
+    #[serde(default = "default_true")]
+    pub tasks: bool,
 }
 
 redact_debug!(
     GoogleConfig,
-    enabled,
     client_id,
     redact(client_secret),
-    scopes,
+    gmail,
+    calendar,
+    tasks,
 );
 
 impl Default for GoogleConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
             client_id: String::new(),
             client_secret: String::new(),
-            scopes: default_google_scopes(),
+            gmail: true,
+            calendar: true,
+            tasks: true,
         }
     }
 }
 
-fn default_google_scopes() -> Vec<String> {
-    vec![
-        "https://www.googleapis.com/auth/gmail.modify".to_string(),
-        "https://www.googleapis.com/auth/gmail.send".to_string(),
-        "https://www.googleapis.com/auth/calendar.events".to_string(),
-        "https://www.googleapis.com/auth/calendar.readonly".to_string(),
-        "https://www.googleapis.com/auth/tasks".to_string(),
-    ]
+impl GoogleConfig {
+    pub fn is_configured(&self) -> bool {
+        !self.client_id.is_empty() && !self.client_secret.is_empty()
+    }
+
+    pub fn any_tool_enabled(&self) -> bool {
+        self.gmail || self.calendar || self.tasks
+    }
+
+    pub fn required_scopes(&self) -> Vec<String> {
+        let mut scopes = Vec::new();
+        if self.gmail {
+            scopes.push("https://www.googleapis.com/auth/gmail.modify".to_string());
+            scopes.push("https://www.googleapis.com/auth/gmail.send".to_string());
+        }
+        if self.calendar {
+            scopes.push("https://www.googleapis.com/auth/calendar.events".to_string());
+            scopes.push("https://www.googleapis.com/auth/calendar.readonly".to_string());
+        }
+        if self.tasks {
+            scopes.push("https://www.googleapis.com/auth/tasks".to_string());
+        }
+        scopes
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

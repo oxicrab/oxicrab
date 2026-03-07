@@ -1005,15 +1005,11 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
     },
     <span class="hl-key">"restrictToWorkspace"</span>: <span class="hl-num">false</span>,
     <span class="hl-key">"google"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
       <span class="hl-key">"clientId"</span>: <span class="hl-str">"your-google-client-id"</span>,
       <span class="hl-key">"clientSecret"</span>: <span class="hl-str">"your-google-client-secret"</span>,
-      <span class="hl-key">"scopes"</span>: [
-        <span class="hl-str">"https://www.googleapis.com/auth/gmail.modify"</span>,
-        <span class="hl-str">"https://www.googleapis.com/auth/gmail.send"</span>,
-        <span class="hl-str">"https://www.googleapis.com/auth/calendar.events"</span>,
-        <span class="hl-str">"https://www.googleapis.com/auth/calendar.readonly"</span>
-      ]
+      <span class="hl-key">"gmail"</span>: <span class="hl-num">true</span>,
+      <span class="hl-key">"calendar"</span>: <span class="hl-num">true</span>,
+      <span class="hl-key">"tasks"</span>: <span class="hl-num">true</span>
     },
     <span class="hl-key">"github"</span>: {
       <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,

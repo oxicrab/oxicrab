@@ -93,15 +93,15 @@ pub(super) async fn auth_command(cmd: AuthCommands) -> Result<()> {
                 return Ok(());
             }
 
+            let scopes = gcfg.required_scopes();
             // Check if already authenticated
             if crate::auth::google::has_valid_credentials(
                 &gcfg.client_id,
                 &gcfg.client_secret,
-                Some(&gcfg.scopes),
+                Some(&scopes),
                 None,
             ) {
                 println!("\u{2713} Already authenticated with Google.");
-                // In real implementation, would prompt for re-auth
             }
 
             if headless {
@@ -121,7 +121,7 @@ pub(super) async fn auth_command(cmd: AuthCommands) -> Result<()> {
             let _creds = crate::auth::google::run_oauth_flow(
                 &gcfg.client_id,
                 &gcfg.client_secret,
-                Some(&gcfg.scopes),
+                Some(&scopes),
                 None,
                 port,
                 headless,
@@ -130,10 +130,7 @@ pub(super) async fn auth_command(cmd: AuthCommands) -> Result<()> {
             .await?;
 
             println!("\n\u{2713} Google authentication successful!");
-            println!("  Tokens saved to ~/.oxicrab/google_tokens.json");
-            println!(
-                "\nMake sure tools.google.enabled is true in your config, then restart the gateway."
-            );
+            println!("  Credentials saved. Restart the gateway to pick up changes.");
         }
     }
     Ok(())
@@ -220,25 +217,32 @@ pub(super) fn status_command() -> Result<()> {
 
         // Google status
         let gcfg = &config.tools.google;
-        if gcfg.enabled {
-            let google_authed = if !gcfg.client_id.is_empty() && !gcfg.client_secret.is_empty() {
-                crate::auth::google::has_valid_credentials(
-                    &gcfg.client_id,
-                    &gcfg.client_secret,
-                    Some(&gcfg.scopes),
-                    None,
-                )
-            } else {
-                false
-            };
+        if gcfg.is_configured() && gcfg.any_tool_enabled() {
+            let scopes = gcfg.required_scopes();
+            let google_authed = crate::auth::google::has_valid_credentials(
+                &gcfg.client_id,
+                &gcfg.client_secret,
+                Some(&scopes),
+                None,
+            );
+            let mut tools = Vec::new();
+            if gcfg.gmail {
+                tools.push("gmail");
+            }
+            if gcfg.calendar {
+                tools.push("calendar");
+            }
+            if gcfg.tasks {
+                tools.push("tasks");
+            }
             let status_str = if google_authed {
                 "\u{2713} authenticated"
             } else {
                 "not authenticated (run: oxicrab auth google)"
             };
-            println!("Google: {status_str}");
+            println!("Google ({}): {status_str}", tools.join(", "));
         } else {
-            println!("Google: disabled");
+            println!("Google: not configured");
         }
     }
 

@@ -293,16 +293,11 @@
     },
     "restrictToWorkspace": false,
     "google": {
-      "enabled": false,
       "clientId": "your-google-client-id",
       "clientSecret": "your-google-client-secret",
-      "scopes": [
-        "https://www.googleapis.com/auth/gmail.modify",
-        "https://www.googleapis.com/auth/gmail.send",
-        "https://www.googleapis.com/auth/calendar.events",
-        "https://www.googleapis.com/auth/calendar.readonly",
-        "https://www.googleapis.com/auth/tasks"
-      ]
+      "gmail": true,
+      "calendar": true,
+      "tasks": true
     },
     "github": {
       "enabled": false,
