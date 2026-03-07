@@ -299,6 +299,10 @@ impl AnthropicOAuthProvider {
             .post(API_URL)
             .header("Authorization", format!("Bearer {token}"));
 
+        request = request.header(
+            "x-session-affinity",
+            crate::providers::session_affinity_id(),
+        );
         for (key, value) in claude_code_headers() {
             request = request.header(key, value);
         }

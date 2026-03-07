@@ -42,7 +42,15 @@ impl Handler {
     ) {
         let sender_id = cmd.user.id.to_string();
 
-        // Skip DM access check for guild (server) interactions
+        // Check group allowlist for guild (server) interactions
+        if let Some(guild_id) = cmd.guild_id
+            && !check_group_access(&guild_id.to_string(), &self.allow_groups)
+        {
+            debug!("discord: ignoring slash command from non-allowed guild {guild_id}");
+            return;
+        }
+
+        // DM access check for non-guild interactions
         if cmd.guild_id.is_none() {
             match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
                 DmCheckResult::Allowed => {}
@@ -125,7 +133,15 @@ impl Handler {
     ) {
         let sender_id = comp.user.id.to_string();
 
-        // Skip DM access check for guild (server) interactions
+        // Check group allowlist for guild (server) interactions
+        if let Some(guild_id) = comp.guild_id
+            && !check_group_access(&guild_id.to_string(), &self.allow_groups)
+        {
+            debug!("discord: ignoring component interaction from non-allowed guild {guild_id}");
+            return;
+        }
+
+        // DM access check for non-guild interactions
         if comp.guild_id.is_none() {
             match check_dm_access(&sender_id, &self.allow_list, "discord", &self.dm_policy) {
                 DmCheckResult::Allowed => {}

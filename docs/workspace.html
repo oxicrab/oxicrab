@@ -272,6 +272,8 @@
     <h2>Overview</h2>
     <p>oxicrab stores all its state in a home directory, defaulting to <code>~/.oxicrab/</code>. The workspace is a subdirectory that holds the markdown files that define the agent's identity, memory, and context. These files are loaded into the system prompt on every conversation.</p>
 
+    <p>The system prompt always begins with the current date and time in natural language (e.g. "The current date and time is Thursday, March 6, 2026 at 2:15 PM EST"), giving the agent reliable temporal awareness for scheduling, time-sensitive queries, and relative date references.</p>
+
     <p>Run <code>oxicrab onboard</code> to scaffold the full directory structure with templates.</p>
 
     <div class="tree">

@@ -20,6 +20,8 @@ pub struct AgentRunOverrides {
     /// Correlation ID for tracing a single request across cost, intent, and
     /// complexity records.
     pub request_id: Option<String>,
+    /// Extra metadata to inject into the tool [`ExecutionContext`].
+    pub metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
 /// Tool-specific configurations bundled together. These fields are only used

@@ -106,9 +106,11 @@ pub(crate) struct PendingCleanup {
 
 impl Drop for PendingCleanup {
     fn drop(&mut self) {
-        if let Ok(mut pending) = self.pending.lock() {
-            pending.remove(&self.id);
-        }
+        let mut pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        pending.remove(&self.id);
     }
 }
 

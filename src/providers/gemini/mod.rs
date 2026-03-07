@@ -63,7 +63,10 @@ impl GeminiProvider {
 
         // Detect safety-filtered or blocked responses
         if let Some(reason) = candidate["finishReason"].as_str()
-            && matches!(reason, "SAFETY" | "BLOCKED" | "RECITATION")
+            && matches!(
+                reason,
+                "SAFETY" | "BLOCKED" | "RECITATION" | "PROHIBITED_CONTENT" | "SPII"
+            )
         {
             anyhow::bail!("Gemini response blocked (finishReason: {reason})");
         }
@@ -108,11 +111,16 @@ impl GeminiProvider {
             .and_then(|u| u.get("candidatesTokenCount"))
             .and_then(serde_json::Value::as_u64);
 
+        let finish_reason = candidate["finishReason"]
+            .as_str()
+            .map(std::string::ToString::to_string);
+
         Ok(LLMResponse {
             content,
             tool_calls,
             input_tokens,
             output_tokens,
+            finish_reason,
             ..Default::default()
         })
     }
@@ -287,6 +295,10 @@ impl LLMProvider for GeminiProvider {
             .client
             .post(&url)
             .header("x-goog-api-key", &self.api_key);
+        req_builder = req_builder.header(
+            "x-session-affinity",
+            crate::providers::session_affinity_id(),
+        );
         for (k, v) in &self.custom_headers {
             req_builder = req_builder.header(k.as_str(), v.as_str());
         }
@@ -325,6 +337,10 @@ impl LLMProvider for GeminiProvider {
             .header("x-goog-api-key", &self.api_key)
             .header("Content-Type", "application/json")
             .timeout(Duration::from_secs(15));
+        req_builder = req_builder.header(
+            "x-session-affinity",
+            crate::providers::session_affinity_id(),
+        );
         for (k, v) in &self.custom_headers {
             req_builder = req_builder.header(k.as_str(), v.as_str());
         }

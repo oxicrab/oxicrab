@@ -1,7 +1,11 @@
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
+use crate::actions;
+use crate::agent::tools::base::{
+    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory,
+};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::agent::workspace::{FileCategory, WorkspaceManager};
 use crate::config::schema::WorkspaceTtlConfig;
+use crate::require_param;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -85,32 +89,31 @@ impl WorkspaceTool {
         lines.join("\n")
     }
 
-    fn action_list(&self, params: &Value) -> Result<String> {
-        let category = params["category"]
+    fn action_list(&self, params: &Value) -> Result<ToolResult> {
+        let category = match params["category"]
             .as_str()
             .map(FileCategory::from_str)
             .transpose()
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        {
+            Ok(v) => v,
+            Err(e) => return Ok(ToolResult::error(e)),
+        };
         let date = params["date"].as_str();
         let tags = params["tags"].as_str();
 
         let entries = self.manager.list_files(category, date, tags)?;
-        Ok(Self::format_file_table(&entries))
+        Ok(ToolResult::new(Self::format_file_table(&entries)))
     }
 
-    fn action_search(&self, params: &Value) -> Result<String> {
-        let query = params["query"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("missing 'query' parameter"))?;
+    fn action_search(&self, params: &Value) -> Result<ToolResult> {
+        let query = require_param!(params, "query");
 
         let entries = self.manager.search_files(query)?;
-        Ok(Self::format_file_table(&entries))
+        Ok(ToolResult::new(Self::format_file_table(&entries)))
     }
 
-    fn action_info(&self, params: &Value) -> Result<String> {
-        let path_str = params["path"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("missing 'path' parameter"))?;
+    fn action_info(&self, params: &Value) -> Result<ToolResult> {
+        let path_str = require_param!(params, "path");
         let abs_path = self.resolve_tool_path(path_str);
 
         // Search manifest by the filename or relative path
@@ -135,7 +138,9 @@ impl WorkspaceTool {
         });
 
         let Some(entry) = entry else {
-            return Ok(format!("No file found matching '{path_str}'"));
+            return Ok(ToolResult::new(format!(
+                "No file found matching '{path_str}'"
+            )));
         };
 
         let mut info = String::new();
@@ -164,7 +169,7 @@ impl WorkspaceTool {
             let _ = writeln!(info, "session_key: {session}");
         }
 
-        Ok(info)
+        Ok(ToolResult::new(info))
     }
 
     fn action_tree(&self) -> String {
@@ -230,62 +235,55 @@ impl WorkspaceTool {
         tree
     }
 
-    fn action_move(&self, params: &Value) -> Result<String> {
-        let path_str = params["path"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("missing 'path' parameter"))?;
-        let category_str = params["category"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("missing 'category' parameter"))?;
+    fn action_move(&self, params: &Value) -> Result<ToolResult> {
+        let path_str = require_param!(params, "path");
+        let category_str = require_param!(params, "category");
 
         let abs_path = self.resolve_tool_path(path_str);
-        let category = FileCategory::from_str(category_str).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let category = match FileCategory::from_str(category_str) {
+            Ok(v) => v,
+            Err(e) => return Ok(ToolResult::error(e)),
+        };
 
         let new_path = self.manager.move_file(&abs_path, category)?;
         let display = new_path
             .strip_prefix(self.manager.workspace_root())
             .unwrap_or(&new_path);
-        Ok(format!("Moved to {}", display.display()))
+        Ok(ToolResult::new(format!("Moved to {}", display.display())))
     }
 
-    fn action_delete(&self, params: &Value) -> Result<String> {
-        let path_str = params["path"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("missing 'path' parameter"))?;
+    fn action_delete(&self, params: &Value) -> Result<ToolResult> {
+        let path_str = require_param!(params, "path");
 
         let abs_path = self.resolve_tool_path(path_str);
         self.manager.remove_file(&abs_path)?;
-        Ok(format!("Deleted {path_str}"))
+        Ok(ToolResult::new(format!("Deleted {path_str}")))
     }
 
-    fn action_tag(&self, params: &Value) -> Result<String> {
-        let path_str = params["path"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("missing 'path' parameter"))?;
-        let tags = params["tags"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("missing 'tags' parameter"))?;
+    fn action_tag(&self, params: &Value) -> Result<ToolResult> {
+        let path_str = require_param!(params, "path");
+        let tags = require_param!(params, "tags");
 
         let abs_path = self.resolve_tool_path(path_str);
         self.manager.tag_file(&abs_path, tags)?;
-        Ok(format!("Tagged '{path_str}' with: {tags}"))
+        Ok(ToolResult::new(format!("Tagged '{path_str}' with: {tags}")))
     }
 
-    fn action_send(&self, params: &Value) -> Result<String> {
-        let path_str = params["path"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("missing 'path' parameter"))?;
+    fn action_send(&self, params: &Value) -> Result<ToolResult> {
+        let path_str = require_param!(params, "path");
 
         let abs_path = self.resolve_tool_path(path_str);
 
         if !abs_path.exists() {
-            anyhow::bail!("file not found: {path_str}");
+            return Ok(ToolResult::error(format!("file not found: {path_str}")));
         }
         // Allow sending any file under the workspace root (including memory/, knowledge/).
         // Unlike delete/move, sending doesn't modify the file so the guard is relaxed.
         let resolved = abs_path.canonicalize().unwrap_or_else(|_| abs_path.clone());
         if !resolved.starts_with(self.manager.workspace_root()) {
-            anyhow::bail!("path is outside the workspace: {path_str}");
+            return Ok(ToolResult::error(format!(
+                "path is outside the workspace: {path_str}"
+            )));
         }
 
         let filename = abs_path
@@ -295,11 +293,11 @@ impl WorkspaceTool {
 
         // Return in "saved to: /path" format so extract_media_paths() picks it up
         // and the agent loop attaches it to OutboundMessage.media
-        Ok(format!(
+        Ok(ToolResult::new(format!(
             "Sending file: {}\nsaved to: {}",
             filename,
             abs_path.display()
-        ))
+        )))
     }
 
     fn action_cleanup(&self) -> Result<String> {
@@ -329,50 +327,22 @@ impl Tool for WorkspaceTool {
     }
 
     fn capabilities(&self) -> ToolCapabilities {
-        use crate::agent::tools::base::ActionDescriptor;
-
         ToolCapabilities {
             built_in: true,
             network_outbound: false,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: vec![
-                ActionDescriptor {
-                    name: "list",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "search",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "info",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "tree",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "move",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "delete",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "tag",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "cleanup",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "send",
-                    read_only: false,
-                },
-            ],
+            actions: {
+                let mut a =
+                    actions![list: ro, search: ro, info: ro, tree: ro, delete, tag, cleanup, send];
+                a.insert(
+                    4,
+                    ActionDescriptor {
+                        name: "move",
+                        read_only: false,
+                    },
+                );
+                a
+            },
             category: ToolCategory::Productivity,
         }
     }
@@ -413,23 +383,19 @@ impl Tool for WorkspaceTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let action = params["action"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("missing 'action' parameter"))?;
+        let action = require_param!(params, "action");
 
-        let result = match action {
+        match action {
             "list" => self.action_list(&params),
             "search" => self.action_search(&params),
             "info" => self.action_info(&params),
-            "tree" => Ok(self.action_tree()),
+            "tree" => Ok(ToolResult::new(self.action_tree())),
             "move" => self.action_move(&params),
             "delete" => self.action_delete(&params),
             "tag" => self.action_tag(&params),
-            "cleanup" => self.action_cleanup(),
+            "cleanup" => Ok(ToolResult::from_result(self.action_cleanup(), "workspace")),
             "send" => self.action_send(&params),
-            _ => return Ok(ToolResult::error(format!("unknown action: '{action}'"))),
-        };
-
-        Ok(ToolResult::from_result(result, "workspace"))
+            _ => Ok(ToolResult::error(format!("unknown action: '{action}'"))),
+        }
     }
 }

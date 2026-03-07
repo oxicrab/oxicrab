@@ -1,6 +1,7 @@
 use crate::agent::subagent::SubagentManager;
 use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
+use crate::require_param;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -52,10 +53,7 @@ impl Tool for SpawnTool {
     }
 
     async fn execute(&self, params: Value, ctx: &ExecutionContext) -> Result<ToolResult> {
-        let task = params["task"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'task' parameter"))?
-            .to_string();
+        let task = require_param!(params, "task").to_string();
 
         let label = params["label"]
             .as_str()

@@ -44,7 +44,7 @@ use crate::safety::LeakDetector;
 use crate::session::{SessionManager, SessionStore};
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -113,6 +113,8 @@ pub struct AgentLoop {
     routing: Option<Arc<crate::config::routing::ResolvedRouting>>,
     /// Complexity scorer for per-message model routing (None when disabled)
     complexity_scorer: Option<complexity::ComplexityScorer>,
+    /// Shared activation set for deferred tools discovered via `tool_search`
+    tool_search_activated: Arc<tokio::sync::Mutex<HashSet<String>>>,
 }
 
 impl AgentLoop {
@@ -272,7 +274,7 @@ impl AgentLoop {
             workspace_ttl: tool_configs.workspace_ttl,
         };
 
-        let (tools, subagents, mcp_manager) =
+        let (tools, subagents, mcp_manager, tool_search_activated) =
             crate::agent::tools::setup::register_all_tools(&tool_ctx).await?;
         let tools = Arc::new(tools);
         subagents.set_main_tools(tools.clone());
@@ -391,9 +393,15 @@ impl AgentLoop {
             _mcp_manager: mcp_manager,
             routing,
             complexity_scorer,
+            tool_search_activated,
         })
     }
 
+    /// Run the agent loop, processing inbound messages until the channel closes.
+    ///
+    /// **Shutdown:** The caller must cancel the spawned task (e.g. via `tokio::select!`)
+    /// to stop the loop. The `stop()` method sets an advisory flag but does not
+    /// wake the blocked `recv()` call.
     pub async fn run(&self) -> Result<()> {
         *self.running.lock().await = true;
         info!("agent loop started, waiting for messages");

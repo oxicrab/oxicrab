@@ -144,26 +144,32 @@ async fn webhook_handler(
         return StatusCode::OK.into_response();
     }
 
-    // Check access based on dmPolicy
-    match check_dm_access(&sender, &state.allow_from, "twilio", &state.dm_policy) {
-        DmCheckResult::Allowed => {}
-        DmCheckResult::PairingRequired { code } => {
-            let reply = format_pairing_reply("twilio", &sender, &code);
-            // Return TwiML response so Twilio sends the pairing code as an SMS reply
-            let escaped = html_escape::encode_text(&reply);
-            let twiml = format!(
-                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response><Message>{escaped}</Message></Response>"
-            );
-            return (
-                StatusCode::OK,
-                [(axum::http::header::CONTENT_TYPE, "text/xml")],
-                twiml,
-            )
-                .into_response();
-        }
-        DmCheckResult::Denied => {
-            debug!("twilio webhook: sender not allowed: {}", sender);
-            return StatusCode::OK.into_response();
+    // Conversations messages (ConversationSid) are group messages — skip DM access check.
+    // SMS messages (MessageSid) are always 1:1 so DM access applies.
+    let is_group = params.contains_key("ConversationSid");
+
+    // Check access based on dmPolicy (skip for group messages, consistent with other channels)
+    if !is_group {
+        match check_dm_access(&sender, &state.allow_from, "twilio", &state.dm_policy) {
+            DmCheckResult::Allowed => {}
+            DmCheckResult::PairingRequired { code } => {
+                let reply = format_pairing_reply("twilio", &sender, &code);
+                // Return TwiML response so Twilio sends the pairing code as an SMS reply
+                let escaped = html_escape::encode_text(&reply);
+                let twiml = format!(
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response><Message>{escaped}</Message></Response>"
+                );
+                return (
+                    StatusCode::OK,
+                    [(axum::http::header::CONTENT_TYPE, "text/xml")],
+                    twiml,
+                )
+                    .into_response();
+            }
+            DmCheckResult::Denied => {
+                debug!("twilio webhook: sender not allowed: {}", sender);
+                return StatusCode::OK.into_response();
+            }
         }
     }
 
@@ -234,6 +240,7 @@ impl BaseChannel for TwilioChannel {
 
         let app = Router::new()
             .route(&webhook_path, post(webhook_handler))
+            .layer(axum::extract::DefaultBodyLimit::max(1_048_576))
             .with_state(state);
 
         let addr = std::net::SocketAddr::from(([0, 0, 0, 0], webhook_port));

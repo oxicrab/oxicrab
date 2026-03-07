@@ -10,6 +10,7 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
+use crate::agent::memory::quality::{FILLER, GREETINGS};
 use crate::config::schema::ComplexityWeights;
 
 /// Pre-built scoring engine constructed once at startup. Holds AC automata and
@@ -230,68 +231,14 @@ impl ComplexityScorer {
             .expect("technical AC automaton should build");
 
         // Reuse quality.rs GREETINGS/FILLER pattern lists for dimension 7.
-        // We can't import the private constants directly, so we duplicate the
-        // word lists here (they're small and stable).
-        let greetings: &[&str] = &[
-            "hi",
-            "hello",
-            "hey",
-            "yo",
-            "sup",
-            "thanks",
-            "thank you",
-            "thx",
-            "ty",
-            "bye",
-            "goodbye",
-            "good morning",
-            "good evening",
-            "good night",
-            "good afternoon",
-            "gm",
-            "gn",
-        ];
-        let filler: &[&str] = &[
-            "ok",
-            "okay",
-            "sure",
-            "yes",
-            "no",
-            "yep",
-            "nope",
-            "yeah",
-            "nah",
-            "cool",
-            "nice",
-            "great",
-            "awesome",
-            "got it",
-            "understood",
-            "alright",
-            "right",
-            "fine",
-            "lol",
-            "haha",
-            "lmao",
-            "hmm",
-            "hm",
-            "ah",
-            "oh",
-            "uh",
-            "um",
-            "wow",
-            "k",
-            "kk",
-        ];
-
         let greeting_ac = AhoCorasick::builder()
             .ascii_case_insensitive(true)
-            .build(greetings)
+            .build(GREETINGS)
             .expect("greeting AC automaton should build");
 
         let filler_ac = AhoCorasick::builder()
             .ascii_case_insensitive(true)
-            .build(filler)
+            .build(FILLER)
             .expect("filler AC automaton should build");
 
         Self {

@@ -128,6 +128,10 @@ impl LLMProvider for AnthropicProvider {
             .post(&self.base_url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01");
+        req_builder = req_builder.header(
+            "x-session-affinity",
+            crate::providers::session_affinity_id(),
+        );
         for (k, v) in &self.custom_headers {
             req_builder = req_builder.header(k.as_str(), v.as_str());
         }
@@ -166,6 +170,10 @@ impl LLMProvider for AnthropicProvider {
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
             .timeout(Duration::from_secs(15));
+        req_builder = req_builder.header(
+            "x-session-affinity",
+            crate::providers::session_affinity_id(),
+        );
         for (k, v) in &self.custom_headers {
             req_builder = req_builder.header(k.as_str(), v.as_str());
         }

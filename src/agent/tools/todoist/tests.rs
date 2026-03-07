@@ -13,8 +13,10 @@ fn tool() -> TodoistTool {
 async fn test_missing_action() {
     let result = tool()
         .execute(serde_json::json!({}), &ExecutionContext::default())
-        .await;
-    assert!(result.is_err());
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("Missing"));
 }
 
 #[tokio::test]
@@ -135,7 +137,7 @@ async fn test_list_tasks_with_filter() {
 
     assert!(!result.is_error);
     assert!(result.content.contains("Morning standup"));
-    assert!(result.content.contains("!!"));
+    assert!(result.content.contains(" !"));
 }
 
 #[tokio::test]

@@ -25,6 +25,13 @@ impl EventMatcher {
                 channel,
             } = &job.schedule
             {
+                if pat.len() > 1024 {
+                    warn!(
+                        "Event cron job '{}' has regex pattern exceeding 1024 chars, skipping",
+                        job.id
+                    );
+                    continue;
+                }
                 match Regex::new(pat) {
                     Ok(re) => {
                         matchers.push((job.id.clone(), re, channel.clone(), job.clone()));

@@ -1,6 +1,7 @@
 use crate::actions;
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
+use crate::require_param;
 use anyhow::Result;
 use async_trait::async_trait;
 use base64::Engine;
@@ -439,11 +440,6 @@ impl GitHubTool {
         file_path: &str,
         git_ref: Option<&str>,
     ) -> Result<String> {
-        // Reject path traversal attempts before constructing the API URL
-        if file_path.split('/').any(|seg| seg == ".." || seg == ".") {
-            anyhow::bail!("file path must not contain '.' or '..' segments");
-        }
-
         let mut query: Vec<(&str, &str)> = Vec::new();
         if let Some(r) = git_ref {
             query.push(("ref", r));
@@ -725,9 +721,7 @@ impl Tool for GitHubTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let action = params["action"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
+        let action = require_param!(params, "action");
 
         match action {
             "list_issues" | "list_prs" | "create_issue" | "get_pr" | "get_issue"
@@ -826,6 +820,11 @@ impl Tool for GitHubTool {
                         let Some(file_path) = params["path"].as_str() else {
                             return Ok(ToolResult::error("missing 'path' parameter".to_string()));
                         };
+                        if file_path.split('/').any(|seg| seg == ".." || seg == ".") {
+                            return Ok(ToolResult::error(
+                                "file path must not contain '.' or '..' segments".to_string(),
+                            ));
+                        }
                         self.get_file_content(owner, repo, file_path, params["ref"].as_str())
                             .await
                     }

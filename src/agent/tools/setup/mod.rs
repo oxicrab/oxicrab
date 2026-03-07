@@ -42,11 +42,20 @@ pub struct ToolBuildContext {
 }
 
 /// Register all tools into the registry using decentralized per-module `register()` functions.
-/// Returns `(ToolRegistry, SubagentManager, Option<McpManager>)`.
+/// Returns `(ToolRegistry, SubagentManager, Option<McpManager>, tool_search_activated)`.
+/// The `Arc<Mutex<HashSet<String>>>` is the shared activation set for deferred tools —
+/// the agent loop reads it to dynamically expand tool schemas when `tool_search` discovers tools.
 pub async fn register_all_tools(
     ctx: &ToolBuildContext,
-) -> Result<(ToolRegistry, Arc<SubagentManager>, Option<McpManager>)> {
-    let mut tools = ToolRegistry::new();
+) -> Result<(
+    ToolRegistry,
+    Arc<SubagentManager>,
+    Option<McpManager>,
+    Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+)> {
+    // Tool output stash — shared between truncation middleware and stash_retrieve tool
+    let stash = Arc::new(crate::agent::tools::stash::ToolOutputStash::new());
+    let mut tools = ToolRegistry::with_stash(stash.clone());
 
     register_filesystem(&mut tools, ctx);
     register_shell(&mut tools, ctx)?;
@@ -84,14 +93,44 @@ pub async fn register_all_tools(
                 warn!("MCP tool '{}' rejected: shadows a built-in tool", name);
                 continue;
             }
-            tools.register(tool);
+            // Defer MCP tool schemas to save tokens — they're discoverable via tool_search
+            tools.register_deferred(tool);
         }
         Some(manager)
     } else {
         None
     };
 
-    Ok((tools, subagents, mcp_manager))
+    // Stash retrieval tool — lets the LLM recover truncated tool output
+    tools.register(Arc::new(
+        crate::agent::tools::stash::StashRetrieveTool::new(stash),
+    ));
+
+    // Build tool_search index from all registered tools (including deferred)
+    let activated: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>> =
+        Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
+    let index: Vec<crate::agent::tools::tool_search::ToolIndexEntry> = tools
+        .iter()
+        .map(
+            |(name, tool)| crate::agent::tools::tool_search::ToolIndexEntry {
+                name: name.to_string(),
+                description: tool.description().to_string(),
+                deferred: tools.is_deferred(name),
+            },
+        )
+        .collect();
+
+    if tools.deferred_count() > 0 {
+        info!(
+            "Registering tool_search with {} deferred tools",
+            tools.deferred_count()
+        );
+        tools.register(Arc::new(
+            crate::agent::tools::tool_search::ToolSearchTool::new(index, activated.clone()),
+        ));
+    }
+
+    Ok((tools, subagents, mcp_manager, activated))
 }
 
 fn register_filesystem(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {

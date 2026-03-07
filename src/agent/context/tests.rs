@@ -11,8 +11,13 @@ fn test_default_identity_contains_required_sections() {
     let tmp = tempfile::TempDir::new().unwrap();
     let _ctx = create_test_context(tmp.path());
 
-    let identity =
-        ContextBuilder::get_default_identity("2026-02-09", "EST", "Rust 0.1.3", "/workspace");
+    let identity = ContextBuilder::get_default_identity(
+        "2026-02-09",
+        "EST",
+        "Rust 0.1.3",
+        "/workspace",
+        "Sunday, February 9, 2026 at 12:00 EST",
+    );
 
     assert!(identity.contains("# oxicrab"), "missing heading");
     assert!(identity.contains("## Capabilities"), "missing capabilities");
@@ -48,7 +53,7 @@ fn test_default_identity_has_no_behavioral_rules() {
     let tmp = tempfile::TempDir::new().unwrap();
     let _ctx = create_test_context(tmp.path());
 
-    let identity = ContextBuilder::get_default_identity("now", "UTC", "Rust 0.1.3", "/ws");
+    let identity = ContextBuilder::get_default_identity("now", "UTC", "Rust 0.1.3", "/ws", "now");
 
     assert!(
         !identity.contains("## Behavioral Rules"),
@@ -67,9 +72,14 @@ fn test_build_identity_with_context_appends_context() {
         "EST",
         "Rust 0.1.3",
         "/my/workspace",
+        "Sunday, February 9, 2026 at 12:00 EST",
     );
 
-    assert!(result.starts_with("# Custom Bot"));
+    assert!(
+        result.starts_with("The current date and time is"),
+        "should start with datetime sentence"
+    );
+    assert!(result.contains("# Custom Bot"));
     assert!(result.contains("I am a custom bot."));
     assert!(result.contains("## Current Context"));
     assert!(result.contains("**Date**: 2026-02-09"));
@@ -330,8 +340,13 @@ async fn test_build_messages_includes_channel_hint() {
 
 #[test]
 fn test_default_identity_has_tool_directness_rule() {
-    let identity =
-        ContextBuilder::get_default_identity("2026-02-21", "UTC", "Rust 0.1.3", "/workspace");
+    let identity = ContextBuilder::get_default_identity(
+        "2026-02-21",
+        "UTC",
+        "Rust 0.1.3",
+        "/workspace",
+        "Saturday, February 21, 2026 at 12:00 UTC",
+    );
     assert!(
         identity.contains("call them directly"),
         "default identity should include tool directness rule"

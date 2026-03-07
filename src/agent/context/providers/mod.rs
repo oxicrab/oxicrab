@@ -70,7 +70,10 @@ impl ContextProviderRunner {
     async fn get_provider_output(&self, provider: &ContextProviderConfig) -> Option<String> {
         // Check cache
         {
-            let cache = self.cache.lock().ok()?;
+            let cache = self.cache.lock().unwrap_or_else(|poison| {
+                warn!("context provider cache mutex was poisoned, recovering");
+                poison.into_inner()
+            });
             if let Some(cached) = cache.get(&provider.name)
                 && cached.fetched_at.elapsed() < Duration::from_secs(provider.ttl)
             {
@@ -122,7 +125,11 @@ impl ContextProviderRunner {
         };
 
         // Update cache
-        if let Ok(mut cache) = self.cache.lock() {
+        {
+            let mut cache = self.cache.lock().unwrap_or_else(|poison| {
+                warn!("context provider cache mutex was poisoned, recovering");
+                poison.into_inner()
+            });
             cache.insert(
                 provider.name.clone(),
                 CachedOutput {

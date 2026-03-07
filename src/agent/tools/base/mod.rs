@@ -161,6 +161,25 @@ macro_rules! actions {
     };
 }
 
+/// Extract a required string parameter from a JSON `Value`, returning a
+/// `ToolResult::error` if the key is missing or not a string.
+///
+/// Usage: `let action = require_param!(params, "action");`
+#[macro_export]
+macro_rules! require_param {
+    ($params:expr, $key:literal) => {
+        match $params[$key].as_str() {
+            Some(v) => v,
+            None => {
+                return Ok($crate::agent::tools::base::ToolResult::error(format!(
+                    "Missing '{}' parameter",
+                    $key
+                )));
+            }
+        }
+    };
+}
+
 /// Capability metadata intrinsic to a tool. Queried by the registry,
 /// subagent builder, exfiltration guard, and MCP trust filter.
 #[derive(Debug, Clone)]

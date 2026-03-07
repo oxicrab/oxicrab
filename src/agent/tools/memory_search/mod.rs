@@ -1,5 +1,6 @@
+use crate::actions;
 use crate::agent::memory::MemoryStore;
-use crate::agent::tools::base::{ExecutionContext, ToolCapabilities};
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -64,6 +65,8 @@ impl Tool for MemorySearchTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
+            subagent_access: SubagentAccess::ReadOnly,
+            actions: actions![search: ro, explain_last: ro],
             ..Default::default()
         }
     }

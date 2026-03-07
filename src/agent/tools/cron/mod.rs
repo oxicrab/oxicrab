@@ -5,6 +5,7 @@ use crate::agent::tools::{Tool, ToolResult};
 use crate::config::ChannelsConfig;
 use crate::cron::service::CronService;
 use crate::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule, CronTarget};
+use crate::require_param;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::Value;
@@ -367,12 +368,23 @@ impl Tool for CronTool {
     }
 
     async fn execute(&self, params: Value, ctx: &ExecutionContext) -> Result<ToolResult> {
-        let action = params["action"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
+        let action = require_param!(params, "action");
 
         match action {
             "add" => {
+                // Prevent infinite feedback loops: cron jobs cannot schedule new cron jobs
+                if ctx
+                    .metadata
+                    .get(crate::bus::meta::IS_CRON_JOB)
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    return Ok(ToolResult::error(
+                        "cannot schedule new cron jobs from within a cron job execution"
+                            .to_string(),
+                    ));
+                }
+
                 let job_type = params["type"].as_str().unwrap_or("agent");
                 if job_type != "agent" && job_type != "echo" {
                     return Ok(ToolResult::error(format!(
@@ -380,11 +392,11 @@ impl Tool for CronTool {
                     )));
                 }
 
-                let message = params["message"]
-                    .as_str()
-                    .filter(|s| !s.trim().is_empty())
-                    .ok_or_else(|| anyhow::anyhow!("Missing or empty 'message' parameter for add"))?
-                    .to_string();
+                let message = require_param!(params, "message");
+                if message.trim().is_empty() {
+                    return Ok(ToolResult::error("Missing 'message' parameter".to_string()));
+                }
+                let message = message.to_string();
 
                 let channel = ctx.channel.clone();
                 let chat_id = ctx.chat_id.clone();
@@ -413,11 +425,13 @@ impl Tool for CronTool {
 
                 // Parse optional expiry
                 let expires_at_ms = if let Some(exp_str) = params["expires_at"].as_str() {
-                    let dt = chrono::DateTime::parse_from_rfc3339(exp_str)
-                        .or_else(|_| {
-                            chrono::DateTime::parse_from_str(exp_str, "%Y-%m-%dT%H:%M:%S%z")
-                        })
-                        .map_err(|_| anyhow::anyhow!("Invalid expires_at format. Use ISO 8601."))?;
+                    let Ok(dt) = chrono::DateTime::parse_from_rfc3339(exp_str).or_else(|_| {
+                        chrono::DateTime::parse_from_str(exp_str, "%Y-%m-%dT%H:%M:%S%z")
+                    }) else {
+                        return Ok(ToolResult::error(
+                            "Invalid expires_at format. Use ISO 8601.",
+                        ));
+                    };
                     let ms = dt.timestamp_millis();
                     let now_check = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
@@ -544,9 +558,7 @@ impl Tool for CronTool {
                 )))
             }
             "remove" => {
-                let job_id = params["job_id"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'job_id' parameter for remove"))?;
+                let job_id = require_param!(params, "job_id");
 
                 match self.cron_service.remove_job(job_id)? {
                     Some(_) => Ok(ToolResult::new(format!("Removed job {job_id}"))),
@@ -554,10 +566,7 @@ impl Tool for CronTool {
                 }
             }
             "run" => {
-                let job_id = params["job_id"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'job_id' parameter for run"))?
-                    .to_string();
+                let job_id = require_param!(params, "job_id").to_string();
 
                 // Spawn job execution on a separate task to avoid deadlock.
                 // The agent loop holds a per-session lock during tool execution,
@@ -612,9 +621,9 @@ impl Tool for CronTool {
                         "DLQ not available (no memory database)".to_string(),
                     ));
                 };
-                let dlq_id = params["dlq_id"]
-                    .as_i64()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'dlq_id' parameter for dlq_replay"))?;
+                let Some(dlq_id) = params["dlq_id"].as_i64() else {
+                    return Ok(ToolResult::error("Missing 'dlq_id' parameter".to_string()));
+                };
 
                 // Find the entry
                 let entries = db.list_dlq_entries(None)?;

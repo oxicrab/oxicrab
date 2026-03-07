@@ -1,6 +1,7 @@
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::config::SandboxConfig;
+use crate::require_param;
 use crate::utils::regex::compile_security_patterns;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -350,9 +351,7 @@ impl Tool for ExecTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let command = params["command"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;
+        let command = require_param!(params, "command");
 
         let working_dir = params["working_dir"]
             .as_str()
@@ -379,6 +378,15 @@ impl Tool for ExecTool {
         cmd.arg("-c").arg(command);
         cmd.current_dir(&cwd);
         cmd.kill_on_drop(true);
+        // Pipe stdout/stderr so wait_with_output() captures them
+        // (spawn() uses inherited stdio by default, unlike output())
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        // Run the shell in its own process group so we can kill all children
+        // on timeout, not just the top-level shell process.
+        #[cfg(unix)]
+        cmd.process_group(0);
 
         if self.sandbox_config.enabled {
             let rules = crate::utils::sandbox::SandboxRules::for_shell(&cwd, &self.sandbox_config);
@@ -389,68 +397,101 @@ impl Tool for ExecTool {
             }
         }
 
-        match tokio::time::timeout(Duration::from_secs(self.timeout), cmd.output()).await {
-            Ok(Ok(output)) => {
-                let combined_len = output.stdout.len() + output.stderr.len();
-                let truncated = combined_len > MAX_OUTPUT_BYTES;
-
-                // Truncate raw bytes before UTF-8 conversion to bound memory.
-                // Reserve at least 25% for stderr so error messages aren't lost.
-                let stderr_reserve = MAX_OUTPUT_BYTES / 4;
-                let stderr_needed = stderr_reserve.min(output.stderr.len());
-                let stdout_max = MAX_OUTPUT_BYTES - stderr_needed;
-                let stdout_bytes = if output.stdout.len() > stdout_max {
-                    truncate_at_utf8_boundary(&output.stdout, stdout_max)
-                } else {
-                    &output.stdout
-                };
-                // Give stderr at least its reserved amount, plus any space stdout didn't use
-                let remaining = MAX_OUTPUT_BYTES.saturating_sub(stdout_bytes.len());
-                let stderr_limit = remaining.max(stderr_needed);
-                let stderr_bytes = if output.stderr.len() > stderr_limit {
-                    truncate_at_utf8_boundary(&output.stderr, stderr_limit)
-                } else {
-                    &output.stderr
-                };
-
-                let stdout = String::from_utf8_lossy(stdout_bytes);
-                let stderr = String::from_utf8_lossy(stderr_bytes);
-
-                let mut result = String::new();
-                if !stdout.is_empty() {
-                    result.push_str(&stdout);
-                }
-                if !stderr.is_empty() {
-                    if !result.is_empty() {
-                        result.push_str("\n--- stderr ---\n");
-                    }
-                    result.push_str(&stderr);
-                }
-                if truncated {
-                    result.push_str("\n[output truncated at 1MB]");
-                }
-
-                if output.status.success() {
-                    Ok(ToolResult::new(if result.is_empty() {
-                        "(no output)".to_string()
-                    } else {
-                        result
-                    }))
-                } else {
-                    Ok(ToolResult::error(format!("command failed: {result}")))
-                }
+        let child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(ToolResult::error(
+                    crate::utils::path_sanitize::sanitize_error_message(
+                        &format!("error executing command: {e}"),
+                        self.working_dir.as_deref(),
+                    ),
+                ));
             }
+        };
+
+        // Save PID before wait_with_output() consumes child.
+        // On timeout, we use this to kill the entire process group.
+        #[cfg(unix)]
+        let child_pid = child.id();
+
+        match tokio::time::timeout(Duration::from_secs(self.timeout), child.wait_with_output())
+            .await
+        {
+            Ok(Ok(output)) => Ok(format_output(&output)),
             Ok(Err(e)) => Ok(ToolResult::error(
                 crate::utils::path_sanitize::sanitize_error_message(
                     &format!("error executing command: {e}"),
                     self.working_dir.as_deref(),
                 ),
             )),
-            Err(_) => Ok(ToolResult::error(format!(
-                "command timed out after {} seconds",
-                self.timeout
-            ))),
+            Err(_) => {
+                // kill_on_drop already killed the top-level shell, but child
+                // processes survive. Kill the entire process group.
+                #[cfg(unix)]
+                if let Some(pid) = child_pid {
+                    // SAFETY: killpg sends SIGKILL to all processes in the group.
+                    // The pgid equals the child pid because we set process_group(0).
+                    unsafe {
+                        libc::killpg(pid as libc::pid_t, libc::SIGKILL);
+                    }
+                }
+                Ok(ToolResult::error(format!(
+                    "command timed out after {} seconds",
+                    self.timeout
+                )))
+            }
         }
+    }
+}
+
+/// Format captured process output into a `ToolResult`.
+fn format_output(output: &std::process::Output) -> ToolResult {
+    let combined_len = output.stdout.len() + output.stderr.len();
+    let truncated = combined_len > MAX_OUTPUT_BYTES;
+
+    // Truncate raw bytes before UTF-8 conversion to bound memory.
+    // Reserve at least 25% for stderr so error messages aren't lost.
+    let stderr_reserve = MAX_OUTPUT_BYTES / 4;
+    let stderr_needed = stderr_reserve.min(output.stderr.len());
+    let stdout_max = MAX_OUTPUT_BYTES - stderr_needed;
+    let stdout_bytes = if output.stdout.len() > stdout_max {
+        truncate_at_utf8_boundary(&output.stdout, stdout_max)
+    } else {
+        &output.stdout
+    };
+    let remaining = MAX_OUTPUT_BYTES.saturating_sub(stdout_bytes.len());
+    let stderr_limit = remaining.max(stderr_needed);
+    let stderr_bytes = if output.stderr.len() > stderr_limit {
+        truncate_at_utf8_boundary(&output.stderr, stderr_limit)
+    } else {
+        &output.stderr
+    };
+
+    let stdout = String::from_utf8_lossy(stdout_bytes);
+    let stderr = String::from_utf8_lossy(stderr_bytes);
+
+    let mut result = String::new();
+    if !stdout.is_empty() {
+        result.push_str(&stdout);
+    }
+    if !stderr.is_empty() {
+        if !result.is_empty() {
+            result.push_str("\n--- stderr ---\n");
+        }
+        result.push_str(&stderr);
+    }
+    if truncated {
+        result.push_str("\n[output truncated at 1MB]");
+    }
+
+    if output.status.success() {
+        ToolResult::new(if result.is_empty() {
+            "(no output)".to_string()
+        } else {
+            result
+        })
+    } else {
+        ToolResult::error(format!("command failed: {result}"))
     }
 }
 

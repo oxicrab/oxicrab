@@ -1,6 +1,8 @@
+use crate::actions;
 use crate::agent::subagent::SubagentManager;
 use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
+use crate::require_param;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -48,15 +50,13 @@ impl Tool for SubagentControlTool {
         ToolCapabilities {
             built_in: true,
             category: ToolCategory::System,
+            actions: actions![list: ro, cancel],
             ..Default::default()
         }
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let action = params["action"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?
-            .to_lowercase();
+        let action = require_param!(params, "action").to_lowercase();
 
         match action.as_str() {
             "list" => {
@@ -99,9 +99,7 @@ impl Tool for SubagentControlTool {
                 )))
             }
             "cancel" => {
-                let task_id = params["task_id"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'task_id' parameter for cancel"))?;
+                let task_id = require_param!(params, "task_id");
 
                 let cancelled = self.manager.cancel(task_id).await;
                 if cancelled {

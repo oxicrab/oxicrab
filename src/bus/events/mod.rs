@@ -26,6 +26,8 @@ pub mod meta {
     pub const LAST_INPUT_TOKENS: &str = "last_input_tokens";
     /// Names of tools used during agent processing (`string[]`).
     pub const TOOLS_USED: &str = "tools_used";
+    /// Whether this execution originates from a cron job (`bool`).
+    pub const IS_CRON_JOB: &str = "is_cron_job";
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

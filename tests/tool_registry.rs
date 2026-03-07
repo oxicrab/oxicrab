@@ -293,7 +293,13 @@ async fn test_error_tool_returns_error_result() {
         .await
         .expect("execute error tool");
     assert!(result.is_error);
-    assert_eq!(result.content, "Something went wrong");
+    assert!(
+        result.content.starts_with("Something went wrong"),
+        "error content should start with tool error message, got: {}",
+        result.content
+    );
+    // Schema hint injection appends description + parameters to error results
+    assert!(result.content.contains("Tool description:"));
 }
 
 #[tokio::test]

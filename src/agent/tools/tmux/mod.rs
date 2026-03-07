@@ -1,5 +1,7 @@
+use crate::actions;
 use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
+use crate::require_param;
 use crate::utils::regex::compile_security_patterns;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -94,6 +96,7 @@ impl Tool for TmuxTool {
         ToolCapabilities {
             built_in: true,
             category: ToolCategory::System,
+            actions: actions![create, send, read: ro, list: ro, kill],
             ..Default::default()
         }
     }
@@ -126,7 +129,7 @@ impl Tool for TmuxTool {
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         // Check if tmux is available
-        if tokio::process::Command::new("tmux")
+        if crate::utils::subprocess::scrubbed_command("tmux")
             .arg("-V")
             .output()
             .await
@@ -137,15 +140,11 @@ impl Tool for TmuxTool {
             ));
         }
 
-        let action = params["action"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
+        let action = require_param!(params, "action");
 
         match action {
             "create" => {
-                let session_name = params["session_name"].as_str().ok_or_else(|| {
-                    anyhow::anyhow!("Missing 'session_name' parameter for create")
-                })?;
+                let session_name = require_param!(params, "session_name");
                 if !SAFE_SESSION_NAME.is_match(session_name) {
                     return Ok(ToolResult::error(
                         "session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
@@ -168,17 +167,13 @@ impl Tool for TmuxTool {
                 Ok(ToolResult::new(format!("Session '{session_name}' created")))
             }
             "send" => {
-                let session_name = params["session_name"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'session_name' parameter for send"))?;
+                let session_name = require_param!(params, "session_name");
                 if !SAFE_SESSION_NAME.is_match(session_name) {
                     return Ok(ToolResult::error(
                         "session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
                     ));
                 }
-                let command = params["command"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter for send"))?;
+                let command = require_param!(params, "command");
 
                 // Security check: use the same regex blocklist as the exec/shell tool
                 for pattern in &self.deny_patterns {
@@ -204,9 +199,7 @@ impl Tool for TmuxTool {
                 )))
             }
             "read" => {
-                let session_name = params["session_name"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'session_name' parameter for read"))?;
+                let session_name = require_param!(params, "session_name");
                 if !SAFE_SESSION_NAME.is_match(session_name) {
                     return Ok(ToolResult::error(
                         "session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),
@@ -262,9 +255,7 @@ impl Tool for TmuxTool {
                 }))
             }
             "kill" => {
-                let session_name = params["session_name"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'session_name' parameter for kill"))?;
+                let session_name = require_param!(params, "session_name");
                 if !SAFE_SESSION_NAME.is_match(session_name) {
                     return Ok(ToolResult::error(
                         "session name must contain only alphanumeric characters, hyphens, and underscores".to_string(),

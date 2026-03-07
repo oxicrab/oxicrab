@@ -828,11 +828,8 @@ async fn handle_slack_event(
                 // Post pairing reply to DM channel
                 let _ = client
                     .post("https://slack.com/api/chat.postMessage")
-                    .form(&[
-                        ("token", bot_token),
-                        ("channel", channel_id),
-                        ("text", &reply),
-                    ])
+                    .bearer_auth(bot_token)
+                    .form(&[("channel", channel_id), ("text", &reply)])
                     .send()
                     .await;
                 return Ok(());

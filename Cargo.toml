@@ -57,6 +57,7 @@ hex = "0.4"
 hmac = "0.12"
 html-escape = "0.2"
 indexmap = "2"
+libc = "0.2"
 keyring = { version = "3", optional = true }
 lru = "0.16"
 oauth2 = "5.0"

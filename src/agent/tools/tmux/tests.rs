@@ -45,8 +45,10 @@ async fn test_missing_action() {
     let tool = TmuxTool::new();
     let result = tool
         .execute(serde_json::json!({}), &ExecutionContext::default())
-        .await;
-    assert!(result.is_err());
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("Missing"));
 }
 
 #[tokio::test]
@@ -77,8 +79,10 @@ async fn test_send_missing_session_name() {
             serde_json::json!({"action": "send", "command": "echo hi"}),
             &ExecutionContext::default(),
         )
-        .await;
-    assert!(result.is_err());
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("Missing"));
 }
 
 #[tokio::test]
@@ -92,8 +96,10 @@ async fn test_send_missing_command() {
             serde_json::json!({"action": "send", "session_name": "test"}),
             &ExecutionContext::default(),
         )
-        .await;
-    assert!(result.is_err());
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("Missing"));
 }
 
 #[tokio::test]
@@ -107,8 +113,10 @@ async fn test_read_missing_session_name() {
             serde_json::json!({"action": "read"}),
             &ExecutionContext::default(),
         )
-        .await;
-    assert!(result.is_err());
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("Missing"));
 }
 
 #[test]
@@ -119,5 +127,31 @@ fn test_tmux_capabilities() {
     assert!(caps.built_in);
     assert!(!caps.network_outbound);
     assert_eq!(caps.subagent_access, SubagentAccess::Denied);
-    assert!(caps.actions.is_empty());
+    assert_eq!(caps.actions.len(), 5);
+}
+
+#[test]
+fn test_tmux_actions_match_schema() {
+    let tool = TmuxTool::new();
+    let caps = tool.capabilities();
+    let params = tool.parameters();
+    let schema_actions: Vec<String> = params["properties"]["action"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let cap_actions: Vec<String> = caps.actions.iter().map(|a| a.name.to_string()).collect();
+    for action in &schema_actions {
+        assert!(
+            cap_actions.contains(action),
+            "action '{action}' in schema but not in capabilities()"
+        );
+    }
+    for action in &cap_actions {
+        assert!(
+            schema_actions.contains(action),
+            "action '{action}' in capabilities() but not in schema"
+        );
+    }
 }
