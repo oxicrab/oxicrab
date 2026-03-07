@@ -263,6 +263,10 @@ pub fn parse_response(json: &Value) -> LLMResponse {
         .and_then(|u| u.get("cache_read_input_tokens"))
         .and_then(serde_json::Value::as_u64);
 
+    let finish_reason = json["stop_reason"]
+        .as_str()
+        .map(std::string::ToString::to_string);
+
     LLMResponse {
         content,
         tool_calls,
@@ -272,6 +276,7 @@ pub fn parse_response(json: &Value) -> LLMResponse {
         output_tokens,
         cache_creation_input_tokens,
         cache_read_input_tokens,
+        finish_reason,
         ..Default::default()
     }
 }

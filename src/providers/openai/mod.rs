@@ -131,12 +131,17 @@ impl OpenAIProvider {
             .as_str()
             .map(std::string::ToString::to_string);
 
+        let finish_reason = choice["finish_reason"]
+            .as_str()
+            .map(std::string::ToString::to_string);
+
         Ok(LLMResponse {
             content,
             tool_calls,
             reasoning_content,
             input_tokens,
             output_tokens,
+            finish_reason,
             ..Default::default()
         })
     }

@@ -40,6 +40,73 @@ const DEFAULT_CACHE_MAX_ENTRIES: usize = 128;
 const DEFAULT_CACHE_TTL_SECS: u64 = 300; // 5 minutes
 const DEFAULT_MAX_RESULT_CHARS: usize = 10000;
 
+/// Coerce LLM-provided parameter values to match the JSON Schema types declared
+/// by a tool. LLMs frequently return `"5"` when a schema expects a number, or
+/// `5` when a schema expects a string. This auto-casting avoids wasting a full
+/// LLM round-trip on trivially fixable type mismatches.
+fn coerce_params_to_schema(mut params: Value, schema: &Value) -> Value {
+    let Some(Value::Object(properties)) = schema.get("properties") else {
+        return params;
+    };
+    let Some(params_obj) = params.as_object_mut() else {
+        return params;
+    };
+
+    for (key, prop_schema) in properties {
+        let Some(expected_type) = prop_schema.get("type").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(value) = params_obj.get_mut(key) else {
+            continue;
+        };
+
+        match expected_type {
+            "integer" if value.is_string() => {
+                // "5" → 5
+                if let Some(s) = value.as_str()
+                    && let Ok(n) = s.parse::<i64>()
+                {
+                    *value = Value::Number(n.into());
+                }
+            }
+            "number" if value.is_string() => {
+                // "3.14" → 3.14
+                if let Some(s) = value.as_str()
+                    && let Ok(n) = s.parse::<f64>()
+                    && let Some(num) = serde_json::Number::from_f64(n)
+                {
+                    *value = Value::Number(num);
+                }
+            }
+            "string" if value.is_number() => {
+                // 5 → "5"
+                *value = Value::String(value.to_string());
+            }
+            "boolean" if value.is_string() => {
+                // "true" → true, "false" → false
+                match value.as_str() {
+                    Some("true") => *value = Value::Bool(true),
+                    Some("false") => *value = Value::Bool(false),
+                    _ => {}
+                }
+            }
+            "array" | "object" if value.is_string() => {
+                // "{\"a\":1}" → {"a":1}, "[1,2]" → [1,2]
+                if let Some(s) = value.as_str()
+                    && let Ok(parsed) = serde_json::from_str::<Value>(s)
+                    && ((expected_type == "array" && parsed.is_array())
+                        || (expected_type == "object" && parsed.is_object()))
+                {
+                    *value = parsed;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    params
+}
+
 struct CachedResult {
     result: ToolResult,
     cached_at: Instant,
@@ -202,10 +269,33 @@ impl ToolRegistry {
         }
     }
 
+    /// When a tool returns an error, append its description and parameter schema
+    /// as a hint so the LLM can self-correct without needing the full schema in
+    /// every request. Caps: 500 char description, 3000 char schema.
+    fn inject_schema_hint(tool: &dyn Tool, result: &mut ToolResult) {
+        use std::fmt::Write as _;
+
+        let desc = tool.description();
+        let desc_capped = if desc.len() > 500 { &desc[..500] } else { desc };
+        let schema = serde_json::to_string_pretty(&tool.parameters()).unwrap_or_default();
+        let schema_capped = if schema.len() > 3000 {
+            &schema[..schema.floor_char_boundary(3000)]
+        } else {
+            &schema
+        };
+
+        let _ = write!(
+            result.content,
+            "\n\nTool description: {desc_capped}\nExpected parameters:\n{schema_capped}"
+        );
+    }
+
     /// Execute a tool through the full middleware pipeline:
-    /// 1. Run `before_execute` middleware (any can short-circuit with cached/precomputed result)
-    /// 2. Spawn tool in `tokio::task` with timeout (panic guard)
-    /// 3. Run `after_execute` middleware (truncation, caching, logging)
+    /// 1. Coerce parameters to match schema types (auto-cast string↔number, etc.)
+    /// 2. Run `before_execute` middleware (any can short-circuit with cached/precomputed result)
+    /// 3. Spawn tool in `tokio::task` with timeout (panic guard)
+    /// 4. Run `after_execute` middleware (truncation, caching, logging)
+    /// 5. On error, inject schema hint
     pub async fn execute(
         &self,
         name: &str,
@@ -217,6 +307,9 @@ impl ToolRegistry {
             .get(name)
             .ok_or_else(|| anyhow::anyhow!("Tool '{name}' not found"))?
             .clone();
+
+        // Phase 0: Coerce LLM params to match schema types
+        let params = coerce_params_to_schema(params, &tool.parameters());
 
         // Phase 1: before_execute middleware chain
         for mw in &self.middleware {
@@ -234,6 +327,12 @@ impl ToolRegistry {
         for mw in &self.middleware {
             mw.after_execute(name, &params, ctx, tool.as_ref(), &mut result)
                 .await;
+        }
+
+        // Phase 4: On error, inject schema hint so the LLM learns the correct usage.
+        // Especially useful for deferred/MCP tools whose schemas the LLM may not have seen.
+        if result.is_error {
+            Self::inject_schema_hint(tool.as_ref(), &mut result);
         }
 
         Ok(result)

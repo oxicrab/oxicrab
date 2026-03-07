@@ -111,11 +111,16 @@ impl GeminiProvider {
             .and_then(|u| u.get("candidatesTokenCount"))
             .and_then(serde_json::Value::as_u64);
 
+        let finish_reason = candidate["finishReason"]
+            .as_str()
+            .map(std::string::ToString::to_string);
+
         Ok(LLMResponse {
             content,
             tool_calls,
             input_tokens,
             output_tokens,
+            finish_reason,
             ..Default::default()
         })
     }

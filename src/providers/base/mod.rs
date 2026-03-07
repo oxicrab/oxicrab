@@ -31,6 +31,10 @@ pub struct LLMResponse {
     /// a non-primary provider handles the request; `None` means the originally
     /// requested model served it.
     pub actual_model: Option<String>,
+    /// Why the model stopped generating. Values vary by provider
+    /// (e.g., `"stop"`, `"length"`, `"max_tokens"`, `"end_turn"`).
+    /// Used to detect truncated output in pre-compaction flush.
+    pub finish_reason: Option<String>,
 }
 
 impl LLMResponse {

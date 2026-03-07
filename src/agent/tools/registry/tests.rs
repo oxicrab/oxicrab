@@ -236,3 +236,69 @@ async fn test_middleware_cache_skips_errors() {
         .await;
     assert!(hit.is_none());
 }
+
+// --- coerce_params_to_schema tests ---
+
+#[test]
+fn test_coerce_string_to_integer() {
+    let schema = json!({"type": "object", "properties": {"count": {"type": "integer"}}});
+    let params = json!({"count": "5"});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["count"], json!(5));
+}
+
+#[test]
+fn test_coerce_string_to_number() {
+    let schema = json!({"type": "object", "properties": {"rate": {"type": "number"}}});
+    let params = json!({"rate": "3.14"});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["rate"], json!(3.14));
+}
+
+#[test]
+fn test_coerce_number_to_string() {
+    let schema = json!({"type": "object", "properties": {"id": {"type": "string"}}});
+    let params = json!({"id": 42});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["id"], json!("42"));
+}
+
+#[test]
+fn test_coerce_string_to_boolean() {
+    let schema = json!({"type": "object", "properties": {"flag": {"type": "boolean"}}});
+    let params = json!({"flag": "true"});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["flag"], json!(true));
+}
+
+#[test]
+fn test_coerce_string_to_array() {
+    let schema = json!({"type": "object", "properties": {"items": {"type": "array"}}});
+    let params = json!({"items": "[1,2,3]"});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["items"], json!([1, 2, 3]));
+}
+
+#[test]
+fn test_coerce_no_change_when_types_match() {
+    let schema = json!({"type": "object", "properties": {"name": {"type": "string"}}});
+    let params = json!({"name": "hello"});
+    let result = coerce_params_to_schema(params.clone(), &schema);
+    assert_eq!(result, params);
+}
+
+#[test]
+fn test_coerce_invalid_string_to_number_unchanged() {
+    let schema = json!({"type": "object", "properties": {"count": {"type": "integer"}}});
+    let params = json!({"count": "not_a_number"});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["count"], json!("not_a_number"));
+}
+
+#[test]
+fn test_coerce_no_schema_properties() {
+    let schema = json!({"type": "object"});
+    let params = json!({"a": "1"});
+    let result = coerce_params_to_schema(params.clone(), &schema);
+    assert_eq!(result, params);
+}

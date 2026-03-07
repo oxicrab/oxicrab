@@ -297,6 +297,15 @@ impl MessageCompactor {
             })
             .await?;
 
+        // Guard: if the LLM hit max_tokens, the output is truncated and may be
+        // incomplete. Discard it rather than writing corrupted data to memory.
+        if let Some(ref reason) = response.finish_reason
+            && matches!(reason.as_str(), "length" | "max_tokens" | "MAX_TOKENS")
+        {
+            warn!("pre-compaction flush: discarding truncated output (finish_reason={reason})");
+            return Ok(String::new());
+        }
+
         let content = response.content.unwrap_or_default();
         if content.trim().to_ascii_uppercase().starts_with("NOTHING") {
             debug!("pre-compaction flush: nothing worth preserving");
