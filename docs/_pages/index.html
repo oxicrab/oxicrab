@@ -168,6 +168,12 @@ max_width: 1120px
       margin-bottom: 3rem;
     }
 
+    /* REDUCED MOTION */
+    @media (prefers-reduced-motion: reduce) {
+      .particle { animation: none; }
+      .fade-in { opacity: 1; transform: none; transition: none; }
+    }
+
     /* FADE IN ON SCROLL */
     .fade-in {
       opacity: 0;
@@ -555,7 +561,7 @@ max_width: 1120px
 </div>
 
 <!-- WAVE: light to dark -->
-<svg class="wave-divider" viewBox="0 0 1200 48" preserveAspectRatio="none" fill="var(--bg-dark)">
+<svg class="wave-divider" viewBox="0 0 1200 48" preserveAspectRatio="none" style="fill: var(--bg-dark)">
   <path d="M0,48 L0,24 C200,0 400,40 600,24 C800,8 1000,44 1200,24 L1200,48 Z"/>
 </svg>
 
@@ -712,7 +718,7 @@ max_width: 1120px
 </section>
 
 <!-- WAVE: dark to light -->
-<svg class="wave-divider wave-divider-flip" viewBox="0 0 1200 48" preserveAspectRatio="none" fill="var(--bg-dark)">
+<svg class="wave-divider wave-divider-flip" viewBox="0 0 1200 48" preserveAspectRatio="none" style="fill: var(--bg-dark)">
   <path d="M0,48 L0,24 C200,0 400,40 600,24 C800,8 1000,44 1200,24 L1200,48 Z"/>
 </svg>
 
@@ -1101,7 +1107,7 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
 </section>
 
 <!-- WAVE: light to dark -->
-<svg class="wave-divider" viewBox="0 0 1200 48" preserveAspectRatio="none" fill="var(--bg-dark)">
+<svg class="wave-divider" viewBox="0 0 1200 48" preserveAspectRatio="none" style="fill: var(--bg-dark)">
   <path d="M0,48 L0,20 C150,44 350,4 600,28 C850,52 1050,8 1200,20 L1200,48 Z"/>
 </svg>
 
@@ -1154,7 +1160,7 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
 </section>
 
 <!-- WAVE: dark to light -->
-<svg class="wave-divider wave-divider-flip" viewBox="0 0 1200 48" preserveAspectRatio="none" fill="var(--bg-dark)">
+<svg class="wave-divider wave-divider-flip" viewBox="0 0 1200 48" preserveAspectRatio="none" style="fill: var(--bg-dark)">
   <path d="M0,48 L0,20 C150,44 350,4 600,28 C850,52 1050,8 1200,20 L1200,48 Z"/>
 </svg>
 
@@ -1193,6 +1199,8 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
     </div>
   </div>
 </section>
+
+<noscript><style>.fade-in { opacity: 1; transform: none; }</style></noscript>
 
 <script>
   document.querySelectorAll('a[href^="#"]').forEach(a => {
