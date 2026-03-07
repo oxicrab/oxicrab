@@ -7,21 +7,31 @@ max_width: 1120px
 <style>
     /* HERO */
     .hero {
-      padding: 6rem 2rem 4rem;
+      position: relative;
+      padding: 6rem 2rem 5rem;
       max-width: var(--max-w);
       margin: 0 auto;
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 4rem;
       align-items: center;
+      overflow: hidden;
     }
     .hero-logo { width: 96px; height: 96px; image-rendering: pixelated; margin-bottom: 1.25rem; }
     .hero-text h1 {
+      font-family: var(--heading);
       font-size: 3.25rem;
-      font-weight: 800;
+      font-weight: 700;
       line-height: 1.1;
       letter-spacing: -0.03em;
       margin-bottom: 1.25rem;
+      color: var(--text);
+    }
+    .hero-text h1 .rust-highlight {
+      background: linear-gradient(135deg, #ea580c 0%, #f97066 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
     .hero-text p {
       color: var(--text-muted);
@@ -35,26 +45,67 @@ max_width: 1120px
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
-      padding: 0.65rem 1.5rem;
-      border-radius: 8px;
+      padding: 0.7rem 1.6rem;
+      border-radius: 10px;
       font-size: 0.9rem;
       font-weight: 600;
       text-decoration: none;
-      transition: all 0.15s;
+      transition: all 0.2s ease;
       border: none;
       cursor: pointer;
+      font-family: var(--sans);
     }
-    .btn-primary { background: var(--accent); color: #fff; }
-    .btn-primary:hover { background: var(--accent-dark); }
-    .btn-ghost { color: var(--text); border: 1px solid var(--border); background: var(--surface); }
-    .btn-ghost:hover { border-color: var(--text-muted); }
+    .btn-primary {
+      background: linear-gradient(135deg, #ea580c 0%, #dc2626 100%);
+      color: #fff;
+      box-shadow: 0 2px 12px rgba(234,88,12,0.3);
+    }
+    .btn-primary:hover {
+      box-shadow: 0 4px 20px rgba(234,88,12,0.4);
+      transform: translateY(-1px);
+    }
+    .btn-ghost {
+      color: var(--text);
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .btn-ghost:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* FLOATING PARTICLES */
+    .hero-particles {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .particle {
+      position: absolute;
+      border-radius: 50%;
+      opacity: 0.15;
+      animation: float-particle 20s infinite ease-in-out;
+    }
+    .particle:nth-child(1) { width: 6px; height: 6px; background: var(--accent); top: 15%; left: 10%; animation-delay: 0s; animation-duration: 22s; }
+    .particle:nth-child(2) { width: 4px; height: 4px; background: var(--coral); top: 60%; left: 85%; animation-delay: -3s; animation-duration: 18s; }
+    .particle:nth-child(3) { width: 8px; height: 8px; background: var(--teal); top: 30%; left: 70%; animation-delay: -7s; animation-duration: 25s; }
+    .particle:nth-child(4) { width: 5px; height: 5px; background: var(--accent); top: 80%; left: 25%; animation-delay: -11s; animation-duration: 20s; }
+    .particle:nth-child(5) { width: 3px; height: 3px; background: var(--teal); top: 45%; left: 50%; animation-delay: -15s; animation-duration: 24s; }
+    .particle:nth-child(6) { width: 7px; height: 7px; background: var(--coral); top: 10%; left: 90%; animation-delay: -5s; animation-duration: 19s; }
+    @keyframes float-particle {
+      0%, 100% { transform: translate(0, 0); }
+      25% { transform: translate(15px, -20px); }
+      50% { transform: translate(-10px, 15px); }
+      75% { transform: translate(20px, 10px); }
+    }
 
     /* TERMINAL */
     .terminal {
       background: var(--code-bg);
-      border-radius: 12px;
+      border-radius: 14px 16px 12px 18px;
       overflow: hidden;
-      box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.25);
+      box-shadow: 0 25px 60px -12px rgba(28, 25, 23, 0.3);
       font-family: var(--mono);
       font-size: 0.8rem;
       line-height: 1.8;
@@ -64,20 +115,32 @@ max_width: 1120px
       align-items: center;
       gap: 6px;
       padding: 12px 16px;
-      background: #1a2332;
+      background: #1c1917;
     }
     .terminal-dot { width: 10px; height: 10px; border-radius: 50%; }
     .terminal-dot.r { background: #f97066; }
     .terminal-dot.y { background: #fbbf24; }
     .terminal-dot.g { background: #34d399; }
-    .terminal-title { color: #64748b; font-size: 0.7rem; margin-left: auto; }
+    .terminal-title { color: #78716c; font-size: 0.7rem; margin-left: auto; }
     .terminal-body { padding: 1rem 1.25rem; color: var(--code-text); }
-    .terminal-body .prompt { color: var(--teal); }
-    .terminal-body .cmd { color: #e2e8f0; }
-    .terminal-body .comment { color: #475569; }
-    .terminal-body .output { color: #94a3b8; }
+    .terminal-body .prompt { color: var(--teal-light); }
+    .terminal-body .cmd { color: #e7e5e4; }
+    .terminal-body .comment { color: #57534e; }
+    .terminal-body .output { color: #a8a29e; }
     .terminal-body .highlight { color: var(--coral); }
-    .terminal-body .success { color: var(--teal); }
+    .terminal-body .success { color: var(--teal-light); }
+
+    /* SECTION WAVE DIVIDERS */
+    .wave-divider {
+      display: block;
+      width: 100%;
+      height: 48px;
+      margin: -1px 0;
+    }
+    .wave-divider-flip {
+      transform: scaleY(-1);
+      margin: -1px 0;
+    }
 
     /* SECTIONS */
     section { padding: 5rem 2rem; }
@@ -92,6 +155,7 @@ max_width: 1120px
       margin-bottom: 0.5rem;
     }
     .section-title {
+      font-family: var(--heading);
       font-size: 2rem;
       font-weight: 700;
       letter-spacing: -0.02em;
@@ -104,47 +168,78 @@ max_width: 1120px
       margin-bottom: 3rem;
     }
 
+    /* FADE IN ON SCROLL */
+    .fade-in {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+    }
+    .fade-in.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
     /* FEATURES */
-    .features-section { background: var(--bg-alt); }
-    .features-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border-radius: 12px; overflow: hidden; }
+    .features-section { background: var(--bg-dark); color: #e7e5e4; }
+    .features-section .section-label { color: var(--coral); }
+    .features-section .section-title { color: #fafaf9; }
+    .features-section .section-desc { color: #a8a29e; }
+    .features-list { display: flex; flex-direction: column; gap: 1px; background: #292524; border-radius: 14px 16px 12px 18px; overflow: hidden; }
     .feature-row {
       display: grid;
       grid-template-columns: 200px 1fr;
-      background: var(--surface);
+      background: #1c1917;
       padding: 1.5rem 2rem;
       gap: 2rem;
       align-items: start;
-      transition: background 0.15s;
+      transition: background 0.2s;
     }
-    .feature-row:hover { background: var(--bg-alt); }
+    .feature-row:hover { background: #292524; }
     .feature-name {
       font-family: var(--mono);
       font-weight: 700;
       font-size: 0.9rem;
       color: var(--accent);
     }
-    .feature-detail h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.25rem; }
-    .feature-detail p { color: var(--text-muted); font-size: 0.9rem; }
+    .feature-detail h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.25rem; color: #fafaf9; }
+    .feature-detail p { color: #a8a29e; font-size: 0.9rem; }
+    .feature-detail code { background: #292524; color: var(--accent-light); }
 
     /* CHANNELS */
+    .channels-section { background: var(--bg); }
     .channels-grid {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
-      gap: 1px;
-      background: var(--border);
-      border-radius: 12px;
-      overflow: hidden;
+      gap: 1rem;
       margin-bottom: 2rem;
     }
     .channel-card {
       background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px 16px 14px 10px;
       padding: 2rem 1.5rem;
       text-align: center;
-      transition: background 0.15s;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s;
+      position: relative;
+      overflow: hidden;
     }
-    .channel-card:hover { background: var(--bg-alt); }
+    .channel-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent), var(--coral));
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .channel-card:hover {
+      transform: scale(1.02);
+      box-shadow: 0 8px 24px rgba(28,25,23,0.08);
+      border-color: var(--accent-light);
+    }
+    .channel-card:hover::before { opacity: 1; }
     .channel-icon { font-size: 2rem; margin-bottom: 0.75rem; }
-    .channel-name { font-weight: 700; font-size: 0.9rem; margin-bottom: 0.25rem; }
+    .channel-name { font-family: var(--heading); font-weight: 700; font-size: 0.9rem; margin-bottom: 0.25rem; }
     .channel-sub { color: var(--text-muted); font-size: 0.75rem; }
 
     /* TOOLS */
@@ -156,7 +251,7 @@ max_width: 1120px
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      color: var(--text-light);
+      color: var(--teal);
       margin-bottom: 1rem;
       padding-bottom: 0.5rem;
       border-bottom: 1px solid var(--border);
@@ -173,18 +268,19 @@ max_width: 1120px
       padding: 1rem 1.25rem;
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 10px;
-      transition: border-color 0.15s, box-shadow 0.15s;
+      border-radius: 12px 14px 10px 16px;
+      transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
       cursor: pointer;
       user-select: none;
     }
     .tool-item:hover {
       border-color: var(--accent);
-      box-shadow: 0 2px 8px rgba(14, 165, 233, 0.06);
+      box-shadow: 0 4px 16px rgba(234,88,12,0.08);
+      transform: scale(1.02);
     }
     .tool-item.active {
       border-color: var(--accent);
-      box-shadow: 0 2px 12px rgba(14, 165, 233, 0.1);
+      box-shadow: 0 4px 16px rgba(234,88,12,0.12);
     }
     .tool-name {
       font-family: var(--mono);
@@ -199,12 +295,12 @@ max_width: 1120px
       grid-column: 1 / -1;
       background: var(--surface);
       border: 1px solid var(--accent);
-      border-radius: 10px;
+      border-radius: 12px 14px 10px 16px;
       padding: 1rem 1.5rem;
       font-size: 0.85rem;
       line-height: 1.6;
       color: var(--text);
-      animation: toolDetailIn 0.15s ease-out;
+      animation: toolDetailIn 0.2s ease-out;
     }
     .tool-detail.visible { display: block; }
     .tool-detail .tool-detail-name {
@@ -221,7 +317,7 @@ max_width: 1120px
     }
     .tool-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 0.45rem; }
     .tool-dot.core { background: var(--accent); }
-    .tool-dot.setup { background: var(--purple); }
+    .tool-dot.setup { background: var(--teal); }
     .tool-dot.ext { background: var(--coral); }
     .tools-legend {
       display: flex;
@@ -234,7 +330,7 @@ max_width: 1120px
 
     /* CONFIG / CODE (index overrides) */
     pre {
-      border-radius: 10px;
+      border-radius: 10px 14px 10px 12px;
       padding: 1.25rem 1.5rem;
       line-height: 1.8;
       margin: 0;
@@ -245,18 +341,24 @@ max_width: 1120px
       color: var(--text-light);
       margin-bottom: 0.5rem;
     }
-    .hl-key { color: #7dd3fc; }
-    .hl-str { color: #a5f3fc; }
-    .hl-num { color: #fdba74; }
-    .hl-comment { color: #475569; }
+    .hl-key { color: #fdba74; }
+    .hl-str { color: #86efac; }
+    .hl-num { color: #7dd3fc; }
+    .hl-comment { color: #57534e; }
 
     /* INSTALL */
+    .install-section { background: var(--bg); }
     .steps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2rem; }
     .step {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 14px 16px 12px 18px;
       padding: 1.75rem;
+      transition: box-shadow 0.2s, transform 0.2s;
+    }
+    .step:hover {
+      box-shadow: 0 8px 24px rgba(28,25,23,0.06);
+      transform: translateY(-2px);
     }
     .step-num {
       font-family: var(--mono);
@@ -265,11 +367,16 @@ max_width: 1120px
       color: var(--accent);
       margin-bottom: 0.5rem;
     }
-    .step h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .step h3 { font-family: var(--heading); font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; }
     .step p { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem; }
     .step pre { margin: 0; font-size: 0.78rem; }
 
+    /* CONFIG SECTION */
+    .config-section { background: var(--bg-alt); }
+    .config-section code { background: #e7e5e4; }
+
     /* PROVIDERS */
+    .providers-section { background: var(--bg); }
     .providers-row {
       display: flex;
       flex-wrap: wrap;
@@ -280,26 +387,30 @@ max_width: 1120px
       align-items: center;
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 10px 12px 8px 14px;
       padding: 0.5rem 1rem;
       font-size: 0.85rem;
       font-weight: 600;
-      transition: border-color 0.15s;
+      transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
     }
-    .provider-tag:hover { border-color: var(--accent); }
+    .provider-tag:hover {
+      border-color: var(--accent);
+      transform: scale(1.02);
+      box-shadow: 0 4px 12px rgba(234,88,12,0.06);
+    }
     .provider-tag .sub { color: var(--text-muted); font-weight: 400; font-size: 0.75rem; margin-left: 0.5rem; }
 
     /* ARCHITECTURE */
-    .arch-section { background: var(--code-bg); color: var(--code-text); }
-    .arch-section .section-label { color: var(--teal); }
-    .arch-section .section-title { color: #f1f5f9; }
-    .arch-section .section-desc { color: #94a3b8; }
+    .arch-section { background: var(--bg-dark); color: var(--code-text); }
+    .arch-section .section-label { color: var(--teal-light); }
+    .arch-section .section-title { color: #fafaf9; }
+    .arch-section .section-desc { color: #a8a29e; }
     .arch-flow-box {
       font-family: var(--mono);
       font-size: 0.85rem;
-      background: #1e293b;
-      border: 1px solid #334155;
-      border-radius: 10px;
+      background: #292524;
+      border: 1px solid #44403c;
+      border-radius: 14px 16px 12px 18px;
       padding: 1.75rem;
       text-align: center;
       line-height: 2.2;
@@ -307,33 +418,35 @@ max_width: 1120px
     }
     .arch-flow-box .node {
       display: inline-block;
-      border: 1px solid #475569;
-      border-radius: 6px;
+      border: 1px solid #57534e;
+      border-radius: 8px;
       padding: 0.3rem 1rem;
-      background: rgba(14, 165, 233, 0.08);
-      color: #7dd3fc;
+      background: rgba(234,88,12,0.1);
+      color: #fdba74;
       font-weight: 600;
     }
-    .arch-flow-box .arrow { color: #475569; margin: 0 0.5rem; }
+    .arch-flow-box .arrow { color: #57534e; margin: 0 0.5rem; }
     .arch-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 1px;
-      background: #334155;
-      border-radius: 10px;
+      background: #44403c;
+      border-radius: 14px 12px 16px 10px;
       overflow: hidden;
     }
     .arch-card {
-      background: #1e293b;
+      background: #292524;
       padding: 1.5rem;
+      transition: background 0.2s;
     }
+    .arch-card:hover { background: #1c1917; }
     .arch-card h3 {
       font-family: var(--mono);
       font-size: 0.85rem;
-      color: var(--teal);
+      color: var(--teal-light);
       margin-bottom: 0.5rem;
     }
-    .arch-card p { color: #94a3b8; font-size: 0.8rem; line-height: 1.6; }
+    .arch-card p { color: #a8a29e; font-size: 0.8rem; line-height: 1.6; }
 
     /* STRUCTURE */
     .structure-section { background: var(--bg-alt); }
@@ -343,9 +456,19 @@ max_width: 1120px
     .cta-section {
       text-align: center;
       background: var(--bg);
-      border-top: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+    }
+    .cta-section::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 50%; transform: translateX(-50%);
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(234,88,12,0.05) 0%, transparent 70%);
+      pointer-events: none;
     }
     .cta-section h2 {
+      font-family: var(--heading);
       font-size: 2rem;
       font-weight: 700;
       letter-spacing: -0.02em;
@@ -364,14 +487,23 @@ max_width: 1120px
       .arch-grid { grid-template-columns: 1fr; }
       .feature-row { grid-template-columns: 1fr; gap: 0.25rem; }
       section { padding: 3rem 1.25rem; }
+      .wave-divider { height: 32px; }
     }
 </style>
 
 <!-- HERO -->
 <section class="hero">
+  <div class="hero-particles">
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+  </div>
   <div class="hero-text">
     <img src="oxicrab.png" alt="oxicrab" class="hero-logo">
-    <h1>Multi-channel AI agents, built in Rust.</h1>
+    <h1>Your AI assistant framework, <span class="rust-highlight">built in Rust.</span></h1>
     <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 25 built-in tools, long-term memory, subagents, cron scheduling, and MCP support.</p>
     <div class="hero-actions">
       <a href="#install" class="btn btn-primary">Get Started</a>
@@ -422,9 +554,14 @@ max_width: 1120px
   </div>
 </div>
 
+<!-- WAVE: light to dark -->
+<svg class="wave-divider" viewBox="0 0 1200 48" preserveAspectRatio="none" fill="var(--bg-dark)">
+  <path d="M0,48 L0,24 C200,0 400,40 600,24 C800,8 1000,44 1200,24 L1200,48 Z"/>
+</svg>
+
 <!-- FEATURES -->
 <section id="features" class="features-section">
-  <div class="container">
+  <div class="container fade-in">
     <div class="section-label">Features</div>
     <div class="section-title">Built for real-world AI agents</div>
     <div class="section-desc">Everything you need to deploy autonomous assistants. Async-first, security-hardened, built from the ground up in Rust.</div>
@@ -574,9 +711,14 @@ max_width: 1120px
   </div>
 </section>
 
+<!-- WAVE: dark to light -->
+<svg class="wave-divider wave-divider-flip" viewBox="0 0 1200 48" preserveAspectRatio="none" fill="var(--bg-dark)">
+  <path d="M0,48 L0,24 C200,0 400,40 600,24 C800,8 1000,44 1200,24 L1200,48 Z"/>
+</svg>
+
 <!-- CHANNELS -->
-<section id="channels">
-  <div class="container">
+<section id="channels" class="channels-section">
+  <div class="container fade-in">
     <div class="section-label">Channels</div>
     <div class="section-title">One bot, every platform</div>
     <div class="section-desc">Deploy to all major messaging platforms simultaneously. Each channel is a compile-time feature flag for minimal binary size.</div>
@@ -617,7 +759,7 @@ cargo build --release --no-default-features \
 
 <!-- TOOLS -->
 <section id="tools" class="tools-section">
-  <div class="container">
+  <div class="container fade-in">
     <div class="section-label">Tools</div>
     <div class="section-title">25 built-in tools + MCP</div>
     <div class="section-desc">A comprehensive toolkit for autonomous agents. Every tool features timeout protection, panic isolation, and result caching.</div>
@@ -679,8 +821,8 @@ cargo build --release --no-default-features \
 </section>
 
 <!-- INSTALL -->
-<section id="install">
-  <div class="container">
+<section id="install" class="install-section">
+  <div class="container fade-in">
     <div class="section-label">Getting Started</div>
     <div class="section-title">Up and running in minutes</div>
     <div class="section-desc">Pre-built binaries are published for every release. Pick your platform and go.</div>
@@ -738,8 +880,8 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
 </section>
 
 <!-- CONFIG -->
-<section id="config" style="background: var(--bg-alt);">
-  <div class="container">
+<section id="config" class="config-section">
+  <div class="container fade-in">
     <div class="section-label">Configuration</div>
     <div class="section-title">Simple JSON config</div>
     <div class="section-desc">One file controls everything. camelCase in JSON, snake_case in Rust.</div>
@@ -935,8 +1077,8 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
 </section>
 
 <!-- PROVIDERS -->
-<section id="providers">
-  <div class="container">
+<section id="providers" class="providers-section">
+  <div class="container fade-in">
     <div class="section-label">Providers</div>
     <div class="section-title">Any LLM, one interface</div>
     <div class="section-desc">Native support for major providers plus any OpenAI-compatible API. Automatic selection by prefix notation or model name. Local model fallback supported.</div>
@@ -957,9 +1099,14 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
   </div>
 </section>
 
+<!-- WAVE: light to dark -->
+<svg class="wave-divider" viewBox="0 0 1200 48" preserveAspectRatio="none" fill="var(--bg-dark)">
+  <path d="M0,48 L0,20 C150,44 350,4 600,28 C850,52 1050,8 1200,20 L1200,48 Z"/>
+</svg>
+
 <!-- ARCHITECTURE -->
 <section id="architecture" class="arch-section">
-  <div class="container">
+  <div class="container fade-in">
     <div class="section-label">Architecture</div>
     <div class="section-title">Clean, modular, extensible</div>
     <div class="section-desc">Three core traits with a middleware pipeline for tool execution.</div>
@@ -973,7 +1120,7 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
       <span class="arrow">&rarr;</span>
       <span class="node">LLM Provider</span>
       <br>
-      <span style="color: #64748b; font-size: 0.75rem;">LLM call &rarr; parallel tool execution &rarr; append to conversation &rarr; repeat</span>
+      <span style="color: #78716c; font-size: 0.75rem;">LLM call &rarr; parallel tool execution &rarr; append to conversation &rarr; repeat</span>
     </div>
 
     <div class="arch-grid">
@@ -1005,9 +1152,14 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
   </div>
 </section>
 
+<!-- WAVE: dark to light -->
+<svg class="wave-divider wave-divider-flip" viewBox="0 0 1200 48" preserveAspectRatio="none" fill="var(--bg-dark)">
+  <path d="M0,48 L0,20 C150,44 350,4 600,28 C850,52 1050,8 1200,20 L1200,48 Z"/>
+</svg>
+
 <!-- STRUCTURE -->
 <section class="structure-section">
-  <div class="container">
+  <div class="container fade-in">
     <div class="section-label">Project Structure</div>
     <div class="section-title">Well-organized codebase</div>
     <div class="section-desc"></div>
@@ -1031,7 +1183,7 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
 
 <!-- CTA -->
 <section class="cta-section">
-  <div class="container">
+  <div class="container fade-in">
     <h2>Ready to build your AI assistant?</h2>
     <p style="color: var(--text-muted); font-size: 1rem;">Open source, MIT licensed, built in Rust. Contributions welcome.</p>
     <div class="cta-actions">
@@ -1049,8 +1201,19 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
     });
   });
   window.addEventListener('scroll', () => {
-    document.querySelector('nav').style.background = scrollY > 50 ? 'rgba(250,251,252,0.97)' : 'rgba(250,251,252,0.9)';
+    document.querySelector('nav').style.background = scrollY > 50 ? 'rgba(250,248,245,0.97)' : 'rgba(250,248,245,0.85)';
   });
+
+  // Fade in on scroll via IntersectionObserver
+  const fadeObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        fadeObserver.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('.fade-in').forEach(el => fadeObserver.observe(el));
 
   // Tool detail expand/collapse
   document.querySelectorAll('.tool-item[data-detail]').forEach(item => {
@@ -1058,24 +1221,34 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
       const grid = item.closest('.tool-grid');
       const existing = grid.querySelector('.tool-detail.visible');
       const name = item.querySelector('.tool-name').textContent;
-      // Close if clicking the same tool
       if (existing && existing.previousElementSibling === item) {
         existing.classList.remove('visible');
         existing.remove();
         item.classList.remove('active');
         return;
       }
-      // Close any open detail in this grid
       if (existing) {
         existing.classList.remove('visible');
         existing.remove();
         grid.querySelectorAll('.tool-item.active').forEach(i => i.classList.remove('active'));
       }
-      // Create and insert detail panel after the clicked item
       const detail = document.createElement('div');
       detail.className = 'tool-detail visible';
       const toolId = name.toLowerCase().replace(/\s+/g, '_');
-      detail.innerHTML = '<div class="tool-detail-name">' + name + '</div><p>' + item.dataset.detail + '</p><p><a href="tools.html#' + toolId + '" style="color:var(--accent);font-size:0.85rem">Full reference &rarr;</a></p>';
+      const detailName = document.createElement('div');
+      detailName.className = 'tool-detail-name';
+      detailName.textContent = name;
+      const detailDesc = document.createElement('p');
+      detailDesc.textContent = item.dataset.detail;
+      const detailLink = document.createElement('p');
+      const anchor = document.createElement('a');
+      anchor.href = 'tools.html#' + toolId;
+      anchor.style.cssText = 'color:var(--accent);font-size:0.85rem';
+      anchor.textContent = 'Full reference \u2192';
+      detailLink.appendChild(anchor);
+      detail.appendChild(detailName);
+      detail.appendChild(detailDesc);
+      detail.appendChild(detailLink);
       item.after(detail);
       item.classList.add('active');
     });
