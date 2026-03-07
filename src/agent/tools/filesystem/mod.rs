@@ -1,6 +1,7 @@
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::agent::workspace::WorkspaceManager;
+use crate::require_param;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -204,9 +205,7 @@ impl Tool for ReadFileTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let path_str = params["path"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
+        let path_str = require_param!(params, "path");
 
         let file_path = PathBuf::from(path_str);
         let expanded = tokio::fs::canonicalize(&file_path).await.or_else(|_| {
@@ -378,12 +377,8 @@ impl Tool for WriteFileTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let path_str = params["path"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
-        let content = params["content"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
+        let path_str = require_param!(params, "path");
+        let content = require_param!(params, "content");
 
         let file_path = PathBuf::from(path_str);
         let expanded = tokio::fs::canonicalize(&file_path).await.or_else(|_| {
@@ -528,15 +523,9 @@ impl Tool for EditFileTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let path_str = params["path"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
-        let old_text = params["old_text"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'old_text' parameter"))?;
-        let new_text = params["new_text"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'new_text' parameter"))?;
+        let path_str = require_param!(params, "path");
+        let old_text = require_param!(params, "old_text");
+        let new_text = require_param!(params, "new_text");
 
         let file_path = PathBuf::from(path_str);
         let expanded = tokio::fs::canonicalize(&file_path).await.or_else(|_| {
@@ -718,9 +707,7 @@ impl Tool for ListDirTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let path_str = params["path"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
+        let path_str = require_param!(params, "path");
 
         let dir_path = PathBuf::from(path_str);
         let expanded = tokio::fs::canonicalize(&dir_path).await.or_else(|_| {

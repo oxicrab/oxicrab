@@ -3,6 +3,7 @@ use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabiliti
 use crate::agent::tools::google_common::GoogleApiClient;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::auth::google::GoogleCredentials;
+use crate::require_param;
 use anyhow::Result;
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -98,15 +99,11 @@ impl Tool for GoogleMailTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let action = params["action"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
+        let action = require_param!(params, "action");
 
         match action {
             "search" => {
-                let query = params["query"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
+                let query = require_param!(params, "query");
                 let max_results = params["max_results"].as_u64().unwrap_or(10).min(50) as u32;
 
                 let endpoint = format!(
@@ -165,9 +162,7 @@ impl Tool for GoogleMailTool {
                 Ok(ToolResult::new(lines.join("\n")))
             }
             "read" => {
-                let message_id = params["message_id"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'message_id' parameter"))?;
+                let message_id = require_param!(params, "message_id");
 
                 let endpoint = format!(
                     "users/me/messages/{}?format=full",
@@ -205,15 +200,9 @@ impl Tool for GoogleMailTool {
                 )))
             }
             "send" => {
-                let to = params["to"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'to' parameter"))?;
-                let subject = params["subject"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'subject' parameter"))?;
-                let body = params["body"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'body' parameter"))?;
+                let to = require_param!(params, "to");
+                let subject = require_param!(params, "subject");
+                let body = require_param!(params, "body");
 
                 // Sanitize all fields to prevent header injection via \r\n.
                 // Body is sanitized too because it follows the blank line separator —
@@ -234,12 +223,8 @@ impl Tool for GoogleMailTool {
                 )))
             }
             "reply" => {
-                let message_id = params["message_id"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'message_id' parameter"))?;
-                let body = params["body"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'body' parameter"))?;
+                let message_id = require_param!(params, "message_id");
+                let body = require_param!(params, "body");
                 let body = body.replace('\r', "");
 
                 let endpoint = format!(
@@ -313,9 +298,7 @@ impl Tool for GoogleMailTool {
                 Ok(ToolResult::new(lines.join("\n")))
             }
             "label" => {
-                let message_id = params["message_id"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'message_id' parameter"))?;
+                let message_id = require_param!(params, "message_id");
                 let label_ids = params["label_ids"]
                     .as_array()
                     .map(|a| {

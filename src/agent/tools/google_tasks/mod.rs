@@ -3,6 +3,7 @@ use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabiliti
 use crate::agent::tools::google_common::GoogleApiClient;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::auth::google::GoogleCredentials;
+use crate::require_param;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -96,9 +97,7 @@ impl Tool for GoogleTasksTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let action = params["action"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
+        let action = require_param!(params, "action");
 
         let list_id = params["task_list_id"].as_str().unwrap_or("@default");
 
@@ -165,9 +164,7 @@ impl Tool for GoogleTasksTool {
                 Ok(ToolResult::new(lines.join("\n")))
             }
             "get_task" => {
-                let task_id = params["task_id"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'task_id' parameter"))?;
+                let task_id = require_param!(params, "task_id");
 
                 let endpoint = format!(
                     "lists/{}/tasks/{}",
@@ -178,9 +175,7 @@ impl Tool for GoogleTasksTool {
                 Ok(ToolResult::new(format_task_detail(&task)))
             }
             "create_task" => {
-                let title = params["title"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'title' parameter"))?;
+                let title = require_param!(params, "title");
 
                 let mut body = serde_json::json!({"title": title});
 
@@ -200,9 +195,7 @@ impl Tool for GoogleTasksTool {
                 )))
             }
             "update_task" => {
-                let task_id = params["task_id"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'task_id' parameter"))?;
+                let task_id = require_param!(params, "task_id");
 
                 let mut body = serde_json::json!({});
 
@@ -239,9 +232,7 @@ impl Tool for GoogleTasksTool {
                 )))
             }
             "delete_task" => {
-                let task_id = params["task_id"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'task_id' parameter"))?;
+                let task_id = require_param!(params, "task_id");
 
                 let endpoint = format!(
                     "lists/{}/tasks/{}",

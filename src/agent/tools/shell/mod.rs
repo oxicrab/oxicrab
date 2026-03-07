@@ -1,6 +1,7 @@
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::config::SandboxConfig;
+use crate::require_param;
 use crate::utils::regex::compile_security_patterns;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -350,9 +351,7 @@ impl Tool for ExecTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let command = params["command"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;
+        let command = require_param!(params, "command");
 
         let working_dir = params["working_dir"]
             .as_str()

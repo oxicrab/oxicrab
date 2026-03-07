@@ -1,5 +1,6 @@
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
+use crate::require_param;
 use crate::utils::media::{extension_from_content_type, save_media_file};
 use crate::utils::regex::{RegexPatterns, compile_regex};
 #[cfg(test)]
@@ -165,9 +166,7 @@ impl Tool for WebSearchTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let query = params["query"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
+        let query = require_param!(params, "query");
 
         let count = params["count"]
             .as_u64()
@@ -249,9 +248,7 @@ impl WebFetchTool {
     }
 
     async fn fetch_url_with_client(&self, params: &Value, client: &Client) -> Result<ToolResult> {
-        let url_str = params["url"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'url' parameter"))?;
+        let url_str = require_param!(params, "url");
 
         let extract_mode = params["extractMode"].as_str().unwrap_or("markdown");
         let max_chars = params["maxChars"]
@@ -416,9 +413,7 @@ impl Tool for WebFetchTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let url_str = params["url"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'url' parameter"))?;
+        let url_str = require_param!(params, "url");
 
         // Validate URL and resolve DNS for pinning (prevents TOCTOU rebinding)
         let resolved = match crate::utils::url_security::validate_and_resolve(url_str).await {

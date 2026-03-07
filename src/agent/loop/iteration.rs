@@ -142,6 +142,8 @@ impl AgentLoop {
             // in handle_text_response() catches false action claims as a safety net.
             let tool_choice: Option<String> = None;
 
+            // Clone needed: messages is mutated after the call (tool results appended),
+            // and ChatRequest takes ownership. Cost is negligible vs. the API round-trip.
             let response = effective_provider
                 .chat_with_retry(
                     crate::providers::base::ChatRequest {

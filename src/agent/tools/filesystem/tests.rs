@@ -142,8 +142,10 @@ async fn test_read_file_missing_param() {
     let tool = ReadFileTool::new(None, None);
     let result = tool
         .execute(serde_json::json!({}), &ExecutionContext::default())
-        .await;
-    assert!(result.is_err());
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("'path'"));
 }
 
 #[tokio::test]

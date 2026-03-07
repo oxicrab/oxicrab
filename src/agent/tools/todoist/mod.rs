@@ -1,6 +1,7 @@
 use crate::actions;
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
+use crate::require_param;
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
@@ -540,9 +541,7 @@ impl Tool for TodoistTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let action = params["action"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
+        let action = require_param!(params, "action");
 
         let result = match action {
             "list_tasks" => {

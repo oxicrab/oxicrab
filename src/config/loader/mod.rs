@@ -65,10 +65,6 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
     crate::config::credentials::apply_credential_helper(&mut default_config);
     #[cfg(feature = "keyring-store")]
     crate::config::credentials::apply_keyring_overrides(&mut default_config);
-    // Validate default config too (should always pass, but good practice)
-    default_config
-        .validate()
-        .with_context(|| "Default configuration validation failed")?;
     Ok(default_config)
 }
 

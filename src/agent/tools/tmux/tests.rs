@@ -45,8 +45,10 @@ async fn test_missing_action() {
     let tool = TmuxTool::new();
     let result = tool
         .execute(serde_json::json!({}), &ExecutionContext::default())
-        .await;
-    assert!(result.is_err());
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("Missing"));
 }
 
 #[tokio::test]
@@ -77,8 +79,10 @@ async fn test_send_missing_session_name() {
             serde_json::json!({"action": "send", "command": "echo hi"}),
             &ExecutionContext::default(),
         )
-        .await;
-    assert!(result.is_err());
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("Missing"));
 }
 
 #[tokio::test]
@@ -92,8 +96,10 @@ async fn test_send_missing_command() {
             serde_json::json!({"action": "send", "session_name": "test"}),
             &ExecutionContext::default(),
         )
-        .await;
-    assert!(result.is_err());
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("Missing"));
 }
 
 #[tokio::test]
@@ -107,8 +113,10 @@ async fn test_read_missing_session_name() {
             serde_json::json!({"action": "read"}),
             &ExecutionContext::default(),
         )
-        .await;
-    assert!(result.is_err());
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("Missing"));
 }
 
 #[test]

@@ -3,6 +3,7 @@ use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabiliti
 use crate::agent::tools::google_common::GoogleApiClient;
 use crate::agent::tools::{Tool, ToolResult};
 use crate::auth::google::GoogleCredentials;
+use crate::require_param;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -119,9 +120,7 @@ impl Tool for GoogleCalendarTool {
 
     #[allow(clippy::too_many_lines)]
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let action = params["action"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
+        let action = require_param!(params, "action");
 
         let cal_id = params["calendar_id"].as_str().unwrap_or("primary");
 
@@ -199,9 +198,7 @@ impl Tool for GoogleCalendarTool {
                 Ok(ToolResult::new(lines.join("\n")))
             }
             "get_event" => {
-                let event_id = params["event_id"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'event_id' parameter"))?;
+                let event_id = require_param!(params, "event_id");
 
                 let endpoint = format!(
                     "calendars/{}/events/{}",
@@ -212,12 +209,8 @@ impl Tool for GoogleCalendarTool {
                 Ok(ToolResult::new(format_event_detail(&ev)))
             }
             "create_event" => {
-                let summary = params["summary"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'summary' parameter"))?;
-                let start_raw = params["start"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'start' parameter"))?;
+                let summary = require_param!(params, "summary");
+                let start_raw = require_param!(params, "start");
 
                 let tz = params["timezone"].as_str().unwrap_or("UTC");
                 let all_day = params["all_day"].as_bool().unwrap_or_default();
@@ -293,9 +286,7 @@ impl Tool for GoogleCalendarTool {
                 )))
             }
             "update_event" => {
-                let event_id = params["event_id"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'event_id' parameter"))?;
+                let event_id = require_param!(params, "event_id");
 
                 let endpoint = format!(
                     "calendars/{}/events/{}",
@@ -347,9 +338,7 @@ impl Tool for GoogleCalendarTool {
                 )))
             }
             "delete_event" => {
-                let event_id = params["event_id"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'event_id' parameter"))?;
+                let event_id = require_param!(params, "event_id");
 
                 let endpoint = format!(
                     "calendars/{}/events/{}",
