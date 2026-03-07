@@ -53,7 +53,9 @@ pub async fn register_all_tools(
     Option<McpManager>,
     Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
 )> {
-    let mut tools = ToolRegistry::new();
+    // Tool output stash — shared between truncation middleware and stash_retrieve tool
+    let stash = Arc::new(crate::agent::tools::stash::ToolOutputStash::new());
+    let mut tools = ToolRegistry::with_stash(stash.clone());
 
     register_filesystem(&mut tools, ctx);
     register_shell(&mut tools, ctx)?;
@@ -98,6 +100,11 @@ pub async fn register_all_tools(
     } else {
         None
     };
+
+    // Stash retrieval tool — lets the LLM recover truncated tool output
+    tools.register(Arc::new(
+        crate::agent::tools::stash::StashRetrieveTool::new(stash),
+    ));
 
     // Build tool_search index from all registered tools (including deferred)
     let activated: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>> =

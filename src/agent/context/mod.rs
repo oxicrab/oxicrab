@@ -166,6 +166,8 @@ impl ContextBuilder {
             now.format("%H:%M %Z")
         );
         let tz_str = now.format("%Z").to_string();
+        // Natural-language datetime for prominence (LLMs respond better to this)
+        let datetime_natural = now.format("%A, %B %-d, %Y at %H:%M %Z").to_string();
 
         let workspace_path = self
             .workspace
@@ -194,13 +196,20 @@ impl ContextBuilder {
                     &tz_str,
                     &runtime,
                     &workspace_path,
+                    &datetime_natural,
                 );
             }
             warn!("Failed to load AGENTS.md, using defaults");
         }
 
         // Fallback to defaults
-        Self::get_default_identity(&date_str, &tz_str, &runtime, &workspace_path)
+        Self::get_default_identity(
+            &date_str,
+            &tz_str,
+            &runtime,
+            &workspace_path,
+            &datetime_natural,
+        )
     }
 
     fn build_identity_with_context(
@@ -209,15 +218,22 @@ impl ContextBuilder {
         tz: &str,
         runtime: &str,
         workspace_path: &str,
+        datetime_natural: &str,
     ) -> String {
         format!(
-            "{identity_content}\n\n## Current Context\n\n**Date**: {now}\n**Timezone**: {tz}\n**Runtime**: {runtime}\n**Workspace**: {workspace_path}\n- Memory: SQLite database in {workspace_path}/memory/\n- Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md",
+            "The current date and time is {datetime_natural}.\n\n{identity_content}\n\n## Current Context\n\n**Date**: {now}\n**Timezone**: {tz}\n**Runtime**: {runtime}\n**Workspace**: {workspace_path}\n- Memory: SQLite database in {workspace_path}/memory/\n- Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md",
         )
     }
 
-    fn get_default_identity(now: &str, tz: &str, runtime: &str, workspace_path: &str) -> String {
+    fn get_default_identity(
+        now: &str,
+        tz: &str,
+        runtime: &str,
+        workspace_path: &str,
+        datetime_natural: &str,
+    ) -> String {
         format!(
-            "# oxicrab\n\nYou are oxicrab, a helpful AI assistant.\n\n## Capabilities\n\n- Read, write, and edit files\n- Execute shell commands\n- Search the web and fetch web pages\n- Communicate with users across chat channels\n- Spawn subagents for complex background tasks\n\n## Tool Usage Rules\n\n- NEVER claim to have called a tool or report tool results unless you actually invoked the tool in this conversation.\n- NEVER fabricate or simulate tool output. If you need data, call the tool.\n- If asked to test or run tools, you MUST call each tool individually and report the real results.\n- If a tool is unavailable or fails, say so explicitly — do not invent results.\n- If you need to use tools, call them directly — never send a preliminary message like \"Let me check\" without actually calling a tool in the same response.\n\n## Current Context\n\n**Date**: {now}\n**Timezone**: {tz}\n**Runtime**: {runtime}\n**Workspace**: {workspace_path}\n- Memory: SQLite database in {workspace_path}/memory/\n- Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md",
+            "The current date and time is {datetime_natural}.\n\n# oxicrab\n\nYou are oxicrab, a helpful AI assistant.\n\n## Capabilities\n\n- Read, write, and edit files\n- Execute shell commands\n- Search the web and fetch web pages\n- Communicate with users across chat channels\n- Spawn subagents for complex background tasks\n\n## Tool Usage Rules\n\n- NEVER claim to have called a tool or report tool results unless you actually invoked the tool in this conversation.\n- NEVER fabricate or simulate tool output. If you need data, call the tool.\n- If asked to test or run tools, you MUST call each tool individually and report the real results.\n- If a tool is unavailable or fails, say so explicitly — do not invent results.\n- If you need to use tools, call them directly — never send a preliminary message like \"Let me check\" without actually calling a tool in the same response.\n\n## Current Context\n\n**Date**: {now}\n**Timezone**: {tz}\n**Runtime**: {runtime}\n**Workspace**: {workspace_path}\n- Memory: SQLite database in {workspace_path}/memory/\n- Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md",
         )
     }
 

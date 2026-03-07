@@ -20,6 +20,7 @@ pub mod registry;
 pub mod setup;
 pub mod shell;
 pub mod spawn;
+pub mod stash;
 pub mod subagent_control;
 pub mod tmux;
 pub mod todoist;

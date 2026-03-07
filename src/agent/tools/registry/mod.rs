@@ -71,6 +71,25 @@ impl ToolRegistry {
         }
     }
 
+    /// Create a registry with a tool output stash for recovering truncated content.
+    pub fn with_stash(stash: Arc<crate::agent::tools::stash::ToolOutputStash>) -> Self {
+        Self {
+            tools: HashMap::new(),
+            middleware: vec![
+                Arc::new(TruncationMiddleware::with_stash(
+                    DEFAULT_MAX_RESULT_CHARS,
+                    stash,
+                )),
+                Arc::new(CacheMiddleware::new(
+                    DEFAULT_CACHE_MAX_ENTRIES,
+                    DEFAULT_CACHE_TTL_SECS,
+                )),
+                Arc::new(LoggingMiddleware),
+            ],
+            deferred: HashSet::new(),
+        }
+    }
+
     pub fn register(&mut self, tool: Arc<dyn Tool>) {
         let name = tool.name().to_string();
         if name.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
@@ -349,13 +368,29 @@ impl ToolMiddleware for CacheMiddleware {
 }
 
 /// Truncation middleware — truncates tool results to a maximum character count.
+/// When a stash is provided, large outputs are saved before truncation so the
+/// LLM can retrieve them via `stash_retrieve`.
 pub struct TruncationMiddleware {
     max_chars: usize,
+    stash: Option<Arc<crate::agent::tools::stash::ToolOutputStash>>,
 }
 
 impl TruncationMiddleware {
     pub fn new(max_chars: usize) -> Self {
-        Self { max_chars }
+        Self {
+            max_chars,
+            stash: None,
+        }
+    }
+
+    pub fn with_stash(
+        max_chars: usize,
+        stash: Arc<crate::agent::tools::stash::ToolOutputStash>,
+    ) -> Self {
+        Self {
+            max_chars,
+            stash: Some(stash),
+        }
     }
 }
 
@@ -363,12 +398,33 @@ impl TruncationMiddleware {
 impl ToolMiddleware for TruncationMiddleware {
     async fn after_execute(
         &self,
-        _name: &str,
+        name: &str,
         _params: &Value,
         _ctx: &ExecutionContext,
         _tool: &dyn Tool,
         result: &mut ToolResult,
     ) {
+        use std::fmt::Write as _;
+
+        // Skip truncation for stash retrieval — the LLM explicitly asked for it
+        if name == "stash_retrieve" {
+            return;
+        }
+
+        let raw_len = result.content.len();
+        // Stash + truncate when content exceeds limit and stash is available
+        if raw_len > self.max_chars
+            && let Some(ref stash) = self.stash
+        {
+            let key = stash.stash(result.content.clone()).await;
+            result.content = truncate_tool_result(&result.content, self.max_chars);
+            let _ = write!(
+                result.content,
+                "\n\n[Full output ({raw_len} chars) stashed as '{key}'. Use stash_retrieve tool to access.]"
+            );
+            return;
+        }
+
         result.content = truncate_tool_result(&result.content, self.max_chars);
     }
 }
