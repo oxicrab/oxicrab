@@ -65,7 +65,20 @@ impl GoogleApiClient {
         // Read body before checking status so error details are preserved
         let text = response.text().await?;
         if !status.is_success() {
-            let safe_text: String = text.chars().take(500).collect();
+            let safe_text: String = text
+                .lines()
+                .filter(|line| {
+                    let lower = line.to_lowercase();
+                    !lower.contains("access_token")
+                        && !lower.contains("refresh_token")
+                        && !lower.contains("bearer")
+                        && !lower.contains("client_secret")
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+                .chars()
+                .take(500)
+                .collect();
             anyhow::bail!("Google API error ({status}): {safe_text}");
         }
         if text.is_empty() {

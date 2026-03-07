@@ -394,6 +394,11 @@ impl AgentLoop {
         })
     }
 
+    /// Run the agent loop, processing inbound messages until the channel closes.
+    ///
+    /// **Shutdown:** The caller must cancel the spawned task (e.g. via `tokio::select!`)
+    /// to stop the loop. The `stop()` method sets an advisory flag but does not
+    /// wake the blocked `recv()` call.
     pub async fn run(&self) -> Result<()> {
         *self.running.lock().await = true;
         info!("agent loop started, waiting for messages");

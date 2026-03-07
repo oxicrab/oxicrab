@@ -152,6 +152,8 @@ impl CronService {
     }
 
     pub async fn start(&self) -> Result<()> {
+        const PRUNE_INTERVAL_MS: i64 = 3_600_000; // 1 hour
+
         let mut running = self.running.lock().await;
         if *running {
             return Ok(());
@@ -163,6 +165,7 @@ impl CronService {
 
         let handle = tokio::spawn(async move {
             let mut first_tick = true;
+            let mut last_prune_ms: i64 = 0;
 
             loop {
                 if !*service.running.lock().await {
@@ -286,19 +289,22 @@ impl CronService {
                     }
                 }
 
-                // Prune disabled jobs that haven't been updated in PRUNE_DISABLED_AFTER_DAYS
-                let prune_cutoff_ms = now - PRUNE_DISABLED_AFTER_DAYS * 24 * 60 * 60 * 1000;
-                match service.db.prune_disabled_cron_jobs(prune_cutoff_ms) {
-                    Ok(pruned) if pruned > 0 => {
-                        info!(
-                            "Pruned {} disabled cron jobs older than {} days",
-                            pruned, PRUNE_DISABLED_AFTER_DAYS
-                        );
+                // Prune disabled jobs at most once per hour
+                if now - last_prune_ms >= PRUNE_INTERVAL_MS {
+                    let prune_cutoff_ms = now - PRUNE_DISABLED_AFTER_DAYS * 24 * 60 * 60 * 1000;
+                    match service.db.prune_disabled_cron_jobs(prune_cutoff_ms) {
+                        Ok(pruned) if pruned > 0 => {
+                            info!(
+                                "Pruned {} disabled cron jobs older than {} days",
+                                pruned, PRUNE_DISABLED_AFTER_DAYS
+                            );
+                        }
+                        Err(e) => {
+                            warn!("failed to prune disabled cron jobs: {}", e);
+                        }
+                        _ => {}
                     }
-                    Err(e) => {
-                        warn!("failed to prune disabled cron jobs: {}", e);
-                    }
-                    _ => {}
+                    last_prune_ms = now;
                 }
 
                 first_tick = false;

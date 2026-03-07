@@ -518,8 +518,10 @@ fn start_channels_loop(
 
         loop {
             if let Some(msg) = outbound_rx.recv().await {
-                // Route HTTP API responses back to waiting HTTP handlers
-                if let Some(ref state) = http_api_state
+                // Route HTTP API responses back to waiting HTTP handlers.
+                // Check channel first to avoid cloning for non-HTTP messages.
+                if msg.channel == "http"
+                    && let Some(ref state) = http_api_state
                     && crate::gateway::route_response(state, msg.clone())
                 {
                     continue;

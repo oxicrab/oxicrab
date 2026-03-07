@@ -1,3 +1,4 @@
+use crate::actions;
 use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
@@ -142,9 +143,9 @@ impl Tool for WeatherTool {
         ToolCapabilities {
             built_in: true,
             network_outbound: true,
-            subagent_access: SubagentAccess::Full,
+            subagent_access: SubagentAccess::ReadOnly,
             category: ToolCategory::Web,
-            ..Default::default()
+            actions: actions![current: ro, forecast: ro],
         }
     }
 

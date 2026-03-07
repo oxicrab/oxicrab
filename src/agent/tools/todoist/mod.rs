@@ -564,7 +564,7 @@ impl Tool for TodoistTool {
                     && !(1..=4).contains(&p)
                 {
                     return Ok(ToolResult::error(
-                        "priority must be 1 (normal) to 4 (urgent)".to_string(),
+                        "priority must be 1 (urgent) to 4 (normal)".to_string(),
                     ));
                 }
                 let labels: Option<Vec<&str>> = params["labels"]

@@ -376,6 +376,7 @@ impl BaseChannel for WhatsAppChannel {
                     });
 
                 // Build and run bot
+                let connected_at = tokio::time::Instant::now();
                 match bot_builder.build().await {
                     Ok(mut bot) => {
                         info!("WhatsApp bot built successfully, starting...");
@@ -397,6 +398,10 @@ impl BaseChannel for WhatsAppChannel {
                 }
 
                 if *running.lock().await {
+                    // Reset backoff if connection lasted more than 2 minutes (not a transient failure)
+                    if connected_at.elapsed() > tokio::time::Duration::from_mins(2) {
+                        reconnect_attempt = 0;
+                    }
                     let delay = exponential_backoff_delay(reconnect_attempt, 5, 60);
                     reconnect_attempt += 1;
                     warn!("WhatsApp bot stopped, reconnecting in {} seconds...", delay);

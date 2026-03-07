@@ -1,3 +1,4 @@
+use crate::actions;
 use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::utils::regex::compile_security_patterns;
@@ -94,6 +95,7 @@ impl Tool for TmuxTool {
         ToolCapabilities {
             built_in: true,
             category: ToolCategory::System,
+            actions: actions![create, send, read: ro, list: ro, kill],
             ..Default::default()
         }
     }
@@ -126,7 +128,7 @@ impl Tool for TmuxTool {
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         // Check if tmux is available
-        if tokio::process::Command::new("tmux")
+        if crate::utils::subprocess::scrubbed_command("tmux")
             .arg("-V")
             .output()
             .await

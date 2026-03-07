@@ -208,7 +208,7 @@ pub fn parse_response(json: &Value) -> LLMResponse {
     });
 
     let mut tool_calls = Vec::new();
-    let mut reasoning_content = None;
+    let mut reasoning_content: Option<String> = None;
     let mut reasoning_signature = None;
 
     if let Some(content_array) = json["content"].as_array() {
@@ -222,14 +222,23 @@ pub fn parse_response(json: &Value) -> LLMResponse {
                     });
                 }
                 Some("thinking") => {
-                    // Anthropic API uses "thinking" key; some versions use "text"
-                    reasoning_content = block["thinking"]
+                    // Anthropic API uses "thinking" key; some versions use "text".
+                    // Concatenate multiple thinking blocks (can occur with extended thinking).
+                    if let Some(thought) = block["thinking"]
                         .as_str()
                         .or_else(|| block["text"].as_str())
-                        .map(std::string::ToString::to_string);
-                    reasoning_signature = block["signature"]
-                        .as_str()
-                        .map(std::string::ToString::to_string);
+                    {
+                        if let Some(ref mut existing) = reasoning_content {
+                            existing.push('\n');
+                            existing.push_str(thought);
+                        } else {
+                            reasoning_content = Some(thought.to_string());
+                        }
+                    }
+                    // Keep the last signature (the final thinking block's signature is authoritative)
+                    if let Some(sig) = block["signature"].as_str() {
+                        reasoning_signature = Some(sig.to_string());
+                    }
                 }
                 _ => {}
             }

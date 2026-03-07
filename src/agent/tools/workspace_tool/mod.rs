@@ -1,4 +1,7 @@
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
+use crate::actions;
+use crate::agent::tools::base::{
+    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory,
+};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::agent::workspace::{FileCategory, WorkspaceManager};
 use crate::config::schema::WorkspaceTtlConfig;
@@ -329,50 +332,22 @@ impl Tool for WorkspaceTool {
     }
 
     fn capabilities(&self) -> ToolCapabilities {
-        use crate::agent::tools::base::ActionDescriptor;
-
         ToolCapabilities {
             built_in: true,
             network_outbound: false,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: vec![
-                ActionDescriptor {
-                    name: "list",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "search",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "info",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "tree",
-                    read_only: true,
-                },
-                ActionDescriptor {
-                    name: "move",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "delete",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "tag",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "cleanup",
-                    read_only: false,
-                },
-                ActionDescriptor {
-                    name: "send",
-                    read_only: false,
-                },
-            ],
+            actions: {
+                let mut a =
+                    actions![list: ro, search: ro, info: ro, tree: ro, delete, tag, cleanup, send];
+                a.insert(
+                    4,
+                    ActionDescriptor {
+                        name: "move",
+                        read_only: false,
+                    },
+                );
+                a
+            },
             category: ToolCategory::Productivity,
         }
     }

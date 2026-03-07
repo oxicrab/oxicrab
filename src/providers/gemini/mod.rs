@@ -63,7 +63,10 @@ impl GeminiProvider {
 
         // Detect safety-filtered or blocked responses
         if let Some(reason) = candidate["finishReason"].as_str()
-            && matches!(reason, "SAFETY" | "BLOCKED" | "RECITATION")
+            && matches!(
+                reason,
+                "SAFETY" | "BLOCKED" | "RECITATION" | "PROHIBITED_CONTENT" | "SPII"
+            )
         {
             anyhow::bail!("Gemini response blocked (finishReason: {reason})");
         }

@@ -1,3 +1,4 @@
+use crate::actions;
 use crate::agent::subagent::SubagentManager;
 use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
@@ -48,6 +49,7 @@ impl Tool for SubagentControlTool {
         ToolCapabilities {
             built_in: true,
             category: ToolCategory::System,
+            actions: actions![list: ro, cancel],
             ..Default::default()
         }
     }
