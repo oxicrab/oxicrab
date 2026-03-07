@@ -60,13 +60,7 @@ impl RegexPatterns {
     }
 
     /// Regex for matching markdown italic (_text_)
-    #[cfg(any(
-        feature = "channel-telegram",
-        feature = "channel-discord",
-        feature = "channel-slack",
-        feature = "channel-whatsapp",
-        feature = "channel-twilio",
-    ))]
+    #[cfg(feature = "channel-telegram")]
     pub fn markdown_italic() -> &'static Regex {
         static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"_(.+?)_").expect("Failed to compile markdown italic regex")
@@ -75,13 +69,7 @@ impl RegexPatterns {
     }
 
     /// Regex for matching markdown code (`code`)
-    #[cfg(any(
-        feature = "channel-telegram",
-        feature = "channel-discord",
-        feature = "channel-slack",
-        feature = "channel-whatsapp",
-        feature = "channel-twilio",
-    ))]
+    #[cfg(feature = "channel-telegram")]
     pub fn markdown_code() -> &'static Regex {
         static RE: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"`([^`]+)`").expect("Failed to compile markdown code regex")

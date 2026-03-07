@@ -1,6 +1,6 @@
 services:
   oxicrab:
-    image: ghcr.io/oxicrab/oxicrab:latest
+    image: ghcr.io/oxicrab/oxicrab:${OXICRAB_TAG:-latest}
     restart: unless-stopped
     volumes:
       - ${OXICRAB_HOME:-~/.oxicrab}:/home/oxicrab/.oxicrab
@@ -14,3 +14,4 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    # Tags: "latest" (all channels), "slack-only" (Slack + no whisper, smaller image)
