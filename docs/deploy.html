@@ -439,6 +439,12 @@ docker run -d \
   oxicrab</code></pre>
 
     <div class="note"><strong>WhatsApp:</strong> The first run displays a QR code in the terminal. Use <code>docker run -it</code> (interactive) for the initial link, then switch to <code>-d</code> (detached) for subsequent runs. The session is persisted in the mounted volume.</div>
+
+    <h3>Authentication</h3>
+    <p>Google OAuth and other interactive auth commands need to run inside the container. Use <code>--headless</code> since there is no browser in the container &mdash; it prints a URL to open on your host machine.</p>
+    <pre><code># Google OAuth (while the container is running)
+docker exec -it oxicrab oxicrab auth google --headless</code></pre>
+    <p>Credentials are saved to the mounted volume and persist across container restarts. If you add new OAuth scopes (e.g. Google Tasks), re-run the auth command to pick them up.</p>
   </div>
 
   <!-- DOCKER COMPOSE -->
@@ -465,7 +471,10 @@ docker compose up -d
 docker compose logs -f
 
 # Pull latest image and restart
-docker compose pull &amp;&amp; docker compose up -d</code></pre>
+docker compose pull &amp;&amp; docker compose up -d
+
+# Run auth commands (e.g. Google OAuth)
+docker exec -it oxicrab oxicrab auth google --headless</code></pre>
   </div>
 
   <!-- SYSTEMD -->
