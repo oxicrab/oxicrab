@@ -378,6 +378,10 @@ impl Tool for ExecTool {
         cmd.arg("-c").arg(command);
         cmd.current_dir(&cwd);
         cmd.kill_on_drop(true);
+        // Pipe stdout/stderr so wait_with_output() captures them
+        // (spawn() uses inherited stdio by default, unlike output())
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
 
         // Run the shell in its own process group so we can kill all children
         // on timeout, not just the top-level shell process.

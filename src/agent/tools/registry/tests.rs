@@ -250,9 +250,9 @@ fn test_coerce_string_to_integer() {
 #[test]
 fn test_coerce_string_to_number() {
     let schema = json!({"type": "object", "properties": {"rate": {"type": "number"}}});
-    let params = json!({"rate": "3.14"});
+    let params = json!({"rate": "1.23"});
     let result = coerce_params_to_schema(params, &schema);
-    assert_eq!(result["rate"], json!(3.14));
+    assert_eq!(result["rate"], json!(1.23));
 }
 
 #[test]
