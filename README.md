@@ -124,7 +124,7 @@ Minimal example:
   "agents": {
     "defaults": {
       "modelRouting": {
-        "default": "anthropic/claude-sonnet-4-5-20250929"
+        "default": "claude-sonnet-4-5-20250929"
       }
     }
   },
