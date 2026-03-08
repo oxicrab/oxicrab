@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.3] - 2026-03-08
+
+### Added
+- **docker:** add slack-only image variant and fix cfg gates ([bd48dd8](https://github.com/oxicrab/oxicrab/commit/bd48dd8f75ec2de4bc830a007607cd5dc9d636dd))
+
+
+### Documentation
+- round 3 audit fixes — cross-doc consistency and fabricated config ([3c83375](https://github.com/oxicrab/oxicrab/commit/3c83375d5ee763676eb958d5c2acbee504b801dc))
+- fix remaining issues from second audit pass ([3dc9712](https://github.com/oxicrab/oxicrab/commit/3dc9712c9af2bbc42d4173288c2a09d99299495c))
+- comprehensive audit and fix across all documentation ([0f60f7c](https://github.com/oxicrab/oxicrab/commit/0f60f7cbc5beb4801e4cce5a822bdef6cbb2a3be))
+
+
+### Fixed
+- **docs:** replace remaining ghost model field in config.html examples ([8740014](https://github.com/oxicrab/oxicrab/commit/8740014d17fc701022745e227db7f1b1b6b7bbc3))
+- **slack:** convert markdown tables to text and strip <think> tags ([8e121ff](https://github.com/oxicrab/oxicrab/commit/8e121ff6d86d310253e12f0728060c0393417f75))
+
+
+### Maintenance
+- **deps:** upgrade rmcp 0.17→1.1, chromiumoxide 0.8→0.9, governor 0.8→0.10 ([e3f54fe](https://github.com/oxicrab/oxicrab/commit/e3f54fe704aeb667276528837936a68b2dda9b31))
+- **deps:** upgrade rmcp 0.17→1.1, chromiumoxide 0.8→0.9, rusqlite 0.37→0.38, governor 0.8→0.10 ([986823c](https://github.com/oxicrab/oxicrab/commit/986823cc47d2ed74e3ea144a6f6ad82f57746af5))
+- **deps:** switch whatsapp-rust from git ref to crates.io 0.3.0 ([76ad42c](https://github.com/oxicrab/oxicrab/commit/76ad42c0745491638fa2b9a0d5a6a4753ce8d7ea))
+
 ## [0.14.2] - 2026-03-07
 
 ### Added
@@ -12,16 +34,21 @@ All notable changes to this project will be documented in this file.
 
 
 ### Changed
+- **config:** replace Google scopes with per-tool enable flags ([741a5a4](https://github.com/oxicrab/oxicrab/commit/741a5a433cff3e6d40eab6d7db73e4e63861ea45))
 - **db:** switch memory schema bootstrap to versioned migrations ([5f3790b](https://github.com/oxicrab/oxicrab/commit/5f3790bbbe020d6a9ee677b8472b0b50d820b4ab))
 - **auth:** share oauth credential persistence and safe file I/O ([927872b](https://github.com/oxicrab/oxicrab/commit/927872b3e6b81edb07395ff084a76d2ef8643f57))
 
 
 ### Documentation
+- **deploy:** add docker auth and scope re-authentication instructions ([e96515a](https://github.com/oxicrab/oxicrab/commit/e96515a274b771cd6cfcd1b9b251085cae48323d))
 - add stash_retrieve tool and datetime prominence to docs ([57ff872](https://github.com/oxicrab/oxicrab/commit/57ff872714e8ebc05dbd13a108ebf67d9b016a9d))
 - redesign with warm crafted theme ([de7856f](https://github.com/oxicrab/oxicrab/commit/de7856f27b9795209be89301a31e0456598f38e9))
 
 
 ### Fixed
+- **auth:** save Google OAuth credentials to database during auth flow ([cd3ce6e](https://github.com/oxicrab/oxicrab/commit/cd3ce6e4c62b86440ecaf7105167aab4eb8694e2))
+- **ci:** read toolchain version from rust-toolchain.toml ([869a3f5](https://github.com/oxicrab/oxicrab/commit/869a3f59170b5e66f59eb823c2fa6b526bb1f9ae))
+- **docker:** sync nightly version with rust-toolchain.toml ([b2608ba](https://github.com/oxicrab/oxicrab/commit/b2608bac9745f676f974b9b3a7a9ee83bdd225a0))
 - **docs:** SVG fill attribute, reduced-motion, and noscript fallback ([efd5f71](https://github.com/oxicrab/oxicrab/commit/efd5f7132373426d47fa65fdc61a5406e5e75ceb))
 - **test:** update error tool test for schema hint injection ([c329457](https://github.com/oxicrab/oxicrab/commit/c3294570246f32b749e2e779578b7d0038432c60))
 - **tools:** correct todoist priority ordering and stash documentation ([efa44f9](https://github.com/oxicrab/oxicrab/commit/efa44f971b285473b7a9fc0a5a97e01374eae682))
@@ -36,6 +63,7 @@ All notable changes to this project will be documented in this file.
 
 
 ### Maintenance
+- read nightly version from rust-toolchain.toml everywhere ([79f8319](https://github.com/oxicrab/oxicrab/commit/79f83190804e8aba60772b605d1ae22c8bde0c95))
 - update Rust nightly to 2026-03-05 and fix flaky test ([73253d2](https://github.com/oxicrab/oxicrab/commit/73253d28f8352e411bd7dfe08e0c8a2184886883))
 
 
