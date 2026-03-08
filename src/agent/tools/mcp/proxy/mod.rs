@@ -4,7 +4,6 @@ use rmcp::RoleClient;
 use rmcp::model::{CallToolRequestParams, RawContent};
 use rmcp::service::Peer;
 use serde_json::Value;
-use std::borrow::Cow;
 use std::fmt::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -76,12 +75,10 @@ impl Tool for McpProxyTool {
             }
         };
 
-        let request = CallToolRequestParams {
-            meta: None,
-            name: Cow::Owned(self.tool_name.clone()),
-            arguments,
-            task: None,
-        };
+        let mut request = CallToolRequestParams::new(self.tool_name.clone());
+        if let Some(args) = arguments {
+            request = request.with_arguments(args);
+        }
 
         let result = match self.peer.call_tool(request).await {
             Ok(r) => r,
