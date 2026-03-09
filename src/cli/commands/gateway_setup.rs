@@ -1,10 +1,10 @@
-use crate::agent::AgentLoop;
+﻿use crate::agent::AgentLoop;
 use crate::bus::MessageBus;
 use crate::channels::manager::ChannelManager;
 use crate::config::{Config, load_config};
 use crate::cron::service::CronService;
 use crate::cron::types::CronJob;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -18,7 +18,13 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     info!("Configuration loaded. Using model: {}", effective_model);
     debug!("Workspace: {:?}", config.workspace_path());
 
+    // Ensure workspace directory exists
+    info!("Ensuring workspace directory exists...");
+    crate::utils::ensure_dir(&config.workspace_path())
+        .context("Failed to create workspace directory")?;
+
     // Ensure workspace template files exist (AGENTS.md, USER.md, etc.)
+    info!("Creating workspace templates if needed...");
     super::create_workspace_templates(&config.workspace_path())?;
 
     // Create MemoryDB early so OAuth providers can use it for token caching
@@ -26,10 +32,14 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
         .workspace_path()
         .join("memory")
         .join("memory.sqlite3");
-    let memory_db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path)?);
+    info!("Initializing MemoryDB at: {}", db_path.display());
+    let memory_db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path)
+        .with_context(|| format!("Failed to create MemoryDB at: {}", db_path.display()))?);
 
     // Setup components
+    info!("Setting up LLM provider...");
     let provider = setup_provider(&config, model.as_deref(), Some(memory_db.clone()))?;
+    info!("Provider setup complete");
 
     // Warmup provider connection (non-blocking, non-fatal)
     if let Err(e) = provider.warmup().await {

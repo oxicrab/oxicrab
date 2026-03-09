@@ -1,4 +1,4 @@
-# Rust
+﻿# Rust
 target/
 # Cargo.lock should be committed for binaries (applications)
 # Only ignore for libraries
@@ -21,6 +21,7 @@ Thumbs.db
 *.db
 *.log
 .fastembed_cache
+config.json
 
 # Build artifacts
 *.pdb

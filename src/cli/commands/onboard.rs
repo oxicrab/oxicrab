@@ -1,4 +1,5 @@
-use anyhow::Result;
+﻿use anyhow::{Context, Result};
+use tracing::debug;
 
 use crate::config::Config;
 
@@ -39,6 +40,8 @@ pub(super) fn onboard() -> Result<()> {
 }
 
 pub(super) fn create_workspace_templates(workspace: &std::path::Path) -> Result<()> {
+    debug!("Creating workspace templates in: {}", workspace.display());
+
     let templates = vec![
         (
             "USER.md",
@@ -132,13 +135,18 @@ Notes and configuration details for tools.
     for (filename, content) in templates {
         let file_path = workspace.join(filename);
         if !file_path.exists() {
-            std::fs::write(&file_path, content)?;
-            println!("  Created {filename}");
+            debug!("Writing template file: {}", file_path.display());
+            std::fs::write(&file_path, content)
+                .with_context(|| format!("Failed to write template file: {}", file_path.display()))?;
+            debug!("Created template: {}", filename);
+        } else {
+            debug!("Template already exists: {}", filename);
         }
     }
 
     // Create memory directory (SQLite DB lives here)
     let memory_dir = workspace.join("memory");
+    debug!("Ensuring memory directory exists: {}", memory_dir.display());
     crate::utils::ensure_dir(&memory_dir)?;
 
     Ok(())
