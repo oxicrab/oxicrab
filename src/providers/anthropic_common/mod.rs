@@ -162,16 +162,16 @@ pub fn convert_messages(messages: Vec<Message>) -> (Option<String>, Vec<Anthropi
 
 /// Convert generic tool definitions to Anthropic API format.
 /// Adds `cache_control` to the last tool for prompt caching.
-pub fn convert_tools(tools: Vec<ToolDefinition>) -> Vec<Value> {
+pub fn convert_tools(tools: &[ToolDefinition]) -> Vec<Value> {
     let len = tools.len();
     tools
-        .into_iter()
+        .iter()
         .enumerate()
         .map(|(i, t)| {
             let mut tool = json!({
-                "name": t.name,
-                "description": t.description,
-                "input_schema": t.parameters,
+                "name": &t.name,
+                "description": &t.description,
+                "input_schema": &t.parameters,
             });
             // Add cache_control to the last tool definition for prompt caching
             if i == len - 1 {

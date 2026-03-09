@@ -18,7 +18,7 @@ use tempfile::TempDir;
 pub struct RecordedCall {
     pub messages: Vec<Message>,
     pub model: Option<String>,
-    pub tools: Option<Vec<ToolDefinition>>,
+    pub tools: Option<Arc<Vec<ToolDefinition>>>,
     pub temperature: Option<f32>,
     pub max_tokens: u32,
     pub tool_choice: Option<String>,
@@ -93,10 +93,12 @@ pub fn tool_call(id: &str, name: &str, arguments: serde_json::Value) -> ToolCall
 
 // --- Tool-capturing provider ---
 
+type CapturedToolDefs = Vec<Option<Arc<Vec<ToolDefinition>>>>;
+
 /// A mock provider that captures tool definitions passed by the agent loop.
 pub struct ToolCapturingProvider {
     responses: Arc<std::sync::Mutex<VecDeque<LLMResponse>>>,
-    pub tool_defs: Arc<std::sync::Mutex<Vec<Option<Vec<ToolDefinition>>>>>,
+    pub tool_defs: Arc<std::sync::Mutex<CapturedToolDefs>>,
     pub default_response: String,
 }
 

@@ -316,7 +316,7 @@ fn test_convert_tools_basic() {
         description: "Does stuff".to_string(),
         parameters: json!({"type": "object", "properties": {}}),
     }];
-    let result = convert_tools(tools);
+    let result = convert_tools(&tools);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0]["name"], "my_tool");
     assert_eq!(result[0]["description"], "Does stuff");
@@ -328,7 +328,7 @@ fn test_convert_tools_basic() {
 
 #[test]
 fn test_convert_tools_empty() {
-    let result = convert_tools(vec![]);
+    let result = convert_tools(&[]);
     assert!(result.is_empty());
 }
 
@@ -392,7 +392,7 @@ fn test_convert_tools_last_has_cache_control() {
             parameters: json!({"type": "object"}),
         },
     ];
-    let result = convert_tools(tools);
+    let result = convert_tools(&tools);
     assert_eq!(result.len(), 2);
     // First tool should NOT have cache_control
     assert!(result[0].get("cache_control").is_none());
@@ -407,7 +407,7 @@ fn test_convert_tools_single_has_cache_control() {
         description: "The only tool".to_string(),
         parameters: json!({"type": "object"}),
     }];
-    let result = convert_tools(tools);
+    let result = convert_tools(&tools);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0]["cache_control"], json!({"type": "ephemeral"}));
 }

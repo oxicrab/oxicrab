@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,7 +176,7 @@ pub enum ResponseFormat {
 #[derive(Debug, Clone, Default)]
 pub struct ChatRequest {
     pub messages: Vec<Message>,
-    pub tools: Option<Vec<ToolDefinition>>,
+    pub tools: Option<Arc<Vec<ToolDefinition>>>,
     pub model: Option<String>,
     pub max_tokens: u32,
     pub temperature: Option<f32>,
@@ -216,7 +217,7 @@ impl ChatRequestBuilder {
     }
 
     pub fn tools(mut self, tools: Vec<ToolDefinition>) -> Self {
-        self.inner.tools = Some(tools);
+        self.inner.tools = Some(Arc::new(tools));
         self
     }
 

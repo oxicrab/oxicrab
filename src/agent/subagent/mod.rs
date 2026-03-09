@@ -403,7 +403,7 @@ async fn run_subagent_inner(
             .chat_with_retry(
                 crate::providers::base::ChatRequest {
                     messages: messages.clone(),
-                    tools: Some(tools.get_tool_definitions()),
+                    tools: Some(std::sync::Arc::new(tools.get_tool_definitions())),
                     model: Some(config.model.clone()),
                     max_tokens: config.max_tokens,
                     temperature: config.tool_temperature,

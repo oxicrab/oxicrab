@@ -256,16 +256,16 @@ impl LLMProvider for OpenAIProvider {
             }
         }
 
-        if let Some(tools) = req.tools {
+        if let Some(ref tools) = req.tools {
             payload["tools"] = json!(
                 tools
-                    .into_iter()
+                    .iter()
                     .map(|t| json!({
                         "type": "function",
                         "function": {
-                            "name": t.name,
-                            "description": t.description,
-                            "parameters": t.parameters
+                            "name": &t.name,
+                            "description": &t.description,
+                            "parameters": &t.parameters
                         }
                     }))
                     .collect::<Vec<_>>()

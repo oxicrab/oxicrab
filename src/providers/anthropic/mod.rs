@@ -111,7 +111,7 @@ impl LLMProvider for AnthropicProvider {
                 anthropic_common::system_to_content_blocks(hint.trim_start_matches("\n\n"));
         }
 
-        if let Some(tools) = req.tools {
+        if let Some(ref tools) = req.tools {
             payload["tools"] = serde_json::Value::Array(anthropic_common::convert_tools(tools));
             let choice = match req.tool_choice.as_deref().unwrap_or("auto") {
                 v @ ("auto" | "any" | "none") => v,

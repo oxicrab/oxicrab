@@ -262,14 +262,14 @@ impl LLMProvider for GeminiProvider {
             });
         }
 
-        if let Some(tools) = req.tools {
+        if let Some(ref tools) = req.tools {
             payload["tools"] = json!([{
                 "functionDeclarations": tools
-                    .into_iter()
+                    .iter()
                     .map(|t| json!({
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.parameters
+                        "name": &t.name,
+                        "description": &t.description,
+                        "parameters": &t.parameters
                     }))
                     .collect::<Vec<_>>()
             }]);
