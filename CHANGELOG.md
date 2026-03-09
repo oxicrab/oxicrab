@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.4] - 2026-03-09
+
+### Changed
+- Revert "fix(db): wrap DLQ insert+purge in transaction to prevent TOCTOU" ([bb4dfcd](https://github.com/oxicrab/oxicrab/commit/bb4dfcda23f7da24e97e92c2c736467861821270))
+
+
+### Fixed
+- **loop:** persist reasoning_content to session history ([75e80ed](https://github.com/oxicrab/oxicrab/commit/75e80ed81fde45b4372133f30f6ffc56d79d74a6))
+- address medium-severity audit findings across subsystems ([2b49974](https://github.com/oxicrab/oxicrab/commit/2b499747a007c299fa94e9795e424669c76ca781))
+- **discord:** check interaction token TTL before followup ([d47a38d](https://github.com/oxicrab/oxicrab/commit/d47a38d8d3ce0e3849855f3afa152b0baacb6692))
+- **db:** wrap DLQ insert+purge in transaction to prevent TOCTOU ([c11e576](https://github.com/oxicrab/oxicrab/commit/c11e5764503760b694d61bf03b9dbac8b8ec5cb4))
+- **loop:** prevent wrapup hint from firing on final iteration ([60de312](https://github.com/oxicrab/oxicrab/commit/60de312917fa8424259d68a07831fba72a1d4432))
+- Docker build, startup robustness, and contributor credit ([f34af0c](https://github.com/oxicrab/oxicrab/commit/f34af0cb49852c838994562d757ddb0075a24e61))
+- **slack:** strip think tags on all exit paths and improve table conversion ([6649edb](https://github.com/oxicrab/oxicrab/commit/6649edbdbafb877305d0bb826c306df2a6f381b6))
+
+
+### Performance
+- **providers:** use Arc<Vec<ToolDefinition>> in ChatRequest to avoid cloning per iteration ([955efe7](https://github.com/oxicrab/oxicrab/commit/955efe7df9b8defe8a6395baf845654016effa21))
+- **loop:** use Aho-Corasick for tool mention detection ([63927bb](https://github.com/oxicrab/oxicrab/commit/63927bbd0490db517334aed4c55dcef654554d79))
+- **tools:** cache tool definitions at registration time ([834e164](https://github.com/oxicrab/oxicrab/commit/834e164750d75d3b257437591451764848de354a))
+- **slack:** cache mention regex instead of recompiling per message ([508f85d](https://github.com/oxicrab/oxicrab/commit/508f85d5bc988249c4f8f04c85a5a867aecb7809))
+- **cron:** cache compiled regexes in event matcher ([72e0e12](https://github.com/oxicrab/oxicrab/commit/72e0e124dfbd6b3b16e600430df8273d4f4fa8c0))
+- **safety:** LazyLock prompt guard patterns, fix double normalization ([0212391](https://github.com/oxicrab/oxicrab/commit/02123915951c14e9cdc51c2f045ec72b1b10f01c))
+- **db:** add index on memory_entries(source_key, created_at) ([9f192e6](https://github.com/oxicrab/oxicrab/commit/9f192e6ac07763fa2b3bb3afbeaf4b0ef3085edd))
+
+
+### Testing
+- add coverage for google API client and MCP env var detection ([1d9855c](https://github.com/oxicrab/oxicrab/commit/1d9855c2c65ef5339007ba1671073b13bd2ef186))
+- **cli:** add command parsing and validation tests ([3327b89](https://github.com/oxicrab/oxicrab/commit/3327b8971a9ada93384fecdd48a9c9fade1b20f5))
+- **config:** add routing resolution tests ([2e402df](https://github.com/oxicrab/oxicrab/commit/2e402dfd798c6638c16a24621449b258faa62258))
+
 ## [0.14.3] - 2026-03-08
 
 ### Added
