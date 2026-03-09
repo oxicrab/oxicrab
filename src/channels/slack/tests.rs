@@ -407,3 +407,130 @@ fn test_format_for_slack_newlines_preserved() {
     let expected = "line 1\nline 2\n*bold line*";
     assert_eq!(SlackChannel::format_for_slack(input), expected);
 }
+
+// --- convert_tables tests ---
+
+#[test]
+fn test_convert_tables_single_column() {
+    let input = "Tasks:\n| Task |\n|------|\n| Buy groceries |";
+    let result = SlackChannel::convert_tables(input);
+    assert!(!result.contains("|---"), "separator should be removed");
+    assert!(
+        result.contains("• Buy groceries"),
+        "bullet format: {result}"
+    );
+}
+
+#[test]
+fn test_convert_tables_two_column() {
+    let input = "| Time | Event |\n|------|-------|\n| 9 AM | Standup |\n| 10 AM | Review |";
+    let result = SlackChannel::convert_tables(input);
+    assert!(!result.contains("|---"), "separator removed");
+    assert!(
+        result.contains("• *9 AM* — Standup"),
+        "two-col bold+dash: {result}"
+    );
+    assert!(
+        result.contains("• *10 AM* — Review"),
+        "two-col bold+dash: {result}"
+    );
+}
+
+#[test]
+fn test_convert_tables_no_table() {
+    let input = "Just text, no tables.\nAnother line.";
+    assert_eq!(SlackChannel::convert_tables(input), input);
+}
+
+#[test]
+fn test_convert_tables_mixed_content() {
+    let input =
+        ":date: Daily Briefing\n\n| Task |\n|------|\n| Do something |\n\nBusy day! :coffee:";
+    let result = SlackChannel::convert_tables(input);
+    assert!(!result.contains("|---"), "separator removed");
+    assert!(
+        result.contains(":date: Daily Briefing"),
+        "non-table preserved"
+    );
+    assert!(result.contains("Busy day! :coffee:"), "non-table preserved");
+    assert!(result.contains("• Do something"), "bullet format: {result}");
+}
+
+#[test]
+fn test_convert_tables_header_only() {
+    let input = "| Name |\n|------|\n";
+    let result = SlackChannel::convert_tables(input);
+    assert!(!result.contains("|---"), "separator removed: {result}");
+    assert!(result.contains("Name"), "header preserved: {result}");
+}
+
+#[test]
+fn test_convert_tables_briefing_calendar() {
+    // Realistic cron briefing calendar table
+    let input = ":calendar: Events (3)\n\
+                  | Time | Event |\n\
+                  |------|-------|\n\
+                  | 9:00 am | Standup |\n\
+                  | 10:00 am | Planning |\n\
+                  | 2:00 pm | Retro |\n\
+                  \n\
+                  Busy day!";
+    let result = SlackChannel::convert_tables(input);
+    assert!(!result.contains("|---"), "no separator: {result}");
+    assert!(
+        result.contains("• *9:00 am* — Standup"),
+        "calendar format: {result}"
+    );
+    assert!(
+        result.contains("• *10:00 am* — Planning"),
+        "calendar format: {result}"
+    );
+    assert!(
+        result.contains("• *2:00 pm* — Retro"),
+        "calendar format: {result}"
+    );
+    assert!(result.contains(":calendar:"), "emoji preserved: {result}");
+    assert!(result.contains("Busy day!"), "footer preserved: {result}");
+    // No raw table pipes at line starts
+    for line in result.lines() {
+        let trimmed = line.trim();
+        assert!(!trimmed.starts_with("| "), "no raw table row: {trimmed}");
+    }
+}
+
+#[test]
+fn test_convert_tables_three_column() {
+    let input =
+        "| Time | Event | Location |\n|------|-------|----------|\n| 9 AM | Standup | Room A |";
+    let result = SlackChannel::convert_tables(input);
+    assert!(
+        result.contains("• *Time:* 9 AM · *Event:* Standup · *Location:* Room A"),
+        "3-col labeled: {result}"
+    );
+}
+
+#[test]
+fn test_convert_tables_todoist_single_column() {
+    // Exact format from the user's briefing
+    let input = ":white_check_mark: Todoist Tasks\n| Task |\n|------|\n| Expected K-1 delivery dates for your AngelList investments |";
+    let result = SlackChannel::convert_tables(input);
+    assert!(
+        result.contains("• Expected K-1 delivery dates"),
+        "todoist bullet: {result}"
+    );
+    assert!(!result.contains("|---"), "no separator: {result}");
+}
+
+#[test]
+fn test_format_for_slack_tables_end_to_end() {
+    // Full pipeline: tables + bold + links
+    let input = "**Summary**\n| Key | Value |\n|-----|-------|\n| Status | OK |\n\nDone.";
+    let result = SlackChannel::format_for_slack(input);
+    assert!(!result.contains("|---"), "table separator stripped");
+    assert!(result.contains("*Summary*"), "bold converted");
+    assert!(
+        result.contains("• *Status* — OK"),
+        "table converted: {result}"
+    );
+    assert!(result.contains("Done."), "footer preserved");
+}

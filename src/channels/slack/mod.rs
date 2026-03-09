@@ -104,8 +104,16 @@ impl SlackChannel {
         result
     }
 
-    /// Render collected table rows as Slack-friendly text.
+    /// Render collected table rows as Slack-friendly bullet list.
+    ///
+    /// Conversion strategies:
+    /// - **1-column**: bullet list (`• value`)
+    /// - **2-column**: bold first column with em dash (`• *col1* — col2`)
+    /// - **3+ columns**: labeled (`• *H1:* v1 · *H2:* v2`)
+    /// - **Header only**: joined with ` · `
     fn flush_table(lines: &[&str], out: &mut String) {
+        use std::fmt::Write;
+
         if lines.is_empty() {
             return;
         }
@@ -120,44 +128,51 @@ impl SlackChannel {
         let header = parse_cells(lines[0]);
         let rows = &lines[1..];
 
-        if header.len() == 2
-            && header[0].is_empty()
-            && rows.iter().all(|r| {
-                let cells = parse_cells(r);
-                cells.len() == 2 && cells[0].is_empty()
-            })
-        {
-            // Two-column table with empty first header = key-value list
-            for row in rows {
-                let cells = parse_cells(row);
-                if cells.len() >= 2 {
-                    use std::fmt::Write;
-                    let _ = writeln!(out, "  {} {}", cells[0], cells[1]);
-                }
-            }
-        } else if rows.is_empty() {
-            // Header only — just list values
+        if rows.is_empty() {
+            // Header only — join values
             out.push_str(&header.join(" · "));
             out.push('\n');
-        } else {
-            // General table: header as labels, rows as indented entries
-            for row in rows {
-                let cells = parse_cells(row);
-                let parts: Vec<String> = header
-                    .iter()
-                    .zip(cells.iter())
-                    .filter(|(_, v)| !v.is_empty() && *v != "\u{2014}")
-                    .map(|(h, v)| {
-                        if h.is_empty() {
-                            v.clone()
-                        } else {
-                            format!("*{h}:* {v}")
-                        }
-                    })
-                    .collect();
-                out.push_str("  ");
-                out.push_str(&parts.join(" | "));
-                out.push('\n');
+            return;
+        }
+
+        let col_count = header.len();
+
+        for row in rows {
+            let cells = parse_cells(row);
+            let non_empty: Vec<_> = cells.iter().filter(|c| !c.is_empty()).collect();
+            if non_empty.is_empty() {
+                continue;
+            }
+
+            match col_count {
+                1 => {
+                    // Single column: bullet list
+                    let _ = writeln!(out, "• {}", cells[0]);
+                }
+                2 => {
+                    // Two columns: bold first, em dash, second
+                    if cells.len() >= 2 && !cells[0].is_empty() {
+                        let _ = writeln!(out, "• *{}* — {}", cells[0], cells[1]);
+                    } else if cells.len() >= 2 {
+                        let _ = writeln!(out, "• {}", cells[1]);
+                    }
+                }
+                _ => {
+                    // 3+ columns: labeled with · separator
+                    let parts: Vec<String> = header
+                        .iter()
+                        .zip(cells.iter())
+                        .filter(|(_, v)| !v.is_empty() && *v != "\u{2014}")
+                        .map(|(h, v)| {
+                            if h.is_empty() {
+                                v.clone()
+                            } else {
+                                format!("*{h}:* {v}")
+                            }
+                        })
+                        .collect();
+                    let _ = writeln!(out, "• {}", parts.join(" · "));
+                }
             }
         }
     }

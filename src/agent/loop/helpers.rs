@@ -405,14 +405,20 @@ fn replace_bracketed_tags(content: &str, prefix: &str, replacement: Option<&str>
 /// Strip `<think>...</think>` blocks from model output.
 /// Some models (`DeepSeek`, `Qwen`) emit inline thinking tags instead of using
 /// the structured `reasoning_content` field.
+/// Also handles unclosed `<think>` tags (e.g. from output truncation).
 pub(super) fn strip_think_tags(content: &str) -> String {
     if !content.contains("<think>") {
         return content.to_string();
     }
-    crate::utils::regex::RegexPatterns::think_tags()
+    let result = crate::utils::regex::RegexPatterns::think_tags()
         .replace_all(content, "")
-        .trim()
-        .to_string()
+        .to_string();
+    // Handle unclosed <think> tag: strip everything from it to the end
+    if let Some(idx) = result.find("<think>") {
+        result[..idx].trim().to_string()
+    } else {
+        result.trim().to_string()
+    }
 }
 
 pub(super) fn strip_image_tags(content: &str) -> String {

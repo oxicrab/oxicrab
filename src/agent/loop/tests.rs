@@ -1348,3 +1348,53 @@ fn test_infer_categories_multiple_matches() {
     assert!(cats.contains(&Development));
     assert!(cats.contains(&Communication));
 }
+
+// --- strip_think_tags tests ---
+
+#[test]
+fn test_strip_think_tags_closed() {
+    let input = "<think>some reasoning</think>Here is the answer.";
+    assert_eq!(strip_think_tags(input), "Here is the answer.");
+}
+
+#[test]
+fn test_strip_think_tags_multiline() {
+    let input = "<think>\nLet me think about this.\nOK I know.\n</think>\nHere is the answer.";
+    assert_eq!(strip_think_tags(input), "Here is the answer.");
+}
+
+#[test]
+fn test_strip_think_tags_unclosed() {
+    let input = "<think>reasoning without end tag\nstill reasoning\nAnswer is here.";
+    assert_eq!(strip_think_tags(input), "");
+}
+
+#[test]
+fn test_strip_think_tags_unclosed_with_prefix() {
+    let input = "Some preamble.\n<think>reasoning without end tag";
+    assert_eq!(strip_think_tags(input), "Some preamble.");
+}
+
+#[test]
+fn test_strip_think_tags_no_tags() {
+    let input = "Just a normal response.";
+    assert_eq!(strip_think_tags(input), "Just a normal response.");
+}
+
+#[test]
+fn test_strip_think_tags_multiple_blocks() {
+    let input = "<think>block1</think>middle<think>block2</think>end";
+    assert_eq!(strip_think_tags(input), "middleend");
+}
+
+#[test]
+fn test_strip_think_tags_closed_then_unclosed() {
+    let input = "<think>block1</think>middle text<think>unclosed block";
+    assert_eq!(strip_think_tags(input), "middle text");
+}
+
+#[test]
+fn test_strip_think_tags_empty_block() {
+    let input = "<think></think>content after";
+    assert_eq!(strip_think_tags(input), "content after");
+}

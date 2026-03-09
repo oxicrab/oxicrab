@@ -306,6 +306,7 @@ impl AgentLoop {
                 )
                 .await?
         {
+            let content = strip_think_tags(&content);
             return Ok(AgentLoopResult {
                 content: Some(content),
                 input_tokens: last_input_tokens,

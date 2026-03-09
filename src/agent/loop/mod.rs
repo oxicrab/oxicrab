@@ -20,6 +20,7 @@ pub use helpers::{contains_action_claims, is_false_no_tools_claim, mentions_mult
 #[cfg(test)]
 use helpers::{
     execute_tool_call, extract_media_paths, load_and_encode_images, strip_document_tags,
+    strip_think_tags,
 };
 
 pub use config::{
