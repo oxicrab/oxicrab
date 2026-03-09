@@ -16,6 +16,14 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
         conn.execute("PRAGMA user_version = 2", [])?;
     }
 
+    if user_version(conn)? < 3 {
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_memory_entries_source_key \
+             ON memory_entries(source_key, created_at);",
+        )?;
+        conn.execute("PRAGMA user_version = 3", [])?;
+    }
+
     Ok(())
 }
 
@@ -121,7 +129,7 @@ mod tests {
         let v: u32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(v, 3);
     }
 
     #[test]
@@ -171,5 +179,25 @@ mod tests {
                 .unwrap();
             assert!(cols.iter().any(|c| c == "request_id"));
         }
+    }
+
+    #[test]
+    fn test_migration_v3_adds_source_key_index() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATION_0001_BASE).unwrap();
+        conn.execute("PRAGMA user_version = 2", []).unwrap();
+        apply_migrations(&conn).unwrap();
+        assert_eq!(user_version(&conn).unwrap(), 3);
+        // Verify index exists
+        let mut stmt = conn.prepare("PRAGMA index_list('memory_entries')").unwrap();
+        let indexes: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        assert!(
+            indexes.iter().any(|n| n.contains("source_key")),
+            "source_key index should exist, found: {indexes:?}",
+        );
     }
 }
