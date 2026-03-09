@@ -13,13 +13,9 @@ use std::sync::LazyLock;
 use crate::agent::memory::quality::{FILLER, GREETINGS};
 use crate::config::schema::ComplexityWeights;
 
-/// Pre-built scoring engine constructed once at startup. Holds AC automata and
-/// config references so per-message scoring is allocation-free hot-path only.
+/// Pre-built scoring engine. AC automata live in `LazyLock` statics (built
+/// once, shared across all instances). Only the per-instance weights are stored.
 pub struct ComplexityScorer {
-    reasoning_ac: AhoCorasick,
-    technical_ac: AhoCorasick,
-    greeting_ac: AhoCorasick,
-    filler_ac: AhoCorasick,
     weights: ComplexityWeights,
 }
 
@@ -90,6 +86,38 @@ const TECHNICAL_VOCABULARY: &[&str] = &[
     "stack overflow",
     "race condition",
 ];
+
+// ---------------------------------------------------------------------------
+// AC automata (compiled once via LazyLock)
+// ---------------------------------------------------------------------------
+
+static REASONING_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    AhoCorasick::builder()
+        .ascii_case_insensitive(true)
+        .build(REASONING_KEYWORDS)
+        .expect("reasoning AC automaton should build")
+});
+
+static TECHNICAL_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    AhoCorasick::builder()
+        .ascii_case_insensitive(true)
+        .build(TECHNICAL_VOCABULARY)
+        .expect("technical AC automaton should build")
+});
+
+static GREETING_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    AhoCorasick::builder()
+        .ascii_case_insensitive(true)
+        .build(GREETINGS)
+        .expect("greeting AC automaton should build")
+});
+
+static FILLER_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    AhoCorasick::builder()
+        .ascii_case_insensitive(true)
+        .build(FILLER)
+        .expect("filler AC automaton should build")
+});
 
 // ---------------------------------------------------------------------------
 // Exact-match sets for greeting/filler force-override (avoids AC substring
@@ -221,31 +249,7 @@ const LENGTH_FORCE_THRESHOLD: usize = 50_000;
 
 impl ComplexityScorer {
     pub fn new(weights: &ComplexityWeights) -> Self {
-        let reasoning_ac = AhoCorasick::builder()
-            .ascii_case_insensitive(true)
-            .build(REASONING_KEYWORDS)
-            .expect("reasoning AC automaton should build");
-        let technical_ac = AhoCorasick::builder()
-            .ascii_case_insensitive(true)
-            .build(TECHNICAL_VOCABULARY)
-            .expect("technical AC automaton should build");
-
-        // Reuse quality.rs GREETINGS/FILLER pattern lists for dimension 7.
-        let greeting_ac = AhoCorasick::builder()
-            .ascii_case_insensitive(true)
-            .build(GREETINGS)
-            .expect("greeting AC automaton should build");
-
-        let filler_ac = AhoCorasick::builder()
-            .ascii_case_insensitive(true)
-            .build(FILLER)
-            .expect("filler AC automaton should build");
-
         Self {
-            reasoning_ac,
-            technical_ac,
-            greeting_ac,
-            filler_ac,
             weights: weights.clone(),
         }
     }
@@ -253,15 +257,15 @@ impl ComplexityScorer {
     /// Score a user message across all 7 dimensions.
     pub fn score(&self, content: &str) -> ComplexityScore {
         let d1 = score_message_length(content);
-        let d2 = self.score_reasoning_keywords(content);
-        let d3 = self.score_technical_vocabulary(content);
+        let d2 = score_reasoning_keywords(content);
+        let d3 = score_technical_vocabulary(content);
         let d4 = score_question_complexity(content);
         let d5 = score_code_presence(content);
         let d6 = score_instruction_complexity(content);
-        let d7 = self.score_conversational_simplicity(content);
+        let d7 = score_conversational_simplicity(content);
 
         // Check force overrides
-        let reasoning_hits = count_ac_hits(&self.reasoning_ac, content);
+        let reasoning_hits = count_ac_hits(&REASONING_AC, content);
         let forced = if reasoning_hits >= REASONING_FORCE_THRESHOLD {
             Some("reasoning_keywords")
         } else if content.len() > LENGTH_FORCE_THRESHOLD {
@@ -289,50 +293,28 @@ impl ComplexityScorer {
 
         ComplexityScore { composite, forced }
     }
-
-    // -----------------------------------------------------------------------
-    // Dimension scorers (methods that use self for AC automata)
-    // -----------------------------------------------------------------------
-
-    /// D2: Reasoning keywords — AC hit count, saturates at 3.
-    fn score_reasoning_keywords(&self, content: &str) -> f64 {
-        let hits = count_ac_hits(&self.reasoning_ac, content);
-        (hits as f64 / 3.0).min(1.0)
-    }
-
-    /// D3: Technical vocabulary — AC hit count, saturates at 5.
-    fn score_technical_vocabulary(&self, content: &str) -> f64 {
-        let hits = count_ac_hits(&self.technical_ac, content);
-        (hits as f64 / 5.0).min(1.0)
-    }
-
-    /// D7: Conversational simplicity — high score when message is a greeting
-    /// or filler phrase (negative weight will push composite down).
-    fn score_conversational_simplicity(&self, content: &str) -> f64 {
-        if is_pure_greeting_or_filler(content) {
-            return 1.0;
-        }
-        // Partial: count greeting/filler hits relative to word count
-        let word_count = content.split_whitespace().count().max(1);
-        let greeting_hits = count_ac_hits(&self.greeting_ac, content);
-        let filler_hits = count_ac_hits(&self.filler_ac, content);
-        let total_hits = greeting_hits + filler_hits;
-        (total_hits as f64 / word_count as f64).min(1.0)
-    }
-
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
 }
 
 // ---------------------------------------------------------------------------
-// Free functions (no &self needed)
+// Free functions
 // ---------------------------------------------------------------------------
 
 /// D1: Message length — sigmoid normalization centered at 500 bytes.
 fn score_message_length(content: &str) -> f64 {
     let len = content.len() as f64;
     sigmoid(len - 500.0, 0.005)
+}
+
+/// D2: Reasoning keywords — AC hit count, saturates at 3.
+fn score_reasoning_keywords(content: &str) -> f64 {
+    let hits = count_ac_hits(&REASONING_AC, content);
+    (hits as f64 / 3.0).min(1.0)
+}
+
+/// D3: Technical vocabulary — AC hit count, saturates at 5.
+fn score_technical_vocabulary(content: &str) -> f64 {
+    let hits = count_ac_hits(&TECHNICAL_AC, content);
+    (hits as f64 / 5.0).min(1.0)
 }
 
 /// D4: Question complexity — regex classification.
@@ -370,6 +352,20 @@ fn score_instruction_complexity(content: &str) -> f64 {
     let imp_count = IMPERATIVE_VERB_RE.find_iter(content).count();
     let steps = seq_count.max(imp_count);
     (steps as f64 / 4.0).min(1.0)
+}
+
+/// D7: Conversational simplicity — high score when message is a greeting
+/// or filler phrase (negative weight will push composite down).
+fn score_conversational_simplicity(content: &str) -> f64 {
+    if is_pure_greeting_or_filler(content) {
+        return 1.0;
+    }
+    // Partial: count greeting/filler hits relative to word count
+    let word_count = content.split_whitespace().count().max(1);
+    let greeting_hits = count_ac_hits(&GREETING_AC, content);
+    let filler_hits = count_ac_hits(&FILLER_AC, content);
+    let total_hits = greeting_hits + filler_hits;
+    (total_hits as f64 / word_count as f64).min(1.0)
 }
 
 /// Count distinct AC pattern matches (deduplicated by pattern ID).

@@ -23,6 +23,7 @@ pub struct SlackChannel {
     config: SlackConfig,
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
     bot_user_id: Arc<tokio::sync::Mutex<Option<String>>>,
+    mention_regex: Arc<tokio::sync::Mutex<Option<regex::Regex>>>,
     running: Arc<tokio::sync::Mutex<bool>>,
     ws_handle: Option<tokio::task::JoinHandle<()>>,
     seen_messages: Arc<tokio::sync::Mutex<indexmap::IndexSet<String>>>,
@@ -36,6 +37,7 @@ impl SlackChannel {
             config,
             inbound_tx,
             bot_user_id: Arc::new(tokio::sync::Mutex::new(None)),
+            mention_regex: Arc::new(tokio::sync::Mutex::new(None)),
             running: Arc::new(tokio::sync::Mutex::new(false)),
             ws_handle: None,
             seen_messages: Arc::new(tokio::sync::Mutex::new(indexmap::IndexSet::new())),
@@ -327,6 +329,11 @@ impl BaseChannel for SlackChannel {
                     .get("user_id")
                     .and_then(Value::as_str)
                     .map(ToString::to_string);
+                if let Some(ref id) = bot_id {
+                    if let Ok(re) = compile_slack_mention(id) {
+                        *self.mention_regex.lock().await = Some(re);
+                    }
+                }
                 *self.bot_user_id.lock().await = bot_id;
                 let user = auth
                     .get("user")
@@ -371,6 +378,7 @@ impl BaseChannel for SlackChannel {
         let dm_policy = self.config.dm_policy.clone();
         let inbound_tx = self.inbound_tx.clone();
         let bot_user_id = self.bot_user_id.clone();
+        let mention_regex = self.mention_regex.clone();
         let seen_messages = self.seen_messages.clone();
         let user_cache = self.user_cache.clone();
         let ws_client = self.client.clone();
@@ -550,6 +558,7 @@ impl BaseChannel for SlackChannel {
                                                     if let Err(e) = handle_slack_event(
                                                         event_data,
                                                         &bot_user_id,
+                                                        &mention_regex,
                                                         &seen_messages,
                                                         &user_cache,
                                                         &inbound_tx,
@@ -852,6 +861,7 @@ use crate::utils::media::is_image_magic_bytes;
 async fn handle_slack_event(
     event: &Value,
     bot_user_id: &Arc<tokio::sync::Mutex<Option<String>>>,
+    mention_regex: &Arc<tokio::sync::Mutex<Option<regex::Regex>>>,
     seen_messages: &Arc<tokio::sync::Mutex<indexmap::IndexSet<String>>>,
     user_cache: &Arc<tokio::sync::Mutex<lru::LruCache<String, String>>>,
     inbound_tx: &Arc<mpsc::Sender<InboundMessage>>,
@@ -915,16 +925,9 @@ async fn handle_slack_event(
 
     info!("Slack: received message from {} in {}", user_id, channel_id);
 
-    // Strip the bot @mention from text
-    if let Some(ref bot_id) = *bot_user_id.lock().await {
-        match compile_slack_mention(bot_id) {
-            Ok(re_mention) => {
-                text = re_mention.replace_all(&text, "").to_string();
-            }
-            Err(e) => {
-                warn!("Failed to compile Slack mention regex: {}", e);
-            }
-        }
+    // Strip the bot @mention from text (regex is compiled once at startup)
+    if let Some(ref re) = *mention_regex.lock().await {
+        text = re.replace_all(&text, "").to_string();
     }
 
     let is_dm = channel_id.starts_with('D');

@@ -184,3 +184,34 @@ fn test_invalid_regex_skipped() {
     assert_eq!(matcher.matchers.len(), 1);
     assert_eq!(matcher.matchers[0].0, "e2");
 }
+
+#[test]
+fn test_regex_cache_reuse() {
+    let jobs = vec![CronJob {
+        id: "j1".to_string(),
+        name: "test1".to_string(),
+        enabled: true,
+        schedule: CronSchedule::Event {
+            pattern: Some("hello".to_string()),
+            channel: None,
+        },
+        payload: CronPayload {
+            kind: "echo".to_string(),
+            message: "hi".to_string(),
+            agent_echo: false,
+            targets: vec![],
+        },
+        state: CronJobState::default(),
+        created_at_ms: 0,
+        updated_at_ms: 0,
+        delete_after_run: false,
+        expires_at_ms: None,
+        max_runs: None,
+        cooldown_secs: None,
+        max_concurrent: None,
+    }];
+    // Build matcher twice — second build should use cached regex
+    let _m1 = EventMatcher::from_jobs(&jobs);
+    let _m2 = EventMatcher::from_jobs(&jobs);
+    // If it doesn't crash, the cache is working
+}

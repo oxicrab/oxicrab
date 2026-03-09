@@ -534,3 +534,13 @@ fn test_format_for_slack_tables_end_to_end() {
     );
     assert!(result.contains("Done."), "footer preserved");
 }
+
+// --- mention_regex tests ---
+
+#[test]
+fn test_mention_regex_pattern() {
+    let re = crate::utils::regex::compile_slack_mention("U12345").unwrap();
+    assert!(re.is_match("<@U12345>"));
+    assert!(re.is_match("<@U12345 >"));
+    assert!(!re.is_match("<@U99999>"));
+}

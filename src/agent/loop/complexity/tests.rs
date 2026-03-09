@@ -34,8 +34,7 @@ fn long_message_high_length_score() {
 
 #[test]
 fn no_reasoning_keywords() {
-    let scorer = default_scorer();
-    let s = scorer.score_reasoning_keywords("please send me the file");
+    let s = score_reasoning_keywords("please send me the file");
     assert!(
         s < 0.01,
         "no reasoning keywords should score near 0, got {s}"
@@ -44,8 +43,7 @@ fn no_reasoning_keywords() {
 
 #[test]
 fn single_reasoning_keyword() {
-    let scorer = default_scorer();
-    let s = scorer.score_reasoning_keywords("can you analyze this data?");
+    let s = score_reasoning_keywords("can you analyze this data?");
     assert!(
         (0.3..=0.4).contains(&s),
         "one reasoning keyword should score ~0.33, got {s}"
@@ -54,8 +52,7 @@ fn single_reasoning_keyword() {
 
 #[test]
 fn reasoning_keywords_saturate_at_3() {
-    let scorer = default_scorer();
-    let s = scorer.score_reasoning_keywords(
+    let s = score_reasoning_keywords(
         "analyze the trade-offs, synthesize results, and evaluate the hypothesis",
     );
     assert!(
@@ -70,15 +67,13 @@ fn reasoning_keywords_saturate_at_3() {
 
 #[test]
 fn no_technical_vocabulary() {
-    let scorer = default_scorer();
-    let s = scorer.score_technical_vocabulary("what should I have for lunch?");
+    let s = score_technical_vocabulary("what should I have for lunch?");
     assert!(s < 0.01, "no technical terms should score near 0, got {s}");
 }
 
 #[test]
 fn some_technical_terms() {
-    let scorer = default_scorer();
-    let s = scorer.score_technical_vocabulary(
+    let s = score_technical_vocabulary(
         "implement the algorithm using the API with proper authentication",
     );
     assert!(s > 0.4, "3 technical terms should score > 0.4, got {s}");
@@ -183,23 +178,20 @@ fn imperative_verbs() {
 
 #[test]
 fn pure_greeting() {
-    let scorer = default_scorer();
-    let s = scorer.score_conversational_simplicity("hello!");
+    let s = score_conversational_simplicity("hello!");
     assert!(s > 0.9, "pure greeting should score ~1.0, got {s}");
 }
 
 #[test]
 fn pure_filler() {
-    let scorer = default_scorer();
-    let s = scorer.score_conversational_simplicity("ok");
+    let s = score_conversational_simplicity("ok");
     assert!(s > 0.9, "pure filler should score ~1.0, got {s}");
 }
 
 #[test]
 fn not_conversational() {
-    let scorer = default_scorer();
-    let s = scorer
-        .score_conversational_simplicity("implement the new authentication system with JWT tokens");
+    let s =
+        score_conversational_simplicity("implement the new authentication system with JWT tokens");
     assert!(
         s < 0.5,
         "technical message should have low conversational score, got {s}"
@@ -325,9 +317,8 @@ fn empty_message() {
 
 #[test]
 fn case_insensitive_keywords() {
-    let scorer = default_scorer();
-    let upper = scorer.score_reasoning_keywords("ANALYZE this DATA");
-    let lower = scorer.score_reasoning_keywords("analyze this data");
+    let upper = score_reasoning_keywords("ANALYZE this DATA");
+    let lower = score_reasoning_keywords("analyze this data");
     assert!(
         (upper - lower).abs() < 0.01,
         "keywords should be case-insensitive"

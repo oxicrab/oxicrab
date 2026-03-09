@@ -1,7 +1,24 @@
 use crate::cron::types::{CronJob, CronSchedule};
 use regex::Regex;
 use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use tracing::warn;
+
+static REGEX_CACHE: LazyLock<Mutex<lru::LruCache<String, Regex>>> = LazyLock::new(|| {
+    Mutex::new(lru::LruCache::new(
+        std::num::NonZeroUsize::new(256).unwrap(),
+    ))
+});
+
+fn cached_regex(pattern: &str) -> Result<Regex, regex::Error> {
+    let mut cache = REGEX_CACHE.lock().unwrap();
+    if let Some(re) = cache.get(pattern) {
+        return Ok(re.clone());
+    }
+    let re = Regex::new(pattern)?;
+    cache.put(pattern.to_string(), re.clone());
+    Ok(re)
+}
 
 /// Matches inbound messages against event-triggered cron jobs.
 pub struct EventMatcher {
@@ -32,7 +49,7 @@ impl EventMatcher {
                     );
                     continue;
                 }
-                match Regex::new(pat) {
+                match cached_regex(pat) {
                     Ok(re) => {
                         matchers.push((job.id.clone(), re, channel.clone(), job.clone()));
                     }

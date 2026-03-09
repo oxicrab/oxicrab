@@ -1,15 +1,149 @@
+use std::sync::LazyLock;
+
 use aho_corasick::AhoCorasick;
 use base64::Engine;
 use regex::Regex;
 use tracing::warn;
 
-struct LeakPattern {
+/// A static leak pattern compiled once and shared across all `LeakDetector` instances.
+struct StaticPattern {
     name: &'static str,
     regex: Regex,
     /// Index into the Aho-Corasick automaton's pattern list.
     /// `None` if this pattern has no usable AC prefix and should always run.
     ac_index: Option<usize>,
 }
+
+/// Pre-compiled base patterns (AC automaton + regexes) shared across all instances.
+struct BasePatterns {
+    ac: AhoCorasick,
+    patterns: Vec<StaticPattern>,
+    /// Pre-compiled regex for base64 candidate extraction (20+ chars)
+    base64_candidate_re: Regex,
+    /// Pre-compiled regex for hex candidate extraction (40+ chars)
+    hex_candidate_re: Regex,
+}
+
+static BASE_PATTERNS: LazyLock<BasePatterns> = LazyLock::new(|| {
+    // Each entry: (name, regex_pattern, literal_prefix for Aho-Corasick).
+    // The prefix must be a literal string that appears at the start of any
+    // match for this pattern — used for fast first-pass filtering.
+    let pattern_defs: Vec<(&str, &str, &str)> = vec![
+        // Anthropic API keys
+        (
+            "anthropic_api_key",
+            r"sk-ant-api[0-9a-zA-Z\-_]{16,200}",
+            "sk-ant-api",
+        ),
+        // OpenAI API keys: project (sk-proj-...), org (sk-org-...),
+        // service account (sk-svcacct-...), and legacy (sk-[16+ alphanum]).
+        // Legacy pattern excludes sk-ant- (Anthropic, caught separately)
+        // by requiring a non-'a' first char, or 'a' followed by non-'n'.
+        // Uses "sk-" as prefix since all OpenAI variants start with it.
+        (
+            "openai_api_key",
+            r"sk-(?:proj|org|svcacct)-[a-zA-Z0-9\-_]{16,200}|sk-(?:[b-zB-Z0-9]|a[^n]|an[^t])[a-zA-Z0-9]{13,197}",
+            "sk-",
+        ),
+        // Slack bot tokens
+        (
+            "slack_bot_token",
+            r"xoxb-[0-9]+-[0-9]+-[a-zA-Z0-9]+",
+            "xoxb-",
+        ),
+        // Slack app tokens
+        (
+            "slack_app_token",
+            r"xapp-[0-9]+-[A-Z0-9]+-[0-9]+-[A-Fa-f0-9]+",
+            "xapp-",
+        ),
+        // GitHub PATs (classic)
+        ("github_pat", r"ghp_[a-zA-Z0-9]{36}", "ghp_"),
+        // GitHub fine-grained PATs
+        (
+            "github_fine_grained_pat",
+            r"github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}",
+            "github_pat_",
+        ),
+        // AWS access key IDs
+        ("aws_access_key", r"AKIA[0-9A-Z]{16}", "AKIA"),
+        // AWS secret access keys (context-anchored to reduce false positives)
+        (
+            "aws_secret_access_key",
+            r"(?i)aws[_\s]?secret[_\s]?access[_\s]?key[^A-Za-z0-9]{0,20}[A-Za-z0-9+/]{40}",
+            "aws",
+        ),
+        // Groq API keys
+        ("groq_api_key", r"gsk_[a-zA-Z0-9]{20,200}", "gsk_"),
+        // Telegram bot tokens — prefix is ":AA" (digits before colon are variable)
+        (
+            "telegram_bot_token",
+            r"\b[0-9]+:AA[A-Za-z0-9_\-]{33,}",
+            ":AA",
+        ),
+        // Discord bot tokens — word-boundary anchored to reduce false
+        // positives on JWTs and base64 content. No distinctive prefix, so
+        // skip AC scanning and always run the regex.
+        (
+            "discord_bot_token",
+            r"\b[A-Za-z0-9_\-]{24}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,200}\b",
+            "",
+        ),
+        // Google API keys
+        ("google_api_key", r"AIza[0-9A-Za-z_\-]{35}", "AIza"),
+        // Stripe secret keys
+        ("stripe_secret_key", r"sk_live_[0-9a-zA-Z]{24,}", "sk_live_"),
+        // Stripe publishable keys
+        (
+            "stripe_publishable_key",
+            r"pk_live_[0-9a-zA-Z]{24,}",
+            "pk_live_",
+        ),
+        // SendGrid API keys
+        (
+            "sendgrid_api_key",
+            r"SG\.[0-9A-Za-z_\-]{22}\.[0-9A-Za-z_\-]{43}",
+            "SG.",
+        ),
+    ];
+
+    let mut prefixes = Vec::with_capacity(pattern_defs.len());
+    let mut patterns = Vec::with_capacity(pattern_defs.len());
+
+    for (name, regex_str, prefix) in pattern_defs {
+        match Regex::new(regex_str) {
+            Ok(regex) => {
+                let ac_index = if prefix.is_empty() {
+                    // No usable prefix — pattern will always run unconditionally
+                    None
+                } else {
+                    let idx = prefixes.len();
+                    prefixes.push(prefix);
+                    Some(idx)
+                };
+                patterns.push(StaticPattern {
+                    name,
+                    regex,
+                    ac_index,
+                });
+            }
+            Err(e) => {
+                warn!("failed to compile leak pattern '{}': {}", name, e);
+            }
+        }
+    }
+
+    let ac = AhoCorasick::new(&prefixes)
+        .expect("aho-corasick automaton should build from literal prefixes");
+
+    BasePatterns {
+        ac,
+        patterns,
+        // Upper bounds prevent DoS via large payloads; API keys never exceed ~200 chars
+        base64_candidate_re: Regex::new(r"[A-Za-z0-9+/]{20,500}={0,3}").unwrap(),
+        hex_candidate_re: Regex::new(r"[0-9a-fA-F]{40,512}").unwrap(),
+    }
+});
 
 /// A runtime-added pattern for a known secret value (raw, base64, hex).
 struct KnownSecretPattern {
@@ -24,15 +158,12 @@ struct KnownSecretPattern {
 ///    (e.g. `sk-ant-api`, `xoxb-`, `ghp_`) to identify candidate regions.
 /// 2. **Regex validation** — only runs the full regex on patterns whose
 ///    literal prefix was found, avoiding unnecessary regex work.
+///
+/// The base patterns (AC automaton + regexes) are compiled once in a
+/// `LazyLock` and shared across all instances. Per-instance state is
+/// limited to `known_secrets` added at runtime.
 pub struct LeakDetector {
-    patterns: Vec<LeakPattern>,
-    /// Aho-Corasick automaton built from literal prefixes of each pattern.
-    ac: AhoCorasick,
     known_secrets: Vec<KnownSecretPattern>,
-    /// Pre-compiled regex for base64 candidate extraction (20+ chars)
-    base64_candidate_re: Regex,
-    /// Pre-compiled regex for hex candidate extraction (40+ chars)
-    hex_candidate_re: Regex,
 }
 
 /// A match found by the leak detector.
@@ -51,124 +182,11 @@ pub struct KnownSecretMatch {
 
 impl LeakDetector {
     pub fn new() -> Self {
-        // Each entry: (name, regex_pattern, literal_prefix for Aho-Corasick).
-        // The prefix must be a literal string that appears at the start of any
-        // match for this pattern — used for fast first-pass filtering.
-        let pattern_defs: Vec<(&str, &str, &str)> = vec![
-            // Anthropic API keys
-            (
-                "anthropic_api_key",
-                r"sk-ant-api[0-9a-zA-Z\-_]{16,200}",
-                "sk-ant-api",
-            ),
-            // OpenAI API keys: project (sk-proj-...), org (sk-org-...),
-            // service account (sk-svcacct-...), and legacy (sk-[16+ alphanum]).
-            // Legacy pattern excludes sk-ant- (Anthropic, caught separately)
-            // by requiring a non-'a' first char, or 'a' followed by non-'n'.
-            // Uses "sk-" as prefix since all OpenAI variants start with it.
-            (
-                "openai_api_key",
-                r"sk-(?:proj|org|svcacct)-[a-zA-Z0-9\-_]{16,200}|sk-(?:[b-zB-Z0-9]|a[^n]|an[^t])[a-zA-Z0-9]{13,197}",
-                "sk-",
-            ),
-            // Slack bot tokens
-            (
-                "slack_bot_token",
-                r"xoxb-[0-9]+-[0-9]+-[a-zA-Z0-9]+",
-                "xoxb-",
-            ),
-            // Slack app tokens
-            (
-                "slack_app_token",
-                r"xapp-[0-9]+-[A-Z0-9]+-[0-9]+-[A-Fa-f0-9]+",
-                "xapp-",
-            ),
-            // GitHub PATs (classic)
-            ("github_pat", r"ghp_[a-zA-Z0-9]{36}", "ghp_"),
-            // GitHub fine-grained PATs
-            (
-                "github_fine_grained_pat",
-                r"github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}",
-                "github_pat_",
-            ),
-            // AWS access key IDs
-            ("aws_access_key", r"AKIA[0-9A-Z]{16}", "AKIA"),
-            // AWS secret access keys (context-anchored to reduce false positives)
-            (
-                "aws_secret_access_key",
-                r"(?i)aws[_\s]?secret[_\s]?access[_\s]?key[^A-Za-z0-9]{0,20}[A-Za-z0-9+/]{40}",
-                "aws",
-            ),
-            // Groq API keys
-            ("groq_api_key", r"gsk_[a-zA-Z0-9]{20,200}", "gsk_"),
-            // Telegram bot tokens — prefix is ":AA" (digits before colon are variable)
-            (
-                "telegram_bot_token",
-                r"\b[0-9]+:AA[A-Za-z0-9_\-]{33,}",
-                ":AA",
-            ),
-            // Discord bot tokens — word-boundary anchored to reduce false
-            // positives on JWTs and base64 content. No distinctive prefix, so
-            // skip AC scanning and always run the regex.
-            (
-                "discord_bot_token",
-                r"\b[A-Za-z0-9_\-]{24}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,200}\b",
-                "",
-            ),
-            // Google API keys
-            ("google_api_key", r"AIza[0-9A-Za-z_\-]{35}", "AIza"),
-            // Stripe secret keys
-            ("stripe_secret_key", r"sk_live_[0-9a-zA-Z]{24,}", "sk_live_"),
-            // Stripe publishable keys
-            (
-                "stripe_publishable_key",
-                r"pk_live_[0-9a-zA-Z]{24,}",
-                "pk_live_",
-            ),
-            // SendGrid API keys
-            (
-                "sendgrid_api_key",
-                r"SG\.[0-9A-Za-z_\-]{22}\.[0-9A-Za-z_\-]{43}",
-                "SG.",
-            ),
-        ];
-
-        let mut prefixes = Vec::with_capacity(pattern_defs.len());
-        let mut patterns = Vec::with_capacity(pattern_defs.len());
-
-        for (name, regex_str, prefix) in pattern_defs {
-            match Regex::new(regex_str) {
-                Ok(regex) => {
-                    let ac_index = if prefix.is_empty() {
-                        // No usable prefix — pattern will always run unconditionally
-                        None
-                    } else {
-                        let idx = prefixes.len();
-                        prefixes.push(prefix);
-                        Some(idx)
-                    };
-                    patterns.push(LeakPattern {
-                        name,
-                        regex,
-                        ac_index,
-                    });
-                }
-                Err(e) => {
-                    warn!("failed to compile leak pattern '{}': {}", name, e);
-                }
-            }
-        }
-
-        let ac = AhoCorasick::new(&prefixes)
-            .expect("aho-corasick automaton should build from literal prefixes");
-
+        // Force initialization of the lazy base patterns so any compilation
+        // warnings are emitted early rather than on first scan.
+        let _ = &*BASE_PATTERNS;
         Self {
-            patterns,
-            ac,
             known_secrets: Vec::new(),
-            // Upper bounds prevent DoS via large payloads; API keys never exceed ~200 chars
-            base64_candidate_re: Regex::new(r"[A-Za-z0-9+/]{20,500}={0,3}").unwrap(),
-            hex_candidate_re: Regex::new(r"[0-9a-fA-F]{40,512}").unwrap(),
         }
     }
 
@@ -216,11 +234,12 @@ impl LeakDetector {
 
     /// Scan text for base64/hex encoded blobs and check decoded content against
     /// leak patterns. Returns matches found in decoded content.
-    fn scan_encoded(&self, text: &str) -> Vec<LeakMatch> {
+    fn scan_encoded(text: &str) -> Vec<LeakMatch> {
+        let base = &*BASE_PATTERNS;
         let mut matches = Vec::new();
 
         // Scan base64 candidates (try both standard and URL-safe decoders)
-        for candidate in self.base64_candidate_re.find_iter(text) {
+        for candidate in base.base64_candidate_re.find_iter(text) {
             let candidate_str = candidate.as_str();
             let decoded_str = base64::engine::general_purpose::STANDARD
                 .decode(candidate_str)
@@ -228,7 +247,7 @@ impl LeakDetector {
                 .ok()
                 .and_then(|bytes| String::from_utf8(bytes).ok());
             if let Some(decoded_str) = decoded_str {
-                for pattern in &self.patterns {
+                for pattern in &base.patterns {
                     if pattern.regex.is_match(&decoded_str) {
                         matches.push(LeakMatch {
                             name: pattern.name,
@@ -241,12 +260,12 @@ impl LeakDetector {
         }
 
         // Scan hex candidates
-        for candidate in self.hex_candidate_re.find_iter(text) {
+        for candidate in base.hex_candidate_re.find_iter(text) {
             let candidate_str = candidate.as_str();
             if let Some(decoded) = hex::decode(candidate_str).ok()
                 && let Ok(decoded_str) = String::from_utf8(decoded)
             {
-                for pattern in &self.patterns {
+                for pattern in &base.patterns {
                     if pattern.regex.is_match(&decoded_str) {
                         matches.push(LeakMatch {
                             name: pattern.name,
@@ -261,16 +280,17 @@ impl LeakDetector {
         matches
     }
 
-    /// Use the Aho-Corasick automaton to determine which patterns have at least
-    /// one literal prefix hit in `text`. Patterns without a usable AC prefix
-    /// are always marked as candidates (their regex runs unconditionally).
-    /// Returns a boolean vec indexed by `self.patterns` position.
-    fn find_candidate_patterns(&self, text: &str) -> Vec<bool> {
+    /// Use the Aho-Corasick automaton to determine which base patterns have at
+    /// least one literal prefix hit in `text`. Patterns without a usable AC
+    /// prefix are always marked as candidates (their regex runs unconditionally).
+    /// Returns a boolean vec indexed by `BASE_PATTERNS.patterns` position.
+    fn find_candidate_patterns(text: &str) -> Vec<bool> {
+        let base = &*BASE_PATTERNS;
         let mut candidates: Vec<bool> =
-            self.patterns.iter().map(|p| p.ac_index.is_none()).collect();
-        for ac_match in self.ac.find_overlapping_iter(text) {
+            base.patterns.iter().map(|p| p.ac_index.is_none()).collect();
+        for ac_match in base.ac.find_overlapping_iter(text) {
             let ac_pattern_id = ac_match.pattern().as_usize();
-            for (i, pattern) in self.patterns.iter().enumerate() {
+            for (i, pattern) in base.patterns.iter().enumerate() {
                 if pattern.ac_index == Some(ac_pattern_id) {
                     candidates[i] = true;
                 }
@@ -285,11 +305,12 @@ impl LeakDetector {
     /// 1. Aho-Corasick single-pass to find which pattern prefixes appear in the text.
     /// 2. Only runs the full regex for patterns whose prefix was found.
     pub fn scan(&self, text: &str) -> Vec<LeakMatch> {
+        let base = &*BASE_PATTERNS;
         let mut matches = Vec::new();
 
         // Phase 1+2: AC prefix scan → regex validation only on candidates
-        let candidate_indices = self.find_candidate_patterns(text);
-        for (i, pattern) in self.patterns.iter().enumerate() {
+        let candidate_indices = Self::find_candidate_patterns(text);
+        for (i, pattern) in base.patterns.iter().enumerate() {
             if !candidate_indices[i] {
                 continue;
             }
@@ -314,7 +335,7 @@ impl LeakDetector {
         }
 
         // Encoded content scan (base64/hex decoded then checked)
-        matches.extend(self.scan_encoded(text));
+        matches.extend(Self::scan_encoded(text));
 
         matches
     }
@@ -332,14 +353,15 @@ impl LeakDetector {
 
     /// Redact any detected secrets in text, replacing them with `[REDACTED]`.
     pub fn redact(&self, text: &str) -> String {
+        let base = &*BASE_PATTERNS;
         let mut result = text.to_string();
         // Redact plaintext pattern matches (only check patterns with prefix hits).
         // Note: AC candidates are computed on the original text and may become stale
         // as replacements modify the string. This is safe because replacements only
         // shrink text (secrets → "[REDACTED]"), so any pattern matched here was
         // genuinely present. At worst we run a regex on already-redacted text (no-op).
-        let candidate_indices = self.find_candidate_patterns(&result);
-        for (i, pattern) in self.patterns.iter().enumerate() {
+        let candidate_indices = Self::find_candidate_patterns(&result);
+        for (i, pattern) in base.patterns.iter().enumerate() {
             if !candidate_indices[i] {
                 continue;
             }
@@ -354,7 +376,7 @@ impl LeakDetector {
         }
         // Redact base64/hex-encoded blobs that decode to match generic patterns
         // (covers cases where LLM encodes a secret to bypass plaintext detection)
-        let encoded_matches = self.scan_encoded(&result);
+        let encoded_matches = Self::scan_encoded(&result);
         if !encoded_matches.is_empty() {
             // Merge overlapping ranges to prevent corruption from overlapping replace_range calls
             let mut ranges: Vec<(usize, usize)> =
