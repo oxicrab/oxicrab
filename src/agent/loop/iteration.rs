@@ -136,6 +136,12 @@ impl AgentLoop {
             (effective_max_iterations as f64 * WRAPUP_THRESHOLD_RATIO).ceil() as usize;
         // Ensure wrapup doesn't fire on the very first iteration
         let wrapup_threshold = wrapup_threshold.max(MIN_WRAPUP_ITERATION);
+        // Ensure at least 1 iteration remains after wrapup for the LLM to act on it
+        let wrapup_threshold = if wrapup_threshold >= effective_max_iterations {
+            effective_max_iterations.saturating_sub(1).max(1)
+        } else {
+            wrapup_threshold
+        };
 
         for iteration in 1..=effective_max_iterations {
             // Inject wrap-up hint when approaching iteration limit
