@@ -112,6 +112,14 @@ impl Handler {
             serde_json::Value::String(cmd.application_id.to_string()),
         );
         metadata.insert(
+            "discord_interaction_ts".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs() as i64),
+            )),
+        );
+        metadata.insert(
             crate::bus::meta::IS_GROUP.to_string(),
             serde_json::Value::Bool(cmd.guild_id.is_some()),
         );
@@ -189,6 +197,14 @@ impl Handler {
         metadata.insert(
             "discord_application_id".to_string(),
             serde_json::Value::String(comp.application_id.to_string()),
+        );
+        metadata.insert(
+            "discord_interaction_ts".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs() as i64),
+            )),
         );
         metadata.insert(
             "discord_component_id".to_string(),
@@ -702,8 +718,24 @@ impl BaseChannel for DiscordChannel {
             .get("discord_application_id")
             .and_then(|v| v.as_str());
 
+        // Discord interaction tokens expire after 15 minutes; use 14-min safety margin
+        let token_expired = msg
+            .metadata
+            .get("discord_interaction_ts")
+            .and_then(serde_json::Value::as_i64)
+            .is_some_and(|ts| {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs() as i64);
+                now - ts > 14 * 60
+            });
+
         if let (Some(token), Some(app_id)) = (interaction_token, application_id) {
-            return self.send_interaction_followup(msg, app_id, token).await;
+            if token_expired {
+                warn!("discord: interaction token expired, falling back to channel message");
+            } else {
+                return self.send_interaction_followup(msg, app_id, token).await;
+            }
         }
 
         // Regular channel message path
