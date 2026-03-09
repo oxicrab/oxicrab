@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
 
 # Read nightly version from rust-toolchain.toml (single source of truth)
 COPY rust-toolchain.toml .
-RUN NIGHTLY=$(grep 'channel' rust-toolchain.toml | sed 's/.*"\(.*\)"/\1/') \
+RUN NIGHTLY=$(grep 'channel' rust-toolchain.toml | cut -d'"' -f2) \
     && rustup toolchain install "$NIGHTLY" \
     && rustup default "$NIGHTLY"
 

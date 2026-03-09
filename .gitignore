@@ -21,6 +21,7 @@ Thumbs.db
 *.db
 *.log
 .fastembed_cache
+config.json
 
 # Build artifacts
 *.pdb

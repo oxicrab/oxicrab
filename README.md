@@ -216,6 +216,12 @@ cargo clippy --all-targets --all-features -- -D warnings   # linting
 
 See [CLAUDE.md](CLAUDE.md) for development conventions.
 
+## Contributors
+
+Thanks to these contributors:
+
+- [@denmat](https://github.com/denmat)
+
 ## License
 
 MIT

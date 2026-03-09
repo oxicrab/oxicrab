@@ -4,7 +4,7 @@ use crate::channels::manager::ChannelManager;
 use crate::config::{Config, load_config};
 use crate::cron::service::CronService;
 use crate::cron::types::CronJob;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -18,6 +18,10 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     info!("Configuration loaded. Using model: {}", effective_model);
     debug!("Workspace: {:?}", config.workspace_path());
 
+    // Ensure workspace directory exists before writing templates
+    crate::utils::ensure_dir(config.workspace_path())
+        .context("failed to create workspace directory")?;
+
     // Ensure workspace template files exist (AGENTS.md, USER.md, etc.)
     super::create_workspace_templates(&config.workspace_path())?;
 
@@ -26,7 +30,10 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
         .workspace_path()
         .join("memory")
         .join("memory.sqlite3");
-    let memory_db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path)?);
+    let memory_db = Arc::new(
+        crate::agent::memory::memory_db::MemoryDB::new(&db_path)
+            .with_context(|| format!("failed to create MemoryDB at: {}", db_path.display()))?,
+    );
 
     // Setup components
     let provider = setup_provider(&config, model.as_deref(), Some(memory_db.clone()))?;

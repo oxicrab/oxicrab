@@ -1,4 +1,5 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
+use tracing::debug;
 
 use crate::config::Config;
 
@@ -39,6 +40,8 @@ pub(super) fn onboard() -> Result<()> {
 }
 
 pub(super) fn create_workspace_templates(workspace: &std::path::Path) -> Result<()> {
+    debug!("creating workspace templates in: {}", workspace.display());
+
     let templates = vec![
         (
             "USER.md",
@@ -131,8 +134,11 @@ Notes and configuration details for tools.
 
     for (filename, content) in templates {
         let file_path = workspace.join(filename);
-        if !file_path.exists() {
-            std::fs::write(&file_path, content)?;
+        if file_path.exists() {
+            debug!("template already exists: {filename}");
+        } else {
+            std::fs::write(&file_path, content)
+                .with_context(|| format!("failed to write template: {}", file_path.display()))?;
             println!("  Created {filename}");
         }
     }
