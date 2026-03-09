@@ -92,6 +92,11 @@ impl AgentLoop {
 
         // Extract tool names for hallucination detection (may be rebuilt if tool_search activates deferred tools)
         let mut tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
+        // Build Aho-Corasick automaton for single-pass tool mention scanning
+        let mut tool_mention_ac = aho_corasick::AhoCorasick::builder()
+            .ascii_case_insensitive(true)
+            .build(&tool_names)
+            .ok();
 
         // Anti-hallucination instruction in the system prompt. The tool definitions
         // sent via the API `tools` parameter already list all available tools with
@@ -249,6 +254,10 @@ impl AgentLoop {
                             });
                         }
                         tool_names = tools_defs.iter().map(|td| td.name.clone()).collect();
+                        tool_mention_ac = aho_corasick::AhoCorasick::builder()
+                            .ascii_case_insensitive(true)
+                            .build(&tool_names)
+                            .ok();
                     }
                 }
             } else if let Some(content) = response.content {
@@ -263,6 +272,7 @@ impl AgentLoop {
                     user_has_action_intent,
                     Some(&self.memory.db()),
                     overrides.request_id.as_deref(),
+                    tool_mention_ac.as_ref(),
                 ) {
                     TextAction::Continue => {}
                     TextAction::Return => {

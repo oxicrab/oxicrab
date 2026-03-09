@@ -266,9 +266,28 @@ pub fn is_false_no_tools_claim(text: &str) -> bool {
 /// When the LLM lists tool names with "results" but never actually called them, this catches
 /// the pattern that the action-claim regex might miss.
 ///
-/// Uses word-boundary-aware matching to avoid false positives from tool names
+/// When an `ac` automaton is provided, does a single-pass Aho-Corasick scan (O(n + m) where
+/// n = text length, m = total pattern length). Falls back to the O(n·m) per-tool scan when
+/// `ac` is `None`.
+///
+/// The fallback uses word-boundary-aware matching to avoid false positives from tool names
 /// that are common English words (e.g. "exec" in "execute", "read" in "reading").
-pub fn mentions_multiple_tools(text: &str, tool_names: &[String]) -> bool {
+pub fn mentions_multiple_tools(
+    text: &str,
+    tool_names: &[String],
+    ac: Option<&aho_corasick::AhoCorasick>,
+) -> bool {
+    // Fast path: single-pass AC scan
+    if let Some(ac) = ac {
+        let text_lower = text.to_lowercase();
+        let unique: std::collections::HashSet<usize> = ac
+            .find_iter(&text_lower)
+            .map(|m| m.pattern().as_usize())
+            .collect();
+        return unique.len() >= TOOL_MENTION_HALLUCINATION_THRESHOLD;
+    }
+
+    // Fallback: O(n·m) per-tool scan with word-boundary checks
     let text_lower = text.to_lowercase();
     let count = tool_names
         .iter()

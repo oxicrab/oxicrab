@@ -111,7 +111,8 @@ fn test_tool_name_mentions() {
     // 4+ tool names -> triggers
     assert!(mentions_multiple_tools(
         "## Tool Test Results\n- web_search - Found news\n- weather - 45°F\n- cron - 5 jobs\n- reddit - 10 posts",
-        &tools
+        &tools,
+        None,
     ));
     // 1 tool name -> doesn't trigger
     let tools3 = vec![
@@ -121,12 +122,14 @@ fn test_tool_name_mentions() {
     ];
     assert!(!mentions_multiple_tools(
         "I can help you with web_search if you'd like.",
-        &tools3
+        &tools3,
+        None,
     ));
     // 2 tool names -> doesn't trigger
     assert!(!mentions_multiple_tools(
         "The web_search and weather tools are available.",
-        &tools3
+        &tools3,
+        None,
     ));
 
     // Word-boundary matching: tool names embedded in longer words should NOT match
@@ -139,14 +142,54 @@ fn test_tool_name_mentions() {
     assert!(
         !mentions_multiple_tools(
             "I'll execute the reading list and send it later.",
-            &tools_short
+            &tools_short,
+            None,
         ),
         "tool names as substrings of English words should not match"
     );
     // But exact matches separated by non-alphanumeric chars should match
     assert!(mentions_multiple_tools(
         "Use exec, then read, then list the results.",
-        &tools_short
+        &tools_short,
+        None,
+    ));
+}
+
+#[test]
+fn test_mentions_multiple_tools_ac_path() {
+    let names: Vec<String> = vec![
+        "web_search".into(),
+        "read_file".into(),
+        "shell".into(),
+        "cron".into(),
+    ];
+    let ac = aho_corasick::AhoCorasick::builder()
+        .ascii_case_insensitive(true)
+        .build(&names)
+        .unwrap();
+    // 3+ distinct tool mentions -> triggers
+    assert!(mentions_multiple_tools(
+        "I used web_search and read_file and shell",
+        &names,
+        Some(&ac),
+    ));
+    // Only 1 tool mentioned -> doesn't trigger
+    assert!(!mentions_multiple_tools(
+        "I used web_search only",
+        &names,
+        Some(&ac),
+    ));
+    // Case-insensitive matching
+    assert!(mentions_multiple_tools(
+        "WEB_SEARCH found results, READ_FILE loaded data, CRON scheduled it",
+        &names,
+        Some(&ac),
+    ));
+    // Duplicate mentions of the same tool count as 1
+    assert!(!mentions_multiple_tools(
+        "web_search and web_search and web_search again",
+        &names,
+        Some(&ac),
     ));
 }
 
@@ -908,6 +951,7 @@ fn test_conversational_reply_passes_through() {
             false, // user message was conversational, not action intent
             None,
             None,
+            None,
         );
         assert!(
             matches!(result, TextAction::Return),
@@ -932,6 +976,7 @@ fn test_action_hallucination_caught_without_tool_forcing() {
         &tool_names,
         &[],
         true, // user requested an action
+        None,
         None,
         None,
     );
@@ -962,6 +1007,7 @@ fn test_action_hallucination_not_repeated_after_l1_correction() {
         false, // no action intent — L2 won't fire either
         None,
         None,
+        None,
     );
     assert!(
         matches!(result, TextAction::Return),
@@ -986,6 +1032,7 @@ fn test_layer2_fires_after_layer1_exhausted() {
         &tool_names,
         &[],
         true, // user has action intent — L2 should fire
+        None,
         None,
         None,
     );
@@ -1014,6 +1061,7 @@ fn test_legitimate_tool_response_passes_through() {
         &tool_names,
         &tools_used,
         true, // user requested an action
+        None,
         None,
         None,
     );
@@ -1045,6 +1093,7 @@ fn test_false_no_tools_claim_fires_despite_layers() {
         true, // user requested an action
         None,
         None,
+        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
@@ -1070,6 +1119,7 @@ fn test_false_no_tools_claim_capped_at_max_corrections() {
         &tool_names,
         &[],
         true,
+        None,
         None,
         None,
     );
@@ -1115,6 +1165,7 @@ fn test_text_after_tools_called_passes_action_claims() {
             true, // user requested an action
             None,
             None,
+            None,
         );
         assert!(
             matches!(result, TextAction::Return),
@@ -1153,6 +1204,7 @@ fn test_uncalled_tools_detected_after_some_tools_called() {
         true,
         None,
         None,
+        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
@@ -1177,6 +1229,7 @@ fn test_empty_tool_names_disables_false_no_tools_check() {
         &tool_names,
         &[],
         true, // user requested an action
+        None,
         None,
         None,
     );
@@ -1208,6 +1261,7 @@ fn test_mentions_multiple_tools_triggers_correction() {
         &tool_names,
         &[],
         true, // user requested an action
+        None,
         None,
         None,
     );

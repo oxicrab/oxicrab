@@ -63,6 +63,7 @@ pub(super) fn handle_text_response(
     user_has_action_intent: bool,
     db: Option<&MemoryDB>,
     request_id: Option<&str>,
+    tool_mention_ac: Option<&aho_corasick::AhoCorasick>,
 ) -> TextAction {
     // Layer 0: Detect false "no tools" claims and retry with correction.
     // The LLM is factually wrong about not having tools — correct up to
@@ -125,9 +126,10 @@ pub(super) fn handle_text_response(
                 .filter(|name| !tools_used.iter().any(|u| u == *name))
                 .cloned()
                 .collect();
-            mentions_multiple_tools(content, &uncalled)
+            mentions_multiple_tools(content, &uncalled, None)
         } else {
-            contains_action_claims(content) || mentions_multiple_tools(content, tool_names)
+            contains_action_claims(content)
+                || mentions_multiple_tools(content, tool_names, tool_mention_ac)
         };
         if trigger {
             warn!("Action hallucination detected: LLM claims actions but tools were not called");
