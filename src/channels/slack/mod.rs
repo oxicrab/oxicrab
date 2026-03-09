@@ -329,10 +329,10 @@ impl BaseChannel for SlackChannel {
                     .get("user_id")
                     .and_then(Value::as_str)
                     .map(ToString::to_string);
-                if let Some(ref id) = bot_id {
-                    if let Ok(re) = compile_slack_mention(id) {
-                        *self.mention_regex.lock().await = Some(re);
-                    }
+                if let Some(ref id) = bot_id
+                    && let Ok(re) = compile_slack_mention(id)
+                {
+                    *self.mention_regex.lock().await = Some(re);
                 }
                 *self.bot_user_id.lock().await = bot_id;
                 let user = auth
