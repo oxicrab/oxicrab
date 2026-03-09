@@ -118,6 +118,9 @@ pub struct ToolRegistry {
     /// Tools whose schemas are excluded from LLM requests until activated
     /// via `tool_search`. Execution still works for all registered tools.
     deferred: HashSet<String>,
+    /// Cached tool definitions (invalidated on `register` / `register_deferred`).
+    /// Only used when no deferred tools have been activated (the common path).
+    cached_definitions: std::sync::Mutex<Option<Vec<crate::providers::base::ToolDefinition>>>,
 }
 
 impl ToolRegistry {
@@ -135,6 +138,7 @@ impl ToolRegistry {
                 Arc::new(LoggingMiddleware),
             ],
             deferred: HashSet::new(),
+            cached_definitions: std::sync::Mutex::new(None),
         }
     }
 
@@ -154,6 +158,7 @@ impl ToolRegistry {
                 Arc::new(LoggingMiddleware),
             ],
             deferred: HashSet::new(),
+            cached_definitions: std::sync::Mutex::new(None),
         }
     }
 
@@ -171,6 +176,7 @@ impl ToolRegistry {
             warn!("tool registry: overwriting duplicate tool '{}'", name);
         }
         self.tools.insert(name, tool);
+        self.cached_definitions.lock().unwrap().take();
     }
 
     /// Register a tool whose schema is hidden from LLM requests until
@@ -212,7 +218,26 @@ impl ToolRegistry {
     }
 
     /// Get tool definitions, including deferred tools that have been activated.
+    /// Uses a cached copy when no deferred tools are activated (the common path).
     pub fn get_tool_definitions_with_activated(
+        &self,
+        activated: &HashSet<String>,
+    ) -> Vec<crate::providers::base::ToolDefinition> {
+        // Use cache only when no deferred tools activated (common case)
+        if activated.is_empty() {
+            let mut cache = self.cached_definitions.lock().unwrap();
+            if let Some(ref defs) = *cache {
+                return defs.clone();
+            }
+            let defs = self.build_all_definitions(activated);
+            *cache = Some(defs.clone());
+            return defs;
+        }
+        // Deferred tools activated — rebuild (rare path, don't cache)
+        self.build_all_definitions(activated)
+    }
+
+    fn build_all_definitions(
         &self,
         activated: &HashSet<String>,
     ) -> Vec<crate::providers::base::ToolDefinition> {
