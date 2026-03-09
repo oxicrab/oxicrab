@@ -57,6 +57,10 @@ pub struct AgentLoopResult {
     pub tools_used: Vec<String>,
     /// Filesystem paths of media produced by tools (screenshots, generated images, etc.).
     pub media: Vec<String>,
+    /// Reasoning content (extended thinking) from the final LLM response.
+    pub reasoning_content: Option<String>,
+    /// Reasoning signature for verifying reasoning block continuity.
+    pub reasoning_signature: Option<String>,
 }
 
 /// Lifecycle-related configuration (TTLs, intervals).

@@ -343,6 +343,12 @@ impl AgentLoop {
                 ),
             );
         }
+        if let Some(ref rc) = loop_result.reasoning_content {
+            assistant_extra.insert("reasoning_content".to_string(), Value::String(rc.clone()));
+        }
+        if let Some(ref rs) = loop_result.reasoning_signature {
+            assistant_extra.insert("reasoning_signature".to_string(), Value::String(rs.clone()));
+        }
         session.add_message(
             "assistant".to_string(),
             response_text.to_string(),
@@ -509,6 +515,12 @@ impl AgentLoop {
                         .collect(),
                 ),
             );
+        }
+        if let Some(ref rc) = loop_result.reasoning_content {
+            assistant_extra.insert("reasoning_content".to_string(), Value::String(rc.clone()));
+        }
+        if let Some(ref rs) = loop_result.reasoning_signature {
+            assistant_extra.insert("reasoning_signature".to_string(), Value::String(rs.clone()));
         }
         session.add_message(
             "assistant".to_string(),
@@ -795,6 +807,12 @@ impl AgentLoop {
                         .collect(),
                 ),
             );
+        }
+        if let Some(ref rc) = loop_result.reasoning_content {
+            assistant_extra.insert("reasoning_content".to_string(), Value::String(rc.clone()));
+        }
+        if let Some(ref rs) = loop_result.reasoning_signature {
+            assistant_extra.insert("reasoning_signature".to_string(), Value::String(rs.clone()));
         }
         session.add_message("assistant".to_string(), response.clone(), assistant_extra);
         self.sessions.save(&session).await?;

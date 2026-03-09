@@ -302,6 +302,8 @@ impl AgentLoop {
                             input_tokens: last_input_tokens,
                             tools_used,
                             media: collected_media,
+                            reasoning_content: response.reasoning_content,
+                            reasoning_signature: response.reasoning_signature,
                         });
                     }
                 }
@@ -342,6 +344,8 @@ impl AgentLoop {
                 input_tokens: last_input_tokens,
                 tools_used,
                 media: collected_media,
+                reasoning_content: None,
+                reasoning_signature: None,
             });
         }
 
@@ -350,6 +354,8 @@ impl AgentLoop {
             input_tokens: last_input_tokens,
             tools_used,
             media: collected_media,
+            reasoning_content: None,
+            reasoning_signature: None,
         })
     }
 
