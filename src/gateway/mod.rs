@@ -198,7 +198,7 @@ async fn api_key_auth(
         .and_then(|v| {
             // RFC 7235: token type is case-insensitive
             if v.len() > 7 && v[..7].eq_ignore_ascii_case("bearer ") {
-                Some(&v[7..])
+                Some(v[7..].trim())
             } else {
                 None
             }

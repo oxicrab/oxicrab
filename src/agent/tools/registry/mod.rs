@@ -539,8 +539,8 @@ impl ToolMiddleware for TruncationMiddleware {
         // Stash + truncate when content exceeds limit and stash is available
         if raw_len > self.max_chars
             && let Some(ref stash) = self.stash
+            && let Some(key) = stash.stash(result.content.clone()).await
         {
-            let key = stash.stash(result.content.clone()).await;
             result.content = truncate_tool_result(&result.content, self.max_chars);
             let _ = write!(
                 result.content,

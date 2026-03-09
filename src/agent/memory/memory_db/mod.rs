@@ -53,10 +53,14 @@ pub struct MemoryDB {
     pub(crate) conn: std::sync::Mutex<Connection>,
     db_path: String,
     has_fts: bool,
-    /// Lazily populated embedding cache. Set to `None` to invalidate
-    /// (e.g. after `store_embedding`). Avoids re-reading and deserializing
-    /// all embeddings from `SQLite` on every `hybrid_search` call.
-    embedding_cache: std::sync::Mutex<Option<Vec<CachedEmbedding>>>,
+    /// Lazily populated embedding cache. The `u64` is the generation at which
+    /// the cache was populated. Set to `None` to invalidate (e.g. after
+    /// `store_embedding`). Avoids re-reading and deserializing all embeddings
+    /// from `SQLite` on every `hybrid_search` call.
+    embedding_cache: std::sync::Mutex<Option<(u64, Vec<CachedEmbedding>)>>,
+    /// Monotonically increasing counter, bumped on each embedding invalidation.
+    /// Used to detect stale cache reads across lock boundaries.
+    embedding_generation: std::sync::atomic::AtomicU64,
 }
 
 impl Clone for MemoryDB {
@@ -87,6 +91,7 @@ impl Clone for MemoryDB {
             db_path: self.db_path.clone(),
             has_fts: self.has_fts,
             embedding_cache: std::sync::Mutex::new(None),
+            embedding_generation: std::sync::atomic::AtomicU64::new(0),
         }
     }
 }
@@ -117,6 +122,7 @@ impl MemoryDB {
             db_path: db_path.to_string_lossy().to_string(),
             has_fts: false,
             embedding_cache: std::sync::Mutex::new(None),
+            embedding_generation: std::sync::atomic::AtomicU64::new(0),
         };
 
         db.ensure_schema().with_context(|| {

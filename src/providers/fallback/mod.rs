@@ -55,7 +55,7 @@ impl LLMProvider for FallbackProvider {
     /// The request is cloned with `model: None` for each attempt so the
     /// provider uses its own `default_model()`.
     async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
-        let mut last_error = None;
+        let mut errors: Vec<String> = Vec::new();
         for (i, (provider, model_name)) in self.providers.iter().enumerate() {
             let is_last = i == self.providers.len() - 1;
             let attempt_req = ChatRequest {
@@ -103,11 +103,15 @@ impl LLMProvider for FallbackProvider {
                             e
                         );
                     }
-                    last_error = Some(e);
+                    errors.push(format!("provider {} ({}): {}", i + 1, model_name, e));
                 }
             }
         }
-        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("no providers configured")))
+        Err(anyhow::anyhow!(
+            "all {} providers failed:\n{}",
+            errors.len(),
+            errors.join("\n")
+        ))
     }
 
     fn default_model(&self) -> &str {

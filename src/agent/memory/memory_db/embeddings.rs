@@ -1,6 +1,7 @@
 use super::MemoryDB;
 use anyhow::Result;
 use rusqlite::params;
+use std::sync::atomic::Ordering;
 use tracing::warn;
 
 /// Cached deserialized embedding for in-memory vector search.
@@ -26,11 +27,14 @@ impl MemoryDB {
             "INSERT OR REPLACE INTO memory_embeddings (entry_id, embedding) VALUES (?, ?)",
             params![entry_id, embedding],
         )?;
-        // Invalidate cached embeddings so hybrid_search reloads from DB
-        *self
-            .embedding_cache
+        // Invalidate cached embeddings so hybrid_search reloads from DB.
+        // Bump generation first (Release) so any concurrent reader that
+        // observes the new generation will know the cache is stale.
+        self.embedding_generation.fetch_add(1, Ordering::Release);
+        self.embedding_cache
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
         Ok(())
     }
 
@@ -84,13 +88,19 @@ impl MemoryDB {
         let default_set = std::collections::HashSet::new();
         let exclude = exclude_sources.unwrap_or(&default_set);
 
-        // Check cache first
+        // Snapshot the current generation before checking the cache.
+        // Acquire ordering pairs with the Release in store_embedding.
+        let current_gen = self.embedding_generation.load(Ordering::Acquire);
+
+        // Check cache first — only use it if its generation matches.
         {
             let cache = self
                 .embedding_cache
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(ref cached) = *cache {
+            if let Some((cached_gen, ref cached)) = *cache
+                && cached_gen == current_gen
+            {
                 return Ok(cached
                     .iter()
                     .filter(|e| !exclude.contains(&e.source_key))
@@ -99,7 +109,7 @@ impl MemoryDB {
             }
         }
 
-        // Cache miss — load from DB, deserialize, and cache
+        // Cache miss or stale — load from DB, deserialize, and cache
         let raw = self.get_all_embeddings(None)?;
         let mut entries = Vec::with_capacity(raw.len());
         for (entry_id, source_key, content, emb_bytes) in raw {
@@ -116,11 +126,13 @@ impl MemoryDB {
             }
         }
 
-        // Store in cache (unfiltered so it can be reused with different excludes)
+        // Store in cache with current generation (unfiltered so it can be
+        // reused with different excludes).
         *self
             .embedding_cache
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(entries.clone());
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((current_gen, entries.clone()));
 
         Ok(entries
             .into_iter()

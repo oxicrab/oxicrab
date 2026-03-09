@@ -5,6 +5,7 @@ use crate::cron::types::{
 use anyhow::Result;
 use rusqlite::params;
 use std::collections::HashMap;
+use tracing::error;
 
 fn schedule_type_str(schedule: &CronSchedule) -> &'static str {
     match schedule {
@@ -153,8 +154,8 @@ impl MemoryDB {
 
         if result.is_ok() {
             conn.execute_batch("COMMIT")?;
-        } else {
-            let _ = conn.execute_batch("ROLLBACK");
+        } else if let Err(rollback_err) = conn.execute_batch("ROLLBACK") {
+            error!("ROLLBACK failed: {}", rollback_err);
         }
         result
     }
@@ -537,8 +538,8 @@ impl MemoryDB {
 
         if result.is_ok() {
             conn.execute_batch("COMMIT")?;
-        } else {
-            let _ = conn.execute_batch("ROLLBACK");
+        } else if let Err(rollback_err) = conn.execute_batch("ROLLBACK") {
+            error!("ROLLBACK failed: {}", rollback_err);
         }
         result
     }

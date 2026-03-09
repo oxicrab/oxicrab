@@ -467,14 +467,11 @@ impl BaseChannel for WhatsAppChannel {
         } else {
             warn!("WhatsApp client not available yet, queuing message");
             let mut queue = self.message_queue.lock().await;
-            if queue.len() < 100 {
-                queue.push(msg.clone());
-            } else {
-                warn!("WhatsApp message queue full (100), dropping message");
-                return Err(anyhow::anyhow!(
-                    "WhatsApp message queue full, message dropped"
-                ));
+            if queue.len() >= 1000 {
+                warn!("whatsapp: message queue full (1000), dropping oldest message");
+                queue.remove(0);
             }
+            queue.push(msg.clone());
             Ok(None)
         }
     }
@@ -530,15 +527,12 @@ impl BaseChannel for WhatsAppChannel {
         } else {
             warn!("WhatsApp client not available yet, queuing message");
             let mut queue = self.message_queue.lock().await;
-            if queue.len() < 100 {
-                queue.push(msg.clone());
-                debug!("WhatsApp: queued message (queue size: {})", queue.len());
-            } else {
-                warn!("WhatsApp message queue full (100), dropping message");
-                return Err(anyhow::anyhow!(
-                    "WhatsApp message queue full, message dropped"
-                ));
+            if queue.len() >= 1000 {
+                warn!("whatsapp: message queue full (1000), dropping oldest message");
+                queue.remove(0);
             }
+            queue.push(msg.clone());
+            debug!("WhatsApp: queued message (queue size: {})", queue.len());
             Ok(())
         }
     }

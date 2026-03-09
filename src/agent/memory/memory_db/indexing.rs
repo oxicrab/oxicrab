@@ -25,10 +25,12 @@ impl MemoryDB {
             params![source_key, now],
         )?;
         // Invalidate embedding cache
-        *self
-            .embedding_cache
+        self.embedding_generation
+            .fetch_add(1, std::sync::atomic::Ordering::Release);
+        self.embedding_cache
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
         Ok(())
     }
 

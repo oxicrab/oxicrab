@@ -81,11 +81,11 @@ impl MemoryDB {
         top_score: Option<f64>,
         request_id: Option<&str>,
     ) -> Result<()> {
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        let tx = conn.unchecked_transaction()?;
+        let tx = conn.transaction()?;
         tx.execute(
             "INSERT INTO memory_access_log (query, search_type, result_count, top_score, request_id)
              VALUES (?, ?, ?, ?, ?)",
@@ -561,13 +561,13 @@ impl MemoryDB {
         if days == 0 {
             return Ok(0);
         }
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
         let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
-        let tx = conn.unchecked_transaction()?;
+        let tx = conn.transaction()?;
         // Delete orphaned hits first (FK has no CASCADE)
         tx.execute(
             "DELETE FROM memory_search_hits WHERE access_log_id IN (
