@@ -11,7 +11,7 @@ impl LLMProvider for MockProvider {
         Ok(LLMResponse::default())
     }
 
-    fn default_model(&self) -> &str {
+    fn default_model(&self) -> &'static str {
         "mock-model"
     }
 }

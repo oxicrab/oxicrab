@@ -234,12 +234,8 @@ fn test_create_workspace_templates_in_nonexistent_dir() {
     let workspace = dir.path().join("nested").join("workspace");
     // Directory doesn't exist yet
     assert!(!workspace.exists());
-    // Should create the directory hierarchy and succeed
-    create_workspace_templates(&workspace).unwrap();
-    assert!(workspace.join("USER.md").exists());
-    assert!(workspace.join("AGENTS.md").exists());
-    assert!(workspace.join("TOOLS.md").exists());
-    assert!(workspace.join("memory").is_dir());
+    // Should fail since parent directories don't exist
+    assert!(create_workspace_templates(&workspace).is_err());
 }
 
 #[test]

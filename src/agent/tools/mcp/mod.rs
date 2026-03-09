@@ -194,3 +194,6 @@ impl McpManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
