@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use regex::Regex;
 use tracing::warn;
 
@@ -24,6 +26,83 @@ struct GuardPattern {
     regex: Regex,
 }
 
+/// Compiled prompt guard patterns, initialized once on first access.
+static GUARD_PATTERNS: LazyLock<Vec<GuardPattern>> = LazyLock::new(|| {
+    let pattern_defs: Vec<(InjectionCategory, &str, &str)> = vec![
+        // Role switching
+        // (?is) = case-insensitive + dotall (`.` matches `\n`) to prevent
+        // multi-line bypass where attacker splits injection across lines.
+        (
+            InjectionCategory::RoleSwitch,
+            "ignore_previous",
+            r"(?is)\b(?:ignore|disregard|forget)\b.{0,50}\b(?:previous|above|prior|all)\b.{0,50}\b(?:instructions?|prompts?|rules?|guidelines?)\b",
+        ),
+        (
+            InjectionCategory::RoleSwitch,
+            "you_are_now",
+            r"(?is)\byou are now\b.{0,50}\b(?:acting as|pretending|roleplaying|playing|a new)\b",
+        ),
+        (
+            InjectionCategory::RoleSwitch,
+            "new_persona",
+            r"(?is)\b(?:from now on|henceforth)\b.{0,50}\b(?:you are|act as|behave as|respond as)\b",
+        ),
+        // Instruction override
+        (
+            InjectionCategory::InstructionOverride,
+            "new_instructions",
+            r"(?i)(?:^|\n)\s*(?:system|new|updated|revised)\s*(?:prompt|instructions?|rules?)\s*:",
+        ),
+        (
+            InjectionCategory::InstructionOverride,
+            "override_system",
+            r"(?is)\b(?:override|replace|overwrite)\b.{0,50}\b(?:system|original|initial)\b.{0,50}\b(?:prompt|instructions?|rules?)\b",
+        ),
+        // Secret extraction
+        (
+            InjectionCategory::SecretExtraction,
+            "reveal_prompt",
+            r"(?is)\b(?:repeat|show|display|output|print|reveal|tell me)\b.{0,50}\b(?:your|the|its|system)\s+(?:system prompt|instructions?|initial prompt|rules|guidelines)\b",
+        ),
+        (
+            InjectionCategory::SecretExtraction,
+            "what_are_your",
+            r"(?is)\bwhat (?:are|is|were) your\b.{0,50}\b(?:instructions?|rules?|system prompt|guidelines)\b",
+        ),
+        // Jailbreak patterns
+        (
+            InjectionCategory::Jailbreak,
+            "dan_mode",
+            r"(?i)\b(?:DAN|developer|god)\s*mode\b",
+        ),
+        (
+            InjectionCategory::Jailbreak,
+            "jailbreak",
+            r"(?i)\bjailbreak\b",
+        ),
+        (
+            InjectionCategory::Jailbreak,
+            "do_anything_now",
+            r"(?i)\bdo anything now\b",
+        ),
+    ];
+
+    pattern_defs
+        .into_iter()
+        .filter_map(|(category, name, pattern)| match Regex::new(pattern) {
+            Ok(regex) => Some(GuardPattern {
+                category,
+                name,
+                regex,
+            }),
+            Err(e) => {
+                warn!("failed to compile prompt guard pattern '{}': {}", name, e);
+                None
+            }
+        })
+        .collect()
+});
+
 /// Regex-based prompt injection detection guard.
 ///
 /// Scans text for patterns across 4 categories:
@@ -32,10 +111,9 @@ struct GuardPattern {
 /// 3. Secret extraction — attempts to extract system prompts or secrets
 /// 4. Jailbreak patterns — common jailbreak prefixes
 ///
-/// Disabled by default; enabled via `agents.defaults.promptGuard.enabled`.
-pub struct PromptGuard {
-    patterns: Vec<GuardPattern>,
-}
+/// Patterns are compiled once globally via `LazyLock` and shared across
+/// all instances. Disabled by default; enabled via `agents.defaults.promptGuard.enabled`.
+pub struct PromptGuard;
 
 impl Default for PromptGuard {
     fn default() -> Self {
@@ -45,81 +123,7 @@ impl Default for PromptGuard {
 
 impl PromptGuard {
     pub fn new() -> Self {
-        let pattern_defs: Vec<(InjectionCategory, &str, &str)> = vec![
-            // Role switching
-            // (?is) = case-insensitive + dotall (`.` matches `\n`) to prevent
-            // multi-line bypass where attacker splits injection across lines.
-            (
-                InjectionCategory::RoleSwitch,
-                "ignore_previous",
-                r"(?is)\b(?:ignore|disregard|forget)\b.{0,50}\b(?:previous|above|prior|all)\b.{0,50}\b(?:instructions?|prompts?|rules?|guidelines?)\b",
-            ),
-            (
-                InjectionCategory::RoleSwitch,
-                "you_are_now",
-                r"(?is)\byou are now\b.{0,50}\b(?:acting as|pretending|roleplaying|playing|a new)\b",
-            ),
-            (
-                InjectionCategory::RoleSwitch,
-                "new_persona",
-                r"(?is)\b(?:from now on|henceforth)\b.{0,50}\b(?:you are|act as|behave as|respond as)\b",
-            ),
-            // Instruction override
-            (
-                InjectionCategory::InstructionOverride,
-                "new_instructions",
-                r"(?i)(?:^|\n)\s*(?:system|new|updated|revised)\s*(?:prompt|instructions?|rules?)\s*:",
-            ),
-            (
-                InjectionCategory::InstructionOverride,
-                "override_system",
-                r"(?is)\b(?:override|replace|overwrite)\b.{0,50}\b(?:system|original|initial)\b.{0,50}\b(?:prompt|instructions?|rules?)\b",
-            ),
-            // Secret extraction
-            (
-                InjectionCategory::SecretExtraction,
-                "reveal_prompt",
-                r"(?is)\b(?:repeat|show|display|output|print|reveal|tell me)\b.{0,50}\b(?:your|the|its|system)\s+(?:system prompt|instructions?|initial prompt|rules|guidelines)\b",
-            ),
-            (
-                InjectionCategory::SecretExtraction,
-                "what_are_your",
-                r"(?is)\bwhat (?:are|is|were) your\b.{0,50}\b(?:instructions?|rules?|system prompt|guidelines)\b",
-            ),
-            // Jailbreak patterns
-            (
-                InjectionCategory::Jailbreak,
-                "dan_mode",
-                r"(?i)\b(?:DAN|developer|god)\s*mode\b",
-            ),
-            (
-                InjectionCategory::Jailbreak,
-                "jailbreak",
-                r"(?i)\bjailbreak\b",
-            ),
-            (
-                InjectionCategory::Jailbreak,
-                "do_anything_now",
-                r"(?i)\bdo anything now\b",
-            ),
-        ];
-
-        let patterns = pattern_defs
-            .into_iter()
-            .filter_map(|(category, name, pattern)| match Regex::new(pattern) {
-                Ok(regex) => Some(GuardPattern {
-                    category,
-                    name,
-                    regex,
-                }),
-                Err(e) => {
-                    warn!("failed to compile prompt guard pattern '{}': {}", name, e);
-                    None
-                }
-            })
-            .collect();
-
-        Self { patterns }
+        Self
     }
 
     /// Strip zero-width, invisible, and combining Unicode characters that attackers
@@ -161,7 +165,7 @@ impl PromptGuard {
     pub fn scan(&self, text: &str) -> Vec<InjectionMatch> {
         let normalized = Self::normalize(text);
         let mut matches = Vec::new();
-        for pattern in &self.patterns {
+        for pattern in GUARD_PATTERNS.iter() {
             for m in pattern.regex.find_iter(&normalized) {
                 matches.push(InjectionMatch {
                     category: pattern.category.clone(),
@@ -175,8 +179,7 @@ impl PromptGuard {
 
     /// Returns true if any match was found (for block/warn decisions).
     pub fn should_block(&self, text: &str) -> bool {
-        let normalized = Self::normalize(text);
-        self.patterns.iter().any(|p| p.regex.is_match(&normalized))
+        !self.scan(text).is_empty()
     }
 }
 
