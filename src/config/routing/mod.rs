@@ -82,3 +82,6 @@ impl ResolvedRouting {
         self.chat.as_ref().map(|c| &c.thresholds)
     }
 }
+
+#[cfg(test)]
+mod tests;

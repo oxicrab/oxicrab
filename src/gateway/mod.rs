@@ -851,9 +851,14 @@ pub async fn start<S: BuildHasher>(
         info!("HTTP API authentication enabled (Bearer / X-API-Key)");
     }
     let rate_limiter = if rate_limit.enabled {
-        let rps =
-            NonZeroU32::new(rate_limit.requests_per_second).unwrap_or(NonZeroU32::new(10).unwrap());
-        let burst = NonZeroU32::new(rate_limit.burst).unwrap_or(NonZeroU32::new(20).unwrap());
+        let rps = NonZeroU32::new(rate_limit.requests_per_second).unwrap_or_else(|| {
+            warn!("gateway rate limit requests_per_second is 0, using default 10");
+            NonZeroU32::new(10).unwrap()
+        });
+        let burst = NonZeroU32::new(rate_limit.burst).unwrap_or_else(|| {
+            warn!("gateway rate limit burst is 0, using default 20");
+            NonZeroU32::new(20).unwrap()
+        });
         let quota = Quota::per_second(rps).allow_burst(burst);
         let retry_after_secs = (1.0 / f64::from(rps.get())).ceil() as u64;
         let retry_after_secs = retry_after_secs.max(1);

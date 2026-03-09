@@ -302,3 +302,311 @@ fn test_coerce_no_schema_properties() {
     let result = coerce_params_to_schema(params.clone(), &schema);
     assert_eq!(result, params);
 }
+
+#[test]
+fn test_coerce_already_correct_integer_unchanged() {
+    let schema = json!({"type": "object", "properties": {"count": {"type": "integer"}}});
+    let params = json!({"count": 5});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["count"], json!(5));
+}
+
+#[test]
+fn test_coerce_string_false_to_boolean() {
+    let schema = json!({"type": "object", "properties": {"flag": {"type": "boolean"}}});
+    let params = json!({"flag": "false"});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["flag"], json!(false));
+}
+
+#[test]
+fn test_coerce_string_to_object() {
+    let schema = json!({"type": "object", "properties": {"data": {"type": "object"}}});
+    let params = json!({"data": r#"{"a":1,"b":2}"#});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["data"], json!({"a": 1, "b": 2}));
+}
+
+#[test]
+fn test_coerce_invalid_boolean_string_unchanged() {
+    let schema = json!({"type": "object", "properties": {"flag": {"type": "boolean"}}});
+    let params = json!({"flag": "yes"});
+    let result = coerce_params_to_schema(params, &schema);
+    // "yes" is not "true" or "false", so it should remain unchanged
+    assert_eq!(result["flag"], json!("yes"));
+}
+
+#[test]
+fn test_coerce_invalid_json_string_to_object_unchanged() {
+    let schema = json!({"type": "object", "properties": {"data": {"type": "object"}}});
+    let params = json!({"data": "not json at all"});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["data"], json!("not json at all"));
+}
+
+#[test]
+fn test_coerce_array_string_to_object_unchanged() {
+    // A valid JSON array should NOT be coerced when schema expects object
+    let schema = json!({"type": "object", "properties": {"data": {"type": "object"}}});
+    let params = json!({"data": "[1,2,3]"});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["data"], json!("[1,2,3]"));
+}
+
+#[test]
+fn test_coerce_multiple_params_simultaneously() {
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "count": {"type": "integer"},
+            "name": {"type": "string"},
+            "enabled": {"type": "boolean"}
+        }
+    });
+    let params = json!({"count": "10", "name": 42, "enabled": "true"});
+    let result = coerce_params_to_schema(params, &schema);
+    assert_eq!(result["count"], json!(10));
+    assert_eq!(result["name"], json!("42"));
+    assert_eq!(result["enabled"], json!(true));
+}
+
+// --- tool definition ordering tests ---
+
+#[test]
+fn test_tool_definitions_sorted_deterministically() {
+    use async_trait::async_trait;
+
+    struct NamedTool(&'static str);
+
+    #[async_trait]
+    impl Tool for NamedTool {
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &'static str {
+            "test tool"
+        }
+        fn parameters(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("ok"))
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    // Register tools in non-alphabetical order
+    registry.register(Arc::new(NamedTool("zebra")));
+    registry.register(Arc::new(NamedTool("alpha")));
+    registry.register(Arc::new(NamedTool("mango")));
+    registry.register(Arc::new(NamedTool("beta")));
+
+    let defs = registry.get_tool_definitions();
+    let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["alpha", "beta", "mango", "zebra"],
+        "tool definitions should be sorted alphabetically"
+    );
+}
+
+#[test]
+fn test_tool_definitions_with_activated_deferred_sorted() {
+    use async_trait::async_trait;
+    use std::collections::HashSet;
+
+    struct NamedTool(&'static str);
+
+    #[async_trait]
+    impl Tool for NamedTool {
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &'static str {
+            "test tool"
+        }
+        fn parameters(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("ok"))
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(NamedTool("charlie")));
+    registry.register_deferred(Arc::new(NamedTool("alice")));
+    registry.register(Arc::new(NamedTool("delta")));
+
+    // Without activation, deferred tool is excluded
+    let defs = registry.get_tool_definitions();
+    let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+    assert!(
+        !names.contains(&"alice"),
+        "deferred tool should be excluded"
+    );
+    assert_eq!(names, vec!["charlie", "delta"]);
+
+    // With activation, deferred tool is included and sorted
+    let mut activated = HashSet::new();
+    activated.insert("alice".to_string());
+    let defs = registry.get_tool_definitions_with_activated(&activated);
+    let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["alice", "charlie", "delta"],
+        "activated deferred tool should be included and sorted"
+    );
+}
+
+#[test]
+fn test_deferred_tool_tracking() {
+    use async_trait::async_trait;
+
+    struct NamedTool(&'static str);
+
+    #[async_trait]
+    impl Tool for NamedTool {
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &'static str {
+            "test tool"
+        }
+        fn parameters(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("ok"))
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(NamedTool("regular")));
+    registry.register_deferred(Arc::new(NamedTool("deferred_one")));
+    registry.register_deferred(Arc::new(NamedTool("deferred_two")));
+
+    assert!(!registry.is_deferred("regular"));
+    assert!(registry.is_deferred("deferred_one"));
+    assert!(registry.is_deferred("deferred_two"));
+    assert_eq!(registry.deferred_count(), 2);
+
+    // Deferred tools are still accessible via get()
+    assert!(registry.get("deferred_one").is_some());
+    assert!(registry.get("regular").is_some());
+}
+
+#[test]
+fn test_tool_names_sorted() {
+    use async_trait::async_trait;
+
+    struct NamedTool(&'static str);
+
+    #[async_trait]
+    impl Tool for NamedTool {
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &'static str {
+            "test"
+        }
+        fn parameters(&self) -> Value {
+            json!({})
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("ok"))
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(NamedTool("zeta")));
+    registry.register(Arc::new(NamedTool("alpha")));
+    registry.register(Arc::new(NamedTool("mu")));
+
+    let names = registry.tool_names();
+    assert_eq!(names, vec!["alpha", "mu", "zeta"]);
+}
+
+#[test]
+fn test_register_rejects_empty_name() {
+    use async_trait::async_trait;
+
+    struct EmptyNameTool;
+
+    #[async_trait]
+    impl Tool for EmptyNameTool {
+        fn name(&self) -> &str {
+            ""
+        }
+        fn description(&self) -> &'static str {
+            "test"
+        }
+        fn parameters(&self) -> Value {
+            json!({})
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("ok"))
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(EmptyNameTool));
+    assert!(
+        registry.get("").is_none(),
+        "empty-name tool should be rejected"
+    );
+}
+
+#[test]
+fn test_register_rejects_control_chars_in_name() {
+    use async_trait::async_trait;
+
+    struct ControlCharTool;
+
+    #[async_trait]
+    impl Tool for ControlCharTool {
+        fn name(&self) -> &str {
+            "bad\x00tool"
+        }
+        fn description(&self) -> &'static str {
+            "test"
+        }
+        fn parameters(&self) -> Value {
+            json!({})
+        }
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &ExecutionContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult::new("ok"))
+        }
+    }
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(ControlCharTool));
+    assert!(
+        registry.get("bad\x00tool").is_none(),
+        "tool with control chars should be rejected"
+    );
+}

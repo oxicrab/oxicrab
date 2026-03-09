@@ -852,7 +852,7 @@ async fn test_chat_handler_with_response_format_metadata() {
     let msg = inbound_rx.recv().await.unwrap();
     assert_eq!(msg.content, "list items");
     // Verify response_format was serialized into metadata
-    let rf_meta = msg.metadata.get("response_format").unwrap();
+    let rf_meta = msg.metadata.get(crate::bus::meta::RESPONSE_FORMAT).unwrap();
     assert_eq!(rf_meta, &serde_json::Value::String("json".to_string()));
 
     // Complete the request to avoid timeout
@@ -891,7 +891,7 @@ async fn test_chat_handler_without_response_format_no_metadata() {
     let handle = tokio::spawn(async move { app.oneshot(req).await.unwrap() });
 
     let msg = inbound_rx.recv().await.unwrap();
-    assert!(!msg.metadata.contains_key("response_format"));
+    assert!(!msg.metadata.contains_key(crate::bus::meta::RESPONSE_FORMAT));
 
     let request_id = msg.chat_id.clone();
     let tx = pending.lock().unwrap().remove(&request_id).unwrap();
@@ -1000,4 +1000,62 @@ async fn test_chat_handler_rejects_oversized_schema_name() {
             .unwrap()
             .contains("schema name too long")
     );
+}
+
+#[tokio::test]
+async fn test_webhook_replay_protection_rejects_old_timestamp() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let mut webhooks = HashMap::new();
+    webhooks.insert(
+        "test-hook".to_string(),
+        make_webhook_config(true, "secret123"),
+    );
+    let state = make_state_with_webhooks(webhooks);
+    let app = build_router(state, None, None, None);
+
+    let body = b"payload";
+    let sig = sign_body("secret123", body);
+    // Timestamp 10 minutes ago — should be rejected
+    let old_ts = (chrono::Utc::now().timestamp() - 600).to_string();
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/webhook/test-hook")
+        .header("X-Signature-256", &sig)
+        .header("X-Webhook-Timestamp", &old_ts)
+        .body(axum::body::Body::from(&body[..]))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_webhook_replay_protection_accepts_recent_timestamp() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let mut webhooks = HashMap::new();
+    webhooks.insert(
+        "test-hook".to_string(),
+        make_webhook_config(true, "secret123"),
+    );
+    let state = make_state_with_webhooks(webhooks);
+    let app = build_router(state, None, None, None);
+
+    let body = b"payload";
+    let sig = sign_body("secret123", body);
+    // Timestamp 1 minute ago — should be accepted
+    let recent_ts = (chrono::Utc::now().timestamp() - 60).to_string();
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/webhook/test-hook")
+        .header("X-Signature-256", &sig)
+        .header("X-Webhook-Timestamp", &recent_ts)
+        .body(axum::body::Body::from(&body[..]))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
 }

@@ -368,6 +368,7 @@ fn extract_message_text_non_string_non_array() {
 
 struct FlushMock {
     response: String,
+    finish_reason: Option<String>,
 }
 
 #[async_trait]
@@ -375,6 +376,7 @@ impl LLMProvider for FlushMock {
     async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
         Ok(LLMResponse {
             content: Some(self.response.clone()),
+            finish_reason: self.finish_reason.clone(),
             ..Default::default()
         })
     }
@@ -387,6 +389,7 @@ impl LLMProvider for FlushMock {
 async fn flush_to_memory_extracts_facts() {
     let provider = Arc::new(FlushMock {
         response: "- User prefers dark mode\n- Project uses Rust nightly".to_string(),
+        finish_reason: None,
     });
     let compactor = MessageCompactor::new(provider, None);
 
@@ -409,6 +412,7 @@ async fn flush_to_memory_extracts_facts() {
 async fn flush_to_memory_returns_empty_for_nothing() {
     let provider = Arc::new(FlushMock {
         response: "NOTHING".to_string(),
+        finish_reason: None,
     });
     let compactor = MessageCompactor::new(provider, None);
 
@@ -427,6 +431,7 @@ async fn flush_to_memory_returns_empty_for_nothing() {
 async fn flush_to_memory_nothing_case_insensitive() {
     let provider = Arc::new(FlushMock {
         response: "Nothing worth preserving here".to_string(),
+        finish_reason: None,
     });
     let compactor = MessageCompactor::new(provider, None);
 
@@ -445,9 +450,88 @@ async fn flush_to_memory_nothing_case_insensitive() {
 async fn flush_to_memory_empty_messages() {
     let provider = Arc::new(FlushMock {
         response: "NOTHING".to_string(),
+        finish_reason: None,
     });
     let compactor = MessageCompactor::new(provider, None);
 
     let result = compactor.flush_to_memory(&[]).await.unwrap();
     assert!(result.is_empty());
+}
+
+// ── finish_reason guard tests ────────────────────────────
+
+fn sample_messages() -> Vec<HashMap<String, Value>> {
+    vec![{
+        let mut m = HashMap::new();
+        m.insert("role".to_string(), Value::String("user".to_string()));
+        m.insert(
+            "content".to_string(),
+            Value::String("important project details here".to_string()),
+        );
+        m
+    }]
+}
+
+#[tokio::test]
+async fn flush_to_memory_discards_truncated_output_finish_length() {
+    // finish_reason = "length" means output was truncated — should be discarded
+    let provider = Arc::new(FlushMock {
+        response: "- Important fact that got cut off mid-sen".to_string(),
+        finish_reason: Some("length".to_string()),
+    });
+    let compactor = MessageCompactor::new(provider, None);
+
+    let result = compactor.flush_to_memory(&sample_messages()).await.unwrap();
+    assert!(
+        result.is_empty(),
+        "truncated output (finish_reason=length) should be discarded"
+    );
+}
+
+#[tokio::test]
+async fn flush_to_memory_discards_truncated_output_finish_max_tokens() {
+    // finish_reason = "max_tokens" (Anthropic) means output was truncated
+    let provider = Arc::new(FlushMock {
+        response: "- Partial extraction that was cut".to_string(),
+        finish_reason: Some("max_tokens".to_string()),
+    });
+    let compactor = MessageCompactor::new(provider, None);
+
+    let result = compactor.flush_to_memory(&sample_messages()).await.unwrap();
+    assert!(
+        result.is_empty(),
+        "truncated output (finish_reason=max_tokens) should be discarded"
+    );
+}
+
+#[tokio::test]
+async fn flush_to_memory_discards_truncated_output_finish_max_tokens_upper() {
+    // finish_reason = "MAX_TOKENS" (Gemini) means output was truncated
+    let provider = Arc::new(FlushMock {
+        response: "- Gemini partial output".to_string(),
+        finish_reason: Some("MAX_TOKENS".to_string()),
+    });
+    let compactor = MessageCompactor::new(provider, None);
+
+    let result = compactor.flush_to_memory(&sample_messages()).await.unwrap();
+    assert!(
+        result.is_empty(),
+        "truncated output (finish_reason=MAX_TOKENS) should be discarded"
+    );
+}
+
+#[tokio::test]
+async fn flush_to_memory_preserves_output_with_normal_finish_reason() {
+    // finish_reason = "stop" or "end_turn" means normal completion — should be preserved
+    let provider = Arc::new(FlushMock {
+        response: "- User prefers vim keybindings".to_string(),
+        finish_reason: Some("stop".to_string()),
+    });
+    let compactor = MessageCompactor::new(provider, None);
+
+    let result = compactor.flush_to_memory(&sample_messages()).await.unwrap();
+    assert!(
+        result.contains("vim keybindings"),
+        "normal finish_reason=stop should preserve output"
+    );
 }
