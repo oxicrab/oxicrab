@@ -1,6 +1,7 @@
 use super::MemoryDB;
 use anyhow::Result;
 use rusqlite::params;
+use std::sync::atomic::Ordering;
 use tracing::warn;
 
 /// Cached deserialized embedding for in-memory vector search.
