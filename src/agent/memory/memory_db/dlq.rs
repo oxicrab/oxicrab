@@ -22,23 +22,21 @@ impl MemoryDB {
         payload: &str,
         error_message: &str,
     ) -> Result<i64> {
-        let mut conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        let tx = conn.transaction()?;
-        tx.execute(
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        conn.execute(
             "INSERT INTO scheduled_task_dlq (job_id, job_name, payload, error_message)
              VALUES (?1, ?2, ?3, ?4)",
             params![job_id, job_name, payload, error_message],
         )?;
-        let id = tx.last_insert_rowid();
+        let id = conn.last_insert_rowid();
 
         // Auto-purge: keep only 100 most recent entries
-        tx.execute(
+        conn.execute(
             "DELETE FROM scheduled_task_dlq WHERE id NOT IN (
                 SELECT id FROM scheduled_task_dlq ORDER BY id DESC LIMIT 100
             )",
             [],
         )?;
-        tx.commit()?;
 
         Ok(id)
     }

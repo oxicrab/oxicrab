@@ -87,7 +87,6 @@ impl Clone for MemoryDB {
             db_path: self.db_path.clone(),
             has_fts: self.has_fts,
             embedding_cache: std::sync::Mutex::new(None),
-            embedding_generation: std::sync::atomic::AtomicU64::new(0),
         }
     }
 }
@@ -118,7 +117,6 @@ impl MemoryDB {
             db_path: db_path.to_string_lossy().to_string(),
             has_fts: false,
             embedding_cache: std::sync::Mutex::new(None),
-            embedding_generation: std::sync::atomic::AtomicU64::new(0),
         };
 
         db.ensure_schema().with_context(|| {
