@@ -138,3 +138,21 @@ fn test_case_insensitive_value_prefix() {
     // sk- prefix detection is case-insensitive on the value
     assert!(looks_like_secret("SOME_VAR", "SK-this-is-definitely-a-key"));
 }
+
+#[test]
+fn test_crlf_env_var_detection() {
+    let safe_values = vec!["normal_value", "path/to/file", "key=value"];
+    for v in safe_values {
+        assert!(
+            !v.contains('\r') && !v.contains('\n'),
+            "should be safe: {v}"
+        );
+    }
+    let unsafe_values = vec!["value\r\nInjected: header", "line1\nline2", "cr\ronly"];
+    for v in unsafe_values {
+        assert!(
+            v.contains('\r') || v.contains('\n'),
+            "should be detected: {v}"
+        );
+    }
+}

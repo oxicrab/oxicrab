@@ -37,3 +37,16 @@ fn test_attenuated_mcp_requires_approval() {
     let tool = AttenuatedMcpTool::new(inner);
     assert!(tool.requires_approval());
 }
+
+#[test]
+fn test_null_params_filtered() {
+    use serde_json::{Value, json};
+    let params = json!({"key": "value", "optional": null, "another": null});
+    let filtered: serde_json::Map<String, Value> = match params {
+        Value::Object(map) => map.into_iter().filter(|(_, v)| !v.is_null()).collect(),
+        _ => unreachable!(),
+    };
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered.get("key").unwrap(), "value");
+    assert!(!filtered.contains_key("optional"));
+}

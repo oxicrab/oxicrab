@@ -65,7 +65,15 @@ impl Tool for McpProxyTool {
         debug!("MCP tool call: {}", self.tool_name);
         // Convert params Value to a Map for the MCP call
         let arguments = match params {
-            Value::Object(map) => Some(map),
+            Value::Object(map) => {
+                let filtered: serde_json::Map<String, Value> =
+                    map.into_iter().filter(|(_, v)| !v.is_null()).collect();
+                if filtered.is_empty() {
+                    None
+                } else {
+                    Some(filtered)
+                }
+            }
             Value::Null => None,
             other => {
                 // Wrap non-object values in a map

@@ -93,6 +93,13 @@ impl McpManager {
                     name, k
                 );
             }
+            if k.contains('\r') || k.contains('\n') || v.contains('\r') || v.contains('\n') {
+                warn!(
+                    "MCP server '{}' env var '{}' contains CR/LF characters, skipping",
+                    name, k
+                );
+                continue;
+            }
             cmd.env(k, v);
         }
 
