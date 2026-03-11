@@ -150,7 +150,7 @@ pub struct SlackConfig {
     /// Emoji added when a message is received (default: "eyes")
     #[serde(default = "default_thinking_emoji", rename = "thinkingEmoji")]
     pub thinking_emoji: String,
-    /// Emoji added after response is sent (default: "white_check_mark")
+    /// Emoji added after response is sent (default: `white_check_mark`).
     #[serde(default = "default_done_emoji", rename = "doneEmoji")]
     pub done_emoji: String,
 }

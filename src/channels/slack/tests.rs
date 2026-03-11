@@ -703,10 +703,7 @@ fn test_convert_buttons_to_blocks_empty_metadata() {
 #[test]
 fn test_convert_buttons_to_blocks_empty_array() {
     let mut metadata = HashMap::new();
-    metadata.insert(
-        crate::bus::meta::BUTTONS.to_string(),
-        serde_json::json!([]),
-    );
+    metadata.insert(crate::bus::meta::BUTTONS.to_string(), serde_json::json!([]));
     assert!(convert_buttons_to_blocks(&metadata).is_empty());
 }
 

@@ -24,8 +24,8 @@ use helpers::{
 };
 
 pub use config::{
-    AgentLoopConfig, AgentLoopResult, AgentLoopRuntimeParams, AgentRunOverrides, LifecycleConfig,
-    SafetyConfig, ToolConfigs,
+    AgentLoopConfig, AgentLoopResult, AgentLoopRuntimeParams, AgentRunOverrides, DirectResult,
+    LifecycleConfig, SafetyConfig, ToolConfigs,
 };
 
 #[cfg(test)]

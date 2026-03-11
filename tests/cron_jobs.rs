@@ -830,3 +830,365 @@ async fn test_event_job_disabled_not_matched() {
     let hits = matcher.check_message("deploy now", "slack", 1000);
     assert!(hits.is_empty());
 }
+
+// --- Multi-tool cron job patterns ---
+//
+// These tests verify that the cron service supports realistic multi-tool job
+// configurations: daily briefings that use calendar + todoist + weather, deploy
+// monitoring, approval workflows, and echo-mode reminders with buttons.
+
+fn make_multi_tool_job(
+    id: &str,
+    name: &str,
+    message: &str,
+    schedule: CronSchedule,
+    targets: Vec<CronTarget>,
+) -> CronJob {
+    CronJob {
+        id: id.to_string(),
+        name: name.to_string(),
+        enabled: true,
+        schedule,
+        payload: CronPayload {
+            kind: "agent_turn".to_string(),
+            message: message.to_string(),
+            agent_echo: true,
+            targets,
+        },
+        state: CronJobState::default(),
+        created_at_ms: 1000000,
+        updated_at_ms: 1000000,
+        delete_after_run: false,
+        expires_at_ms: None,
+        max_runs: None,
+        cooldown_secs: None,
+        max_concurrent: None,
+    }
+}
+
+fn make_echo_job(
+    id: &str,
+    name: &str,
+    message: &str,
+    schedule: CronSchedule,
+    targets: Vec<CronTarget>,
+) -> CronJob {
+    CronJob {
+        id: id.to_string(),
+        name: name.to_string(),
+        enabled: true,
+        schedule,
+        payload: CronPayload {
+            kind: "echo".to_string(),
+            message: message.to_string(),
+            agent_echo: false,
+            targets,
+        },
+        state: CronJobState::default(),
+        created_at_ms: 1000000,
+        updated_at_ms: 1000000,
+        delete_after_run: false,
+        expires_at_ms: None,
+        max_runs: None,
+        cooldown_secs: None,
+        max_concurrent: None,
+    }
+}
+
+fn slack_target() -> CronTarget {
+    CronTarget {
+        channel: "slack".to_string(),
+        to: "U08G6HBC89X".to_string(),
+    }
+}
+
+fn multi_channel_targets() -> Vec<CronTarget> {
+    vec![
+        CronTarget {
+            channel: "slack".to_string(),
+            to: "U08G6HBC89X".to_string(),
+        },
+        CronTarget {
+            channel: "discord".to_string(),
+            to: "123456789".to_string(),
+        },
+    ]
+}
+
+/// Daily briefing: agent fetches calendar + todoist + weather and summarizes.
+#[tokio::test]
+async fn test_cron_daily_briefing_pattern() {
+    let svc = create_test_cron_service();
+
+    let job = make_multi_tool_job(
+        "briefing",
+        "Daily Briefing",
+        "Give me a morning briefing: check my Google Calendar for today's events, \
+         list my Todoist tasks due today, and get the current weather for New York. \
+         Format it with tables and use the add_buttons tool to add a 'Snooze 30m' \
+         and 'Mark all done' button.",
+        CronSchedule::Cron {
+            expr: Some("0 8 * * 1-5".to_string()),
+            tz: Some("America/New_York".to_string()),
+        },
+        multi_channel_targets(),
+    );
+
+    svc.add_job(job).expect("add briefing job");
+
+    let jobs = svc.list_jobs(false).expect("list jobs");
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].payload.targets.len(), 2);
+    assert!(jobs[0].payload.message.contains("Google Calendar"));
+    assert!(jobs[0].payload.message.contains("Todoist"));
+    assert!(jobs[0].payload.message.contains("weather"));
+    assert!(jobs[0].payload.message.contains("add_buttons"));
+    assert!(jobs[0].payload.agent_echo);
+    assert!(jobs[0].state.next_run_at_ms.is_some());
+}
+
+/// Deploy monitor: event-triggered job that runs on "deploy" messages and
+/// uses github tool to check workflow status.
+#[tokio::test]
+async fn test_cron_deploy_monitor_pattern() {
+    let svc = create_test_cron_service();
+
+    let mut job = make_multi_tool_job(
+        "deploy_monitor",
+        "Deploy Monitor",
+        "A deploy was just mentioned. Use the github tool to check the latest \
+         workflow runs for the main repo. If any are failing, use add_buttons \
+         to offer 'Retry workflow' and 'View logs' options.",
+        CronSchedule::Event {
+            pattern: Some(r"(?i)\bdeploy(ed|ing|ment)?\b".to_string()),
+            channel: None,
+        },
+        vec![slack_target()],
+    );
+    job.cooldown_secs = Some(300); // 5 min cooldown to avoid spam
+
+    svc.add_job(job).expect("add deploy monitor");
+
+    let jobs = svc.list_jobs(false).expect("list jobs");
+    let job = &jobs[0];
+    assert_eq!(job.cooldown_secs, Some(300));
+    assert!(job.payload.message.contains("github"));
+    assert!(job.payload.message.contains("add_buttons"));
+    match &job.schedule {
+        CronSchedule::Event { pattern, channel } => {
+            assert!(pattern.is_some());
+            assert!(channel.is_none()); // fires on any channel
+        }
+        _ => panic!("expected Event schedule"),
+    }
+}
+
+/// Email digest: hourly job that summarizes unread emails.
+#[tokio::test]
+async fn test_cron_email_digest_pattern() {
+    let svc = create_test_cron_service();
+
+    let mut job = make_multi_tool_job(
+        "email_digest",
+        "Email Digest",
+        "Check Gmail for unread messages from the last hour. Summarize the \
+         important ones (skip newsletters and automated notifications). If there \
+         are any that need a reply, use add_buttons with 'Draft reply' and \
+         'Mark read' options.",
+        CronSchedule::Every {
+            every_ms: Some(3_600_000),
+        },
+        vec![slack_target()],
+    );
+    job.max_runs = Some(24); // run 24 times then disable (1 day)
+
+    svc.add_job(job).expect("add email digest");
+
+    let jobs = svc.list_jobs(false).expect("list jobs");
+    assert_eq!(jobs[0].max_runs, Some(24));
+    assert!(jobs[0].payload.message.contains("Gmail"));
+}
+
+/// Echo-mode reminder: no LLM call, just deliver the text directly.
+#[tokio::test]
+async fn test_cron_echo_reminder_pattern() {
+    let svc = create_test_cron_service();
+
+    let job = make_echo_job(
+        "standup_remind",
+        "Standup Reminder",
+        ":wave: Standup in 5 minutes! Get your updates ready.",
+        CronSchedule::Cron {
+            expr: Some("55 8 * * 1-5".to_string()),
+            tz: Some("America/New_York".to_string()),
+        },
+        multi_channel_targets(),
+    );
+
+    svc.add_job(job).expect("add echo reminder");
+
+    let jobs = svc.list_jobs(false).expect("list jobs");
+    assert_eq!(jobs[0].payload.kind, "echo");
+    assert!(!jobs[0].payload.agent_echo); // echo mode doesn't re-echo
+    assert_eq!(jobs[0].payload.targets.len(), 2);
+
+    // Echo jobs should execute immediately (no LLM) — verify with callback
+    let delivered = Arc::new(Mutex::new(Vec::<String>::new()));
+    let delivered_clone = delivered.clone();
+    svc.set_on_job(move |job| {
+        let delivered = delivered_clone.clone();
+        Box::pin(async move {
+            delivered.lock().await.push(job.payload.message.clone());
+            Ok(Some(job.payload.message.clone()))
+        })
+    })
+    .await;
+
+    svc.run_job("standup_remind", true)
+        .await
+        .expect("run echo job");
+    let msgs = delivered.lock().await;
+    assert_eq!(msgs.len(), 1);
+    assert!(msgs[0].contains("Standup in 5 minutes"));
+}
+
+/// One-shot delayed job: sends a follow-up after a meeting.
+#[tokio::test]
+async fn test_cron_one_shot_followup_pattern() {
+    let svc = create_test_cron_service();
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    let mut job = make_multi_tool_job(
+        "followup",
+        "Meeting Followup",
+        "The standup meeting just ended. Check my Google Calendar for the meeting \
+         that just finished and any action items. Search my Todoist for related \
+         tasks. Compose a follow-up summary and use add_buttons with 'Create \
+         tasks' and 'Send summary to channel' options.",
+        CronSchedule::At {
+            at_ms: Some(now_ms + 1_800_000), // 30 min from now
+        },
+        vec![slack_target()],
+    );
+    job.delete_after_run = true; // one-shot: auto-delete
+
+    svc.add_job(job).expect("add followup job");
+
+    let jobs = svc.list_jobs(false).expect("list jobs");
+    assert!(jobs[0].delete_after_run);
+    assert!(jobs[0].payload.message.contains("Google Calendar"));
+    assert!(jobs[0].payload.message.contains("Todoist"));
+    assert!(jobs[0].payload.message.contains("add_buttons"));
+}
+
+/// Callback metadata forwarding: verify that the callback receives
+/// the job payload and targets, enabling the executor to forward
+/// response metadata (like buttons) to all target channels.
+#[tokio::test]
+async fn test_cron_callback_receives_full_job_context() {
+    let svc = create_test_cron_service();
+
+    let job = make_multi_tool_job(
+        "ctx_test",
+        "Context Test",
+        "Check weather and add buttons",
+        CronSchedule::Every {
+            every_ms: Some(60_000),
+        },
+        multi_channel_targets(),
+    );
+    svc.add_job(job).expect("add job");
+
+    let captured = Arc::new(Mutex::new(Option::<CronJob>::None));
+    let captured_clone = captured.clone();
+    svc.set_on_job(move |job| {
+        let captured = captured_clone.clone();
+        Box::pin(async move {
+            *captured.lock().await = Some(job);
+            Ok(Some("done".to_string()))
+        })
+    })
+    .await;
+
+    svc.run_job("ctx_test", true).await.expect("run job");
+
+    let captured_job = captured.lock().await.clone().expect("job was captured");
+    // Verify the callback received the complete job with all targets
+    assert_eq!(captured_job.id, "ctx_test");
+    assert_eq!(captured_job.payload.targets.len(), 2);
+    assert_eq!(captured_job.payload.targets[0].channel, "slack");
+    assert_eq!(captured_job.payload.targets[1].channel, "discord");
+    assert!(captured_job.payload.agent_echo);
+    // This enables the executor to forward response_metadata (buttons)
+    // to all targets via OutboundMessage::builder().merge_metadata()
+}
+
+/// Expiry: job that auto-disables after a datetime.
+#[tokio::test]
+async fn test_cron_job_with_expiry() {
+    let svc = create_test_cron_service();
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    let mut job = make_multi_tool_job(
+        "expiring",
+        "Expiring Job",
+        "Check for new PRs and summarize",
+        CronSchedule::Every {
+            every_ms: Some(3_600_000),
+        },
+        vec![slack_target()],
+    );
+    job.expires_at_ms = Some(now_ms + 86_400_000); // expires in 24h
+    job.max_runs = Some(12); // also caps at 12 runs
+
+    svc.add_job(job).expect("add expiring job");
+
+    let jobs = svc.list_jobs(false).expect("list jobs");
+    assert!(jobs[0].expires_at_ms.is_some());
+    assert_eq!(jobs[0].max_runs, Some(12));
+}
+
+/// Run count tracking: verify execution count increments correctly.
+/// Note: auto-disable on max_runs happens in the scheduler tick loop,
+/// not in run_job() itself — so we test count tracking here.
+#[tokio::test]
+async fn test_cron_max_runs_tracking() {
+    let svc = create_test_cron_service();
+
+    let mut job = make_multi_tool_job(
+        "limited",
+        "Limited Runs",
+        "Send a reminder",
+        CronSchedule::Every {
+            every_ms: Some(60_000),
+        },
+        vec![slack_target()],
+    );
+    job.max_runs = Some(5);
+
+    svc.add_job(job).expect("add limited job");
+    svc.set_on_job(|_| Box::pin(async { Ok(Some("done".to_string())) }))
+        .await;
+
+    // Run 3 times
+    for _ in 0..3 {
+        svc.run_job("limited", true).await.expect("run job");
+    }
+
+    let jobs = svc.list_jobs(true).expect("list all jobs");
+    let job = jobs.iter().find(|j| j.id == "limited").unwrap();
+    assert_eq!(job.state.run_count, 3);
+    assert_eq!(job.max_runs, Some(5));
+    // Job is still enabled — auto-disable runs on the next scheduler tick,
+    // not synchronously in run_job(). The EventMatcher also checks max_runs
+    // before firing event-triggered jobs.
+    assert!(job.enabled);
+}

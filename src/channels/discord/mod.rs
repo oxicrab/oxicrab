@@ -508,8 +508,7 @@ fn parse_components_from_metadata(
                     .filter_map(|b| {
                         let custom_id = b["custom_id"].as_str()?;
                         let label = b["label"].as_str().unwrap_or(custom_id);
-                        let style =
-                            parse_button_style(b["style"].as_str().unwrap_or("secondary"));
+                        let style = parse_button_style(b["style"].as_str().unwrap_or("secondary"));
                         let disabled = b["disabled"].as_bool().unwrap_or_default();
                         Some(
                             CreateButton::new(custom_id)
@@ -537,9 +536,7 @@ fn parse_components_from_metadata(
 
 /// Convert unified `metadata["buttons"]` to Discord action rows.
 /// Format: `[{"id": "yes", "label": "Yes", "style": "primary"}, ...]`
-fn parse_unified_buttons(
-    metadata: &HashMap<String, serde_json::Value>,
-) -> Vec<CreateActionRow> {
+fn parse_unified_buttons(metadata: &HashMap<String, serde_json::Value>) -> Vec<CreateActionRow> {
     let Some(buttons_val) = metadata.get(crate::bus::meta::BUTTONS) else {
         return Vec::new();
     };
@@ -934,7 +931,9 @@ impl BaseChannel for DiscordChannel {
 
 /// Convert metadata components to Discord API component JSON format for webhooks.
 /// Checks `discord_components` first, then falls back to unified `buttons` key.
-fn components_to_api_json(metadata: &HashMap<String, serde_json::Value>) -> Option<serde_json::Value> {
+fn components_to_api_json(
+    metadata: &HashMap<String, serde_json::Value>,
+) -> Option<serde_json::Value> {
     // Try discord_components first (legacy format)
     if let Some(raw_components) = metadata.get("discord_components")
         && let Some(rows_arr) = raw_components.as_array()

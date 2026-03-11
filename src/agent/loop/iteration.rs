@@ -519,12 +519,14 @@ impl AgentLoop {
 
     /// Read and clear pending buttons from the shared `add_buttons` tool state.
     /// Returns a metadata map with the `buttons` key if any were set.
-    fn take_pending_buttons_metadata(&self) -> std::collections::HashMap<String, serde_json::Value> {
+    fn take_pending_buttons_metadata(
+        &self,
+    ) -> std::collections::HashMap<String, serde_json::Value> {
         let mut meta = std::collections::HashMap::new();
         if let Some(specs) = self
             .pending_buttons
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take()
         {
             let buttons_json: Vec<serde_json::Value> = specs

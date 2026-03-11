@@ -432,7 +432,7 @@ async fn cron_job_execute(
         crate::bus::meta::IS_CRON_JOB.to_string(),
         serde_json::Value::Bool(true),
     );
-    let response = agent
+    let result = agent
         .process_direct_with_overrides(
             &job.payload.message,
             &format!("cron:{}", job.id),
@@ -449,8 +449,9 @@ async fn cron_job_execute(
                     crate::bus::OutboundMessage::builder(
                         target.channel.clone(),
                         target.to.clone(),
-                        response.clone(),
+                        result.content.clone(),
                     )
+                    .merge_metadata(result.metadata.clone())
                     .build(),
                 )
                 .await
@@ -463,7 +464,7 @@ async fn cron_job_execute(
         }
     }
 
-    Ok(Some(response))
+    Ok(Some(result.content))
 }
 
 fn setup_channels(

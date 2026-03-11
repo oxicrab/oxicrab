@@ -614,7 +614,8 @@ impl Tool for GitHubTool {
     fn description(&self) -> &'static str {
         "Interact with GitHub. Actions: list_issues, create_issue, get_issue, list_prs, get_pr, \
          get_pr_files, create_pr_review, get_file_content, trigger_workflow, get_workflow_runs, \
-         notifications."
+         notifications. Tip: after showing a PR, use add_buttons to offer Approve or Request Changes; \
+         after showing an issue, offer Close or Label."
     }
 
     fn capabilities(&self) -> ToolCapabilities {

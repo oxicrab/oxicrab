@@ -59,12 +59,8 @@ fn classify_slack_error(http_status: u16, error_field: Option<&str>) -> SlackApi
         return SlackApiError::ServerError(http_status);
     }
     match error_field {
-        Some("invalid_auth") | Some("account_inactive") | Some("token_revoked") => {
-            SlackApiError::InvalidAuth
-        }
-        Some(e) if e.starts_with("missing_scope") => {
-            SlackApiError::MissingScope(e.to_string())
-        }
+        Some("invalid_auth" | "account_inactive" | "token_revoked") => SlackApiError::InvalidAuth,
+        Some(e) if e.starts_with("missing_scope") => SlackApiError::MissingScope(e.to_string()),
         Some("channel_not_found") => SlackApiError::ChannelNotFound,
         Some("ratelimited") => SlackApiError::RateLimited {
             retry_after_secs: 1,
@@ -76,7 +72,7 @@ fn classify_slack_error(http_status: u16, error_field: Option<&str>) -> SlackApi
 }
 
 fn is_retryable(err: &SlackApiError) -> bool {
-    matches!(err, SlackApiError::ServerError(_))
+    matches!(err, SlackApiError::ServerError(status) if *status >= 500)
 }
 
 pub struct SlackChannel {
@@ -349,12 +345,12 @@ impl SlackChannel {
             .send()
             .await?;
 
-        let http_status = response.status().as_u16();
         let json: Value = response.json().await?;
         if json.get("ok").and_then(Value::as_bool) != Some(true) {
-            let error_field = json.get("error").and_then(Value::as_str);
-            let _classified = classify_slack_error(http_status, error_field);
-            let error = error_field.unwrap_or("unknown");
+            let error = json
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
             return Err(anyhow::anyhow!("Slack API error: {error}"));
         }
         Ok(json)
@@ -373,12 +369,12 @@ impl SlackChannel {
             .send()
             .await?;
 
-        let http_status = response.status().as_u16();
         let json: Value = response.json().await?;
         if json.get("ok").and_then(Value::as_bool) != Some(true) {
-            let error_field = json.get("error").and_then(Value::as_str);
-            let _classified = classify_slack_error(http_status, error_field);
-            let error = error_field.unwrap_or("unknown");
+            let error = json
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
             return Err(anyhow::anyhow!("Slack API error: {error}"));
         }
         Ok(json)
@@ -399,7 +395,11 @@ impl SlackChannel {
                 Err(e) => {
                     let err_str = e.to_string();
                     // Parse the error to determine retryability
-                    let http_status = if err_str.contains("HTTP 5") { 500u16 } else { 0 };
+                    let http_status = if err_str.contains("HTTP 5") {
+                        500u16
+                    } else {
+                        0
+                    };
                     let classified = classify_slack_error(
                         http_status,
                         err_str.strip_prefix("Slack API error: "),
@@ -414,7 +414,16 @@ impl SlackChannel {
                             SlackApiError::InvalidAuth => {
                                 error!("slack: invalid auth for {method}");
                             }
-                            _ => {}
+                            SlackApiError::MissingScope(scope) => {
+                                error!("slack: missing scope for {method}: {scope}");
+                            }
+                            SlackApiError::ChannelNotFound => {
+                                warn!("slack: channel not found for {method}");
+                            }
+                            SlackApiError::Other(msg) => {
+                                warn!("slack: API error on {method}: {msg}");
+                            }
+                            SlackApiError::ServerError(_) => {} // handled by retry
                         }
                         return Err(e);
                     }
@@ -432,18 +441,18 @@ impl SlackChannel {
     }
 
     /// Retry wrapper for JSON-body Slack API calls.
-    async fn send_slack_api_json_with_retry(
-        &self,
-        method: &str,
-        body: &Value,
-    ) -> Result<Value> {
+    async fn send_slack_api_json_with_retry(&self, method: &str, body: &Value) -> Result<Value> {
         let mut last_err = None;
         for attempt in 0..3u32 {
             match self.send_slack_api_json(method, body).await {
                 Ok(json) => return Ok(json),
                 Err(e) => {
                     let err_str = e.to_string();
-                    let http_status = if err_str.contains("HTTP 5") { 500u16 } else { 0 };
+                    let http_status = if err_str.contains("HTTP 5") {
+                        500u16
+                    } else {
+                        0
+                    };
                     let classified = classify_slack_error(
                         http_status,
                         err_str.strip_prefix("Slack API error: "),
@@ -712,8 +721,7 @@ impl BaseChannel for SlackChannel {
                                         // Handle interactive payloads (button clicks)
                                         if event_type == "interactive"
                                             && let Some(payload) = event.get("payload")
-                                        {
-                                            if let Err(e) = handle_interactive_payload(
+                                            && let Err(e) = handle_interactive_payload(
                                                 payload,
                                                 &inbound_tx,
                                                 &config_allow,
@@ -723,12 +731,11 @@ impl BaseChannel for SlackChannel {
                                                 &ws_client,
                                             )
                                             .await
-                                            {
-                                                error!(
-                                                    "Error handling Slack interactive payload: {}",
-                                                    e
-                                                );
-                                            }
+                                        {
+                                            error!(
+                                                "Error handling Slack interactive payload: {}",
+                                                e
+                                            );
                                         }
 
                                         // Process the event
@@ -906,7 +913,11 @@ impl BaseChannel for SlackChannel {
         }
 
         // Swap thinking → done reaction (fire-and-forget)
-        if let Some(ts) = msg.metadata.get(crate::bus::meta::TS).and_then(|v| v.as_str()) {
+        if let Some(ts) = msg
+            .metadata
+            .get(crate::bus::meta::TS)
+            .and_then(|v| v.as_str())
+        {
             let client = self.client.clone();
             let token = self.config.bot_token.clone();
             let channel = msg.chat_id.clone();
@@ -951,7 +962,9 @@ impl BaseChannel for SlackChannel {
         params.insert("channel", Value::String(msg.chat_id.clone()));
         params.insert("text", Value::String(content));
         params.insert("mrkdwn", Value::Bool(true));
-        let response = self.send_slack_api_with_retry("chat.postMessage", &params).await?;
+        let response = self
+            .send_slack_api_with_retry("chat.postMessage", &params)
+            .await?;
         Ok(response
             .get("ts")
             .and_then(Value::as_str)
@@ -964,7 +977,8 @@ impl BaseChannel for SlackChannel {
         params.insert("channel", Value::String(chat_id.to_string()));
         params.insert("ts", Value::String(message_id.to_string()));
         params.insert("text", Value::String(content));
-        self.send_slack_api_with_retry("chat.update", &params).await?;
+        self.send_slack_api_with_retry("chat.update", &params)
+            .await?;
         Ok(())
     }
 
@@ -1187,9 +1201,7 @@ async fn handle_interactive_payload(
         return Ok(());
     };
 
-    let action_id = first_action["action_id"]
-        .as_str()
-        .unwrap_or_default();
+    let action_id = first_action["action_id"].as_str().unwrap_or_default();
     let user_id = payload["user"]["id"].as_str().unwrap_or_default();
     let channel_id = payload["channel"]["id"].as_str().unwrap_or_default();
     let message_ts = payload["message"]["ts"].as_str().unwrap_or_default();
@@ -1225,11 +1237,15 @@ async fn handle_interactive_payload(
 
     let content = format!("[button:{action_id}]");
     let is_group = !is_dm;
-    let mut builder =
-        InboundMessage::builder("slack", user_id.to_string(), channel_id.to_string(), content)
-            .meta("user_id", Value::String(user_id.to_string()))
-            .meta("action_id", Value::String(action_id.to_string()))
-            .is_group(is_group);
+    let mut builder = InboundMessage::builder(
+        "slack",
+        user_id.to_string(),
+        channel_id.to_string(),
+        content,
+    )
+    .meta("user_id", Value::String(user_id.to_string()))
+    .meta("action_id", Value::String(action_id.to_string()))
+    .is_group(is_group);
     if !message_ts.is_empty() {
         builder = builder.meta(crate::bus::meta::TS, Value::String(message_ts.to_string()));
     }
@@ -1240,9 +1256,7 @@ async fn handle_interactive_payload(
         .await
         .map_err(|e| anyhow::anyhow!("Send error: {e}"))?;
 
-    info!(
-        "slack: button click action_id={action_id} from user={user_id} in channel={channel_id}"
-    );
+    info!("slack: button click action_id={action_id} from user={user_id} in channel={channel_id}");
     Ok(())
 }
 

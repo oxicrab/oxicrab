@@ -286,7 +286,7 @@ impl Tool for CronTool {
     }
 
     fn description(&self) -> &'static str {
-        "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, remove, run, dlq_list, dlq_replay, dlq_clear."
+        "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, remove, run, dlq_list, dlq_replay, dlq_clear. Tip: after listing jobs, use add_buttons to offer Pause or Remove actions."
     }
 
     fn capabilities(&self) -> ToolCapabilities {

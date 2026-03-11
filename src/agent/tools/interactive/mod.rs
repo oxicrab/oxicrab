@@ -33,11 +33,11 @@ impl AddButtonsTool {
 
 #[async_trait]
 impl Tool for AddButtonsTool {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "add_buttons"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Attach interactive buttons to your next response message. Users can click these buttons \
          to trigger actions. Each button has an id (returned as [button:id] when clicked), \
          a label (displayed text), and an optional style (primary, danger, success, secondary)."
@@ -102,6 +102,19 @@ impl Tool for AddButtonsTool {
             let id = b["id"]
                 .as_str()
                 .ok_or_else(|| anyhow::anyhow!("each button must have an 'id' string"))?;
+            // Validate ID: must be non-empty, max 64 chars, alphanumeric/hyphen/underscore only.
+            // IDs become [button:{id}] in inbound messages — unsafe chars could inject content.
+            if id.is_empty() || id.len() > 64 {
+                return Ok(ToolResult::error("button id must be 1-64 characters"));
+            }
+            if !id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            {
+                return Ok(ToolResult::error(
+                    "button id must contain only alphanumeric characters, hyphens, or underscores",
+                ));
+            }
             let label = b["label"].as_str().unwrap_or(id);
             let style = b["style"].as_str().unwrap_or("secondary");
             specs.push(ButtonSpec {
@@ -111,7 +124,10 @@ impl Tool for AddButtonsTool {
             });
         }
 
-        *self.pending.lock().unwrap_or_else(|e| e.into_inner()) = Some(specs);
+        *self
+            .pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(specs);
 
         Ok(ToolResult::new(
             "Buttons will be attached to your next response message.",
@@ -184,6 +200,42 @@ mod tests {
                 {"id": "6", "label": "6"},
             ]
         });
+        let ctx = ExecutionContext::default();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(tool.execute(params, &ctx)).unwrap();
+        assert!(result.is_error);
+    }
+
+    #[test]
+    fn test_add_buttons_invalid_id_rejected() {
+        let pending = new_pending_buttons();
+        let tool = AddButtonsTool::new(pending);
+        let ctx = ExecutionContext::default();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        // Control characters in ID
+        let params = serde_json::json!({"buttons": [{"id": "ok\ninjected", "label": "OK"}]});
+        let result = rt.block_on(tool.execute(params, &ctx)).unwrap();
+        assert!(result.is_error);
+
+        // Spaces in ID
+        let params = serde_json::json!({"buttons": [{"id": "has space", "label": "X"}]});
+        let result = rt.block_on(tool.execute(params, &ctx)).unwrap();
+        assert!(result.is_error);
+
+        // Valid ID with hyphens/underscores
+        let pending2 = new_pending_buttons();
+        let tool2 = AddButtonsTool::new(pending2);
+        let params = serde_json::json!({"buttons": [{"id": "confirm-yes_1", "label": "OK"}]});
+        let result = rt.block_on(tool2.execute(params, &ctx)).unwrap();
+        assert!(!result.is_error);
+    }
+
+    #[test]
+    fn test_add_buttons_empty_id_rejected() {
+        let pending = new_pending_buttons();
+        let tool = AddButtonsTool::new(pending);
+        let params = serde_json::json!({"buttons": [{"id": "", "label": "Empty"}]});
         let ctx = ExecutionContext::default();
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(tool.execute(params, &ctx)).unwrap();

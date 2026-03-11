@@ -276,3 +276,315 @@ fn test_every_seconds_rejects_over_one_year() {
     let result = CronTool::parse_schedule(&json!({"every_seconds": 31_536_000}));
     assert!(result.is_ok());
 }
+
+// --- Self-scheduling guard tests ---
+
+#[tokio::test]
+async fn test_cron_self_scheduling_guard_blocks_add() {
+    let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"));
+    let cron_service = Arc::new(CronService::new(db));
+    let tool = CronTool::new(cron_service, Some(make_test_channels_config()), None);
+
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert(
+        crate::bus::meta::IS_CRON_JOB.to_string(),
+        serde_json::Value::Bool(true),
+    );
+    let ctx = ExecutionContext {
+        channel: "slack".to_string(),
+        chat_id: "U123".to_string(),
+        metadata,
+        ..Default::default()
+    };
+
+    let params = json!({
+        "action": "add",
+        "message": "schedule another job",
+        "every_seconds": 300
+    });
+    let result = tool.execute(params, &ctx).await.unwrap();
+    assert!(
+        result.is_error,
+        "cron add should be blocked during cron execution"
+    );
+    assert!(result.content.contains("cannot schedule"));
+}
+
+#[tokio::test]
+async fn test_cron_self_scheduling_guard_allows_list() {
+    let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"));
+    let cron_service = Arc::new(CronService::new(db));
+    let tool = CronTool::new(cron_service, Some(make_test_channels_config()), None);
+
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert(
+        crate::bus::meta::IS_CRON_JOB.to_string(),
+        serde_json::Value::Bool(true),
+    );
+    let ctx = ExecutionContext {
+        channel: "slack".to_string(),
+        chat_id: "U123".to_string(),
+        metadata,
+        ..Default::default()
+    };
+
+    // list should still work during cron execution (it's read-only)
+    let params = json!({"action": "list"});
+    let result = tool.execute(params, &ctx).await.unwrap();
+    assert!(
+        !result.is_error,
+        "cron list should be allowed during cron execution"
+    );
+}
+
+// --- Add action validation tests ---
+
+#[tokio::test]
+async fn test_cron_add_requires_message() {
+    let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"));
+    let cron_service = Arc::new(CronService::new(db));
+    let tool = CronTool::new(cron_service, Some(make_test_channels_config()), None);
+    let ctx = ExecutionContext {
+        channel: "slack".to_string(),
+        chat_id: "U123".to_string(),
+        ..Default::default()
+    };
+
+    let params = json!({"action": "add", "every_seconds": 300});
+    let result = tool.execute(params, &ctx).await;
+    // Should error (missing message param)
+    assert!(result.is_err() || result.as_ref().unwrap().is_error);
+}
+
+#[tokio::test]
+async fn test_cron_add_rejects_empty_message() {
+    let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"));
+    let cron_service = Arc::new(CronService::new(db));
+    let tool = CronTool::new(cron_service, Some(make_test_channels_config()), None);
+    let ctx = ExecutionContext {
+        channel: "slack".to_string(),
+        chat_id: "U123".to_string(),
+        ..Default::default()
+    };
+
+    let params = json!({"action": "add", "message": "   ", "every_seconds": 300});
+    let result = tool.execute(params, &ctx).await.unwrap();
+    assert!(result.is_error);
+}
+
+#[tokio::test]
+async fn test_cron_add_rejects_invalid_type() {
+    let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"));
+    let cron_service = Arc::new(CronService::new(db));
+    let tool = CronTool::new(cron_service, Some(make_test_channels_config()), None);
+    let ctx = ExecutionContext {
+        channel: "slack".to_string(),
+        chat_id: "U123".to_string(),
+        ..Default::default()
+    };
+
+    let params = json!({"action": "add", "message": "test", "type": "bogus", "every_seconds": 300});
+    let result = tool.execute(params, &ctx).await.unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("invalid type"));
+}
+
+#[tokio::test]
+async fn test_cron_add_echo_type() {
+    let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"));
+    let cron_service = Arc::new(CronService::new(db));
+    let tool = CronTool::new(
+        cron_service.clone(),
+        Some(make_test_channels_config()),
+        None,
+    );
+    let ctx = ExecutionContext {
+        channel: "slack".to_string(),
+        chat_id: "U08G6HBC89X".to_string(),
+        ..Default::default()
+    };
+
+    let params = json!({
+        "action": "add",
+        "message": "Standup in 5 minutes!",
+        "type": "echo",
+        "delay_seconds": 300
+    });
+    let result = tool.execute(params, &ctx).await.unwrap();
+    assert!(
+        !result.is_error,
+        "echo type job should succeed: {}",
+        result.content
+    );
+    assert!(result.content.contains("Created job"));
+}
+
+#[tokio::test]
+async fn test_cron_add_and_list_and_remove() {
+    let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"));
+    let cron_service = Arc::new(CronService::new(db));
+    let tool = CronTool::new(
+        cron_service.clone(),
+        Some(make_test_channels_config()),
+        None,
+    );
+    let ctx = ExecutionContext {
+        channel: "slack".to_string(),
+        chat_id: "U08G6HBC89X".to_string(),
+        ..Default::default()
+    };
+
+    // Add a recurring job
+    let params = json!({
+        "action": "add",
+        "message": "Check email and summarize",
+        "every_seconds": 3600
+    });
+    let result = tool.execute(params, &ctx).await.unwrap();
+    assert!(!result.is_error, "add failed: {}", result.content);
+    // Extract job ID from "Created job '...' (id: XXXX, targets: ...)"
+    let id = result
+        .content
+        .split("id: ")
+        .nth(1)
+        .and_then(|s| s.split(',').next())
+        .unwrap();
+
+    // List should show the job
+    let list_params = json!({"action": "list"});
+    let list_result = tool.execute(list_params, &ctx).await.unwrap();
+    assert!(!list_result.is_error);
+    assert!(
+        list_result.content.contains(id),
+        "list should contain job id: {}",
+        list_result.content
+    );
+    assert!(list_result.content.contains("Check email"));
+
+    // Remove the job
+    let remove_params = json!({"action": "remove", "job_id": id});
+    let remove_result = tool.execute(remove_params, &ctx).await.unwrap();
+    assert!(!remove_result.is_error);
+    assert!(remove_result.content.contains("Removed"));
+
+    // List should be empty now
+    let list_result = tool.execute(json!({"action": "list"}), &ctx).await.unwrap();
+    assert!(list_result.content.contains("No scheduled jobs"));
+}
+
+#[tokio::test]
+async fn test_cron_remove_nonexistent_job() {
+    let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"));
+    let cron_service = Arc::new(CronService::new(db));
+    let tool = CronTool::new(cron_service, None, None);
+    let ctx = ExecutionContext {
+        channel: "slack".to_string(),
+        chat_id: "U123".to_string(),
+        ..Default::default()
+    };
+
+    let params = json!({"action": "remove", "job_id": "nonexistent"});
+    let result = tool.execute(params, &ctx).await.unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("not found"));
+}
+
+#[tokio::test]
+async fn test_cron_add_with_channels_all() {
+    let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"));
+    let cron_service = Arc::new(CronService::new(db));
+    let tool = CronTool::new(cron_service, Some(make_test_channels_config()), None);
+    let ctx = ExecutionContext {
+        channel: "slack".to_string(),
+        chat_id: "U08G6HBC89X".to_string(),
+        ..Default::default()
+    };
+
+    let params = json!({
+        "action": "add",
+        "message": "Good morning briefing",
+        "cron_expr": "0 9 * * *",
+        "channels": ["all"]
+    });
+    let result = tool.execute(params, &ctx).await.unwrap();
+    assert!(
+        !result.is_error,
+        "add with all channels failed: {}",
+        result.content
+    );
+    // Should target all 4 enabled channels
+    assert!(result.content.contains("slack"));
+    assert!(result.content.contains("discord"));
+    assert!(result.content.contains("telegram"));
+    assert!(result.content.contains("whatsapp"));
+}
+
+#[tokio::test]
+async fn test_cron_add_no_context_rejects() {
+    let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"));
+    let cron_service = Arc::new(CronService::new(db));
+    let tool = CronTool::new(cron_service, Some(make_test_channels_config()), None);
+    let ctx = ExecutionContext::default(); // empty channel/chat_id
+
+    let params = json!({
+        "action": "add",
+        "message": "test",
+        "every_seconds": 300
+    });
+    let result = tool.execute(params, &ctx).await.unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("no session context"));
+}
+
+// --- Schedule parsing edge cases ---
+
+#[test]
+fn test_parse_schedule_cron_expr() {
+    let params = json!({"cron_expr": "0 9 * * 1-5"});
+    let schedule = CronTool::parse_schedule(&params).unwrap();
+    match schedule {
+        CronSchedule::Cron { expr, .. } => {
+            assert_eq!(expr, Some("0 9 * * 1-5".to_string()));
+        }
+        other => panic!("expected Cron schedule, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_schedule_at_time() {
+    let params = json!({"at_time": "2099-01-15T09:00:00-05:00"});
+    let schedule = CronTool::parse_schedule(&params).unwrap();
+    match schedule {
+        CronSchedule::At { at_ms: Some(ms) } => {
+            assert!(ms > 0, "at_ms should be positive");
+        }
+        other => panic!("expected At schedule, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_schedule_no_schedule_rejects() {
+    let params = json!({"message": "test"});
+    let result = CronTool::parse_schedule(&params);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_parse_schedule_event_pattern() {
+    let params = json!({"event_pattern": "(?i)deploy.*prod"});
+    let schedule = CronTool::parse_schedule(&params).unwrap();
+    match schedule {
+        CronSchedule::Event { pattern, .. } => {
+            assert_eq!(pattern, Some("(?i)deploy.*prod".to_string()));
+        }
+        other => panic!("expected Event schedule, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_schedule_invalid_event_pattern() {
+    // Invalid regex should be rejected
+    let params = json!({"event_pattern": "[invalid"});
+    let result = CronTool::parse_schedule(&params);
+    assert!(result.is_err());
+}
