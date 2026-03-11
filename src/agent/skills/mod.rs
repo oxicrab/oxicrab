@@ -1,3 +1,5 @@
+pub mod scanner;
+
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -153,6 +155,31 @@ impl SkillsLoader {
         let mut parts = Vec::new();
         for name in skill_names {
             if let Some(content) = self.load_skill(name) {
+                // Security scan before injection into system prompt
+                let scan = scanner::scan_skill(&content);
+                if !scan.is_clean() {
+                    for finding in &scan.blocked {
+                        warn!(
+                            "skill '{}' blocked ({}:{}): {} at line {}",
+                            name,
+                            finding.category,
+                            finding.pattern_name,
+                            finding.matched_text,
+                            finding.line_number
+                        );
+                    }
+                    continue; // Skip blocked skills entirely
+                }
+                for finding in &scan.warnings {
+                    warn!(
+                        "skill '{}' warning ({}:{}): {} at line {}",
+                        name,
+                        finding.category,
+                        finding.pattern_name,
+                        finding.matched_text,
+                        finding.line_number
+                    );
+                }
                 let stripped = Self::strip_frontmatter(&content);
                 parts.push(format!("### Skill: {name}\n\n{stripped}"));
             }
