@@ -21,7 +21,7 @@ This is largely a personal toy with features I want or care about. For example, 
 - **27 built-in tools**: Filesystem, shell, web, HTTP, browser, image generation, Google Workspace, GitHub, scheduling, memory, media, and more
 - **MCP support**: Connect external tool servers via the Model Context Protocol
 - **Subagents**: Background task execution with concurrency limiting and context injection
-- **Cron scheduling**: Recurring jobs, one-shot timers, cron expressions, echo mode, multi-channel targeting
+- **Cron scheduling**: Recurring jobs, one-shot timers (absolute or relative delay), cron expressions, echo mode, multi-channel targeting
 - **Memory system**: SQLite-backed memory with FTS5 full-text search, optional hybrid vector+keyword search (local ONNX embeddings), configurable fusion strategy (weighted score or reciprocal rank fusion), automatic fact extraction, and quality gates
 - **Group chat isolation**: Personal memory automatically excluded from group chat contexts
 - **Session management**: Persistent sessions with automatic compaction and context summarization
@@ -36,7 +36,7 @@ This is largely a personal toy with features I want or care about. For example, 
 - **Tool output stash**: In-memory LRU cache for recovering large tool outputs after truncation
 - **JSON mode**: Per-request structured output (JSON object and JSON schema) across all providers
 - **PDF/document support**: Native PDF document support in Anthropic, OpenAI, and Gemini providers
-- **Security**: Default-deny allowlists, DM pairing, bidirectional leak detection (inbound + outbound), DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement
+- **Security**: Default-deny allowlists, DM pairing, bidirectional leak detection (inbound + outbound), DNS rebinding defense, kernel-level sandbox (Landlock/Seatbelt), shell AST analysis, prompt injection detection, capability-based filesystem confinement, skill file security scanning
 
 ## Installation
 

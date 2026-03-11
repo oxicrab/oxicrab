@@ -219,6 +219,7 @@ max_width: 820px
       <li><strong>cron_expr</strong> &mdash; Standard 5-field cron expression (e.g. <code>0 9 * * *</code>)</li>
       <li><strong>every_seconds</strong> &mdash; Run every N seconds</li>
       <li><strong>at_time</strong> &mdash; One-shot at an ISO 8601 datetime</li>
+      <li><strong>delay_seconds</strong> &mdash; One-shot relative delay (1s&ndash;1 year). Resolves to an absolute timestamp server-side, avoiding LLM timestamp miscalculation. Mutually exclusive with <code>at_time</code>.</li>
       <li><strong>event_pattern</strong> &mdash; Regex pattern that triggers the job when an inbound message matches. Additional params: <code>event_channel</code>, <code>cooldown_secs</code>, <code>max_concurrent</code>.</li>
     </ul>
 
@@ -645,7 +646,7 @@ max_width: 820px
 
   <div id="mcp" class="tool-section">
     <h2>MCP <span class="badge badge-ext">External</span></h2>
-    <p class="desc">Connect external tool servers via the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>. Tools are auto-discovered at startup from child processes and registered as native tools with full middleware pipeline support. MCP tools cannot shadow built-in tools (rejected if they share a name with a <code>built_in</code> tool) and are not available to subagents.</p>
+    <p class="desc">Connect external tool servers via the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>. Tools are auto-discovered at startup from child processes and registered as native tools with full middleware pipeline support. MCP tools cannot shadow built-in tools (rejected if they share a name with a <code>built_in</code> tool) and are not available to subagents. Null parameters are automatically stripped from tool calls before forwarding to MCP servers. Environment variable values containing CRLF characters are rejected at startup.</p>
 
     <h3>Configuration</h3>
     <pre><code>{
