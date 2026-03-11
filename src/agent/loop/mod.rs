@@ -24,8 +24,8 @@ use helpers::{
 };
 
 pub use config::{
-    AgentLoopConfig, AgentLoopResult, AgentLoopRuntimeParams, AgentRunOverrides, LifecycleConfig,
-    SafetyConfig, ToolConfigs,
+    AgentLoopConfig, AgentLoopResult, AgentLoopRuntimeParams, AgentRunOverrides, DirectResult,
+    LifecycleConfig, SafetyConfig, ToolConfigs,
 };
 
 #[cfg(test)]
@@ -116,6 +116,8 @@ pub struct AgentLoop {
     complexity_scorer: Option<complexity::ComplexityScorer>,
     /// Shared activation set for deferred tools discovered via `tool_search`
     tool_search_activated: Arc<tokio::sync::Mutex<HashSet<String>>>,
+    /// Shared state for interactive buttons (written by `add_buttons` tool, read after loop)
+    pending_buttons: crate::agent::tools::interactive::PendingButtons,
 }
 
 impl AgentLoop {
@@ -225,6 +227,8 @@ impl AgentLoop {
             Some(memory.db()),
         )));
 
+        let pending_buttons = crate::agent::tools::interactive::new_pending_buttons();
+
         let tool_ctx = ToolBuildContext {
             workspace: workspace.clone(),
             restrict_to_workspace: tool_configs.restrict_to_workspace,
@@ -273,6 +277,7 @@ impl AgentLoop {
             memory_db: Some(memory.db()),
             workspace_manager,
             workspace_ttl: tool_configs.workspace_ttl,
+            pending_buttons: pending_buttons.clone(),
         };
 
         let (tools, subagents, mcp_manager, tool_search_activated) =
@@ -395,6 +400,7 @@ impl AgentLoop {
             routing,
             complexity_scorer,
             tool_search_activated,
+            pending_buttons,
         })
     }
 

@@ -124,6 +124,14 @@ redact_debug!(
     dm_policy,
 );
 
+fn default_thinking_emoji() -> String {
+    "eyes".to_string()
+}
+
+fn default_done_emoji() -> String {
+    "white_check_mark".to_string()
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SlackConfig {
     #[serde(default)]
@@ -139,6 +147,12 @@ pub struct SlackConfig {
     pub allow_groups: Vec<String>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
     pub dm_policy: DmPolicy,
+    /// Emoji added when a message is received (default: "eyes")
+    #[serde(default = "default_thinking_emoji", rename = "thinkingEmoji")]
+    pub thinking_emoji: String,
+    /// Emoji added after response is sent (default: `white_check_mark`).
+    #[serde(default = "default_done_emoji", rename = "doneEmoji")]
+    pub done_emoji: String,
 }
 
 impl Default for SlackConfig {
@@ -150,6 +164,8 @@ impl Default for SlackConfig {
             allow_from: Vec::new(),
             allow_groups: Vec::new(),
             dm_policy: default_dm_policy(),
+            thinking_emoji: default_thinking_emoji(),
+            done_emoji: default_done_emoji(),
         }
     }
 }
@@ -162,6 +178,8 @@ redact_debug!(
     allow_from,
     allow_groups,
     dm_policy,
+    thinking_emoji,
+    done_emoji,
 );
 
 fn default_webhook_port() -> u16 {

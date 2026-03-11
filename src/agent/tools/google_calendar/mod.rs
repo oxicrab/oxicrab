@@ -29,7 +29,7 @@ impl Tool for GoogleCalendarTool {
     }
 
     fn description(&self) -> &'static str {
-        "Interact with Google Calendar. Actions: list_events, get_event, create_event, update_event, delete_event, list_calendars."
+        "Interact with Google Calendar. Actions: list_events, get_event, create_event, update_event, delete_event, list_calendars. Tip: after showing events, use add_buttons to offer Edit, Delete, or RSVP actions."
     }
 
     fn capabilities(&self) -> ToolCapabilities {

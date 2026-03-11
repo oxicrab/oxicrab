@@ -231,12 +231,21 @@ max_width: 820px
       "appToken": "xapp-1-A1234567890-1234567890123-abcdefghijklmnopqrstuvwxyz1234567890",
       "allowFrom": ["U01234567"],
       "allowGroups": [],
-      "dmPolicy": "allowlist"
+      "dmPolicy": "allowlist",
+      "thinkingEmoji": "eyes",
+      "doneEmoji": "white_check_mark"
     }
   }
 }</code></pre>
     </div>
     <div class="note"><strong>Note:</strong> The <code>appToken</code> must be a Socket Mode token (starts with <code>xapp-</code>), not a bot token. Socket Mode allows your app to receive events without exposing a public HTTP endpoint.</div>
+
+    <h3>Optional fields</h3>
+    <table class="cfg-table">
+      <tr><th>Field</th><th>Default</th><th>Description</th></tr>
+      <tr><td><code>thinkingEmoji</code></td><td>"eyes"</td><td>Reaction added when processing a message</td></tr>
+      <tr><td><code>doneEmoji</code></td><td>"white_check_mark"</td><td>Reaction added after responding (thinking emoji is removed)</td></tr>
+    </table>
 
     <h3>Supported features</h3>
     <div class="features-list">
@@ -247,9 +256,13 @@ max_width: 820px
       <span>Message editing</span>
       <span>Message deletion</span>
       <span>Emoji reactions</span>
+      <span>Reaction lifecycle</span>
+      <span>Block Kit buttons</span>
+      <span>Interactive payloads</span>
       <span>Markdown formatting</span>
       <span>Sender allowlist</span>
       <span>DM policy (pairing)</span>
+      <span>Error classification &amp; retry</span>
     </div>
   </div>
 

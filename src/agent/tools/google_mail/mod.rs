@@ -28,7 +28,7 @@ impl Tool for GoogleMailTool {
     }
 
     fn description(&self) -> &'static str {
-        "Interact with Gmail. Actions: search, read, send, reply, list_labels, label."
+        "Interact with Gmail. Actions: search, read, send, reply, list_labels, label. Tip: after reading an email, use add_buttons to offer Reply, Archive, or Label actions."
     }
 
     fn capabilities(&self) -> ToolCapabilities {

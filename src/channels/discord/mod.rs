@@ -495,39 +495,70 @@ fn parse_button_style(style: &str) -> ButtonStyle {
 fn parse_components_from_metadata(
     metadata: &HashMap<String, serde_json::Value>,
 ) -> Vec<CreateActionRow> {
-    let Some(comp_val) = metadata.get("discord_components") else {
+    // Prefer discord_components (legacy, backward-compatible)
+    if let Some(comp_val) = metadata.get("discord_components")
+        && let Some(rows_arr) = comp_val.as_array()
+    {
+        let rows: Vec<CreateActionRow> = rows_arr
+            .iter()
+            .filter_map(|row| {
+                let buttons = row["buttons"].as_array()?;
+                let btns: Vec<CreateButton> = buttons
+                    .iter()
+                    .filter_map(|b| {
+                        let custom_id = b["custom_id"].as_str()?;
+                        let label = b["label"].as_str().unwrap_or(custom_id);
+                        let style = parse_button_style(b["style"].as_str().unwrap_or("secondary"));
+                        let disabled = b["disabled"].as_bool().unwrap_or_default();
+                        Some(
+                            CreateButton::new(custom_id)
+                                .label(label)
+                                .style(style)
+                                .disabled(disabled),
+                        )
+                    })
+                    .collect();
+                if btns.is_empty() {
+                    None
+                } else {
+                    Some(CreateActionRow::Buttons(btns))
+                }
+            })
+            .collect();
+        if !rows.is_empty() {
+            return rows;
+        }
+    }
+
+    // Fallback: unified "buttons" format
+    parse_unified_buttons(metadata)
+}
+
+/// Convert unified `metadata["buttons"]` to Discord action rows.
+/// Format: `[{"id": "yes", "label": "Yes", "style": "primary"}, ...]`
+fn parse_unified_buttons(metadata: &HashMap<String, serde_json::Value>) -> Vec<CreateActionRow> {
+    let Some(buttons_val) = metadata.get(crate::bus::meta::BUTTONS) else {
         return Vec::new();
     };
-    let Some(rows_arr) = comp_val.as_array() else {
+    let Some(buttons_arr) = buttons_val.as_array() else {
         return Vec::new();
     };
 
-    rows_arr
+    let btns: Vec<CreateButton> = buttons_arr
         .iter()
-        .filter_map(|row| {
-            let buttons = row["buttons"].as_array()?;
-            let btns: Vec<CreateButton> = buttons
-                .iter()
-                .filter_map(|b| {
-                    let custom_id = b["custom_id"].as_str()?;
-                    let label = b["label"].as_str().unwrap_or(custom_id);
-                    let style = parse_button_style(b["style"].as_str().unwrap_or("secondary"));
-                    let disabled = b["disabled"].as_bool().unwrap_or_default();
-                    Some(
-                        CreateButton::new(custom_id)
-                            .label(label)
-                            .style(style)
-                            .disabled(disabled),
-                    )
-                })
-                .collect();
-            if btns.is_empty() {
-                None
-            } else {
-                Some(CreateActionRow::Buttons(btns))
-            }
+        .filter_map(|b| {
+            let id = b["id"].as_str()?;
+            let label = b["label"].as_str().unwrap_or(id);
+            let style = parse_button_style(b["style"].as_str().unwrap_or("secondary"));
+            Some(CreateButton::new(id).label(label).style(style))
         })
-        .collect()
+        .collect();
+
+    if btns.is_empty() {
+        Vec::new()
+    } else {
+        vec![CreateActionRow::Buttons(btns)]
+    }
 }
 
 /// Send a followup message via Discord's webhook API for deferred interactions
@@ -898,6 +929,86 @@ impl BaseChannel for DiscordChannel {
     }
 }
 
+/// Convert metadata components to Discord API component JSON format for webhooks.
+/// Checks `discord_components` first, then falls back to unified `buttons` key.
+fn components_to_api_json(
+    metadata: &HashMap<String, serde_json::Value>,
+) -> Option<serde_json::Value> {
+    // Try discord_components first (legacy format)
+    if let Some(raw_components) = metadata.get("discord_components")
+        && let Some(rows_arr) = raw_components.as_array()
+        && !rows_arr.is_empty()
+    {
+        let rows: Vec<serde_json::Value> = rows_arr
+            .iter()
+            .map(|row| {
+                let buttons = row["buttons"]
+                    .as_array()
+                    .unwrap_or(&Vec::new())
+                    .iter()
+                    .filter_map(|b| {
+                        let custom_id = b["custom_id"].as_str()?;
+                        let label = b["label"].as_str().unwrap_or(custom_id);
+                        let style = match b["style"].as_str().unwrap_or("secondary") {
+                            "primary" => 1,
+                            "success" => 3,
+                            "danger" => 4,
+                            _ => 2,
+                        };
+                        let disabled = b["disabled"].as_bool().unwrap_or_default();
+                        Some(serde_json::json!({
+                            "type": 2,
+                            "custom_id": custom_id,
+                            "label": label,
+                            "style": style,
+                            "disabled": disabled
+                        }))
+                    })
+                    .collect::<Vec<_>>();
+                serde_json::json!({
+                    "type": 1,
+                    "components": buttons
+                })
+            })
+            .collect();
+        return Some(serde_json::json!(rows));
+    }
+
+    // Fallback: unified "buttons" format
+    if let Some(buttons_val) = metadata.get(crate::bus::meta::BUTTONS)
+        && let Some(buttons_arr) = buttons_val.as_array()
+        && !buttons_arr.is_empty()
+    {
+        let btns: Vec<serde_json::Value> = buttons_arr
+            .iter()
+            .filter_map(|b| {
+                let id = b["id"].as_str()?;
+                let label = b["label"].as_str().unwrap_or(id);
+                let style = match b["style"].as_str().unwrap_or("secondary") {
+                    "primary" => 1,
+                    "success" => 3,
+                    "danger" => 4,
+                    _ => 2,
+                };
+                Some(serde_json::json!({
+                    "type": 2,
+                    "custom_id": id,
+                    "label": label,
+                    "style": style
+                }))
+            })
+            .collect();
+        if !btns.is_empty() {
+            return Some(serde_json::json!([{
+                "type": 1,
+                "components": btns
+            }]));
+        }
+    }
+
+    None
+}
+
 impl DiscordChannel {
     async fn send_interaction_followup(
         &self,
@@ -908,6 +1019,7 @@ impl DiscordChannel {
         let chunks = split_message(&msg.content, 2000);
         let embeds = parse_embeds_from_metadata(&msg.metadata);
         let components = parse_components_from_metadata(&msg.metadata);
+        let api_components = components_to_api_json(&msg.metadata);
 
         // Send media as separate followups
         for path in &msg.media {
@@ -937,44 +1049,9 @@ impl DiscordChannel {
                     payload["embeds"] = raw_embeds.clone();
                 }
                 if !components.is_empty()
-                    && let Some(raw_components) = msg.metadata.get("discord_components")
+                    && let Some(ref rows) = api_components
                 {
-                    // Convert to Discord API component format
-                    let rows: Vec<serde_json::Value> = raw_components
-                        .as_array()
-                        .unwrap_or(&Vec::new())
-                        .iter()
-                        .map(|row| {
-                            let buttons = row["buttons"]
-                                .as_array()
-                                .unwrap_or(&Vec::new())
-                                .iter()
-                                .filter_map(|b| {
-                                    let custom_id = b["custom_id"].as_str()?;
-                                    let label = b["label"].as_str().unwrap_or(custom_id);
-                                    let style = match b["style"].as_str().unwrap_or("secondary") {
-                                        "primary" => 1,
-                                        "success" => 3,
-                                        "danger" => 4,
-                                        _ => 2,
-                                    };
-                                    let disabled = b["disabled"].as_bool().unwrap_or_default();
-                                    Some(serde_json::json!({
-                                        "type": 2,
-                                        "custom_id": custom_id,
-                                        "label": label,
-                                        "style": style,
-                                        "disabled": disabled
-                                    }))
-                                })
-                                .collect::<Vec<_>>();
-                            serde_json::json!({
-                                "type": 1,
-                                "components": buttons
-                            })
-                        })
-                        .collect();
-                    payload["components"] = serde_json::json!(rows);
+                    payload["components"] = rows.clone();
                 }
             }
 
@@ -992,42 +1069,8 @@ impl DiscordChannel {
             if let Some(raw_embeds) = msg.metadata.get("discord_embeds") {
                 payload["embeds"] = raw_embeds.clone();
             }
-            if let Some(raw_components) = msg.metadata.get("discord_components") {
-                let rows: Vec<serde_json::Value> = raw_components
-                    .as_array()
-                    .unwrap_or(&Vec::new())
-                    .iter()
-                    .map(|row| {
-                        let buttons = row["buttons"]
-                            .as_array()
-                            .unwrap_or(&Vec::new())
-                            .iter()
-                            .filter_map(|b| {
-                                let custom_id = b["custom_id"].as_str()?;
-                                let label = b["label"].as_str().unwrap_or(custom_id);
-                                let style = match b["style"].as_str().unwrap_or("secondary") {
-                                    "primary" => 1,
-                                    "success" => 3,
-                                    "danger" => 4,
-                                    _ => 2,
-                                };
-                                let disabled = b["disabled"].as_bool().unwrap_or_default();
-                                Some(serde_json::json!({
-                                    "type": 2,
-                                    "custom_id": custom_id,
-                                    "label": label,
-                                    "style": style,
-                                    "disabled": disabled
-                                }))
-                            })
-                            .collect::<Vec<_>>();
-                        serde_json::json!({
-                            "type": 1,
-                            "components": buttons
-                        })
-                    })
-                    .collect();
-                payload["components"] = serde_json::json!(rows);
+            if let Some(ref rows) = api_components {
+                payload["components"] = rows.clone();
             }
             send_interaction_followup(&self.http_client, app_id, token, &payload).await?;
         }

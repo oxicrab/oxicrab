@@ -297,6 +297,7 @@ impl AgentLoop {
                     TextAction::Continue => {}
                     TextAction::Return => {
                         let content = strip_think_tags(&content);
+                        let response_metadata = self.take_pending_buttons_metadata();
                         return Ok(AgentLoopResult {
                             content: Some(content),
                             input_tokens: last_input_tokens,
@@ -304,6 +305,7 @@ impl AgentLoop {
                             media: collected_media,
                             reasoning_content: response.reasoning_content,
                             reasoning_signature: response.reasoning_signature,
+                            response_metadata,
                         });
                     }
                 }
@@ -326,6 +328,9 @@ impl AgentLoop {
             }
         }
 
+        // Collect pending buttons from the add_buttons tool (if any)
+        let response_metadata = self.take_pending_buttons_metadata();
+
         // If tools were called but the loop ended without final content,
         // make one more LLM call with no tools to force a text summary.
         if any_tools_called
@@ -346,6 +351,7 @@ impl AgentLoop {
                 media: collected_media,
                 reasoning_content: None,
                 reasoning_signature: None,
+                response_metadata: response_metadata.clone(),
             });
         }
 
@@ -356,6 +362,7 @@ impl AgentLoop {
             media: collected_media,
             reasoning_content: None,
             reasoning_signature: None,
+            response_metadata,
         })
     }
 
@@ -508,6 +515,36 @@ impl AgentLoop {
         if self.cognitive_config.enabled {
             *self.cognitive_breadcrumb.lock().await = Some(checkpoint_tracker.breadcrumb());
         }
+    }
+
+    /// Read and clear pending buttons from the shared `add_buttons` tool state.
+    /// Returns a metadata map with the `buttons` key if any were set.
+    fn take_pending_buttons_metadata(
+        &self,
+    ) -> std::collections::HashMap<String, serde_json::Value> {
+        let mut meta = std::collections::HashMap::new();
+        if let Some(specs) = self
+            .pending_buttons
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
+            let buttons_json: Vec<serde_json::Value> = specs
+                .into_iter()
+                .map(|b| {
+                    serde_json::json!({
+                        "id": b.id,
+                        "label": b.label,
+                        "style": b.style,
+                    })
+                })
+                .collect();
+            meta.insert(
+                crate::bus::meta::BUTTONS.to_string(),
+                serde_json::Value::Array(buttons_json),
+            );
+        }
+        meta
     }
 
     /// Post-loop LLM call with no tools to force a text summary when the loop

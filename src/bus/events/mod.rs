@@ -28,6 +28,9 @@ pub mod meta {
     pub const TOOLS_USED: &str = "tools_used";
     /// Whether this execution originates from a cron job (`bool`).
     pub const IS_CRON_JOB: &str = "is_cron_job";
+    /// Interactive buttons to attach to the outbound message (`array`).
+    /// Unified format: `[{"id": "...", "label": "...", "style": "primary|danger|success|secondary"}]`
+    pub const BUTTONS: &str = "buttons";
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -178,6 +181,15 @@ impl OutboundMessageBuilder {
     /// Replace the entire metadata map.
     pub fn metadata(mut self, map: HashMap<String, serde_json::Value>) -> Self {
         self.inner.metadata = map;
+        self
+    }
+
+    /// Merge keys from a `HashMap` without replacing existing keys.
+    /// Inbound metadata (e.g. `ts`, `is_group`) takes precedence.
+    pub fn merge_metadata(mut self, extra: HashMap<String, serde_json::Value>) -> Self {
+        for (k, v) in extra {
+            self.inner.metadata.entry(k).or_insert(v);
+        }
         self
     }
 

@@ -120,3 +120,54 @@ fn test_outbound_builder_defaults() {
     assert!(msg.media.is_empty());
     assert!(msg.metadata.is_empty());
 }
+
+#[test]
+fn test_merge_metadata_adds_missing_keys() {
+    let mut extra = HashMap::new();
+    extra.insert(
+        meta::BUTTONS.to_string(),
+        serde_json::json!([{"id": "ok", "label": "OK"}]),
+    );
+    extra.insert(
+        meta::TOOLS_USED.to_string(),
+        serde_json::json!(["cron", "todoist"]),
+    );
+
+    let msg = OutboundMessage::builder("slack", "C123", "response")
+        .merge_metadata(extra)
+        .build();
+    assert!(msg.metadata.contains_key(meta::BUTTONS));
+    assert!(msg.metadata.contains_key(meta::TOOLS_USED));
+}
+
+#[test]
+fn test_merge_metadata_preserves_existing_keys() {
+    let mut extra = HashMap::new();
+    extra.insert(meta::TS.to_string(), serde_json::json!("overwritten"));
+    extra.insert(
+        meta::BUTTONS.to_string(),
+        serde_json::json!([{"id": "new", "label": "New"}]),
+    );
+
+    // Inbound TS metadata should NOT be overwritten by merge
+    let inbound = InboundMessage::builder("slack", "u1", "C123", "msg")
+        .meta(meta::TS, serde_json::json!("original"))
+        .build();
+    let msg = OutboundMessage::from_inbound(inbound, "reply")
+        .merge_metadata(extra)
+        .build();
+    // TS should keep the original value (from inbound)
+    assert_eq!(msg.metadata[meta::TS], serde_json::json!("original"));
+    // BUTTONS should be added (new key)
+    assert!(msg.metadata.contains_key(meta::BUTTONS));
+}
+
+#[test]
+fn test_merge_metadata_empty_is_noop() {
+    let msg = OutboundMessage::builder("slack", "C123", "text")
+        .meta(meta::TS, serde_json::json!("123"))
+        .merge_metadata(HashMap::new())
+        .build();
+    assert_eq!(msg.metadata.len(), 1);
+    assert_eq!(msg.metadata[meta::TS], serde_json::json!("123"));
+}

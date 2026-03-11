@@ -465,7 +465,7 @@ impl Tool for TodoistTool {
     }
 
     fn description(&self) -> &'static str {
-        "Manage Todoist tasks and projects. Actions: list_tasks, get_task, create_task, update_task, complete_task, delete_task, add_comment, list_comments, list_projects."
+        "Manage Todoist tasks and projects. Actions: list_tasks, get_task, create_task, update_task, complete_task, delete_task, add_comment, list_comments, list_projects. Tip: after listing or showing tasks, use add_buttons to offer quick actions like Complete, Snooze, or Delete."
     }
 
     fn capabilities(&self) -> ToolCapabilities {

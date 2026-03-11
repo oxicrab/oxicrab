@@ -61,6 +61,19 @@ pub struct AgentLoopResult {
     pub reasoning_content: Option<String>,
     /// Reasoning signature for verifying reasoning block continuity.
     pub reasoning_signature: Option<String>,
+    /// Extra metadata to merge into the outbound message (e.g. interactive buttons).
+    pub response_metadata: std::collections::HashMap<String, serde_json::Value>,
+}
+
+/// Result of a direct (non-channel) agent invocation.
+///
+/// Wraps the response text with metadata so callers like cron can
+/// forward interactive buttons and other structured data to channels.
+pub struct DirectResult {
+    /// Agent response text.
+    pub content: String,
+    /// Extra metadata (e.g. interactive buttons) to merge into outbound messages.
+    pub metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
 /// Lifecycle-related configuration (TTLs, intervals).

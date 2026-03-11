@@ -86,7 +86,9 @@
       "appToken": "xapp-your-slack-app-token",
       "allowFrom": [],
       "dmPolicy": "allowlist",
-      "allowGroups": []
+      "allowGroups": [],
+      "thinkingEmoji": "eyes",
+      "doneEmoji": "white_check_mark"
     },
     "whatsapp": {
       "enabled": false,

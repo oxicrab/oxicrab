@@ -27,7 +27,7 @@ impl Tool for GoogleTasksTool {
     }
 
     fn description(&self) -> &'static str {
-        "Interact with Google Tasks. Actions: list_task_lists, list_tasks, get_task, create_task, update_task, delete_task."
+        "Interact with Google Tasks. Actions: list_task_lists, list_tasks, get_task, create_task, update_task, delete_task. Tip: after listing tasks, use add_buttons to offer Complete or Delete actions."
     }
 
     fn capabilities(&self) -> ToolCapabilities {

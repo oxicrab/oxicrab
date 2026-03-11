@@ -19,6 +19,62 @@ const MAX_USER_CACHE: usize = 1000;
 const MAX_IMAGE_DOWNLOAD: usize = 20 * 1024 * 1024; // 20 MB
 const MAX_AUDIO_DOWNLOAD: usize = 50 * 1024 * 1024; // 50 MB
 
+/// Subtypes to ignore when processing Slack message events.
+/// Unknown subtypes are allowed through (safe default = process).
+const IGNORED_SUBTYPES: &[&str] = &[
+    "bot_message",
+    "message_changed",
+    "message_deleted",
+    "channel_join",
+    "channel_leave",
+    "channel_topic",
+    "channel_purpose",
+    "channel_name",
+    "channel_archive",
+    "channel_unarchive",
+    "group_join",
+    "group_leave",
+    "ekm_access_denied",
+    "me_message",
+];
+
+/// Classified Slack API errors for structured handling.
+#[derive(Debug)]
+enum SlackApiError {
+    RateLimited { retry_after_secs: u32 },
+    InvalidAuth,
+    MissingScope(String),
+    ChannelNotFound,
+    ServerError(u16),
+    Other(String),
+}
+
+fn classify_slack_error(http_status: u16, error_field: Option<&str>) -> SlackApiError {
+    if http_status == 429 {
+        return SlackApiError::RateLimited {
+            retry_after_secs: 1,
+        };
+    }
+    if http_status >= 500 {
+        return SlackApiError::ServerError(http_status);
+    }
+    match error_field {
+        Some("invalid_auth" | "account_inactive" | "token_revoked") => SlackApiError::InvalidAuth,
+        Some(e) if e.starts_with("missing_scope") => SlackApiError::MissingScope(e.to_string()),
+        Some("channel_not_found") => SlackApiError::ChannelNotFound,
+        Some("ratelimited") => SlackApiError::RateLimited {
+            retry_after_secs: 1,
+        },
+        Some(e) => SlackApiError::Other(e.to_string()),
+        None if http_status >= 400 => SlackApiError::Other(format!("HTTP {http_status}")),
+        None => SlackApiError::Other("unknown".to_string()),
+    }
+}
+
+fn is_retryable(err: &SlackApiError) -> bool {
+    matches!(err, SlackApiError::ServerError(status) if *status >= 500)
+}
+
 pub struct SlackChannel {
     config: SlackConfig,
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
@@ -299,6 +355,123 @@ impl SlackChannel {
         }
         Ok(json)
     }
+
+    /// Send a JSON-body Slack API request (needed for Block Kit `blocks` payloads).
+    async fn send_slack_api_json(&self, method: &str, body: &Value) -> Result<Value> {
+        let url = format!("https://slack.com/api/{method}");
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.config.bot_token))
+            .header("Content-Type", "application/json; charset=utf-8")
+            .json(body)
+            .send()
+            .await?;
+
+        let json: Value = response.json().await?;
+        if json.get("ok").and_then(Value::as_bool) != Some(true) {
+            let error = json
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            return Err(anyhow::anyhow!("Slack API error: {error}"));
+        }
+        Ok(json)
+    }
+
+    /// Retry wrapper for Slack API calls. Retries up to 3 times for transient
+    /// (5xx) errors. Rate limits (429) log a warning but don't retry. Auth
+    /// errors fail immediately.
+    async fn send_slack_api_with_retry(
+        &self,
+        method: &str,
+        params: &HashMap<&str, Value>,
+    ) -> Result<Value> {
+        let mut last_err = None;
+        for attempt in 0..3u32 {
+            match self.send_slack_api(method, params).await {
+                Ok(json) => return Ok(json),
+                Err(e) => {
+                    let err_str = e.to_string();
+                    // Parse the error to determine retryability
+                    let http_status = if err_str.contains("HTTP 5") {
+                        500u16
+                    } else {
+                        0
+                    };
+                    let classified = classify_slack_error(
+                        http_status,
+                        err_str.strip_prefix("Slack API error: "),
+                    );
+                    if !is_retryable(&classified) {
+                        match &classified {
+                            SlackApiError::RateLimited { retry_after_secs } => {
+                                warn!(
+                                    "slack: rate limited on {method}, retry after {retry_after_secs}s"
+                                );
+                            }
+                            SlackApiError::InvalidAuth => {
+                                error!("slack: invalid auth for {method}");
+                            }
+                            SlackApiError::MissingScope(scope) => {
+                                error!("slack: missing scope for {method}: {scope}");
+                            }
+                            SlackApiError::ChannelNotFound => {
+                                warn!("slack: channel not found for {method}");
+                            }
+                            SlackApiError::Other(msg) => {
+                                warn!("slack: API error on {method}: {msg}");
+                            }
+                            SlackApiError::ServerError(_) => {} // handled by retry
+                        }
+                        return Err(e);
+                    }
+                    let delay = 1u64 << attempt;
+                    warn!(
+                        "slack: transient error on {method} (attempt {}): {err_str}, retrying in {delay}s",
+                        attempt + 1
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                    last_err = Some(e);
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("Slack API retry exhausted")))
+    }
+
+    /// Retry wrapper for JSON-body Slack API calls.
+    async fn send_slack_api_json_with_retry(&self, method: &str, body: &Value) -> Result<Value> {
+        let mut last_err = None;
+        for attempt in 0..3u32 {
+            match self.send_slack_api_json(method, body).await {
+                Ok(json) => return Ok(json),
+                Err(e) => {
+                    let err_str = e.to_string();
+                    let http_status = if err_str.contains("HTTP 5") {
+                        500u16
+                    } else {
+                        0
+                    };
+                    let classified = classify_slack_error(
+                        http_status,
+                        err_str.strip_prefix("Slack API error: "),
+                    );
+                    if !is_retryable(&classified) {
+                        return Err(e);
+                    }
+                    let delay = 1u64 << attempt;
+                    warn!(
+                        "slack: transient error on {method} (attempt {}): {err_str}, retrying in {delay}s",
+                        attempt + 1
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                    last_err = Some(e);
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("Slack API retry exhausted")))
+    }
 }
 
 #[async_trait]
@@ -383,6 +556,7 @@ impl BaseChannel for SlackChannel {
         let user_cache = self.user_cache.clone();
         let ws_client = self.client.clone();
         let running = self.running.clone();
+        let thinking_emoji = self.config.thinking_emoji.clone();
 
         let ws_task = tokio::spawn(async move {
             use futures_util::StreamExt;
@@ -518,9 +692,10 @@ impl BaseChannel for SlackChannel {
                                             continue;
                                         }
 
-                                        // Acknowledge events_api messages via WebSocket
+                                        // Acknowledge events_api and interactive messages via WebSocket
                                         // Slack Socket Mode requires acknowledgments to be sent back through the WebSocket
-                                        if event_type == "events_api"
+                                        if (event_type == "events_api"
+                                            || event_type == "interactive")
                                             && let Some(envelope_id) = event.get("envelope_id")
                                         {
                                             let envelope_id_str =
@@ -541,6 +716,26 @@ impl BaseChannel for SlackChannel {
                                                     e
                                                 );
                                             }
+                                        }
+
+                                        // Handle interactive payloads (button clicks)
+                                        if event_type == "interactive"
+                                            && let Some(payload) = event.get("payload")
+                                            && let Err(e) = handle_interactive_payload(
+                                                payload,
+                                                &inbound_tx,
+                                                &config_allow,
+                                                &config_allow_groups,
+                                                &dm_policy,
+                                                &bot_token,
+                                                &ws_client,
+                                            )
+                                            .await
+                                        {
+                                            error!(
+                                                "Error handling Slack interactive payload: {}",
+                                                e
+                                            );
                                         }
 
                                         // Process the event
@@ -567,6 +762,7 @@ impl BaseChannel for SlackChannel {
                                                         &dm_policy,
                                                         &bot_token,
                                                         &ws_client,
+                                                        &thinking_emoji,
                                                     )
                                                     .await
                                                     {
@@ -661,6 +857,7 @@ impl BaseChannel for SlackChannel {
         }
 
         let content = Self::format_for_slack(&msg.content);
+        let buttons = convert_buttons_to_blocks(&msg.metadata);
 
         // Split long messages (Slack limit is ~40k but 4000 is more readable)
         // Thread replies: use reply_to or inbound ts metadata for threading
@@ -669,19 +866,88 @@ impl BaseChannel for SlackChannel {
                 .get(crate::bus::meta::TS)
                 .and_then(|v| v.as_str())
         });
-        for chunk in split_message(&content, 4000) {
-            let mut params = HashMap::new();
-            params.insert("channel", Value::String(msg.chat_id.clone()));
-            params.insert("text", Value::String(chunk));
-            params.insert("mrkdwn", Value::Bool(true));
-            if let Some(ts) = thread_ts {
-                params.insert("thread_ts", Value::String(ts.to_string()));
-            }
+        let chunks = split_message(&content, 4000);
+        let chunk_count = chunks.len();
+        for (i, chunk) in chunks.iter().enumerate() {
+            let is_last = i == chunk_count - 1;
 
-            if let Err(e) = self.send_slack_api("chat.postMessage", &params).await {
-                error!("Error sending Slack message: {}", e);
-                return Err(anyhow::anyhow!("Slack send error: {e}"));
+            // Attach buttons (Block Kit) to the last chunk via JSON body
+            if is_last && !buttons.is_empty() {
+                let mut body = serde_json::json!({
+                    "channel": msg.chat_id,
+                    "text": chunk,
+                    "mrkdwn": true,
+                    "blocks": [
+                        {"type": "section", "text": {"type": "mrkdwn", "text": chunk}},
+                    ],
+                });
+                // Append button action rows to blocks
+                let blocks = body["blocks"].as_array_mut().unwrap();
+                blocks.extend(buttons.clone());
+                if let Some(ts) = thread_ts {
+                    body["thread_ts"] = Value::String(ts.to_string());
+                }
+                if let Err(e) = self
+                    .send_slack_api_json_with_retry("chat.postMessage", &body)
+                    .await
+                {
+                    error!("Error sending Slack message with blocks: {}", e);
+                    return Err(anyhow::anyhow!("Slack send error: {e}"));
+                }
+            } else {
+                let mut params = HashMap::new();
+                params.insert("channel", Value::String(msg.chat_id.clone()));
+                params.insert("text", Value::String(chunk.clone()));
+                params.insert("mrkdwn", Value::Bool(true));
+                if let Some(ts) = thread_ts {
+                    params.insert("thread_ts", Value::String(ts.to_string()));
+                }
+                if let Err(e) = self
+                    .send_slack_api_with_retry("chat.postMessage", &params)
+                    .await
+                {
+                    error!("Error sending Slack message: {}", e);
+                    return Err(anyhow::anyhow!("Slack send error: {e}"));
+                }
             }
+        }
+
+        // Swap thinking → done reaction (fire-and-forget)
+        if let Some(ts) = msg
+            .metadata
+            .get(crate::bus::meta::TS)
+            .and_then(|v| v.as_str())
+        {
+            let client = self.client.clone();
+            let token = self.config.bot_token.clone();
+            let channel = msg.chat_id.clone();
+            let ts = ts.to_string();
+            let thinking = self.config.thinking_emoji.clone();
+            let done = self.config.done_emoji.clone();
+            tokio::spawn(async move {
+                // Remove thinking reaction
+                let _ = client
+                    .post("https://slack.com/api/reactions.remove")
+                    .form(&[
+                        ("token", token.as_str()),
+                        ("channel", channel.as_str()),
+                        ("timestamp", ts.as_str()),
+                        ("name", thinking.as_str()),
+                    ])
+                    .send()
+                    .await;
+                // Add done reaction
+                let _ = client
+                    .post("https://slack.com/api/reactions.add")
+                    .form(&[
+                        ("token", token.as_str()),
+                        ("channel", channel.as_str()),
+                        ("timestamp", ts.as_str()),
+                        ("name", done.as_str()),
+                    ])
+                    .send()
+                    .await;
+            });
         }
 
         Ok(())
@@ -696,7 +962,9 @@ impl BaseChannel for SlackChannel {
         params.insert("channel", Value::String(msg.chat_id.clone()));
         params.insert("text", Value::String(content));
         params.insert("mrkdwn", Value::Bool(true));
-        let response = self.send_slack_api("chat.postMessage", &params).await?;
+        let response = self
+            .send_slack_api_with_retry("chat.postMessage", &params)
+            .await?;
         Ok(response
             .get("ts")
             .and_then(Value::as_str)
@@ -709,7 +977,8 @@ impl BaseChannel for SlackChannel {
         params.insert("channel", Value::String(chat_id.to_string()));
         params.insert("ts", Value::String(message_id.to_string()));
         params.insert("text", Value::String(content));
-        self.send_slack_api("chat.update", &params).await?;
+        self.send_slack_api_with_retry("chat.update", &params)
+            .await?;
         Ok(())
     }
 
@@ -856,6 +1125,141 @@ fn resolve_slack_redirect(location: &str) -> String {
 /// Check if bytes start with known image magic bytes.
 use crate::utils::media::is_image_magic_bytes;
 
+/// Convert unified `metadata["buttons"]` to Slack Block Kit action blocks.
+///
+/// Input format: `[{"id": "yes", "label": "Yes", "style": "primary"}, ...]`
+/// Output: Vec of Block Kit action block JSON values.
+fn convert_buttons_to_blocks(metadata: &HashMap<String, Value>) -> Vec<Value> {
+    let Some(buttons_val) = metadata.get(crate::bus::meta::BUTTONS) else {
+        return Vec::new();
+    };
+    let Some(buttons_arr) = buttons_val.as_array() else {
+        return Vec::new();
+    };
+    if buttons_arr.is_empty() {
+        return Vec::new();
+    }
+
+    let elements: Vec<Value> = buttons_arr
+        .iter()
+        .filter_map(|b| {
+            let id = b["id"].as_str()?;
+            let label = b["label"].as_str().unwrap_or(id);
+            let mut btn = serde_json::json!({
+                "type": "button",
+                "text": {"type": "plain_text", "text": label},
+                "action_id": id,
+            });
+            // Slack only supports "primary" and "danger" styles
+            match b["style"].as_str() {
+                Some("primary") => {
+                    btn["style"] = Value::String("primary".to_string());
+                }
+                Some("danger") => {
+                    btn["style"] = Value::String("danger".to_string());
+                }
+                _ => {} // omit style for secondary/success/unknown
+            }
+            Some(btn)
+        })
+        .collect();
+
+    if elements.is_empty() {
+        return Vec::new();
+    }
+
+    vec![serde_json::json!({
+        "type": "actions",
+        "elements": elements,
+    })]
+}
+
+/// Handle a Slack interactive payload (button clicks via Socket Mode).
+///
+/// Parses `block_actions` payloads and creates an `InboundMessage` with
+/// `[button:{action_id}]` content, matching Discord's button click format.
+async fn handle_interactive_payload(
+    payload: &Value,
+    inbound_tx: &Arc<mpsc::Sender<InboundMessage>>,
+    allow_from: &[String],
+    allow_groups: &[String],
+    dm_policy: &crate::config::DmPolicy,
+    bot_token: &str,
+    client: &reqwest::Client,
+) -> Result<()> {
+    let payload_type = payload["type"].as_str().unwrap_or_default();
+    if payload_type != "block_actions" {
+        debug!("slack: ignoring interactive payload type: {payload_type}");
+        return Ok(());
+    }
+
+    let actions = payload["actions"].as_array();
+    let Some(actions) = actions else {
+        return Ok(());
+    };
+    let Some(first_action) = actions.first() else {
+        return Ok(());
+    };
+
+    let action_id = first_action["action_id"].as_str().unwrap_or_default();
+    let user_id = payload["user"]["id"].as_str().unwrap_or_default();
+    let channel_id = payload["channel"]["id"].as_str().unwrap_or_default();
+    let message_ts = payload["message"]["ts"].as_str().unwrap_or_default();
+
+    if action_id.is_empty() || user_id.is_empty() || channel_id.is_empty() {
+        return Ok(());
+    }
+
+    let is_dm = channel_id.starts_with('D');
+    // Access control: same checks as regular messages
+    if !is_dm && !check_group_access(channel_id, allow_groups) {
+        debug!("slack: ignoring button click from non-allowed channel {channel_id}");
+        return Ok(());
+    }
+    if is_dm {
+        match check_dm_access(user_id, allow_from, "slack", dm_policy) {
+            DmCheckResult::Allowed => {}
+            DmCheckResult::PairingRequired { code } => {
+                let reply = format_pairing_reply("slack", user_id, &code);
+                let _ = client
+                    .post("https://slack.com/api/chat.postMessage")
+                    .bearer_auth(bot_token)
+                    .form(&[("channel", channel_id), ("text", &reply)])
+                    .send()
+                    .await;
+                return Ok(());
+            }
+            DmCheckResult::Denied => {
+                return Ok(());
+            }
+        }
+    }
+
+    let content = format!("[button:{action_id}]");
+    let is_group = !is_dm;
+    let mut builder = InboundMessage::builder(
+        "slack",
+        user_id.to_string(),
+        channel_id.to_string(),
+        content,
+    )
+    .meta("user_id", Value::String(user_id.to_string()))
+    .meta("action_id", Value::String(action_id.to_string()))
+    .is_group(is_group);
+    if !message_ts.is_empty() {
+        builder = builder.meta(crate::bus::meta::TS, Value::String(message_ts.to_string()));
+    }
+    let inbound_msg = builder.build();
+
+    inbound_tx
+        .send(inbound_msg)
+        .await
+        .map_err(|e| anyhow::anyhow!("Send error: {e}"))?;
+
+    info!("slack: button click action_id={action_id} from user={user_id} in channel={channel_id}");
+    Ok(())
+}
+
 /// Standalone message handler that uses shared state instead of constructing a new `SlackChannel`.
 #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 async fn handle_slack_event(
@@ -870,10 +1274,11 @@ async fn handle_slack_event(
     dm_policy: &crate::config::DmPolicy,
     bot_token: &str,
     client: &reqwest::Client,
+    thinking_emoji: &str,
 ) -> Result<()> {
-    // Ignore bot messages and message_changed subtypes, but allow file_share
+    // Ignore well-known non-user subtypes. Unknown subtypes pass through (safe default).
     if let Some(subtype) = event.get("subtype").and_then(Value::as_str)
-        && subtype != "file_share"
+        && IGNORED_SUBTYPES.contains(&subtype)
     {
         return Ok(());
     }
@@ -1129,12 +1534,13 @@ async fn handle_slack_event(
         text
     };
 
-    // Add "eyes" reaction to acknowledge receipt (fire-and-forget)
+    // Add thinking reaction to acknowledge receipt (fire-and-forget)
     if let Some(ts) = event.get("ts").and_then(Value::as_str) {
         let react_client = client.clone();
         let react_token = bot_token.to_string();
         let react_channel = channel_id.to_string();
         let react_ts = ts.to_string();
+        let emoji = thinking_emoji.to_string();
         tokio::spawn(async move {
             let _ = react_client
                 .post("https://slack.com/api/reactions.add")
@@ -1142,7 +1548,7 @@ async fn handle_slack_event(
                     ("token", react_token.as_str()),
                     ("channel", react_channel.as_str()),
                     ("timestamp", react_ts.as_str()),
-                    ("name", "eyes"),
+                    ("name", emoji.as_str()),
                 ])
                 .send()
                 .await;

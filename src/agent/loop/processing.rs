@@ -418,6 +418,7 @@ impl AgentLoop {
             Ok(Some(
                 OutboundMessage::from_inbound(msg, content)
                     .media(loop_result.media)
+                    .merge_metadata(loop_result.response_metadata)
                     .build(),
             ))
         } else {
@@ -677,18 +678,23 @@ impl AgentLoop {
         channel: &str,
         chat_id: &str,
     ) -> Result<String> {
-        self.process_direct_with_overrides(
-            content,
-            session_key,
-            channel,
-            chat_id,
-            &AgentRunOverrides::default(),
-        )
-        .await
+        let result = self
+            .process_direct_with_overrides(
+                content,
+                session_key,
+                channel,
+                chat_id,
+                &AgentRunOverrides::default(),
+            )
+            .await?;
+        Ok(result.content)
     }
 
     /// Like [`process_direct`](Self::process_direct) but accepts per-invocation
     /// overrides for model and `max_iterations` (used by cron jobs).
+    ///
+    /// Returns a [`DirectResult`] with both the response text and any metadata
+    /// (e.g. interactive buttons) so callers can forward them to channels.
     pub async fn process_direct_with_overrides(
         &self,
         content: &str,
@@ -696,7 +702,7 @@ impl AgentLoop {
         channel: &str,
         chat_id: &str,
         overrides: &AgentRunOverrides,
-    ) -> Result<String> {
+    ) -> Result<super::config::DirectResult> {
         // Acquire per-channel/chat lock to prevent concurrent sends to the same destination.
         // Note: this locks on the output channel:chat_id pair, not the session key.
         let lock_key = format!("{channel}:{chat_id}");
@@ -730,10 +736,10 @@ impl AgentLoop {
                     );
                 }
                 if self.prompt_guard_config.should_block() {
-                    return Ok(
-                        "I can't process this message as it appears to contain prompt injection patterns."
-                            .to_string(),
-                    );
+                    return Ok(super::config::DirectResult {
+                        content: "I can't process this message as it appears to contain prompt injection patterns.".to_string(),
+                        metadata: HashMap::new(),
+                    });
                 }
             }
         }
@@ -817,6 +823,9 @@ impl AgentLoop {
         session.add_message("assistant".to_string(), response.clone(), assistant_extra);
         self.sessions.save(&session).await?;
 
-        Ok(response)
+        Ok(super::config::DirectResult {
+            content: response,
+            metadata: loop_result.response_metadata,
+        })
     }
 }
