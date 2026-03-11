@@ -10,6 +10,7 @@ pub mod google_mail;
 pub mod google_tasks;
 pub mod http;
 pub mod image_gen;
+pub mod interactive;
 pub mod mcp;
 pub mod media;
 pub mod memory_search;

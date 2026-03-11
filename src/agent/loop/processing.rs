@@ -418,6 +418,7 @@ impl AgentLoop {
             Ok(Some(
                 OutboundMessage::from_inbound(msg, content)
                     .media(loop_result.media)
+                    .merge_metadata(loop_result.response_metadata)
                     .build(),
             ))
         } else {

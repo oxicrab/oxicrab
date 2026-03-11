@@ -281,6 +281,7 @@
         <li><a href="#workspace">workspace</a></li>
         <li><a href="#stash_retrieve">stash_retrieve</a></li>
         <li><a href="#tool_search">tool_search</a></li>
+        <li><a href="#add_buttons">add_buttons</a></li>
       </ul>
     </div>
     <div class="toc-group">
@@ -534,6 +535,30 @@
       <thead><tr><th>Parameter</th><th>Description</th></tr></thead>
       <tbody>
         <tr><td>query</td><td>Keyword to search for among deferred tool names and descriptions.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div id="add_buttons" class="tool-section">
+    <h2>add_buttons <span class="badge badge-core">Core</span></h2>
+    <p class="desc">Attach interactive buttons to the next assistant response. Works on Slack (Block Kit) and Discord (action rows). Buttons appear below the message text. When a user clicks a button, the agent receives <code>[button:{id}]</code> as a new message.</p>
+
+    <h3>Parameters</h3>
+    <table class="action-table">
+      <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>buttons</td><td>array</td><td>Array of button objects (max 5). Each object: <code>id</code> (string, required), <code>label</code> (string, required), <code>style</code> (string, optional: "primary", "success", "danger", "secondary"; default "secondary").</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Style mapping</h3>
+    <table class="action-table">
+      <thead><tr><th>Style</th><th>Discord</th><th>Slack</th></tr></thead>
+      <tbody>
+        <tr><td>primary</td><td>Blurple (Primary)</td><td>Green (primary)</td></tr>
+        <tr><td>success</td><td>Green (Success)</td><td>Default (no style)</td></tr>
+        <tr><td>danger</td><td>Red (Danger)</td><td>Red (danger)</td></tr>
+        <tr><td>secondary</td><td>Grey (Secondary)</td><td>Default (no style)</td></tr>
       </tbody>
     </table>
   </div>

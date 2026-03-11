@@ -544,3 +544,180 @@ fn test_mention_regex_pattern() {
     assert!(re.is_match("<@U12345 >"));
     assert!(!re.is_match("<@U99999>"));
 }
+
+// --- classify_slack_error tests ---
+
+#[test]
+fn test_classify_slack_error_rate_limited_http() {
+    let err = classify_slack_error(429, None);
+    assert!(matches!(err, SlackApiError::RateLimited { .. }));
+}
+
+#[test]
+fn test_classify_slack_error_rate_limited_field() {
+    let err = classify_slack_error(200, Some("ratelimited"));
+    assert!(matches!(err, SlackApiError::RateLimited { .. }));
+}
+
+#[test]
+fn test_classify_slack_error_invalid_auth() {
+    for variant in &["invalid_auth", "account_inactive", "token_revoked"] {
+        let err = classify_slack_error(200, Some(variant));
+        assert!(
+            matches!(err, SlackApiError::InvalidAuth),
+            "expected InvalidAuth for {variant}"
+        );
+    }
+}
+
+#[test]
+fn test_classify_slack_error_missing_scope() {
+    let err = classify_slack_error(200, Some("missing_scope:chat:write"));
+    assert!(matches!(err, SlackApiError::MissingScope(_)));
+}
+
+#[test]
+fn test_classify_slack_error_channel_not_found() {
+    let err = classify_slack_error(200, Some("channel_not_found"));
+    assert!(matches!(err, SlackApiError::ChannelNotFound));
+}
+
+#[test]
+fn test_classify_slack_error_server_error() {
+    let err = classify_slack_error(502, None);
+    assert!(matches!(err, SlackApiError::ServerError(502)));
+}
+
+#[test]
+fn test_classify_slack_error_other() {
+    let err = classify_slack_error(200, Some("something_weird"));
+    assert!(matches!(err, SlackApiError::Other(_)));
+}
+
+// --- is_retryable tests ---
+
+#[test]
+fn test_is_retryable_server_error() {
+    assert!(is_retryable(&SlackApiError::ServerError(500)));
+    assert!(is_retryable(&SlackApiError::ServerError(503)));
+}
+
+#[test]
+fn test_is_retryable_non_retryable() {
+    assert!(!is_retryable(&SlackApiError::InvalidAuth));
+    assert!(!is_retryable(&SlackApiError::ChannelNotFound));
+    assert!(!is_retryable(&SlackApiError::RateLimited {
+        retry_after_secs: 1
+    }));
+    assert!(!is_retryable(&SlackApiError::Other("x".into())));
+}
+
+// --- IGNORED_SUBTYPES tests ---
+
+#[test]
+fn test_should_process_subtype_none() {
+    // No subtype = regular message, should process
+    assert!(!IGNORED_SUBTYPES.contains(&"message"));
+}
+
+#[test]
+fn test_should_process_subtype_file_share() {
+    // file_share should be processed (not in ignored list)
+    assert!(!IGNORED_SUBTYPES.contains(&"file_share"));
+}
+
+#[test]
+fn test_should_process_subtype_thread_broadcast() {
+    // thread_broadcast should be processed (not in ignored list)
+    assert!(!IGNORED_SUBTYPES.contains(&"thread_broadcast"));
+    assert!(!IGNORED_SUBTYPES.contains(&"reply_broadcast"));
+}
+
+#[test]
+fn test_should_ignore_bot_message() {
+    assert!(IGNORED_SUBTYPES.contains(&"bot_message"));
+}
+
+#[test]
+fn test_should_ignore_system_events() {
+    for subtype in &[
+        "message_changed",
+        "message_deleted",
+        "channel_join",
+        "channel_leave",
+        "me_message",
+    ] {
+        assert!(
+            IGNORED_SUBTYPES.contains(subtype),
+            "{subtype} should be ignored"
+        );
+    }
+}
+
+// --- convert_buttons_to_blocks tests ---
+
+#[test]
+fn test_convert_buttons_to_blocks_basic() {
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        crate::bus::meta::BUTTONS.to_string(),
+        serde_json::json!([
+            {"id": "yes", "label": "Yes", "style": "primary"},
+            {"id": "no", "label": "No", "style": "danger"}
+        ]),
+    );
+
+    let blocks = convert_buttons_to_blocks(&metadata);
+    assert_eq!(blocks.len(), 1); // one actions block
+    let elements = blocks[0]["elements"].as_array().unwrap();
+    assert_eq!(elements.len(), 2);
+    assert_eq!(elements[0]["action_id"], "yes");
+    assert_eq!(elements[0]["text"]["text"], "Yes");
+    assert_eq!(elements[0]["style"], "primary");
+    assert_eq!(elements[1]["action_id"], "no");
+    assert_eq!(elements[1]["style"], "danger");
+}
+
+#[test]
+fn test_convert_buttons_to_blocks_no_style() {
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        crate::bus::meta::BUTTONS.to_string(),
+        serde_json::json!([{"id": "ok", "label": "OK"}]),
+    );
+
+    let blocks = convert_buttons_to_blocks(&metadata);
+    assert_eq!(blocks.len(), 1);
+    let elements = blocks[0]["elements"].as_array().unwrap();
+    assert_eq!(elements[0]["action_id"], "ok");
+    // secondary/success styles are omitted (Slack only supports primary/danger)
+    assert!(elements[0].get("style").is_none() || elements[0]["style"].is_null());
+}
+
+#[test]
+fn test_convert_buttons_to_blocks_empty_metadata() {
+    let metadata = HashMap::new();
+    assert!(convert_buttons_to_blocks(&metadata).is_empty());
+}
+
+#[test]
+fn test_convert_buttons_to_blocks_empty_array() {
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        crate::bus::meta::BUTTONS.to_string(),
+        serde_json::json!([]),
+    );
+    assert!(convert_buttons_to_blocks(&metadata).is_empty());
+}
+
+// --- is_slack_domain tests ---
+
+#[test]
+fn test_is_slack_domain() {
+    assert!(is_slack_domain("https://files.slack.com/foo"));
+    assert!(is_slack_domain("https://slack.com/api/test"));
+    assert!(is_slack_domain("https://a.slack-edge.com/img.png"));
+    assert!(!is_slack_domain("https://evil-slack.com/foo"));
+    assert!(!is_slack_domain("https://attacker.com/slack.com"));
+    assert!(!is_slack_domain("not-a-url"));
+}

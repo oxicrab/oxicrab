@@ -39,6 +39,7 @@ pub struct ToolBuildContext {
     pub memory_db: Option<Arc<MemoryDB>>,
     pub workspace_manager: Option<Arc<crate::agent::workspace::WorkspaceManager>>,
     pub workspace_ttl: config::WorkspaceTtlConfig,
+    pub pending_buttons: crate::agent::tools::interactive::PendingButtons,
 }
 
 /// Register all tools into the registry using decentralized per-module `register()` functions.
@@ -75,6 +76,7 @@ pub async fn register_all_tools(
     register_reddit(&mut tools);
     register_memory_search(&mut tools, ctx);
     register_workspace(&mut tools, ctx);
+    register_interactive(&mut tools, ctx);
 
     // Slow async registrations — run in parallel
     let (google_tools, mcp_result) = tokio::join!(create_google_tools(ctx), create_mcp(ctx),);
@@ -394,6 +396,12 @@ fn register_reddit(registry: &mut ToolRegistry) {
     use crate::agent::tools::reddit::RedditTool;
 
     registry.register(Arc::new(RedditTool::new()));
+}
+
+fn register_interactive(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    use crate::agent::tools::interactive::AddButtonsTool;
+
+    registry.register(Arc::new(AddButtonsTool::new(ctx.pending_buttons.clone())));
 }
 
 fn register_memory_search(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {

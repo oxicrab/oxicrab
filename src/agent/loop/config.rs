@@ -61,6 +61,8 @@ pub struct AgentLoopResult {
     pub reasoning_content: Option<String>,
     /// Reasoning signature for verifying reasoning block continuity.
     pub reasoning_signature: Option<String>,
+    /// Extra metadata to merge into the outbound message (e.g. interactive buttons).
+    pub response_metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
 /// Lifecycle-related configuration (TTLs, intervals).
