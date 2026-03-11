@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.5] - 2026-03-11
+
+### Added
+- **skills:** add security scanner for skill files before injection ([ef48590](https://github.com/oxicrab/oxicrab/commit/ef48590d4ae225c32d4224b0d2833f2e989da499))
+- **cron:** add delay_seconds for relative one-shot scheduling ([faa2c2c](https://github.com/oxicrab/oxicrab/commit/faa2c2c20ee58ff64c4b3123f61e529492cb5cac))
+
+
+### CI/CD
+- bump docker/setup-buildx-action from 3 to 4 (#76) ([4debc80](https://github.com/oxicrab/oxicrab/commit/4debc80a3184b3c5c77c4bf0096afcb8dfd094cd))
+- bump docker/metadata-action from 5 to 6 (#77) ([c022d27](https://github.com/oxicrab/oxicrab/commit/c022d270d415f2af909357d903e4652265315559))
+- bump docker/build-push-action from 6 to 7 (#78) ([0b032f1](https://github.com/oxicrab/oxicrab/commit/0b032f1810cb2ef3cde55a4b49be9bbdab1cbdc0))
+- bump trufflesecurity/trufflehog from 3.88.26 to 3.93.7 (#79) ([ac95b5c](https://github.com/oxicrab/oxicrab/commit/ac95b5c870c646acea034d68b04777d56c990840))
+- bump docker/login-action from 3 to 4 (#80) ([4d16a08](https://github.com/oxicrab/oxicrab/commit/4d16a080db1ee431224f3f02b7bde939c8687109))
+
+
+### Dependencies
+- bump which from 8.0.0 to 8.0.1 (#81) ([77317e6](https://github.com/oxicrab/oxicrab/commit/77317e608bc47b8c856195e656d0ebfdca0b8a13))
+- bump tokio from 1.49.0 to 1.50.0 (#82) ([8eabf09](https://github.com/oxicrab/oxicrab/commit/8eabf096da96cf932b455633092fabcb0264e0b1))
+- bump uuid from 1.21.0 to 1.22.0 (#84) ([5855659](https://github.com/oxicrab/oxicrab/commit/58556590abecd8bb2e5704f655f8cf8a2f5ea420))
+- bump rustls from 0.23.36 to 0.23.37 (#85) ([f724372](https://github.com/oxicrab/oxicrab/commit/f7243728ec4913b6aa8fc50e7c77fee7a8decaa4))
+
+
+### Documentation
+- update for recent features (skill scanner, cron delay, MCP fixes) ([a1420a8](https://github.com/oxicrab/oxicrab/commit/a1420a8b126e4369bd066f945bb5dc43f7aaab7b))
+
+
+### Fixed
+- **buttons:** clippy fixes, ID validation, cron metadata forwarding, tool hints (#89) ([60585aa](https://github.com/oxicrab/oxicrab/commit/60585aa079f2c8672eef995981b060fe0797236e))
+- **mcp:** strip null params and reject CRLF in env vars ([34bae09](https://github.com/oxicrab/oxicrab/commit/34bae09016a54f852fc644782729098803f83483))
+
+
+### Maintenance
+- **deps:** update quinn-proto 0.11.13 → 0.11.14 (CVE fix) ([b4c630d](https://github.com/oxicrab/oxicrab/commit/b4c630d38305c61db7bab43931aec0542c8865ea))
+
 ## [0.14.4] - 2026-03-09
 
 ### Changed
