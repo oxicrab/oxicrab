@@ -66,10 +66,30 @@ impl CronTool {
 
     /// Parse schedule parameters into a `CronSchedule`.
     ///
-    /// Validates `every_seconds`, `cron_expr`, `at_time`, or `event_pattern` from
-    /// the tool params and returns the appropriate schedule variant. Returns
-    /// `Err(ToolResult)` for user-facing validation errors.
+    /// Validates `delay_seconds`, `every_seconds`, `cron_expr`, `at_time`, or
+    /// `event_pattern` from the tool params and returns the appropriate schedule
+    /// variant. Returns `Err(ToolResult)` for user-facing validation errors.
     fn parse_schedule(params: &Value) -> std::result::Result<CronSchedule, ToolResult> {
+        // Relative delay: resolve to absolute timestamp server-side
+        if let Some(delay) = params["delay_seconds"].as_u64() {
+            if delay < 1 {
+                return Err(ToolResult::error(
+                    "delay_seconds must be at least 1".to_string(),
+                ));
+            }
+            if delay > 31_536_000 {
+                return Err(ToolResult::error(
+                    "delay_seconds cannot exceed 1 year (31536000)".to_string(),
+                ));
+            }
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as i64);
+            return Ok(CronSchedule::At {
+                at_ms: Some(now_ms + (delay as i64) * 1000),
+            });
+        }
+
         if let Some(every_secs) = params["every_seconds"].as_u64() {
             if !(60..=31_536_000).contains(&every_secs) {
                 return Err(ToolResult::error(
@@ -132,7 +152,7 @@ impl CronTool {
             })
         } else {
             Err(ToolResult::error(
-                "either every_seconds, cron_expr, at_time, or event_pattern is required"
+                "either delay_seconds, every_seconds, cron_expr, at_time, or event_pattern is required"
                     .to_string(),
             ))
         }
@@ -304,6 +324,10 @@ impl Tool for CronTool {
                 "message": {
                     "type": "string",
                     "description": "For 'agent' type: instruction/prompt for the agent (e.g. 'fetch my todoist tasks'). For 'echo' type: the exact text to deliver (e.g. 'Standup in 5 minutes!')."
+                },
+                "delay_seconds": {
+                    "type": "integer",
+                    "description": "Schedule a one-shot job to run after this many seconds from now. Alternative to at_time - use this for relative delays (e.g., 300 for 5 minutes from now). Mutually exclusive with at_time, every_seconds, cron_expr, event_pattern."
                 },
                 "every_seconds": {
                     "type": "integer",

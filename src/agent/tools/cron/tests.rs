@@ -209,6 +209,44 @@ fn test_cron_actions_match_schema() {
 }
 
 #[test]
+fn test_parse_schedule_delay_seconds() {
+    let params = json!({"delay_seconds": 300});
+    let schedule = CronTool::parse_schedule(&params).unwrap();
+    match schedule {
+        CronSchedule::At { at_ms: Some(ms) } => {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as i64);
+            // Should be ~300 seconds from now (allow 5s tolerance)
+            let diff = ms - now_ms;
+            assert!(
+                diff > 295_000 && diff < 305_000,
+                "expected ~300s delay, got {diff}ms"
+            );
+        }
+        other => panic!("expected At schedule, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_schedule_delay_seconds_too_small() {
+    let params = json!({"delay_seconds": 0});
+    let result = CronTool::parse_schedule(&params);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.content.contains("at least 1"));
+}
+
+#[test]
+fn test_parse_schedule_delay_seconds_too_large() {
+    let params = json!({"delay_seconds": 99_999_999});
+    let result = CronTool::parse_schedule(&params);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.content.contains("cannot exceed 1 year"));
+}
+
+#[test]
 fn test_every_seconds_rejects_sub_minute() {
     // 1 second should be rejected
     let result = CronTool::parse_schedule(&json!({"every_seconds": 1}));
