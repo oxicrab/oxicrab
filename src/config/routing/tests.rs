@@ -186,3 +186,37 @@ fn chat_thresholds_returns_configured_values() {
     assert!((thresholds.standard - 0.3).abs() < f64::EPSILON);
     assert!((thresholds.heavy - 0.7).abs() < f64::EPSILON);
 }
+
+#[test]
+fn providers_empty_routing() {
+    let routing = ResolvedRouting::new(HashMap::new(), None);
+    let providers: Vec<_> = routing.providers().collect();
+    assert!(providers.is_empty());
+}
+
+#[test]
+fn providers_with_tasks_and_chat() {
+    let mut tasks = HashMap::new();
+    tasks.insert(
+        "cron".to_string(),
+        (mock_provider(), "cron-model".to_string()),
+    );
+    let routing = ResolvedRouting::new(tasks, Some(make_chat_routing()));
+    let providers: Vec<_> = routing.providers().collect();
+    // 1 task + 2 chat (standard + heavy)
+    assert_eq!(providers.len(), 3);
+    let models: Vec<&str> = providers.iter().map(|(_, m)| *m).collect();
+    assert!(models.contains(&"cron-model"));
+    assert!(models.contains(&"standard-model"));
+    assert!(models.contains(&"heavy-model"));
+}
+
+#[test]
+fn providers_tasks_only() {
+    let mut tasks = HashMap::new();
+    tasks.insert("cron".to_string(), (mock_provider(), "a".to_string()));
+    tasks.insert("subagent".to_string(), (mock_provider(), "b".to_string()));
+    let routing = ResolvedRouting::new(tasks, None);
+    let providers: Vec<_> = routing.providers().collect();
+    assert_eq!(providers.len(), 2);
+}

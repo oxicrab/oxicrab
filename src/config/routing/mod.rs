@@ -81,6 +81,18 @@ impl ResolvedRouting {
     pub fn chat_thresholds(&self) -> Option<&ChatThresholds> {
         self.chat.as_ref().map(|c| &c.thresholds)
     }
+
+    /// Iterate over all (provider, model) pairs across task overrides
+    /// and chat routing. Used for startup verification.
+    pub fn providers(&self) -> impl Iterator<Item = (&Arc<dyn LLMProvider>, &str)> {
+        let task_iter = self.tasks.values().map(|(p, m)| (p, m.as_str()));
+        let chat_iter = self.chat.iter().flat_map(|c| {
+            [&c.standard, &c.heavy]
+                .into_iter()
+                .map(|(p, m)| (p, m.as_str()))
+        });
+        task_iter.chain(chat_iter)
+    }
 }
 
 #[cfg(test)]
