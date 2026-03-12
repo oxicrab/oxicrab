@@ -1,6 +1,6 @@
 use crate::providers::base::{ChatRequest, LLMProvider, Message};
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// A provider+model pair to verify, with a human-readable label.
 pub struct ProviderEntry {
@@ -29,7 +29,7 @@ pub async fn verify_provider(provider: &Arc<dyn LLMProvider>, model: &str) -> Ve
         ..Default::default()
     };
 
-    let result = tokio::time::timeout(std::time::Duration::from_secs(15), provider.chat(req)).await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(30), provider.chat(req)).await;
 
     let latency_ms = start.elapsed().as_millis() as u64;
 
@@ -53,7 +53,7 @@ pub async fn verify_provider(provider: &Arc<dyn LLMProvider>, model: &str) -> Ve
             label: String::new(),
             success: false,
             latency_ms,
-            error: Some("timed out after 15s".to_string()),
+            error: Some("timed out after 30s".to_string()),
         },
     }
 }
@@ -79,6 +79,10 @@ pub async fn verify_all_providers(entries: &[ProviderEntry]) -> Vec<VerifyResult
 
 /// Log verification results and return whether all passed.
 pub fn log_verify_results(results: &[VerifyResult]) -> bool {
+    if results.is_empty() {
+        warn!("no models to verify");
+        return true;
+    }
     let mut all_ok = true;
     for r in results {
         if r.success {

@@ -1,6 +1,7 @@
 use crate::agent::AgentLoop;
 use crate::bus::MessageBus;
 use crate::channels::manager::ChannelManager;
+use crate::config::routing::ResolvedRouting;
 use crate::config::{Config, load_config};
 use crate::cron::service::CronService;
 use crate::cron::types::CronJob;
@@ -38,11 +39,19 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     // Setup components
     let provider = setup_provider(&config, model.as_deref(), Some(memory_db.clone()))?;
 
+    // Create routing providers once (used for both verification and runtime)
+    let routing_providers = match config.create_routed_providers(Some(memory_db.clone())) {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("failed to create routed providers, routing disabled: {}", e);
+            None
+        }
+    };
+
     // Verify configured models are reachable (replaces bare warmup)
     let startup_check = config.agents.defaults.startup_check;
     if startup_check != crate::config::schema::StartupCheck::Off {
-        let routing_for_check = config.create_routed_providers(Some(memory_db.clone()))?;
-        let entries = collect_provider_entries(&provider, routing_for_check.as_ref());
+        let entries = collect_provider_entries(&provider, routing_providers.as_ref());
         let results = crate::providers::verify::verify_all_providers(&entries).await;
         let all_ok = crate::providers::verify::log_verify_results(&results);
         if !all_ok && startup_check == crate::config::schema::StartupCheck::Fatal {
@@ -70,6 +79,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
             typing_tx: Some(typing_tx),
             channels_config: Some(config.channels.clone()),
             memory_db: Some(memory_db),
+            routing: routing_providers,
         },
         &config,
     )
@@ -313,6 +323,7 @@ pub(super) struct SetupAgentParams {
     pub(super) typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     pub(super) channels_config: Option<crate::config::ChannelsConfig>,
     pub(super) memory_db: Option<Arc<crate::agent::memory::memory_db::MemoryDB>>,
+    pub(super) routing: Option<ResolvedRouting>,
 }
 
 pub(super) async fn setup_agent(
@@ -334,17 +345,13 @@ pub(super) async fn setup_agent(
         config.agents.defaults.compaction.enabled
     );
 
-    // Create model routing providers if configured
-    let routing = match config.create_routed_providers(None) {
-        Ok(Some(r)) => {
+    // Use pre-built routing providers (created once, shared with verification)
+    let routing = match params.routing {
+        Some(r) => {
             info!("model routing active with {} task(s)", r.task_count());
             Some(Arc::new(r))
         }
-        Ok(None) => None,
-        Err(e) => {
-            warn!("failed to create routed providers, routing disabled: {}", e);
-            None
-        }
+        None => None,
     };
 
     let agent = Arc::new(

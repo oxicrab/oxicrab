@@ -30,6 +30,7 @@ pub(super) async fn agent(message: Option<String>, session: String) -> Result<()
             typing_tx: None,
             channels_config: None,
             memory_db: None,
+            routing: None,
         },
         &config,
     )
