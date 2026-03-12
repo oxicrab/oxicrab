@@ -38,9 +38,20 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     // Setup components
     let provider = setup_provider(&config, model.as_deref(), Some(memory_db.clone()))?;
 
-    // Warmup provider connection (non-blocking, non-fatal)
-    if let Err(e) = provider.warmup().await {
-        warn!("provider warmup failed (non-fatal): {}", e);
+    // Verify configured models are reachable (replaces bare warmup)
+    let startup_check = config.agents.defaults.startup_check;
+    if startup_check != crate::config::schema::StartupCheck::Off {
+        let routing_for_check = config.create_routed_providers(Some(memory_db.clone()))?;
+        let entries = collect_provider_entries(&provider, routing_for_check.as_ref());
+        let results = crate::providers::verify::verify_all_providers(&entries).await;
+        let all_ok = crate::providers::verify::log_verify_results(&results);
+        if !all_ok && startup_check == crate::config::schema::StartupCheck::Fatal {
+            anyhow::bail!(
+                "startup model verification failed — {} of {} model(s) unreachable",
+                results.iter().filter(|r| !r.success).count(),
+                results.len()
+            );
+        }
     }
 
     let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) = setup_message_bus(&config)?;
@@ -496,6 +507,36 @@ fn start_agent_loop(agent: Arc<AgentLoop>) -> tokio::task::JoinHandle<()> {
             Err(e) => error!("Agent loop exited with error: {}", e),
         }
     })
+}
+
+/// Collect all (provider, model, label) triples for startup verification.
+fn collect_provider_entries(
+    primary: &Arc<dyn crate::providers::base::LLMProvider>,
+    routing: Option<&crate::config::routing::ResolvedRouting>,
+) -> Vec<crate::providers::verify::ProviderEntry> {
+    use crate::providers::verify::ProviderEntry;
+
+    let mut entries = vec![ProviderEntry {
+        provider: primary.clone(),
+        model: primary.default_model().to_string(),
+        label: "primary".to_string(),
+    }];
+
+    if let Some(routing) = routing {
+        for (provider, model) in routing.providers() {
+            // Skip if same model as primary (already checked)
+            if model == primary.default_model() {
+                continue;
+            }
+            entries.push(ProviderEntry {
+                provider: provider.clone(),
+                model: model.to_string(),
+                label: "routing".to_string(),
+            });
+        }
+    }
+
+    entries
 }
 
 #[allow(clippy::too_many_lines)]
