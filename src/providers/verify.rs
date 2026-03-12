@@ -176,6 +176,11 @@ mod tests {
     }
 
     #[test]
+    fn test_log_verify_results_empty() {
+        assert!(log_verify_results(&[]));
+    }
+
+    #[test]
     fn test_log_verify_results_all_ok() {
         let results = vec![VerifyResult {
             model: "m".to_string(),

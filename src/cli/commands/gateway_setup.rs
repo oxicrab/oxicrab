@@ -530,9 +530,11 @@ fn collect_provider_entries(
     }];
 
     if let Some(routing) = routing {
+        let primary_data = Arc::as_ptr(primary).cast::<()>();
         for (provider, model) in routing.providers() {
-            // Skip if same model as primary (already checked)
-            if model == primary.default_model() {
+            // Skip if same provider instance AND same model (already checked as primary)
+            let provider_data = Arc::as_ptr(provider).cast::<()>();
+            if provider_data == primary_data && model == primary.default_model() {
                 continue;
             }
             entries.push(ProviderEntry {
