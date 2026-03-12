@@ -9,6 +9,7 @@ pub mod gemini;
 pub mod openai;
 pub mod prompt_guided;
 pub mod strategy;
+pub mod verify;
 
 use reqwest::Client;
 use std::sync::LazyLock;
