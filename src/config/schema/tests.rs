@@ -1047,3 +1047,22 @@ fn test_rate_limit_invalid_zero_burst() {
     config.gateway.rate_limit.burst = 0;
     assert!(config.validate().is_err());
 }
+
+// -----------------------------------------------------------------------
+// StartupCheck
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_startup_check_deserialize() {
+    let json = r#"{"startupCheck": "fatal"}"#;
+    let defaults: AgentDefaults = serde_json::from_str(json).unwrap();
+    assert!(matches!(defaults.startup_check, StartupCheck::Fatal));
+
+    let json_default = "{}";
+    let defaults: AgentDefaults = serde_json::from_str(json_default).unwrap();
+    assert!(matches!(defaults.startup_check, StartupCheck::Warn));
+
+    let json_off = r#"{"startupCheck": "off"}"#;
+    let defaults: AgentDefaults = serde_json::from_str(json_off).unwrap();
+    assert!(matches!(defaults.startup_check, StartupCheck::Off));
+}

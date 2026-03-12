@@ -468,6 +468,18 @@ impl Default for ComplexityWeights {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StartupCheck {
+    /// Log warnings for failed model checks but continue startup (default).
+    #[default]
+    Warn,
+    /// Abort startup if any model check fails.
+    Fatal,
+    /// Skip model verification entirely.
+    Off,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentDefaults {
     #[serde(default = "default_workspace")]
@@ -501,6 +513,8 @@ pub struct AgentDefaults {
     pub workspace_ttl: WorkspaceTtlConfig,
     #[serde(default, rename = "modelRouting")]
     pub model_routing: ModelRoutingConfig,
+    #[serde(default, rename = "startupCheck")]
+    pub startup_check: StartupCheck,
 }
 
 impl Default for AgentDefaults {
@@ -520,6 +534,7 @@ impl Default for AgentDefaults {
             context_providers: vec![],
             workspace_ttl: WorkspaceTtlConfig::default(),
             model_routing: ModelRoutingConfig::default(),
+            startup_check: StartupCheck::default(),
         }
     }
 }
