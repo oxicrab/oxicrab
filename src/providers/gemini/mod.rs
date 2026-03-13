@@ -128,7 +128,7 @@ impl GeminiProvider {
 
 #[async_trait]
 impl LLMProvider for GeminiProvider {
-    async fn chat(&self, req: ChatRequest) -> Result<LLMResponse> {
+    async fn chat(&self, req: &ChatRequest) -> Result<LLMResponse> {
         debug!(
             "gemini chat: model={}",
             req.model.as_deref().unwrap_or(&self.default_model)
@@ -149,9 +149,9 @@ impl LLMProvider for GeminiProvider {
             }
         }
 
-        for msg in req.messages {
+        for msg in &req.messages {
             if msg.role == "system" {
-                system_parts.push(msg.content);
+                system_parts.push(msg.content.clone());
                 continue;
             }
 
@@ -163,7 +163,7 @@ impl LLMProvider for GeminiProvider {
                     .and_then(|id| tool_id_to_name.get(id))
                     .map_or("unknown", String::as_str);
                 let response_value: Value = serde_json::from_str(&msg.content)
-                    .unwrap_or_else(|_| json!({"result": msg.content}));
+                    .unwrap_or_else(|_| json!({"result": &msg.content}));
                 gemini_contents.push(json!({
                     "role": "function",
                     "parts": [{
@@ -183,7 +183,7 @@ impl LLMProvider for GeminiProvider {
 
             let mut parts = Vec::new();
             if !msg.content.is_empty() {
-                parts.push(json!({"text": msg.content}));
+                parts.push(json!({"text": &msg.content}));
             }
             if msg.role == "user" {
                 for img in &msg.images {

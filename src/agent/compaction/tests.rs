@@ -373,7 +373,7 @@ struct FlushMock {
 
 #[async_trait]
 impl LLMProvider for FlushMock {
-    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         Ok(LLMResponse {
             content: Some(self.response.clone()),
             finish_reason: self.finish_reason.clone(),

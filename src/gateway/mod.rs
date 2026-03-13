@@ -803,9 +803,8 @@ async fn deliver_to_targets(
 /// Start the HTTP API server. Returns a join handle and the shared state
 /// (needed by the outbound router to deliver responses).
 ///
-/// `known_secrets` are registered with the leak detector used by
-/// `deliver_to_targets()` — this path bypasses `MessageBus` so it needs
-/// its own detector with the same secrets.
+/// `leak_detector` is shared across the message bus, agent loop, and gateway.
+/// It has known secrets pre-registered before being wrapped in `Arc`.
 #[allow(clippy::too_many_arguments)]
 pub async fn start<S: BuildHasher>(
     host: &str,
@@ -816,7 +815,7 @@ pub async fn start<S: BuildHasher>(
     a2a_config: Option<crate::config::A2aConfig>,
     api_key: Option<String>,
     rate_limit: &crate::config::schema::RateLimitConfig,
-    known_secrets: &[(&str, &str)],
+    leak_detector: Arc<crate::safety::leak_detector::LeakDetector>,
     ready: Arc<AtomicBool>,
     status: Arc<OnceLock<status::StatusState>>,
     echo_mode: bool,
@@ -837,21 +836,12 @@ pub async fn start<S: BuildHasher>(
 
     let pending = Arc::new(Mutex::new(HashMap::new()));
 
-    let mut detector = crate::safety::leak_detector::LeakDetector::new();
-    if !known_secrets.is_empty() {
-        detector.add_known_secrets(known_secrets);
-        debug!(
-            "gateway leak detector registered {} known secret(s)",
-            known_secrets.len()
-        );
-    }
-
     let state = HttpApiState {
         inbound_tx: inbound_tx.clone(),
         pending: pending.clone(),
         webhooks: Arc::new(webhook_map),
         outbound_tx,
-        leak_detector: Arc::new(detector),
+        leak_detector,
         ready,
         status,
         echo_mode,

@@ -7,7 +7,7 @@ struct MockProvider;
 
 #[async_trait::async_trait]
 impl LLMProvider for MockProvider {
-    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         Ok(LLMResponse::default())
     }
 

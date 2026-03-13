@@ -11,7 +11,7 @@ struct DummyProvider;
 
 #[async_trait::async_trait]
 impl LLMProvider for DummyProvider {
-    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         unreachable!()
     }
     fn default_model(&self) -> &'static str {
@@ -32,6 +32,7 @@ fn make_tool() -> SpawnTool {
         exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
         main_tools: None,
         memory_db: None,
+        leak_detector: Arc::new(crate::safety::LeakDetector::new()),
     };
     let manager = Arc::new(SubagentManager::new(config, bus));
     SpawnTool::new(manager)

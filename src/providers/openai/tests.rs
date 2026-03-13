@@ -31,7 +31,7 @@ async fn test_chat_success() {
         .await;
 
     let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
-    let result = provider.chat(simple_chat_request("Hi")).await.unwrap();
+    let result = provider.chat(&simple_chat_request("Hi")).await.unwrap();
 
     assert_eq!(result.content.unwrap(), "Hello! How can I help?");
     assert!(result.tool_calls.is_empty());
@@ -65,7 +65,7 @@ async fn test_chat_with_tool_calls() {
 
     let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
     let result = provider
-        .chat(simple_chat_request("What's the weather?"))
+        .chat(&simple_chat_request("What's the weather?"))
         .await
         .unwrap();
 
@@ -87,7 +87,7 @@ async fn test_chat_unauthorized() {
         .await;
 
     let provider = OpenAIProvider::with_base_url("bad_key".to_string(), None, server.uri());
-    let result = provider.chat(simple_chat_request("Hi")).await;
+    let result = provider.chat(&simple_chat_request("Hi")).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
@@ -110,7 +110,7 @@ async fn test_chat_rate_limit() {
         .await;
 
     let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
-    let result = provider.chat(simple_chat_request("Hi")).await;
+    let result = provider.chat(&simple_chat_request("Hi")).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
@@ -132,7 +132,7 @@ async fn test_chat_server_error() {
         .await;
 
     let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
-    let result = provider.chat(simple_chat_request("Hi")).await;
+    let result = provider.chat(&simple_chat_request("Hi")).await;
 
     assert!(result.is_err());
 }
@@ -157,7 +157,7 @@ async fn test_chat_custom_model() {
         Some("gpt-4-turbo".to_string()),
         server.uri(),
     );
-    let result = provider.chat(simple_chat_request("Hi")).await.unwrap();
+    let result = provider.chat(&simple_chat_request("Hi")).await.unwrap();
 
     assert_eq!(result.content.unwrap(), "Response from custom model");
 }
@@ -187,7 +187,7 @@ async fn test_with_config_custom_provider() {
 
     assert_eq!(provider.default_model(), "deepseek-chat");
 
-    let result = provider.chat(simple_chat_request("Hi")).await.unwrap();
+    let result = provider.chat(&simple_chat_request("Hi")).await.unwrap();
     assert_eq!(result.content.unwrap(), "DeepSeek response");
 }
 
@@ -298,7 +298,7 @@ async fn test_chat_with_json_object_format() {
         .temperature(0.7)
         .response_format(crate::providers::base::ResponseFormat::JsonObject)
         .build();
-    let result = provider.chat(req).await.unwrap();
+    let result = provider.chat(&req).await.unwrap();
     assert_eq!(result.content.unwrap(), "{\"answer\": 42}");
 }
 
@@ -336,7 +336,7 @@ async fn test_chat_with_json_schema_format() {
             schema,
         })
         .build();
-    let result = provider.chat(req).await.unwrap();
+    let result = provider.chat(&req).await.unwrap();
     assert!(result.content.unwrap().contains("Alice"));
 }
 
@@ -414,7 +414,7 @@ async fn test_chat_tool_choice_any_mapped_to_required() {
         .temperature(0.7)
         .tool_choice("any")
         .build();
-    let result = provider.chat(req).await.unwrap();
+    let result = provider.chat(&req).await.unwrap();
     assert!(result.has_tool_calls());
     assert_eq!(result.tool_calls[0].name, "my_tool");
 }
@@ -447,7 +447,7 @@ async fn test_chat_with_image_in_message() {
     )
     .temperature(0.7)
     .build();
-    let result = provider.chat(req).await.unwrap();
+    let result = provider.chat(&req).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("I see an image"));
 }
 
@@ -479,7 +479,7 @@ async fn test_chat_with_document_in_message() {
     )
     .temperature(0.7)
     .build();
-    let result = provider.chat(req).await.unwrap();
+    let result = provider.chat(&req).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("I read the PDF"));
 }
 
@@ -510,7 +510,7 @@ async fn test_custom_headers_are_sent() {
         "TestProvider".to_string(),
         headers,
     );
-    let result = provider.chat(simple_chat_request("Hi")).await.unwrap();
+    let result = provider.chat(&simple_chat_request("Hi")).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("ok"));
 }
 

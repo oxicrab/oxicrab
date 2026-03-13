@@ -23,8 +23,13 @@ impl AgentLoop {
         }
 
         // Send typing indicator before processing
-        if let Some(ref tx) = self.typing_tx {
-            let _ = tx.send((msg.channel.clone(), msg.chat_id.clone())).await;
+        if let Some(ref tx) = self.typing_tx
+            && tx
+                .send((msg.channel.clone(), msg.chat_id.clone()))
+                .await
+                .is_err()
+        {
+            debug!("typing indicator channel closed");
         }
 
         info!("Processing message from {}:{}", msg.channel, msg.sender_id);
@@ -101,6 +106,7 @@ impl AgentLoop {
         );
 
         debug!("Getting compacted history");
+        let checkpoint_before = self.last_checkpoint.lock().await.clone();
         let history = self.get_compacted_history(&session).await?;
         debug!("Got {} history messages", history.len());
 
@@ -114,18 +120,24 @@ impl AgentLoop {
         };
 
         // Inbound secret scanning: redact secrets before they reach the LLM or
-        // get persisted in session history / memory.
+        // get persisted in session history / memory. Uses redact() for a single
+        // pass; scan() only runs when redaction occurred (to get pattern names).
         let msg_content = {
-            let matches = self.leak_detector.scan(&msg_content);
-            if matches.is_empty() {
+            let redacted = self.leak_detector.redact(&msg_content);
+            if redacted == msg_content {
                 msg_content
             } else {
-                let names: Vec<&str> = matches.iter().map(|m| m.name).collect();
+                let names: Vec<&str> = self
+                    .leak_detector
+                    .scan(&msg_content)
+                    .iter()
+                    .map(|m| m.name)
+                    .collect();
                 warn!(
-                    "secret detected in inbound message from {}:{}: {:?} — redacting",
+                    "secret detected in inbound message from {}:{}: {:?} — redacted",
                     msg.channel, msg.sender_id, names
                 );
-                self.leak_detector.redact(&msg_content)
+                redacted
             }
         };
 
@@ -289,19 +301,29 @@ impl AgentLoop {
             },
         };
 
-        // Record complexity event for analytics
-        if let (Some(score), Some(band)) = (&complexity_score, &complexity_band)
-            && let Err(e) = self.memory.db().record_complexity_event(
-                &request_id,
-                score.composite,
-                band,
-                overrides.model.as_deref(),
-                score.forced,
-                Some(&msg.channel),
-                &content,
-            )
-        {
-            debug!("failed to record complexity event: {}", e);
+        // Record complexity event off the async runtime (fire-and-forget)
+        if let (Some(score), Some(band)) = (&complexity_score, &complexity_band) {
+            let db = self.memory.db();
+            let rid = request_id.clone();
+            let composite = score.composite;
+            let band = band.clone();
+            let model_override = overrides.model.clone();
+            let forced = score.forced;
+            let channel = msg.channel.clone();
+            let content_snap = content.clone();
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = db.record_complexity_event(
+                    &rid,
+                    composite,
+                    &band,
+                    model_override.as_deref(),
+                    forced,
+                    Some(&channel),
+                    &content_snap,
+                ) {
+                    debug!("failed to record complexity event: {}", e);
+                }
+            });
         }
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
@@ -315,9 +337,17 @@ impl AgentLoop {
             )
             .await?;
 
-        // Reload session in case compaction updated it during the agent loop
-        // (compaction saves a compaction_summary to session metadata)
-        let mut session = self.sessions.get_or_create(&session_key).await?;
+        // Only reload session if compaction updated it (wrote compaction_summary).
+        // Compare the actual checkpoint value, not just presence, so that
+        // second+ compaction runs within the same session lifetime are detected.
+        let checkpoint_after = self.last_checkpoint.lock().await.clone();
+        let compaction_ran = checkpoint_after.is_some() && checkpoint_after != checkpoint_before;
+        let mut session = if compaction_ran {
+            debug!("compaction updated session, reloading");
+            self.sessions.get_or_create(&session_key).await?
+        } else {
+            session
+        };
         let extra = HashMap::new();
         // Use the redacted content (msg_content), not the original (msg.content),
         // so that secrets detected by inbound scanning are not persisted to disk.
@@ -630,15 +660,23 @@ impl AgentLoop {
         } else {
             "none"
         };
-        if let Err(e) = self.memory.db().record_intent_event(
-            "classification",
-            Some(intent_method),
-            semantic_score,
-            None,
-            content,
-            request_id,
-        ) {
-            debug!("failed to record intent metric: {}", e);
+        {
+            let db = self.memory.db();
+            let method = intent_method.to_string();
+            let content = content.to_string();
+            let rid = request_id.map(str::to_string);
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = db.record_intent_event(
+                    "classification",
+                    Some(&method),
+                    semantic_score,
+                    None,
+                    &content,
+                    rid.as_deref(),
+                ) {
+                    debug!("failed to record intent metric: {}", e);
+                }
+            });
         }
 
         user_action_intent

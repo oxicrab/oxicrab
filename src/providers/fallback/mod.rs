@@ -54,7 +54,7 @@ impl LLMProvider for FallbackProvider {
     /// its own pre-configured model name (stored alongside the provider Arc).
     /// The request is cloned with `model: None` for each attempt so the
     /// provider uses its own `default_model()`.
-    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         let mut errors: Vec<String> = Vec::new();
         for (i, (provider, model_name)) in self.providers.iter().enumerate() {
             let is_last = i == self.providers.len() - 1;
@@ -68,7 +68,7 @@ impl LLMProvider for FallbackProvider {
                 response_format: req.response_format.clone(),
             };
 
-            match provider.chat(attempt_req).await {
+            match provider.chat(&attempt_req).await {
                 Ok(mut response) => {
                     if response.has_tool_calls() && !validate_tool_calls(&response.tool_calls) {
                         warn!(

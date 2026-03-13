@@ -375,7 +375,7 @@ impl LeakDetector {
             result = ks.regex.replace_all(&result, "[REDACTED]").into_owned();
         }
         // Redact base64/hex-encoded blobs that decode to match generic patterns
-        // (covers cases where LLM encodes a secret to bypass plaintext detection)
+        // (covers cases where LLM encodes a secret to bypass plaintext detection).
         let encoded_matches = Self::scan_encoded(&result);
         if !encoded_matches.is_empty() {
             // Merge overlapping ranges to prevent corruption from overlapping replace_range calls

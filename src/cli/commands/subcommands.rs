@@ -12,11 +12,17 @@ pub(super) async fn agent(message: Option<String>, session: String) -> Result<()
 
     let provider = config.create_provider(None, None)?;
 
-    let mut bus = MessageBus::default();
-    let secrets = config.collect_secrets();
-    if !secrets.is_empty() {
-        bus.add_known_secrets(&secrets);
-    }
+    // Create shared leak detector with known secrets
+    let leak_detector = {
+        let mut detector = crate::safety::LeakDetector::new();
+        let secrets = config.collect_secrets();
+        if !secrets.is_empty() {
+            detector.add_known_secrets(&secrets);
+        }
+        Arc::new(detector)
+    };
+
+    let bus = MessageBus::with_leak_detector(30, 60.0, 1000, 1000, leak_detector.clone());
     let outbound_tx = Arc::new(bus.outbound_tx.clone());
     let bus_for_agent = Arc::new(bus);
 
@@ -30,6 +36,7 @@ pub(super) async fn agent(message: Option<String>, session: String) -> Result<()
             typing_tx: None,
             channels_config: None,
             memory_db: None,
+            leak_detector: Some(leak_detector),
         },
         &config,
     )

@@ -233,9 +233,12 @@ async fn test_leak_detector_redacts_multiple_key_types() {
 
 #[tokio::test]
 async fn test_leak_detector_with_known_secrets_via_bus() {
-    let mut bus = MessageBus::default();
     let custom_secret = "my-super-secret-custom-api-key-12345";
-    bus.add_known_secrets(&[("custom", custom_secret)]);
+    let mut detector = oxicrab::safety::LeakDetector::new();
+    detector.add_known_secrets(&[("custom", custom_secret)]);
+    let detector = std::sync::Arc::new(detector);
+
+    let bus = MessageBus::with_leak_detector(30, 60.0, 1000, 1000, detector);
 
     let msg = OutboundMessage::builder(
         "telegram",
@@ -248,9 +251,9 @@ async fn test_leak_detector_with_known_secrets_via_bus() {
     bus.publish_outbound(msg).await.expect("publish outbound");
 
     // Verify by testing the detector directly with known secrets
-    let mut detector = oxicrab::safety::LeakDetector::new();
-    detector.add_known_secrets(&[("custom", custom_secret)]);
-    let redacted = detector.redact(&format!("The secret is: {}", custom_secret));
+    let mut detector2 = oxicrab::safety::LeakDetector::new();
+    detector2.add_known_secrets(&[("custom", custom_secret)]);
+    let redacted = detector2.redact(&format!("The secret is: {}", custom_secret));
     assert!(
         !redacted.contains(custom_secret),
         "Known secret should be redacted"

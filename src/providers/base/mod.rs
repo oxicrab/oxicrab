@@ -238,7 +238,7 @@ impl ChatRequestBuilder {
 
 #[async_trait]
 pub trait LLMProvider: Send + Sync {
-    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse>;
+    async fn chat(&self, req: &ChatRequest) -> anyhow::Result<LLMResponse>;
 
     fn default_model(&self) -> &str;
 
@@ -251,14 +251,11 @@ pub trait LLMProvider: Send + Sync {
     /// Chat with automatic retry on transient errors.
     async fn chat_with_retry(
         &self,
-        req: ChatRequest,
+        req: &ChatRequest,
         retry_config: Option<RetryConfig>,
     ) -> anyhow::Result<LLMResponse> {
         let config = retry_config.unwrap_or_default();
         let mut last_error = None;
-
-        let messages = req.messages;
-        let tools = req.tools;
 
         for attempt in 0..=config.max_retries {
             if attempt > 0 {
@@ -273,16 +270,7 @@ pub trait LLMProvider: Send + Sync {
                 );
             }
             debug!("Sending chat request (attempt {})", attempt);
-            let chat_req = ChatRequest {
-                messages: messages.clone(),
-                tools: tools.clone(),
-                model: req.model.clone(),
-                max_tokens: req.max_tokens,
-                temperature: req.temperature,
-                tool_choice: req.tool_choice.clone(),
-                response_format: req.response_format.clone(),
-            };
-            let result = self.chat(chat_req).await;
+            let result = self.chat(req).await;
             match result {
                 Ok(response) => {
                     debug!("Chat request succeeded on attempt {}", attempt);

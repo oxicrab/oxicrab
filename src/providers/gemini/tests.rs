@@ -30,7 +30,7 @@ async fn test_chat_success() {
         .await;
 
     let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
-    let result = provider.chat(simple_chat_request("Hi")).await.unwrap();
+    let result = provider.chat(&simple_chat_request("Hi")).await.unwrap();
 
     assert_eq!(result.content.unwrap(), "Hello! How can I help you?");
     assert!(result.tool_calls.is_empty());
@@ -61,7 +61,7 @@ async fn test_chat_with_tool_calls() {
 
     let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
     let result = provider
-        .chat(simple_chat_request("Weather in London?"))
+        .chat(&simple_chat_request("Weather in London?"))
         .await
         .unwrap();
 
@@ -82,7 +82,7 @@ async fn test_chat_unauthorized() {
         .await;
 
     let provider = GeminiProvider::with_base_url("bad_key".to_string(), None, server.uri());
-    let result = provider.chat(simple_chat_request("Hi")).await;
+    let result = provider.chat(&simple_chat_request("Hi")).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
@@ -101,7 +101,7 @@ async fn test_chat_rate_limit() {
         .await;
 
     let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
-    let result = provider.chat(simple_chat_request("Hi")).await;
+    let result = provider.chat(&simple_chat_request("Hi")).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
@@ -123,7 +123,7 @@ async fn test_chat_server_error() {
         .await;
 
     let provider = GeminiProvider::with_base_url("test_key".to_string(), None, server.uri());
-    let result = provider.chat(simple_chat_request("Hi")).await;
+    let result = provider.chat(&simple_chat_request("Hi")).await;
 
     assert!(result.is_err());
 }
@@ -151,7 +151,7 @@ async fn test_chat_custom_model() {
         Some("gemini-2.0-flash".to_string()),
         server.uri(),
     );
-    let result = provider.chat(simple_chat_request("Hi")).await.unwrap();
+    let result = provider.chat(&simple_chat_request("Hi")).await.unwrap();
 
     assert_eq!(result.content.unwrap(), "Flash response");
 }
@@ -181,7 +181,7 @@ async fn test_system_message_as_system_instruction() {
     )
     .temperature(0.7)
     .build();
-    let result = provider.chat(req).await.unwrap();
+    let result = provider.chat(&req).await.unwrap();
 
     assert_eq!(result.content.unwrap(), "I'm a helpful bot.");
 }
@@ -309,6 +309,6 @@ async fn test_chat_with_json_object_format() {
         .temperature(0.7)
         .response_format(crate::providers::base::ResponseFormat::JsonObject)
         .build();
-    let result = provider.chat(req).await.unwrap();
+    let result = provider.chat(&req).await.unwrap();
     assert_eq!(result.content.unwrap(), "{\"key\": \"value\"}");
 }

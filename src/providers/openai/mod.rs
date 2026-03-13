@@ -149,7 +149,7 @@ impl OpenAIProvider {
 
 #[async_trait]
 impl LLMProvider for OpenAIProvider {
-    async fn chat(&self, req: ChatRequest) -> Result<LLMResponse> {
+    async fn chat(&self, req: &ChatRequest) -> Result<LLMResponse> {
         debug!(
             "{} chat: model={}",
             self.provider_name,
@@ -157,7 +157,7 @@ impl LLMProvider for OpenAIProvider {
         );
         let openai_messages: Vec<Value> = req
             .messages
-            .into_iter()
+            .iter()
             .map(|msg| {
                 let content_value = if !msg.images.is_empty() && msg.role == "user" {
                     let mut parts = Vec::new();
@@ -201,10 +201,10 @@ impl LLMProvider for OpenAIProvider {
                     m["reasoning_content"] = json!(reasoning);
                 }
 
-                if let Some(tool_calls) = msg.tool_calls {
+                if let Some(ref tool_calls) = msg.tool_calls {
                     m["tool_calls"] = json!(
                         tool_calls
-                            .into_iter()
+                            .iter()
                             .map(|tc| {
                                 let args_str = serde_json::to_string(&tc.arguments)
                                     .unwrap_or_else(|_| "{}".to_string());
@@ -221,7 +221,7 @@ impl LLMProvider for OpenAIProvider {
                     );
                 }
 
-                if let Some(tool_call_id) = msg.tool_call_id {
+                if let Some(ref tool_call_id) = msg.tool_call_id {
                     m["tool_call_id"] = json!(tool_call_id);
                 }
 

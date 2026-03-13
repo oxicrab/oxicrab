@@ -67,7 +67,7 @@ impl AnthropicProvider {
 
 #[async_trait]
 impl LLMProvider for AnthropicProvider {
-    async fn chat(&self, req: ChatRequest) -> Result<LLMResponse> {
+    async fn chat(&self, req: &ChatRequest) -> Result<LLMResponse> {
         debug!(
             "anthropic chat: model={}",
             req.model.as_deref().unwrap_or(&self.default_model)
@@ -88,7 +88,7 @@ impl LLMProvider for AnthropicProvider {
             None => None,
         };
 
-        let (system, anthropic_messages) = anthropic_common::convert_messages(req.messages);
+        let (system, anthropic_messages) = anthropic_common::convert_messages(req.messages.clone());
 
         let mut payload = json!({
             "model": req.model.as_deref().unwrap_or(&self.default_model),
