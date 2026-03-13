@@ -525,7 +525,12 @@ impl AgentLoop {
             .session_locks
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let before = locks.len();
         locks.retain(|_, arc| Arc::strong_count(arc) > 1);
+        let evicted = before - locks.len();
+        if evicted > 0 {
+            debug!("evicted {evicted} stale session lock(s)");
+        }
     }
 
     async fn process_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
