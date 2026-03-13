@@ -1,4 +1,5 @@
 pub mod a2a;
+pub mod status;
 
 /// HTTP API server for the gateway.
 ///
