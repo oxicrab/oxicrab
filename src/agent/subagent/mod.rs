@@ -401,7 +401,7 @@ async fn run_subagent_inner(
         let response = config
             .provider
             .chat_with_retry(
-                crate::providers::base::ChatRequest {
+                &crate::providers::base::ChatRequest {
                     messages: messages.clone(),
                     tools: Some(std::sync::Arc::new(tools.get_tool_definitions())),
                     model: Some(config.model.clone()),

@@ -34,7 +34,7 @@ impl MockProvider {
 
 #[async_trait]
 impl LLMProvider for MockProvider {
-    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         let response = self.responses.lock().unwrap().pop_front();
         Ok(response.unwrap_or_else(|| LLMResponse {
             content: Some("default".to_string()),
@@ -53,7 +53,7 @@ struct DelayedProvider {
 
 #[async_trait]
 impl LLMProvider for DelayedProvider {
-    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         tokio::time::sleep(tokio::time::Duration::from_millis(self.delay_ms)).await;
         Ok(LLMResponse {
             content: Some(self.content.clone()),
@@ -203,7 +203,7 @@ struct ConcurrencyTracker {
 }
 #[async_trait]
 impl LLMProvider for ConcurrencyTracker {
-    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         let prev = self
             .concurrent
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);

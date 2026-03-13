@@ -247,7 +247,7 @@ impl MessageCompactor {
 
         let response = self
             .provider
-            .chat(ChatRequest {
+            .chat(&ChatRequest {
                 messages: llm_messages,
                 model: self.model.clone(),
                 max_tokens: COMPACTION_MAX_TOKENS,
@@ -292,7 +292,7 @@ impl MessageCompactor {
 
         let response = self
             .provider
-            .chat(ChatRequest {
+            .chat(&ChatRequest {
                 messages: llm_messages,
                 model: self.model.clone(),
                 max_tokens: PRE_FLUSH_MAX_TOKENS,
@@ -341,7 +341,7 @@ impl MessageCompactor {
 
         let response = self
             .provider
-            .chat(ChatRequest {
+            .chat(&ChatRequest {
                 messages: llm_messages,
                 model: self.model.clone(),
                 max_tokens: EXTRACTION_MAX_TOKENS,

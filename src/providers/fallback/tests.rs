@@ -26,7 +26,7 @@ impl MockProvider {
 
 #[async_trait]
 impl LLMProvider for MockProvider {
-    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         match &self.response {
             Ok(r) => Ok(r.clone()),
             Err(e) => Err(anyhow::anyhow!("{e}")),
@@ -72,7 +72,7 @@ async fn test_primary_succeeds_with_valid_response() {
         "cloud-model".to_string(),
     );
 
-    let result = provider.chat(make_request()).await.unwrap();
+    let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("hello from local"));
 }
 
@@ -88,7 +88,7 @@ async fn test_primary_fails_falls_back_to_secondary() {
         "cloud-model".to_string(),
     );
 
-    let result = provider.chat(make_request()).await.unwrap();
+    let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("hello from cloud"));
 }
 
@@ -117,7 +117,7 @@ async fn test_malformed_tool_calls_fall_back() {
         "cloud-model".to_string(),
     );
 
-    let result = provider.chat(make_request()).await.unwrap();
+    let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.tool_calls[0].name, "web_search");
 }
 
@@ -146,7 +146,7 @@ async fn test_malformed_tool_args_fall_back() {
         "cloud-model".to_string(),
     );
 
-    let result = provider.chat(make_request()).await.unwrap();
+    let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.tool_calls[0].name, "web_search");
 }
 
@@ -165,7 +165,7 @@ async fn test_primary_succeeds_with_valid_tool_calls() {
         "cloud-model".to_string(),
     );
 
-    let result = provider.chat(make_request()).await.unwrap();
+    let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.tool_calls[0].name, "web_search");
 }
 
@@ -181,7 +181,7 @@ async fn test_text_only_response_returned_as_is() {
         "cloud-model".to_string(),
     );
 
-    let result = provider.chat(make_request()).await.unwrap();
+    let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("just text, no tools"));
     assert!(result.tool_calls.is_empty());
 }
@@ -211,7 +211,7 @@ async fn test_text_only_with_tools_available_not_rejected() {
         .temperature(0.7)
         .build();
 
-    let result = provider.chat(req).await.unwrap();
+    let result = provider.chat(&req).await.unwrap();
     // Primary's text response should be returned (not fallback)
     assert_eq!(
         result.content.as_deref(),
@@ -231,7 +231,7 @@ async fn test_both_providers_fail_returns_fallback_error() {
         "cloud-model".to_string(),
     );
 
-    let err = provider.chat(make_request()).await.unwrap_err();
+    let err = provider.chat(&make_request()).await.unwrap_err();
     assert!(
         err.to_string().contains("API quota exceeded"),
         "should return fallback provider's error"
@@ -268,7 +268,7 @@ async fn test_three_provider_chain_skips_to_third() {
     ])
     .unwrap();
 
-    let result = provider.chat(make_request()).await.unwrap();
+    let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("hello from third"));
 }
 
@@ -285,7 +285,7 @@ async fn test_chain_all_fail_returns_last_error() {
     ])
     .unwrap();
 
-    let err = provider.chat(make_request()).await.unwrap_err();
+    let err = provider.chat(&make_request()).await.unwrap_err();
     assert!(err.to_string().contains("quota exceeded"));
 }
 
@@ -309,7 +309,7 @@ async fn test_chain_malformed_tools_skip_to_next() {
     ])
     .unwrap();
 
-    let result = provider.chat(make_request()).await.unwrap();
+    let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("good response from second"));
 }
 
@@ -317,6 +317,6 @@ async fn test_chain_malformed_tools_skip_to_next() {
 async fn test_single_provider_chain() {
     let p1 = MockProvider::ok("model-a", text_response("only provider"));
     let provider = FallbackProvider::new(vec![(p1, "model-a".to_string())]).unwrap();
-    let result = provider.chat(make_request()).await.unwrap();
+    let result = provider.chat(&make_request()).await.unwrap();
     assert_eq!(result.content.as_deref(), Some("only provider"));
 }

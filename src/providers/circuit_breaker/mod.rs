@@ -197,7 +197,7 @@ impl CircuitBreakerProvider {
 
 #[async_trait]
 impl LLMProvider for CircuitBreakerProvider {
-    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         self.should_allow().await?;
 
         match self.inner.chat(req).await {

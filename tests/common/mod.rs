@@ -42,14 +42,14 @@ impl MockLLMProvider {
 
 #[async_trait]
 impl LLMProvider for MockLLMProvider {
-    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         self.calls
             .lock()
             .expect("lock recorded calls")
             .push(RecordedCall {
-                messages: req.messages,
-                model: req.model,
-                tools: req.tools,
+                messages: req.messages.clone(),
+                model: req.model.clone(),
+                tools: req.tools.clone(),
                 temperature: req.temperature,
                 max_tokens: req.max_tokens,
                 tool_choice: req.tool_choice.clone(),
@@ -122,11 +122,11 @@ impl ToolCapturingProvider {
 
 #[async_trait]
 impl LLMProvider for ToolCapturingProvider {
-    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         self.tool_defs
             .lock()
             .expect("lock tool defs")
-            .push(req.tools);
+            .push(req.tools.clone());
         let response = self.responses.lock().expect("lock responses").pop_front();
         Ok(response.unwrap_or_else(|| LLMResponse {
             content: Some(self.default_response.clone()),
@@ -221,14 +221,14 @@ impl FailingMockProvider {
 
 #[async_trait]
 impl LLMProvider for FailingMockProvider {
-    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         self.calls
             .lock()
             .expect("lock recorded calls")
             .push(RecordedCall {
-                messages: req.messages,
-                model: req.model,
-                tools: req.tools,
+                messages: req.messages.clone(),
+                model: req.model.clone(),
+                tools: req.tools.clone(),
                 temperature: req.temperature,
                 max_tokens: req.max_tokens,
                 tool_choice: req.tool_choice.clone(),

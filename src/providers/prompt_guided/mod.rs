@@ -185,10 +185,10 @@ impl PromptGuidedToolsProvider {
 
     /// Rewrite a chat request: move tool definitions into the system prompt,
     /// clear native `tools`/`tool_choice`, and convert tool-related messages.
-    fn rewrite_request(req: ChatRequest) -> ChatRequest {
+    fn rewrite_request(req: &ChatRequest) -> ChatRequest {
         let tools = match &req.tools {
             Some(t) if !t.is_empty() => t,
-            _ => return req,
+            _ => return req.clone(),
         };
 
         let tool_defs_text = render_tool_definitions(tools);
@@ -302,7 +302,7 @@ impl PromptGuidedToolsProvider {
 
 #[async_trait]
 impl LLMProvider for PromptGuidedToolsProvider {
-    async fn chat(&self, req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         let has_tools = req.tools.as_ref().is_some_and(|t| !t.is_empty());
 
         if !has_tools {
@@ -311,7 +311,7 @@ impl LLMProvider for PromptGuidedToolsProvider {
         }
 
         let rewritten = Self::rewrite_request(req);
-        let mut response = self.inner.chat(rewritten).await?;
+        let mut response = self.inner.chat(&rewritten).await?;
 
         // If the inner provider already returned tool calls, pass through
         if response.has_tool_calls() {

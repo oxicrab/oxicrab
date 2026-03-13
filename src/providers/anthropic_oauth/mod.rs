@@ -553,7 +553,7 @@ impl AnthropicOAuthProvider {
 
 #[async_trait]
 impl LLMProvider for AnthropicOAuthProvider {
-    async fn chat(&self, req: ChatRequest) -> Result<LLMResponse> {
+    async fn chat(&self, req: &ChatRequest) -> Result<LLMResponse> {
         let model = req.model.as_deref().map(|m| {
             // Strip provider prefix (e.g. "anthropic/claude-opus-4-6" -> "claude-opus-4-6")
             if m.contains('/') {
@@ -582,7 +582,7 @@ impl LLMProvider for AnthropicOAuthProvider {
             None => None,
         };
 
-        let (system, anthropic_messages) = anthropic_common::convert_messages(req.messages);
+        let (system, anthropic_messages) = anthropic_common::convert_messages(req.messages.clone());
 
         let mut payload = json!({
             "model": model,

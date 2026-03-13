@@ -171,7 +171,7 @@ impl AgentLoop {
             // and ChatRequest takes ownership. Cost is negligible vs. the API round-trip.
             let response = effective_provider
                 .chat_with_retry(
-                    crate::providers::base::ChatRequest {
+                    &crate::providers::base::ChatRequest {
                         messages: messages.clone(),
                         tools: Some(Arc::clone(&tools_arc)),
                         model: Some(effective_model.to_string()),
@@ -572,7 +572,7 @@ impl AgentLoop {
         ));
         match effective_provider
             .chat_with_retry(
-                crate::providers::base::ChatRequest {
+                &crate::providers::base::ChatRequest {
                     messages: messages.clone(),
                     model: Some(effective_model.to_string()),
                     max_tokens: self.max_tokens,

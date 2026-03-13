@@ -32,7 +32,7 @@ impl MockProvider {
 
 #[async_trait]
 impl LLMProvider for MockProvider {
-    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         let mut responses = self.responses.lock().await;
         if let Some(response) = responses.pop() {
@@ -68,7 +68,7 @@ async fn test_closed_passes_through() {
     let config = test_config();
     let provider = CircuitBreakerProvider::wrap(inner.clone(), &config);
 
-    let result = provider.chat(make_request()).await;
+    let result = provider.chat(&make_request()).await;
     assert!(result.is_ok());
     assert_eq!(inner.call_count.load(Ordering::SeqCst), 1);
 }
@@ -85,11 +85,11 @@ async fn test_opens_after_threshold_failures() {
 
     // Trigger 3 failures
     for _ in 0..3 {
-        let _ = provider.chat(make_request()).await;
+        let _ = provider.chat(&make_request()).await;
     }
 
     // Circuit should now be open — next call should fail without reaching inner
-    let result = provider.chat(make_request()).await;
+    let result = provider.chat(&make_request()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("Circuit breaker is open"));
@@ -108,10 +108,10 @@ async fn test_open_rejects_immediately() {
     let provider = CircuitBreakerProvider::wrap(inner, &config);
 
     // One failure opens it
-    let _ = provider.chat(make_request()).await;
+    let _ = provider.chat(&make_request()).await;
 
     // Should reject immediately without reaching inner provider
-    let result = provider.chat(make_request()).await;
+    let result = provider.chat(&make_request()).await;
     assert!(result.is_err());
     assert!(
         result
@@ -143,14 +143,14 @@ async fn test_half_open_after_timeout() {
 
     // Trigger 3 failures to open
     for _ in 0..3 {
-        let _ = provider.chat(make_request()).await;
+        let _ = provider.chat(&make_request()).await;
     }
 
     // Wait briefly for the recovery timeout (0s)
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Should transition to HalfOpen and allow the request
-    let result = provider.chat(make_request()).await;
+    let result = provider.chat(&make_request()).await;
     assert!(result.is_ok());
 }
 
@@ -176,17 +176,17 @@ async fn test_half_open_success_closes() {
 
     // Open the circuit
     for _ in 0..3 {
-        let _ = provider.chat(make_request()).await;
+        let _ = provider.chat(&make_request()).await;
     }
 
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Two successful probes should close it
-    assert!(provider.chat(make_request()).await.is_ok());
-    assert!(provider.chat(make_request()).await.is_ok());
+    assert!(provider.chat(&make_request()).await.is_ok());
+    assert!(provider.chat(&make_request()).await.is_ok());
 
     // Should now be closed and accepting normally
-    assert!(provider.chat(make_request()).await.is_ok());
+    assert!(provider.chat(&make_request()).await.is_ok());
 }
 
 #[tokio::test]
@@ -210,13 +210,13 @@ async fn test_half_open_failure_reopens() {
 
     // Open the circuit
     for _ in 0..3 {
-        let _ = provider.chat(make_request()).await;
+        let _ = provider.chat(&make_request()).await;
     }
 
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Probe fails — should reopen
-    let _ = provider.chat(make_request()).await;
+    let _ = provider.chat(&make_request()).await;
 
     // Circuit should be open again (with long timeout this time it's 0 so it recovers immediately)
     // But the consecutive_failures counter is incremented, so it should still be open
@@ -241,12 +241,12 @@ async fn test_non_transient_errors_dont_trip() {
 
     // 5 non-transient failures should NOT trip the circuit
     for _ in 0..5 {
-        let _ = provider.chat(make_request()).await;
+        let _ = provider.chat(&make_request()).await;
     }
 
     // Circuit should still be closed — next call should go through
     // (we'll get an error from the empty mock, but it won't be rejected by breaker)
-    let result = provider.chat(make_request()).await;
+    let result = provider.chat(&make_request()).await;
     // It succeeds because MockProvider returns ok_response when responses is empty
     assert!(result.is_ok());
 }
@@ -327,15 +327,15 @@ async fn test_success_resets_counter() {
     let provider = CircuitBreakerProvider::wrap(inner, &config);
 
     // 2 failures, then 1 success should reset counter
-    let _ = provider.chat(make_request()).await; // fail
-    let _ = provider.chat(make_request()).await; // fail
-    let _ = provider.chat(make_request()).await; // success — resets
+    let _ = provider.chat(&make_request()).await; // fail
+    let _ = provider.chat(&make_request()).await; // fail
+    let _ = provider.chat(&make_request()).await; // success — resets
 
     // 2 more failures should NOT trip (counter was reset)
-    let _ = provider.chat(make_request()).await; // fail
-    let _ = provider.chat(make_request()).await; // fail
+    let _ = provider.chat(&make_request()).await; // fail
+    let _ = provider.chat(&make_request()).await; // fail
 
     // Should still be allowed (only 2 consecutive, threshold is 3)
-    let result = provider.chat(make_request()).await;
+    let result = provider.chat(&make_request()).await;
     assert!(result.is_ok());
 }

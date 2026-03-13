@@ -169,7 +169,7 @@ fn rewrite_request_moves_tools_to_system_prompt() {
         .temperature(0.7)
         .build();
 
-    let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
+    let rewritten = PromptGuidedToolsProvider::rewrite_request(&req);
     assert!(rewritten.tools.is_none());
     assert!(rewritten.tool_choice.is_none());
     assert!(rewritten.messages[0].content.contains("## Available Tools"));
@@ -190,7 +190,7 @@ fn rewrite_request_tool_result_to_user_message() {
     .temperature(0.7)
     .build();
 
-    let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
+    let rewritten = PromptGuidedToolsProvider::rewrite_request(&req);
     // tool result should be converted to user message
     let tool_msg = &rewritten.messages[2];
     assert_eq!(tool_msg.role, "user");
@@ -217,7 +217,7 @@ fn rewrite_request_assistant_tool_calls_to_inline_text() {
     .temperature(0.7)
     .build();
 
-    let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
+    let rewritten = PromptGuidedToolsProvider::rewrite_request(&req);
     let assistant_msg = &rewritten.messages[1];
     assert_eq!(assistant_msg.role, "assistant");
     assert!(assistant_msg.content.contains("<tool_call>"));
@@ -233,7 +233,7 @@ fn rewrite_request_tool_choice_any_adds_force_instruction() {
         .tool_choice("any")
         .build();
 
-    let rewritten = PromptGuidedToolsProvider::rewrite_request(req);
+    let rewritten = PromptGuidedToolsProvider::rewrite_request(&req);
     assert!(
         rewritten.messages[0]
             .content
@@ -269,7 +269,7 @@ async fn integration_text_tool_call_parsed() {
     .temperature(0.7)
     .build();
 
-    let response = provider.chat(req).await.unwrap();
+    let response = provider.chat(&req).await.unwrap();
     assert_eq!(response.tool_calls.len(), 1);
     assert_eq!(response.tool_calls[0].name, "web_search");
     assert_eq!(response.tool_calls[0].arguments["query"], "rust async");
@@ -286,7 +286,7 @@ async fn passthrough_when_no_tools() {
         .temperature(0.7)
         .build();
 
-    let response = provider.chat(req).await.unwrap();
+    let response = provider.chat(&req).await.unwrap();
     assert_eq!(response.content.as_deref(), Some("just text"));
     assert!(response.tool_calls.is_empty());
 }
@@ -314,7 +314,7 @@ impl MockProvider {
 
 #[async_trait]
 impl LLMProvider for MockProvider {
-    async fn chat(&self, _req: ChatRequest) -> anyhow::Result<LLMResponse> {
+    async fn chat(&self, _req: &ChatRequest) -> anyhow::Result<LLMResponse> {
         Ok(self.response.clone())
     }
 
