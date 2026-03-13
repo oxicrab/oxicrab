@@ -2,7 +2,7 @@ use crate::bus::{InboundMessage, OutboundMessage};
 use crate::safety::LeakDetector;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
@@ -36,7 +36,7 @@ pub struct MessageBus {
     pub outbound_tx: mpsc::Sender<OutboundMessage>,
     outbound_rx: Mutex<Option<mpsc::Receiver<OutboundMessage>>>,
     rate_state: Mutex<RateLimitState>,
-    leak_detector: LeakDetector,
+    leak_detector: Arc<LeakDetector>,
 }
 
 impl MessageBus {
@@ -45,6 +45,26 @@ impl MessageBus {
         rate_window_secs: f64,
         inbound_capacity: usize,
         outbound_capacity: usize,
+    ) -> Self {
+        Self::with_leak_detector(
+            rate_limit,
+            rate_window_secs,
+            inbound_capacity,
+            outbound_capacity,
+            Arc::new(LeakDetector::new()),
+        )
+    }
+
+    /// Create a `MessageBus` with a shared leak detector.
+    ///
+    /// Use this to share a single `LeakDetector` (with known secrets already
+    /// registered) across the message bus, agent loop, gateway, and subagents.
+    pub fn with_leak_detector(
+        rate_limit: usize,
+        rate_window_secs: f64,
+        inbound_capacity: usize,
+        outbound_capacity: usize,
+        leak_detector: Arc<LeakDetector>,
     ) -> Self {
         let (inbound_tx, inbound_rx) = mpsc::channel(inbound_capacity);
         let (outbound_tx, outbound_rx) = mpsc::channel(outbound_capacity);
@@ -60,15 +80,8 @@ impl MessageBus {
                 sender_timestamps: HashMap::new(),
                 outbound_timestamps: HashMap::new(),
             }),
-            leak_detector: LeakDetector::new(),
+            leak_detector,
         }
-    }
-
-    /// Register known secret values so the leak detector can find them
-    /// across encodings (raw, base64, hex).
-    /// Must be called before wrapping in `Arc` (i.e. during construction).
-    pub fn add_known_secrets(&mut self, secrets: &[(&str, &str)]) {
-        self.leak_detector.add_known_secrets(secrets);
     }
 }
 

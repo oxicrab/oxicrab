@@ -5,7 +5,7 @@ use crate::agent::tools::ToolRegistry;
 use crate::bus::{InboundMessage, MessageBus};
 use crate::config::PromptGuardConfig;
 use crate::providers::base::{LLMProvider, Message};
-use crate::safety::leak_detector::LeakDetector;
+use crate::safety::LeakDetector;
 use crate::safety::prompt_guard::PromptGuard;
 use activity_log::ActivityLog;
 use anyhow::Result;
@@ -41,6 +41,8 @@ pub struct SubagentConfig {
     pub main_tools: Option<Arc<ToolRegistry>>,
     /// Memory database for subagent activity logging.
     pub memory_db: Option<Arc<MemoryDB>>,
+    /// Shared leak detector with known secrets pre-registered.
+    pub leak_detector: Arc<LeakDetector>,
 }
 
 pub struct SubagentManager {
@@ -59,7 +61,7 @@ struct SubagentInner {
     tool_temperature: Option<f32>,
     prompt_guard: Option<PromptGuard>,
     prompt_guard_config: PromptGuardConfig,
-    leak_detector: LeakDetector,
+    leak_detector: Arc<LeakDetector>,
     exfil_guard: crate::config::ExfiltrationGuardConfig,
     main_tools: std::sync::OnceLock<Arc<ToolRegistry>>,
     memory_db: Option<Arc<MemoryDB>>,
@@ -84,7 +86,7 @@ impl SubagentManager {
             tool_temperature: config.tool_temperature,
             prompt_guard,
             prompt_guard_config: config.prompt_guard_config,
-            leak_detector: LeakDetector::new(),
+            leak_detector: config.leak_detector,
             exfil_guard: config.exfil_guard,
             main_tools: {
                 let lock = std::sync::OnceLock::new();

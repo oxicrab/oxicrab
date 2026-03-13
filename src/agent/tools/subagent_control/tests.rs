@@ -32,6 +32,7 @@ fn make_tool() -> SubagentControlTool {
         exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
         main_tools: None,
         memory_db: None,
+        leak_detector: Arc::new(crate::safety::LeakDetector::new()),
     };
     let manager = Arc::new(SubagentManager::new(config, bus));
     SubagentControlTool::new(manager)

@@ -55,7 +55,24 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
         });
     }
 
-    let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) = setup_message_bus(&config)?;
+    // Create a single shared leak detector with known secrets registered.
+    // This is shared across the message bus, agent loop, subagents, and gateway
+    // so that known-secret scanning is consistent everywhere.
+    let leak_detector = {
+        let mut detector = crate::safety::LeakDetector::new();
+        let secrets = config.collect_secrets();
+        if !secrets.is_empty() {
+            detector.add_known_secrets(&secrets);
+            debug!(
+                "registered {} known secrets with shared leak detector",
+                secrets.len()
+            );
+        }
+        Arc::new(detector)
+    };
+
+    let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) =
+        setup_message_bus_with_detector(leak_detector.clone())?;
     let cron = setup_cron_service(memory_db.clone());
     // Create typing indicator channel
     let (typing_tx, typing_rx) = tokio::sync::mpsc::channel::<(String, String)>(100);
@@ -74,6 +91,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
             typing_tx: Some(typing_tx),
             channels_config: Some(config.channels.clone()),
             memory_db: Some(memory_db),
+            leak_detector: Some(leak_detector.clone()),
         },
         &config,
     );
@@ -94,7 +112,6 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
             } else {
                 Some(config.gateway.api_key.clone())
             };
-            let secrets = config.collect_secrets();
             let (http_task, state) = crate::gateway::start(
                 &config.gateway.host,
                 config.gateway.port,
@@ -104,7 +121,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
                 a2a_config,
                 api_key,
                 &config.gateway.rate_limit,
-                &secrets,
+                leak_detector.clone(),
                 ready.clone(),
             )
             .await?;
@@ -184,7 +201,18 @@ pub(super) async fn gateway_echo() -> Result<()> {
     info!("Loading configuration for echo mode...");
     let config = load_config(None)?;
 
-    let (inbound_tx, outbound_tx, outbound_rx, bus) = setup_message_bus(&config)?;
+    // Create shared leak detector for echo mode
+    let leak_detector = {
+        let mut detector = crate::safety::LeakDetector::new();
+        let secrets = config.collect_secrets();
+        if !secrets.is_empty() {
+            detector.add_known_secrets(&secrets);
+        }
+        Arc::new(detector)
+    };
+
+    let (inbound_tx, outbound_tx, outbound_rx, bus) =
+        setup_message_bus_with_detector(leak_detector.clone())?;
     // Create typing indicator channel (not used in echo mode but needed for channels)
     let (echo_typing_tx, typing_rx) = tokio::sync::mpsc::channel::<(String, String)>(100);
     drop(echo_typing_tx);
@@ -199,7 +227,6 @@ pub(super) async fn gateway_echo() -> Result<()> {
         } else {
             Some(config.gateway.api_key.clone())
         };
-        let secrets = config.collect_secrets();
         let (http_task, state) = crate::gateway::start(
             &config.gateway.host,
             config.gateway.port,
@@ -209,7 +236,7 @@ pub(super) async fn gateway_echo() -> Result<()> {
             None, // A2A not available in echo mode
             api_key,
             &config.gateway.rate_limit,
-            &secrets,
+            leak_detector,
             ready,
         )
         .await?;
@@ -306,19 +333,17 @@ pub(super) type MessageBusSetup = (
     Arc<MessageBus>,
 );
 
-pub(super) fn setup_message_bus(config: &Config) -> Result<MessageBusSetup> {
+fn setup_message_bus_with_detector(
+    leak_detector: Arc<crate::safety::LeakDetector>,
+) -> Result<MessageBusSetup> {
     debug!("Creating message bus...");
-    let mut bus = MessageBus::default();
-
-    // Register known secrets so the leak detector can find encoded variants
-    let secrets = config.collect_secrets();
-    if !secrets.is_empty() {
-        debug!(
-            "registering {} known secrets with leak detector",
-            secrets.len()
-        );
-        bus.add_known_secrets(&secrets);
-    }
+    let bus = MessageBus::with_leak_detector(
+        30,   // DEFAULT_RATE_LIMIT
+        60.0, // DEFAULT_RATE_WINDOW_S
+        1000, // DEFAULT_INBOUND_CAPACITY
+        1000, // DEFAULT_OUTBOUND_CAPACITY
+        leak_detector,
+    );
 
     let inbound_tx = bus.inbound_tx.clone();
     let outbound_tx = Arc::new(bus.outbound_tx.clone());
@@ -346,6 +371,7 @@ pub(super) struct SetupAgentParams {
     pub(super) typing_tx: Option<Arc<tokio::sync::mpsc::Sender<(String, String)>>>,
     pub(super) channels_config: Option<crate::config::ChannelsConfig>,
     pub(super) memory_db: Option<Arc<crate::agent::memory::memory_db::MemoryDB>>,
+    pub(super) leak_detector: Option<Arc<crate::safety::LeakDetector>>,
 }
 
 pub(super) async fn setup_agent(
@@ -392,6 +418,7 @@ pub(super) async fn setup_agent(
                 typing_tx: params.typing_tx,
                 channels_config: params.channels_config,
                 memory_db: params.memory_db,
+                leak_detector: params.leak_detector,
             },
             routing,
         ))

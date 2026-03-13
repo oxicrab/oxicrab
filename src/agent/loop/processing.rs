@@ -106,6 +106,7 @@ impl AgentLoop {
         );
 
         debug!("Getting compacted history");
+        let had_checkpoint = self.last_checkpoint.lock().await.is_some();
         let history = self.get_compacted_history(&session).await?;
         debug!("Got {} history messages", history.len());
 
@@ -329,9 +330,16 @@ impl AgentLoop {
             )
             .await?;
 
-        // Reload session in case compaction updated it during the agent loop
-        // (compaction saves a compaction_summary to session metadata)
-        let mut session = self.sessions.get_or_create(&session_key).await?;
+        // Only reload session if compaction updated it (wrote compaction_summary).
+        // Compaction sets last_checkpoint when it produces a summary — if the
+        // checkpoint changed during this turn, the session metadata is stale.
+        let compaction_ran = self.last_checkpoint.lock().await.is_some() && !had_checkpoint;
+        let mut session = if compaction_ran {
+            debug!("compaction updated session, reloading");
+            self.sessions.get_or_create(&session_key).await?
+        } else {
+            session
+        };
         let extra = HashMap::new();
         // Use the redacted content (msg_content), not the original (msg.content),
         // so that secrets detected by inbound scanning are not persisted to disk.

@@ -336,15 +336,22 @@ impl SessionManager {
     }
 
     pub async fn save(&self, session: &Session) -> Result<()> {
-        let data = serde_json::to_string(session).context("failed to serialize session to JSON")?;
         let session_key = session.key.clone();
         let msg_count = session.messages.len();
 
+        // Serialize + write inside spawn_blocking so neither JSON serialization
+        // (can be expensive for large sessions) nor SQLite I/O blocks the
+        // async runtime.
         let db = self.db.clone();
         let key = session.key.clone();
-        tokio::task::spawn_blocking(move || db.save_session(&key, &data))
-            .await
-            .map_err(|e| anyhow::anyhow!("session save task failed: {e}"))??;
+        let session_clone = session.clone();
+        tokio::task::spawn_blocking(move || {
+            let data = serde_json::to_string(&session_clone)
+                .context("failed to serialize session to JSON")?;
+            db.save_session(&key, &data)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("session save task failed: {e}"))??;
 
         debug!("session saved: {} ({} messages)", session_key, msg_count);
 

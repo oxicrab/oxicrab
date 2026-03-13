@@ -84,12 +84,14 @@ async fn test_outbound_rate_limit_enforced() {
 
 #[tokio::test]
 async fn test_outbound_leak_detection_redacts() {
-    let mut bus = MessageBus::default();
-    let mut rx = bus.take_outbound_rx().unwrap();
-
-    // add_known_secrets requires values >= 10 chars
+    // Create a leak detector with a known secret, then share it with the bus
     let secret = "sk-secret-1234567890";
-    bus.add_known_secrets(&[("api_key", secret)]);
+    let mut detector = crate::safety::LeakDetector::new();
+    detector.add_known_secrets(&[("api_key", secret)]);
+    let detector = std::sync::Arc::new(detector);
+
+    let bus = MessageBus::with_leak_detector(30, 60.0, 1000, 1000, detector);
+    let mut rx = bus.take_outbound_rx().unwrap();
 
     let msg = make_outbound("ch", "dest", &format!("the key is {secret}"));
     bus.publish_outbound(msg).await.unwrap();

@@ -107,7 +107,7 @@ pub struct AgentLoop {
     prompt_guard: Option<crate::safety::prompt_guard::PromptGuard>,
     prompt_guard_config: crate::config::PromptGuardConfig,
     /// Inbound secret leak detector — scans user messages before they reach the LLM
-    leak_detector: LeakDetector,
+    leak_detector: Arc<LeakDetector>,
     /// MCP manager kept alive for graceful child process shutdown
     _mcp_manager: Option<crate::agent::tools::mcp::McpManager>,
     /// Pre-resolved model routing for task-specific provider selection
@@ -153,6 +153,7 @@ impl AgentLoop {
                     prompt_guard: prompt_guard_config,
                 },
             memory_db: shared_db,
+            leak_detector: shared_leak_detector,
         } = config;
 
         // Extract receiver from the bus (called once at startup).
@@ -229,6 +230,8 @@ impl AgentLoop {
 
         let pending_buttons = crate::agent::tools::interactive::new_pending_buttons();
 
+        let leak_detector = shared_leak_detector.unwrap_or_else(|| Arc::new(LeakDetector::new()));
+
         let tool_ctx = ToolBuildContext {
             workspace: workspace.clone(),
             restrict_to_workspace: tool_configs.restrict_to_workspace,
@@ -269,6 +272,7 @@ impl AgentLoop {
                     exfil_guard: exfiltration_guard.clone(),
                     main_tools: None, // set after register_all_tools()
                     memory_db: Some(memory.db()),
+                    leak_detector: leak_detector.clone(),
                 }
             },
             allowed_commands: tool_configs.allowed_commands,
@@ -395,7 +399,7 @@ impl AgentLoop {
                 None
             },
             prompt_guard_config,
-            leak_detector: LeakDetector::new(),
+            leak_detector,
             _mcp_manager: mcp_manager,
             routing,
             complexity_scorer,

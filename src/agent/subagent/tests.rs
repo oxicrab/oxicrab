@@ -79,6 +79,7 @@ fn make_manager(provider: Arc<dyn LLMProvider>, max_concurrent: usize) -> Subage
             exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
             main_tools: None,
             memory_db: None,
+            leak_detector: Arc::new(crate::safety::LeakDetector::new()),
         },
         bus,
     );
@@ -277,6 +278,7 @@ async fn test_silent_mode_no_bus_message() {
             exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
             main_tools: None,
             memory_db: None,
+            leak_detector: Arc::new(crate::safety::LeakDetector::new()),
         },
         bus.clone(),
     );
@@ -327,6 +329,7 @@ async fn test_non_silent_mode_publishes_bus_message() {
             exfil_guard: crate::config::ExfiltrationGuardConfig::default(),
             main_tools: None,
             memory_db: None,
+            leak_detector: Arc::new(crate::safety::LeakDetector::new()),
         },
         bus.clone(),
     );
@@ -481,7 +484,7 @@ fn make_inner_with_tools(
         tool_temperature: Some(0.0),
         prompt_guard: None,
         prompt_guard_config: crate::config::PromptGuardConfig::default(),
-        leak_detector: crate::safety::leak_detector::LeakDetector::new(),
+        leak_detector: std::sync::Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         exfil_guard,
         main_tools: lock,
         memory_db: None,

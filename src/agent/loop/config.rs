@@ -1,6 +1,7 @@
 use crate::bus::{MessageBus, OutboundMessage};
 use crate::cron::service::CronService;
 use crate::providers::base::LLMProvider;
+use crate::safety::LeakDetector;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -131,6 +132,9 @@ pub struct AgentLoopConfig {
     /// Pre-opened `MemoryDB` to share with the agent (avoids duplicate connections).
     /// When `Some`, the agent reuses this DB instead of opening its own.
     pub memory_db: Option<Arc<crate::agent::memory::memory_db::MemoryDB>>,
+    /// Shared leak detector with known secrets pre-registered.
+    /// When `None`, a default detector (base patterns only) is created.
+    pub leak_detector: Option<Arc<LeakDetector>>,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -148,6 +152,8 @@ pub struct AgentLoopRuntimeParams {
     pub channels_config: Option<crate::config::ChannelsConfig>,
     /// Pre-opened `MemoryDB` to share (avoids duplicate connections to same file).
     pub memory_db: Option<Arc<crate::agent::memory::memory_db::MemoryDB>>,
+    /// Shared leak detector with known secrets pre-registered.
+    pub leak_detector: Option<Arc<LeakDetector>>,
 }
 
 impl AgentLoopConfig {
@@ -233,6 +239,7 @@ impl AgentLoopConfig {
                 prompt_guard: config.agents.defaults.prompt_guard.clone(),
             },
             memory_db: params.memory_db,
+            leak_detector: params.leak_detector,
         }
     }
 
@@ -302,6 +309,7 @@ impl AgentLoopConfig {
                 prompt_guard: crate::config::PromptGuardConfig::default(),
             },
             memory_db: None,
+            leak_detector: None,
         }
     }
 }
