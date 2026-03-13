@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -94,6 +95,9 @@ pub struct HttpApiState {
     /// Used by `deliver_to_targets()` which bypasses `MessageBus` and must
     /// run its own leak detection.
     leak_detector: Arc<crate::safety::leak_detector::LeakDetector>,
+    /// Set to `true` once the agent loop is fully initialized and running.
+    /// The health endpoint uses this to distinguish liveness from readiness.
+    ready: Arc<AtomicBool>,
 }
 
 /// Drop guard that removes a pending response entry when the handler is dropped
@@ -494,9 +498,14 @@ async fn chat_handler(
 }
 
 /// GET /api/health — health check endpoint.
-async fn health_handler() -> impl IntoResponse {
+///
+/// Returns `"ready"` once the agent loop is running, `"starting"` during
+/// initialization. Kubernetes-style probes: use `/api/health` for liveness
+/// (always 200) and check `status == "ready"` for readiness.
+async fn health_handler(State(state): State<HttpApiState>) -> impl IntoResponse {
+    let is_ready = state.ready.load(Ordering::SeqCst);
     Json(serde_json::json!({
-        "status": "ok",
+        "status": if is_ready { "ready" } else { "starting" },
         "version": crate::VERSION
     }))
 }
@@ -796,6 +805,7 @@ pub async fn start<S: BuildHasher>(
     api_key: Option<String>,
     rate_limit: &crate::config::schema::RateLimitConfig,
     known_secrets: &[(&str, &str)],
+    ready: Arc<AtomicBool>,
 ) -> Result<(tokio::task::JoinHandle<()>, HttpApiState)> {
     let webhook_map: HashMap<String, WebhookConfig> = webhooks.into_iter().collect();
     let active: Vec<_> = webhook_map
@@ -828,6 +838,7 @@ pub async fn start<S: BuildHasher>(
         webhooks: Arc::new(webhook_map),
         outbound_tx,
         leak_detector: Arc::new(detector),
+        ready,
     };
 
     // Set up A2A state if enabled

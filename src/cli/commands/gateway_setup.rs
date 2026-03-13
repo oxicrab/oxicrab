@@ -7,6 +7,7 @@ use crate::cron::types::CronJob;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tracing::{debug, error, info, warn};
 
 pub(super) async fn gateway(model: Option<String>) -> Result<()> {
@@ -27,12 +28,11 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
 
     // Create MemoryDB early so OAuth providers can use it for token caching.
     // Use spawn_blocking: SQLite open + PRAGMAs + schema migration are sync I/O.
-    let db_path = config
-        .workspace_path()
-        .join("memory")
-        .join("memory.sqlite3");
     let memory_db = {
-        let path = db_path.clone();
+        let path = config
+            .workspace_path()
+            .join("memory")
+            .join("memory.sqlite3");
         tokio::task::spawn_blocking(move || {
             crate::agent::memory::memory_db::MemoryDB::new(&path)
                 .with_context(|| format!("failed to create MemoryDB at: {}", path.display()))
@@ -78,6 +78,10 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
         &config,
     );
 
+    // Shared readiness flag — set to true once the agent loop is started.
+    // The health endpoint checks this to distinguish liveness from readiness.
+    let ready = Arc::new(AtomicBool::new(false));
+
     let gateway_fut = async {
         if config.gateway.enabled {
             let a2a_config = if config.gateway.a2a.enabled {
@@ -91,7 +95,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
                 Some(config.gateway.api_key.clone())
             };
             let secrets = config.collect_secrets();
-            let (_http_task, state) = crate::gateway::start(
+            let (http_task, state) = crate::gateway::start(
                 &config.gateway.host,
                 config.gateway.port,
                 Arc::new(inbound_tx.clone()),
@@ -101,21 +105,33 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
                 api_key,
                 &config.gateway.rate_limit,
                 &secrets,
+                ready.clone(),
             )
             .await?;
-            Ok(Some(state))
+            Ok(Some((http_task, state)))
         } else {
             info!("HTTP API server disabled");
             Ok(None)
         }
     };
 
-    let (agent, http_state): (
-        Result<Arc<AgentLoop>>,
-        Result<Option<crate::gateway::HttpApiState>>,
-    ) = tokio::join!(agent_fut, gateway_fut);
+    let (agent, gateway_result) = tokio::join!(agent_fut, gateway_fut);
+    let gateway_result: Result<
+        Option<(tokio::task::JoinHandle<()>, crate::gateway::HttpApiState)>,
+    > = gateway_result;
+
+    // If agent setup failed, abort the HTTP server before propagating the error
+    if agent.is_err()
+        && let Ok(Some((ref http_task, _))) = gateway_result
+    {
+        http_task.abort();
+    }
+
     let agent = agent?;
-    let http_state = http_state?;
+    let (http_state, _http_task) = match gateway_result? {
+        Some((task, state)) => (Some(state), Some(task)),
+        None => (None, None),
+    };
 
     let memory_db_for_dlq = agent.memory_db();
     setup_cron_callbacks(
@@ -143,6 +159,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     start_services(cron.clone()).await?;
 
     // Run agent and channels
+    ready.store(true, std::sync::atomic::Ordering::SeqCst);
     let agent_task = start_agent_loop(agent.clone());
     let channels_task = start_channels_loop(channels, outbound_rx, typing_rx, http_state);
 
@@ -172,6 +189,9 @@ pub(super) async fn gateway_echo() -> Result<()> {
     let (echo_typing_tx, typing_rx) = tokio::sync::mpsc::channel::<(String, String)>(100);
     drop(echo_typing_tx);
 
+    // Echo mode is immediately ready (no agent loop to wait for)
+    let ready = Arc::new(AtomicBool::new(true));
+
     // Start HTTP API server if enabled
     let http_state = if config.gateway.enabled {
         let api_key = if config.gateway.api_key.is_empty() {
@@ -190,6 +210,7 @@ pub(super) async fn gateway_echo() -> Result<()> {
             api_key,
             &config.gateway.rate_limit,
             &secrets,
+            ready,
         )
         .await?;
         drop(http_task);
