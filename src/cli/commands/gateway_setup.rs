@@ -7,6 +7,7 @@ use crate::cron::types::CronJob;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tracing::{debug, error, info, warn};
 
 pub(super) async fn gateway(model: Option<String>) -> Result<()> {
@@ -25,22 +26,33 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     // Ensure workspace template files exist (AGENTS.md, USER.md, etc.)
     super::create_workspace_templates(&config.workspace_path())?;
 
-    // Create MemoryDB early so OAuth providers can use it for token caching
-    let db_path = config
-        .workspace_path()
-        .join("memory")
-        .join("memory.sqlite3");
-    let memory_db = Arc::new(
-        crate::agent::memory::memory_db::MemoryDB::new(&db_path)
-            .with_context(|| format!("failed to create MemoryDB at: {}", db_path.display()))?,
-    );
+    // Create MemoryDB early so OAuth providers can use it for token caching.
+    // Use spawn_blocking: SQLite open + PRAGMAs + schema migration are sync I/O.
+    let memory_db = {
+        let path = config
+            .workspace_path()
+            .join("memory")
+            .join("memory.sqlite3");
+        tokio::task::spawn_blocking(move || {
+            crate::agent::memory::memory_db::MemoryDB::new(&path)
+                .with_context(|| format!("failed to create MemoryDB at: {}", path.display()))
+        })
+        .await
+        .context("MemoryDB init task panicked")??
+    };
+    let memory_db = Arc::new(memory_db);
 
     // Setup components
     let provider = setup_provider(&config, model.as_deref(), Some(memory_db.clone()))?;
 
-    // Warmup provider connection (non-blocking, non-fatal)
-    if let Err(e) = provider.warmup().await {
-        warn!("provider warmup failed (non-fatal): {}", e);
+    // Fire-and-forget warmup — don't block startup on a network round-trip
+    {
+        let p = provider.clone();
+        tokio::spawn(async move {
+            if let Err(e) = p.warmup().await {
+                warn!("provider warmup failed (non-fatal): {}", e);
+            }
+        });
     }
 
     let (inbound_tx, outbound_tx, outbound_rx, bus_for_channels) = setup_message_bus(&config)?;
@@ -49,7 +61,10 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     let (typing_tx, typing_rx) = tokio::sync::mpsc::channel::<(String, String)>(100);
     let typing_tx = Arc::new(typing_tx);
 
-    let agent = setup_agent(
+    // Start agent setup and HTTP gateway in parallel — gateway only needs message
+    // bus channels, not the agent, so it can begin accepting connections sooner
+    // (useful for container readiness probes).
+    let agent_fut = setup_agent(
         SetupAgentParams {
             bus: bus_for_channels.clone(),
             provider,
@@ -61,8 +76,63 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
             memory_db: Some(memory_db),
         },
         &config,
-    )
-    .await?;
+    );
+
+    // Shared readiness flag — set to true once the agent loop is started.
+    // The health endpoint checks this to distinguish liveness from readiness.
+    let ready = Arc::new(AtomicBool::new(false));
+
+    let gateway_fut = async {
+        if config.gateway.enabled {
+            let a2a_config = if config.gateway.a2a.enabled {
+                Some(config.gateway.a2a.clone())
+            } else {
+                None
+            };
+            let api_key = if config.gateway.api_key.is_empty() {
+                None
+            } else {
+                Some(config.gateway.api_key.clone())
+            };
+            let secrets = config.collect_secrets();
+            let (http_task, state) = crate::gateway::start(
+                &config.gateway.host,
+                config.gateway.port,
+                Arc::new(inbound_tx.clone()),
+                Some(outbound_tx.clone()),
+                config.gateway.webhooks.clone(),
+                a2a_config,
+                api_key,
+                &config.gateway.rate_limit,
+                &secrets,
+                ready.clone(),
+            )
+            .await?;
+            Ok(Some((http_task, state)))
+        } else {
+            info!("HTTP API server disabled");
+            Ok(None)
+        }
+    };
+
+    let (agent, gateway_result) = tokio::join!(agent_fut, gateway_fut);
+    let gateway_result: Result<
+        Option<(tokio::task::JoinHandle<()>, crate::gateway::HttpApiState)>,
+    > = gateway_result;
+
+    // If agent setup failed, abort the HTTP server before propagating the error
+    if agent.is_err()
+        && let Ok(Some((ref http_task, _))) = gateway_result
+    {
+        http_task.abort();
+    }
+
+    let agent = agent?;
+    let (http_state, _http_task) = match gateway_result? {
+        Some((task, state)) => (Some(state), Some(task)),
+        None => (None, None),
+    };
+
     let memory_db_for_dlq = agent.memory_db();
     setup_cron_callbacks(
         cron.clone(),
@@ -71,37 +141,6 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
         memory_db_for_dlq,
     )
     .await?;
-
-    // Start HTTP API server (needs inbound_tx clone before channels takes ownership)
-    let http_state = if config.gateway.enabled {
-        let a2a_config = if config.gateway.a2a.enabled {
-            Some(config.gateway.a2a.clone())
-        } else {
-            None
-        };
-        let api_key = if config.gateway.api_key.is_empty() {
-            None
-        } else {
-            Some(config.gateway.api_key.clone())
-        };
-        let secrets = config.collect_secrets();
-        let (_http_task, state) = crate::gateway::start(
-            &config.gateway.host,
-            config.gateway.port,
-            Arc::new(inbound_tx.clone()),
-            Some(outbound_tx.clone()),
-            config.gateway.webhooks.clone(),
-            a2a_config,
-            api_key,
-            &config.gateway.rate_limit,
-            &secrets,
-        )
-        .await?;
-        Some(state)
-    } else {
-        info!("HTTP API server disabled");
-        None
-    };
 
     let channels = setup_channels(&config, inbound_tx);
 
@@ -120,6 +159,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     start_services(cron.clone()).await?;
 
     // Run agent and channels
+    ready.store(true, std::sync::atomic::Ordering::SeqCst);
     let agent_task = start_agent_loop(agent.clone());
     let channels_task = start_channels_loop(channels, outbound_rx, typing_rx, http_state);
 
@@ -149,6 +189,9 @@ pub(super) async fn gateway_echo() -> Result<()> {
     let (echo_typing_tx, typing_rx) = tokio::sync::mpsc::channel::<(String, String)>(100);
     drop(echo_typing_tx);
 
+    // Echo mode is immediately ready (no agent loop to wait for)
+    let ready = Arc::new(AtomicBool::new(true));
+
     // Start HTTP API server if enabled
     let http_state = if config.gateway.enabled {
         let api_key = if config.gateway.api_key.is_empty() {
@@ -167,6 +210,7 @@ pub(super) async fn gateway_echo() -> Result<()> {
             api_key,
             &config.gateway.rate_limit,
             &secrets,
+            ready,
         )
         .await?;
         drop(http_task);
