@@ -1150,6 +1150,10 @@ fn convert_buttons_to_blocks(metadata: &HashMap<String, Value>) -> Vec<Value> {
                 "text": {"type": "plain_text", "text": label},
                 "action_id": id,
             });
+            // Carry context data in the button's value field (returned on click)
+            if let Some(ctx) = b["context"].as_str() {
+                btn["value"] = Value::String(ctx.to_string());
+            }
             // Slack only supports "primary" and "danger" styles
             match b["style"].as_str() {
                 Some("primary") => {
@@ -1202,6 +1206,7 @@ async fn handle_interactive_payload(
     };
 
     let action_id = first_action["action_id"].as_str().unwrap_or_default();
+    let action_value = first_action["value"].as_str().unwrap_or_default();
     let user_id = payload["user"]["id"].as_str().unwrap_or_default();
     let channel_id = payload["channel"]["id"].as_str().unwrap_or_default();
     let message_ts = payload["message"]["ts"].as_str().unwrap_or_default();
@@ -1235,7 +1240,12 @@ async fn handle_interactive_payload(
         }
     }
 
-    let content = format!("[button:{action_id}]");
+    // Include button context in the message so the LLM can act on it
+    let content = if action_value.is_empty() {
+        format!("[button:{action_id}]")
+    } else {
+        format!("[button:{action_id}]\nButton context: {action_value}")
+    };
     let is_group = !is_dm;
     let mut builder = InboundMessage::builder(
         "slack",
@@ -1246,6 +1256,9 @@ async fn handle_interactive_payload(
     .meta("user_id", Value::String(user_id.to_string()))
     .meta("action_id", Value::String(action_id.to_string()))
     .is_group(is_group);
+    if !action_value.is_empty() {
+        builder = builder.meta("button_context", Value::String(action_value.to_string()));
+    }
     if !message_ts.is_empty() {
         builder = builder.meta(crate::bus::meta::TS, Value::String(message_ts.to_string()));
     }

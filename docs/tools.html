@@ -541,13 +541,13 @@
 
   <div id="add_buttons" class="tool-section">
     <h2>add_buttons <span class="badge badge-core">Core</span></h2>
-    <p class="desc">Attach interactive buttons to the next assistant response. Works on Slack (Block Kit) and Discord (action rows). Buttons appear below the message text. When a user clicks a button, the agent receives <code>[button:{id}]</code> as a new message.</p>
+    <p class="desc">Attach interactive buttons to the next assistant response. Works on Slack (Block Kit) and Discord (action rows). Buttons appear below the message text. When a user clicks a button, the agent receives <code>[button:{id}]</code> as a new message, followed by any context data that was attached to the button.</p>
 
     <h3>Parameters</h3>
     <table class="action-table">
       <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
       <tbody>
-        <tr><td>buttons</td><td>array</td><td>Array of button objects (max 5). Each object: <code>id</code> (string, required), <code>label</code> (string, required), <code>style</code> (string, optional: "primary", "success", "danger", "secondary"; default "secondary").</td></tr>
+        <tr><td>buttons</td><td>array</td><td>Array of button objects (max 5). Each object: <code>id</code> (string, required), <code>label</code> (string, required), <code>style</code> (string, optional: "primary", "success", "danger", "secondary"; default "secondary"), <code>context</code> (string, optional: opaque data returned on click &mdash; use to carry task IDs or action parameters; max 2000 chars, carried via Slack <code>value</code> field).</td></tr>
       </tbody>
     </table>
 

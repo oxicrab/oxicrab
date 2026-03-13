@@ -543,11 +543,15 @@ impl AgentLoop {
             let buttons_json: Vec<serde_json::Value> = specs
                 .into_iter()
                 .map(|b| {
-                    serde_json::json!({
+                    let mut btn = serde_json::json!({
                         "id": b.id,
                         "label": b.label,
                         "style": b.style,
-                    })
+                    });
+                    if let Some(ctx) = b.context {
+                        btn["context"] = serde_json::Value::String(ctx);
+                    }
+                    btn
                 })
                 .collect();
             meta.insert(

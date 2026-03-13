@@ -10,6 +10,9 @@ pub struct ButtonSpec {
     pub id: String,
     pub label: String,
     pub style: String,
+    /// Optional context data returned when the button is clicked.
+    /// On Slack, carried via the button `value` field (max 2000 chars).
+    pub context: Option<String>,
 }
 
 /// Shared state for pending buttons. The `add_buttons` tool writes here;
@@ -40,7 +43,9 @@ impl Tool for AddButtonsTool {
     fn description(&self) -> &'static str {
         "Attach interactive buttons to your next response message. Users can click these buttons \
          to trigger actions. Each button has an id (returned as [button:id] when clicked), \
-         a label (displayed text), and an optional style (primary, danger, success, secondary)."
+         a label (displayed text), an optional style, and optional context (returned alongside \
+         the id when clicked — use this to carry structured data like task IDs so you can take \
+         action without needing to look them up again)."
     }
 
     fn parameters(&self) -> Value {
@@ -65,6 +70,10 @@ impl Tool for AddButtonsTool {
                                 "type": "string",
                                 "enum": ["primary", "danger", "success", "secondary"],
                                 "description": "Button visual style (default: secondary)"
+                            },
+                            "context": {
+                                "type": "string",
+                                "description": "Opaque context data returned when the button is clicked. Use this to carry task IDs, action parameters, or any data needed to fulfill the button's action (max 2000 chars)."
                             }
                         },
                         "required": ["id", "label"]
@@ -117,10 +126,18 @@ impl Tool for AddButtonsTool {
             }
             let label = b["label"].as_str().unwrap_or(id);
             let style = b["style"].as_str().unwrap_or("secondary");
+            let context = b["context"].as_str().map(|s| {
+                if s.len() > 2000 {
+                    s[..2000].to_string()
+                } else {
+                    s.to_string()
+                }
+            });
             specs.push(ButtonSpec {
                 id: id.to_string(),
                 label: label.to_string(),
                 style: style.to_string(),
+                context,
             });
         }
 
@@ -145,7 +162,7 @@ mod tests {
         let tool = AddButtonsTool::new(pending.clone());
         let params = serde_json::json!({
             "buttons": [
-                {"id": "yes", "label": "Yes", "style": "primary"},
+                {"id": "yes", "label": "Yes", "style": "primary", "context": "{\"task_id\": \"123\"}"},
                 {"id": "no", "label": "No", "style": "danger"}
             ]
         });
@@ -159,7 +176,9 @@ mod tests {
         assert_eq!(specs[0].id, "yes");
         assert_eq!(specs[0].label, "Yes");
         assert_eq!(specs[0].style, "primary");
+        assert_eq!(specs[0].context.as_deref(), Some("{\"task_id\": \"123\"}"));
         assert_eq!(specs[1].id, "no");
+        assert!(specs[1].context.is_none());
     }
 
     #[test]
@@ -169,6 +188,7 @@ mod tests {
             id: "x".into(),
             label: "X".into(),
             style: "primary".into(),
+            context: None,
         }]);
         let taken = pending.lock().unwrap().take();
         assert!(taken.is_some());
@@ -240,5 +260,38 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(tool.execute(params, &ctx)).unwrap();
         assert!(result.is_error);
+    }
+
+    #[test]
+    fn test_add_buttons_context_truncated_at_2000() {
+        let pending = new_pending_buttons();
+        let tool = AddButtonsTool::new(pending.clone());
+        let long_context = "x".repeat(3000);
+        let params = serde_json::json!({
+            "buttons": [{"id": "ok", "label": "OK", "context": long_context}]
+        });
+        let ctx = ExecutionContext::default();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(tool.execute(params, &ctx)).unwrap();
+        assert!(!result.is_error);
+
+        let specs = pending.lock().unwrap().take().unwrap();
+        assert_eq!(specs[0].context.as_ref().unwrap().len(), 2000);
+    }
+
+    #[test]
+    fn test_add_buttons_no_context_is_none() {
+        let pending = new_pending_buttons();
+        let tool = AddButtonsTool::new(pending.clone());
+        let params = serde_json::json!({
+            "buttons": [{"id": "ok", "label": "OK"}]
+        });
+        let ctx = ExecutionContext::default();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(tool.execute(params, &ctx)).unwrap();
+        assert!(!result.is_error);
+
+        let specs = pending.lock().unwrap().take().unwrap();
+        assert!(specs[0].context.is_none());
     }
 }

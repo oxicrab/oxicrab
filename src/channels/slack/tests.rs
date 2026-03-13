@@ -707,6 +707,30 @@ fn test_convert_buttons_to_blocks_empty_array() {
     assert!(convert_buttons_to_blocks(&metadata).is_empty());
 }
 
+#[test]
+fn test_convert_buttons_to_blocks_with_context() {
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        crate::bus::meta::BUTTONS.to_string(),
+        serde_json::json!([
+            {"id": "complete", "label": "Complete", "style": "primary", "context": "{\"task_id\":\"abc123\",\"list_id\":\"list1\"}"},
+            {"id": "skip", "label": "Skip"}
+        ]),
+    );
+
+    let blocks = convert_buttons_to_blocks(&metadata);
+    assert_eq!(blocks.len(), 1);
+    let elements = blocks[0]["elements"].as_array().unwrap();
+    assert_eq!(elements.len(), 2);
+    // First button should have the value field set
+    assert_eq!(
+        elements[0]["value"].as_str().unwrap(),
+        "{\"task_id\":\"abc123\",\"list_id\":\"list1\"}"
+    );
+    // Second button should not have a value field
+    assert!(elements[1].get("value").is_none() || elements[1]["value"].is_null());
+}
+
 // --- is_slack_domain tests ---
 
 #[test]
