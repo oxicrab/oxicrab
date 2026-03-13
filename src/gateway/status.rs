@@ -200,3 +200,117 @@ impl ToolSnapshot {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tool_snapshot_empty_registry() {
+        let registry = ToolRegistry::new();
+        let snap = ToolSnapshot::from_registry(&registry);
+        assert_eq!(snap.total, 0);
+        assert_eq!(snap.deferred, 0);
+        assert!(snap.by_category.is_empty());
+    }
+
+    #[test]
+    fn test_tool_snapshot_groups_by_category() {
+        use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
+        use crate::agent::tools::{Tool, ToolResult};
+        use async_trait::async_trait;
+        use serde_json::Value;
+
+        struct FakeTool {
+            tool_name: &'static str,
+            cat: ToolCategory,
+        }
+
+        #[async_trait]
+        impl Tool for FakeTool {
+            fn name(&self) -> &str {
+                self.tool_name
+            }
+            fn description(&self) -> &'static str {
+                "test"
+            }
+            fn parameters(&self) -> Value {
+                serde_json::json!({})
+            }
+            fn capabilities(&self) -> ToolCapabilities {
+                ToolCapabilities {
+                    category: self.cat,
+                    ..Default::default()
+                }
+            }
+            async fn execute(&self, _: Value, _: &ExecutionContext) -> anyhow::Result<ToolResult> {
+                Ok(ToolResult::new("ok"))
+            }
+        }
+
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(FakeTool {
+            tool_name: "shell",
+            cat: ToolCategory::Core,
+        }));
+        registry.register(Arc::new(FakeTool {
+            tool_name: "read_file",
+            cat: ToolCategory::Core,
+        }));
+        registry.register(Arc::new(FakeTool {
+            tool_name: "web_search",
+            cat: ToolCategory::Web,
+        }));
+
+        let snap = ToolSnapshot::from_registry(&registry);
+        assert_eq!(snap.total, 3);
+        assert_eq!(snap.by_category["Core"], vec!["read_file", "shell"]);
+        assert_eq!(snap.by_category["Web"], vec!["web_search"]);
+    }
+
+    #[test]
+    fn test_config_snapshot_serializes_without_secrets() {
+        let json = serde_json::to_string(&StatusConfigSnapshot {
+            models: ModelsSnapshot {
+                default: "provider/model".to_string(),
+                tasks: HashMap::new(),
+                fallbacks: vec![],
+                chat_routing: None,
+            },
+            channels: ChannelsSnapshot {
+                telegram: true,
+                discord: false,
+                slack: true,
+                whatsapp: false,
+                twilio: false,
+            },
+            safety: SafetySnapshot {
+                prompt_guard: PromptGuardSnapshot {
+                    enabled: true,
+                    action: "Block".to_string(),
+                },
+                exfiltration_guard: false,
+                sandbox: SandboxSnapshot {
+                    enabled: true,
+                    block_network: true,
+                },
+            },
+            gateway: GatewaySnapshot {
+                rate_limit: RateLimitSnapshot {
+                    enabled: true,
+                    rps: 10,
+                    burst: 30,
+                },
+                webhooks: vec!["deploy".to_string()],
+                a2a: false,
+            },
+            embeddings_enabled: true,
+        })
+        .unwrap();
+
+        assert!(!json.contains("apiKey"));
+        assert!(!json.contains("token"));
+        assert!(!json.contains("secret"));
+        assert!(json.contains("provider/model"));
+    }
+}
