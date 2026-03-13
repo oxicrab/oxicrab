@@ -28,7 +28,7 @@ pub async fn run() -> Result<()> {
             if echo {
                 gateway_setup::gateway_echo().await?;
             } else {
-                gateway_setup::gateway(model).await?;
+                Box::pin(gateway_setup::gateway(model)).await?;
             }
         }
         Commands::Agent { message, session } => {

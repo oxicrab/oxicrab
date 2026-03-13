@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oxicrab Status</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --bg-card: #16213e;
+    --bg-card-hover: #1a2745;
+    --border: #2a3a5c;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --text-heading: #f1f5f9;
+    --green: #4ade80;
+    --red: #f87171;
+    --amber: #fbbf24;
+    --blue: #60a5fa;
+    --purple: #a78bfa;
+    --cyan: #22d3ee;
+    --radius: 10px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 20px;
+    line-height: 1.5;
+  }
+
+  header {
+    max-width: 1200px;
+    margin: 0 auto 24px auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  header h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-heading);
+    white-space: nowrap;
+  }
+
+  .header-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    align-items: baseline;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+
+  .header-meta .version {
+    color: var(--purple);
+    font-weight: 600;
+  }
+
+  .header-meta .uptime {
+    color: var(--cyan);
+  }
+
+  .header-actions {
+    margin-left: auto;
+    font-size: 0.75rem;
+  }
+
+  .header-actions a {
+    color: var(--text-dim);
+    text-decoration: none;
+    cursor: pointer;
+    border-bottom: 1px dashed var(--text-dim);
+    transition: color 0.2s;
+  }
+
+  .header-actions a:hover {
+    color: var(--text);
+  }
+
+  #error-banner {
+    display: none;
+    max-width: 1200px;
+    margin: 0 auto 16px auto;
+    padding: 12px 16px;
+    background: rgba(248, 113, 113, 0.15);
+    border: 1px solid var(--red);
+    border-radius: var(--radius);
+    color: var(--red);
+    font-size: 0.85rem;
+  }
+
+  #echo-banner {
+    display: none;
+    max-width: 1200px;
+    margin: 0 auto 16px auto;
+    padding: 12px 16px;
+    background: rgba(251, 191, 36, 0.12);
+    border: 1px solid var(--amber);
+    border-radius: var(--radius);
+    color: var(--amber);
+    font-size: 0.85rem;
+  }
+
+  .grid {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 16px;
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    transition: background 0.2s, border-color 0.2s;
+  }
+
+  .card:hover {
+    background: var(--bg-card-hover);
+    border-color: #3a4a6c;
+  }
+
+  .card h2 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-heading);
+    margin-bottom: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .card-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 0.82rem;
+  }
+
+  .card-row .label {
+    color: var(--text-dim);
+  }
+
+  .card-row .value {
+    color: var(--text);
+    text-align: right;
+    word-break: break-all;
+    max-width: 60%;
+  }
+
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  .dot-green { background: var(--green); box-shadow: 0 0 4px var(--green); }
+  .dot-red { background: var(--red); box-shadow: 0 0 4px var(--red); }
+  .dot-amber { background: var(--amber); box-shadow: 0 0 4px var(--amber); }
+
+  .badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+
+  .badge-green { background: rgba(74, 222, 128, 0.15); color: var(--green); }
+  .badge-red { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+  .badge-amber { background: rgba(251, 191, 36, 0.15); color: var(--amber); }
+  .badge-blue { background: rgba(96, 165, 250, 0.15); color: var(--blue); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+    margin-top: 8px;
+  }
+
+  table th {
+    text-align: left;
+    color: var(--text-dim);
+    font-weight: 600;
+    padding: 6px 8px 6px 0;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  table td {
+    padding: 5px 8px 5px 0;
+    border-bottom: 1px solid rgba(42, 58, 92, 0.5);
+    color: var(--text);
+  }
+
+  table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .category-group {
+    margin-top: 10px;
+  }
+
+  .category-name {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--blue);
+    margin-bottom: 4px;
+  }
+
+  .tool-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+
+  .tool-tag {
+    font-size: 0.7rem;
+    padding: 2px 7px;
+    background: rgba(96, 165, 250, 0.1);
+    border: 1px solid rgba(96, 165, 250, 0.2);
+    border-radius: 4px;
+    color: var(--text-dim);
+  }
+
+  .channel-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .channel-item {
+    display: flex;
+    align-items: center;
+    font-size: 0.82rem;
+    text-transform: capitalize;
+  }
+
+  .cron-job {
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(42, 58, 92, 0.5);
+    font-size: 0.8rem;
+  }
+
+  .cron-job:last-child {
+    border-bottom: none;
+  }
+
+  .cron-job-name {
+    font-weight: 600;
+    color: var(--text-heading);
+  }
+
+  .cron-job-meta {
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    margin-top: 2px;
+  }
+
+  .stat-number {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--text-heading);
+  }
+
+  .stat-label {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  .stat-row {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 12px;
+  }
+
+  .stat-item {
+    flex: 1;
+  }
+
+  .empty-state {
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    font-style: italic;
+    padding: 8px 0;
+  }
+
+  @media (max-width: 720px) {
+    body { padding: 12px; }
+    .grid { grid-template-columns: 1fr; }
+    header { flex-direction: column; gap: 8px; }
+    .header-actions { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Oxicrab Status</h1>
+  <div class="header-meta">
+    <span class="version" id="version">--</span>
+    <span class="uptime" id="uptime">--</span>
+    <span class="refresh-info">Next refresh: <span id="countdown">60</span>s</span>
+  </div>
+  <div class="header-actions">
+    <a id="change-key" onclick="changeApiKey()">Change API Key</a>
+  </div>
+</header>
+
+<div id="error-banner"></div>
+<div id="echo-banner">Running in echo mode. Status data is not available.</div>
+
+<div class="grid" id="grid">
+  <div class="card" id="card-models">
+    <h2>Models</h2>
+    <div id="models-content"><span class="empty-state">Loading...</span></div>
+  </div>
+  <div class="card" id="card-tools">
+    <h2>Tools</h2>
+    <div id="tools-content"><span class="empty-state">Loading...</span></div>
+  </div>
+  <div class="card" id="card-channels">
+    <h2>Channels</h2>
+    <div id="channels-content"><span class="empty-state">Loading...</span></div>
+  </div>
+  <div class="card" id="card-tokens">
+    <h2>Tokens (Today)</h2>
+    <div id="tokens-content"><span class="empty-state">Loading...</span></div>
+  </div>
+  <div class="card" id="card-cron">
+    <h2>Cron</h2>
+    <div id="cron-content"><span class="empty-state">Loading...</span></div>
+  </div>
+  <div class="card" id="card-safety">
+    <h2>Safety</h2>
+    <div id="safety-content"><span class="empty-state">Loading...</span></div>
+  </div>
+  <div class="card" id="card-gateway">
+    <h2>Gateway</h2>
+    <div id="gateway-content"><span class="empty-state">Loading...</span></div>
+  </div>
+  <div class="card" id="card-memory">
+    <h2>Memory</h2>
+    <div id="memory-content"><span class="empty-state">Loading...</span></div>
+  </div>
+</div>
+
+<script>
+(function() {
+  /* jshint browser:true */
+  /* All data rendered via esc() which escapes HTML entities */
+  var REFRESH_INTERVAL = 60;
+  var countdown = REFRESH_INTERVAL;
+  var countdownEl = document.getElementById('countdown');
+  var timer = null;
+
+  function getApiKey() {
+    try { return localStorage.getItem('oxicrab_api_key') || ''; }
+    catch(e) { return ''; }
+  }
+
+  function setApiKey(k) {
+    try { localStorage.setItem('oxicrab_api_key', k || ''); }
+    catch(e) { /* storage unavailable */ }
+  }
+
+  window.changeApiKey = function() {
+    var k = prompt('Enter API key (leave blank to clear):');
+    if (k !== null) {
+      setApiKey(k);
+      fetchStatus();
+    }
+  };
+
+  function formatUptime(seconds) {
+    if (!seconds && seconds !== 0) return '--';
+    var d = Math.floor(seconds / 86400);
+    var h = Math.floor((seconds % 86400) / 3600);
+    var m = Math.floor((seconds % 3600) / 60);
+    var s = Math.floor(seconds % 60);
+    var parts = [];
+    if (d > 0) parts.push(d + 'd');
+    if (h > 0) parts.push(h + 'h');
+    if (m > 0) parts.push(m + 'm');
+    parts.push(s + 's');
+    return parts.join(' ');
+  }
+
+  function formatNumber(n) {
+    if (n == null) return '0';
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+  }
+
+  function formatDate(ms) {
+    if (!ms) return '--';
+    var d = new Date(ms);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+  }
+
+  function esc(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function setContent(id, html) {
+    document.getElementById(id).innerHTML = html;
+  }
+
+  function dot(on, amber) {
+    var cls = amber ? 'dot-amber' : (on ? 'dot-green' : 'dot-red');
+    return '<span class="dot ' + cls + '"></span>';
+  }
+
+  function badge(text, color) {
+    return '<span class="badge badge-' + color + '">' + esc(text) + '</span>';
+  }
+
+  function row(label, value) {
+    return '<div class="card-row"><span class="label">' + esc(label) + '</span><span class="value">' + value + '</span></div>';
+  }
+
+  function showError(msg) {
+    var el = document.getElementById('error-banner');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  function hideError() {
+    document.getElementById('error-banner').style.display = 'none';
+  }
+
+  function showEcho() {
+    document.getElementById('echo-banner').style.display = 'block';
+    document.getElementById('grid').style.display = 'none';
+  }
+
+  function hideEcho() {
+    document.getElementById('echo-banner').style.display = 'none';
+    document.getElementById('grid').style.display = '';
+  }
+
+  function renderModels(data) {
+    var m = data.models;
+    if (!m) return '<span class="empty-state">No model data</span>';
+    var html = '';
+    html += row('Default', '<strong>' + esc(m.default || '--') + '</strong>');
+
+    if (m.tasks && Object.keys(m.tasks).length > 0) {
+      html += '<table><tr><th>Task</th><th>Model</th></tr>';
+      var tasks = m.tasks;
+      for (var t in tasks) {
+        if (tasks.hasOwnProperty(t)) {
+          html += '<tr><td>' + esc(t) + '</td><td>' + esc(tasks[t]) + '</td></tr>';
+        }
+      }
+      html += '</table>';
+    }
+
+    if (m.fallbacks && m.fallbacks.length > 0) {
+      html += '<div style="margin-top:10px">';
+      html += '<span class="label" style="font-size:0.78rem">Fallback chain</span>';
+      for (var i = 0; i < m.fallbacks.length; i++) {
+        html += '<div style="font-size:0.78rem;color:var(--text-dim);padding:2px 0">' + (i + 1) + '. ' + esc(m.fallbacks[i]) + '</div>';
+      }
+      html += '</div>';
+    }
+
+    if (m.chat_routing) {
+      var cr = m.chat_routing;
+      html += '<div style="margin-top:10px">';
+      html += '<span class="label" style="font-size:0.78rem">Chat routing</span>';
+      if (cr.standard) html += row('Standard', esc(cr.standard));
+      if (cr.heavy) html += row('Heavy', esc(cr.heavy));
+      if (cr.thresholds) {
+        html += row('Thresholds', 'std=' + esc(cr.thresholds.standard) + ' heavy=' + esc(cr.thresholds.heavy));
+      }
+      html += '</div>';
+    }
+
+    return html;
+  }
+
+  function renderTools(data) {
+    var t = data.tools;
+    if (!t) return '<span class="empty-state">No tools data</span>';
+    var html = '';
+    html += '<div class="stat-row">';
+    html += '<div class="stat-item"><div class="stat-number">' + esc(t.total || 0) + '</div><div class="stat-label">Total</div></div>';
+    html += '<div class="stat-item"><div class="stat-number">' + esc(t.deferred || 0) + '</div><div class="stat-label">Deferred</div></div>';
+    html += '</div>';
+
+    if (t.by_category) {
+      for (var cat in t.by_category) {
+        if (t.by_category.hasOwnProperty(cat)) {
+          var tools = t.by_category[cat];
+          html += '<div class="category-group"><div class="category-name">' + esc(cat) + '</div><div class="tool-list">';
+          for (var i = 0; i < tools.length; i++) {
+            html += '<span class="tool-tag">' + esc(tools[i]) + '</span>';
+          }
+          html += '</div></div>';
+        }
+      }
+    }
+
+    return html;
+  }
+
+  function renderChannels(data) {
+    var ch = data.channels;
+    if (!ch) return '<span class="empty-state">No channel data</span>';
+    var html = '<div class="channel-list">';
+    for (var name in ch) {
+      if (ch.hasOwnProperty(name)) {
+        var enabled = ch[name];
+        html += '<div class="channel-item">' + dot(enabled) + esc(name) + '</div>';
+      }
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function renderTokens(data) {
+    var tk = data.tokens;
+    if (!tk) return '<span class="empty-state">No token data</span>';
+    var html = '';
+
+    if (tk.today) {
+      var td = tk.today;
+      html += '<div class="stat-row">';
+      html += '<div class="stat-item"><div class="stat-number">' + formatNumber(td.input) + '</div><div class="stat-label">Input</div></div>';
+      html += '<div class="stat-item"><div class="stat-number">' + formatNumber(td.output) + '</div><div class="stat-label">Output</div></div>';
+      html += '</div>';
+      html += '<div class="stat-row">';
+      html += '<div class="stat-item"><div class="stat-number">' + formatNumber(td.cache_read) + '</div><div class="stat-label">Cache Read</div></div>';
+      html += '<div class="stat-item"><div class="stat-number">' + formatNumber(td.cache_create) + '</div><div class="stat-label">Cache Create</div></div>';
+      html += '</div>';
+    }
+
+    if (tk.by_model && tk.by_model.length > 0) {
+      html += '<table><tr><th>Model</th><th>In</th><th>Out</th><th>Calls</th></tr>';
+      for (var i = 0; i < tk.by_model.length; i++) {
+        var r = tk.by_model[i];
+        html += '<tr><td>' + esc(r.model) + '</td><td>' + formatNumber(r.input) + '</td><td>' + formatNumber(r.output) + '</td><td>' + esc(r.calls || 0) + '</td></tr>';
+      }
+      html += '</table>';
+    }
+
+    return html;
+  }
+
+  function renderCron(data) {
+    var c = data.cron;
+    if (!c) return '<span class="empty-state">No cron data</span>';
+    var html = '';
+
+    html += '<div class="stat-row">';
+    html += '<div class="stat-item"><div class="stat-number">' + esc(c.active_jobs || 0) + '</div><div class="stat-label">Active Jobs</div></div>';
+    var dlqColor = (c.dlq_count > 0) ? 'amber' : 'green';
+    html += '<div class="stat-item"><div class="stat-number" style="color:var(--' + dlqColor + ')">' + esc(c.dlq_count || 0) + '</div><div class="stat-label">DLQ Entries</div></div>';
+    html += '</div>';
+
+    if (c.jobs && c.jobs.length > 0) {
+      for (var i = 0; i < c.jobs.length; i++) {
+        var j = c.jobs[i];
+        html += '<div class="cron-job">';
+        html += '<div>' + dot(j.enabled) + '<span class="cron-job-name">' + esc(j.name) + '</span> ';
+        html += j.enabled ? badge('enabled', 'green') : badge('disabled', 'red');
+        html += '</div>';
+        html += '<div class="cron-job-meta">Next: ' + esc(formatDate(j.next_run_ms)) + '</div>';
+        html += '</div>';
+      }
+    } else {
+      html += '<span class="empty-state">No jobs configured</span>';
+    }
+
+    return html;
+  }
+
+  function renderSafety(data) {
+    var s = data.safety;
+    if (!s) return '<span class="empty-state">No safety data</span>';
+    var html = '';
+
+    if (s.prompt_guard) {
+      html += row('Prompt Guard', dot(s.prompt_guard.enabled) + (s.prompt_guard.enabled ? badge(s.prompt_guard.action || 'On', 'green') : badge('Off', 'red')));
+    } else {
+      html += row('Prompt Guard', dot(false) + badge('Off', 'red'));
+    }
+
+    html += row('Exfiltration Guard', dot(s.exfiltration_guard) + (s.exfiltration_guard ? badge('On', 'green') : badge('Off', 'red')));
+
+    if (s.sandbox) {
+      html += row('Sandbox', dot(s.sandbox.enabled) + (s.sandbox.enabled ? badge('On', 'green') : badge('Off', 'red')));
+      if (s.sandbox.enabled) {
+        html += row('Block Network', s.sandbox.block_network ? badge('Yes', 'green') : badge('No', 'red'));
+      }
+    } else {
+      html += row('Sandbox', dot(false) + badge('Off', 'red'));
+    }
+
+    return html;
+  }
+
+  function renderGateway(data) {
+    var g = data.gateway;
+    if (!g) return '<span class="empty-state">No gateway data</span>';
+    var html = '';
+
+    if (g.rate_limit) {
+      html += row('Rate Limit', dot(g.rate_limit.enabled) + (g.rate_limit.enabled ? badge('On', 'green') : badge('Off', 'red')));
+      if (g.rate_limit.enabled) {
+        html += row('RPS / Burst', esc(g.rate_limit.rps) + ' / ' + esc(g.rate_limit.burst));
+      }
+    }
+
+    html += row('A2A', dot(g.a2a) + (g.a2a ? badge('On', 'green') : badge('Off', 'red')));
+
+    if (g.webhooks && g.webhooks.length > 0) {
+      html += '<div style="margin-top:8px"><span class="label" style="font-size:0.78rem">Webhooks</span>';
+      html += '<div class="tool-list" style="margin-top:4px">';
+      for (var i = 0; i < g.webhooks.length; i++) {
+        html += '<span class="tool-tag">' + esc(g.webhooks[i]) + '</span>';
+      }
+      html += '</div></div>';
+    } else {
+      html += row('Webhooks', '<span class="empty-state">None</span>');
+    }
+
+    return html;
+  }
+
+  function renderMemory(data) {
+    var m = data.memory;
+    if (!m) return '<span class="empty-state">No memory data</span>';
+    var html = '';
+
+    html += row('Embeddings', dot(m.embeddings_enabled) + (m.embeddings_enabled ? badge('On', 'green') : badge('Off', 'red')));
+
+    if (m.search_stats) {
+      html += row('Total Searches', esc(m.search_stats.total_searches || 0));
+      html += row('Avg Results', esc(m.search_stats.avg_results != null ? m.search_stats.avg_results.toFixed(1) : '--'));
+    }
+
+    return html;
+  }
+
+  function render(data) {
+    document.getElementById('version').textContent = 'v' + (data.version || '?');
+    document.getElementById('uptime').textContent = 'up ' + formatUptime(data.uptime_seconds);
+
+    setContent('models-content', renderModels(data));
+    setContent('tools-content', renderTools(data));
+    setContent('channels-content', renderChannels(data));
+    setContent('tokens-content', renderTokens(data));
+    setContent('cron-content', renderCron(data));
+    setContent('safety-content', renderSafety(data));
+    setContent('gateway-content', renderGateway(data));
+    setContent('memory-content', renderMemory(data));
+  }
+
+  function fetchStatus(isRetryAfterAuth) {
+    var headers = {};
+    var key = getApiKey();
+    if (key) {
+      headers['Authorization'] = 'Bearer ' + key;
+    }
+
+    fetch('/api/status', { headers: headers })
+      .then(function(resp) {
+        if (resp.status === 401) {
+          if (!isRetryAfterAuth) {
+            var k = prompt('API key required. Enter your Oxicrab API key:');
+            if (k) {
+              setApiKey(k);
+              return fetchStatus(true);
+            }
+          }
+          showError('Authentication failed. Click "Change API Key" to update.');
+          return;
+        }
+        if (!resp.ok) {
+          showError('Failed to fetch status: HTTP ' + resp.status);
+          return;
+        }
+        return resp.json();
+      })
+      .then(function(data) {
+        if (!data) return;
+        hideError();
+
+        if (data.status === 'unavailable') {
+          document.getElementById('version').textContent = 'v' + (data.version || '?');
+          var msg = data.mode === 'initializing'
+            ? 'Gateway is starting up. Status will be available shortly.'
+            : 'Status data is not available.';
+          document.getElementById('echo-banner').textContent = msg;
+          showEcho();
+          return;
+        }
+
+        hideEcho();
+        render(data);
+      })
+      .catch(function(err) {
+        showError('Network error: ' + err.message);
+      });
+  }
+
+  function startCountdown() {
+    countdown = REFRESH_INTERVAL;
+    if (timer) clearInterval(timer);
+    timer = setInterval(function() {
+      countdown--;
+      countdownEl.textContent = String(countdown);
+      if (countdown <= 0) {
+        fetchStatus();
+        countdown = REFRESH_INTERVAL;
+      }
+    }, 1000);
+  }
+
+  fetchStatus();
+  startCountdown();
+})();
+</script>
+</body>
+</html>

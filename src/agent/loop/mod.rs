@@ -477,6 +477,10 @@ impl AgentLoop {
         self.memory.db()
     }
 
+    pub fn tool_registry(&self) -> Arc<ToolRegistry> {
+        self.tools.clone()
+    }
+
     /// Resolve per-task overrides from the model routing configuration.
     /// Returns default overrides when routing is not configured or the task
     /// type has no matching rule.
