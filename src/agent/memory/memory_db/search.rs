@@ -387,24 +387,21 @@ impl MemoryDB {
 
 pub(super) fn fts_query(text: &str) -> String {
     let re = crate::utils::regex::RegexPatterns::words();
-    let terms: Vec<&str> = re.find_iter(text).map(|m| m.as_str()).collect();
-
-    if terms.is_empty() {
-        return String::new();
-    }
-
     let mut seen = std::collections::HashSet::new();
     let mut unique = Vec::new();
 
-    for term in terms {
-        let low = term.to_lowercase();
-        if !seen.contains(&low) {
-            seen.insert(low.clone());
+    for m in re.find_iter(text) {
+        let low = m.as_str().to_lowercase();
+        if seen.insert(low.clone()) {
             unique.push(low);
         }
         if unique.len() >= MAX_FTS_TERMS {
             break;
         }
+    }
+
+    if unique.is_empty() {
+        return String::new();
     }
 
     // Double-quote each term to prevent FTS5 operator injection

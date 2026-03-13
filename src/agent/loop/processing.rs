@@ -23,8 +23,13 @@ impl AgentLoop {
         }
 
         // Send typing indicator before processing
-        if let Some(ref tx) = self.typing_tx {
-            let _ = tx.send((msg.channel.clone(), msg.chat_id.clone())).await;
+        if let Some(ref tx) = self.typing_tx
+            && tx
+                .send((msg.channel.clone(), msg.chat_id.clone()))
+                .await
+                .is_err()
+        {
+            debug!("typing indicator channel closed");
         }
 
         info!("Processing message from {}:{}", msg.channel, msg.sender_id);
@@ -116,16 +121,15 @@ impl AgentLoop {
         // Inbound secret scanning: redact secrets before they reach the LLM or
         // get persisted in session history / memory.
         let msg_content = {
-            let matches = self.leak_detector.scan(&msg_content);
-            if matches.is_empty() {
-                msg_content
-            } else {
-                let names: Vec<&str> = matches.iter().map(|m| m.name).collect();
+            let redacted = self.leak_detector.redact(&msg_content);
+            if redacted != msg_content {
                 warn!(
-                    "secret detected in inbound message from {}:{}: {:?} — redacting",
-                    msg.channel, msg.sender_id, names
+                    "secret detected in inbound message from {}:{} — redacted",
+                    msg.channel, msg.sender_id
                 );
-                self.leak_detector.redact(&msg_content)
+                redacted
+            } else {
+                msg_content
             }
         };
 

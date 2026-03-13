@@ -14,6 +14,15 @@ use tracing::{debug, error, info, warn};
 /// Produce a canonical JSON string with object keys sorted recursively.
 /// This ensures cache keys are stable regardless of key insertion order.
 fn canonical_json(value: &Value) -> String {
+    // Fast path: flat objects with few keys skip the expensive BTreeMap sort.
+    // serde_json::Map preserves insertion order deterministically for identical
+    // JSON inputs, so sorting is only needed for complex nested structures.
+    if let Value::Object(map) = value {
+        if map.len() <= 8 && map.values().all(|v| !v.is_object()) {
+            return serde_json::to_string(value).unwrap_or_default();
+        }
+    }
+    // Full recursive sort path for complex nested objects
     match value {
         Value::Object(map) => {
             let sorted: BTreeMap<&String, Value> =
@@ -118,7 +127,9 @@ pub struct ToolRegistry {
     /// Tools whose schemas are excluded from LLM requests until activated
     /// via `tool_search`. Execution still works for all registered tools.
     deferred: HashSet<String>,
-    /// Cached tool definitions (invalidated on `register` / `register_deferred`).
+    /// Per-tool definition cache: computed once at registration time, never changes.
+    definition_cache: HashMap<String, crate::providers::base::ToolDefinition>,
+    /// Cached sorted+filtered tool definitions list (invalidated on `register`).
     /// Only used when no deferred tools have been activated (the common path).
     cached_definitions: std::sync::Mutex<Option<Vec<crate::providers::base::ToolDefinition>>>,
 }
@@ -138,6 +149,7 @@ impl ToolRegistry {
                 Arc::new(LoggingMiddleware),
             ],
             deferred: HashSet::new(),
+            definition_cache: HashMap::new(),
             cached_definitions: std::sync::Mutex::new(None),
         }
     }
@@ -158,6 +170,7 @@ impl ToolRegistry {
                 Arc::new(LoggingMiddleware),
             ],
             deferred: HashSet::new(),
+            definition_cache: HashMap::new(),
             cached_definitions: std::sync::Mutex::new(None),
         }
     }
@@ -175,6 +188,9 @@ impl ToolRegistry {
         if self.tools.contains_key(&name) {
             warn!("tool registry: overwriting duplicate tool '{}'", name);
         }
+        // Compute and cache the definition once at registration time
+        let definition = Self::tool_to_definition(&tool);
+        self.definition_cache.insert(name.clone(), definition);
         self.tools.insert(name, tool);
         self.cached_definitions.lock().unwrap().take();
     }
@@ -243,9 +259,9 @@ impl ToolRegistry {
     ) -> Vec<crate::providers::base::ToolDefinition> {
         let mut defs: Vec<_> = self
             .tools
-            .iter()
-            .filter(|(name, _)| !self.deferred.contains(*name) || activated.contains(*name))
-            .map(|(_, t)| Self::tool_to_definition(t))
+            .keys()
+            .filter(|name| !self.deferred.contains(*name) || activated.contains(*name))
+            .filter_map(|name| self.definition_cache.get(name).cloned())
             .collect();
         defs.sort_by(|a, b| a.name.cmp(&b.name));
         defs
@@ -273,7 +289,7 @@ impl ToolRegistry {
                 let visible = !self.deferred.contains(*name) || activated.contains(*name);
                 in_category && visible
             })
-            .map(|(_, t)| Self::tool_to_definition(t))
+            .filter_map(|(name, _)| self.definition_cache.get(name).cloned())
             .collect();
         defs.sort_by(|a, b| a.name.cmp(&b.name));
         defs

@@ -57,7 +57,7 @@ pub struct MemoryDB {
     /// the cache was populated. Set to `None` to invalidate (e.g. after
     /// `store_embedding`). Avoids re-reading and deserializing all embeddings
     /// from `SQLite` on every `hybrid_search` call.
-    embedding_cache: std::sync::Mutex<Option<(u64, Vec<CachedEmbedding>)>>,
+    embedding_cache: std::sync::Mutex<Option<(u64, std::sync::Arc<Vec<CachedEmbedding>>)>>,
     /// Monotonically increasing counter, bumped on each embedding invalidation.
     /// Used to detect stale cache reads across lock boundaries.
     embedding_generation: std::sync::atomic::AtomicU64,

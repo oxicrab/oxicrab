@@ -375,8 +375,17 @@ impl LeakDetector {
             result = ks.regex.replace_all(&result, "[REDACTED]").into_owned();
         }
         // Redact base64/hex-encoded blobs that decode to match generic patterns
-        // (covers cases where LLM encodes a secret to bypass plaintext detection)
-        let encoded_matches = Self::scan_encoded(&result);
+        // (covers cases where LLM encodes a secret to bypass plaintext detection).
+        // Skip the encoded scan entirely if the text is too short or lacks
+        // characters that would appear in base64 (+, /, =) or hex (long alnum runs
+        // are caught by the regex, but we need at least 20 chars).
+        let encoded_matches = if result.len() > 20
+            && (result.contains('+') || result.contains('/') || result.contains('='))
+        {
+            Self::scan_encoded(&result)
+        } else {
+            Vec::new()
+        };
         if !encoded_matches.is_empty() {
             // Merge overlapping ranges to prevent corruption from overlapping replace_range calls
             let mut ranges: Vec<(usize, usize)> =

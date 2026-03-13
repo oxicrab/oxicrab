@@ -1,6 +1,7 @@
 use crate::providers::base::{ChatRequest, LLMProvider, Message};
 use anyhow::Result;
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -52,12 +53,15 @@ pub fn estimate_messages_tokens(messages: &[HashMap<String, Value>]) -> usize {
 
 /// Extract text from a message content value, handling both plain strings
 /// and Anthropic-style content block arrays (text + image blocks).
-fn extract_message_text(content: Option<&Value>) -> String {
+///
+/// Returns `Cow::Borrowed` for plain string content (zero-copy) and
+/// `Cow::Owned` for array content or missing/unsupported types.
+fn extract_message_text(content: Option<&Value>) -> Cow<'_, str> {
     let Some(content) = content else {
-        return String::new();
+        return Cow::Borrowed("");
     };
     if let Some(text) = content.as_str() {
-        return text.to_string();
+        return Cow::Borrowed(text);
     }
     if let Some(arr) = content.as_array() {
         let mut parts = Vec::new();
@@ -76,9 +80,9 @@ fn extract_message_text(content: Option<&Value>) -> String {
                 }
             }
         }
-        return parts.join(" ");
+        return Cow::Owned(parts.join(" "));
     }
-    String::new()
+    Cow::Borrowed("")
 }
 
 /// Remove orphaned tool messages from a message list.

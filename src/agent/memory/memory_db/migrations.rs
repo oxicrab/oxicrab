@@ -24,6 +24,13 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
         conn.execute("PRAGMA user_version = 3", [])?;
     }
 
+    if user_version(conn)? < 4 {
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);",
+        )?;
+        conn.execute("PRAGMA user_version = 4", [])?;
+    }
+
     Ok(())
 }
 
@@ -129,7 +136,7 @@ mod tests {
         let v: u32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(v, 3);
+        assert_eq!(v, 4);
     }
 
     #[test]

@@ -194,19 +194,29 @@ impl AgentLoop {
                 last_input_tokens = response.input_tokens;
             }
 
-            // Record token usage — use actual_model from fallback provider when
-            // the primary failed and a different provider served it
+            // Record token usage off the async runtime (fire-and-forget)
             let cost_model = response.actual_model.as_deref().unwrap_or(effective_model);
-            if let Err(e) = self.memory.db().record_tokens(
-                cost_model,
-                response.input_tokens.unwrap_or(0),
-                response.output_tokens.unwrap_or(0),
-                response.cache_creation_input_tokens.unwrap_or(0),
-                response.cache_read_input_tokens.unwrap_or(0),
-                "main",
-                overrides.request_id.as_deref(),
-            ) {
-                warn!("failed to record token usage: {}", e);
+            {
+                let db = self.memory.db();
+                let model = cost_model.to_string();
+                let input = response.input_tokens.unwrap_or(0);
+                let output = response.output_tokens.unwrap_or(0);
+                let cache_create = response.cache_creation_input_tokens.unwrap_or(0);
+                let cache_read = response.cache_read_input_tokens.unwrap_or(0);
+                let req_id = overrides.request_id.clone();
+                tokio::task::spawn_blocking(move || {
+                    if let Err(e) = db.record_tokens(
+                        &model,
+                        input,
+                        output,
+                        cache_create,
+                        cache_read,
+                        "main",
+                        req_id.as_deref(),
+                    ) {
+                        warn!("failed to record token usage: {}", e);
+                    }
+                });
             }
 
             if response.has_tool_calls() {
@@ -351,7 +361,7 @@ impl AgentLoop {
                 media: collected_media,
                 reasoning_content: None,
                 reasoning_signature: None,
-                response_metadata: response_metadata.clone(),
+                response_metadata,
             });
         }
 
@@ -362,7 +372,7 @@ impl AgentLoop {
             media: collected_media,
             reasoning_content: None,
             reasoning_signature: None,
-            response_metadata,
+            response_metadata: std::collections::HashMap::new(),
         })
     }
 
@@ -390,13 +400,14 @@ impl AgentLoop {
                 .await,
             ]
         } else {
+            let shared_names: Arc<Vec<String>> = Arc::from(tool_names.to_vec());
             let handles: Vec<_> = tool_calls
                 .iter()
                 .map(|tc| {
                     let registry = self.tools.clone();
                     let tc_name = tc.name.clone();
                     let tc_args = tc.arguments.clone();
-                    let available = tool_names.to_vec();
+                    let available = shared_names.clone();
                     let ctx = exec_ctx.clone();
                     let allow = allow_tools.clone();
                     let ws = self.workspace.clone();

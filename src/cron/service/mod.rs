@@ -144,13 +144,6 @@ impl CronService {
         *self.on_job.lock().await = Some(Arc::new(callback));
     }
 
-    /// Update only a job's completion status and error by ID.
-    /// Called from the job completion callback. Uses a targeted SQL UPDATE
-    /// to avoid a read-modify-write race with the polling loop.
-    fn update_job_status(&self, job_id: &str, status: &str, error: Option<&str>) -> Result<()> {
-        self.db.update_cron_job_status(job_id, status, error)
-    }
-
     pub async fn start(&self) -> Result<()> {
         const PRUNE_INTERVAL_MS: i64 = 3_600_000; // 1 hour
 
@@ -174,11 +167,19 @@ impl CronService {
 
                 // On first tick, recover jobs stuck in "running" from a prior crash
                 if first_tick {
-                    match service.db.recover_running_cron_jobs() {
-                        Ok(recovered) if recovered > 0 => {
+                    let db = service.db.clone();
+                    let recovered =
+                        tokio::task::spawn_blocking(move || db.recover_running_cron_jobs())
+                            .await
+                            .unwrap_or_else(|e| {
+                                warn!("cron: spawn_blocking failed: {e}");
+                                Ok(0)
+                            });
+                    match recovered {
+                        Ok(n) if n > 0 => {
                             warn!(
                                 "recovered {} cron job(s) stuck in 'running' from prior crash",
-                                recovered
+                                n
                             );
                         }
                         Err(e) => {
@@ -196,7 +197,13 @@ impl CronService {
 
                 let mut jobs_to_fire: Vec<(CronJob, CronJobCallback)> = vec![];
 
-                let jobs = match service.db.list_cron_jobs(false) {
+                let db = service.db.clone();
+                let jobs = match tokio::task::spawn_blocking(move || db.list_cron_jobs(false))
+                    .await
+                    .unwrap_or_else(|e| {
+                        warn!("cron: spawn_blocking failed: {e}");
+                        Ok(vec![])
+                    }) {
                     Ok(jobs) => jobs,
                     Err(e) => {
                         warn!("failed to list cron jobs: {}", e);
@@ -217,10 +224,17 @@ impl CronService {
                             "max runs reached"
                         };
                         info!("Disabling cron job '{}' ({}): {}", job.name, job.id, reason);
-                        if let Err(e) = service
-                            .db
-                            .update_cron_job_enabled(&job.id, false, None, now)
-                        {
+                        let db = service.db.clone();
+                        let id = job.id.clone();
+                        let res = tokio::task::spawn_blocking(move || {
+                            db.update_cron_job_enabled(&id, false, None, now)
+                        })
+                        .await
+                        .unwrap_or_else(|e| {
+                            warn!("cron: spawn_blocking failed: {e}");
+                            Ok(false)
+                        });
+                        if let Err(e) = res {
                             warn!("failed to disable cron job '{}': {}", job.id, e);
                         }
                         continue;
@@ -240,16 +254,31 @@ impl CronService {
                                     job.id, job_next, now
                                 );
                                 let new_next = compute_next_run(&job.schedule, now);
-                                if let Err(e) = service.db.update_cron_job_state(
-                                    &job.id,
-                                    job.state.last_status.as_deref(),
-                                    job.state.last_error.as_deref(),
-                                    job.state.run_count,
-                                    new_next,
-                                    job.state.last_run_at_ms,
-                                    job.state.last_fired_at_ms,
-                                    now,
-                                ) {
+                                let db = service.db.clone();
+                                let id = job.id.clone();
+                                let last_status = job.state.last_status.clone();
+                                let last_error = job.state.last_error.clone();
+                                let run_count = job.state.run_count;
+                                let last_run_at_ms = job.state.last_run_at_ms;
+                                let last_fired_at_ms = job.state.last_fired_at_ms;
+                                let res = tokio::task::spawn_blocking(move || {
+                                    db.update_cron_job_state(
+                                        &id,
+                                        last_status.as_deref(),
+                                        last_error.as_deref(),
+                                        run_count,
+                                        new_next,
+                                        last_run_at_ms,
+                                        last_fired_at_ms,
+                                        now,
+                                    )
+                                })
+                                .await
+                                .unwrap_or_else(|e| {
+                                    warn!("cron: spawn_blocking failed: {e}");
+                                    Ok(false)
+                                });
+                                if let Err(e) = res {
                                     warn!("failed to advance missed cron job '{}': {}", job.id, e);
                                 }
                                 if let Some(next) = new_next {
@@ -262,19 +291,38 @@ impl CronService {
                             // won't re-fire on the next tick.
                             let new_next =
                                 compute_next_run_with_last(&job.schedule, now, Some(now));
-                            if job.delete_after_run
-                                && let Err(e) = service
-                                    .db
-                                    .update_cron_job_enabled(&job.id, false, None, now)
-                            {
-                                warn!("failed to disable delete-after-run job '{}': {}", job.id, e);
+                            if job.delete_after_run {
+                                let db = service.db.clone();
+                                let id = job.id.clone();
+                                let res = tokio::task::spawn_blocking(move || {
+                                    db.update_cron_job_enabled(&id, false, None, now)
+                                })
+                                .await
+                                .unwrap_or_else(|e| {
+                                    warn!("cron: spawn_blocking failed: {e}");
+                                    Ok(false)
+                                });
+                                if let Err(e) = res {
+                                    warn!(
+                                        "failed to disable delete-after-run job '{}': {}",
+                                        job.id, e
+                                    );
+                                }
                             }
 
                             // Atomically increment run_count and set status to running
                             let effective_next = if job.delete_after_run { None } else { new_next };
-                            if let Err(e) =
-                                service.db.fire_cron_job(&job.id, effective_next, now, now)
-                            {
+                            let db = service.db.clone();
+                            let id = job.id.clone();
+                            let res = tokio::task::spawn_blocking(move || {
+                                db.fire_cron_job(&id, effective_next, now, now)
+                            })
+                            .await
+                            .unwrap_or_else(|e| {
+                                warn!("cron: spawn_blocking failed: {e}");
+                                Ok(false)
+                            });
+                            if let Err(e) = res {
                                 warn!("failed to fire cron job '{}': {}", job.id, e);
                             }
 
@@ -292,11 +340,20 @@ impl CronService {
                 // Prune disabled jobs at most once per hour
                 if now - last_prune_ms >= PRUNE_INTERVAL_MS {
                     let prune_cutoff_ms = now - PRUNE_DISABLED_AFTER_DAYS * 24 * 60 * 60 * 1000;
-                    match service.db.prune_disabled_cron_jobs(prune_cutoff_ms) {
-                        Ok(pruned) if pruned > 0 => {
+                    let db = service.db.clone();
+                    let pruned = tokio::task::spawn_blocking(move || {
+                        db.prune_disabled_cron_jobs(prune_cutoff_ms)
+                    })
+                    .await
+                    .unwrap_or_else(|e| {
+                        warn!("cron: spawn_blocking failed: {e}");
+                        Ok(0)
+                    });
+                    match pruned {
+                        Ok(n) if n > 0 => {
                             info!(
                                 "Pruned {} disabled cron jobs older than {} days",
-                                pruned, PRUNE_DISABLED_AFTER_DAYS
+                                n, PRUNE_DISABLED_AFTER_DAYS
                             );
                         }
                         Err(e) => {
@@ -334,9 +391,17 @@ impl CronService {
                                     ("error".to_string(), Some(e.to_string()))
                                 }
                             };
-                            if let Err(e) =
-                                svc.update_job_status(&job_id, &status, error.as_deref())
-                            {
+                            let db = svc.db.clone();
+                            let id = job_id.clone();
+                            let res = tokio::task::spawn_blocking(move || {
+                                db.update_cron_job_status(&id, &status, error.as_deref())
+                            })
+                            .await
+                            .unwrap_or_else(|e| {
+                                warn!("cron: spawn_blocking failed: {e}");
+                                Ok(())
+                            });
+                            if let Err(e) = res {
                                 warn!("Failed to update cron job '{}' state: {}", job_id, e);
                             }
                         })

@@ -1,6 +1,7 @@
 use super::MemoryDB;
 use anyhow::Result;
 use rusqlite::params;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tracing::warn;
 
@@ -101,7 +102,9 @@ impl MemoryDB {
             if let Some((cached_gen, ref cached)) = *cache
                 && cached_gen == current_gen
             {
-                return Ok(cached
+                let shared = Arc::clone(cached);
+                drop(cache);
+                return Ok(shared
                     .iter()
                     .filter(|e| !exclude.contains(&e.source_key))
                     .cloned()
@@ -128,15 +131,17 @@ impl MemoryDB {
 
         // Store in cache with current generation (unfiltered so it can be
         // reused with different excludes).
+        let shared = Arc::new(entries);
         *self
             .embedding_cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Some((current_gen, entries.clone()));
+            Some((current_gen, Arc::clone(&shared)));
 
-        Ok(entries
-            .into_iter()
+        Ok(shared
+            .iter()
             .filter(|e| !exclude.contains(&e.source_key))
+            .cloned()
             .collect())
     }
 }
