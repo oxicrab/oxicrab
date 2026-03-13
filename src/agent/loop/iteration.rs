@@ -372,7 +372,7 @@ impl AgentLoop {
             media: collected_media,
             reasoning_content: None,
             reasoning_signature: None,
-            response_metadata: std::collections::HashMap::new(),
+            response_metadata,
         })
     }
 
