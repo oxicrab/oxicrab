@@ -207,4 +207,24 @@ mod tests {
             "source_key index should exist, found: {indexes:?}",
         );
     }
+
+    #[test]
+    fn test_migration_v4_adds_sessions_updated_index() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATION_0001_BASE).unwrap();
+        conn.execute("PRAGMA user_version = 3", []).unwrap();
+        apply_migrations(&conn).unwrap();
+        assert_eq!(user_version(&conn).unwrap(), 4);
+        // Verify index exists
+        let mut stmt = conn.prepare("PRAGMA index_list('sessions')").unwrap();
+        let indexes: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        assert!(
+            indexes.iter().any(|n| n.contains("sessions_updated")),
+            "sessions updated_at index should exist, found: {indexes:?}",
+        );
+    }
 }

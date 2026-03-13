@@ -122,14 +122,14 @@ impl AgentLoop {
         // get persisted in session history / memory.
         let msg_content = {
             let redacted = self.leak_detector.redact(&msg_content);
-            if redacted != msg_content {
+            if redacted == msg_content {
+                msg_content
+            } else {
                 warn!(
                     "secret detected in inbound message from {}:{} — redacted",
                     msg.channel, msg.sender_id
                 );
                 redacted
-            } else {
-                msg_content
             }
         };
 
