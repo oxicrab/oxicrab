@@ -2,11 +2,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
+use axum::Json;
+use axum::extract::State;
+use axum::response::IntoResponse;
 use serde::Serialize;
 
 use crate::agent::memory::memory_db::MemoryDB;
 use crate::agent::tools::ToolRegistry;
 use crate::config::Config;
+
+use super::HttpApiState;
 
 /// Pre-extracted config data with no secrets.
 #[derive(Clone, Serialize)]
@@ -199,6 +204,120 @@ impl ToolSnapshot {
             by_category,
         }
     }
+}
+
+/// GET /api/status — returns full system status as JSON.
+pub async fn status_json_handler(State(state): State<HttpApiState>) -> impl IntoResponse {
+    let Some(status) = state.status.get() else {
+        return Json(serde_json::json!({
+            "status": "unavailable",
+            "mode": "echo",
+            "version": crate::VERSION,
+        }));
+    };
+
+    let uptime = status.start_time.elapsed().as_secs();
+    let db = status.memory_db.clone();
+
+    // Run all MemoryDB queries in a blocking task to avoid holding the
+    // SQLite mutex on the async runtime.
+    let db_result = tokio::task::spawn_blocking(move || {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let tokens = db.get_token_summary(&today).unwrap_or_default();
+        let cron_jobs = db.list_cron_jobs(true).unwrap_or_default();
+        let dlq_count = db.list_dlq_entries(None).map_or(0, |v| v.len());
+        let search_stats = db.get_search_stats().ok();
+        (tokens, cron_jobs, dlq_count, search_stats)
+    })
+    .await;
+
+    let (tokens, cron_jobs, dlq_count, search_stats) = match db_result {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("status handler: spawn_blocking failed: {e}");
+            return Json(serde_json::json!({
+                "status": "error",
+                "error": "db query failed",
+                "version": crate::VERSION,
+            }));
+        }
+    };
+
+    // Aggregate today's tokens
+    let mut today_input: i64 = 0;
+    let mut today_output: i64 = 0;
+    let mut today_cache_read: i64 = 0;
+    let mut today_cache_create: i64 = 0;
+    let mut by_model = Vec::new();
+
+    for row in &tokens {
+        today_input += row.total_input_tokens;
+        today_output += row.total_output_tokens;
+        today_cache_read += row.total_cache_read_tokens;
+        today_cache_create += row.total_cache_creation_tokens;
+        by_model.push(serde_json::json!({
+            "model": row.model,
+            "input": row.total_input_tokens,
+            "output": row.total_output_tokens,
+            "cache_read": row.total_cache_read_tokens,
+            "cache_create": row.total_cache_creation_tokens,
+            "calls": row.call_count,
+        }));
+    }
+
+    // Build cron jobs array
+    let active_jobs = cron_jobs.iter().filter(|j| j.enabled).count();
+    let jobs: Vec<serde_json::Value> = cron_jobs
+        .iter()
+        .map(|j| {
+            serde_json::json!({
+                "id": j.id,
+                "name": j.name,
+                "enabled": j.enabled,
+                "next_run_ms": j.state.next_run_at_ms,
+            })
+        })
+        .collect();
+
+    let search = search_stats.map(|s| {
+        serde_json::json!({
+            "total_searches": s.total_searches,
+            "avg_results": s.avg_results_per_search,
+        })
+    });
+
+    Json(serde_json::json!({
+        "version": crate::VERSION,
+        "uptime_seconds": uptime,
+        "models": status.config_snapshot.models,
+        "tools": status.tool_snapshot,
+        "channels": status.config_snapshot.channels,
+        "tokens": {
+            "today": {
+                "input": today_input,
+                "output": today_output,
+                "cache_read": today_cache_read,
+                "cache_create": today_cache_create,
+            },
+            "by_model": by_model,
+        },
+        "cron": {
+            "active_jobs": active_jobs,
+            "jobs": jobs,
+            "dlq_count": dlq_count,
+        },
+        "safety": status.config_snapshot.safety,
+        "gateway": status.config_snapshot.gateway,
+        "memory": {
+            "search_stats": search,
+            "embeddings_enabled": status.config_snapshot.embeddings_enabled,
+        },
+    }))
+}
+
+/// GET /status — serves the HTML status dashboard.
+pub async fn status_html_handler() -> impl IntoResponse {
+    axum::response::Html(include_str!("status_page.html"))
 }
 
 #[cfg(test)]

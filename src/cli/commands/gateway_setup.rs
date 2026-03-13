@@ -11,6 +11,7 @@ use std::sync::atomic::AtomicBool;
 use tracing::{debug, error, info, warn};
 
 pub(super) async fn gateway(model: Option<String>) -> Result<()> {
+    let process_start = std::time::Instant::now();
     info!("Loading configuration...");
     let config = load_config(None)?;
     let effective_model = model
@@ -82,6 +83,9 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     // The health endpoint checks this to distinguish liveness from readiness.
     let ready = Arc::new(AtomicBool::new(false));
 
+    // Shared OnceLock — set after agent setup, read by status handlers.
+    let status_lock = Arc::new(std::sync::OnceLock::new());
+
     let gateway_fut = async {
         if config.gateway.enabled {
             let a2a_config = if config.gateway.a2a.enabled {
@@ -106,6 +110,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
                 &config.gateway.rate_limit,
                 &secrets,
                 ready.clone(),
+                status_lock.clone(),
             )
             .await?;
             Ok(Some((http_task, state)))
@@ -141,6 +146,21 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
         memory_db_for_dlq,
     )
     .await?;
+
+    // Build status page state now that agent (and its tool registry) is ready
+    let tool_snap = crate::gateway::status::ToolSnapshot::from_registry(&agent.tool_registry());
+    let config_snap = crate::gateway::status::StatusConfigSnapshot::from_config(&config);
+    debug_assert!(
+        status_lock
+            .set(crate::gateway::status::StatusState {
+                start_time: process_start,
+                config_snapshot: Arc::new(config_snap),
+                tool_snapshot: Arc::new(tool_snap),
+                memory_db: agent.memory_db(),
+            })
+            .is_ok(),
+        "status OnceLock already set"
+    );
 
     let channels = setup_channels(&config, inbound_tx);
 
@@ -211,6 +231,7 @@ pub(super) async fn gateway_echo() -> Result<()> {
             &config.gateway.rate_limit,
             &secrets,
             ready,
+            Arc::new(std::sync::OnceLock::new()),
         )
         .await?;
         drop(http_task);

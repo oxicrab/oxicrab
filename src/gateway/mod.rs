@@ -11,7 +11,7 @@ use std::hash::BuildHasher;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -99,6 +99,10 @@ pub struct HttpApiState {
     /// Set to `true` once the agent loop is fully initialized and running.
     /// The health endpoint uses this to distinguish liveness from readiness.
     ready: Arc<AtomicBool>,
+    /// Status page state. Uses `OnceLock` so it can be set after the router is
+    /// built (tool registry is only available after agent setup, which runs in
+    /// parallel with gateway startup). Empty in echo mode.
+    pub(crate) status: Arc<OnceLock<status::StatusState>>,
 }
 
 /// Drop guard that removes a pending response entry when the handler is dropped
@@ -245,8 +249,9 @@ async fn rate_limit_middleware(
     request: Request,
     next: Next,
 ) -> axum::response::Response {
-    // Skip rate limiting for health endpoint
-    if request.uri().path() == "/api/health" {
+    // Skip rate limiting for health and status endpoints
+    let path = request.uri().path();
+    if path == "/api/health" || path == "/api/status" || path == "/status" {
         return next.run(request).await;
     }
 
@@ -298,6 +303,7 @@ fn build_router(
     // Routes that require auth when an API key is configured
     let mut authed_routes = Router::new()
         .route("/api/chat", post(chat_handler))
+        .route("/api/status", get(status::status_json_handler))
         .with_state(state.clone());
 
     if let Some(ref key) = api_key {
@@ -308,6 +314,7 @@ fn build_router(
     // Public routes (health, webhooks with their own HMAC auth)
     let public_routes = Router::new()
         .route("/api/health", get(health_handler))
+        .route("/status", get(status::status_html_handler))
         .route("/api/webhook/{name}", post(webhook_handler))
         .with_state(state);
 
@@ -807,6 +814,7 @@ pub async fn start<S: BuildHasher>(
     rate_limit: &crate::config::schema::RateLimitConfig,
     known_secrets: &[(&str, &str)],
     ready: Arc<AtomicBool>,
+    status: Arc<OnceLock<status::StatusState>>,
 ) -> Result<(tokio::task::JoinHandle<()>, HttpApiState)> {
     let webhook_map: HashMap<String, WebhookConfig> = webhooks.into_iter().collect();
     let active: Vec<_> = webhook_map
@@ -840,6 +848,7 @@ pub async fn start<S: BuildHasher>(
         outbound_tx,
         leak_detector: Arc::new(detector),
         ready,
+        status,
     };
 
     // Set up A2A state if enabled

@@ -8,6 +8,7 @@ fn make_state() -> HttpApiState {
         outbound_tx: None,
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     }
 }
 
@@ -159,6 +160,7 @@ fn make_state_with_webhooks(webhooks: HashMap<String, WebhookConfig>) -> HttpApi
         outbound_tx: None,
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     }
 }
 
@@ -382,6 +384,7 @@ async fn test_webhook_direct_delivery_to_targets() {
         outbound_tx: Some(Arc::new(outbound_tx)),
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     };
     let app = build_router(state, None, None, None);
 
@@ -444,6 +447,7 @@ async fn test_webhook_agent_turn_routes_through_agent() {
         outbound_tx: Some(Arc::new(outbound_tx)),
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -501,6 +505,7 @@ async fn test_chat_handler_sends_inbound_and_returns_response() {
         outbound_tx: None,
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -548,6 +553,7 @@ async fn test_chat_handler_with_session_id() {
         outbound_tx: None,
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -590,6 +596,7 @@ async fn test_chat_handler_creates_pending_and_publishes_inbound() {
         outbound_tx: None,
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -624,6 +631,7 @@ async fn test_deliver_to_targets_no_outbound_tx() {
         outbound_tx: None,
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     };
     let targets = vec![WebhookTarget {
         channel: "slack".to_string(),
@@ -661,6 +669,7 @@ async fn test_webhook_template_with_json_fields() {
         outbound_tx: Some(Arc::new(outbound_tx)),
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     };
     let app = build_router(state, None, None, None);
 
@@ -704,6 +713,7 @@ async fn test_chat_handler_rejects_oversized_message() {
         outbound_tx: None,
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     };
     let app = build_router(state, None, None, None);
 
@@ -736,6 +746,7 @@ async fn test_chat_handler_inbound_send_fails() {
         outbound_tx: None,
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     };
     let app = build_router(state, None, None, None);
 
@@ -869,6 +880,7 @@ async fn test_chat_handler_with_response_format_metadata() {
         outbound_tx: None,
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -913,6 +925,7 @@ async fn test_chat_handler_without_response_format_no_metadata() {
         outbound_tx: None,
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -951,6 +964,7 @@ async fn test_chat_handler_rejects_oversized_schema() {
         outbound_tx: None,
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     };
     let app = build_router(state, None, None, None);
 
@@ -1005,6 +1019,7 @@ async fn test_chat_handler_rejects_oversized_schema_name() {
         outbound_tx: None,
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
     };
     let app = build_router(state, None, None, None);
 
@@ -1096,4 +1111,156 @@ async fn test_webhook_replay_protection_accepts_recent_timestamp() {
 
     let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_status_json_echo_mode() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let state = make_state();
+    let app = build_router(state, None, None, None);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/status")
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 8192).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["mode"], "echo");
+    assert_eq!(json["status"], "unavailable");
+}
+
+#[tokio::test]
+async fn test_status_html_endpoint() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let state = make_state();
+    let app = build_router(state, None, None, None);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/status")
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(ct.contains("text/html"));
+}
+
+#[tokio::test]
+async fn test_status_json_requires_auth_when_key_set() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let state = make_state();
+    let app = build_router(state, None, Some(Arc::new("test-key".to_string())), None);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/status")
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_status_json_with_populated_state() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let db =
+        Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("in-memory DB"));
+    let status_state = crate::gateway::status::StatusState {
+        start_time: std::time::Instant::now(),
+        config_snapshot: Arc::new(crate::gateway::status::StatusConfigSnapshot {
+            models: crate::gateway::status::ModelsSnapshot {
+                default: "test/model".to_string(),
+                tasks: HashMap::new(),
+                fallbacks: vec![],
+                chat_routing: None,
+            },
+            channels: crate::gateway::status::ChannelsSnapshot {
+                telegram: true,
+                discord: false,
+                slack: false,
+                whatsapp: false,
+                twilio: false,
+            },
+            safety: crate::gateway::status::SafetySnapshot {
+                prompt_guard: crate::gateway::status::PromptGuardSnapshot {
+                    enabled: true,
+                    action: "Block".to_string(),
+                },
+                exfiltration_guard: false,
+                sandbox: crate::gateway::status::SandboxSnapshot {
+                    enabled: true,
+                    block_network: true,
+                },
+            },
+            gateway: crate::gateway::status::GatewaySnapshot {
+                rate_limit: crate::gateway::status::RateLimitSnapshot {
+                    enabled: false,
+                    rps: 10,
+                    burst: 30,
+                },
+                webhooks: vec![],
+                a2a: false,
+            },
+            embeddings_enabled: false,
+        }),
+        tool_snapshot: Arc::new(crate::gateway::status::ToolSnapshot {
+            total: 2,
+            deferred: 0,
+            by_category: {
+                let mut m = HashMap::new();
+                m.insert("Core".to_string(), vec!["shell".to_string()]);
+                m
+            },
+        }),
+        memory_db: db,
+    };
+
+    let lock = Arc::new(OnceLock::new());
+    let _ = lock.set(status_state);
+
+    let mut state = make_state();
+    state.status = lock;
+    let app = build_router(state, None, None, None);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/status")
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(json["version"], crate::VERSION);
+    assert!(json["uptime_seconds"].is_number());
+    assert_eq!(json["models"]["default"], "test/model");
+    assert_eq!(json["channels"]["telegram"], true);
+    assert_eq!(json["tools"]["total"], 2);
+    assert!(json["tokens"]["today"]["input"].is_number());
+    assert!(json["cron"]["jobs"].is_array());
 }
