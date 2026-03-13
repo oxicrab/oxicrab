@@ -14,16 +14,6 @@ use tracing::{debug, error, info, warn};
 /// Produce a canonical JSON string with object keys sorted recursively.
 /// This ensures cache keys are stable regardless of key insertion order.
 fn canonical_json(value: &Value) -> String {
-    // Fast path: flat objects with few keys skip the expensive BTreeMap sort.
-    // serde_json::Map preserves insertion order deterministically for identical
-    // JSON inputs, so sorting is only needed for complex nested structures.
-    if let Value::Object(map) = value
-        && map.len() <= 8
-        && map.values().all(|v| !v.is_object())
-    {
-        return serde_json::to_string(value).unwrap_or_default();
-    }
-    // Full recursive sort path for complex nested objects
     match value {
         Value::Object(map) => {
             let sorted: BTreeMap<&String, Value> =

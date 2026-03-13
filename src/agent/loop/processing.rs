@@ -106,7 +106,7 @@ impl AgentLoop {
         );
 
         debug!("Getting compacted history");
-        let had_checkpoint = self.last_checkpoint.lock().await.is_some();
+        let checkpoint_before = self.last_checkpoint.lock().await.clone();
         let history = self.get_compacted_history(&session).await?;
         debug!("Got {} history messages", history.len());
 
@@ -120,15 +120,22 @@ impl AgentLoop {
         };
 
         // Inbound secret scanning: redact secrets before they reach the LLM or
-        // get persisted in session history / memory.
+        // get persisted in session history / memory. Uses redact() for a single
+        // pass; scan() only runs when redaction occurred (to get pattern names).
         let msg_content = {
             let redacted = self.leak_detector.redact(&msg_content);
             if redacted == msg_content {
                 msg_content
             } else {
+                let names: Vec<&str> = self
+                    .leak_detector
+                    .scan(&msg_content)
+                    .iter()
+                    .map(|m| m.name)
+                    .collect();
                 warn!(
-                    "secret detected in inbound message from {}:{} — redacted",
-                    msg.channel, msg.sender_id
+                    "secret detected in inbound message from {}:{}: {:?} — redacted",
+                    msg.channel, msg.sender_id, names
                 );
                 redacted
             }
@@ -331,9 +338,10 @@ impl AgentLoop {
             .await?;
 
         // Only reload session if compaction updated it (wrote compaction_summary).
-        // Compaction sets last_checkpoint when it produces a summary — if the
-        // checkpoint changed during this turn, the session metadata is stale.
-        let compaction_ran = self.last_checkpoint.lock().await.is_some() && !had_checkpoint;
+        // Compare the actual checkpoint value, not just presence, so that
+        // second+ compaction runs within the same session lifetime are detected.
+        let checkpoint_after = self.last_checkpoint.lock().await.clone();
+        let compaction_ran = checkpoint_after.is_some() && checkpoint_after != checkpoint_before;
         let mut session = if compaction_ran {
             debug!("compaction updated session, reloading");
             self.sessions.get_or_create(&session_key).await?
