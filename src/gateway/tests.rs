@@ -1129,7 +1129,7 @@ async fn test_webhook_replay_protection_accepts_recent_timestamp() {
 }
 
 #[tokio::test]
-async fn test_status_json_echo_mode() {
+async fn test_status_json_initializing() {
     use axum::http::Request;
     use tower::ServiceExt;
 

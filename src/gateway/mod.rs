@@ -246,14 +246,14 @@ struct RateLimitState {
 ///
 /// Uses the actual socket peer address by default. Only falls back to
 /// X-Forwarded-For when `trust_proxy` is enabled (for reverse-proxy setups).
-/// Exempts `/api/health` from rate limiting.
+/// Exempts `/api/health` and `/status` (static HTML) from rate limiting.
+/// `/api/status` is NOT exempt — it runs DB queries per request.
 async fn rate_limit_middleware(
     State(state): State<RateLimitState>,
     request: Request,
     next: Next,
 ) -> axum::response::Response {
     // Skip rate limiting for health check and static HTML status page.
-    // /api/status is NOT exempt — it runs DB queries and is auth-gated.
     let path = request.uri().path();
     if path == "/api/health" || path == "/status" {
         return next.run(request).await;

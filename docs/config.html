@@ -905,7 +905,9 @@
         <table class="cfg-table">
             <tr><th>Endpoint</th><th>Method</th><th>Description</th></tr>
             <tr><td>/api/chat</td><td>POST</td><td>Send a message and receive the agent's response. Body: <code>{"message": "...", "session_id": "..."}</code></td></tr>
-            <tr><td>/api/health</td><td>GET</td><td>Health check. Returns <code>{"status": "ok", "version": "..."}</code></td></tr>
+            <tr><td>/api/health</td><td>GET</td><td>Health check. Returns <code>{"status": "ready"/"starting", "version": "..."}</code></td></tr>
+            <tr><td>/api/status</td><td>GET</td><td>System status: models, tools, channels, tokens, cron, safety, gateway, memory. Auth-gated, rate-limited.</td></tr>
+            <tr><td>/status</td><td>GET</td><td>HTML status dashboard. Public, auto-refreshes every 60s. Fetches data from <code>/api/status</code>.</td></tr>
             <tr><td>/api/webhook/{name}</td><td>POST</td><td>Receive a webhook from an external service (see webhook config below)</td></tr>
             <tr><td>/.well-known/agent.json</td><td>GET</td><td>A2A AgentCard (when A2A enabled)</td></tr>
             <tr><td>/a2a/tasks</td><td>POST</td><td>Submit an A2A task. Body: <code>{"message": "..."}</code></td></tr>

@@ -8,8 +8,8 @@ Add a status page to the HTTP gateway exposing runtime state: models, tools, cha
 
 | Route | Method | Auth | Rate Limited |
 |---|---|---|---|
-| `/api/status` | GET | API key (same as `/api/chat`) | No (exempt, like `/api/health`) |
-| `/status` | GET | Public (HTML fetches JSON with stored key) | No |
+| `/api/status` | GET | API key (same as `/api/chat`) | Yes (runs DB queries per request) |
+| `/status` | GET | Public (HTML fetches JSON with stored key) | No (static HTML) |
 
 ## Data Sources
 
