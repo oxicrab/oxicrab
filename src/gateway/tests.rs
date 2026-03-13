@@ -9,6 +9,7 @@ fn make_state() -> HttpApiState {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     }
 }
 
@@ -161,6 +162,7 @@ fn make_state_with_webhooks(webhooks: HashMap<String, WebhookConfig>) -> HttpApi
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     }
 }
 
@@ -385,6 +387,7 @@ async fn test_webhook_direct_delivery_to_targets() {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     };
     let app = build_router(state, None, None, None);
 
@@ -448,6 +451,7 @@ async fn test_webhook_agent_turn_routes_through_agent() {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -506,6 +510,7 @@ async fn test_chat_handler_sends_inbound_and_returns_response() {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -554,6 +559,7 @@ async fn test_chat_handler_with_session_id() {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -597,6 +603,7 @@ async fn test_chat_handler_creates_pending_and_publishes_inbound() {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -632,6 +639,7 @@ async fn test_deliver_to_targets_no_outbound_tx() {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     };
     let targets = vec![WebhookTarget {
         channel: "slack".to_string(),
@@ -670,6 +678,7 @@ async fn test_webhook_template_with_json_fields() {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     };
     let app = build_router(state, None, None, None);
 
@@ -714,6 +723,7 @@ async fn test_chat_handler_rejects_oversized_message() {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     };
     let app = build_router(state, None, None, None);
 
@@ -747,6 +757,7 @@ async fn test_chat_handler_inbound_send_fails() {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     };
     let app = build_router(state, None, None, None);
 
@@ -881,6 +892,7 @@ async fn test_chat_handler_with_response_format_metadata() {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -926,6 +938,7 @@ async fn test_chat_handler_without_response_format_no_metadata() {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     };
     let pending = state.pending.clone();
     let app = build_router(state, None, None, None);
@@ -965,6 +978,7 @@ async fn test_chat_handler_rejects_oversized_schema() {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     };
     let app = build_router(state, None, None, None);
 
@@ -1020,6 +1034,7 @@ async fn test_chat_handler_rejects_oversized_schema_name() {
         leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
+        echo_mode: false,
     };
     let app = build_router(state, None, None, None);
 
@@ -1133,6 +1148,28 @@ async fn test_status_json_echo_mode() {
     let body = axum::body::to_bytes(resp.into_body(), 8192).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["mode"], "initializing");
+    assert_eq!(json["status"], "unavailable");
+}
+
+#[tokio::test]
+async fn test_status_json_true_echo_mode() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let mut state = make_state();
+    state.echo_mode = true;
+    let app = build_router(state, None, None, None);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/status")
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 8192).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["mode"], "echo");
     assert_eq!(json["status"], "unavailable");
 }
 

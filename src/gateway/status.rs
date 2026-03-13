@@ -157,7 +157,7 @@ impl StatusConfigSnapshot {
             safety: SafetySnapshot {
                 prompt_guard: PromptGuardSnapshot {
                     enabled: config.agents.defaults.prompt_guard.enabled,
-                    action: format!("{:?}", config.agents.defaults.prompt_guard.action),
+                    action: format!("{}", config.agents.defaults.prompt_guard.action),
                 },
                 exfiltration_guard: config.tools.exfiltration_guard.enabled,
                 sandbox: SandboxSnapshot {
@@ -209,9 +209,14 @@ impl ToolSnapshot {
 /// GET /api/status — returns full system status as JSON.
 pub async fn status_json_handler(State(state): State<HttpApiState>) -> impl IntoResponse {
     let Some(status) = state.status.get() else {
+        let mode = if state.echo_mode {
+            "echo"
+        } else {
+            "initializing"
+        };
         return Json(serde_json::json!({
             "status": "unavailable",
-            "mode": "initializing",
+            "mode": mode,
             "version": crate::VERSION,
         }));
     };

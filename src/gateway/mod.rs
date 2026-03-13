@@ -103,6 +103,9 @@ pub struct HttpApiState {
     /// built (tool registry is only available after agent setup, which runs in
     /// parallel with gateway startup). Empty in echo mode.
     pub(crate) status: Arc<OnceLock<status::StatusState>>,
+    /// True when running in echo mode (no agent loop). Distinguishes
+    /// "permanently unavailable" from "still initializing" in the status handler.
+    pub(crate) echo_mode: bool,
 }
 
 /// Drop guard that removes a pending response entry when the handler is dropped
@@ -816,6 +819,7 @@ pub async fn start<S: BuildHasher>(
     known_secrets: &[(&str, &str)],
     ready: Arc<AtomicBool>,
     status: Arc<OnceLock<status::StatusState>>,
+    echo_mode: bool,
 ) -> Result<(tokio::task::JoinHandle<()>, HttpApiState)> {
     let webhook_map: HashMap<String, WebhookConfig> = webhooks.into_iter().collect();
     let active: Vec<_> = webhook_map
@@ -850,6 +854,7 @@ pub async fn start<S: BuildHasher>(
         leak_detector: Arc::new(detector),
         ready,
         status,
+        echo_mode,
     };
 
     // Set up A2A state if enabled

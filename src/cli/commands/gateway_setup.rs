@@ -111,6 +111,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
                 &secrets,
                 ready.clone(),
                 status_lock.clone(),
+                false, // not echo mode
             )
             .await?;
             Ok(Some((http_task, state)))
@@ -232,6 +233,7 @@ pub(super) async fn gateway_echo() -> Result<()> {
             &secrets,
             ready,
             Arc::new(std::sync::OnceLock::new()),
+            true, // echo mode
         )
         .await?;
         drop(http_task);
