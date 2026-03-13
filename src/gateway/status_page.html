@@ -706,8 +706,12 @@
         if (!data) return;
         hideError();
 
-        if (data.status === 'unavailable' && data.mode === 'echo') {
+        if (data.status === 'unavailable') {
           document.getElementById('version').textContent = 'v' + (data.version || '?');
+          var msg = data.mode === 'initializing'
+            ? 'Gateway is starting up. Status will be available shortly.'
+            : 'Status data is not available.';
+          document.getElementById('echo-banner').textContent = msg;
           showEcho();
           return;
         }

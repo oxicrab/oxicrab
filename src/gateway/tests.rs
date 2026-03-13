@@ -1132,7 +1132,7 @@ async fn test_status_json_echo_mode() {
 
     let body = axum::body::to_bytes(resp.into_body(), 8192).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["mode"], "echo");
+    assert_eq!(json["mode"], "initializing");
     assert_eq!(json["status"], "unavailable");
 }
 

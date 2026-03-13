@@ -211,7 +211,7 @@ pub async fn status_json_handler(State(state): State<HttpApiState>) -> impl Into
     let Some(status) = state.status.get() else {
         return Json(serde_json::json!({
             "status": "unavailable",
-            "mode": "echo",
+            "mode": "initializing",
             "version": crate::VERSION,
         }));
     };

@@ -249,9 +249,10 @@ async fn rate_limit_middleware(
     request: Request,
     next: Next,
 ) -> axum::response::Response {
-    // Skip rate limiting for health and status endpoints
+    // Skip rate limiting for health check and static HTML status page.
+    // /api/status is NOT exempt — it runs DB queries and is auth-gated.
     let path = request.uri().path();
-    if path == "/api/health" || path == "/api/status" || path == "/status" {
+    if path == "/api/health" || path == "/status" {
         return next.run(request).await;
     }
 

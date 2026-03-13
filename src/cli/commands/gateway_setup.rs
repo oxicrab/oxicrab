@@ -150,17 +150,17 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     // Build status page state now that agent (and its tool registry) is ready
     let tool_snap = crate::gateway::status::ToolSnapshot::from_registry(&agent.tool_registry());
     let config_snap = crate::gateway::status::StatusConfigSnapshot::from_config(&config);
-    debug_assert!(
-        status_lock
-            .set(crate::gateway::status::StatusState {
-                start_time: process_start,
-                config_snapshot: Arc::new(config_snap),
-                tool_snapshot: Arc::new(tool_snap),
-                memory_db: agent.memory_db(),
-            })
-            .is_ok(),
-        "status OnceLock already set"
-    );
+    if status_lock
+        .set(crate::gateway::status::StatusState {
+            start_time: process_start,
+            config_snapshot: Arc::new(config_snap),
+            tool_snapshot: Arc::new(tool_snap),
+            memory_db: agent.memory_db(),
+        })
+        .is_err()
+    {
+        error!("status OnceLock already set — this is a bug");
+    }
 
     let channels = setup_channels(&config, inbound_tx);
 
