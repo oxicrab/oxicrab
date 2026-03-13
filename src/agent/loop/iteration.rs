@@ -584,18 +584,30 @@ impl AgentLoop {
             .await
         {
             Ok(response) => {
-                let cost_model = response.actual_model.as_deref().unwrap_or(effective_model);
-                if let Err(e) = self.memory.db().record_tokens(
-                    cost_model,
-                    response.input_tokens.unwrap_or(0),
-                    response.output_tokens.unwrap_or(0),
-                    response.cache_creation_input_tokens.unwrap_or(0),
-                    response.cache_read_input_tokens.unwrap_or(0),
-                    "main",
-                    request_id,
-                ) {
-                    warn!("failed to record token usage: {}", e);
-                }
+                let cost_model = response
+                    .actual_model
+                    .as_deref()
+                    .unwrap_or(effective_model)
+                    .to_string();
+                let db = self.memory.db();
+                let input = response.input_tokens.unwrap_or(0);
+                let output = response.output_tokens.unwrap_or(0);
+                let cache_create = response.cache_creation_input_tokens.unwrap_or(0);
+                let cache_read = response.cache_read_input_tokens.unwrap_or(0);
+                let req_id = request_id.map(str::to_string);
+                tokio::task::spawn_blocking(move || {
+                    if let Err(e) = db.record_tokens(
+                        &cost_model,
+                        input,
+                        output,
+                        cache_create,
+                        cache_read,
+                        "main",
+                        req_id.as_deref(),
+                    ) {
+                        warn!("failed to record token usage: {}", e);
+                    }
+                });
                 Ok(response.content)
             }
             Err(e) => {

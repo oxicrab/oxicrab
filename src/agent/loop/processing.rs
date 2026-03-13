@@ -293,19 +293,29 @@ impl AgentLoop {
             },
         };
 
-        // Record complexity event for analytics
-        if let (Some(score), Some(band)) = (&complexity_score, &complexity_band)
-            && let Err(e) = self.memory.db().record_complexity_event(
-                &request_id,
-                score.composite,
-                band,
-                overrides.model.as_deref(),
-                score.forced,
-                Some(&msg.channel),
-                &content,
-            )
-        {
-            debug!("failed to record complexity event: {}", e);
+        // Record complexity event off the async runtime (fire-and-forget)
+        if let (Some(score), Some(band)) = (&complexity_score, &complexity_band) {
+            let db = self.memory.db();
+            let rid = request_id.clone();
+            let composite = score.composite;
+            let band = band.clone();
+            let model_override = overrides.model.clone();
+            let forced = score.forced;
+            let channel = msg.channel.clone();
+            let content_snap = content.clone();
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = db.record_complexity_event(
+                    &rid,
+                    composite,
+                    &band,
+                    model_override.as_deref(),
+                    forced,
+                    Some(&channel),
+                    &content_snap,
+                ) {
+                    debug!("failed to record complexity event: {}", e);
+                }
+            });
         }
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
@@ -634,15 +644,23 @@ impl AgentLoop {
         } else {
             "none"
         };
-        if let Err(e) = self.memory.db().record_intent_event(
-            "classification",
-            Some(intent_method),
-            semantic_score,
-            None,
-            content,
-            request_id,
-        ) {
-            debug!("failed to record intent metric: {}", e);
+        {
+            let db = self.memory.db();
+            let method = intent_method.to_string();
+            let content = content.to_string();
+            let rid = request_id.map(str::to_string);
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = db.record_intent_event(
+                    "classification",
+                    Some(&method),
+                    semantic_score,
+                    None,
+                    &content,
+                    rid.as_deref(),
+                ) {
+                    debug!("failed to record intent metric: {}", e);
+                }
+            });
         }
 
         user_action_intent

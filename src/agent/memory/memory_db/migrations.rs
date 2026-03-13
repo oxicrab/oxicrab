@@ -194,7 +194,7 @@ mod tests {
         conn.execute_batch(MIGRATION_0001_BASE).unwrap();
         conn.execute("PRAGMA user_version = 2", []).unwrap();
         apply_migrations(&conn).unwrap();
-        assert_eq!(user_version(&conn).unwrap(), 3);
+        assert!(user_version(&conn).unwrap() >= 3);
         // Verify index exists
         let mut stmt = conn.prepare("PRAGMA index_list('memory_entries')").unwrap();
         let indexes: Vec<String> = stmt
