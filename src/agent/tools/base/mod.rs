@@ -1,10 +1,15 @@
 use async_trait::async_trait;
 use serde_json::Value;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct ToolResult {
     pub content: String,
     pub is_error: bool,
+    /// Structured metadata for internal consumption (e.g. suggested buttons).
+    /// Never sent to the LLM — carried through the agent loop for processing
+    /// by the caller (iteration logic, response builder, etc.).
+    pub metadata: Option<HashMap<String, Value>>,
 }
 
 impl ToolResult {
@@ -12,6 +17,7 @@ impl ToolResult {
         Self {
             content: content.into(),
             is_error: false,
+            metadata: None,
         }
     }
 
@@ -19,6 +25,7 @@ impl ToolResult {
         Self {
             content: content.into(),
             is_error: true,
+            metadata: None,
         }
     }
 
@@ -30,6 +37,14 @@ impl ToolResult {
             Ok(content) => Self::new(content),
             Err(e) => Self::error(format!("{error_prefix} error: {e}")),
         }
+    }
+
+    /// Attach structured metadata to this result. The metadata is for internal
+    /// consumption only and will not be sent to the LLM.
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: HashMap<String, Value>) -> Self {
+        self.metadata = Some(metadata);
+        self
     }
 }
 

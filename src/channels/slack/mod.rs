@@ -729,6 +729,7 @@ impl BaseChannel for SlackChannel {
                                                 &dm_policy,
                                                 &bot_token,
                                                 &ws_client,
+                                                &thinking_emoji,
                                             )
                                             .await
                                         {
@@ -1182,6 +1183,7 @@ fn convert_buttons_to_blocks(metadata: &HashMap<String, Value>) -> Vec<Value> {
 ///
 /// Parses `block_actions` payloads and creates an `InboundMessage` with
 /// `[button:{action_id}]` content, matching Discord's button click format.
+#[allow(clippy::too_many_arguments)]
 async fn handle_interactive_payload(
     payload: &Value,
     inbound_tx: &Arc<mpsc::Sender<InboundMessage>>,
@@ -1190,6 +1192,7 @@ async fn handle_interactive_payload(
     dm_policy: &crate::config::DmPolicy,
     bot_token: &str,
     client: &reqwest::Client,
+    thinking_emoji: &str,
 ) -> Result<()> {
     let payload_type = payload["type"].as_str().unwrap_or_default();
     if payload_type != "block_actions" {
@@ -1268,6 +1271,27 @@ async fn handle_interactive_payload(
         .send(inbound_msg)
         .await
         .map_err(|e| anyhow::anyhow!("Send error: {e}"))?;
+
+    // Add thinking reaction to acknowledge button click (fire-and-forget)
+    if !message_ts.is_empty() {
+        let react_client = client.clone();
+        let react_token = bot_token.to_string();
+        let react_channel = channel_id.to_string();
+        let react_ts = message_ts.to_string();
+        let emoji = thinking_emoji.to_string();
+        tokio::spawn(async move {
+            let _ = react_client
+                .post("https://slack.com/api/reactions.add")
+                .form(&[
+                    ("token", react_token.as_str()),
+                    ("channel", react_channel.as_str()),
+                    ("timestamp", react_ts.as_str()),
+                    ("name", emoji.as_str()),
+                ])
+                .send()
+                .await;
+        });
+    }
 
     info!("slack: button click action_id={action_id} from user={user_id} in channel={channel_id}");
     Ok(())
