@@ -310,7 +310,8 @@ impl AgentLoop {
                     TextAction::Continue => {}
                     TextAction::Return => {
                         let content = strip_think_tags(&content);
-                        let response_metadata = self.take_pending_buttons_metadata();
+                        let mut response_metadata = self.take_pending_buttons_metadata();
+                        merge_suggested_buttons(&mut response_metadata, &collected_tool_metadata);
                         return Ok(AgentLoopResult {
                             content: Some(content),
                             input_tokens: last_input_tokens,
@@ -342,7 +343,8 @@ impl AgentLoop {
         }
 
         // Collect pending buttons from the add_buttons tool (if any)
-        let response_metadata = self.take_pending_buttons_metadata();
+        let mut response_metadata = self.take_pending_buttons_metadata();
+        merge_suggested_buttons(&mut response_metadata, &collected_tool_metadata);
 
         // If tools were called but the loop ended without final content,
         // make one more LLM call with no tools to force a text summary.
@@ -633,5 +635,190 @@ impl AgentLoop {
                 Ok(None)
             }
         }
+    }
+}
+
+/// Merge tool-suggested buttons with LLM-added buttons.
+///
+/// Tool-suggested buttons are unconditional (always appear).
+/// LLM-added buttons are appended if no ID conflict.
+/// Deduplicates by ID (last occurrence wins for multi-iteration accumulation).
+/// Total capped at 5 (Slack/Discord limitation).
+fn merge_suggested_buttons(
+    response_metadata: &mut HashMap<String, serde_json::Value>,
+    collected_tool_metadata: &[HashMap<String, serde_json::Value>],
+) {
+    let mut seen_ids = std::collections::HashSet::new();
+    let mut suggested: Vec<serde_json::Value> = Vec::new();
+
+    // Collect all suggested buttons from tool metadata across iterations
+    let all_buttons: Vec<serde_json::Value> = collected_tool_metadata
+        .iter()
+        .filter_map(|meta| meta.get("suggested_buttons")?.as_array())
+        .flatten()
+        .cloned()
+        .collect();
+
+    // Dedup by ID: iterate in reverse so last occurrence wins, then reverse back
+    for b in all_buttons.into_iter().rev() {
+        if let Some(id) = b["id"].as_str()
+            && seen_ids.insert(id.to_string())
+        {
+            suggested.push(b);
+        }
+    }
+    suggested.reverse();
+
+    if suggested.is_empty() {
+        return;
+    }
+
+    // Get existing LLM-added buttons (from add_buttons tool)
+    let llm_buttons = response_metadata
+        .get(crate::bus::meta::BUTTONS)
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    // Tool-suggested first (priority), then LLM buttons that don't conflict
+    let mut final_buttons = suggested;
+    for b in llm_buttons {
+        if let Some(id) = b["id"].as_str()
+            && !seen_ids.contains(id)
+        {
+            final_buttons.push(b);
+        }
+    }
+    final_buttons.truncate(5);
+
+    response_metadata.insert(
+        crate::bus::meta::BUTTONS.to_string(),
+        serde_json::Value::Array(final_buttons),
+    );
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+
+    #[test]
+    fn test_no_buttons() {
+        let mut meta = HashMap::new();
+        let tool_meta: Vec<HashMap<String, serde_json::Value>> = vec![];
+        merge_suggested_buttons(&mut meta, &tool_meta);
+        assert!(!meta.contains_key(crate::bus::meta::BUTTONS));
+    }
+
+    #[test]
+    fn test_suggested_only() {
+        let mut meta = HashMap::new();
+        let tool_meta = vec![HashMap::from([(
+            "suggested_buttons".to_string(),
+            serde_json::json!([
+                {"id": "complete-1", "label": "Complete Task", "style": "primary",
+                 "context": "{\"task_id\":\"1\"}"}
+            ]),
+        )])];
+        merge_suggested_buttons(&mut meta, &tool_meta);
+        let buttons = meta[crate::bus::meta::BUTTONS].as_array().unwrap();
+        assert_eq!(buttons.len(), 1);
+        assert_eq!(buttons[0]["id"], "complete-1");
+    }
+
+    #[test]
+    fn test_llm_only_unchanged() {
+        let mut meta = HashMap::from([(
+            crate::bus::meta::BUTTONS.to_string(),
+            serde_json::json!([{"id": "custom", "label": "Custom", "style": "secondary"}]),
+        )]);
+        let tool_meta: Vec<HashMap<String, serde_json::Value>> = vec![];
+        merge_suggested_buttons(&mut meta, &tool_meta);
+        let buttons = meta[crate::bus::meta::BUTTONS].as_array().unwrap();
+        assert_eq!(buttons.len(), 1);
+        assert_eq!(buttons[0]["id"], "custom");
+    }
+
+    #[test]
+    fn test_merge_no_conflict() {
+        let mut meta = HashMap::from([(
+            crate::bus::meta::BUTTONS.to_string(),
+            serde_json::json!([{"id": "snooze", "label": "Snooze", "style": "secondary"}]),
+        )]);
+        let tool_meta = vec![HashMap::from([(
+            "suggested_buttons".to_string(),
+            serde_json::json!([
+                {"id": "complete-1", "label": "Complete", "style": "primary"}
+            ]),
+        )])];
+        merge_suggested_buttons(&mut meta, &tool_meta);
+        let buttons = meta[crate::bus::meta::BUTTONS].as_array().unwrap();
+        assert_eq!(buttons.len(), 2);
+        assert_eq!(buttons[0]["id"], "complete-1");
+        assert_eq!(buttons[1]["id"], "snooze");
+    }
+
+    #[test]
+    fn test_id_conflict_tool_wins() {
+        let mut meta = HashMap::from([(
+            crate::bus::meta::BUTTONS.to_string(),
+            serde_json::json!([{"id": "complete-1", "label": "LLM Complete", "style": "danger"}]),
+        )]);
+        let tool_meta = vec![HashMap::from([(
+            "suggested_buttons".to_string(),
+            serde_json::json!([
+                {"id": "complete-1", "label": "Tool Complete", "style": "primary"}
+            ]),
+        )])];
+        merge_suggested_buttons(&mut meta, &tool_meta);
+        let buttons = meta[crate::bus::meta::BUTTONS].as_array().unwrap();
+        assert_eq!(buttons.len(), 1);
+        assert_eq!(buttons[0]["label"], "Tool Complete");
+    }
+
+    #[test]
+    fn test_cap_at_five() {
+        let tool_meta = vec![HashMap::from([(
+            "suggested_buttons".to_string(),
+            serde_json::json!([
+                {"id": "a", "label": "A", "style": "primary"},
+                {"id": "b", "label": "B", "style": "primary"},
+                {"id": "c", "label": "C", "style": "primary"},
+                {"id": "d", "label": "D", "style": "primary"},
+                {"id": "e", "label": "E", "style": "primary"},
+            ]),
+        )])];
+        let mut meta = HashMap::from([(
+            crate::bus::meta::BUTTONS.to_string(),
+            serde_json::json!([{"id": "f", "label": "F", "style": "secondary"}]),
+        )]);
+        merge_suggested_buttons(&mut meta, &tool_meta);
+        let buttons = meta[crate::bus::meta::BUTTONS].as_array().unwrap();
+        assert_eq!(buttons.len(), 5);
+    }
+
+    #[test]
+    fn test_dedup_across_iterations() {
+        let tool_meta = vec![
+            HashMap::from([(
+                "suggested_buttons".to_string(),
+                serde_json::json!([
+                    {"id": "complete-1", "label": "Complete: Task 1", "style": "primary"},
+                    {"id": "complete-2", "label": "Complete: Task 2 (old)", "style": "primary"},
+                ]),
+            )]),
+            HashMap::from([(
+                "suggested_buttons".to_string(),
+                serde_json::json!([
+                    {"id": "complete-2", "label": "Complete: Task 2 (new)", "style": "primary"},
+                    {"id": "complete-3", "label": "Complete: Task 3", "style": "primary"},
+                ]),
+            )]),
+        ];
+        let mut meta = HashMap::new();
+        merge_suggested_buttons(&mut meta, &tool_meta);
+        let buttons = meta[crate::bus::meta::BUTTONS].as_array().unwrap();
+        assert_eq!(buttons.len(), 3);
+        let b2 = buttons.iter().find(|b| b["id"] == "complete-2").unwrap();
+        assert_eq!(b2["label"], "Complete: Task 2 (new)");
     }
 }
