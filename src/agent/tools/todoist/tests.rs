@@ -828,3 +828,179 @@ fn test_todoist_actions_match_schema() {
         );
     }
 }
+
+// --- Suggested buttons tests ---
+
+#[tokio::test]
+async fn test_list_tasks_returns_suggested_buttons() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tasks"))
+        .and(header("Authorization", "Bearer test_token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "results": [
+                {
+                    "id": "123",
+                    "content": "Buy groceries",
+                    "is_completed": false,
+                    "priority": 1,
+                    "due": {"string": "today"},
+                    "labels": []
+                },
+                {
+                    "id": "456",
+                    "content": "Already done",
+                    "is_completed": true,
+                    "priority": 1,
+                    "due": null,
+                    "labels": []
+                }
+            ],
+            "next_cursor": null
+        })))
+        .mount(&server)
+        .await;
+
+    let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({"action": "list_tasks"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    let meta = result.metadata.expect("should have metadata");
+    let buttons = meta["suggested_buttons"]
+        .as_array()
+        .expect("should have buttons");
+    assert_eq!(buttons.len(), 1); // only incomplete task
+    assert_eq!(buttons[0]["id"], "complete-123");
+    assert!(
+        buttons[0]["label"]
+            .as_str()
+            .unwrap()
+            .contains("Buy groceries")
+    );
+    assert_eq!(buttons[0]["style"], "primary");
+    let ctx_str = buttons[0]["context"].as_str().unwrap();
+    let ctx_val: serde_json::Value = serde_json::from_str(ctx_str).unwrap();
+    assert_eq!(ctx_val["task_id"], "123");
+    assert_eq!(ctx_val["action"], "complete");
+}
+
+#[tokio::test]
+async fn test_get_task_returns_suggested_buttons() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tasks/task123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "task123",
+            "content": "Buy milk",
+            "is_completed": false,
+            "priority": 1,
+            "due": {"string": "today"},
+            "labels": []
+        })))
+        .mount(&server)
+        .await;
+
+    let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({"action": "get_task", "task_id": "task123"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    let meta = result.metadata.expect("should have metadata");
+    let buttons = meta["suggested_buttons"].as_array().unwrap();
+    assert_eq!(buttons.len(), 1);
+    assert_eq!(buttons[0]["id"], "complete-task123");
+}
+
+#[tokio::test]
+async fn test_get_task_no_buttons_when_completed() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tasks/task_done"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "task_done",
+            "content": "Already finished",
+            "is_completed": true,
+            "priority": 1,
+            "due": null,
+            "labels": []
+        })))
+        .mount(&server)
+        .await;
+
+    let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({"action": "get_task", "task_id": "task_done"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    assert!(result.metadata.is_none());
+}
+
+#[tokio::test]
+async fn test_list_tasks_no_buttons_when_empty() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tasks"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "results": [],
+            "next_cursor": null
+        })))
+        .mount(&server)
+        .await;
+
+    let tool = TodoistTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({"action": "list_tasks"}),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    assert!(result.metadata.is_none());
+}
+
+#[test]
+fn test_build_task_buttons_max_five() {
+    let tasks: Vec<serde_json::Value> = (0..10)
+        .map(|i| {
+            serde_json::json!({
+                "id": format!("t{i}"),
+                "content": format!("Task {i}"),
+                "is_completed": false,
+            })
+        })
+        .collect();
+    let buttons = build_task_buttons(&tasks);
+    assert_eq!(buttons.len(), 5);
+}
+
+#[test]
+fn test_build_task_buttons_truncates_long_labels() {
+    let tasks = vec![serde_json::json!({
+        "id": "t1",
+        "content": "This is a very long task name that exceeds the limit",
+        "is_completed": false,
+    })];
+    let buttons = build_task_buttons(&tasks);
+    assert_eq!(buttons.len(), 1);
+    let label = buttons[0]["label"].as_str().unwrap();
+    assert!(label.ends_with("..."));
+    assert!(label.len() <= 40); // "Complete: " (10) + 22 chars + "..." (3) = 35 max
+}

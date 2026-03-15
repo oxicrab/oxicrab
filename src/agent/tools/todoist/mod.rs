@@ -6,6 +6,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::time::Duration;
 
 const TODOIST_API: &str = "https://api.todoist.com/api/v1";
@@ -105,7 +106,11 @@ impl TodoistTool {
         Ok(all_items)
     }
 
-    async fn list_tasks(&self, project_id: Option<&str>, filter: Option<&str>) -> Result<String> {
+    async fn list_tasks(
+        &self,
+        project_id: Option<&str>,
+        filter: Option<&str>,
+    ) -> Result<(String, Vec<Value>)> {
         // v1 API: /tasks for listing, /tasks/filter for filter queries
         // limit max=200, default=50
         let tasks = if let Some(f) = filter {
@@ -121,7 +126,7 @@ impl TodoistTool {
                 .await?
         };
         if tasks.is_empty() {
-            return Ok("No tasks found.".to_string());
+            return Ok(("No tasks found.".to_string(), vec![]));
         }
 
         let lines: Vec<String> = tasks
@@ -151,7 +156,8 @@ impl TodoistTool {
             })
             .collect();
 
-        Ok(format!("Tasks ({}):\n{}", tasks.len(), lines.join("\n")))
+        let text = format!("Tasks ({}):\n{}", tasks.len(), lines.join("\n"));
+        Ok((text, tasks))
     }
 
     async fn create_task(
@@ -263,7 +269,7 @@ impl TodoistTool {
         ))
     }
 
-    async fn get_task(&self, task_id: &str) -> Result<String> {
+    async fn get_task(&self, task_id: &str) -> Result<(String, Value)> {
         let resp = self
             .client
             .get(format!(
@@ -315,9 +321,10 @@ impl TodoistTool {
         };
         let status_str = if is_completed { "completed" } else { "open" };
 
-        Ok(format!(
+        let formatted = format!(
             "Task ({id}): {content}{desc_str}\nPriority: {priority}\nDue: {due}{label_str}\nProject: {project_id}\nStatus: {status_str}\nURL: {url}"
-        ))
+        );
+        Ok((formatted, t))
     }
 
     async fn update_task(
@@ -458,6 +465,59 @@ impl TodoistTool {
     }
 }
 
+/// Build suggested "Complete" buttons for incomplete Todoist tasks (max 5).
+fn build_task_buttons(tasks: &[Value]) -> Vec<Value> {
+    let mut buttons = Vec::new();
+    for task in tasks {
+        if buttons.len() >= 5 {
+            break;
+        }
+        if task["is_completed"].as_bool().unwrap_or(false) {
+            continue;
+        }
+        let task_id = task["id"].as_str().unwrap_or_default();
+        let task_content = task["content"].as_str().unwrap_or("task");
+        if task_id.is_empty() {
+            continue;
+        }
+        // UTF-8 safe truncation for button labels
+        let label = {
+            let truncated: String = task_content.chars().take(25).collect();
+            if truncated.len() < task_content.len() {
+                format!(
+                    "Complete: {}...",
+                    task_content.chars().take(22).collect::<String>()
+                )
+            } else {
+                format!("Complete: {task_content}")
+            }
+        };
+        buttons.push(serde_json::json!({
+            "id": format!("complete-{task_id}"),
+            "label": label,
+            "style": "primary",
+            "context": serde_json::json!({
+                "tool": "todoist",
+                "task_id": task_id,
+                "action": "complete"
+            }).to_string()
+        }));
+    }
+    buttons
+}
+
+/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
+fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
+    if buttons.is_empty() {
+        result
+    } else {
+        result.with_metadata(HashMap::from([(
+            "suggested_buttons".to_string(),
+            Value::Array(buttons),
+        )]))
+    }
+}
+
 #[async_trait]
 impl Tool for TodoistTool {
     fn name(&self) -> &'static str {
@@ -543,16 +603,31 @@ impl Tool for TodoistTool {
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let action = require_param!(params, "action");
 
-        let result = match action {
+        match action {
             "list_tasks" => {
-                self.list_tasks(params["project_id"].as_str(), params["filter"].as_str())
-                    .await
+                let result = self
+                    .list_tasks(params["project_id"].as_str(), params["filter"].as_str())
+                    .await;
+                match result {
+                    Ok((text, tasks)) => {
+                        let buttons = build_task_buttons(&tasks);
+                        Ok(with_buttons(ToolResult::new(text), buttons))
+                    }
+                    Err(e) => Ok(ToolResult::error(format!("Todoist error: {e}"))),
+                }
             }
             "get_task" => {
                 let Some(task_id) = params["task_id"].as_str() else {
                     return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
-                self.get_task(task_id).await
+                let result = self.get_task(task_id).await;
+                match result {
+                    Ok((text, task)) => {
+                        let buttons = build_task_buttons(&[task]);
+                        Ok(with_buttons(ToolResult::new(text), buttons))
+                    }
+                    Err(e) => Ok(ToolResult::error(format!("Todoist error: {e}"))),
+                }
             }
             "create_task" => {
                 let Some(content) = params["content"].as_str() else {
@@ -569,15 +644,17 @@ impl Tool for TodoistTool {
                 let labels: Option<Vec<&str>> = params["labels"]
                     .as_array()
                     .map(|a| a.iter().filter_map(|v| v.as_str()).collect());
-                self.create_task(
-                    content,
-                    params["description"].as_str(),
-                    params["project_id"].as_str(),
-                    params["due_string"].as_str(),
-                    priority,
-                    labels,
-                )
-                .await
+                let result = self
+                    .create_task(
+                        content,
+                        params["description"].as_str(),
+                        params["project_id"].as_str(),
+                        params["due_string"].as_str(),
+                        priority,
+                        labels,
+                    )
+                    .await;
+                Ok(ToolResult::from_result(result, "Todoist"))
             }
             "update_task" => {
                 let Some(task_id) = params["task_id"].as_str() else {
@@ -586,27 +663,31 @@ impl Tool for TodoistTool {
                 let labels: Option<Vec<&str>> = params["labels"]
                     .as_array()
                     .map(|a| a.iter().filter_map(|v| v.as_str()).collect());
-                self.update_task(
-                    task_id,
-                    params["content"].as_str(),
-                    params["description"].as_str(),
-                    params["due_string"].as_str(),
-                    params["priority"].as_u64(),
-                    labels,
-                )
-                .await
+                let result = self
+                    .update_task(
+                        task_id,
+                        params["content"].as_str(),
+                        params["description"].as_str(),
+                        params["due_string"].as_str(),
+                        params["priority"].as_u64(),
+                        labels,
+                    )
+                    .await;
+                Ok(ToolResult::from_result(result, "Todoist"))
             }
             "complete_task" => {
                 let Some(task_id) = params["task_id"].as_str() else {
                     return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
-                self.complete_task(task_id).await
+                let result = self.complete_task(task_id).await;
+                Ok(ToolResult::from_result(result, "Todoist"))
             }
             "delete_task" => {
                 let Some(task_id) = params["task_id"].as_str() else {
                     return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
-                self.delete_task(task_id).await
+                let result = self.delete_task(task_id).await;
+                Ok(ToolResult::from_result(result, "Todoist"))
             }
             "add_comment" => {
                 let Some(task_id) = params["task_id"].as_str() else {
@@ -617,19 +698,22 @@ impl Tool for TodoistTool {
                         "missing 'comment_content' parameter".to_string(),
                     ));
                 };
-                self.add_comment(task_id, content).await
+                let result = self.add_comment(task_id, content).await;
+                Ok(ToolResult::from_result(result, "Todoist"))
             }
             "list_comments" => {
                 let Some(task_id) = params["task_id"].as_str() else {
                     return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
-                self.list_comments(task_id).await
+                let result = self.list_comments(task_id).await;
+                Ok(ToolResult::from_result(result, "Todoist"))
             }
-            "list_projects" => self.list_projects().await,
-            _ => return Ok(ToolResult::error(format!("unknown action: {action}"))),
-        };
-
-        Ok(ToolResult::from_result(result, "Todoist"))
+            "list_projects" => {
+                let result = self.list_projects().await;
+                Ok(ToolResult::from_result(result, "Todoist"))
+            }
+            _ => Ok(ToolResult::error(format!("unknown action: {action}"))),
+        }
     }
 }
 
