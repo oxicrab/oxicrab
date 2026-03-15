@@ -9,6 +9,7 @@ use crate::require_param;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -226,6 +227,76 @@ fn format_whatsapp_target(phone: &str) -> String {
     } else {
         let cleaned = phone.trim_start_matches('+');
         format!("{cleaned}@s.whatsapp.net")
+    }
+}
+
+/// Truncate a name for use in a button label, preserving UTF-8 boundaries.
+fn truncate_label(prefix: &str, text: &str, max_text_chars: usize) -> String {
+    let char_count = text.chars().count();
+    if char_count <= max_text_chars {
+        format!("{prefix}{text}")
+    } else {
+        let truncated: String = text
+            .chars()
+            .take(max_text_chars.saturating_sub(3))
+            .collect();
+        format!("{prefix}{truncated}...")
+    }
+}
+
+/// Build suggested Pause/Resume and Remove buttons for cron jobs (max 5 total).
+fn build_job_buttons(jobs: &[CronJob]) -> Vec<Value> {
+    let mut buttons = Vec::new();
+    for job in jobs {
+        if buttons.len() >= 5 {
+            break;
+        }
+        // Pause (if enabled) or Resume (if disabled) button
+        let (action, action_label, style) = if job.enabled {
+            ("pause", "Pause", "primary")
+        } else {
+            ("resume", "Resume", "success")
+        };
+        let label = truncate_label(&format!("{action_label}: "), &job.name, 20);
+        buttons.push(serde_json::json!({
+            "id": format!("{action}-job-{}", job.id),
+            "label": label,
+            "style": style,
+            "context": serde_json::json!({
+                "tool": "cron",
+                "job_id": job.id,
+                "action": action
+            }).to_string()
+        }));
+
+        if buttons.len() >= 5 {
+            break;
+        }
+        // Remove button
+        let remove_label = truncate_label("Remove: ", &job.name, 20);
+        buttons.push(serde_json::json!({
+            "id": format!("remove-job-{}", job.id),
+            "label": remove_label,
+            "style": "danger",
+            "context": serde_json::json!({
+                "tool": "cron",
+                "job_id": job.id,
+                "action": "remove"
+            }).to_string()
+        }));
+    }
+    buttons
+}
+
+/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
+fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
+    if buttons.is_empty() {
+        result
+    } else {
+        result.with_metadata(HashMap::from([(
+            "suggested_buttons".to_string(),
+            Value::Array(buttons),
+        )]))
     }
 }
 
@@ -576,10 +647,11 @@ impl Tool for CronTool {
                         )
                     })
                     .collect();
-                Ok(ToolResult::new(format!(
-                    "Scheduled jobs:\n{}",
-                    lines.join("\n")
-                )))
+                let buttons = build_job_buttons(&jobs);
+                Ok(with_buttons(
+                    ToolResult::new(format!("Scheduled jobs:\n{}", lines.join("\n"))),
+                    buttons,
+                ))
             }
             "remove" => {
                 let job_id = require_param!(params, "job_id");
