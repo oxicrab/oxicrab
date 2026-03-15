@@ -588,3 +588,200 @@ fn test_parse_schedule_invalid_event_pattern() {
     let result = CronTool::parse_schedule(&params);
     assert!(result.is_err());
 }
+
+// --- Button builder tests ---
+
+fn make_test_job(id: &str, name: &str, enabled: bool) -> CronJob {
+    CronJob {
+        id: id.to_string(),
+        name: name.to_string(),
+        enabled,
+        schedule: CronSchedule::Every {
+            every_ms: Some(3_600_000),
+        },
+        payload: CronPayload {
+            kind: "agent_turn".to_string(),
+            message: "test".to_string(),
+            agent_echo: true,
+            targets: vec![],
+        },
+        state: CronJobState::default(),
+        created_at_ms: 0,
+        updated_at_ms: 0,
+        delete_after_run: false,
+        expires_at_ms: None,
+        max_runs: None,
+        cooldown_secs: None,
+        max_concurrent: None,
+    }
+}
+
+#[test]
+fn test_build_job_buttons_enabled_job() {
+    let jobs = vec![make_test_job("abc123", "Daily report", true)];
+    let buttons = build_job_buttons(&jobs);
+    assert_eq!(buttons.len(), 2);
+    // First button: Pause
+    assert_eq!(buttons[0]["id"], "pause-job-abc123");
+    assert_eq!(buttons[0]["label"], "Pause: Daily report");
+    assert_eq!(buttons[0]["style"], "primary");
+    let ctx: serde_json::Value =
+        serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx["tool"], "cron");
+    assert_eq!(ctx["job_id"], "abc123");
+    assert_eq!(ctx["action"], "pause");
+    // Second button: Remove
+    assert_eq!(buttons[1]["id"], "remove-job-abc123");
+    assert_eq!(buttons[1]["label"], "Remove: Daily report");
+    assert_eq!(buttons[1]["style"], "danger");
+}
+
+#[test]
+fn test_build_job_buttons_disabled_job() {
+    let jobs = vec![make_test_job("xyz789", "Nightly sync", false)];
+    let buttons = build_job_buttons(&jobs);
+    assert_eq!(buttons.len(), 2);
+    // First button: Resume (not Pause)
+    assert_eq!(buttons[0]["id"], "resume-job-xyz789");
+    assert_eq!(buttons[0]["label"], "Resume: Nightly sync");
+    assert_eq!(buttons[0]["style"], "success");
+    let ctx: serde_json::Value =
+        serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx["action"], "resume");
+}
+
+#[test]
+fn test_build_job_buttons_max_5() {
+    let jobs: Vec<CronJob> = (0..10)
+        .map(|i| make_test_job(&format!("id{i}"), &format!("Job {i}"), true))
+        .collect();
+    let buttons = build_job_buttons(&jobs);
+    assert_eq!(buttons.len(), 5);
+}
+
+#[test]
+fn test_build_job_buttons_empty() {
+    let buttons = build_job_buttons(&[]);
+    assert!(buttons.is_empty());
+}
+
+#[test]
+fn test_build_job_buttons_long_name_truncated() {
+    let jobs = vec![make_test_job(
+        "id1",
+        "A very long job name that exceeds limits",
+        true,
+    )];
+    let buttons = build_job_buttons(&jobs);
+    // "Pause: " prefix + 20 char max → truncated with "..."
+    let label = buttons[0]["label"].as_str().unwrap();
+    assert!(label.starts_with("Pause: "));
+    assert!(label.ends_with("..."));
+    assert!(label.chars().count() <= 27); // "Pause: " (7) + 20 max
+}
+
+#[test]
+fn test_truncate_label_short() {
+    assert_eq!(truncate_label("Pause: ", "Daily", 20), "Pause: Daily");
+}
+
+#[test]
+fn test_truncate_label_exact_boundary() {
+    let name = "A".repeat(20);
+    assert_eq!(truncate_label("X: ", &name, 20), format!("X: {name}"));
+}
+
+#[test]
+fn test_truncate_label_over_limit() {
+    let name = "A".repeat(25);
+    let result = truncate_label("X: ", &name, 20);
+    assert!(result.ends_with("..."));
+    // prefix (3) + 17 chars + "..." = 23 chars total
+    assert_eq!(result.chars().count(), 23);
+}
+
+#[test]
+fn test_truncate_label_unicode() {
+    // Each emoji is one char
+    let name = "\u{1f600}".repeat(25); // 25 emoji chars
+    let result = truncate_label("R: ", &name, 20);
+    assert!(result.ends_with("..."));
+    // Should not panic on multi-byte boundaries
+}
+
+#[test]
+fn test_with_buttons_empty() {
+    let result = ToolResult::new("test");
+    let result = with_buttons(result, vec![]);
+    assert!(result.metadata.is_none());
+}
+
+#[test]
+fn test_with_buttons_attaches_metadata() {
+    let result = ToolResult::new("test");
+    let buttons = vec![json!({"id": "b1", "label": "Click"})];
+    let result = with_buttons(result, buttons);
+    let meta = result.metadata.as_ref().unwrap();
+    let btns = meta["suggested_buttons"].as_array().unwrap();
+    assert_eq!(btns.len(), 1);
+    assert_eq!(btns[0]["id"], "b1");
+}
+
+#[tokio::test]
+async fn test_list_returns_suggested_buttons() {
+    let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"));
+    let cron_service = Arc::new(CronService::new(db));
+    let tool = CronTool::new(
+        cron_service.clone(),
+        Some(make_test_channels_config()),
+        None,
+    );
+    let ctx = ExecutionContext {
+        channel: "slack".to_string(),
+        chat_id: "U08G6HBC89X".to_string(),
+        ..Default::default()
+    };
+
+    // Add a job first
+    let params = json!({
+        "action": "add",
+        "message": "Check email",
+        "every_seconds": 3600
+    });
+    let add_result = tool.execute(params, &ctx).await.unwrap();
+    assert!(!add_result.is_error, "add failed: {}", add_result.content);
+
+    // List should return buttons
+    let list_result = tool.execute(json!({"action": "list"}), &ctx).await.unwrap();
+    assert!(!list_result.is_error);
+    let meta = list_result
+        .metadata
+        .as_ref()
+        .expect("list should return metadata with buttons");
+    let buttons = meta["suggested_buttons"].as_array().unwrap();
+    // 1 job → 2 buttons (Pause + Remove)
+    assert_eq!(buttons.len(), 2);
+    assert!(buttons[0]["label"].as_str().unwrap().starts_with("Pause: "));
+    assert!(
+        buttons[1]["label"]
+            .as_str()
+            .unwrap()
+            .starts_with("Remove: ")
+    );
+}
+
+#[tokio::test]
+async fn test_list_empty_has_no_buttons() {
+    let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("test db"));
+    let cron_service = Arc::new(CronService::new(db));
+    let tool = CronTool::new(cron_service, None, None);
+    let ctx = ExecutionContext {
+        channel: "slack".to_string(),
+        chat_id: "U123".to_string(),
+        ..Default::default()
+    };
+
+    let result = tool.execute(json!({"action": "list"}), &ctx).await.unwrap();
+    assert!(result.content.contains("No scheduled jobs"));
+    assert!(result.metadata.is_none());
+}
