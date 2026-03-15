@@ -122,3 +122,97 @@ async fn test_update_task_empty_body_rejected() {
     assert!(result.is_error);
     assert!(result.content.contains("requires at least one field"));
 }
+
+#[test]
+fn test_build_google_task_buttons_filters_completed() {
+    let tasks = vec![
+        serde_json::json!({"id": "t1", "title": "Incomplete", "status": "needsAction"}),
+        serde_json::json!({"id": "t2", "title": "Done", "status": "completed"}),
+        serde_json::json!({"id": "t3", "title": "Also incomplete", "status": "needsAction"}),
+    ];
+    let buttons = build_google_task_buttons(&tasks, "tasklist1");
+    assert_eq!(buttons.len(), 2);
+    assert_eq!(buttons[0]["id"], "complete-t1");
+    assert_eq!(buttons[1]["id"], "complete-t3");
+    // Verify context includes tasklist_id and tool name
+    let ctx: serde_json::Value =
+        serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx["tasklist_id"], "tasklist1");
+    assert_eq!(ctx["tool"], "google_tasks");
+    assert_eq!(ctx["task_id"], "t1");
+    assert_eq!(ctx["action"], "complete");
+}
+
+#[test]
+fn test_build_google_task_buttons_max_five() {
+    let tasks: Vec<serde_json::Value> = (0..10)
+        .map(|i| {
+            serde_json::json!({
+                "id": format!("t{i}"),
+                "title": format!("Task {i}"),
+                "status": "needsAction",
+            })
+        })
+        .collect();
+    let buttons = build_google_task_buttons(&tasks, "@default");
+    assert_eq!(buttons.len(), 5);
+}
+
+#[test]
+fn test_build_google_task_buttons_empty_list() {
+    let buttons = build_google_task_buttons(&[], "@default");
+    assert!(buttons.is_empty());
+}
+
+#[test]
+fn test_build_google_task_buttons_all_completed() {
+    let tasks = vec![
+        serde_json::json!({"id": "t1", "title": "Done 1", "status": "completed"}),
+        serde_json::json!({"id": "t2", "title": "Done 2", "status": "completed"}),
+    ];
+    let buttons = build_google_task_buttons(&tasks, "@default");
+    assert!(buttons.is_empty());
+}
+
+#[test]
+fn test_build_google_task_buttons_truncates_long_labels() {
+    let tasks = vec![serde_json::json!({
+        "id": "t1",
+        "title": "This is a very long task name that exceeds the limit",
+        "status": "needsAction",
+    })];
+    let buttons = build_google_task_buttons(&tasks, "@default");
+    assert_eq!(buttons.len(), 1);
+    let label = buttons[0]["label"].as_str().unwrap();
+    assert!(label.ends_with("..."));
+    assert!(label.len() <= 40); // "Complete: " (10) + 22 chars + "..." (3) = 35 max
+}
+
+#[test]
+fn test_build_google_task_buttons_skips_empty_id() {
+    let tasks = vec![
+        serde_json::json!({"id": "", "title": "No ID", "status": "needsAction"}),
+        serde_json::json!({"id": "t1", "title": "Has ID", "status": "needsAction"}),
+    ];
+    let buttons = build_google_task_buttons(&tasks, "@default");
+    assert_eq!(buttons.len(), 1);
+    assert_eq!(buttons[0]["id"], "complete-t1");
+}
+
+#[test]
+fn test_with_buttons_empty_returns_no_metadata() {
+    let result = ToolResult::new("test".to_string());
+    let result = with_buttons(result, vec![]);
+    assert!(result.metadata.is_none());
+}
+
+#[test]
+fn test_with_buttons_non_empty_attaches_metadata() {
+    let result = ToolResult::new("test".to_string());
+    let buttons = vec![serde_json::json!({"id": "b1", "label": "Click"})];
+    let result = with_buttons(result, buttons);
+    assert!(result.metadata.is_some());
+    let meta = result.metadata.unwrap();
+    let suggested = meta.get("suggested_buttons").unwrap();
+    assert_eq!(suggested.as_array().unwrap().len(), 1);
+}

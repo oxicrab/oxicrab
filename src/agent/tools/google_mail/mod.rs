@@ -8,6 +8,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::Value;
+use std::collections::HashMap;
 
 pub struct GoogleMailTool {
     api: GoogleApiClient,
@@ -126,6 +127,7 @@ impl Tool for GoogleMailTool {
                     messages.len(),
                     query
                 )];
+                let mut msg_entries: Vec<(String, String)> = Vec::new();
                 for msg_stub in messages {
                     let Some(msg_id) = msg_stub["id"].as_str().filter(|s| !s.is_empty()) else {
                         continue;
@@ -135,31 +137,34 @@ impl Tool for GoogleMailTool {
                         urlencoding::encode(msg_id)
                     );
                     let msg = self.api.call(&endpoint, "GET", None).await?;
-                    let headers: std::collections::HashMap<String, String> =
-                        msg["payload"]["headers"]
-                            .as_array()
-                            .unwrap_or(&vec![])
-                            .iter()
-                            .filter_map(|h| {
-                                let name = h["name"].as_str()?;
-                                let value = h["value"].as_str()?;
-                                Some((name.to_string(), value.to_string()))
-                            })
-                            .collect();
+                    let headers: HashMap<String, String> = msg["payload"]["headers"]
+                        .as_array()
+                        .unwrap_or(&vec![])
+                        .iter()
+                        .filter_map(|h| {
+                            let name = h["name"].as_str()?;
+                            let value = h["value"].as_str()?;
+                            Some((name.to_string(), value.to_string()))
+                        })
+                        .collect();
                     let snippet = msg["snippet"].as_str().unwrap_or_default();
+                    let subject = headers
+                        .get("Subject")
+                        .unwrap_or(&"(no subject)".to_string())
+                        .clone();
 
                     lines.push(format!(
                         "- ID: {}\n  From: {}\n  Subject: {}\n  Date: {}\n  Snippet: {}",
                         msg_id,
                         headers.get("From").unwrap_or(&"?".to_string()),
-                        headers
-                            .get("Subject")
-                            .unwrap_or(&"(no subject)".to_string()),
+                        subject,
                         headers.get("Date").unwrap_or(&"?".to_string()),
                         snippet
                     ));
+                    msg_entries.push((msg_id.to_string(), subject));
                 }
-                Ok(ToolResult::new(lines.join("\n")))
+                let buttons = build_search_buttons(&msg_entries);
+                Ok(with_buttons(ToolResult::new(lines.join("\n")), buttons))
             }
             "read" => {
                 let message_id = require_param!(params, "message_id");
@@ -169,7 +174,7 @@ impl Tool for GoogleMailTool {
                     urlencoding::encode(message_id)
                 );
                 let msg = self.api.call(&endpoint, "GET", None).await?;
-                let headers: std::collections::HashMap<String, String> = msg["payload"]["headers"]
+                let headers: HashMap<String, String> = msg["payload"]["headers"]
                     .as_array()
                     .unwrap_or(&vec![])
                     .iter()
@@ -186,18 +191,22 @@ impl Tool for GoogleMailTool {
                     .iter()
                     .filter_map(|l| l.as_str().map(std::string::ToString::to_string))
                     .collect();
+                let subject = headers
+                    .get("Subject")
+                    .unwrap_or(&"(no subject)".to_string())
+                    .clone();
 
-                Ok(ToolResult::new(format!(
+                let result = ToolResult::new(format!(
                     "From: {}\nTo: {}\nSubject: {}\nDate: {}\nLabels: {}\n---\n{}",
                     headers.get("From").unwrap_or(&"?".to_string()),
                     headers.get("To").unwrap_or(&"?".to_string()),
-                    headers
-                        .get("Subject")
-                        .unwrap_or(&"(no subject)".to_string()),
+                    subject,
                     headers.get("Date").unwrap_or(&"?".to_string()),
                     labels.join(", "),
                     body
-                )))
+                ));
+                let buttons = build_read_buttons(message_id, &subject);
+                Ok(with_buttons(result, buttons))
             }
             "send" => {
                 let to = require_param!(params, "to");
@@ -232,17 +241,16 @@ impl Tool for GoogleMailTool {
                     urlencoding::encode(message_id)
                 );
                 let original = self.api.call(&endpoint, "GET", None).await?;
-                let headers: std::collections::HashMap<String, String> =
-                    original["payload"]["headers"]
-                        .as_array()
-                        .unwrap_or(&vec![])
-                        .iter()
-                        .filter_map(|h| {
-                            let name = h["name"].as_str()?;
-                            let value = h["value"].as_str()?;
-                            Some((name.to_string(), value.to_string()))
-                        })
-                        .collect();
+                let headers: HashMap<String, String> = original["payload"]["headers"]
+                    .as_array()
+                    .unwrap_or(&vec![])
+                    .iter()
+                    .filter_map(|h| {
+                        let name = h["name"].as_str()?;
+                        let value = h["value"].as_str()?;
+                        Some((name.to_string(), value.to_string()))
+                    })
+                    .collect();
                 let thread_id = original["threadId"].as_str().unwrap_or_default();
 
                 let empty_str = String::new();
@@ -343,6 +351,93 @@ impl Tool for GoogleMailTool {
             }
             _ => Ok(ToolResult::error(format!("unknown action: {action}"))),
         }
+    }
+}
+
+/// Build suggested "Read" buttons for search results (max 5).
+///
+/// Each button carries context identifying the message for a follow-up read action.
+fn build_search_buttons(messages: &[(String, String)]) -> Vec<Value> {
+    let mut buttons = Vec::new();
+    for (msg_id, subject) in messages {
+        if buttons.len() >= 5 {
+            break;
+        }
+        if msg_id.is_empty() {
+            continue;
+        }
+        let label = truncate_label("Read", subject, 25);
+        buttons.push(serde_json::json!({
+            "id": format!("read-{msg_id}"),
+            "label": label,
+            "style": "primary",
+            "context": serde_json::json!({
+                "tool": "google_mail",
+                "message_id": msg_id,
+                "action": "read"
+            }).to_string()
+        }));
+    }
+    buttons
+}
+
+/// Build suggested "Reply" and "Archive" buttons for a read message.
+fn build_read_buttons(message_id: &str, subject: &str) -> Vec<Value> {
+    if message_id.is_empty() {
+        return Vec::new();
+    }
+    let subject_short: String = subject.chars().take(20).collect();
+    let suffix = if subject_short.len() < subject.len() {
+        format!("{subject_short}...")
+    } else {
+        subject_short
+    };
+    vec![
+        serde_json::json!({
+            "id": format!("reply-{message_id}"),
+            "label": format!("Reply: {suffix}"),
+            "style": "primary",
+            "context": serde_json::json!({
+                "tool": "google_mail",
+                "message_id": message_id,
+                "action": "reply"
+            }).to_string()
+        }),
+        serde_json::json!({
+            "id": format!("archive-{message_id}"),
+            "label": "Archive",
+            "style": "danger",
+            "context": serde_json::json!({
+                "tool": "google_mail",
+                "message_id": message_id,
+                "action": "archive"
+            }).to_string()
+        }),
+    ]
+}
+
+/// UTF-8 safe label truncation: `"{prefix}: {text}"` capped at `max_chars` total.
+fn truncate_label(prefix: &str, text: &str, max_chars: usize) -> String {
+    // "{prefix}: " takes prefix.len() + 2 chars
+    let budget = max_chars.saturating_sub(prefix.len() + 2);
+    let truncated: String = text.chars().take(budget).collect();
+    if truncated.len() < text.len() {
+        let trimmed: String = text.chars().take(budget.saturating_sub(3)).collect();
+        format!("{prefix}: {trimmed}...")
+    } else {
+        format!("{prefix}: {truncated}")
+    }
+}
+
+/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
+fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
+    if buttons.is_empty() {
+        result
+    } else {
+        result.with_metadata(HashMap::from([(
+            "suggested_buttons".to_string(),
+            Value::Array(buttons),
+        )]))
     }
 }
 

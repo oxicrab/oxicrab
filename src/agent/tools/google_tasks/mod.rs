@@ -7,6 +7,7 @@ use crate::require_param;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
+use std::collections::HashMap;
 
 pub struct GoogleTasksTool {
     api: GoogleApiClient,
@@ -161,7 +162,8 @@ impl Tool for GoogleTasksTool {
                         due_str,
                     ));
                 }
-                Ok(ToolResult::new(lines.join("\n")))
+                let buttons = build_google_task_buttons(tasks, list_id);
+                Ok(with_buttons(ToolResult::new(lines.join("\n")), buttons))
             }
             "get_task" => {
                 let task_id = require_param!(params, "task_id");
@@ -172,7 +174,11 @@ impl Tool for GoogleTasksTool {
                     urlencoding::encode(task_id),
                 );
                 let task = self.api.call(&endpoint, "GET", None).await?;
-                Ok(ToolResult::new(format_task_detail(&task)))
+                let buttons = build_google_task_buttons(std::slice::from_ref(&task), list_id);
+                Ok(with_buttons(
+                    ToolResult::new(format_task_detail(&task)),
+                    buttons,
+                ))
             }
             "create_task" => {
                 let title = require_param!(params, "title");
@@ -272,6 +278,61 @@ fn format_task_detail(task: &Value) -> String {
         parts.push(format!("Parent: {parent}"));
     }
     parts.join("\n")
+}
+
+/// Build suggested "Complete" buttons for incomplete Google Tasks (max 5).
+fn build_google_task_buttons(tasks: &[Value], tasklist_id: &str) -> Vec<Value> {
+    let mut buttons = Vec::new();
+    for task in tasks {
+        if buttons.len() >= 5 {
+            break;
+        }
+        let status = task["status"].as_str().unwrap_or("needsAction");
+        if status == "completed" {
+            continue;
+        }
+        let task_id = task["id"].as_str().unwrap_or_default();
+        let title = task["title"].as_str().unwrap_or("task");
+        if task_id.is_empty() {
+            continue;
+        }
+        // UTF-8 safe truncation for button labels
+        let label = {
+            let truncated: String = title.chars().take(25).collect();
+            if truncated.len() < title.len() {
+                format!(
+                    "Complete: {}...",
+                    title.chars().take(22).collect::<String>()
+                )
+            } else {
+                format!("Complete: {title}")
+            }
+        };
+        buttons.push(serde_json::json!({
+            "id": format!("complete-{task_id}"),
+            "label": label,
+            "style": "primary",
+            "context": serde_json::json!({
+                "tool": "google_tasks",
+                "task_id": task_id,
+                "tasklist_id": tasklist_id,
+                "action": "complete"
+            }).to_string()
+        }));
+    }
+    buttons
+}
+
+/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
+fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
+    if buttons.is_empty() {
+        result
+    } else {
+        result.with_metadata(HashMap::from([(
+            "suggested_buttons".to_string(),
+            Value::Array(buttons),
+        )]))
+    }
 }
 
 #[cfg(test)]
