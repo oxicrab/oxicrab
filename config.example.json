@@ -255,6 +255,7 @@
         "du",
         "free",
         "ps",
+        "journalctl",
         "env",
         "printenv",
         "which",

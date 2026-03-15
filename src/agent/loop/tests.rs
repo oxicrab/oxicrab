@@ -379,12 +379,12 @@ async fn test_parallel_tool_execution_ordering() {
         .collect();
 
     // Results must be in the same order as the calls, not execution completion order
-    assert_eq!(results[0].0, "slow_result");
-    assert_eq!(results[1].0, "fast_result");
-    assert_eq!(results[2].0, "medium_result");
-    assert!(!results[0].1);
-    assert!(!results[1].1);
-    assert!(!results[2].1);
+    assert_eq!(results[0].content, "slow_result");
+    assert_eq!(results[1].content, "fast_result");
+    assert_eq!(results[2].content, "medium_result");
+    assert!(!results[0].is_error);
+    assert!(!results[1].is_error);
+    assert!(!results[2].is_error);
 }
 
 #[tokio::test]
@@ -395,7 +395,7 @@ async fn test_single_tool_no_parallel_overhead() {
         response: "only_result".into(),
     })]);
 
-    let (result, is_error) = execute_tool_call(
+    let result = execute_tool_call(
         &registry,
         "only",
         &serde_json::json!({}),
@@ -406,8 +406,8 @@ async fn test_single_tool_no_parallel_overhead() {
     )
     .await;
 
-    assert_eq!(result, "only_result");
-    assert!(!is_error);
+    assert_eq!(result.content, "only_result");
+    assert!(!result.is_error);
 }
 
 #[tokio::test]
@@ -460,18 +460,18 @@ async fn test_parallel_tool_one_panics() {
         .into_iter()
         .map(|join_result| match join_result {
             Ok(result) => result,
-            Err(_) => ("Tool crashed unexpectedly".to_string(), true),
+            Err(_) => ToolResult::error("Tool crashed unexpectedly"),
         })
         .collect();
 
     // Good tools succeed
-    assert_eq!(results[0].0, "result1");
-    assert!(!results[0].1);
-    assert_eq!(results[2].0, "result2");
-    assert!(!results[2].1);
+    assert_eq!(results[0].content, "result1");
+    assert!(!results[0].is_error);
+    assert_eq!(results[2].content, "result2");
+    assert!(!results[2].is_error);
     // Panicked tool gets error
-    assert!(results[1].0.contains("crashed"));
-    assert!(results[1].1);
+    assert!(results[1].content.contains("crashed"));
+    assert!(results[1].is_error);
 }
 
 #[tokio::test]
@@ -526,13 +526,13 @@ async fn test_parallel_tool_one_errors() {
         .collect();
 
     // Good tools unaffected
-    assert_eq!(results[0].0, "good_result");
-    assert!(!results[0].1);
-    assert_eq!(results[2].0, "also_good_result");
-    assert!(!results[2].1);
+    assert_eq!(results[0].content, "good_result");
+    assert!(!results[0].is_error);
+    assert_eq!(results[2].content, "also_good_result");
+    assert!(!results[2].is_error);
     // Error tool marked as error
-    assert!(results[1].0.contains("Tool execution failed"));
-    assert!(results[1].1);
+    assert!(results[1].content.contains("Tool execution failed"));
+    assert!(results[1].is_error);
 }
 
 // --- Unknown tool error improvement tests ---
@@ -561,7 +561,7 @@ async fn test_unknown_tool_lists_available() {
         "write_file".to_string(),
         "exec".to_string(),
     ];
-    let (result, is_error) = execute_tool_call(
+    let result = execute_tool_call(
         &registry,
         "nonexistent_tool",
         &serde_json::json!({}),
@@ -571,11 +571,11 @@ async fn test_unknown_tool_lists_available() {
         None,
     )
     .await;
-    assert!(is_error);
-    assert!(result.contains("does not exist"));
-    assert!(result.contains("read_file"));
-    assert!(result.contains("write_file"));
-    assert!(result.contains("exec"));
+    assert!(result.is_error);
+    assert!(result.content.contains("does not exist"));
+    assert!(result.content.contains("read_file"));
+    assert!(result.content.contains("write_file"));
+    assert!(result.content.contains("exec"));
 }
 
 // --- Schema validation tests ---
@@ -668,7 +668,7 @@ fn test_validate_params_optional_missing_ok() {
 async fn test_validation_rejects_before_execution() {
     // Tool with required param "query" — call without it, should get validation error
     let registry = make_registry_with(vec![Arc::new(SchemaTestTool)]);
-    let (result, is_error) = execute_tool_call(
+    let result = execute_tool_call(
         &registry,
         "schema_test",
         &serde_json::json!({}),
@@ -678,8 +678,12 @@ async fn test_validation_rejects_before_execution() {
         None,
     )
     .await;
-    assert!(is_error);
-    assert!(result.contains("missing required parameter 'query'"));
+    assert!(result.is_error);
+    assert!(
+        result
+            .content
+            .contains("missing required parameter 'query'")
+    );
 }
 
 // --- Approval gate tests ---
@@ -713,7 +717,7 @@ impl Tool for ApprovalRequiredTool {
 #[tokio::test]
 async fn test_requires_approval_blocks_execution() {
     let registry = make_registry_with(vec![Arc::new(ApprovalRequiredTool)]);
-    let (result, is_error) = execute_tool_call(
+    let result = execute_tool_call(
         &registry,
         "untrusted_mcp_tool",
         &serde_json::json!({}),
@@ -723,9 +727,9 @@ async fn test_requires_approval_blocks_execution() {
         None,
     )
     .await;
-    assert!(is_error);
-    assert!(result.contains("requires approval"));
-    assert!(result.contains("untrusted MCP server"));
+    assert!(result.is_error);
+    assert!(result.content.contains("requires approval"));
+    assert!(result.content.contains("untrusted MCP server"));
 }
 
 #[tokio::test]
@@ -735,7 +739,7 @@ async fn test_normal_tool_not_blocked_by_approval() {
         delay_ms: 0,
         response: "safe_result".into(),
     })]);
-    let (result, is_error) = execute_tool_call(
+    let result = execute_tool_call(
         &registry,
         "safe_tool",
         &serde_json::json!({}),
@@ -745,8 +749,8 @@ async fn test_normal_tool_not_blocked_by_approval() {
         None,
     )
     .await;
-    assert!(!is_error);
-    assert_eq!(result, "safe_result");
+    assert!(!result.is_error);
+    assert_eq!(result.content, "safe_result");
 }
 
 // --- Image loading tests ---

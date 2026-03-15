@@ -133,6 +133,7 @@ impl AgentLoop {
             cron_service,
             temperature,
             tool_temperature,
+            per_provider_temperature,
             max_tokens,
             typing_tx,
             max_concurrent_subagents,
@@ -299,23 +300,31 @@ impl AgentLoop {
             });
 
         let compactor = if compaction_config.enabled {
-            let (comp_provider, comp_model) = if let Some(ref r) = routing {
+            let (comp_provider, comp_model, comp_temp_override) = if let Some(ref r) = routing {
                 let o = r.resolve_overrides("compaction");
                 if let Some(p) = o.provider {
-                    (p, o.model)
+                    // Routing overrides the compaction provider — don't apply
+                    // the main provider's temperature override.
+                    (p, o.model, None)
                 } else {
                     (
                         provider.clone() as Arc<dyn LLMProvider>,
                         compaction_config.model.clone(),
+                        per_provider_temperature,
                     )
                 }
             } else {
                 (
                     provider.clone() as Arc<dyn LLMProvider>,
                     compaction_config.model.clone(),
+                    per_provider_temperature,
                 )
             };
-            Some(Arc::new(MessageCompactor::new(comp_provider, comp_model)))
+            Some(Arc::new(MessageCompactor::with_temperature_override(
+                comp_provider,
+                comp_model,
+                comp_temp_override,
+            )))
         } else {
             None
         };

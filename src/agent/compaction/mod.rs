@@ -206,11 +206,32 @@ pub fn strip_orphaned_tool_messages(messages: &mut Vec<HashMap<String, Value>>) 
 pub struct MessageCompactor {
     provider: Arc<dyn LLMProvider>,
     model: Option<String>,
+    /// Per-provider temperature override. When set, takes precedence over
+    /// the hardcoded internal temperatures (compaction 0.3, extraction 0.0,
+    /// pre-flush 0.0). Some models (e.g. Moonshot kimi-k2.5) require a
+    /// fixed temperature and reject any other value.
+    temperature_override: Option<f32>,
 }
 
 impl MessageCompactor {
     pub fn new(provider: Arc<dyn LLMProvider>, model: Option<String>) -> Self {
-        Self { provider, model }
+        Self {
+            provider,
+            model,
+            temperature_override: None,
+        }
+    }
+
+    pub fn with_temperature_override(
+        provider: Arc<dyn LLMProvider>,
+        model: Option<String>,
+        temperature_override: Option<f32>,
+    ) -> Self {
+        Self {
+            provider,
+            model,
+            temperature_override,
+        }
     }
 
     /// Summarize a slice of conversation messages into a concise summary.
@@ -251,7 +272,9 @@ impl MessageCompactor {
                 messages: llm_messages,
                 model: self.model.clone(),
                 max_tokens: COMPACTION_MAX_TOKENS,
-                temperature: COMPACTION_TEMPERATURE,
+                temperature: self
+                    .temperature_override
+                    .map_or(COMPACTION_TEMPERATURE, Some),
                 ..Default::default()
             })
             .await?;
@@ -296,7 +319,9 @@ impl MessageCompactor {
                 messages: llm_messages,
                 model: self.model.clone(),
                 max_tokens: PRE_FLUSH_MAX_TOKENS,
-                temperature: PRE_FLUSH_TEMPERATURE,
+                temperature: self
+                    .temperature_override
+                    .map_or(PRE_FLUSH_TEMPERATURE, Some),
                 ..Default::default()
             })
             .await?;
@@ -345,7 +370,9 @@ impl MessageCompactor {
                 messages: llm_messages,
                 model: self.model.clone(),
                 max_tokens: EXTRACTION_MAX_TOKENS,
-                temperature: EXTRACTION_TEMPERATURE,
+                temperature: self
+                    .temperature_override
+                    .map_or(EXTRACTION_TEMPERATURE, Some),
                 ..Default::default()
             })
             .await?;

@@ -107,6 +107,9 @@ pub struct AgentLoopConfig {
     pub temperature: Option<f32>,
     /// Temperature for tool-calling iterations (default Some(0.0) for determinism)
     pub tool_temperature: Option<f32>,
+    /// Per-provider temperature override (e.g. Moonshot requires temperature=1).
+    /// When set, passed to the compactor to override its hardcoded internal temps.
+    pub per_provider_temperature: Option<f32>,
     /// Max tokens for LLM responses (default 8192)
     pub max_tokens: u32,
     /// Sender for typing indicator events (channel, `chat_id`)
@@ -204,6 +207,7 @@ impl AgentLoopConfig {
             cron_service: params.cron_service,
             temperature: resolved_temperature,
             tool_temperature: resolved_tool_temperature,
+            per_provider_temperature: per_provider_temp,
             max_tokens: config.agents.defaults.max_tokens,
             typing_tx: params.typing_tx,
             max_concurrent_subagents: config.agents.defaults.max_concurrent_subagents,
@@ -271,6 +275,7 @@ impl AgentLoopConfig {
             cron_service: None,
             temperature: Some(0.7),
             tool_temperature: Some(0.0),
+            per_provider_temperature: None,
             max_tokens: 8192,
             typing_tx: None,
             max_concurrent_subagents: 5,

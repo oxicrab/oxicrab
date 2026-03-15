@@ -10,8 +10,9 @@ use crate::agent::context::ContextBuilder;
 use crate::providers::base::{LLMProvider, Message, ToolCallRequest};
 
 use super::helpers::{execute_tool_call, extract_media_paths, start_typing, strip_think_tags};
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{ExecutionContext, ToolResult};
 use anyhow::Result;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, warn};
 
@@ -41,6 +42,7 @@ impl AgentLoop {
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
+        let mut collected_tool_metadata: Vec<HashMap<String, serde_json::Value>> = Vec::new();
         let mut checkpoint_tracker = CheckpointTracker::new(self.cognitive_config.clone());
 
         // Clear deferred tool activations from previous runs
@@ -250,6 +252,7 @@ impl AgentLoop {
                     &response.tool_calls,
                     results,
                     &mut collected_media,
+                    &mut collected_tool_metadata,
                     &mut checkpoint_tracker,
                 )
                 .await;
@@ -383,7 +386,7 @@ impl AgentLoop {
         tool_names: &[String],
         exec_ctx: &ExecutionContext,
         exfil_guard: Option<&crate::config::ExfiltrationGuardConfig>,
-    ) -> Vec<(String, bool)> {
+    ) -> Vec<ToolResult> {
         let allow_tools: Option<Vec<String>> = exfil_guard.map(|g| g.allow_tools.clone());
         if tool_calls.len() == 1 {
             let tc = &tool_calls[0];
@@ -432,7 +435,7 @@ impl AgentLoop {
                     Ok(result) => result,
                     Err(join_err) => {
                         error!("Tool task panicked: {:?}", join_err);
-                        ("Tool crashed unexpectedly".to_string(), true)
+                        ToolResult::error("Tool crashed unexpectedly")
                     }
                 })
                 .collect()
@@ -446,8 +449,9 @@ impl AgentLoop {
         &self,
         messages: &mut Vec<Message>,
         tool_calls: &[ToolCallRequest],
-        results: Vec<(String, bool)>,
+        results: Vec<ToolResult>,
         collected_media: &mut Vec<String>,
+        collected_tool_metadata: &mut Vec<HashMap<String, serde_json::Value>>,
         checkpoint_tracker: &mut CheckpointTracker,
     ) {
         // Add all results to messages in order and collect media.
@@ -461,14 +465,24 @@ impl AgentLoop {
                 results.len()
             );
             while results.len() < tool_calls.len() {
-                results.push(("Tool execution result was lost".to_string(), true));
+                results.push(ToolResult::error("Tool execution result was lost"));
             }
         }
-        for (tc, (result_str, is_error)) in tool_calls.iter().zip(results) {
-            if !is_error {
-                collected_media.extend(extract_media_paths(&result_str));
+        for (tc, result) in tool_calls.iter().zip(results) {
+            if !result.is_error {
+                collected_media.extend(extract_media_paths(&result.content));
             }
-            ContextBuilder::add_tool_result(messages, &tc.id, &tc.name, &result_str, is_error);
+            // Collect metadata sideband (stripped from LLM context)
+            if let Some(meta) = result.metadata {
+                collected_tool_metadata.push(meta);
+            }
+            ContextBuilder::add_tool_result(
+                messages,
+                &tc.id,
+                &tc.name,
+                &result.content,
+                result.is_error,
+            );
         }
 
         // Scan tool results for leaked secrets before they enter LLM context

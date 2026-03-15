@@ -215,6 +215,7 @@ fn default_allowed_commands() -> Vec<String> {
         "du",
         "free",
         "ps",
+        "journalctl",
         "env",
         "printenv",
         "which",

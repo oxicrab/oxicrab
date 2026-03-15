@@ -1,5 +1,5 @@
 use crate::agent::tools::ToolRegistry;
-use crate::agent::tools::base::ExecutionContext;
+use crate::agent::tools::base::{ExecutionContext, ToolResult};
 use crate::providers::base::ImageData;
 use anyhow::Result;
 use regex::Regex;
@@ -147,7 +147,7 @@ pub(super) async fn execute_tool_call(
     ctx: &ExecutionContext,
     exfil_allow: Option<&[String]>,
     workspace: Option<&std::path::Path>,
-) -> (String, bool) {
+) -> ToolResult {
     // Exfiltration guard: block network-outbound tools the LLM shouldn't call
     if let Some(allow_tools) = exfil_allow {
         let is_network = registry
@@ -155,9 +155,8 @@ pub(super) async fn execute_tool_call(
             .is_some_and(|t| t.capabilities().network_outbound);
         if is_network && !allow_tools.contains(&tc_name.to_string()) {
             warn!("exfiltration guard blocked tool: {}", tc_name);
-            return (
-                "Error: this tool is not available in the current security mode".to_string(),
-                true,
+            return ToolResult::error(
+                "Error: this tool is not available in the current security mode",
             );
         }
     }
@@ -165,26 +164,20 @@ pub(super) async fn execute_tool_call(
     // Check if tool exists before delegating to registry
     let Some(tool) = registry.get(tc_name) else {
         warn!("LLM called unknown tool: {}", tc_name);
-        return (
-            format!(
-                "Error: tool '{}' does not exist. Available tools: {}",
-                tc_name,
-                available_tools.join(", ")
-            ),
-            true,
-        );
+        return ToolResult::error(format!(
+            "Error: tool '{}' does not exist. Available tools: {}",
+            tc_name,
+            available_tools.join(", ")
+        ));
     };
 
     // Approval gate: block untrusted MCP tools
     if tool.requires_approval() {
         warn!("blocked untrusted MCP tool: {}", tc_name);
-        return (
-            format!(
-                "Error: tool '{tc_name}' is from an untrusted MCP server and requires approval. \
-                 Change the server's trust level to \"local\" in config to allow execution."
-            ),
-            true,
-        );
+        return ToolResult::error(format!(
+            "Error: tool '{tc_name}' is from an untrusted MCP server and requires approval. \
+             Change the server's trust level to \"local\" in config to allow execution."
+        ));
     }
 
     // Validate params against schema before execution
@@ -193,18 +186,18 @@ pub(super) async fn execute_tool_call(
             "Tool '{}' param validation failed: {}",
             tc_name, validation_error
         );
-        return (validation_error, true);
+        return ToolResult::error(validation_error);
     }
 
     match registry.execute(tc_name, tc_args.clone(), ctx).await {
-        Ok(result) => (result.content, result.is_error),
+        Ok(result) => result,
         Err(e) => {
             warn!("Tool '{}' failed: {}", tc_name, e);
             let msg = crate::utils::path_sanitize::sanitize_error_message(
                 &format!("Tool execution failed: {e}"),
                 workspace,
             );
-            (msg, true)
+            ToolResult::error(msg)
         }
     }
 }
