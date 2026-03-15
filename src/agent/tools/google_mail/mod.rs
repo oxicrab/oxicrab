@@ -470,10 +470,16 @@ fn extract_body_inner(payload: &Value, depth: u32) -> String {
                     && let Ok(text) = String::from_utf8(decoded)
                 {
                     if *mime == "text/html" {
-                        // Strip HTML tags using shared regex pattern
-                        return crate::utils::regex::RegexPatterns::html_tags()
-                            .replace_all(&text, "")
+                        // Strip HTML tags (replace with space to preserve word boundaries)
+                        let stripped = crate::utils::regex::RegexPatterns::html_tags()
+                            .replace_all(&text, " ")
                             .to_string();
+                        let cleaned = decode_html_entities(&stripped);
+                        let collapsed = collapse_whitespace(&cleaned);
+                        if collapsed.len() >= 20 {
+                            return collapsed;
+                        }
+                        return "(HTML email with minimal text content. Subject and headers above may contain the key details.)".to_string();
                     }
                     return text;
                 }
@@ -489,6 +495,39 @@ fn extract_body_inner(payload: &Value, depth: u32) -> String {
     }
 
     "(no readable body)".to_string()
+}
+
+/// Decode common HTML entities into their character equivalents.
+fn decode_html_entities(s: &str) -> String {
+    s.replace("&nbsp;", " ")
+        .replace("&#160;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+}
+
+/// Collapse runs of whitespace into a single space and trim leading/trailing whitespace.
+fn collapse_whitespace(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut prev_ws = true; // starts true to trim leading
+    for c in s.chars() {
+        if c.is_whitespace() {
+            if !prev_ws {
+                result.push(' ');
+                prev_ws = true;
+            }
+        } else {
+            result.push(c);
+            prev_ws = false;
+        }
+    }
+    if result.ends_with(' ') {
+        result.pop();
+    }
+    result
 }
 
 #[cfg(test)]

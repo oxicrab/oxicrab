@@ -32,12 +32,18 @@ fn test_extract_body_multipart_falls_back_to_html() {
     let payload = json!({
         "mimeType": "multipart/alternative",
         "parts": [
-            {"mimeType": "text/html", "body": {"data": encode("<p>Hello</p>")}}
+            {"mimeType": "text/html", "body": {"data": encode("<p>Hello, this is a test email with enough content to pass the threshold</p>")}}
         ]
     });
     let result = extract_body(&payload);
-    assert!(result.contains("Hello"));
-    assert!(!result.contains("<p>"));
+    assert!(
+        result.contains("Hello"),
+        "should contain extracted text: {result}"
+    );
+    assert!(
+        !result.contains("<p>"),
+        "should not contain HTML tags: {result}"
+    );
 }
 
 #[test]
@@ -219,6 +225,84 @@ fn test_with_buttons_attaches_metadata() {
     let btns = meta["suggested_buttons"].as_array().unwrap();
     assert_eq!(btns.len(), 1);
     assert_eq!(btns[0]["id"], "b1");
+}
+
+#[test]
+fn test_extract_body_html_marketing_email() {
+    // Marketing email with tables, divs, and some text content
+    let html = r#"<html><head><style>body{margin:0}</style></head><body>
+        <table><tr><td><img src="logo.png"/></td></tr></table>
+        <div class="header"><h1>Sports Illustrated Tickets</h1></div>
+        <table width="600"><tr><td>
+        <p>Your tickets for the upcoming game are confirmed.</p>
+        <p>Section 204, Row F, Seats 12-14</p>
+        </td></tr></table>
+        <table><tr><td><a href="http://example.com">View Details</a></td></tr></table>
+        <div class="footer"><p>Unsubscribe | Privacy Policy</p></div>
+        </body></html>"#;
+    let payload = json!({
+        "mimeType": "multipart/alternative",
+        "parts": [
+            {"mimeType": "text/html", "body": {"data": encode(html)}}
+        ]
+    });
+    let result = extract_body(&payload);
+    assert!(
+        result.contains("Sports Illustrated Tickets"),
+        "should extract heading text, got: {result}"
+    );
+    assert!(
+        result.contains("Section 204"),
+        "should extract ticket details, got: {result}"
+    );
+    assert!(
+        !result.contains('<'),
+        "should not contain HTML tags, got: {result}"
+    );
+    assert_ne!(
+        result, "(no readable body)",
+        "should not fall through to sentinel"
+    );
+}
+
+#[test]
+fn test_extract_body_html_image_only_email() {
+    // Email that's all images/layout with no meaningful text
+    let html = r#"<html><body>
+        <table><tr><td><img src="banner.png"/></td></tr></table>
+        <table><tr><td><img src="promo.png"/></td></tr></table>
+        <table><tr><td>&nbsp;</td></tr></table>
+        </body></html>"#;
+    let payload = json!({
+        "mimeType": "multipart/alternative",
+        "parts": [
+            {"mimeType": "text/html", "body": {"data": encode(html)}}
+        ]
+    });
+    let result = extract_body(&payload);
+    assert_eq!(
+        result,
+        "(HTML email with minimal text content. Subject and headers above may contain the key details.)"
+    );
+}
+
+#[test]
+fn test_html_entity_decoding() {
+    let input = "Hello&nbsp;World &amp; &lt;Friends&gt; said &quot;hi&quot; &#39;today&#39; &apos;now&apos; &#160;end";
+    let decoded = decode_html_entities(input);
+    assert_eq!(
+        decoded,
+        "Hello World & <Friends> said \"hi\" 'today' 'now'  end"
+    );
+}
+
+#[test]
+fn test_collapse_whitespace() {
+    assert_eq!(collapse_whitespace("  hello   world  "), "hello world");
+    assert_eq!(collapse_whitespace("no extra"), "no extra");
+    assert_eq!(collapse_whitespace("  \n\t  spaced  \n  "), "spaced");
+    assert_eq!(collapse_whitespace(""), "");
+    assert_eq!(collapse_whitespace("   "), "");
 }
 
 fn test_credentials() -> GoogleCredentials {
