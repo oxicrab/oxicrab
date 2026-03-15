@@ -36,7 +36,6 @@ fn test_extract_body_multipart_falls_back_to_html() {
         ]
     });
     let result = extract_body(&payload);
-    // HTML tags should be stripped
     assert!(result.contains("Hello"));
     assert!(!result.contains("<p>"));
 }
@@ -70,7 +69,6 @@ fn test_extract_body_no_readable_body() {
 
 #[test]
 fn test_extract_body_depth_limit() {
-    // Build deeply nested payload (depth > 10)
     let mut payload = json!({"mimeType": "text/plain", "body": {"data": encode("deep")}});
     for _ in 0..12 {
         payload = json!({
@@ -93,8 +91,134 @@ fn test_extract_body_invalid_base64() {
         "mimeType": "text/plain",
         "body": {"data": "!!!invalid-base64!!!"}
     });
-    // Should not crash, falls through to no readable body
     assert_eq!(extract_body(&payload), "(no readable body)");
+}
+
+// --- Suggested buttons tests ---
+
+#[test]
+fn test_build_search_buttons_basic() {
+    let messages = vec![
+        ("msg1".to_string(), "Hello World".to_string()),
+        ("msg2".to_string(), "Meeting Tomorrow".to_string()),
+    ];
+    let buttons = build_search_buttons(&messages);
+    assert_eq!(buttons.len(), 2);
+
+    assert_eq!(buttons[0]["id"], "read-msg1");
+    assert_eq!(buttons[0]["style"], "primary");
+    let ctx0: serde_json::Value =
+        serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx0["tool"], "google_mail");
+    assert_eq!(ctx0["message_id"], "msg1");
+    assert_eq!(ctx0["action"], "read");
+
+    assert_eq!(buttons[1]["id"], "read-msg2");
+    let ctx1: serde_json::Value =
+        serde_json::from_str(buttons[1]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx1["message_id"], "msg2");
+}
+
+#[test]
+fn test_build_search_buttons_max_five() {
+    let messages: Vec<(String, String)> = (0..8)
+        .map(|i| (format!("msg{i}"), format!("Subject {i}")))
+        .collect();
+    let buttons = build_search_buttons(&messages);
+    assert_eq!(buttons.len(), 5);
+}
+
+#[test]
+fn test_build_search_buttons_skips_empty_id() {
+    let messages = vec![
+        (String::new(), "No ID".to_string()),
+        ("msg1".to_string(), "Has ID".to_string()),
+    ];
+    let buttons = build_search_buttons(&messages);
+    assert_eq!(buttons.len(), 1);
+    assert_eq!(buttons[0]["id"], "read-msg1");
+}
+
+#[test]
+fn test_build_search_buttons_empty() {
+    let buttons = build_search_buttons(&[]);
+    assert!(buttons.is_empty());
+}
+
+#[test]
+fn test_build_read_buttons_basic() {
+    let buttons = build_read_buttons("abc123", "Project Update");
+    assert_eq!(buttons.len(), 2);
+
+    assert_eq!(buttons[0]["id"], "reply-abc123");
+    assert_eq!(buttons[0]["style"], "primary");
+    assert!(buttons[0]["label"].as_str().unwrap().starts_with("Reply:"));
+    let ctx0: serde_json::Value =
+        serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx0["tool"], "google_mail");
+    assert_eq!(ctx0["message_id"], "abc123");
+    assert_eq!(ctx0["action"], "reply");
+
+    assert_eq!(buttons[1]["id"], "archive-abc123");
+    assert_eq!(buttons[1]["label"], "Archive");
+    assert_eq!(buttons[1]["style"], "danger");
+    let ctx1: serde_json::Value =
+        serde_json::from_str(buttons[1]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx1["action"], "archive");
+}
+
+#[test]
+fn test_build_read_buttons_empty_id() {
+    let buttons = build_read_buttons("", "Some Subject");
+    assert!(buttons.is_empty());
+}
+
+#[test]
+fn test_build_read_buttons_long_subject_truncated() {
+    let long_subject = "A very long email subject line that exceeds the limit";
+    let buttons = build_read_buttons("msg1", long_subject);
+    let label = buttons[0]["label"].as_str().unwrap();
+    assert!(label.starts_with("Reply:"));
+    assert!(label.ends_with("..."));
+}
+
+#[test]
+fn test_truncate_label_short_text() {
+    let result = truncate_label("Read", "Hi", 25);
+    assert_eq!(result, "Read: Hi");
+}
+
+#[test]
+fn test_truncate_label_long_text() {
+    let result = truncate_label("Read", "This is a very long subject line", 25);
+    assert!(result.starts_with("Read: "));
+    assert!(result.ends_with("..."));
+    assert!(result.chars().count() <= 25);
+}
+
+#[test]
+fn test_truncate_label_unicode() {
+    let result = truncate_label("Read", "日本語のメールの件名です", 15);
+    assert!(result.starts_with("Read: "));
+    assert!(result.ends_with("..."));
+}
+
+#[test]
+fn test_with_buttons_empty() {
+    let result = ToolResult::new("test");
+    let result = with_buttons(result, vec![]);
+    assert!(result.metadata.is_none());
+}
+
+#[test]
+fn test_with_buttons_attaches_metadata() {
+    let result = ToolResult::new("test");
+    let buttons = vec![json!({"id": "b1", "label": "Button"})];
+    let result = with_buttons(result, buttons);
+    let meta = result.metadata.expect("should have metadata");
+    let btns = meta["suggested_buttons"].as_array().unwrap();
+    assert_eq!(btns.len(), 1);
+    assert_eq!(btns[0]["id"], "b1");
 }
 
 fn test_credentials() -> GoogleCredentials {

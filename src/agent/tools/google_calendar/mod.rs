@@ -8,6 +8,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fmt::Write;
 
 pub struct GoogleCalendarTool {
@@ -29,7 +30,7 @@ impl Tool for GoogleCalendarTool {
     }
 
     fn description(&self) -> &'static str {
-        "Interact with Google Calendar. Actions: list_events, get_event, create_event, update_event, delete_event, list_calendars. Tip: after showing events, use add_buttons to offer Edit, Delete, or RSVP actions."
+        "Interact with Google Calendar. Actions: list_events, get_event, create_event, update_event, delete_event, list_calendars."
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -195,7 +196,8 @@ impl Tool for GoogleCalendarTool {
                         att_str
                     ));
                 }
-                Ok(ToolResult::new(lines.join("\n")))
+                let buttons = build_event_buttons(events, cal_id, false);
+                Ok(with_buttons(ToolResult::new(lines.join("\n")), buttons))
             }
             "get_event" => {
                 let event_id = require_param!(params, "event_id");
@@ -206,7 +208,11 @@ impl Tool for GoogleCalendarTool {
                     urlencoding::encode(event_id)
                 );
                 let ev = self.api.call(&endpoint, "GET", None).await?;
-                Ok(ToolResult::new(format_event_detail(&ev)))
+                let buttons = build_event_buttons(std::slice::from_ref(&ev), cal_id, true);
+                Ok(with_buttons(
+                    ToolResult::new(format_event_detail(&ev)),
+                    buttons,
+                ))
             }
             "create_event" => {
                 let summary = require_param!(params, "summary");
@@ -469,6 +475,139 @@ fn format_event_detail(ev: &Value) -> String {
         parts.push(format!("Status: {status}"));
     }
     parts.join("\n")
+}
+
+/// Truncate a string to `max_chars` characters, appending "..." if truncated.
+/// Uses char boundaries for UTF-8 safety.
+fn truncate_label(s: &str, max_chars: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count <= max_chars {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_chars.saturating_sub(3)).collect();
+        format!("{truncated}...")
+    }
+}
+
+/// Check whether any attendee in the event has already responded with the
+/// given status (e.g. "accepted"). Uses the `self` attendee if present,
+/// otherwise returns false.
+fn has_self_response(ev: &Value, response_status: &str) -> bool {
+    ev["attendees"]
+        .as_array()
+        .and_then(|attendees| {
+            attendees
+                .iter()
+                .find(|a| a["self"].as_bool().unwrap_or(false))
+        })
+        .is_some_and(|me| me["responseStatus"].as_str() == Some(response_status))
+}
+
+/// Build suggested buttons for calendar events.
+///
+/// For `list_events` (`detail=false`): up to 5 "RSVP Yes" buttons, skipping
+/// events the user has already accepted.
+///
+/// For `get_event` (`detail=true`): "RSVP Yes", "RSVP No", and "Delete"
+/// buttons for the single event, skipping RSVP buttons whose status already
+/// matches.
+fn build_event_buttons(events: &[Value], calendar_id: &str, detail: bool) -> Vec<Value> {
+    let mut buttons = Vec::new();
+
+    for ev in events {
+        if buttons.len() >= 5 {
+            break;
+        }
+
+        let event_id = ev["id"].as_str().unwrap_or_default();
+        if event_id.is_empty() {
+            continue;
+        }
+
+        // Skip cancelled events
+        if ev["status"].as_str() == Some("cancelled") {
+            continue;
+        }
+
+        let summary = ev["summary"].as_str().unwrap_or("(no title)");
+
+        if detail {
+            // Single event view: RSVP Yes, RSVP No, Delete
+            if !has_self_response(ev, "accepted") {
+                let label = format!("RSVP Yes: {}", truncate_label(summary, 20));
+                buttons.push(serde_json::json!({
+                    "id": format!("rsvp-yes-{event_id}"),
+                    "label": truncate_label(&label, 30),
+                    "style": "primary",
+                    "context": serde_json::json!({
+                        "tool": "google_calendar",
+                        "event_id": event_id,
+                        "calendar_id": calendar_id,
+                        "action": "rsvp_yes"
+                    }).to_string()
+                }));
+            }
+
+            if !has_self_response(ev, "declined") {
+                let label = format!("RSVP No: {}", truncate_label(summary, 20));
+                buttons.push(serde_json::json!({
+                    "id": format!("rsvp-no-{event_id}"),
+                    "label": truncate_label(&label, 30),
+                    "style": "danger",
+                    "context": serde_json::json!({
+                        "tool": "google_calendar",
+                        "event_id": event_id,
+                        "calendar_id": calendar_id,
+                        "action": "rsvp_no"
+                    }).to_string()
+                }));
+            }
+
+            buttons.push(serde_json::json!({
+                "id": format!("delete-{event_id}"),
+                "label": truncate_label(&format!("Delete: {summary}"), 30),
+                "style": "danger",
+                "context": serde_json::json!({
+                    "tool": "google_calendar",
+                    "event_id": event_id,
+                    "calendar_id": calendar_id,
+                    "action": "delete"
+                }).to_string()
+            }));
+        } else {
+            // List view: one RSVP Yes button per event, skip already-accepted
+            if has_self_response(ev, "accepted") {
+                continue;
+            }
+
+            let label = format!("RSVP Yes: {}", truncate_label(summary, 20));
+            buttons.push(serde_json::json!({
+                "id": format!("rsvp-yes-{event_id}"),
+                "label": truncate_label(&label, 30),
+                "style": "primary",
+                "context": serde_json::json!({
+                    "tool": "google_calendar",
+                    "event_id": event_id,
+                    "calendar_id": calendar_id,
+                    "action": "rsvp_yes"
+                }).to_string()
+            }));
+        }
+    }
+
+    buttons
+}
+
+/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
+fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
+    if buttons.is_empty() {
+        result
+    } else {
+        result.with_metadata(HashMap::from([(
+            "suggested_buttons".to_string(),
+            Value::Array(buttons),
+        )]))
+    }
 }
 
 #[cfg(test)]

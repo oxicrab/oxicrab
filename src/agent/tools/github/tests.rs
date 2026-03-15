@@ -1053,3 +1053,461 @@ fn test_github_actions_match_schema() {
         );
     }
 }
+
+// --- Suggested buttons tests ---
+
+#[test]
+fn test_build_issue_buttons_open_issues() {
+    let issues = vec![
+        serde_json::json!({
+            "number": 42,
+            "title": "Fix the widget",
+            "state": "open"
+        }),
+        serde_json::json!({
+            "number": 43,
+            "title": "Closed bug",
+            "state": "closed"
+        }),
+        serde_json::json!({
+            "number": 44,
+            "title": "Another open issue",
+            "state": "open"
+        }),
+    ];
+    let buttons = build_issue_buttons(&issues, "octo/repo");
+    assert_eq!(buttons.len(), 2); // only open issues
+    assert_eq!(buttons[0]["id"], "close-issue-42");
+    assert_eq!(buttons[0]["style"], "danger");
+    assert!(buttons[0]["label"].as_str().unwrap().starts_with("Close: "));
+    assert_eq!(buttons[1]["id"], "close-issue-44");
+
+    // Verify context is valid JSON with correct fields
+    let ctx: serde_json::Value =
+        serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx["tool"], "github");
+    assert_eq!(ctx["repo"], "octo/repo");
+    assert_eq!(ctx["issue_number"], 42);
+    assert_eq!(ctx["action"], "close_issue");
+}
+
+#[test]
+fn test_build_issue_buttons_max_five() {
+    let issues: Vec<serde_json::Value> = (0..10)
+        .map(|i| {
+            serde_json::json!({
+                "number": i + 1,
+                "title": format!("Issue {i}"),
+                "state": "open"
+            })
+        })
+        .collect();
+    let buttons = build_issue_buttons(&issues, "octo/repo");
+    assert_eq!(buttons.len(), 5);
+}
+
+#[test]
+fn test_build_issue_buttons_no_open() {
+    let issues = vec![serde_json::json!({
+        "number": 1,
+        "title": "Closed",
+        "state": "closed"
+    })];
+    let buttons = build_issue_buttons(&issues, "octo/repo");
+    assert!(buttons.is_empty());
+}
+
+#[test]
+fn test_build_pr_list_buttons_open_prs() {
+    let prs = vec![
+        serde_json::json!({
+            "number": 10,
+            "title": "Add tests",
+            "state": "open"
+        }),
+        serde_json::json!({
+            "number": 11,
+            "title": "Merged PR",
+            "state": "closed"
+        }),
+    ];
+    let buttons = build_pr_list_buttons(&prs, "octo/repo");
+    assert_eq!(buttons.len(), 1);
+    assert_eq!(buttons[0]["id"], "approve-pr-10");
+    assert_eq!(buttons[0]["style"], "primary");
+
+    let ctx: serde_json::Value =
+        serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx["tool"], "github");
+    assert_eq!(ctx["repo"], "octo/repo");
+    assert_eq!(ctx["pr_number"], 10);
+    assert_eq!(ctx["action"], "approve_pr");
+}
+
+#[test]
+fn test_build_pr_list_buttons_max_five() {
+    let prs: Vec<serde_json::Value> = (0..10)
+        .map(|i| {
+            serde_json::json!({
+                "number": i + 1,
+                "title": format!("PR {i}"),
+                "state": "open"
+            })
+        })
+        .collect();
+    let buttons = build_pr_list_buttons(&prs, "octo/repo");
+    assert_eq!(buttons.len(), 5);
+}
+
+#[test]
+fn test_build_pr_detail_buttons_open_pr() {
+    let pr = serde_json::json!({
+        "number": 10,
+        "state": "open",
+        "merged": false
+    });
+    let buttons = build_pr_detail_buttons(&pr, "octo/repo");
+    assert_eq!(buttons.len(), 2);
+    assert_eq!(buttons[0]["id"], "approve-pr-10");
+    assert_eq!(buttons[0]["label"], "Approve");
+    assert_eq!(buttons[0]["style"], "primary");
+    assert_eq!(buttons[1]["id"], "request-changes-pr-10");
+    assert_eq!(buttons[1]["label"], "Request Changes");
+    assert_eq!(buttons[1]["style"], "danger");
+
+    let ctx0: serde_json::Value =
+        serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx0["action"], "approve_pr");
+    let ctx1: serde_json::Value =
+        serde_json::from_str(buttons[1]["context"].as_str().unwrap()).unwrap();
+    assert_eq!(ctx1["action"], "request_changes");
+}
+
+#[test]
+fn test_build_pr_detail_buttons_closed_pr() {
+    let pr = serde_json::json!({
+        "number": 10,
+        "state": "closed",
+        "merged": false
+    });
+    let buttons = build_pr_detail_buttons(&pr, "octo/repo");
+    assert!(buttons.is_empty());
+}
+
+#[test]
+fn test_build_pr_detail_buttons_merged_pr() {
+    let pr = serde_json::json!({
+        "number": 10,
+        "state": "closed",
+        "merged": true
+    });
+    let buttons = build_pr_detail_buttons(&pr, "octo/repo");
+    assert!(buttons.is_empty());
+}
+
+#[test]
+fn test_truncate_label_short() {
+    assert_eq!(truncate_label("Close: ", "Short", 22), "Close: Short");
+}
+
+#[test]
+fn test_truncate_label_long() {
+    let long_title = "This is a very long issue title that exceeds the limit";
+    let label = truncate_label("Close: ", long_title, 22);
+    assert!(label.ends_with("..."));
+    assert!(label.starts_with("Close: "));
+    // Verify total text portion is truncated
+    assert!(label.len() < long_title.len() + 7);
+}
+
+#[test]
+fn test_truncate_label_unicode() {
+    let title = "Fix emoji handling \u{1F600}\u{1F601}\u{1F602}\u{1F603}\u{1F604}\u{1F605}\u{1F606}\u{1F607}\u{1F608}\u{1F609}";
+    let label = truncate_label("Close: ", title, 22);
+    // Should not panic on UTF-8 boundary
+    assert!(label.starts_with("Close: "));
+    assert!(label.ends_with("..."));
+}
+
+#[tokio::test]
+async fn test_list_issues_returns_suggested_buttons() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/octo/repo/issues"))
+        .and(query_param("state", "open"))
+        .and(header("Authorization", "Bearer test_token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+            {
+                "number": 42,
+                "title": "Fix the widget",
+                "state": "open",
+                "user": {"login": "alice"},
+                "labels": [{"name": "bug"}]
+            },
+            {
+                "number": 43,
+                "title": "Closed issue",
+                "state": "closed",
+                "user": {"login": "bob"},
+                "labels": []
+            }
+        ])))
+        .mount(&server)
+        .await;
+
+    let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "list_issues",
+                "owner": "octo",
+                "repo": "repo"
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    let meta = result.metadata.expect("should have metadata");
+    let buttons = meta["suggested_buttons"]
+        .as_array()
+        .expect("should have buttons");
+    assert_eq!(buttons.len(), 1); // only open issue
+    assert_eq!(buttons[0]["id"], "close-issue-42");
+}
+
+#[tokio::test]
+async fn test_get_issue_returns_suggested_buttons() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/octo/repo/issues/42"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "number": 42,
+            "title": "Widget is broken",
+            "state": "open",
+            "user": {"login": "alice"},
+            "body": "It doesn't work",
+            "comments": 5,
+            "html_url": "https://github.com/octo/repo/issues/42",
+            "labels": [],
+            "assignees": []
+        })))
+        .mount(&server)
+        .await;
+
+    let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "get_issue",
+                "owner": "octo",
+                "repo": "repo",
+                "number": 42
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    let meta = result.metadata.expect("should have metadata");
+    let buttons = meta["suggested_buttons"].as_array().unwrap();
+    assert_eq!(buttons.len(), 1);
+    assert_eq!(buttons[0]["id"], "close-issue-42");
+}
+
+#[tokio::test]
+async fn test_get_issue_no_buttons_when_closed() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/octo/repo/issues/99"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "number": 99,
+            "title": "Already fixed",
+            "state": "closed",
+            "user": {"login": "alice"},
+            "body": "Fixed",
+            "comments": 0,
+            "html_url": "https://github.com/octo/repo/issues/99",
+            "labels": [],
+            "assignees": []
+        })))
+        .mount(&server)
+        .await;
+
+    let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "get_issue",
+                "owner": "octo",
+                "repo": "repo",
+                "number": 99
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    assert!(result.metadata.is_none());
+}
+
+#[tokio::test]
+async fn test_list_prs_returns_suggested_buttons() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/octo/repo/pulls"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+            {
+                "number": 10,
+                "title": "Add tests",
+                "state": "open",
+                "user": {"login": "alice"},
+                "draft": false,
+                "mergeable_state": "clean"
+            },
+            {
+                "number": 11,
+                "title": "Merged PR",
+                "state": "closed",
+                "user": {"login": "bob"},
+                "draft": false,
+                "mergeable_state": ""
+            }
+        ])))
+        .mount(&server)
+        .await;
+
+    let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "list_prs",
+                "owner": "octo",
+                "repo": "repo"
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    let meta = result.metadata.expect("should have metadata");
+    let buttons = meta["suggested_buttons"]
+        .as_array()
+        .expect("should have buttons");
+    assert_eq!(buttons.len(), 1); // only open PR
+    assert_eq!(buttons[0]["id"], "approve-pr-10");
+}
+
+#[tokio::test]
+async fn test_get_pr_returns_approve_and_request_changes() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/octo/repo/pulls/10"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "number": 10,
+            "title": "Add tests",
+            "state": "open",
+            "merged": false,
+            "user": {"login": "alice"},
+            "body": "This PR adds tests",
+            "additions": 50,
+            "deletions": 10,
+            "changed_files": 3,
+            "head": {"ref": "feature/tests", "sha": ""},
+            "base": {"ref": "main"}
+        })))
+        .mount(&server)
+        .await;
+
+    let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "get_pr",
+                "owner": "octo",
+                "repo": "repo",
+                "number": 10
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    let meta = result.metadata.expect("should have metadata");
+    let buttons = meta["suggested_buttons"].as_array().unwrap();
+    assert_eq!(buttons.len(), 2);
+    assert_eq!(buttons[0]["id"], "approve-pr-10");
+    assert_eq!(buttons[0]["label"], "Approve");
+    assert_eq!(buttons[1]["id"], "request-changes-pr-10");
+    assert_eq!(buttons[1]["label"], "Request Changes");
+}
+
+#[tokio::test]
+async fn test_get_pr_no_buttons_when_merged() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/octo/repo/pulls/20"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "number": 20,
+            "title": "Old PR",
+            "state": "closed",
+            "merged": true,
+            "user": {"login": "alice"},
+            "body": "Merged",
+            "additions": 1,
+            "deletions": 0,
+            "changed_files": 1,
+            "head": {"ref": "old-branch", "sha": ""},
+            "base": {"ref": "main"}
+        })))
+        .mount(&server)
+        .await;
+
+    let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "get_pr",
+                "owner": "octo",
+                "repo": "repo",
+                "number": 20
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    assert!(result.metadata.is_none());
+}
+
+#[tokio::test]
+async fn test_list_issues_no_buttons_when_empty() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/octo/repo/issues"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
+        .mount(&server)
+        .await;
+
+    let tool = GitHubTool::with_base_url("test_token".to_string(), server.uri());
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "list_issues",
+                "owner": "octo",
+                "repo": "repo"
+            }),
+            &ExecutionContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    assert!(result.metadata.is_none());
+}

@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use base64::Engine;
 use reqwest::Client;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::time::Duration;
 use tracing::warn;
 
@@ -146,7 +147,7 @@ impl GitHubTool {
         state: &str,
         page: &str,
         per_page: &str,
-    ) -> Result<String> {
+    ) -> Result<(String, Vec<Value>)> {
         let json = self
             .api_get(
                 &format!("/repos/{owner}/{repo}/issues"),
@@ -156,12 +157,18 @@ impl GitHubTool {
 
         let issues = json.as_array().map(Vec::as_slice).unwrap_or_default();
         if issues.is_empty() {
-            return Ok(format!("No {state} issues in {owner}/{repo}."));
+            return Ok((format!("No {state} issues in {owner}/{repo}."), vec![]));
         }
 
-        let lines: Vec<String> = issues
+        // Filter out PRs (GitHub issues API includes PRs)
+        let real_issues: Vec<Value> = issues
             .iter()
-            .filter(|i| i.get("pull_request").is_none()) // Exclude PRs
+            .filter(|i| i.get("pull_request").is_none())
+            .cloned()
+            .collect();
+
+        let lines: Vec<String> = real_issues
+            .iter()
             .map(|i| {
                 let number = i["number"].as_u64().unwrap_or(0);
                 let title = i["title"].as_str().unwrap_or_default();
@@ -179,13 +186,16 @@ impl GitHubTool {
             })
             .collect();
 
-        Ok(format!(
-            "Issues ({}) in {}/{} (page {}):\n{}",
-            state,
-            owner,
-            repo,
-            page,
-            lines.join("\n")
+        Ok((
+            format!(
+                "Issues ({}) in {}/{} (page {}):\n{}",
+                state,
+                owner,
+                repo,
+                page,
+                lines.join("\n")
+            ),
+            real_issues,
         ))
     }
 
@@ -221,7 +231,7 @@ impl GitHubTool {
         state: &str,
         page: &str,
         per_page: &str,
-    ) -> Result<String> {
+    ) -> Result<(String, Vec<Value>)> {
         let json = self
             .api_get(
                 &format!("/repos/{owner}/{repo}/pulls"),
@@ -229,9 +239,9 @@ impl GitHubTool {
             )
             .await?;
 
-        let prs = json.as_array().map(Vec::as_slice).unwrap_or_default();
+        let prs = json.as_array().cloned().unwrap_or_default();
         if prs.is_empty() {
-            return Ok(format!("No {state} PRs in {owner}/{repo}."));
+            return Ok((format!("No {state} PRs in {owner}/{repo}."), vec![]));
         }
 
         let lines: Vec<String> = prs
@@ -255,17 +265,20 @@ impl GitHubTool {
             })
             .collect();
 
-        Ok(format!(
-            "Pull requests ({}) in {}/{} (page {}):\n{}",
-            state,
-            owner,
-            repo,
-            page,
-            lines.join("\n")
+        Ok((
+            format!(
+                "Pull requests ({}) in {}/{} (page {}):\n{}",
+                state,
+                owner,
+                repo,
+                page,
+                lines.join("\n")
+            ),
+            prs,
         ))
     }
 
-    async fn get_pr(&self, owner: &str, repo: &str, number: u64) -> Result<String> {
+    async fn get_pr(&self, owner: &str, repo: &str, number: u64) -> Result<(String, Value)> {
         let pr = self
             .api_get(&format!("/repos/{owner}/{repo}/pulls/{number}"), &[])
             .await?;
@@ -301,23 +314,26 @@ impl GitHubTool {
 
         let status_str = if merged { "merged" } else { state };
 
-        Ok(format!(
-            "PR #{} — {} ({})\nBy: {} | {} → {} | {}\n+{} −{} in {} files\n\n{}",
-            number,
-            title,
-            status_str,
-            user,
-            head,
-            base,
-            checks_str,
-            additions,
-            deletions,
-            changed_files,
-            crate::utils::truncate_chars(body, 500, "...")
+        Ok((
+            format!(
+                "PR #{} — {} ({})\nBy: {} | {} → {} | {}\n+{} −{} in {} files\n\n{}",
+                number,
+                title,
+                status_str,
+                user,
+                head,
+                base,
+                checks_str,
+                additions,
+                deletions,
+                changed_files,
+                crate::utils::truncate_chars(body, 500, "...")
+            ),
+            pr,
         ))
     }
 
-    async fn get_issue(&self, owner: &str, repo: &str, number: u64) -> Result<String> {
+    async fn get_issue(&self, owner: &str, repo: &str, number: u64) -> Result<(String, Value)> {
         let issue = self
             .api_get(&format!("/repos/{owner}/{repo}/issues/{number}"), &[])
             .await?;
@@ -349,17 +365,20 @@ impl GitHubTool {
             format!("\nAssignees: {}", assignees.join(", "))
         };
 
-        Ok(format!(
-            "Issue #{} — {} ({})\nBy: {} | {} comments{}{}\n{}\n\n{}",
-            number,
-            title,
-            state,
-            user,
-            comments,
-            label_str,
-            assignee_str,
-            url,
-            crate::utils::truncate_chars(body, 500, "...")
+        Ok((
+            format!(
+                "Issue #{} — {} ({})\nBy: {} | {} comments{}{}\n{}\n\n{}",
+                number,
+                title,
+                state,
+                user,
+                comments,
+                label_str,
+                assignee_str,
+                url,
+                crate::utils::truncate_chars(body, 500, "...")
+            ),
+            issue,
         ))
     }
 
@@ -605,6 +624,133 @@ impl GitHubTool {
     }
 }
 
+/// UTF-8 safe label truncation for button labels.
+fn truncate_label(prefix: &str, text: &str, max_text_chars: usize) -> String {
+    let char_count = text.chars().count();
+    if char_count <= max_text_chars {
+        format!("{prefix}{text}")
+    } else {
+        let truncated: String = text
+            .chars()
+            .take(max_text_chars.saturating_sub(3))
+            .collect();
+        format!("{prefix}{truncated}...")
+    }
+}
+
+/// Build suggested "Close" buttons for open issues (max 5).
+fn build_issue_buttons(issues: &[Value], repo: &str) -> Vec<Value> {
+    let mut buttons = Vec::new();
+    for issue in issues {
+        if buttons.len() >= 5 {
+            break;
+        }
+        let state = issue["state"].as_str().unwrap_or_default();
+        if state != "open" {
+            continue;
+        }
+        let number = issue["number"].as_u64().unwrap_or(0);
+        if number == 0 {
+            continue;
+        }
+        let title = issue["title"].as_str().unwrap_or("issue");
+        let label = truncate_label("Close: ", title, 22);
+        buttons.push(serde_json::json!({
+            "id": format!("close-issue-{number}"),
+            "label": label,
+            "style": "danger",
+            "context": serde_json::json!({
+                "tool": "github",
+                "repo": repo,
+                "issue_number": number,
+                "action": "close_issue"
+            }).to_string()
+        }));
+    }
+    buttons
+}
+
+/// Build suggested "Approve" buttons for open PRs (max 5).
+fn build_pr_list_buttons(prs: &[Value], repo: &str) -> Vec<Value> {
+    let mut buttons = Vec::new();
+    for pr in prs {
+        if buttons.len() >= 5 {
+            break;
+        }
+        let state = pr["state"].as_str().unwrap_or_default();
+        if state != "open" {
+            continue;
+        }
+        let number = pr["number"].as_u64().unwrap_or(0);
+        if number == 0 {
+            continue;
+        }
+        let title = pr["title"].as_str().unwrap_or("PR");
+        let label = truncate_label("Approve: ", title, 20);
+        buttons.push(serde_json::json!({
+            "id": format!("approve-pr-{number}"),
+            "label": label,
+            "style": "primary",
+            "context": serde_json::json!({
+                "tool": "github",
+                "repo": repo,
+                "pr_number": number,
+                "action": "approve_pr"
+            }).to_string()
+        }));
+    }
+    buttons
+}
+
+/// Build "Approve" and "Request Changes" buttons for a single open PR.
+fn build_pr_detail_buttons(pr: &Value, repo: &str) -> Vec<Value> {
+    let state = pr["state"].as_str().unwrap_or_default();
+    let merged = pr["merged"].as_bool().unwrap_or_default();
+    if state != "open" || merged {
+        return vec![];
+    }
+    let number = pr["number"].as_u64().unwrap_or(0);
+    if number == 0 {
+        return vec![];
+    }
+    vec![
+        serde_json::json!({
+            "id": format!("approve-pr-{number}"),
+            "label": "Approve",
+            "style": "primary",
+            "context": serde_json::json!({
+                "tool": "github",
+                "repo": repo,
+                "pr_number": number,
+                "action": "approve_pr"
+            }).to_string()
+        }),
+        serde_json::json!({
+            "id": format!("request-changes-pr-{number}"),
+            "label": "Request Changes",
+            "style": "danger",
+            "context": serde_json::json!({
+                "tool": "github",
+                "repo": repo,
+                "pr_number": number,
+                "action": "request_changes"
+            }).to_string()
+        }),
+    ]
+}
+
+/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
+fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
+    if buttons.is_empty() {
+        result
+    } else {
+        result.with_metadata(HashMap::from([(
+            "suggested_buttons".to_string(),
+            Value::Array(buttons),
+        )]))
+    }
+}
+
 #[async_trait]
 impl Tool for GitHubTool {
     fn name(&self) -> &'static str {
@@ -748,7 +894,10 @@ impl Tool for GitHubTool {
                 let page = page_num.to_string();
                 let per_page = per_page_num.to_string();
 
-                let result = match action {
+                let repo_full = format!("{owner}/{repo}");
+
+                // Actions that produce suggested buttons
+                match action {
                     "list_issues" => {
                         let state = params["state"].as_str().unwrap_or("open");
                         if !matches!(state, "open" | "closed" | "all") {
@@ -756,7 +905,25 @@ impl Tool for GitHubTool {
                                 "invalid state '{state}', must be open, closed, or all"
                             )));
                         }
-                        self.list_issues(owner, repo, state, &page, &per_page).await
+                        return match self.list_issues(owner, repo, state, &page, &per_page).await {
+                            Ok((text, issues)) => {
+                                let buttons = build_issue_buttons(&issues, &repo_full);
+                                Ok(with_buttons(ToolResult::new(text), buttons))
+                            }
+                            Err(e) => Ok(ToolResult::error(format!("GitHub error: {e}"))),
+                        };
+                    }
+                    "get_issue" => {
+                        let Some(number) = params["number"].as_u64() else {
+                            return Ok(ToolResult::error("missing 'number' parameter".to_string()));
+                        };
+                        return match self.get_issue(owner, repo, number).await {
+                            Ok((text, issue)) => {
+                                let buttons = build_issue_buttons(&[issue], &repo_full);
+                                Ok(with_buttons(ToolResult::new(text), buttons))
+                            }
+                            Err(e) => Ok(ToolResult::error(format!("GitHub error: {e}"))),
+                        };
                     }
                     "list_prs" => {
                         let state = params["state"].as_str().unwrap_or("open");
@@ -765,8 +932,31 @@ impl Tool for GitHubTool {
                                 "invalid state '{state}', must be open, closed, or all"
                             )));
                         }
-                        self.list_prs(owner, repo, state, &page, &per_page).await
+                        return match self.list_prs(owner, repo, state, &page, &per_page).await {
+                            Ok((text, prs)) => {
+                                let buttons = build_pr_list_buttons(&prs, &repo_full);
+                                Ok(with_buttons(ToolResult::new(text), buttons))
+                            }
+                            Err(e) => Ok(ToolResult::error(format!("GitHub error: {e}"))),
+                        };
                     }
+                    "get_pr" => {
+                        let Some(number) = params["number"].as_u64() else {
+                            return Ok(ToolResult::error("missing 'number' parameter".to_string()));
+                        };
+                        return match self.get_pr(owner, repo, number).await {
+                            Ok((text, pr)) => {
+                                let buttons = build_pr_detail_buttons(&pr, &repo_full);
+                                Ok(with_buttons(ToolResult::new(text), buttons))
+                            }
+                            Err(e) => Ok(ToolResult::error(format!("GitHub error: {e}"))),
+                        };
+                    }
+                    _ => {}
+                }
+
+                // Remaining actions without buttons
+                let result = match action {
                     "create_issue" => {
                         let Some(title) = params["title"].as_str() else {
                             return Ok(ToolResult::error("missing 'title' parameter".to_string()));
@@ -782,18 +972,6 @@ impl Tool for GitHubTool {
                             labels.as_ref(),
                         )
                         .await
-                    }
-                    "get_pr" => {
-                        let Some(number) = params["number"].as_u64() else {
-                            return Ok(ToolResult::error("missing 'number' parameter".to_string()));
-                        };
-                        self.get_pr(owner, repo, number).await
-                    }
-                    "get_issue" => {
-                        let Some(number) = params["number"].as_u64() else {
-                            return Ok(ToolResult::error("missing 'number' parameter".to_string()));
-                        };
-                        self.get_issue(owner, repo, number).await
                     }
                     "get_pr_files" => {
                         let Some(number) = params["number"].as_u64() else {
