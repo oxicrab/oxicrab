@@ -435,6 +435,17 @@
       <li><strong>Pre-filtering</strong> &mdash; before LinTS ranking, articles are checked against your interest description using keyword overlap to avoid scoring obviously irrelevant content.</li>
     </ul>
 
+    <h3>Getting started</h3>
+    <ol>
+      <li>Call <code>rss { action: "onboard" }</code> &mdash; the tool walks you through setup.</li>
+      <li>Describe your interests: <code>rss { action: "set_profile", interests: "Rust, AI engineering, distributed systems" }</code></li>
+      <li>Add feeds from the suggestions (or your own): <code>rss { action: "add_feed", url: "https://this-week-in-rust.org/rss.xml" }</code></li>
+      <li>Fetch articles: <code>rss { action: "scan" }</code></li>
+      <li>Review at least 5 articles with <code>accept</code> / <code>reject</code> to calibrate the model.</li>
+      <li>Call <code>rss { action: "onboard" }</code> again &mdash; setup completes and a cron job is created to scan every 6 hours automatically.</li>
+    </ol>
+    <p>After setup, articles arrive via cron. Use <code>get_articles</code> to browse, <code>feed_stats</code> for analytics, and <code>accept</code>/<code>reject</code> to keep training the model.</p>
+
     <h3>Configuration</h3>
     <table class="action-table">
       <thead><tr><th>Field</th><th>Default</th><th>Description</th></tr></thead>
