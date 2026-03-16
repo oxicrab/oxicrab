@@ -231,7 +231,9 @@ impl MemoryDB {
     /// Returns an error if zero or more than one article matches.
     pub fn resolve_rss_article_id(&self, short_id: &str) -> Result<String> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
-        let pattern = format!("{short_id}%");
+        // Escape LIKE wildcards to prevent injection via short_id containing % or _
+        let escaped = short_id.replace(['%', '_'], "");
+        let pattern = format!("{escaped}%");
         let mut stmt = conn.prepare("SELECT id FROM rss_articles WHERE id LIKE ?1")?;
         let ids: Vec<String> = stmt
             .query_map(params![pattern], |row| row.get(0))?
@@ -377,6 +379,36 @@ impl MemoryDB {
         Ok(())
     }
 
+    /// Count articles optionally filtered by status and/or `feed_id`.
+    pub fn count_rss_articles(&self, status: Option<&str>, feed_id: Option<&str>) -> Result<usize> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+
+        let mut conditions: Vec<String> = Vec::new();
+        let mut bind_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(s) = status {
+            bind_values.push(Box::new(s.to_string()));
+            conditions.push(format!("status = ?{}", bind_values.len()));
+        }
+        if let Some(f) = feed_id {
+            bind_values.push(Box::new(f.to_string()));
+            conditions.push(format!("feed_id = ?{}", bind_values.len()));
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let sql = format!("SELECT COUNT(*) FROM rss_articles {where_clause}");
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            bind_values.iter().map(AsRef::as_ref).collect();
+
+        let count: i64 = conn.query_row(&sql, params_ref.as_slice(), |row| row.get(0))?;
+        Ok(count as usize)
+    }
+
     pub fn count_rss_feeds(&self) -> Result<usize> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM rss_feeds", [], |row| row.get(0))?;
@@ -393,7 +425,7 @@ impl MemoryDB {
         Ok(count as usize)
     }
 
-    /// Delete stale articles with status 'new' or 'triaged' older than `days` days.
+    /// Delete stale articles with status 'new' older than `days` days.
     /// Returns the number of rows deleted.
     pub fn purge_stale_rss_articles(&self, days: u64) -> Result<usize> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
@@ -407,7 +439,7 @@ impl MemoryDB {
         .unwrap_or(i64::MAX);
         let deleted = conn.execute(
             "DELETE FROM rss_articles
-             WHERE status IN ('new', 'triaged') AND created_at_ms < ?1",
+             WHERE status = 'new' AND created_at_ms < ?1",
             params![cutoff_ms],
         )?;
         Ok(deleted)

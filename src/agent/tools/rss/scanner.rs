@@ -427,18 +427,31 @@ async fn fetch_feed(
 }
 
 async fn do_fetch_feed(
-    client: &Client,
+    _client: &Client,
     url: &str,
     timeout_secs: u64,
     max_per_feed: usize,
 ) -> Result<Vec<ParsedEntry>> {
-    // SSRF validation
-    crate::utils::url_security::validate_and_resolve(url)
+    // SSRF validation — also returns pinned addresses to prevent DNS rebinding
+    let resolved = crate::utils::url_security::validate_and_resolve(url)
         .await
         .map_err(|e| anyhow::anyhow!("SSRF blocked: {e}"))?;
 
+    // Build a per-request client pinned to the validated addresses
+    let pinned = {
+        let mut builder = Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(timeout_secs));
+        for addr in &resolved.addrs {
+            builder = builder.resolve(&resolved.host, *addr);
+        }
+        builder
+            .build()
+            .map_err(|e| anyhow::anyhow!("failed to build pinned client: {e}"))?
+    };
+
     // Fetch
-    let resp = client
+    let resp = pinned
         .get(url)
         .timeout(Duration::from_secs(timeout_secs))
         .send()

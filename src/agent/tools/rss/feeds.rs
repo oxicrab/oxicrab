@@ -18,18 +18,38 @@ fn now_ms() -> i64 {
 
 pub async fn handle_add_feed(
     db: &MemoryDB,
-    client: &Client,
+    _client: &Client,
     url: &str,
     name: Option<&str>,
     timeout: u64,
 ) -> Result<ToolResult> {
-    // 1. Validate URL via SSRF guard
-    if let Err(e) = crate::utils::url_security::validate_and_resolve(url).await {
-        return Ok(ToolResult::error(format!("invalid feed URL: {e}")));
-    }
+    // 1. Validate URL via SSRF guard and get pinned addresses
+    let resolved = match crate::utils::url_security::validate_and_resolve(url).await {
+        Ok(r) => r,
+        Err(e) => return Ok(ToolResult::error(format!("invalid feed URL: {e}"))),
+    };
 
-    // 2. Fetch the feed
-    let response = match client
+    // 2. Build a per-request client pinned to the validated addresses to prevent
+    //    DNS rebinding between validation and connection.
+    let pinned = {
+        let mut builder = Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(timeout));
+        for addr in &resolved.addrs {
+            builder = builder.resolve(&resolved.host, *addr);
+        }
+        match builder.build() {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(ToolResult::error(format!(
+                    "failed to build pinned HTTP client: {e}"
+                )));
+            }
+        }
+    };
+
+    // 3. Fetch the feed
+    let response = match pinned
         .get(url)
         .timeout(Duration::from_secs(timeout))
         .send()
@@ -41,7 +61,7 @@ pub async fn handle_add_feed(
         }
     };
 
-    // 3. Check HTTP status
+    // 4. Check HTTP status
     if !response.status().is_success() {
         return Ok(ToolResult::error(format!(
             "feed URL returned HTTP {}: {}",
@@ -50,7 +70,7 @@ pub async fn handle_add_feed(
         )));
     }
 
-    // 4. Read body as text
+    // 5. Read body as text
     let body = match response.text().await {
         Ok(b) => b,
         Err(e) => {
@@ -58,7 +78,7 @@ pub async fn handle_add_feed(
         }
     };
 
-    // 5. Parse with feed_rs
+    // 6. Parse with feed_rs
     let Ok(parsed) = feed_rs::parser::parse(body.as_bytes()) else {
         return Ok(ToolResult::error(
             "URL returned valid HTTP but content is not RSS or Atom",
@@ -67,16 +87,16 @@ pub async fn handle_add_feed(
 
     let entry_count = parsed.entries.len();
 
-    // 6. Extract feed name
+    // 7. Extract feed name
     let feed_name = name
         .map(str::to_owned)
         .or_else(|| parsed.title.map(|t| t.content))
         .unwrap_or_else(|| url.to_owned());
 
-    // 7. Extract site_url from feed links
+    // 8. Extract site_url from feed links
     let site_url = parsed.links.first().map(|l| l.href.clone());
 
-    // 8. Create RssFeed with a UUID
+    // 9. Create RssFeed with a UUID
     let feed = RssFeed {
         id: uuid::Uuid::new_v4().to_string(),
         url: url.to_owned(),
@@ -89,7 +109,7 @@ pub async fn handle_add_feed(
         created_at_ms: now_ms(),
     };
 
-    // 9. Insert into DB — catch UNIQUE constraint violations
+    // 10. Insert into DB — catch UNIQUE constraint violations
     if let Err(e) = db.insert_rss_feed(&feed) {
         let msg = e.to_string();
         if msg.contains("UNIQUE") || msg.contains("unique") {
@@ -100,7 +120,7 @@ pub async fn handle_add_feed(
 
     info!("rss feed added: {} ({})", feed_name, url);
 
-    // 10. If profile state is "needs_feeds", transition to "needs_calibration"
+    // 11. If profile state is "needs_feeds", transition to "needs_calibration"
     if let Ok(Some(profile)) = db.get_rss_profile()
         && profile.onboarding_state == STATE_NEEDS_FEEDS
         && let Err(e) = db.set_rss_onboarding_state(STATE_NEEDS_CALIBRATION, now_ms())
@@ -108,7 +128,7 @@ pub async fn handle_add_feed(
         warn!("failed to advance onboarding state: {e}");
     }
 
-    // 11. Return success
+    // 12. Return success
     Ok(ToolResult::new(format!(
         "Feed added successfully.\n\nName: {feed_name}\nURL: {url}\nEntries in feed: {entry_count}\n\n\
          Use 'scan' to fetch new articles, or 'get_articles' to browse existing ones."
@@ -135,8 +155,7 @@ pub fn handle_remove_feed(db: &MemoryDB, feed_id: &str) -> Result<ToolResult> {
     }
 
     // 3. Count accepted articles for warning
-    let accepted_articles = db.get_rss_articles(Some("accepted"), Some(feed_id), usize::MAX, 0)?;
-    let accepted_count = accepted_articles.len();
+    let accepted_count = db.count_rss_articles(Some("accepted"), Some(feed_id))?;
 
     // 4. Delete the feed (cascades to articles)
     db.delete_rss_feed(feed_id)?;

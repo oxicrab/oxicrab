@@ -10,23 +10,6 @@ use crate::agent::memory::memory_db::MemoryDB;
 use crate::agent::tools::ToolResult;
 use crate::utils::http::limited_text;
 
-/// Format a millisecond timestamp as a human-readable date (UTC, no external deps).
-fn format_date_ms(ms: i64) -> String {
-    // Convert ms → seconds, then days since Unix epoch
-    let days = ms / 1000 / 86400;
-    // Gregorian calendar algorithm (Richards, 2013 — via Astronomical Algorithms)
-    let jdn = days + 2_440_588; // JDN for Unix epoch day 0
-    let century = (4 * jdn + 3) / 146_097;
-    let day_in_century = jdn - 146_097 * century / 4;
-    let year_in_century = (4 * day_in_century + 3) / 1_461;
-    let day_in_year = day_in_century - 1_461 * year_in_century / 4;
-    let month_index = (5 * day_in_year + 2) / 153;
-    let day = day_in_year - (153 * month_index + 2) / 5 + 1;
-    let month = month_index + 3 - 12 * (month_index / 10);
-    let year = 100 * century + year_in_century - 4_800 + month_index / 10;
-    format!("{year:04}-{month:02}-{day:02}")
-}
-
 pub fn handle_get_articles(
     db: &MemoryDB,
     status: Option<&str>,
@@ -68,7 +51,7 @@ pub fn handle_get_articles(
             .unwrap_or(&article.feed_id);
         let date_str = article
             .published_at_ms
-            .map_or_else(|| "—".to_string(), format_date_ms);
+            .map_or_else(|| "—".to_string(), super::format_date_ms);
         let _ = writeln!(
             out,
             "• [{}] {} ({})\n  Feed: {} | Status: {} | Published: {}",
@@ -251,7 +234,7 @@ pub(crate) fn update_model_for_article(db: &MemoryDB, article_id: &str, accepted
 
 pub async fn handle_get_article_detail(
     db: &MemoryDB,
-    client: &Client,
+    _client: &Client,
     article_id: &str,
 ) -> Result<ToolResult> {
     // Resolve short → full ID
@@ -278,18 +261,38 @@ pub async fn handle_get_article_detail(
         return Ok(ToolResult::new(out));
     }
 
-    // Validate URL via SSRF guard before fetching
-    if let Err(e) = crate::utils::url_security::validate_and_resolve(&article.url).await {
-        warn!(
-            "rss article detail: URL validation failed for {}: {e}",
-            article.url
-        );
-        // Fall back to snippet
-        return Ok(fallback_to_snippet(&article));
-    }
+    // Validate URL via SSRF guard and get pinned addresses to prevent DNS rebinding
+    let resolved = match crate::utils::url_security::validate_and_resolve(&article.url).await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(
+                "rss article detail: URL validation failed for {}: {e}",
+                article.url
+            );
+            // Fall back to snippet
+            return Ok(fallback_to_snippet(&article));
+        }
+    };
+
+    // Build a per-request client pinned to the validated addresses
+    let pinned = {
+        let mut builder = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(30));
+        for addr in &resolved.addrs {
+            builder = builder.resolve(&resolved.host, *addr);
+        }
+        match builder.build() {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("rss article detail: failed to build pinned client: {e}");
+                return Ok(fallback_to_snippet(&article));
+            }
+        }
+    };
 
     // Fetch article content
-    let fetch_result = client.get(&article.url).send().await;
+    let fetch_result = pinned.get(&article.url).send().await;
 
     match fetch_result {
         Ok(resp) if resp.status().is_success() => {

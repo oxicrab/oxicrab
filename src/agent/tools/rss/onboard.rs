@@ -145,46 +145,52 @@ pub fn handle_onboard(
                     ));
                 }
 
-                // Create a recurring cron job to scan every 6 hours
-                let job_id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
                 let now = now_ms();
-                let job = CronJob {
-                    id: job_id.clone(),
-                    name: "rss-scan".to_string(),
-                    enabled: true,
-                    schedule: CronSchedule::Cron {
-                        expr: Some("0 */6 * * *".to_string()),
-                        tz: Some("UTC".to_string()),
-                    },
-                    payload: CronPayload {
-                        kind: "agent_turn".to_string(),
-                        message: "Scan RSS feeds using the rss tool scan action. Filter articles \
-                                  by my interest profile, summarize the top candidates, and present \
-                                  them with accept/reject options."
-                            .to_string(),
-                        agent_echo: true,
-                        targets: vec![CronTarget {
-                            channel: ctx.channel.clone(),
-                            to: ctx.chat_id.clone(),
-                        }],
-                    },
-                    state: CronJobState::default(),
-                    created_at_ms: now,
-                    updated_at_ms: now,
-                    delete_after_run: false,
-                    expires_at_ms: None,
-                    max_runs: None,
-                    cooldown_secs: None,
-                    max_concurrent: None,
-                };
 
-                if let Some(svc) = cron_service {
-                    svc.add_job(job)?;
-                    db.set_rss_cron_job_id(&job_id, now)?;
-                } else {
-                    // No cron service — still record a placeholder so feed_stats
-                    // doesn't warn, but note that scheduling is unavailable
-                    warn!("rss onboard: cron service unavailable, skipping job creation");
+                // Only create a cron job if one doesn't already exist
+                let existing_cron_id = db.get_rss_profile()?.and_then(|p| p.cron_job_id);
+
+                if existing_cron_id.is_none() {
+                    // Create a recurring cron job to scan every 6 hours
+                    let job_id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
+                    let job = CronJob {
+                        id: job_id.clone(),
+                        name: "rss-scan".to_string(),
+                        enabled: true,
+                        schedule: CronSchedule::Cron {
+                            expr: Some("0 */6 * * *".to_string()),
+                            tz: Some("UTC".to_string()),
+                        },
+                        payload: CronPayload {
+                            kind: "agent_turn".to_string(),
+                            message: "Scan RSS feeds using the rss tool scan action. Filter articles \
+                                      by my interest profile, summarize the top candidates, and present \
+                                      them with accept/reject options."
+                                .to_string(),
+                            agent_echo: true,
+                            targets: vec![CronTarget {
+                                channel: ctx.channel.clone(),
+                                to: ctx.chat_id.clone(),
+                            }],
+                        },
+                        state: CronJobState::default(),
+                        created_at_ms: now,
+                        updated_at_ms: now,
+                        delete_after_run: false,
+                        expires_at_ms: None,
+                        max_runs: None,
+                        cooldown_secs: None,
+                        max_concurrent: None,
+                    };
+
+                    if let Some(svc) = cron_service {
+                        svc.add_job(job)?;
+                        db.set_rss_cron_job_id(&job_id, now)?;
+                    } else {
+                        // No cron service — still record a placeholder so feed_stats
+                        // doesn't warn, but note that scheduling is unavailable
+                        warn!("rss onboard: cron service unavailable, skipping job creation");
+                    }
                 }
 
                 db.set_rss_onboarding_state(STATE_COMPLETE, now)?;
@@ -200,7 +206,7 @@ pub fn handle_onboard(
                 )))
             } else {
                 let remaining = 5 - review_count;
-                let articles = db.get_rss_articles(Some("pending"), None, 5, 0)?;
+                let articles = db.get_rss_articles(Some("new"), None, 5, 0)?;
                 if articles.is_empty() {
                     Ok(ToolResult::new(format!(
                         "Calibration in progress ({review_count}/5 reviews done).\n\n\

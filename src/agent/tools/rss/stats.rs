@@ -9,16 +9,9 @@ pub fn handle_feed_stats(db: &MemoryDB) -> Result<ToolResult> {
     let mut out = String::new();
 
     // ── Overall totals ──────────────────────────────────────────────────────
-    let all_articles = db.get_rss_articles(None, None, usize::MAX, 0)?;
-    let total_scanned = all_articles.len();
-    let total_accepted = all_articles
-        .iter()
-        .filter(|a| a.status == "accepted")
-        .count();
-    let total_rejected = all_articles
-        .iter()
-        .filter(|a| a.status == "rejected")
-        .count();
+    let total_scanned = db.count_rss_articles(None, None)?;
+    let total_accepted = db.count_rss_articles(Some("accepted"), None)?;
+    let total_rejected = db.count_rss_articles(Some("rejected"), None)?;
     let overall_rate = acceptance_rate(total_accepted, total_accepted + total_rejected);
 
     let _ = writeln!(
@@ -43,23 +36,16 @@ pub fn handle_feed_stats(db: &MemoryDB) -> Result<ToolResult> {
     if !feeds.is_empty() {
         out.push('\n');
         for feed in &feeds {
-            let feed_articles = db.get_rss_articles(None, Some(&feed.id), usize::MAX, 0)?;
-            let feed_total = feed_articles.len();
-            let feed_accepted = feed_articles
-                .iter()
-                .filter(|a| a.status == "accepted")
-                .count();
-            let feed_rejected = feed_articles
-                .iter()
-                .filter(|a| a.status == "rejected")
-                .count();
+            let feed_total = db.count_rss_articles(None, Some(&feed.id))?;
+            let feed_accepted = db.count_rss_articles(Some("accepted"), Some(&feed.id))?;
+            let feed_rejected = db.count_rss_articles(Some("rejected"), Some(&feed.id))?;
             let feed_rate = acceptance_rate(feed_accepted, feed_accepted + feed_rejected);
 
             let short_id: String = feed.id.chars().take(8).collect();
             let status_label = if feed.enabled { "enabled" } else { "disabled" };
             let last_fetched = feed
                 .last_fetched_at_ms
-                .map_or_else(|| "never".to_string(), format_date_ms);
+                .map_or_else(|| "never".to_string(), super::format_date_ms);
 
             let _ = writeln!(
                 out,
@@ -133,7 +119,7 @@ pub fn handle_feed_stats(db: &MemoryDB) -> Result<ToolResult> {
                 let next = job
                     .state
                     .next_run_at_ms
-                    .map_or_else(|| "unknown".to_string(), format_date_ms);
+                    .map_or_else(|| "unknown".to_string(), super::format_date_ms);
                 let _ = writeln!(
                     out,
                     "Scheduled scanning: {status} (job id: {job_id}, \
@@ -167,19 +153,4 @@ fn acceptance_rate(accepted: usize, reviewed: usize) -> f64 {
     } else {
         (accepted as f64 / reviewed as f64) * 100.0
     }
-}
-
-/// Format a millisecond timestamp as a human-readable date (UTC).
-fn format_date_ms(ms: i64) -> String {
-    let days = ms / 1000 / 86400;
-    let jdn = days + 2_440_588;
-    let century = (4 * jdn + 3) / 146_097;
-    let day_in_century = jdn - 146_097 * century / 4;
-    let year_in_century = (4 * day_in_century + 3) / 1_461;
-    let day_in_year = day_in_century - 1_461 * year_in_century / 4;
-    let month_index = (5 * day_in_year + 2) / 153;
-    let day = day_in_year - (153 * month_index + 2) / 5 + 1;
-    let month = month_index + 3 - 12 * (month_index / 10);
-    let year = 100 * century + year_in_century - 4_800 + month_index / 10;
-    format!("{year:04}-{month:02}-{day:02}")
 }
