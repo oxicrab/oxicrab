@@ -129,8 +129,9 @@ pub fn handle_feed_stats(db: &MemoryDB) -> Result<ToolResult> {
             }
             Ok(None) => {
                 out.push_str(
-                    "Warning: scheduled scanning job not found — \
-                     re-run onboard to recreate it\n",
+                    "Warning: scheduled scanning job not found. \
+                     Use the cron tool to manually create a new scan job, \
+                     e.g.: cron add with message 'scan RSS feeds' and schedule '0 */6 * * *'\n",
                 );
             }
             Err(e) => {

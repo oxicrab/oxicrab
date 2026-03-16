@@ -79,8 +79,11 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
     // ── Phase 2: Pre-filter and insert new articles ───────────────────────
 
     let now = now_ms();
-    let seven_days_ms: i64 = 7 * 24 * 60 * 60 * 1000;
-    let cutoff_ms = now - seven_days_ms;
+    // Use purge_days as the ingest lookback so fetch and purge windows are consistent.
+    // Articles older than purge_days will be cleaned up by the hygiene phase anyway.
+    let lookback_ms: i64 =
+        i64::try_from(u128::from(config.purge_days) * 24 * 60 * 60 * 1000).unwrap_or(0);
+    let cutoff_ms = now.saturating_sub(lookback_ms);
 
     let mut feed_results: Vec<FeedResult> = Vec::new();
     let mut all_new_articles: Vec<(String, RssArticle, Vec<String>)> = Vec::new(); // (feed_id, article, tags)
@@ -532,7 +535,7 @@ async fn do_fetch_feed(
 }
 
 /// Extract simple keywords from the user's interest profile for feature matching.
-fn extract_profile_keywords(db: &MemoryDB) -> Vec<String> {
+pub(super) fn extract_profile_keywords(db: &MemoryDB) -> Vec<String> {
     let Ok(Some(profile)) = db.get_rss_profile() else {
         return vec![];
     };

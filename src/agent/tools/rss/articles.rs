@@ -296,8 +296,25 @@ pub(crate) fn update_model_for_article(db: &MemoryDB, article_id: &str, accepted
 
     let tags = db.get_rss_article_tags(article_id).unwrap_or_default();
 
+    // Extract profile keywords so feedback encodes the same features as scanning
+    let keywords = super::scanner::extract_profile_keywords(db);
+    let keyword_overlap: Vec<String> = keywords
+        .iter()
+        .filter(|kw| {
+            let kw_lower = kw.to_lowercase();
+            article.title.to_lowercase().contains(&kw_lower)
+                || article
+                    .description
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_lowercase()
+                    .contains(&kw_lower)
+        })
+        .cloned()
+        .collect();
+
     let mut model = load_or_create_model(db);
-    let x = model.encode_article(&article.feed_id, &tags, &[]);
+    let x = model.encode_article(&article.feed_id, &tags, &keyword_overlap);
     model.update(&x, accepted);
     model.prune_if_needed();
     save_model(db, &model);
