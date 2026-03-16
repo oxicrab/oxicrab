@@ -300,7 +300,10 @@ fn suggest_feeds(interests: &str) -> String {
     if lower.contains("rust") {
         sections.push(("Rust", RUST_FEEDS));
     }
-    if lower.contains("ai")
+    if lower.contains(" ai ")
+        || lower.starts_with("ai ")
+        || lower.ends_with(" ai")
+        || lower == "ai"
         || lower.contains("machine learning")
         || lower.contains(" ml ")
         || lower.ends_with(" ml")
