@@ -319,8 +319,9 @@ impl MemoryDB {
         Ok(tags)
     }
 
-    /// Batch-fetch tags for multiple articles in a single query.
-    /// Returns a map from `article_id` to its tag list.
+    /// Batch-fetch tags for multiple articles.
+    /// Returns a map from article ID to its tag list.
+    /// Chunks queries into batches of 500 to stay within bind-variable limits.
     pub fn get_rss_article_tags_batch(
         &self,
         article_ids: &[&str],
@@ -329,25 +330,29 @@ impl MemoryDB {
             return Ok(HashMap::new());
         }
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
-        // Build parameterized IN clause
-        let placeholders: Vec<String> = (1..=article_ids.len()).map(|i| format!("?{i}")).collect();
-        let sql = format!(
-            "SELECT article_id, tag FROM rss_article_tags WHERE article_id IN ({}) ORDER BY article_id, tag",
-            placeholders.join(", ")
-        );
-        let mut stmt = conn.prepare(&sql)?;
-        let params: Vec<&dyn rusqlite::types::ToSql> = article_ids
-            .iter()
-            .map(|id| id as &dyn rusqlite::types::ToSql)
-            .collect();
-        let rows = stmt.query_map(params.as_slice(), |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
         let mut map: HashMap<String, Vec<String>> = HashMap::new();
-        for row in rows {
-            let (article_id, tag) = row?;
-            map.entry(article_id).or_default().push(tag);
+
+        // SQLite default SQLITE_MAX_VARIABLE_NUMBER is 999; chunk to stay safe
+        for chunk in article_ids.chunks(500) {
+            let placeholders: Vec<String> = (1..=chunk.len()).map(|i| format!("?{i}")).collect();
+            let sql = format!(
+                "SELECT article_id, tag FROM rss_article_tags WHERE article_id IN ({}) ORDER BY article_id, tag",
+                placeholders.join(", ")
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let params: Vec<&dyn rusqlite::types::ToSql> = chunk
+                .iter()
+                .map(|id| id as &dyn rusqlite::types::ToSql)
+                .collect();
+            let rows = stmt.query_map(params.as_slice(), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                let (article_id, tag) = row?;
+                map.entry(article_id).or_default().push(tag);
+            }
         }
+
         Ok(map)
     }
 
