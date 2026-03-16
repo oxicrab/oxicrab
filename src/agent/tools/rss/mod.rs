@@ -1,8 +1,8 @@
 mod articles;
 mod feeds;
 // mod scanner;
+pub(crate) mod model;
 mod onboard;
-// mod model;
 
 #[cfg(test)]
 mod tests;

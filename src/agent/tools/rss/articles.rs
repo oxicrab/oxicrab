@@ -5,6 +5,7 @@ use anyhow::Result;
 use reqwest::Client;
 use tracing::warn;
 
+use super::model::LinTSModel;
 use crate::agent::memory::memory_db::MemoryDB;
 use crate::agent::tools::ToolResult;
 use crate::utils::http::limited_text;
@@ -43,6 +44,13 @@ pub fn handle_get_articles(
         return Ok(ToolResult::new("No articles found."));
     }
 
+    // Rank pending/new articles using the model when no specific status filter is applied
+    let display_order: Vec<usize> = if status.is_none() || status == Some("new") {
+        rank_articles(db, articles)
+    } else {
+        (0..articles.len()).collect()
+    };
+
     // Build a feed-id → name map for display
     let feeds = db.list_rss_feeds().unwrap_or_default();
     let feed_name_map: HashMap<&str, &str> = feeds
@@ -51,7 +59,8 @@ pub fn handle_get_articles(
         .collect();
 
     let mut out = format!("Articles ({}):\n\n", articles.len());
-    for article in articles {
+    for &idx in &display_order {
+        let article = &articles[idx];
         let short_id: String = article.id.chars().take(8).collect();
         let feed_label = feed_name_map
             .get(article.feed_id.as_str())
@@ -113,6 +122,7 @@ fn handle_feedback(db: &MemoryDB, article_ids: &[&str], accepted: bool) -> ToolR
                     errors.push(format!("{raw_id}: failed to update status — {e}"));
                     continue;
                 }
+                update_model_for_article(db, &full_id, accepted);
                 let short_id: String = full_id.chars().take(8).collect();
                 successes.push(short_id);
             }
@@ -162,6 +172,81 @@ pub fn handle_accept(db: &MemoryDB, article_ids: &[&str]) -> ToolResult {
 
 pub fn handle_reject(db: &MemoryDB, article_ids: &[&str]) -> ToolResult {
     handle_feedback(db, article_ids, false)
+}
+
+/// Rank articles using the `LinTS` model. Returns indices in display order.
+fn rank_articles(
+    db: &MemoryDB,
+    articles: &[crate::agent::memory::memory_db::rss::RssArticle],
+) -> Vec<usize> {
+    let mut model = load_or_create_model(db);
+
+    // If the model has no features yet, return natural order
+    if model.dimension() == 0 && articles.len() <= 1 {
+        return (0..articles.len()).collect();
+    }
+
+    let feature_vecs: Vec<_> = articles
+        .iter()
+        .map(|a| {
+            let tags = db.get_rss_article_tags(&a.id).unwrap_or_default();
+            model.encode_article(&a.feed_id, &tags, &[])
+        })
+        .collect();
+
+    model.rank(&feature_vecs)
+}
+
+/// Load the `LinTS` model from DB, or create a fresh one.
+fn load_or_create_model(db: &MemoryDB) -> LinTSModel {
+    match db.load_rss_model() {
+        Ok(Some((feature_index, mu, sigma))) => {
+            match LinTSModel::from_bytes(&feature_index, &mu, &sigma) {
+                Ok(model) => model,
+                Err(e) => {
+                    warn!("rss model corrupted, creating fresh: {e}");
+                    LinTSModel::new()
+                }
+            }
+        }
+        Ok(None) => LinTSModel::new(),
+        Err(e) => {
+            warn!("failed to load rss model: {e}");
+            LinTSModel::new()
+        }
+    }
+}
+
+/// Save the `LinTS` model to DB.
+fn save_model(db: &MemoryDB, model: &LinTSModel) {
+    let (feature_index, mu, sigma) = model.to_bytes();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    if let Err(e) = db.save_rss_model(&feature_index, &mu, &sigma, now_ms) {
+        warn!("failed to save rss model: {e}");
+    }
+}
+
+/// Update the model after article feedback.
+///
+/// Loads the model, encodes the article features, runs a Bayesian update,
+/// and persists the updated model back to DB.
+pub(crate) fn update_model_for_article(db: &MemoryDB, article_id: &str, accepted: bool) {
+    let Ok(Some(article)) = db.get_rss_article(article_id) else {
+        return;
+    };
+
+    let tags = db.get_rss_article_tags(article_id).unwrap_or_default();
+
+    let mut model = load_or_create_model(db);
+    let x = model.encode_article(&article.feed_id, &tags, &[]);
+    model.update(&x, accepted);
+    // Small covariance inflation to prevent over-confidence and handle taste drift
+    model.inflate_covariance(0.01);
+    model.prune_if_needed();
+    save_model(db, &model);
 }
 
 pub async fn handle_get_article_detail(
