@@ -297,7 +297,11 @@ fn suggest_feeds(interests: &str) -> String {
     let lower = interests.to_lowercase();
     let mut sections: Vec<(&str, FeedList)> = Vec::new();
 
-    if lower.contains("rust") {
+    if lower.contains(" rust ")
+        || lower.starts_with("rust ")
+        || lower.ends_with(" rust")
+        || lower == "rust"
+    {
         sections.push(("Rust", RUST_FEEDS));
     }
     if lower.contains(" ai ")

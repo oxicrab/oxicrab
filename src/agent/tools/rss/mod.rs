@@ -151,7 +151,7 @@ impl Tool for RssTool {
                 },
                 "feed_id": {
                     "type": "string",
-                    "description": "Feed ID (for remove_feed, feed_stats)"
+                    "description": "Feed ID (for remove_feed, enable_feed, feed_stats; optional filter for get_articles)"
                 },
                 "article_ids": {
                     "type": "array",

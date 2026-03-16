@@ -230,7 +230,6 @@ pub fn handle_reject(db: &MemoryDB, article_ids: &[&str]) -> ToolResult {
     handle_feedback(db, article_ids, false)
 }
 
-/// Rank articles using the `LinTS` model. Returns indices in display order.
 /// Rank articles using the persisted `LinTS` model in read-only mode.
 /// Does NOT register new features or save the model — unknown features
 /// contribute zero to scoring, which is correct (the model hasn't learned

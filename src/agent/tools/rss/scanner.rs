@@ -117,7 +117,7 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
                         continue;
                     }
 
-                    // Skip entries older than 7 days (when published date is known)
+                    // Skip entries older than purge_days (when published date is known)
                     if let Some(pub_ms) = entry.published_at_ms
                         && pub_ms < cutoff_ms
                     {
