@@ -21,7 +21,7 @@ const RUST_FEEDS: FeedList = &[
     ("Rust Blog", "https://blog.rust-lang.org/feed.xml"),
 ];
 const AI_FEEDS: FeedList = &[
-    ("arXiv CS.AI", "http://arxiv.org/rss/cs.AI"),
+    ("arXiv CS.AI", "https://arxiv.org/rss/cs.AI"),
     ("The Gradient", "https://thegradient.pub/rss/"),
 ];
 const WEB_FEEDS: FeedList = &[
@@ -225,7 +225,8 @@ pub fn handle_onboard(
                          Here are articles to review:\n\n"
                     );
                     for a in &articles {
-                        let _ = writeln!(out, "- [{}] {} — {}", a.id, a.title, a.url);
+                        let short_id: String = a.id.chars().take(8).collect();
+                        let _ = writeln!(out, "- [{}] {} — {}", short_id, a.title, a.url);
                     }
                     out.push_str(
                         "\nUse accept or reject with article IDs to calibrate your preferences.",

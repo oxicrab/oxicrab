@@ -49,7 +49,8 @@ pub fn handle_get_articles(
         // Rank the full candidate pool, then paginate
         let display_order = rank_articles(db, &articles);
         let page: Vec<usize> = display_order.into_iter().skip(offset).take(limit).collect();
-        let has_more = articles.len() > offset + limit;
+        let total_matching = db.count_rss_articles(status, feed_id)?;
+        let has_more = offset + limit < total_matching;
 
         if page.is_empty() {
             return Ok(ToolResult::new("No articles found."));
