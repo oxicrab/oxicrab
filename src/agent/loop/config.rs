@@ -46,6 +46,7 @@ pub struct ToolConfigs {
     pub image_gen_config: Option<crate::config::ImageGenConfig>,
     pub mcp_config: Option<crate::config::McpConfig>,
     pub workspace_ttl: crate::config::WorkspaceTtlConfig,
+    pub rss_config: Option<crate::config::RssConfig>,
 }
 
 /// Result of a single agent loop run.
@@ -232,6 +233,7 @@ impl AgentLoopConfig {
                 image_gen_config: Some(image_gen),
                 mcp_config: Some(config.tools.mcp.clone()),
                 workspace_ttl: config.agents.defaults.workspace_ttl.clone(),
+                rss_config: Some(config.tools.rss.clone()),
             },
             routing,
             lifecycle: LifecycleConfig {
@@ -303,6 +305,7 @@ impl AgentLoopConfig {
                 image_gen_config: None,
                 mcp_config: None,
                 workspace_ttl: crate::config::WorkspaceTtlConfig::default(),
+                rss_config: None,
             },
             routing: None,
             lifecycle: LifecycleConfig {

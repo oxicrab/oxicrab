@@ -40,6 +40,7 @@ pub struct ToolBuildContext {
     pub workspace_manager: Option<Arc<crate::agent::workspace::WorkspaceManager>>,
     pub workspace_ttl: config::WorkspaceTtlConfig,
     pub pending_buttons: crate::agent::tools::interactive::PendingButtons,
+    pub rss_config: Option<config::RssConfig>,
 }
 
 /// Register all tools into the registry using decentralized per-module `register()` functions.

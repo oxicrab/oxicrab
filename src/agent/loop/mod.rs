@@ -285,6 +285,7 @@ impl AgentLoop {
             workspace_manager,
             workspace_ttl: tool_configs.workspace_ttl,
             pending_buttons: pending_buttons.clone(),
+            rss_config: tool_configs.rss_config,
         };
 
         let (tools, subagents, mcp_manager, tool_search_activated) =

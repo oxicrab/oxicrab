@@ -1021,6 +1021,21 @@ fn test_config_example_is_up_to_date() {
 }
 
 // -----------------------------------------------------------------------
+// RssConfig defaults
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_rss_config_defaults() {
+    let config: RssConfig = serde_json::from_str("{}").unwrap();
+    assert!(config.enabled);
+    assert_eq!(config.scan_timeout, 15);
+    assert_eq!(config.max_articles_per_feed, 50);
+    assert_eq!(config.purge_days, 90);
+    assert_eq!(config.candidates_per_scan, 20);
+    assert!((config.covariance_inflation - 0.01).abs() < f64::EPSILON);
+}
+
+// -----------------------------------------------------------------------
 // RateLimitConfig
 // -----------------------------------------------------------------------
 
