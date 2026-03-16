@@ -16,7 +16,9 @@ use helpers::ACTION_CLAIM_PATTERNS;
 use helpers::MAX_IMAGES;
 use helpers::cleanup_old_media;
 pub(crate) use helpers::validate_tool_params;
-pub use helpers::{contains_action_claims, is_false_no_tools_claim, mentions_multiple_tools};
+pub use helpers::{
+    contains_action_claims, is_false_no_tools_claim, mentions_any_tool, mentions_multiple_tools,
+};
 #[cfg(test)]
 use helpers::{
     execute_tool_call, extract_media_paths, load_and_encode_images, strip_document_tags,

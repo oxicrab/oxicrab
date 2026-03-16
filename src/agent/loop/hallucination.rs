@@ -5,7 +5,7 @@ use crate::providers::base::Message;
 use tracing::{debug, warn};
 
 pub use super::helpers::{
-    contains_action_claims, is_false_no_tools_claim, mentions_multiple_tools,
+    contains_action_claims, is_false_no_tools_claim, mentions_any_tool, mentions_multiple_tools,
 };
 
 /// Result of [`handle_text_response`] — either continue the loop
@@ -30,6 +30,10 @@ pub(super) struct CorrectionState {
     /// Whether Layer 2 (intent mismatch) has fired. Independent of Layer 1,
     /// so if L1 corrects first and fails, L2 still gets its own attempt.
     pub(super) layer2_fired: bool,
+    /// Whether Layer 3 (action gap / partial hallucination) has fired. Catches
+    /// cases where some tools were called but the LLM claims actions for tools
+    /// it never used.
+    pub(super) layer3_fired: bool,
 }
 
 impl CorrectionState {
@@ -38,6 +42,7 @@ impl CorrectionState {
             layer0_count: 0,
             layer1_fired: false,
             layer2_fired: false,
+            layer3_fired: false,
         }
     }
 }
@@ -51,6 +56,7 @@ pub(super) const MAX_LAYER0_CORRECTIONS: u8 = 2;
 /// 1. False "no tools" claim detection (LLM says it has no tools)
 /// 2. Regex-based action claim detection (fast-path for obvious hallucinations)
 /// 3. Intent-based structural detection (backstop: user asked for action + no tools called)
+/// 4. Action gap detection (partial hallucination: some tools called, claims actions for uncalled tools)
 #[allow(clippy::too_many_arguments)]
 pub(super) fn handle_text_response(
     content: &str,
@@ -204,6 +210,54 @@ pub(super) fn handle_text_response(
         ));
         state.layer2_fired = true;
         return TextAction::Continue;
+    }
+
+    // Layer 3: Partial hallucination detection (action gap)
+    //
+    // When tools HAVE been called, Layers 1 and 2 are largely disabled to avoid
+    // flagging legitimate summaries. But the LLM may call SOME tools (e.g. gmail)
+    // then hallucinate actions for OTHER tools (e.g. calendar). Detect this by
+    // checking: does the response mention uncalled tools AND contain action claims?
+    if !state.layer3_fired && any_tools_called && !tool_names.is_empty() {
+        let uncalled: Vec<String> = tool_names
+            .iter()
+            .filter(|name| !tools_used.iter().any(|u| u == *name))
+            .cloned()
+            .collect();
+        let mentions_uncalled = mentions_any_tool(content, &uncalled);
+        if mentions_uncalled && contains_action_claims(content) {
+            warn!(
+                "Partial hallucination: LLM called some tools but claims actions for uncalled tools"
+            );
+            if let Some(db) = db
+                && let Err(e) = db.record_intent_event(
+                    "hallucination",
+                    None,
+                    None,
+                    Some("layer3_action_gap"),
+                    content,
+                    request_id,
+                )
+            {
+                debug!("failed to record hallucination metric: {}", e);
+            }
+            ContextBuilder::add_assistant_message(
+                messages,
+                Some(content),
+                None,
+                reasoning_content,
+                None,
+            );
+            messages.push(Message::user(
+                "[Internal: Your previous response was not delivered to the user. \
+                 You described performing actions but did not call the required tools. \
+                 Call the appropriate tool now to complete the remaining actions. \
+                 Do NOT apologize or mention any previous attempt.]"
+                    .to_string(),
+            ));
+            state.layer3_fired = true;
+            return TextAction::Continue;
+        }
     }
 
     TextAction::Return

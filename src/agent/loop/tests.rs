@@ -1290,6 +1290,201 @@ fn test_mentions_multiple_tools_triggers_correction() {
     );
 }
 
+// --- mentions_any_tool tests ---
+
+#[test]
+fn test_mentions_any_tool_positive() {
+    let tools = vec!["google_calendar".to_string(), "todoist".to_string()];
+    assert!(mentions_any_tool("Creating google_calendar events", &tools));
+    assert!(mentions_any_tool("I used todoist to add tasks", &tools));
+}
+
+#[test]
+fn test_mentions_any_tool_negative() {
+    let tools = vec!["google_calendar".to_string()];
+    assert!(!mentions_any_tool("I read your emails", &tools));
+    // "calendar" != "google_calendar"
+    assert!(!mentions_any_tool("The calendar looks good", &tools));
+}
+
+#[test]
+fn test_mentions_any_tool_word_boundary() {
+    let tools = vec!["exec".to_string()];
+    // "exec" inside "executed" should NOT match
+    assert!(!mentions_any_tool("I executed the command", &tools));
+    assert!(mentions_any_tool("I called exec to run it", &tools));
+}
+
+#[test]
+fn test_mentions_any_tool_empty_list() {
+    let tools: Vec<String> = vec![];
+    assert!(!mentions_any_tool("anything here", &tools));
+}
+
+// --- Layer 3 partial hallucination tests ---
+
+#[test]
+fn test_layer3_partial_hallucination() {
+    // Simulate: gmail was called, LLM claims calendar actions without calling calendar
+    let tool_names = ["google_mail".to_string(), "google_calendar".to_string()];
+    let tools_used = ["google_mail".to_string()]; // only gmail called
+    let content =
+        "I've created 4 calendar events on your google_calendar for the Gotham FC matches.";
+
+    // Layer 3 should trigger: mentions uncalled tool + action claim
+    let uncalled: Vec<String> = tool_names
+        .iter()
+        .filter(|n| !tools_used.contains(n))
+        .cloned()
+        .collect();
+    assert!(mentions_any_tool(content, &uncalled));
+    assert!(contains_action_claims(content));
+}
+
+#[test]
+fn test_layer3_fires_in_handle_text_response() {
+    // Full integration: Layer 3 fires when tools were called but text claims
+    // actions for uncalled tools
+    let tool_names = vec!["google_mail".to_string(), "google_calendar".to_string()];
+    let tools_used = vec!["google_mail".to_string()];
+    let mut messages = vec![];
+    let mut state = CorrectionState::new();
+
+    let result = hallucination::handle_text_response(
+        "I've created 4 calendar events on your google_calendar for the upcoming matches.",
+        &mut messages,
+        None,
+        true, // tools WERE called
+        &mut state,
+        &tool_names,
+        &tools_used,
+        true,
+        None,
+        None,
+        None,
+    );
+    assert!(
+        matches!(result, TextAction::Continue),
+        "Layer 3 should detect partial hallucination"
+    );
+    assert!(state.layer3_fired);
+}
+
+#[test]
+fn test_layer3_does_not_fire_when_all_tools_used() {
+    // When all mentioned tools were actually called, Layer 3 should not fire
+    let tool_names = vec!["google_mail".to_string(), "google_calendar".to_string()];
+    let tools_used = vec!["google_mail".to_string(), "google_calendar".to_string()];
+    let mut messages = vec![];
+    let mut state = CorrectionState::new();
+
+    let result = hallucination::handle_text_response(
+        "I've created calendar events on your google_calendar and sent emails via google_mail.",
+        &mut messages,
+        None,
+        true,
+        &mut state,
+        &tool_names,
+        &tools_used,
+        true,
+        None,
+        None,
+        None,
+    );
+    assert!(
+        matches!(result, TextAction::Return),
+        "should pass through when all tools were actually called"
+    );
+    assert!(!state.layer3_fired);
+}
+
+#[test]
+fn test_layer3_does_not_fire_without_action_claims() {
+    // Mentioning an uncalled tool without action claims should not trigger Layer 3
+    let tool_names = vec!["google_mail".to_string(), "google_calendar".to_string()];
+    let tools_used = vec!["google_mail".to_string()];
+    let mut messages = vec![];
+    let mut state = CorrectionState::new();
+
+    let result = hallucination::handle_text_response(
+        "You could also use google_calendar for that.",
+        &mut messages,
+        None,
+        true,
+        &mut state,
+        &tool_names,
+        &tools_used,
+        true,
+        None,
+        None,
+        None,
+    );
+    assert!(
+        matches!(result, TextAction::Return),
+        "mentioning uncalled tool without action claim should pass through"
+    );
+    assert!(!state.layer3_fired);
+}
+
+#[test]
+fn test_layer3_fires_only_once() {
+    // Layer 3 should only fire once
+    let tool_names = vec!["google_mail".to_string(), "google_calendar".to_string()];
+    let tools_used = vec!["google_mail".to_string()];
+    let mut messages = vec![];
+    let mut state = CorrectionState::new();
+    state.layer3_fired = true; // already fired
+
+    let result = hallucination::handle_text_response(
+        "I've created events on your google_calendar.",
+        &mut messages,
+        None,
+        true,
+        &mut state,
+        &tool_names,
+        &tools_used,
+        true,
+        None,
+        None,
+        None,
+    );
+    assert!(
+        matches!(result, TextAction::Return),
+        "Layer 3 should not fire a second time"
+    );
+}
+
+#[test]
+fn test_layer3_does_not_fire_when_no_tools_called() {
+    // Layer 3 is specifically for partial hallucinations (any_tools_called=true).
+    // When no tools were called, Layers 1 and 2 handle it.
+    let tool_names = vec!["google_mail".to_string(), "google_calendar".to_string()];
+    let mut messages = vec![];
+    let mut state = CorrectionState::new();
+    state.layer1_fired = true; // exhaust L1
+    state.layer2_fired = true; // exhaust L2
+
+    let result = hallucination::handle_text_response(
+        "I've created events on your google_calendar.",
+        &mut messages,
+        None,
+        false, // no tools called
+        &mut state,
+        &tool_names,
+        &[],
+        true,
+        None,
+        None,
+        None,
+    );
+    // L1 and L2 are exhausted, L3 doesn't apply (no tools called) => Return
+    assert!(
+        matches!(result, TextAction::Return),
+        "Layer 3 should not fire when no tools were called"
+    );
+    assert!(!state.layer3_fired);
+}
+
 // --- Media cleanup tests ---
 
 #[test]
