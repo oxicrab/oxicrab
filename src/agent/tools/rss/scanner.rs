@@ -205,11 +205,15 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
         }
     };
 
-    // Inflate covariance for exploration
-    model.inflate_covariance(config.covariance_inflation);
-
     // Extract keywords from user profile
     let keywords = extract_profile_keywords(db);
+
+    // Only inflate/encode/save if there are new articles to rank. Inflating on
+    // empty scans would cause unbounded covariance growth (0.04/day at default
+    // settings), making rankings near-random after ~250 quiet days.
+    if !all_new_articles.is_empty() {
+        model.inflate_covariance(config.covariance_inflation);
+    }
 
     // Encode all new articles using a two-pass approach to avoid dimension
     // mismatch: pass 1 registers all features, pass 2 builds uniform-dimension
@@ -290,13 +294,13 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
         .take(config.candidates_per_scan)
         .collect();
 
-    // Prune if feature dimension grew past limit during encoding
-    model.prune_if_needed();
-
-    // Save model (feature index may have expanded)
-    let (fi_json, mu_bytes, sigma_bytes) = model.to_bytes();
-    if let Err(e) = db.save_rss_model(&fi_json, &mu_bytes, &sigma_bytes, now) {
-        warn!("rss scan: failed to save model: {e}");
+    // Save model only if we encoded new articles (inflation or feature expansion occurred)
+    if !all_new_articles.is_empty() {
+        model.prune_if_needed();
+        let (fi_json, mu_bytes, sigma_bytes) = model.to_bytes();
+        if let Err(e) = db.save_rss_model(&fi_json, &mu_bytes, &sigma_bytes, now) {
+            warn!("rss scan: failed to save model: {e}");
+        }
     }
 
     // ── Phase 4: Format output ─────────────────────────────────────────────

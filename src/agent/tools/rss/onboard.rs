@@ -180,6 +180,19 @@ pub fn handle_onboard(
                     };
 
                     if let Some(svc) = cron_service {
+                        // Re-check inside the critical window to prevent TOCTOU
+                        // race from concurrent onboard calls creating duplicates
+                        let still_none =
+                            db.get_rss_profile()?.and_then(|p| p.cron_job_id).is_none();
+                        if !still_none {
+                            // Another call already created the job
+                            db.set_rss_onboarding_state(STATE_COMPLETE, now)?;
+                            let feed_count = db.count_rss_feeds()?;
+                            return Ok(ToolResult::new(format!(
+                                "Setup complete! {feed_count} feeds configured, \
+                                 {review_count} articles reviewed. Scanning is already scheduled."
+                            )));
+                        }
                         svc.add_job(job)?;
                         if let Err(e) = db.set_rss_cron_job_id(&job_id, now) {
                             // Roll back the cron job to avoid orphaned duplicates
