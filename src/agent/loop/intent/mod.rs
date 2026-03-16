@@ -178,6 +178,13 @@ pub fn classify_action_intent(text: &str) -> bool {
         return false;
     }
 
+    // Button clicks are always action intent — they're explicit user actions
+    // that map to tool calls. Format: [button:{id}] optionally followed by
+    // \nButton context: {value}
+    if trimmed.starts_with("[button:") {
+        return true;
+    }
+
     // Negative override: informational queries containing action verbs
     if INFORMATIONAL_OVERRIDE_RE.is_match(trimmed) {
         return false;

@@ -218,9 +218,9 @@ pub(super) async fn execute_tool_call(
 /// - `INTENT_STATEMENT`: "Let me create...", "I'll add...", "Going to schedule..."
 pub(super) const ACTION_CLAIM_PATTERNS: &[&str] = &[
     // "I've updated/written/created..." or "I have updated/written/created..."
-    r"\bI(?:'ve| have) (?:updated|written|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled|tested|ran|executed|fetched|searched|checked|verified|completed|performed|called|started|listed|read)\b",
+    r"\bI(?:'ve| have) (?:updated|written|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled|tested|ran|executed|fetched|retrieved|processed|searched|checked|verified|completed|performed|called|started|listed|read|generated|triggered|downloaded|uploaded|moved|renamed|opened|closed|built|pushed|pulled|scanned|submitted|reviewed|organized)\b",
     // "I updated/wrote/created..." (simple past)
-    r"\bI (?:updated|wrote|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled|tested|ran|executed|fetched|searched|checked|verified|completed|performed|called|started|listed|read)\b",
+    r"\bI (?:updated|wrote|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled|tested|ran|executed|fetched|retrieved|processed|searched|checked|verified|completed|performed|called|started|listed|read|generated|triggered|downloaded|uploaded|moved|renamed|opened|closed|built|pushed|pulled|scanned|submitted|reviewed|organized)\b",
     // "Changes have been made", "Updates were applied"
     r"\b(?:Changes|Updates|Modifications) (?:have been|were) (?:made|applied|saved|committed)\b",
     // "File has been updated", "Config was modified"
@@ -228,15 +228,15 @@ pub(super) const ACTION_CLAIM_PATTERNS: &[&str] = &[
     // "All tools working", "All tests passed"
     r"\bAll (?:tools?|tests?|checks?) (?:are |were |have been )?(?:fully )?(?:working|functional|successful|passing|passed|completed)\b",
     // "Successfully executed", "Already completed"
-    r"\b(?:Successfully|Already) (?:tested|executed|completed|verified|fetched|ran|performed|called|created|updated|sent|deleted)\b",
+    r"\b(?:Successfully|Already) (?:tested|executed|completed|verified|fetched|retrieved|processed|ran|performed|called|created|updated|sent|deleted|generated|triggered|configured|scheduled|built|searched|listed|submitted)\b",
     // Terse line-start claims: "Created: ...", "Done!", "Updated —"
-    r"(?:^|\n)\s*(?:\w+ )?(?:Created|Updated|Deleted|Removed|Added|Saved|Sent|Scheduled|Completed|Done|Configured|Fixed|Applied|Deployed|Executed|Started|Enabled|Disabled|Marked(?: as)? (?:complete|done)) *[:\u{2014}!]",
+    r"(?:^|\n)\s*(?:\w+ )?(?:Created|Updated|Deleted|Removed|Added|Saved|Sent|Scheduled|Completed|Done|Configured|Fixed|Applied|Deployed|Executed|Started|Enabled|Disabled|Retrieved|Processed|Generated|Submitted|Triggered|Marked(?: as)? (?:complete|done)) *[:\u{2014}!]",
     // "I'm creating/updating/adding..." or "I am creating..."
-    r"\bI(?:'m| am) (?:creating|updating|deleting|removing|adding|modifying|configuring|setting up|saving|sending|scheduling|enabling|disabling|fixing|deploying|executing|installing|editing|fetching|searching|checking|starting|running|writing|reading|completing)\b",
+    r"\bI(?:'m| am) (?:creating|updating|deleting|removing|adding|modifying|configuring|setting up|saving|sending|scheduling|enabling|disabling|fixing|deploying|executing|installing|editing|fetching|retrieving|processing|searching|checking|starting|running|writing|reading|completing|generating|triggering|building|testing|listing|submitting|downloading|uploading|reviewing|scanning|opening|closing|moving|renaming|organizing)\b",
     // Gerund line-start: "Creating now...", "Setting up the events...", "Creating 4 calendar events now..."
-    r"(?:^|\n)\s*(?:Creating|Updating|Deleting|Removing|Adding|Modifying|Configuring|Setting up|Saving|Sending|Scheduling|Enabling|Disabling|Deploying|Executing|Installing|Editing|Fetching|Running|Writing|Completing) (?:\w+ )*?(?:now\b|the |your |it\b|them\b|this |that |all |for |to )",
+    r"(?:^|\n)\s*(?:Creating|Updating|Deleting|Removing|Adding|Modifying|Configuring|Setting up|Saving|Sending|Scheduling|Enabling|Disabling|Deploying|Executing|Installing|Editing|Fetching|Retrieving|Processing|Running|Writing|Completing|Generating|Triggering|Building|Testing|Listing|Submitting|Downloading|Uploading|Reviewing|Scanning|Opening|Organizing) (?:\w+ )*?(?:now\b|the |your |it\b|them\b|this |that |all |for |to )",
     // Intent: "Let me create...", "I'll create...", "Going to create..."
-    r"\b(?:Let me|I'll|I will|Going to|About to) (?:create|update|delete|remove|add|modify|configure|set up|save|send|schedule|enable|disable|fix|deploy|execute|install|edit|fetch|search|check|start|run|write|read|complete)\b",
+    r"\b(?:Let me|I'll|I will|Going to|About to) (?:create|update|delete|remove|add|modify|configure|set up|save|send|schedule|enable|disable|fix|deploy|execute|install|edit|fetch|retrieve|process|get|show|list|find|look up|search|check|start|run|write|read|complete|open|close|move|rename|download|upload|generate|trigger|build|test|review|scan|submit|pull|push|mark|organize|browse|summarize)\b",
 ];
 
 /// Regex that matches phrases where the LLM claims to have performed an action.
