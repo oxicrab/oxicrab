@@ -17,6 +17,20 @@ pub fn handle_get_articles(
     limit: usize,
     offset: usize,
 ) -> Result<ToolResult> {
+    // Resolve short feed ID prefix to full UUID
+    let resolved_feed_id: Option<String> = match feed_id {
+        Some(id) => match db.resolve_rss_feed_id(id) {
+            Ok(full) => Some(full),
+            Err(e) => {
+                return Ok(ToolResult::error(format!(
+                    "{e} — use list_feeds to see available feeds"
+                )));
+            }
+        },
+        None => None,
+    };
+    let feed_id = resolved_feed_id.as_deref();
+
     // When ranking is applied (status is None or "new"), fetch a larger candidate
     // pool so that relevant older articles can bubble up via LinTS ranking.
     // Without this, only the most recent `limit` articles are ever considered.

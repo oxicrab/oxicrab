@@ -416,9 +416,10 @@
         <tr><td>set_profile</td><td>Set or update your interest description (minimum 20 characters). Used to pre-filter articles before LinTS ranking.</td></tr>
         <tr><td>add_feed</td><td>Subscribe to an RSS or Atom feed by URL. Validates and parses the feed on add, rejecting invalid or unreachable URLs.</td></tr>
         <tr><td>remove_feed</td><td>Unsubscribe from a feed by ID. Cascades to all stored articles for that feed.</td></tr>
+        <tr><td>enable_feed</td><td>Re-enable a feed that was auto-disabled after consecutive failures. Resets failure counter.</td></tr>
         <tr><td>list_feeds</td><td>List all subscribed feeds with fetch stats (last fetched, article counts, error counts).</td></tr>
         <tr><td>scan</td><td>Fetch all feeds, pre-filter new articles by interest profile, rank candidates with the LinTS model, and return the top results for review. Call <code>accept</code> or <code>reject</code> on results to train the model.</td></tr>
-        <tr><td>get_articles</td><td>List articles with optional filters: <code>status</code> (new/accepted/rejected/skipped), <code>feed_id</code>. Supports <code>limit</code> and <code>offset</code> for pagination.</td></tr>
+        <tr><td>get_articles</td><td>List articles with optional filters: <code>status</code> (new/accepted/rejected), <code>feed_id</code>. Supports <code>limit</code> and <code>offset</code> for pagination.</td></tr>
         <tr><td>accept</td><td>Mark one or more articles as accepted. Accepts a single <code>article_id</code> or an array of IDs. Each accepted article is used as a positive training signal for the LinTS model.</td></tr>
         <tr><td>reject</td><td>Mark one or more articles as rejected. Accepts a single <code>article_id</code> or an array of IDs. Each rejected article is used as a negative training signal for the LinTS model.</td></tr>
         <tr><td>get_article_detail</td><td>Fetch the full page content for an article by ID. Downloads and extracts readable text from the article URL.</td></tr>
