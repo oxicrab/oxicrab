@@ -89,6 +89,8 @@ impl MemoryStore {
 
     /// Create a `MemoryStore` using an existing `MemoryDB` instance with config.
     pub fn with_db_and_config(db: Arc<MemoryDB>, memory_config: &MemoryConfig) -> Self {
+        #[cfg(not(feature = "embeddings"))]
+        let _ = memory_config;
         #[cfg(feature = "embeddings")]
         let embedding_service = if memory_config.embeddings_enabled {
             Some(Arc::new(LazyEmbeddingService::new(
@@ -115,6 +117,8 @@ impl MemoryStore {
     }
 
     pub fn with_config(workspace: impl AsRef<Path>, memory_config: &MemoryConfig) -> Result<Self> {
+        #[cfg(not(feature = "embeddings"))]
+        let _ = memory_config;
         let workspace = workspace.as_ref();
         let memory_dir = workspace.join("memory");
 
@@ -301,6 +305,7 @@ impl MemoryStore {
 
     /// Generate embeddings for any entries that don't have them yet.
     /// Best-effort: logs warnings on failure but never errors out.
+    #[cfg_attr(not(feature = "embeddings"), allow(clippy::unused_self))]
     fn backfill_embeddings(&self) {
         #[cfg(feature = "embeddings")]
         if let Some(svc) = self.embedding_service() {

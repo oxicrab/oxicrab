@@ -13,6 +13,8 @@ mod migrations;
 mod oauth;
 mod obsidian;
 mod pairing;
+#[cfg(feature = "tool-rss")]
+pub mod rss;
 mod search;
 mod stats;
 mod subagent_log;

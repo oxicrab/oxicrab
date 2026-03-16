@@ -355,6 +355,14 @@
           "enabled": true
         }
       }
+    },
+    "rss": {
+      "enabled": true,
+      "scanTimeout": 15,
+      "maxArticlesPerFeed": 50,
+      "purgeDays": 90,
+      "candidatesPerScan": 20,
+      "covarianceInflation": 0.01
     }
   },
   "credentialHelper": {

@@ -18,6 +18,8 @@ pub mod obsidian;
 pub mod read_only_wrapper;
 pub mod reddit;
 pub mod registry;
+#[cfg(feature = "tool-rss")]
+pub mod rss;
 pub mod setup;
 pub mod shell;
 pub mod spawn;

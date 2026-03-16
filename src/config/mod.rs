@@ -11,8 +11,8 @@ pub use schema::{
     DiscordCommandOption, DiscordConfig, DmPolicy, ExecToolConfig, ExfiltrationGuardConfig,
     FusionStrategy, GatewayConfig, GitHubConfig, GoogleConfig, ImageGenConfig, McpConfig,
     MediaConfig, MemoryConfig, ModelRoutingConfig, ObsidianConfig, PromptGuardAction,
-    PromptGuardConfig, ProviderConfig, ProvidersConfig, SandboxConfig, SlackConfig, TaskRouting,
-    TelegramConfig, TodoistConfig, ToolsConfig, TranscriptionConfig, TwilioConfig, VoiceConfig,
-    WeatherConfig, WebSearchConfig, WebhookConfig, WebhookTarget, WhatsAppConfig,
+    PromptGuardConfig, ProviderConfig, ProvidersConfig, RssConfig, SandboxConfig, SlackConfig,
+    TaskRouting, TelegramConfig, TodoistConfig, ToolsConfig, TranscriptionConfig, TwilioConfig,
+    VoiceConfig, WeatherConfig, WebSearchConfig, WebhookConfig, WebhookTarget, WhatsAppConfig,
     WorkspaceTtlConfig, normalize_provider,
 };

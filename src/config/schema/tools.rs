@@ -506,6 +506,58 @@ pub struct VoiceConfig {
     pub transcription: TranscriptionConfig,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RssConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_rss_scan_timeout", rename = "scanTimeout")]
+    pub scan_timeout: u64,
+    #[serde(default = "default_rss_max_articles", rename = "maxArticlesPerFeed")]
+    pub max_articles_per_feed: usize,
+    #[serde(default = "default_rss_purge_days", rename = "purgeDays")]
+    pub purge_days: u64,
+    #[serde(default = "default_rss_candidates", rename = "candidatesPerScan")]
+    pub candidates_per_scan: usize,
+    #[serde(
+        default = "default_rss_covariance_inflation",
+        rename = "covarianceInflation"
+    )]
+    pub covariance_inflation: f64,
+}
+
+impl Default for RssConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            scan_timeout: 15,
+            max_articles_per_feed: 50,
+            purge_days: 90,
+            candidates_per_scan: 20,
+            covariance_inflation: 0.01,
+        }
+    }
+}
+
+fn default_rss_scan_timeout() -> u64 {
+    15
+}
+
+fn default_rss_max_articles() -> usize {
+    50
+}
+
+fn default_rss_purge_days() -> u64 {
+    90
+}
+
+fn default_rss_candidates() -> usize {
+    20
+}
+
+fn default_rss_covariance_inflation() -> f64 {
+    0.01
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ToolsConfig {
     #[serde(default, rename = "webSearch")]
@@ -534,4 +586,6 @@ pub struct ToolsConfig {
     pub mcp: McpConfig,
     #[serde(default, rename = "exfiltrationGuard")]
     pub exfiltration_guard: ExfiltrationGuardConfig,
+    #[serde(default)]
+    pub rss: RssConfig,
 }

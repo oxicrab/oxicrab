@@ -22,7 +22,7 @@ name = "oxicrab"
 path = "src/main.rs"
 
 [features]
-default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio", "keyring-store", "browser", "local-whisper", "embeddings"]
+default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio", "keyring-store", "browser", "local-whisper", "embeddings", "tool-rss"]
 keyring-store = ["dep:keyring"]
 browser = ["dep:chromiumoxide"]
 local-whisper = ["dep:whisper-rs"]
@@ -32,6 +32,7 @@ channel-discord = ["dep:serenity"]
 channel-slack = ["dep:tokio-tungstenite"]
 channel-whatsapp = ["dep:whatsapp-rust", "dep:whatsapp-rust-tokio-transport", "dep:whatsapp-rust-ureq-http-client", "dep:qr2term", "dep:qrcode"]
 channel-twilio = ["dep:sha1"]
+tool-rss = ["dep:feed-rs", "dep:nalgebra", "dep:rand_distr", "dep:rand"]
 
 [dependencies]
 aho-corasick = "1.1"
@@ -93,6 +94,10 @@ whatsapp-rust = { version = "0.3", optional = true }
 whatsapp-rust-tokio-transport = { version = "0.3", optional = true }
 whatsapp-rust-ureq-http-client = { version = "0.3", optional = true }
 chromiumoxide = { version = "0.9", default-features = false, optional = true }
+feed-rs = { version = "2", optional = true }
+nalgebra = { version = "0.33", optional = true }
+rand = { version = "0.8", optional = true }
+rand_distr = { version = "0.4", optional = true }
 which = "8.0"
 whisper-rs = { version = "0.16", features = ["tracing_backend"], optional = true }
 
