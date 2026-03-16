@@ -1,8 +1,8 @@
 mod articles;
 mod feeds;
-// mod scanner;
 pub(crate) mod model;
 mod onboard;
+mod scanner;
 
 #[cfg(test)]
 mod tests;
@@ -197,7 +197,8 @@ impl Tool for RssTool {
                 let id = require_param!(params, "article_id");
                 articles::handle_get_article_detail(&self.db, &self.client, id).await
             }
-            "scan" | "feed_stats" => Ok(ToolResult::error("not yet implemented".to_string())),
+            "scan" => scanner::handle_scan(&self.db, &self.client, &self.config).await,
+            "feed_stats" => Ok(ToolResult::error("not yet implemented".to_string())),
             other => Ok(ToolResult::error(format!("unknown action: {other}"))),
         }
     }
