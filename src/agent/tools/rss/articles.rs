@@ -215,8 +215,8 @@ fn handle_feedback(db: &MemoryDB, article_ids: &[&str], accepted: bool) -> ToolR
     metadata.insert(
         "suggested_buttons".to_string(),
         serde_json::json!([
-            {"id": "rss-next", "label": "Next Article", "style": "primary"},
-            {"id": "rss-done", "label": "Done Reviewing", "style": "default"}
+            {"id": "rss-next", "label": "Next Article", "style": "primary", "context": "CALL rss tool with action=next"},
+            {"id": "rss-done", "label": "Done Reviewing", "style": "default", "context": "Stop reviewing articles. Say done."}
         ]),
     );
     ToolResult::new(msg).with_metadata(metadata)
@@ -273,12 +273,21 @@ pub fn handle_next(db: &MemoryDB) -> Result<ToolResult> {
     }
     let _ = write!(out, "\n\n({remaining} articles remaining)");
 
+    // Include explicit tool call instructions in button context so the LLM
+    // knows exactly what to do when the button click arrives as [button:rss-accept-...]
+    let accept_ctx = format!(
+        "CALL rss tool with action=accept article_ids=[\"{short_id}\"] THEN call rss action=next"
+    );
+    let reject_ctx = format!(
+        "CALL rss tool with action=reject article_ids=[\"{short_id}\"] THEN call rss action=next"
+    );
+
     let mut metadata = HashMap::new();
     metadata.insert(
         "suggested_buttons".to_string(),
         serde_json::json!([
-            {"id": format!("rss-accept-{short_id}"), "label": "Accept", "style": "primary", "context": short_id},
-            {"id": format!("rss-reject-{short_id}"), "label": "Reject", "style": "danger", "context": short_id},
+            {"id": format!("rss-accept-{short_id}"), "label": "Accept", "style": "primary", "context": accept_ctx},
+            {"id": format!("rss-reject-{short_id}"), "label": "Reject", "style": "danger", "context": reject_ctx},
         ]),
     );
     Ok(ToolResult::new(out).with_metadata(metadata))
