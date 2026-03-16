@@ -28,7 +28,7 @@ use tracing::debug;
 /// (after optional polite prefixes like "please", "can you", "go ahead and").
 static ACTION_INTENT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(?:^|\b(?:please|pls|can you|could you|would you|go ahead and|i need you to|i want you to|just|don'?t forget to|do not forget to)\s+)(?:create|add|make|delete|remove|close|complete|finish|mark|schedule|cancel|send|show|list|check|set up|setup|update|edit|modify|search|find|look up|lookup|get|fetch|remind|run|execute|open|move|rename|save|write|read|deploy|enable|disable|start|stop|install|configure|test|build|push|pull|commit|merge)\b",
+        r"(?i)(?:^|\b(?:please|pls|can you|could you|would you|go ahead and|i need you to|i want you to|just|don'?t forget to|do not forget to)\s+)(?:create|add|make|delete|remove|close|complete|finish|mark|schedule|cancel|send|show|list|check|set up|setup|update|edit|modify|search|find|look up|lookup|get|fetch|remind|run|execute|open|move|rename|save|write|read|deploy|enable|disable|start|stop|install|configure|test|build|push|pull|commit|merge|review|accept|reject|approve|deny|scan|subscribe|unsubscribe|archive|forward|reply|browse|organize|download|upload|generate|label|trigger|snooze|summarize|append|clean up|cleanup|navigate|click|scroll|clear|forecast|transcribe|export|import)\b",
     )
     .unwrap()
 });
@@ -46,7 +46,7 @@ static INFORMATIONAL_OVERRIDE_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// "Don't forget to" is an exception handled separately (see `NEGATION_EXCEPTION_RE`).
 static NEGATION_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(?:^|\b)(?:don'?t|do not|never|stop|avoid|without)\s+(?:create|add|make|delete|remove|close|complete|schedule|cancel|send|update|edit|modify|move|rename)\b",
+        r"(?i)(?:^|\b)(?:don'?t|do not|never|stop|avoid|without)\s+(?:create|add|make|delete|remove|close|complete|schedule|cancel|send|update|edit|modify|move|rename|accept|reject|approve|deny|archive|forward|reply|download|upload|generate|label|trigger|organize|clear|click|navigate|export|import|unsubscribe|append)\b",
     )
     .unwrap()
 });
