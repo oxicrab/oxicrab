@@ -442,15 +442,6 @@ impl MemoryDB {
         Ok(())
     }
 
-    pub fn disable_rss_feed(&self, id: &str, reason: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
-        conn.execute(
-            "UPDATE rss_feeds SET enabled = 0, last_error = ?1 WHERE id = ?2",
-            params![reason, id],
-        )?;
-        Ok(())
-    }
-
     /// Count articles optionally filtered by status and/or `feed_id`.
     pub fn count_rss_articles(&self, status: Option<&str>, feed_id: Option<&str>) -> Result<usize> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
