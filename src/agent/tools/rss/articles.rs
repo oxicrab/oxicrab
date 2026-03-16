@@ -390,6 +390,7 @@ pub async fn handle_get_article_detail(
     // Build a per-request client pinned to the validated addresses
     let pinned = {
         let mut builder = reqwest::Client::builder()
+            .user_agent(format!("oxicrab/{}", env!("CARGO_PKG_VERSION")))
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(30));
         for addr in &resolved.addrs {

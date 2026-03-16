@@ -28,6 +28,7 @@ pub async fn handle_add_feed(
     //    DNS rebinding between validation and connection.
     let pinned = {
         let mut builder = Client::builder()
+            .user_agent(format!("oxicrab/{}", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(timeout));
         for addr in &resolved.addrs {

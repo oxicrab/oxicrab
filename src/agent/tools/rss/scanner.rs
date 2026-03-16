@@ -450,6 +450,7 @@ async fn do_fetch_feed(
     // Build a per-request client pinned to the validated addresses
     let pinned = {
         let mut builder = Client::builder()
+            .user_agent(format!("oxicrab/{}", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(timeout_secs));
         for addr in &resolved.addrs {
