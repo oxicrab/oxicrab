@@ -21,7 +21,12 @@ pub fn handle_get_articles(
     // pool so that relevant older articles can bubble up via LinTS ranking.
     // Without this, only the most recent `limit` articles are ever considered.
     let use_ranking = status.is_none() || status == Some("new");
-    let rank_window = if use_ranking { limit * 3 } else { 0 };
+    // Window must cover at least offset+limit so pagination doesn't hit a dead end
+    let rank_window = if use_ranking {
+        (limit * 3).max(offset + limit + 1)
+    } else {
+        0
+    };
 
     let fetch_limit = if rank_window > 0 {
         rank_window.max(limit.saturating_add(1))
@@ -53,7 +58,12 @@ pub fn handle_get_articles(
         let has_more = offset + limit < total_matching;
 
         if page.is_empty() {
-            return Ok(ToolResult::new("No articles found."));
+            let msg = if has_more {
+                "No articles on this page, but more exist. Try a smaller offset or use offset=0."
+            } else {
+                "No articles found."
+            };
+            return Ok(ToolResult::new(msg));
         }
 
         let mut out = format!("Articles ({}):\n\n", page.len());
