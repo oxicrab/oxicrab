@@ -232,9 +232,12 @@ impl MemoryDB {
     pub fn resolve_rss_article_id(&self, short_id: &str) -> Result<String> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
         // Escape LIKE wildcards to prevent injection via short_id containing % or _
-        let escaped = short_id.replace(['%', '_'], "");
+        let escaped = short_id
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
         let pattern = format!("{escaped}%");
-        let mut stmt = conn.prepare("SELECT id FROM rss_articles WHERE id LIKE ?1")?;
+        let mut stmt = conn.prepare("SELECT id FROM rss_articles WHERE id LIKE ?1 ESCAPE '\\'")?;
         let ids: Vec<String> = stmt
             .query_map(params![pattern], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()?;

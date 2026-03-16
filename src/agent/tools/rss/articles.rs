@@ -17,22 +17,26 @@ pub fn handle_get_articles(
     limit: usize,
     offset: usize,
 ) -> Result<ToolResult> {
-    // Fetch one extra to detect whether there are more results
-    let fetch_limit = limit.saturating_add(1);
-    let articles = db.get_rss_articles(status, feed_id, fetch_limit, offset)?;
-    let has_more = articles.len() > limit;
-    let articles = &articles[..articles.len().min(limit)];
+    // When ranking is applied (status is None or "new"), fetch a larger candidate
+    // pool so that relevant older articles can bubble up via LinTS ranking.
+    // Without this, only the most recent `limit` articles are ever considered.
+    let use_ranking = status.is_none() || status == Some("new");
+    let rank_window = if use_ranking { limit * 3 } else { 0 };
+
+    let fetch_limit = if rank_window > 0 {
+        rank_window.max(limit.saturating_add(1))
+    } else {
+        limit.saturating_add(1)
+    };
+
+    // When ranking, fetch from offset 0 so we rank the full candidate pool,
+    // then apply pagination after ranking.
+    let fetch_offset = if rank_window > 0 { 0 } else { offset };
+    let articles = db.get_rss_articles(status, feed_id, fetch_limit, fetch_offset)?;
 
     if articles.is_empty() {
         return Ok(ToolResult::new("No articles found."));
     }
-
-    // Rank pending/new articles using the model when no specific status filter is applied
-    let display_order: Vec<usize> = if status.is_none() || status == Some("new") {
-        rank_articles(db, articles)
-    } else {
-        (0..articles.len()).collect()
-    };
 
     // Build a feed-id → name map for display
     let feeds = db.list_rss_feeds().unwrap_or_default();
@@ -41,33 +45,77 @@ pub fn handle_get_articles(
         .map(|f| (f.id.as_str(), f.name.as_str()))
         .collect();
 
-    let mut out = format!("Articles ({}):\n\n", articles.len());
-    for &idx in &display_order {
-        let article = &articles[idx];
-        let short_id: String = article.id.chars().take(8).collect();
-        let feed_label = feed_name_map
-            .get(article.feed_id.as_str())
-            .copied()
-            .unwrap_or(&article.feed_id);
-        let date_str = article
-            .published_at_ms
-            .map_or_else(|| "—".to_string(), super::format_date_ms);
-        let _ = writeln!(
-            out,
-            "• [{}] {} ({})\n  Feed: {} | Status: {} | Published: {}",
-            short_id, article.title, article.url, feed_label, article.status, date_str
-        );
-    }
+    if rank_window > 0 {
+        // Rank the full candidate pool, then paginate
+        let display_order = rank_articles(db, &articles);
+        let page: Vec<usize> = display_order.into_iter().skip(offset).take(limit).collect();
+        let has_more = articles.len() > offset + limit;
 
-    if has_more {
-        let next_offset = offset + limit;
-        let _ = write!(
-            out,
-            "\nMore articles available. Use offset={next_offset} to see the next page."
-        );
-    }
+        if page.is_empty() {
+            return Ok(ToolResult::new("No articles found."));
+        }
 
-    Ok(ToolResult::new(out))
+        let mut out = format!("Articles ({}):\n\n", page.len());
+        for &idx in &page {
+            let article = &articles[idx];
+            let short_id: String = article.id.chars().take(8).collect();
+            let feed_label = feed_name_map
+                .get(article.feed_id.as_str())
+                .copied()
+                .unwrap_or(&article.feed_id);
+            let date_str = article
+                .published_at_ms
+                .map_or_else(|| "—".to_string(), super::format_date_ms);
+            let _ = writeln!(
+                out,
+                "• [{}] {} ({})\n  Feed: {} | Status: {} | Published: {}",
+                short_id, article.title, article.url, feed_label, article.status, date_str
+            );
+        }
+
+        if has_more {
+            let next_offset = offset + limit;
+            let _ = write!(
+                out,
+                "\nMore articles available. Use offset={next_offset} to see the next page."
+            );
+        }
+
+        Ok(ToolResult::new(out))
+    } else {
+        // Non-ranked path: simple pagination
+        let has_more = articles.len() > limit;
+        let articles = &articles[..articles.len().min(limit)];
+        let display_order: Vec<usize> = (0..articles.len()).collect();
+
+        let mut out = format!("Articles ({}):\n\n", articles.len());
+        for &idx in &display_order {
+            let article = &articles[idx];
+            let short_id: String = article.id.chars().take(8).collect();
+            let feed_label = feed_name_map
+                .get(article.feed_id.as_str())
+                .copied()
+                .unwrap_or(&article.feed_id);
+            let date_str = article
+                .published_at_ms
+                .map_or_else(|| "—".to_string(), super::format_date_ms);
+            let _ = writeln!(
+                out,
+                "• [{}] {} ({})\n  Feed: {} | Status: {} | Published: {}",
+                short_id, article.title, article.url, feed_label, article.status, date_str
+            );
+        }
+
+        if has_more {
+            let next_offset = offset + limit;
+            let _ = write!(
+                out,
+                "\nMore articles available. Use offset={next_offset} to see the next page."
+            );
+        }
+
+        Ok(ToolResult::new(out))
+    }
 }
 
 /// Shared logic for accept and reject. `accepted` = true → "accepted", false → "rejected".
@@ -169,12 +217,26 @@ fn rank_articles(
         return (0..articles.len()).collect();
     }
 
-    let feature_vecs: Vec<_> = articles
+    // Two-pass encoding to avoid dimension mismatch panic.
+    // Pass 1: Register all features (grows model dimension).
+    let article_tags: Vec<Vec<String>> = articles
         .iter()
         .map(|a| {
             let tags = db.get_rss_article_tags(&a.id).unwrap_or_default();
-            model.encode_article(&a.feed_id, &tags, &[])
+            let feed_key = format!("feed:{}", a.feed_id);
+            model.ensure_feature(&feed_key);
+            for tag in &tags {
+                model.ensure_feature(&format!("tag:{tag}"));
+            }
+            tags
         })
+        .collect();
+
+    // Pass 2: Build all vectors at the final (uniform) dimension.
+    let feature_vecs: Vec<_> = articles
+        .iter()
+        .enumerate()
+        .map(|(i, a)| model.build_feature_vector(&a.feed_id, &article_tags[i], &[]))
         .collect();
 
     model.rank(&feature_vecs)

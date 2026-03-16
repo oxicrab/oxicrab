@@ -61,7 +61,7 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
         let max_per_feed = config.max_articles_per_feed;
 
         handles.push(tokio::spawn(async move {
-            let _permit = sem.acquire().await;
+            let _permit = sem.acquire().await.expect("rss scan semaphore closed");
             fetch_feed(
                 &client,
                 &feed.id,
@@ -209,10 +209,14 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
     // Extract keywords from user profile
     let keywords = extract_profile_keywords(db);
 
-    // Encode all new articles
-    let mut encoded: Vec<(usize, nalgebra::DVector<f64>)> = Vec::new();
-    for (idx, (feed_id, article, tags)) in all_new_articles.iter().enumerate() {
-        // Re-encode with profile keywords
+    // Encode all new articles using a two-pass approach to avoid dimension
+    // mismatch: pass 1 registers all features, pass 2 builds uniform-dimension
+    // vectors. Without this, earlier vectors would be shorter than later ones,
+    // causing a panic in sample_weights().dot(x).
+
+    // Pass 1: Register all features and collect keyword overlaps
+    let mut keyword_overlaps: Vec<Vec<String>> = Vec::new();
+    for (feed_id, article, tags) in &all_new_articles {
         let keyword_overlap: Vec<String> = keywords
             .iter()
             .filter(|kw| {
@@ -228,7 +232,23 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
             .cloned()
             .collect();
 
-        let x = model.encode_article(feed_id, tags, &keyword_overlap);
+        // Register features without building vectors
+        let feed_key = format!("feed:{feed_id}");
+        model.ensure_feature(&feed_key);
+        for tag in tags {
+            model.ensure_feature(&format!("tag:{tag}"));
+        }
+        for kw in &keyword_overlap {
+            model.ensure_feature(&format!("kw:{kw}"));
+        }
+
+        keyword_overlaps.push(keyword_overlap);
+    }
+
+    // Pass 2: Build all vectors at the final (uniform) dimension
+    let mut encoded: Vec<(usize, nalgebra::DVector<f64>)> = Vec::new();
+    for (idx, (feed_id, _article, tags)) in all_new_articles.iter().enumerate() {
+        let x = model.build_feature_vector(feed_id, tags, &keyword_overlaps[idx]);
         encoded.push((idx, x));
     }
 
