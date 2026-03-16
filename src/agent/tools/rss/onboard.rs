@@ -258,7 +258,7 @@ pub fn handle_onboard(
 
 /// Set or update the user profile interests and advance the onboarding state if needed.
 pub fn handle_set_profile(db: &MemoryDB, interests: &str) -> Result<ToolResult> {
-    if interests.len() < 20 {
+    if interests.chars().count() < 20 {
         return Ok(ToolResult::error(
             "interests must be at least 20 characters — please describe your interests in more detail",
         ));

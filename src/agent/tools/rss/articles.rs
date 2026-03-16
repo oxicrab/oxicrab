@@ -228,18 +228,36 @@ fn rank_articles(
         return (0..articles.len()).collect();
     }
 
+    // Extract profile keywords so browse ranking uses the same features as scan/feedback
+    let keywords = super::scanner::extract_profile_keywords(db);
+
     // Two-pass encoding to avoid dimension mismatch panic.
-    // Pass 1: Register all features (grows model dimension).
-    let article_tags: Vec<Vec<String>> = articles
+    // Pass 1: Register all features including keyword overlaps (grows model dimension).
+    let article_data: Vec<(Vec<String>, Vec<String>)> = articles
         .iter()
         .map(|a| {
             let tags = db.get_rss_article_tags(&a.id).unwrap_or_default();
-            let feed_key = format!("feed:{}", a.feed_id);
-            model.ensure_feature(&feed_key);
+            let keyword_overlap: Vec<String> = keywords
+                .iter()
+                .filter(|kw| {
+                    let kw_lower = kw.to_lowercase();
+                    a.title.to_lowercase().contains(&kw_lower)
+                        || a.description
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(&kw_lower)
+                })
+                .cloned()
+                .collect();
+            model.ensure_feature(&format!("feed:{}", a.feed_id));
             for tag in &tags {
                 model.ensure_feature(&format!("tag:{tag}"));
             }
-            tags
+            for kw in &keyword_overlap {
+                model.ensure_feature(&format!("kw:{kw}"));
+            }
+            (tags, keyword_overlap)
         })
         .collect();
 
@@ -247,7 +265,9 @@ fn rank_articles(
     let feature_vecs: Vec<_> = articles
         .iter()
         .enumerate()
-        .map(|(i, a)| model.build_feature_vector(&a.feed_id, &article_tags[i], &[]))
+        .map(|(i, a)| {
+            model.build_feature_vector(&a.feed_id, &article_data[i].0, &article_data[i].1)
+        })
         .collect();
 
     model.rank(&feature_vecs)
