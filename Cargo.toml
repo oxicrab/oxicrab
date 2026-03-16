@@ -94,7 +94,7 @@ whatsapp-rust-tokio-transport = { version = "0.3", optional = true }
 whatsapp-rust-ureq-http-client = { version = "0.3", optional = true }
 chromiumoxide = { version = "0.9", default-features = false, optional = true }
 which = "8.0"
-whisper-rs = { version = "0.15", features = ["tracing_backend"], optional = true }
+whisper-rs = { version = "0.16", features = ["tracing_backend"], optional = true }
 
 # Security: Force minimum versions of transitive dependencies to resolve vulnerabilities
 # - CVE-2022-23639 / GHSA-qc84-gqf4-9926: crossbeam-utils AtomicCell unsoundness (fixed in >= 0.8.7)
