@@ -50,6 +50,14 @@ fn test_action_claims_positive() {
         "Task created: Click the box — due tomorrow at 10:00 AM.",
         "Job scheduled: one-shot at 4pm today.",
         "All done! Everything is configured.",
+        // Present progressive claims: "I'm creating...", "I am creating..."
+        "Creating 4 calendar events now...",
+        "I'm creating the events for you",
+        "Setting up the calendar entries...",
+        // Intent statements: "Let me create...", "I'll create..."
+        "Let me create those events",
+        "I'll add them to your calendar",
+        "Going to schedule the meetings",
     ];
     for text in cases {
         assert!(contains_action_claims(text), "should match: {text}");
@@ -68,6 +76,10 @@ fn test_action_claims_negative() {
         // "Created" in descriptive context (not terse action claim)
         "Tasks created before Monday will be archived.",
         "Created tasks can be viewed in the dashboard.",
+        // Present progressive / intent in non-claim context
+        "Would you like me to start creating the events?",
+        "I can help with creating events",
+        "The process of creating events takes time",
     ];
     for text in cases {
         assert!(!contains_action_claims(text), "should NOT match: {text}");
@@ -85,6 +97,9 @@ fn test_action_claim_pattern_fragments_each_match() {
         "All tests passed successfully.",       // STATUS_ALL
         "Successfully executed the command.",   // ADVERB_PAST
         "Created: a new issue in the tracker.", // TERSE_LINE_START
+        "I'm creating the events for you",      // PRESENT_PROGRESSIVE
+        "Creating 4 calendar events now...",    // GERUND_LINE_START
+        "Let me create those events",           // INTENT_STATEMENT
     ];
     assert_eq!(
         representatives.len(),

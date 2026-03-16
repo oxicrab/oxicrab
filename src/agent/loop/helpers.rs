@@ -213,6 +213,9 @@ pub(super) async fn execute_tool_call(
 /// - `STATUS_ALL`: "All tools working", "All tests passed"
 /// - `ADVERB_PAST`: "Successfully executed", "Already completed"
 /// - `TERSE_LINE_START`: "Created: ...", "Done!", "Updated —"
+/// - `PRESENT_PROGRESSIVE`: "I'm creating...", "I am updating..."
+/// - `GERUND_LINE_START`: "Creating now...", "Setting up the events..."
+/// - `INTENT_STATEMENT`: "Let me create...", "I'll add...", "Going to schedule..."
 pub(super) const ACTION_CLAIM_PATTERNS: &[&str] = &[
     // "I've updated/written/created..." or "I have updated/written/created..."
     r"\bI(?:'ve| have) (?:updated|written|created|set up|configured|saved|deleted|removed|added|modified|changed|installed|fixed|applied|edited|committed|deployed|sent|scheduled|enabled|disabled|tested|ran|executed|fetched|searched|checked|verified|completed|performed|called|started|listed|read)\b",
@@ -228,6 +231,12 @@ pub(super) const ACTION_CLAIM_PATTERNS: &[&str] = &[
     r"\b(?:Successfully|Already) (?:tested|executed|completed|verified|fetched|ran|performed|called|created|updated|sent|deleted)\b",
     // Terse line-start claims: "Created: ...", "Done!", "Updated —"
     r"(?:^|\n)\s*(?:\w+ )?(?:Created|Updated|Deleted|Removed|Added|Saved|Sent|Scheduled|Completed|Done|Configured|Fixed|Applied|Deployed|Executed|Started|Enabled|Disabled|Marked(?: as)? (?:complete|done)) *[:\u{2014}!]",
+    // "I'm creating/updating/adding..." or "I am creating..."
+    r"\bI(?:'m| am) (?:creating|updating|deleting|removing|adding|modifying|configuring|setting up|saving|sending|scheduling|enabling|disabling|fixing|deploying|executing|installing|editing|fetching|searching|checking|starting|running|writing|reading|completing)\b",
+    // Gerund line-start: "Creating now...", "Setting up the events...", "Creating 4 calendar events now..."
+    r"(?:^|\n)\s*(?:Creating|Updating|Deleting|Removing|Adding|Modifying|Configuring|Setting up|Saving|Sending|Scheduling|Enabling|Disabling|Deploying|Executing|Installing|Editing|Fetching|Running|Writing|Completing) (?:\w+ )*?(?:now\b|the |your |it\b|them\b|this |that |all |for |to )",
+    // Intent: "Let me create...", "I'll create...", "Going to create..."
+    r"\b(?:Let me|I'll|I will|Going to|About to) (?:create|update|delete|remove|add|modify|configure|set up|save|send|schedule|enable|disable|fix|deploy|execute|install|edit|fetch|search|check|start|run|write|read|complete)\b",
 ];
 
 /// Regex that matches phrases where the LLM claims to have performed an action.
