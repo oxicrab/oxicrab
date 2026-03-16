@@ -254,7 +254,7 @@
 
 <div class="page-header">
   <h1>Tool Reference</h1>
-  <p>27 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, and result caching.</p>
+  <p>28 built-in tools plus MCP support. Every tool has timeout protection, panic isolation, and result caching.</p>
 </div>
 
 <div class="content">
@@ -274,6 +274,7 @@
         <li><a href="#web_fetch">web_fetch</a></li>
         <li><a href="#http">http</a></li>
         <li><a href="#reddit">reddit</a></li>
+        <li><a href="#rss">rss</a></li>
         <li><a href="#spawn">spawn</a></li>
         <li><a href="#subagent_control">subagent_control</a></li>
         <li><a href="#cron">cron</a></li>
@@ -401,6 +402,47 @@
   <div id="reddit" class="tool-section">
     <h2>reddit <span class="badge badge-core">Core</span></h2>
     <p class="desc">Browse Reddit. Get hot, new, or top posts from a subreddit, or search within a subreddit. Read-only, no authentication required.</p>
+  </div>
+
+  <div id="rss" class="tool-section">
+    <h2>rss <span class="badge badge-core">Core</span></h2>
+    <p class="desc">RSS/Atom feed reader with adaptive content recommendations. Subscribes to feeds, pre-filters articles using keyword matching and LinTS (a lightweight logistic regression model trained on your accept/reject signals), and surfaces candidates for review. Uses an onboarding state machine to guide setup before scanning.</p>
+
+    <h3>Actions</h3>
+    <table class="action-table">
+      <thead><tr><th>Action</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>onboard</td><td>Guided setup wizard. Detects the current onboarding step (<code>needs_profile</code> &rarr; <code>needs_feeds</code> &rarr; <code>needs_calibration</code> &rarr; <code>complete</code>) and returns the next instruction. Call this first to get started.</td></tr>
+        <tr><td>set_profile</td><td>Set or update your interest description (minimum 20 characters). Used to pre-filter articles before LinTS ranking.</td></tr>
+        <tr><td>add_feed</td><td>Subscribe to an RSS or Atom feed by URL. Validates and parses the feed on add, rejecting invalid or unreachable URLs.</td></tr>
+        <tr><td>remove_feed</td><td>Unsubscribe from a feed by ID. Cascades to all stored articles for that feed.</td></tr>
+        <tr><td>list_feeds</td><td>List all subscribed feeds with fetch stats (last fetched, article counts, error counts).</td></tr>
+        <tr><td>scan</td><td>Fetch all feeds, pre-filter new articles by interest profile, rank candidates with the LinTS model, and return the top results for review. Call <code>accept</code> or <code>reject</code> on results to train the model.</td></tr>
+        <tr><td>get_articles</td><td>List articles with optional filters: <code>status</code> (new/accepted/rejected/skipped), <code>feed_id</code>. Supports <code>limit</code> and <code>offset</code> for pagination.</td></tr>
+        <tr><td>accept</td><td>Mark one or more articles as accepted. Accepts a single <code>article_id</code> or an array of IDs. Each accepted article is used as a positive training signal for the LinTS model.</td></tr>
+        <tr><td>reject</td><td>Mark one or more articles as rejected. Accepts a single <code>article_id</code> or an array of IDs. Each rejected article is used as a negative training signal for the LinTS model.</td></tr>
+        <tr><td>get_article_detail</td><td>Fetch the full page content for an article by ID. Downloads and extracts readable text from the article URL.</td></tr>
+        <tr><td>feed_stats</td><td>Analytics dashboard. Shows per-feed acceptance rates, overall LinTS model weights, total article counts, and current cron scan job status.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>How it works</h3>
+    <ul class="plain">
+      <li><strong>Onboarding state machine</strong> &mdash; the tool enforces a setup sequence: set an interest profile, add at least one feed, calibrate the model by accepting/rejecting a few articles, then scanning is unlocked.</li>
+      <li><strong>LinTS ranking</strong> &mdash; a lightweight logistic regression model trained in-session on your accept/reject signals. Initial weights are seeded from TF-IDF similarity to your interest profile. Weights update incrementally after each accept/reject call.</li>
+      <li><strong>Cron integration</strong> &mdash; after onboarding completes, a recurring scan job is created automatically via <code>CronService</code> so new articles are fetched on a schedule without user prompting.</li>
+      <li><strong>Pre-filtering</strong> &mdash; before LinTS ranking, articles are checked against your interest description using keyword overlap to avoid scoring obviously irrelevant content.</li>
+    </ul>
+
+    <h3>Configuration</h3>
+    <pre><code>{
+  "tools": {
+    "rss": {
+      "enabled": true
+    }
+  }
+}</code></pre>
+    <p>Enabled by default via the <code>tool-rss</code> feature flag. No external API key required. Feed data is stored in SQLite tables (<code>rss_feeds</code>, <code>rss_articles</code>, <code>rss_article_tags</code>, <code>rss_profile</code>, <code>rss_model</code>) in the workspace memory database.</p>
   </div>
 
   <div class="cat-header">Communication &amp; Agents</div>

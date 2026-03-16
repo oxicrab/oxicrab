@@ -18,7 +18,7 @@ This is largely a personal toy with features I want or care about. For example, 
 - **LLM providers**: Anthropic (Claude), OpenAI, Google (Gemini), plus 9 OpenAI-compatible providers (OpenRouter, DeepSeek, Groq, Ollama, MiniMax, etc.), with OAuth and local model fallback
 - **Model routing**: Per-task provider/model assignment with N-way fallback chains and complexity-aware per-message routing
 - **Prompt caching**: Automatic Anthropic `cache_control` injection for up to 90% input token cost reduction
-- **28 built-in tools**: Filesystem, shell, web, HTTP, browser, image generation, Google Workspace, GitHub, scheduling, memory, media, and more
+- **29 built-in tools**: Filesystem, shell, web, HTTP, browser, image generation, Google Workspace, GitHub, scheduling, memory, media, RSS reader, and more
 - **MCP support**: Connect external tool servers via the Model Context Protocol
 - **Subagents**: Background task execution with concurrency limiting and context injection
 - **Cron scheduling**: Recurring jobs, one-shot timers (absolute or relative delay), cron expressions, echo mode, multi-channel targeting
@@ -171,9 +171,9 @@ Access control: `allowFrom` (pre-authorized senders), `dmPolicy` (`"allowlist"`,
 
 > **Full tool reference:** [oxicrab.github.io/oxicrab/tools.html](https://oxicrab.github.io/oxicrab/tools.html)
 
-28 built-in tools with timeout protection, panic isolation, result caching, and truncation middleware.
+29 built-in tools with timeout protection, panic isolation, result caching, and truncation middleware.
 
-**Core**: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`, `tmux`, `web_search`, `web_fetch`, `http`, `spawn`, `subagent_control`, `cron`, `memory_search`, `reddit`, `workspace`, `stash_retrieve`, `tool_search` — discover deferred/MCP tools by keyword
+**Core**: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`, `tmux`, `web_search`, `web_fetch`, `http`, `spawn`, `subagent_control`, `cron`, `memory_search`, `reddit`, `rss` — RSS/Atom feed reader with adaptive learning (LinTS + LLM triage), `workspace`, `stash_retrieve`, `tool_search` — discover deferred/MCP tools by keyword
 
 **Configurable**: `google_mail`, `google_calendar`, `google_tasks`, `github`, `weather`, `todoist`, `media`, `obsidian`, `browser`, `image_gen`
 
