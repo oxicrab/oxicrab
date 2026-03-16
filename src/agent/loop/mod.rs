@@ -306,9 +306,11 @@ impl AgentLoop {
             let (comp_provider, comp_model, comp_temp_override) = if let Some(ref r) = routing {
                 let o = r.resolve_overrides("compaction");
                 if let Some(p) = o.provider {
-                    // Routing overrides the compaction provider — don't apply
-                    // the main provider's temperature override.
-                    (p, o.model, None)
+                    // Routing overrides the compaction provider. Still apply
+                    // per_provider_temperature — the compaction model may
+                    // require a fixed temperature (e.g. Moonshot kimi-k2.5
+                    // requires temperature=1).
+                    (p, o.model, per_provider_temperature)
                 } else {
                     (
                         provider.clone() as Arc<dyn LLMProvider>,
