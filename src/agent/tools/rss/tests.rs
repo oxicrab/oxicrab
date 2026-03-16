@@ -631,6 +631,161 @@ async fn test_feed_stats_acceptance_rate() {
 }
 
 #[tokio::test]
+async fn test_full_onboarding_flow() {
+    let tool = RssTool::new_for_test();
+    let ctx = test_ctx();
+
+    // 1. Initial state: needs_profile
+    let result = tool
+        .execute(serde_json::json!({"action": "onboard"}), &ctx)
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert!(result.content.to_lowercase().contains("interest"));
+
+    // 2. Set profile → needs_feeds
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "set_profile",
+                "interests": "AI engineering, Rust programming, distributed systems"
+            }),
+            &ctx,
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+
+    // 3. Onboard shows feeds suggestions
+    let result = tool
+        .execute(serde_json::json!({"action": "onboard"}), &ctx)
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert!(result.content.to_lowercase().contains("feed"));
+
+    // 4. Can't scan yet (needs_feeds state)
+    let result = tool
+        .execute(serde_json::json!({"action": "scan"}), &ctx)
+        .await
+        .unwrap();
+    assert!(result.is_error);
+
+    // 5. Insert a test feed directly (skip network validation)
+    tool.db
+        .insert_rss_feed(&RssFeed {
+            id: "test-feed".into(),
+            url: "https://example.com/feed.xml".into(),
+            name: "Test Feed".into(),
+            site_url: None,
+            last_fetched_at_ms: None,
+            last_error: None,
+            consecutive_failures: 0,
+            enabled: true,
+            created_at_ms: 1000,
+        })
+        .unwrap();
+    // Transition state since we bypassed add_feed
+    tool.db
+        .set_rss_onboarding_state("needs_calibration", 1000)
+        .unwrap();
+
+    // 6. Insert test articles for calibration
+    for i in 0..6u64 {
+        tool.db
+            .insert_rss_article(&RssArticle {
+                id: format!("art-{i:04}xxxx"),
+                feed_id: "test-feed".into(),
+                url: format!("https://example.com/post-{i}"),
+                title: format!("Test Article {i}"),
+                author: Some("Author".into()),
+                published_at_ms: Some(1000),
+                fetched_at_ms: 2000,
+                description: Some(format!("Description {i}")),
+                full_content: None,
+                summary: None,
+                status: "new".into(),
+                read: false,
+                created_at_ms: 2000,
+            })
+            .unwrap();
+    }
+
+    // 7. Calibration: accept 3, reject 2
+    for i in 0..3u64 {
+        let result = tool
+            .execute(
+                serde_json::json!({
+                    "action": "accept",
+                    "article_ids": [format!("art-{i:04}xxxx")]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error, "accept {i} failed: {}", result.content);
+    }
+    for i in 3..5u64 {
+        let result = tool
+            .execute(
+                serde_json::json!({
+                    "action": "reject",
+                    "article_ids": [format!("art-{i:04}xxxx")]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error, "reject {i} failed: {}", result.content);
+    }
+
+    // 8. Onboard should now complete (>= 5 reviews, no cron service in test)
+    let result = tool
+        .execute(serde_json::json!({"action": "onboard"}), &ctx)
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    // Should mention completion
+    let content_lower = result.content.to_lowercase();
+    assert!(
+        content_lower.contains("complete")
+            || content_lower.contains("done")
+            || content_lower.contains("configured"),
+        "expected completion message, got: {}",
+        result.content
+    );
+
+    // 9. Now feed_stats should work
+    let result = tool
+        .execute(serde_json::json!({"action": "feed_stats"}), &ctx)
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+
+    // 10. get_articles should work
+    let result = tool
+        .execute(serde_json::json!({"action": "get_articles"}), &ctx)
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+
+    // 11. get_articles with status filter
+    let result = tool
+        .execute(
+            serde_json::json!({"action": "get_articles", "status": "accepted"}),
+            &ctx,
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert!(
+        result.content.contains("Article"),
+        "expected articles in output, got: {}",
+        result.content
+    );
+}
+
+#[tokio::test]
 async fn test_reject_updates_model() {
     let (tool, ctx) = tool_with_calibration_state().await;
 
