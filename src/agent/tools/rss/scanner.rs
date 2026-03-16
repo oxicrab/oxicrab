@@ -166,7 +166,10 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
                         Err(e) => {
                             let msg = e.to_string();
                             if msg.contains("UNIQUE") || msg.contains("unique") {
-                                // Already in DB — skip silently
+                                // Dedup is global by article URL (not per-feed). When the same
+                                // article appears in multiple feeds (e.g. HN and Lobsters both
+                                // link the same blog post), only the first feed's insert wins.
+                                // This is intentional — duplicate content shouldn't surface twice.
                                 debug!("rss scan: skipping duplicate article '{}'", entry.url);
                             } else {
                                 warn!("rss scan: insert failed for '{}': {e}", entry.url);
