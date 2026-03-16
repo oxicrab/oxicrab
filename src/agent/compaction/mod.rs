@@ -364,15 +364,21 @@ impl MessageCompactor {
 
         let llm_messages = vec![Message::user(prompt)];
 
+        let effective_temp = self
+            .temperature_override
+            .map_or(EXTRACTION_TEMPERATURE, Some);
+        debug!(
+            "fact extraction: model={:?}, temp_override={:?}, effective_temp={:?}",
+            self.model, self.temperature_override, effective_temp
+        );
+
         let response = self
             .provider
             .chat(&ChatRequest {
                 messages: llm_messages,
                 model: self.model.clone(),
                 max_tokens: EXTRACTION_MAX_TOKENS,
-                temperature: self
-                    .temperature_override
-                    .map_or(EXTRACTION_TEMPERATURE, Some),
+                temperature: effective_temp,
                 ..Default::default()
             })
             .await?;

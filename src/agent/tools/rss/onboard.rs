@@ -160,8 +160,11 @@ pub fn handle_onboard(
                         payload: CronPayload {
                             kind: "agent_turn".to_string(),
                             message: "Scan RSS feeds using the rss tool scan action. Filter articles \
-                                      by my interest profile, summarize the top candidates, and present \
-                                      them with accept/reject options."
+                                      by my interest profile, summarize the top candidates. \
+                                      IMPORTANT: Present each article INDIVIDUALLY — one article per message. \
+                                      For each article, use the add_buttons tool to add Accept and Reject \
+                                      buttons BEFORE sending the message. Never batch multiple articles \
+                                      in one message."
                                 .to_string(),
                             agent_echo: true,
                             targets: vec![CronTarget {

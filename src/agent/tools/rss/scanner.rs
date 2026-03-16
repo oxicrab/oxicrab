@@ -390,7 +390,11 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
     }
 
     if !all_new_articles.is_empty() {
-        out.push_str("\nReview these articles and use accept/reject to rate them.");
+        out.push_str(
+            "\nPresent each article INDIVIDUALLY — one per message. \
+             For each, use add_buttons to attach Accept/Reject buttons \
+             BEFORE sending. Never batch multiple articles in one message.",
+        );
     }
 
     // Build metadata with suggested buttons for the first article
