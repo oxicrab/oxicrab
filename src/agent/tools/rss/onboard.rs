@@ -67,7 +67,7 @@ pub fn check_gate(db: &MemoryDB, action: &str) -> Result<Option<ToolResult>> {
             state,
             STATE_NEEDS_FEEDS | STATE_NEEDS_CALIBRATION | STATE_COMPLETE
         ),
-        "get_articles" | "accept" | "reject" | "get_article_detail" => {
+        "get_articles" | "accept" | "reject" | "get_article_detail" | "next" => {
             matches!(state, STATE_NEEDS_CALIBRATION | STATE_COMPLETE)
         }
         "scan" => matches!(state, STATE_NEEDS_CALIBRATION | STATE_COMPLETE),
@@ -159,9 +159,10 @@ pub fn handle_onboard(
                         },
                         payload: CronPayload {
                             kind: "agent_turn".to_string(),
-                            message: "Scan RSS feeds using the rss tool scan action. Filter articles \
-                                      by my interest profile, summarize the top candidates, and present \
-                                      them with accept/reject options."
+                            message: "Scan RSS feeds using the rss tool scan action, then call \
+                                      rss { action: \"next\" } to present the first article for review. \
+                                      After the user accepts or rejects, call next again for the next article. \
+                                      Keep going until the user says done or there are no more articles."
                                 .to_string(),
                             agent_echo: true,
                             targets: vec![CronTarget {
