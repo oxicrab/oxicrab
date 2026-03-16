@@ -70,16 +70,16 @@ pub async fn handle_add_feed(
         )));
     }
 
-    // 5. Read body as text
-    let body = match response.text().await {
-        Ok(b) => b,
+    // 5. Read body with size limit (10 MB) to prevent OOM from malicious feeds
+    let body = match crate::utils::http::limited_body(response, 10 * 1024 * 1024).await {
+        Ok((bytes, _truncated)) => bytes,
         Err(e) => {
             return Ok(ToolResult::error(format!("failed to read feed body: {e}")));
         }
     };
 
     // 6. Parse with feed_rs
-    let Ok(parsed) = feed_rs::parser::parse(body.as_bytes()) else {
+    let Ok(parsed) = feed_rs::parser::parse(body.as_slice()) else {
         return Ok(ToolResult::error(
             "URL returned valid HTTP but content is not RSS or Atom",
         ));

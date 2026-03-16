@@ -452,14 +452,14 @@ async fn do_fetch_feed(
         anyhow::bail!("HTTP {}", resp.status().as_u16());
     }
 
-    let body = resp
-        .bytes()
+    // Read body with size limit (10 MB) to prevent OOM from malicious feeds
+    let (body, _truncated) = crate::utils::http::limited_body(resp, 10 * 1024 * 1024)
         .await
         .map_err(|e| anyhow::anyhow!("body read failed: {e}"))?;
 
     // Parse
-    let feed =
-        feed_rs::parser::parse(body.as_ref()).map_err(|e| anyhow::anyhow!("parse failed: {e}"))?;
+    let feed = feed_rs::parser::parse(body.as_slice())
+        .map_err(|e| anyhow::anyhow!("parse failed: {e}"))?;
 
     let entries: Vec<ParsedEntry> = feed
         .entries
