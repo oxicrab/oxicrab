@@ -31,6 +31,67 @@ pub fn apply_migrations(conn: &Connection) -> Result<()> {
         conn.execute("PRAGMA user_version = 4", [])?;
     }
 
+    if user_version(conn)? < 5 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS rss_feeds (
+                id TEXT PRIMARY KEY,
+                url TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                site_url TEXT,
+                last_fetched_at_ms INTEGER,
+                last_error TEXT,
+                consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at_ms INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS rss_articles (
+                id TEXT PRIMARY KEY,
+                feed_id TEXT NOT NULL REFERENCES rss_feeds(id) ON DELETE CASCADE,
+                url TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                author TEXT,
+                published_at_ms INTEGER,
+                fetched_at_ms INTEGER NOT NULL,
+                description TEXT,
+                full_content TEXT,
+                summary TEXT,
+                status TEXT NOT NULL DEFAULT 'new',
+                read INTEGER NOT NULL DEFAULT 0,
+                created_at_ms INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS rss_article_tags (
+                article_id TEXT NOT NULL REFERENCES rss_articles(id) ON DELETE CASCADE,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (article_id, tag)
+            );
+
+            CREATE TABLE IF NOT EXISTS rss_profile (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                interests TEXT NOT NULL,
+                onboarding_state TEXT NOT NULL DEFAULT 'needs_profile',
+                cron_job_id TEXT,
+                created_at_ms INTEGER NOT NULL,
+                updated_at_ms INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS rss_model (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                feature_index TEXT NOT NULL,
+                mu BLOB NOT NULL,
+                sigma BLOB NOT NULL,
+                updated_at_ms INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_rss_articles_feed ON rss_articles(feed_id, status);
+            CREATE INDEX IF NOT EXISTS idx_rss_articles_status ON rss_articles(status, created_at_ms);
+            CREATE INDEX IF NOT EXISTS idx_rss_articles_published ON rss_articles(published_at_ms);
+            CREATE INDEX IF NOT EXISTS idx_rss_article_tags_tag ON rss_article_tags(tag);",
+        )?;
+        conn.execute("PRAGMA user_version = 5", [])?;
+    }
+
     Ok(())
 }
 
@@ -136,7 +197,7 @@ mod tests {
         let v: u32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(v, 4);
+        assert_eq!(v, 5);
     }
 
     #[test]
@@ -209,12 +270,57 @@ mod tests {
     }
 
     #[test]
+    fn test_migration_v5_creates_rss_tables() {
+        let conn = Connection::open_in_memory().unwrap();
+        apply_migrations(&conn).unwrap();
+        let v = user_version(&conn).unwrap();
+        assert!(v >= 5, "expected version >= 5, got {v}");
+
+        for table in [
+            "rss_feeds",
+            "rss_articles",
+            "rss_article_tags",
+            "rss_profile",
+            "rss_model",
+        ] {
+            let count: i64 = conn
+                .query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{table}'"
+                    ),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "table {table} should exist");
+        }
+
+        for idx in [
+            "idx_rss_articles_feed",
+            "idx_rss_articles_status",
+            "idx_rss_articles_published",
+            "idx_rss_article_tags_tag",
+        ] {
+            let count: i64 = conn
+                .query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='{idx}'"
+                    ),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "index {idx} should exist");
+        }
+    }
+
+    #[test]
     fn test_migration_v4_adds_sessions_updated_index() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(MIGRATION_0001_BASE).unwrap();
         conn.execute("PRAGMA user_version = 3", []).unwrap();
         apply_migrations(&conn).unwrap();
-        assert_eq!(user_version(&conn).unwrap(), 4);
+        assert!(user_version(&conn).unwrap() >= 4);
         // Verify index exists
         let mut stmt = conn.prepare("PRAGMA index_list('sessions')").unwrap();
         let indexes: Vec<String> = stmt
