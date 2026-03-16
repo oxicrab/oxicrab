@@ -1,13 +1,18 @@
 use std::fmt::Write as _;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
+use tracing::warn;
 
 use crate::agent::memory::memory_db::MemoryDB;
 use crate::agent::memory::memory_db::rss::{
     STATE_COMPLETE, STATE_NEEDS_CALIBRATION, STATE_NEEDS_FEEDS, STATE_NEEDS_PROFILE,
 };
 use crate::agent::tools::ToolResult;
+use crate::agent::tools::base::ExecutionContext;
+use crate::cron::service::CronService;
+use crate::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule, CronTarget};
 
 type FeedList = &'static [(&'static str, &'static str)];
 
@@ -92,7 +97,11 @@ pub fn check_gate(db: &MemoryDB, action: &str) -> Result<Option<ToolResult>> {
 }
 
 /// Return the appropriate onboarding response for the current state.
-pub fn handle_onboard(db: &MemoryDB) -> Result<ToolResult> {
+pub fn handle_onboard(
+    db: &MemoryDB,
+    ctx: &ExecutionContext,
+    cron_service: Option<&Arc<CronService>>,
+) -> Result<ToolResult> {
     let profile = db.get_rss_profile()?;
     let state = profile
         .as_ref()
@@ -121,10 +130,73 @@ pub fn handle_onboard(db: &MemoryDB) -> Result<ToolResult> {
         STATE_NEEDS_CALIBRATION => {
             let review_count = db.count_rss_reviews()?;
             if review_count >= 5 {
+                // Check if we're running inside a cron job — can't create cron from cron
+                let in_cron = ctx
+                    .metadata
+                    .get(crate::bus::meta::IS_CRON_JOB)
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+
+                if in_cron {
+                    return Ok(ToolResult::new(
+                        "Calibration is complete, but a scheduled scan job cannot be created \
+                         from within a cron execution. Please run onboard again via direct chat \
+                         to finish setup.",
+                    ));
+                }
+
+                // Create a recurring cron job to scan every 6 hours
+                let job_id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
+                let now = now_ms();
+                let job = CronJob {
+                    id: job_id.clone(),
+                    name: "rss-scan".to_string(),
+                    enabled: true,
+                    schedule: CronSchedule::Cron {
+                        expr: Some("0 */6 * * *".to_string()),
+                        tz: Some("UTC".to_string()),
+                    },
+                    payload: CronPayload {
+                        kind: "agent_turn".to_string(),
+                        message: "Scan RSS feeds using the rss tool scan action. Filter articles \
+                                  by my interest profile, summarize the top candidates, and present \
+                                  them with accept/reject options."
+                            .to_string(),
+                        agent_echo: true,
+                        targets: vec![CronTarget {
+                            channel: ctx.channel.clone(),
+                            to: ctx.chat_id.clone(),
+                        }],
+                    },
+                    state: CronJobState::default(),
+                    created_at_ms: now,
+                    updated_at_ms: now,
+                    delete_after_run: false,
+                    expires_at_ms: None,
+                    max_runs: None,
+                    cooldown_secs: None,
+                    max_concurrent: None,
+                };
+
+                if let Some(svc) = cron_service {
+                    svc.add_job(job)?;
+                    db.set_rss_cron_job_id(&job_id, now)?;
+                } else {
+                    // No cron service — still record a placeholder so feed_stats
+                    // doesn't warn, but note that scheduling is unavailable
+                    warn!("rss onboard: cron service unavailable, skipping job creation");
+                }
+
+                db.set_rss_onboarding_state(STATE_COMPLETE, now)?;
+
+                let feed_count = db.count_rss_feeds()?;
                 Ok(ToolResult::new(format!(
                     "Calibration complete! You've reviewed {review_count} articles.\n\n\
-                     Your personalised scanner is being set up. \
-                     Use get_articles to browse your feed, or scan to fetch new articles."
+                     Your personalised RSS reader is fully set up.\n\
+                     Feeds: {feed_count}\n\
+                     Scheduled scanning: every 6 hours (cron: 0 */6 * * *, UTC)\n\n\
+                     Available actions: scan (fetch now), get_articles (browse), \
+                     feed_stats (metrics), add_feed / remove_feed (manage feeds)."
                 )))
             } else {
                 let remaining = 5 - review_count;

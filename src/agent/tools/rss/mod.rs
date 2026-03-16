@@ -3,6 +3,7 @@ mod feeds;
 pub(crate) mod model;
 mod onboard;
 mod scanner;
+mod stats;
 
 #[cfg(test)]
 mod tests;
@@ -154,7 +155,7 @@ impl Tool for RssTool {
         })
     }
 
-    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, ctx: &ExecutionContext) -> Result<ToolResult> {
         let action = require_param!(params, "action");
 
         if let Some(err) = onboard::check_gate(&self.db, action)? {
@@ -162,7 +163,7 @@ impl Tool for RssTool {
         }
 
         match action {
-            "onboard" => onboard::handle_onboard(&self.db),
+            "onboard" => onboard::handle_onboard(&self.db, ctx, self.cron_service.as_ref()),
             "set_profile" => {
                 let interests = require_param!(params, "interests");
                 onboard::handle_set_profile(&self.db, interests)
@@ -198,7 +199,7 @@ impl Tool for RssTool {
                 articles::handle_get_article_detail(&self.db, &self.client, id).await
             }
             "scan" => scanner::handle_scan(&self.db, &self.client, &self.config).await,
-            "feed_stats" => Ok(ToolResult::error("not yet implemented".to_string())),
+            "feed_stats" => stats::handle_feed_stats(&self.db),
             other => Ok(ToolResult::error(format!("unknown action: {other}"))),
         }
     }

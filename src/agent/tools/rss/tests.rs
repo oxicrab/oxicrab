@@ -499,3 +499,165 @@ async fn test_accept_empty_ids() {
         result.content
     );
 }
+
+#[tokio::test]
+async fn test_accept_updates_model() {
+    let (tool, ctx) = tool_with_calibration_state().await;
+
+    // Verify model starts out empty (no training yet)
+    assert!(
+        tool.db.load_rss_model().unwrap().is_none(),
+        "model should not exist before any accept/reject"
+    );
+
+    let articles = tool.db.get_rss_articles(None, None, 10, 0).unwrap();
+    let short_id: String = articles[0].id.chars().take(8).collect();
+
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "accept",
+                "article_ids": [short_id]
+            }),
+            &ctx,
+        )
+        .await
+        .unwrap();
+    assert!(
+        !result.is_error,
+        "accept should succeed: {}",
+        result.content
+    );
+
+    // After accepting, the model should have been saved to the DB
+    let model_row = tool
+        .db
+        .load_rss_model()
+        .expect("load_rss_model should not error");
+    assert!(model_row.is_some(), "model should exist after accept");
+
+    // Deserialize and verify the model has features
+    let (feature_index_json, mu_bytes, sigma_bytes) = model_row.unwrap();
+    let model = super::model::LinTSModel::from_bytes(&feature_index_json, &mu_bytes, &sigma_bytes)
+        .expect("model should deserialize cleanly");
+    assert!(
+        model.dimension() > 0,
+        "model should have at least one feature after accept"
+    );
+}
+
+// ── feed_stats tests ───────────────────────────────────────────────────────
+
+async fn tool_with_complete_state() -> (RssTool, ExecutionContext) {
+    let (tool, ctx) = tool_with_calibration_state().await;
+    tool.db.set_rss_onboarding_state("complete", 1000).unwrap();
+    (tool, ctx)
+}
+
+#[tokio::test]
+async fn test_feed_stats_basic() {
+    let (tool, ctx) = tool_with_complete_state().await;
+
+    let result = tool
+        .execute(serde_json::json!({"action": "feed_stats"}), &ctx)
+        .await
+        .unwrap();
+    assert!(
+        !result.is_error,
+        "feed_stats should succeed: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("Feed"),
+        "should mention feeds: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("Total scanned"),
+        "should mention total scanned: {}",
+        result.content
+    );
+}
+
+#[tokio::test]
+async fn test_feed_stats_shows_no_cron_warning() {
+    let (tool, ctx) = tool_with_complete_state().await;
+
+    let result = tool
+        .execute(serde_json::json!({"action": "feed_stats"}), &ctx)
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    // No cron job was created so we expect a warning
+    assert!(
+        result.content.contains("not active") || result.content.contains("Warning"),
+        "should warn about no scheduled scanning: {}",
+        result.content
+    );
+}
+
+#[tokio::test]
+async fn test_feed_stats_acceptance_rate() {
+    let (tool, ctx) = tool_with_complete_state().await;
+
+    // Accept one of the test articles via the DB
+    let articles = tool.db.get_rss_articles(None, None, 10, 0).unwrap();
+    tool.db
+        .update_rss_article_status(&articles[0].id, "accepted")
+        .unwrap();
+    tool.db
+        .update_rss_article_status(&articles[1].id, "rejected")
+        .unwrap();
+
+    let result = tool
+        .execute(serde_json::json!({"action": "feed_stats"}), &ctx)
+        .await
+        .unwrap();
+    assert!(
+        !result.is_error,
+        "feed_stats should succeed: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("Accepted: 1"),
+        "should show accepted count: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("Rejected: 1"),
+        "should show rejected count: {}",
+        result.content
+    );
+}
+
+#[tokio::test]
+async fn test_reject_updates_model() {
+    let (tool, ctx) = tool_with_calibration_state().await;
+
+    let articles = tool.db.get_rss_articles(None, None, 10, 0).unwrap();
+    let short_id: String = articles[0].id.chars().take(8).collect();
+
+    tool.execute(
+        serde_json::json!({
+            "action": "reject",
+            "article_ids": [short_id]
+        }),
+        &ctx,
+    )
+    .await
+    .unwrap();
+
+    let model_row = tool
+        .db
+        .load_rss_model()
+        .expect("load_rss_model should not error");
+    assert!(model_row.is_some(), "model should exist after reject");
+
+    let (feature_index_json, mu_bytes, sigma_bytes) = model_row.unwrap();
+    let model = super::model::LinTSModel::from_bytes(&feature_index_json, &mu_bytes, &sigma_bytes)
+        .expect("model should deserialize");
+    assert!(
+        model.dimension() > 0,
+        "model should have at least one feature after reject"
+    );
+}
