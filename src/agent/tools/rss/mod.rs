@@ -213,8 +213,8 @@ impl Tool for RssTool {
             "get_articles" => {
                 let status = params["status"].as_str();
                 let feed_id = params["feed_id"].as_str();
-                let limit = params["limit"].as_u64().unwrap_or(20) as usize;
-                let offset = params["offset"].as_u64().unwrap_or(0) as usize;
+                let limit = (params["limit"].as_u64().unwrap_or(20) as usize).min(500);
+                let offset = (params["offset"].as_u64().unwrap_or(0) as usize).min(10_000);
                 articles::handle_get_articles(&self.db, status, feed_id, limit, offset)
             }
             "accept" => {
