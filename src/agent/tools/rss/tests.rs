@@ -1,4 +1,91 @@
 use super::*;
+use crate::agent::tools::base::ExecutionContext;
+use std::collections::HashMap;
+
+fn test_ctx() -> ExecutionContext {
+    ExecutionContext {
+        channel: "test".to_string(),
+        chat_id: "test-chat".to_string(),
+        context_summary: None,
+        metadata: HashMap::new(),
+    }
+}
+
+#[tokio::test]
+async fn test_onboard_needs_profile() {
+    let tool = RssTool::new_for_test();
+    let ctx = test_ctx();
+    let result = tool
+        .execute(serde_json::json!({"action": "onboard"}), &ctx)
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert!(result.content.contains("interest"));
+}
+
+#[tokio::test]
+async fn test_set_profile_validates_length() {
+    let tool = RssTool::new_for_test();
+    let ctx = test_ctx();
+    let result = tool
+        .execute(
+            serde_json::json!({"action": "set_profile", "interests": "short"}),
+            &ctx,
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("20"));
+}
+
+#[tokio::test]
+async fn test_set_profile_transitions_state() {
+    let tool = RssTool::new_for_test();
+    let ctx = test_ctx();
+    tool.execute(
+        serde_json::json!({
+            "action": "set_profile",
+            "interests": "AI engineering, Rust programming, distributed systems"
+        }),
+        &ctx,
+    )
+    .await
+    .unwrap();
+
+    let result = tool
+        .execute(serde_json::json!({"action": "onboard"}), &ctx)
+        .await
+        .unwrap();
+    assert!(result.content.to_lowercase().contains("feed"));
+}
+
+#[tokio::test]
+async fn test_action_gating() {
+    let tool = RssTool::new_for_test();
+    let ctx = test_ctx();
+
+    // scan should be gated before onboarding
+    let result = tool
+        .execute(serde_json::json!({"action": "scan"}), &ctx)
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(
+        result.content.contains("onboarding") || result.content.contains("needs_profile"),
+        "expected onboarding/needs_profile mention, got: {}",
+        result.content
+    );
+
+    // add_feed should be gated in needs_profile state
+    let result = tool
+        .execute(
+            serde_json::json!({"action": "add_feed", "url": "https://example.com/feed.xml"}),
+            &ctx,
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+}
 
 #[test]
 fn test_tool_name() {

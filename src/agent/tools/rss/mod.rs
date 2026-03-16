@@ -1,7 +1,7 @@
 // mod feeds;
 // mod articles;
 // mod scanner;
-// mod onboard;
+mod onboard;
 // mod model;
 
 #[cfg(test)]
@@ -157,9 +157,18 @@ impl Tool for RssTool {
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
         let action = require_param!(params, "action");
 
+        if let Some(err) = onboard::check_gate(&self.db, action)? {
+            return Ok(err);
+        }
+
         match action {
-            "onboard" | "set_profile" | "add_feed" | "remove_feed" | "list_feeds" | "scan"
-            | "get_articles" | "accept" | "reject" | "get_article_detail" | "feed_stats" => {
+            "onboard" => onboard::handle_onboard(&self.db),
+            "set_profile" => {
+                let interests = require_param!(params, "interests");
+                onboard::handle_set_profile(&self.db, interests)
+            }
+            "add_feed" | "remove_feed" | "list_feeds" | "scan" | "get_articles" | "accept"
+            | "reject" | "get_article_detail" | "feed_stats" => {
                 Ok(ToolResult::error("not yet implemented".to_string()))
             }
             other => Ok(ToolResult::error(format!("unknown action: {other}"))),
