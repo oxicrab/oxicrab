@@ -63,7 +63,7 @@ pub fn check_gate(db: &MemoryDB, action: &str) -> Result<Option<ToolResult>> {
         .map_or(STATE_NEEDS_PROFILE, |p| p.onboarding_state.as_str());
 
     let allowed = match action {
-        "add_feed" | "remove_feed" | "list_feeds" => matches!(
+        "add_feed" | "remove_feed" | "enable_feed" | "list_feeds" => matches!(
             state,
             STATE_NEEDS_FEEDS | STATE_NEEDS_CALIBRATION | STATE_COMPLETE
         ),

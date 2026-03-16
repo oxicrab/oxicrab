@@ -250,6 +250,36 @@ impl MemoryDB {
         }
     }
 
+    /// Resolve a short feed ID prefix to a full ID.
+    /// Returns an error if zero or more than one feed matches.
+    pub fn resolve_rss_feed_id(&self, short_id: &str) -> Result<String> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let escaped = short_id
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let pattern = format!("{escaped}%");
+        let mut stmt = conn.prepare("SELECT id FROM rss_feeds WHERE id LIKE ?1 ESCAPE '\\'")?;
+        let ids: Vec<String> = stmt
+            .query_map(params![pattern], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        match ids.len() {
+            0 => anyhow::bail!("no feed found matching id prefix '{short_id}'"),
+            1 => Ok(ids.into_iter().next().unwrap()),
+            n => anyhow::bail!("ambiguous id prefix '{short_id}' matched {n} feeds"),
+        }
+    }
+
+    /// Re-enable a previously disabled feed and reset its failure counter.
+    pub fn enable_rss_feed(&self, id: &str) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        conn.execute(
+            "UPDATE rss_feeds SET enabled = 1, consecutive_failures = 0, last_error = NULL WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
     pub fn update_rss_article_status(&self, id: &str, status: &str) -> Result<()> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
         conn.execute(

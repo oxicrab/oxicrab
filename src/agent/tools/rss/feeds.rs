@@ -131,9 +131,17 @@ pub async fn handle_add_feed(
 }
 
 pub fn handle_remove_feed(db: &MemoryDB, feed_id: &str) -> Result<ToolResult> {
-    // 1. Find the feed matching feed_id
+    // 1. Resolve short ID prefix to full UUID
+    let full_id = match db.resolve_rss_feed_id(feed_id) {
+        Ok(id) => id,
+        Err(e) => {
+            return Ok(ToolResult::error(format!(
+                "{e} — use list_feeds to see available feeds"
+            )));
+        }
+    };
     let feeds = db.list_rss_feeds()?;
-    let Some(feed) = feeds.iter().find(|f| f.id == feed_id) else {
+    let Some(feed) = feeds.iter().find(|f| f.id == full_id) else {
         return Ok(ToolResult::error(format!(
             "no feed found with id '{feed_id}' — use list_feeds to see available feeds"
         )));
@@ -150,10 +158,10 @@ pub fn handle_remove_feed(db: &MemoryDB, feed_id: &str) -> Result<ToolResult> {
     }
 
     // 3. Count accepted articles for warning
-    let accepted_count = db.count_rss_articles(Some("accepted"), Some(feed_id))?;
+    let accepted_count = db.count_rss_articles(Some("accepted"), Some(&full_id))?;
 
     // 4. Delete the feed (cascades to articles)
-    db.delete_rss_feed(feed_id)?;
+    db.delete_rss_feed(&full_id)?;
     info!("rss feed removed: {} ({})", feed.name, feed.url);
 
     // 5. Return success with warning if accepted articles were lost
@@ -166,6 +174,39 @@ pub fn handle_remove_feed(db: &MemoryDB, feed_id: &str) -> Result<ToolResult> {
     }
 
     Ok(ToolResult::new(msg))
+}
+
+pub fn handle_enable_feed(db: &MemoryDB, feed_id: &str) -> Result<ToolResult> {
+    let full_id = match db.resolve_rss_feed_id(feed_id) {
+        Ok(id) => id,
+        Err(e) => {
+            return Ok(ToolResult::error(format!(
+                "{e} — use list_feeds to see available feeds"
+            )));
+        }
+    };
+
+    let feeds = db.list_rss_feeds()?;
+    let Some(feed) = feeds.iter().find(|f| f.id == full_id) else {
+        return Ok(ToolResult::error(format!(
+            "no feed found with id '{feed_id}'"
+        )));
+    };
+
+    if feed.enabled {
+        return Ok(ToolResult::new(format!(
+            "Feed '{}' is already enabled.",
+            feed.name
+        )));
+    }
+
+    db.enable_rss_feed(&full_id)?;
+    info!("rss feed re-enabled: {} ({})", feed.name, feed.url);
+
+    Ok(ToolResult::new(format!(
+        "Feed '{}' re-enabled. Failure counter reset. It will be included in the next scan.",
+        feed.name
+    )))
 }
 
 pub fn handle_list_feeds(db: &MemoryDB) -> Result<ToolResult> {

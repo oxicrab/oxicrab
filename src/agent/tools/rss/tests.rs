@@ -117,7 +117,7 @@ fn test_tool_capabilities() {
     assert!(caps.built_in);
     assert!(caps.network_outbound);
     assert_eq!(caps.category, ToolCategory::Web);
-    assert_eq!(caps.actions.len(), 11);
+    assert_eq!(caps.actions.len(), 12);
 }
 
 #[test]
@@ -139,6 +139,7 @@ fn test_parameters_schema_has_all_actions() {
         "set_profile",
         "add_feed",
         "remove_feed",
+        "enable_feed",
         "list_feeds",
         "scan",
         "get_articles",

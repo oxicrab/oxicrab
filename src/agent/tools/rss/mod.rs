@@ -89,7 +89,7 @@ impl Tool for RssTool {
 
     fn description(&self) -> &'static str {
         "Manage RSS feeds and personalised article recommendations. Actions: onboard, set_profile, \
-         add_feed, remove_feed, list_feeds, scan, get_articles, accept, reject, \
+         add_feed, remove_feed, enable_feed, list_feeds, scan, get_articles, accept, reject, \
          get_article_detail, feed_stats."
     }
 
@@ -111,6 +111,7 @@ impl Tool for RssTool {
                 set_profile,
                 add_feed,
                 remove_feed,
+                enable_feed,
                 list_feeds: ro,
                 scan,
                 get_articles: ro,
@@ -130,8 +131,8 @@ impl Tool for RssTool {
                 "action": {
                     "type": "string",
                     "enum": [
-                        "onboard", "set_profile", "add_feed", "remove_feed", "list_feeds",
-                        "scan", "get_articles", "accept", "reject",
+                        "onboard", "set_profile", "add_feed", "remove_feed", "enable_feed",
+                        "list_feeds", "scan", "get_articles", "accept", "reject",
                         "get_article_detail", "feed_stats"
                     ],
                     "description": "Action to perform"
@@ -203,6 +204,10 @@ impl Tool for RssTool {
             "remove_feed" => {
                 let feed_id = require_param!(params, "feed_id");
                 feeds::handle_remove_feed(&self.db, feed_id)
+            }
+            "enable_feed" => {
+                let feed_id = require_param!(params, "feed_id");
+                feeds::handle_enable_feed(&self.db, feed_id)
             }
             "list_feeds" => feeds::handle_list_feeds(&self.db),
             "get_articles" => {
