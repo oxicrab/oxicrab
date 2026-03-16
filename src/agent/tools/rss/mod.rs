@@ -1,5 +1,5 @@
+mod articles;
 mod feeds;
-// mod articles;
 // mod scanner;
 mod onboard;
 // mod model;
@@ -178,10 +178,37 @@ impl Tool for RssTool {
                 feeds::handle_remove_feed(&self.db, feed_id)
             }
             "list_feeds" => feeds::handle_list_feeds(&self.db),
-            "scan" | "get_articles" | "accept" | "reject" | "get_article_detail" | "feed_stats" => {
-                Ok(ToolResult::error("not yet implemented".to_string()))
+            "get_articles" => {
+                let status = params["status"].as_str();
+                let feed_id = params["feed_id"].as_str();
+                let limit = params["limit"].as_u64().unwrap_or(20) as usize;
+                let offset = params["offset"].as_u64().unwrap_or(0) as usize;
+                articles::handle_get_articles(&self.db, status, feed_id, limit, offset)
             }
+            "accept" => {
+                let ids = extract_article_ids(&params);
+                Ok(articles::handle_accept(&self.db, &ids))
+            }
+            "reject" => {
+                let ids = extract_article_ids(&params);
+                Ok(articles::handle_reject(&self.db, &ids))
+            }
+            "get_article_detail" => {
+                let id = require_param!(params, "article_id");
+                articles::handle_get_article_detail(&self.db, &self.client, id).await
+            }
+            "scan" | "feed_stats" => Ok(ToolResult::error("not yet implemented".to_string())),
             other => Ok(ToolResult::error(format!("unknown action: {other}"))),
         }
+    }
+}
+
+fn extract_article_ids(params: &Value) -> Vec<&str> {
+    if let Some(arr) = params["article_ids"].as_array() {
+        arr.iter().filter_map(|v| v.as_str()).collect()
+    } else if let Some(id) = params["article_id"].as_str() {
+        vec![id]
+    } else {
+        vec![]
     }
 }
