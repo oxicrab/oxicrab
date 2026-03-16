@@ -157,6 +157,23 @@ fn test_action_prototypes_are_valid() {
 }
 
 #[test]
+fn test_button_clicks_are_action_intent() {
+    let cases = [
+        "[button:next]",
+        "[button:rss-accept-abc123]",
+        "[button:rss-reject-abc123]",
+        "[button:complete-task-1]",
+        "[button:snooze]\nButton context: {\"task_id\":\"42\"}",
+    ];
+    for text in cases {
+        assert!(
+            classify_action_intent(text),
+            "button should be action: {text}"
+        );
+    }
+}
+
+#[test]
 fn test_semantic_threshold_is_reasonable() {
     // Threshold should be in a reasonable range for BGE-small-en-v1.5
     const {
