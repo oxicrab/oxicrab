@@ -163,7 +163,7 @@ impl Tool for RssTool {
                 },
                 "status": {
                     "type": "string",
-                    "enum": ["new", "accepted", "rejected", "skipped"],
+                    "enum": ["new", "accepted", "rejected"],
                     "description": "Filter articles by status (for get_articles)"
                 },
                 "limit": {

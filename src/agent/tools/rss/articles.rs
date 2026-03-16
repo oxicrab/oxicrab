@@ -236,12 +236,19 @@ fn rank_articles(
     // Extract profile keywords so browse ranking uses the same features as scan/feedback
     let keywords = super::scanner::extract_profile_keywords(db);
 
+    // Batch-fetch all tags in one query instead of N+1 per-article queries
+    let article_ids: Vec<&str> = articles.iter().map(|a| a.id.as_str()).collect();
+    let tags_map = db
+        .get_rss_article_tags_batch(&article_ids)
+        .unwrap_or_default();
+
     // Read-only encoding: build_feature_vector uses only features already in the model.
     // No ensure_feature calls → model dimension stays constant → all vectors are uniform.
     let feature_vecs: Vec<_> = articles
         .iter()
         .map(|a| {
-            let tags = db.get_rss_article_tags(&a.id).unwrap_or_default();
+            let empty = Vec::new();
+            let tags = tags_map.get(&a.id).unwrap_or(&empty);
             let keyword_overlap: Vec<String> = keywords
                 .iter()
                 .filter(|kw| {
@@ -255,7 +262,7 @@ fn rank_articles(
                 })
                 .cloned()
                 .collect();
-            model.build_feature_vector(&a.feed_id, &tags, &keyword_overlap)
+            model.build_feature_vector(&a.feed_id, tags, &keyword_overlap)
         })
         .collect();
 

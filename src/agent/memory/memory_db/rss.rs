@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use rusqlite::params;
 
@@ -285,6 +287,38 @@ impl MemoryDB {
             .query_map(params![article_id], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(tags)
+    }
+
+    /// Batch-fetch tags for multiple articles in a single query.
+    /// Returns a map from `article_id` to its tag list.
+    pub fn get_rss_article_tags_batch(
+        &self,
+        article_ids: &[&str],
+    ) -> Result<HashMap<String, Vec<String>>> {
+        if article_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        // Build parameterized IN clause
+        let placeholders: Vec<String> = (1..=article_ids.len()).map(|i| format!("?{i}")).collect();
+        let sql = format!(
+            "SELECT article_id, tag FROM rss_article_tags WHERE article_id IN ({}) ORDER BY article_id, tag",
+            placeholders.join(", ")
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::types::ToSql> = article_ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        for row in rows {
+            let (article_id, tag) = row?;
+            map.entry(article_id).or_default().push(tag);
+        }
+        Ok(map)
     }
 
     pub fn get_all_rss_tags(&self) -> Result<Vec<String>> {
