@@ -230,6 +230,60 @@ pub fn handle_reject(db: &MemoryDB, article_ids: &[&str]) -> ToolResult {
     handle_feedback(db, article_ids, false)
 }
 
+/// Return the next unreviewed article with Accept/Reject buttons attached.
+/// This enforces one-article-at-a-time presentation — each call returns
+/// exactly one article, and the buttons trigger the next cycle.
+pub fn handle_next(db: &MemoryDB) -> Result<ToolResult> {
+    let articles = db.get_rss_articles(Some("new"), None, 1, 0)?;
+
+    let Some(article) = articles.first() else {
+        return Ok(ToolResult::new("No more articles to review."));
+    };
+
+    let short_id: String = article.id.chars().take(8).collect();
+
+    let feeds = db.list_rss_feeds().unwrap_or_default();
+    let feed_name = feeds
+        .iter()
+        .find(|f| f.id == article.feed_id)
+        .map_or("Unknown", |f| f.name.as_str());
+
+    let snippet = article
+        .description
+        .as_deref()
+        .unwrap_or("")
+        .chars()
+        .take(300)
+        .collect::<String>();
+
+    let remaining = db.count_rss_articles(Some("new"), None)?;
+
+    let mut out = format!(
+        "**{}**\nSource: {} | ID: {short_id}",
+        article.title, feed_name
+    );
+    if let Some(ref author) = article.author {
+        let _ = write!(out, " | Author: {author}");
+    }
+    if !snippet.is_empty() {
+        let _ = write!(out, "\n\n{snippet}");
+        if article.description.as_deref().unwrap_or("").chars().count() > 300 {
+            out.push('…');
+        }
+    }
+    let _ = write!(out, "\n\n({remaining} articles remaining)");
+
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        "suggested_buttons".to_string(),
+        serde_json::json!([
+            {"id": format!("rss-accept-{short_id}"), "label": "Accept", "style": "primary", "context": short_id},
+            {"id": format!("rss-reject-{short_id}"), "label": "Reject", "style": "danger", "context": short_id},
+        ]),
+    );
+    Ok(ToolResult::new(out).with_metadata(metadata))
+}
+
 /// Rank articles using the persisted `LinTS` model in read-only mode.
 /// Does NOT register new features or save the model — unknown features
 /// contribute zero to scoring, which is correct (the model hasn't learned

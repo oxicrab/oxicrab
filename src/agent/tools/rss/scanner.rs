@@ -324,45 +324,11 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
             "Showing top {shown} of {total_new} new article(s), ranked by relevance:\n"
         );
 
-        for &idx in &top_indices {
-            let (feed_id, article, _) = &all_new_articles[idx];
-            let short_id: String = article.id.chars().take(8).collect();
-            let score = all_scores.get(&idx).copied().unwrap_or(0.0);
-
-            let feed_name = feed_results
-                .iter()
-                .find(|f| f.feed_id == *feed_id)
-                .map_or(feed_id.as_str(), |f| f.feed_name.as_str());
-
-            let snippet = article
-                .description
-                .as_deref()
-                .unwrap_or("")
-                .chars()
-                .take(200)
-                .collect::<String>();
-
-            let _ = write!(
-                out,
-                "• [{short_id}] **{}**\n  Source: {}",
-                article.title, feed_name
-            );
-
-            if let Some(ref author) = article.author {
-                let _ = write!(out, " | Author: {author}");
-            }
-
-            let _ = write!(out, " | Score: {score:.3}");
-
-            if !snippet.is_empty() {
-                let _ = write!(out, "\n  {snippet}");
-                if article.description.as_deref().unwrap_or("").chars().count() > 200 {
-                    out.push('…');
-                }
-            }
-
-            out.push('\n');
-        }
+        let _ = writeln!(
+            out,
+            "{} new articles ranked by relevance.",
+            top_indices.len()
+        );
     }
 
     // Per-source summary
@@ -391,23 +357,7 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
 
     if !all_new_articles.is_empty() {
         out.push_str(
-            "\nPresent each article INDIVIDUALLY — one per message. \
-             For each, use add_buttons to attach Accept/Reject buttons \
-             BEFORE sending. Never batch multiple articles in one message.",
-        );
-    }
-
-    // Build metadata with suggested buttons for the first article
-    let mut metadata: HashMap<String, serde_json::Value> = HashMap::new();
-    if let Some(&first_idx) = top_indices.first() {
-        let (_, first_article, _) = &all_new_articles[first_idx];
-        let short_id: String = first_article.id.chars().take(8).collect();
-        metadata.insert(
-            "suggested_buttons".to_string(),
-            serde_json::json!([
-                {"id": format!("rss-accept-{short_id}"), "label": "Accept", "style": "primary"},
-                {"id": format!("rss-reject-{short_id}"), "label": "Reject", "style": "danger"}
-            ]),
+            "\nCall rss { action: \"next\" } to review articles one at a time with Accept/Reject buttons.",
         );
     }
 
@@ -419,12 +369,7 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
         Err(e) => warn!("rss scan: purge failed: {e}"),
     }
 
-    let result = ToolResult::new(out.trim_end().to_string());
-    if metadata.is_empty() {
-        Ok(result)
-    } else {
-        Ok(result.with_metadata(metadata))
-    }
+    Ok(ToolResult::new(out.trim_end().to_string()))
 }
 
 /// Fetch a single feed, returning `(feed_id, feed_name, Result<Vec<ParsedEntry>>)`.
