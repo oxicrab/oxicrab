@@ -406,7 +406,7 @@
 
   <div id="rss" class="tool-section">
     <h2>rss <span class="badge badge-core">Core</span></h2>
-    <p class="desc">RSS/Atom feed reader with adaptive content recommendations. Subscribes to feeds, pre-filters articles using keyword matching and LinTS (a lightweight logistic regression model trained on your accept/reject signals), and surfaces candidates for review. Uses an onboarding state machine to guide setup before scanning.</p>
+    <p class="desc">RSS/Atom feed reader with adaptive content recommendations. Subscribes to feeds, pre-filters articles using keyword matching and LinTS (Bayesian linear regression with Thompson Sampling, trained on your accept/reject signals), and surfaces candidates for review. Uses an onboarding state machine to guide setup before scanning.</p>
 
     <h3>Actions</h3>
     <table class="action-table">
@@ -430,7 +430,7 @@
     <h3>How it works</h3>
     <ul class="plain">
       <li><strong>Onboarding state machine</strong> &mdash; the tool enforces a setup sequence: set an interest profile, add at least one feed, calibrate the model by accepting/rejecting a few articles, then scanning is unlocked.</li>
-      <li><strong>LinTS ranking</strong> &mdash; a lightweight logistic regression model trained in-session on your accept/reject signals. Initial weights are seeded from TF-IDF similarity to your interest profile. Weights update incrementally after each accept/reject call.</li>
+      <li><strong>LinTS ranking</strong> &mdash; Bayesian linear regression with Thompson Sampling. Maintains a posterior over feature weights (feed source, tags, profile keywords) updated via Sherman-Morrison rank-1 updates after each accept/reject. Covariance inflation each scan cycle prevents over-confidence.</li>
       <li><strong>Cron integration</strong> &mdash; after onboarding completes, a recurring scan job is created automatically via <code>CronService</code> so new articles are fetched on a schedule without user prompting.</li>
       <li><strong>Pre-filtering</strong> &mdash; before LinTS ranking, articles are checked against your interest description using keyword overlap to avoid scoring obviously irrelevant content.</li>
     </ul>
