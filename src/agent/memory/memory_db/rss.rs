@@ -497,7 +497,11 @@ impl MemoryDB {
         Ok(count as usize)
     }
 
-    /// Delete stale articles with status 'new' older than `days` days.
+    /// Delete stale articles older than `days` days.
+    /// Unreviewed (`new`) articles are purged first. Terminal-state articles
+    /// (`accepted`/`rejected`) older than `days` are also purged — the `LinTS`
+    /// model has already learned from them, so the feedback signal is preserved
+    /// in the model weights, not the article rows.
     /// Returns the number of rows deleted.
     pub fn purge_stale_rss_articles(&self, days: u64) -> Result<usize> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
@@ -510,8 +514,7 @@ impl MemoryDB {
         )
         .unwrap_or(0);
         let deleted = conn.execute(
-            "DELETE FROM rss_articles
-             WHERE status = 'new' AND created_at_ms < ?1",
+            "DELETE FROM rss_articles WHERE created_at_ms < ?1",
             params![cutoff_ms],
         )?;
         Ok(deleted)
@@ -794,7 +797,7 @@ mod tests {
         old_new.url = "https://example.com/a-old-new".to_string();
         db.insert_rss_article(&old_new).unwrap();
 
-        // Old article with status 'accepted' — should survive
+        // Old article with status 'accepted' — should also be purged (model already learned)
         let mut old_accepted = make_article("a-old-accepted", "f1");
         old_accepted.created_at_ms = old_ms;
         old_accepted.url = "https://example.com/a-old-accepted".to_string();
@@ -808,22 +811,11 @@ mod tests {
         db.insert_rss_article(&recent_new).unwrap();
 
         let purged = db.purge_stale_rss_articles(7).unwrap();
-        assert_eq!(purged, 1, "only the old new article should be purged");
+        assert_eq!(purged, 2, "both old articles should be purged");
 
         let remaining = db.get_rss_articles(None, None, 10, 0).unwrap();
-        let ids: Vec<&str> = remaining.iter().map(|a| a.id.as_str()).collect();
-        assert!(
-            !ids.contains(&"a-old-new"),
-            "old new article should be gone"
-        );
-        assert!(
-            ids.contains(&"a-old-accepted"),
-            "old accepted article should survive"
-        );
-        assert!(
-            ids.contains(&"a-recent-new"),
-            "recent new article should survive"
-        );
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, "a-recent-new");
     }
 
     #[test]
