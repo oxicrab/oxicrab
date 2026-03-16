@@ -439,7 +439,7 @@ impl MemoryDB {
                 .as_millis()
                 .saturating_sub(u128::from(days) * 24 * 60 * 60 * 1000),
         )
-        .unwrap_or(i64::MAX);
+        .unwrap_or(0);
         let deleted = conn.execute(
             "DELETE FROM rss_articles
              WHERE status = 'new' AND created_at_ms < ?1",
