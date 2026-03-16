@@ -1,4 +1,4 @@
-// mod feeds;
+mod feeds;
 // mod articles;
 // mod scanner;
 mod onboard;
@@ -167,8 +167,18 @@ impl Tool for RssTool {
                 let interests = require_param!(params, "interests");
                 onboard::handle_set_profile(&self.db, interests)
             }
-            "add_feed" | "remove_feed" | "list_feeds" | "scan" | "get_articles" | "accept"
-            | "reject" | "get_article_detail" | "feed_stats" => {
+            "add_feed" => {
+                let url = require_param!(params, "url");
+                let name = params["name"].as_str();
+                feeds::handle_add_feed(&self.db, &self.client, url, name, self.config.scan_timeout)
+                    .await
+            }
+            "remove_feed" => {
+                let feed_id = require_param!(params, "feed_id");
+                feeds::handle_remove_feed(&self.db, feed_id)
+            }
+            "list_feeds" => feeds::handle_list_feeds(&self.db),
+            "scan" | "get_articles" | "accept" | "reject" | "get_article_detail" | "feed_stats" => {
                 Ok(ToolResult::error("not yet implemented".to_string()))
             }
             other => Ok(ToolResult::error(format!("unknown action: {other}"))),

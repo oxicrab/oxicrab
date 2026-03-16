@@ -2,6 +2,22 @@ use super::*;
 use crate::agent::tools::base::ExecutionContext;
 use std::collections::HashMap;
 
+/// Helper: set up a tool past the `needs_feeds` gate
+async fn tool_with_profile() -> (RssTool, ExecutionContext) {
+    let tool = RssTool::new_for_test();
+    let ctx = test_ctx();
+    tool.execute(
+        serde_json::json!({
+            "action": "set_profile",
+            "interests": "AI engineering, Rust programming, distributed systems"
+        }),
+        &ctx,
+    )
+    .await
+    .unwrap();
+    (tool, ctx)
+}
+
 fn test_ctx() -> ExecutionContext {
     ExecutionContext {
         channel: "test".to_string(),
@@ -135,4 +151,65 @@ fn test_parameters_schema_has_all_actions() {
             "missing action: {expected}"
         );
     }
+}
+
+#[tokio::test]
+async fn test_list_feeds_empty() {
+    let (tool, ctx) = tool_with_profile().await;
+    let result = tool
+        .execute(serde_json::json!({"action": "list_feeds"}), &ctx)
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert!(result.content.to_lowercase().contains("no feed"));
+}
+
+#[tokio::test]
+async fn test_remove_feed_not_found() {
+    let (tool, ctx) = tool_with_profile().await;
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "remove_feed",
+                "feed_id": "nonexistent"
+            }),
+            &ctx,
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+}
+
+#[tokio::test]
+async fn test_add_feed_invalid_url() {
+    let (tool, ctx) = tool_with_profile().await;
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "add_feed",
+                "url": "not-a-valid-url"
+            }),
+            &ctx,
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("invalid feed URL"));
+}
+
+#[tokio::test]
+async fn test_add_feed_ssrf_blocked() {
+    let (tool, ctx) = tool_with_profile().await;
+    let result = tool
+        .execute(
+            serde_json::json!({
+                "action": "add_feed",
+                "url": "http://127.0.0.1/feed.xml"
+            }),
+            &ctx,
+        )
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("invalid feed URL"));
 }
