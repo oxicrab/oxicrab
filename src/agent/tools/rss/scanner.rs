@@ -357,7 +357,7 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
 
             if !snippet.is_empty() {
                 let _ = write!(out, "\n  {snippet}");
-                if article.description.as_deref().unwrap_or("").len() > 200 {
+                if article.description.as_deref().unwrap_or("").chars().count() > 200 {
                     out.push('…');
                 }
             }

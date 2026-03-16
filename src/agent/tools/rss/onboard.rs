@@ -185,7 +185,11 @@ pub fn handle_onboard(
 
                     if let Some(svc) = cron_service {
                         svc.add_job(job)?;
-                        db.set_rss_cron_job_id(&job_id, now)?;
+                        if let Err(e) = db.set_rss_cron_job_id(&job_id, now) {
+                            // Roll back the cron job to avoid orphaned duplicates
+                            let _ = svc.remove_job(&job_id);
+                            return Err(e);
+                        }
                     } else {
                         warn!(
                             "rss onboard: cron service unavailable, staying in needs_calibration"
