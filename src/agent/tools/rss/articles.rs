@@ -217,23 +217,28 @@ pub fn handle_reject(db: &MemoryDB, article_ids: &[&str]) -> ToolResult {
 }
 
 /// Rank articles using the `LinTS` model. Returns indices in display order.
+/// Rank articles using the persisted `LinTS` model in read-only mode.
+/// Does NOT register new features or save the model — unknown features
+/// contribute zero to scoring, which is correct (the model hasn't learned
+/// about them yet). This avoids the mutation-without-save problem and
+/// keeps covariance/pruning semantics consistent with the scan path.
 fn rank_articles(
     db: &MemoryDB,
     articles: &[crate::agent::memory::memory_db::rss::RssArticle],
 ) -> Vec<usize> {
-    let mut model = load_or_create_model(db);
+    let model = load_or_create_model(db);
 
     // If the model has no features yet, return natural order
-    if model.dimension() == 0 && articles.len() <= 1 {
+    if model.dimension() == 0 {
         return (0..articles.len()).collect();
     }
 
     // Extract profile keywords so browse ranking uses the same features as scan/feedback
     let keywords = super::scanner::extract_profile_keywords(db);
 
-    // Two-pass encoding to avoid dimension mismatch panic.
-    // Pass 1: Register all features including keyword overlaps (grows model dimension).
-    let article_data: Vec<(Vec<String>, Vec<String>)> = articles
+    // Read-only encoding: build_feature_vector uses only features already in the model.
+    // No ensure_feature calls → model dimension stays constant → all vectors are uniform.
+    let feature_vecs: Vec<_> = articles
         .iter()
         .map(|a| {
             let tags = db.get_rss_article_tags(&a.id).unwrap_or_default();
@@ -250,23 +255,7 @@ fn rank_articles(
                 })
                 .cloned()
                 .collect();
-            model.ensure_feature(&format!("feed:{}", a.feed_id));
-            for tag in &tags {
-                model.ensure_feature(&format!("tag:{tag}"));
-            }
-            for kw in &keyword_overlap {
-                model.ensure_feature(&format!("kw:{kw}"));
-            }
-            (tags, keyword_overlap)
-        })
-        .collect();
-
-    // Pass 2: Build all vectors at the final (uniform) dimension.
-    let feature_vecs: Vec<_> = articles
-        .iter()
-        .enumerate()
-        .map(|(i, a)| {
-            model.build_feature_vector(&a.feed_id, &article_data[i].0, &article_data[i].1)
+            model.build_feature_vector(&a.feed_id, &tags, &keyword_overlap)
         })
         .collect();
 
@@ -296,11 +285,7 @@ fn load_or_create_model(db: &MemoryDB) -> LinTSModel {
 /// Save the `LinTS` model to DB.
 fn save_model(db: &MemoryDB, model: &LinTSModel) {
     let (feature_index, mu, sigma) = model.to_bytes();
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64;
-    if let Err(e) = db.save_rss_model(&feature_index, &mu, &sigma, now_ms) {
+    if let Err(e) = db.save_rss_model(&feature_index, &mu, &sigma, super::now_ms()) {
         warn!("failed to save rss model: {e}");
     }
 }

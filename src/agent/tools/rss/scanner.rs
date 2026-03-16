@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use anyhow::Result;
 use reqwest::Client;
@@ -14,11 +14,7 @@ use crate::agent::tools::ToolResult;
 use crate::agent::tools::rss::model::LinTSModel;
 use crate::config::RssConfig;
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
-}
+use super::now_ms;
 
 /// Result of fetching and parsing a single feed.
 struct FeedResult {

@@ -1,6 +1,5 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use tracing::warn;
@@ -47,11 +46,7 @@ const GENERAL_FEEDS: FeedList = &[
     ("Lobsters", "https://lobste.rs/rss"),
 ];
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
-}
+use super::now_ms;
 
 /// Check whether the given action is permitted in the current onboarding state.
 /// Returns `Ok(Some(ToolResult))` with an error response if the action is gated,

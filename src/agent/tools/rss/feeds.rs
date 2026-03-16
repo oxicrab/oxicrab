@@ -1,20 +1,15 @@
 use std::fmt::Write as _;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use anyhow::Result;
 use reqwest::Client;
-use std::time::Duration;
 use tracing::{info, warn};
 
 use crate::agent::memory::memory_db::MemoryDB;
 use crate::agent::memory::memory_db::rss::{RssFeed, STATE_NEEDS_CALIBRATION, STATE_NEEDS_FEEDS};
 use crate::agent::tools::ToolResult;
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
-}
+use super::now_ms;
 
 pub async fn handle_add_feed(
     db: &MemoryDB,
