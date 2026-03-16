@@ -232,7 +232,8 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
         encoded.push((idx, x));
     }
 
-    // Sample weights for Thompson Sampling ranking
+    // Sample weights for Thompson Sampling ranking — single draw, reused for display scores
+    let mut all_scores: HashMap<usize, f64> = HashMap::new();
     let ranked_indices: Vec<usize> = if encoded.is_empty() {
         vec![]
     } else {
@@ -246,7 +247,9 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
                     .enumerate()
                     .map(|(i, x)| {
                         let score = LinTSModel::score(&w, x);
-                        (encoded[i].0, score)
+                        let orig_idx = encoded[i].0;
+                        all_scores.insert(orig_idx, score);
+                        (orig_idx, score)
                     })
                     .collect();
                 scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -264,22 +267,6 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
         .into_iter()
         .take(config.candidates_per_scan)
         .collect();
-
-    // Re-score for display
-    let display_scores: HashMap<usize, f64> = if model.dimension() > 0 {
-        match model.sample_weights() {
-            Ok(w) => top_indices
-                .iter()
-                .map(|&idx| {
-                    let score = LinTSModel::score(&w, &encoded[idx].1);
-                    (idx, score)
-                })
-                .collect(),
-            Err(_) => HashMap::new(),
-        }
-    } else {
-        HashMap::new()
-    };
 
     // Save model (feature index may have expanded)
     let (fi_json, mu_bytes, sigma_bytes) = model.to_bytes();
@@ -315,7 +302,7 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
         for &idx in &top_indices {
             let (feed_id, article, _) = &all_new_articles[idx];
             let short_id: String = article.id.chars().take(8).collect();
-            let score = display_scores.get(&idx).copied().unwrap_or(0.0);
+            let score = all_scores.get(&idx).copied().unwrap_or(0.0);
 
             let feed_name = feed_results
                 .iter()
