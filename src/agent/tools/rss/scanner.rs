@@ -369,19 +369,17 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
     // Per-source summary
     if !feed_results.is_empty() {
         let _ = writeln!(out, "\n**Per-feed summary:**");
-        let feed_name_to_new: HashMap<&str, usize> = {
+        let feed_id_to_new: HashMap<&str, usize> = {
             let mut m: HashMap<&str, usize> = HashMap::new();
             for (feed_id, _, _) in &all_new_articles {
-                if let Some(fr) = feed_results.iter().find(|f| f.feed_id == *feed_id) {
-                    *m.entry(fr.feed_name.as_str()).or_insert(0) += 1;
-                }
+                *m.entry(feed_id.as_str()).or_insert(0) += 1;
             }
             m
         };
 
         for fr in &feed_results {
-            let new_count = feed_name_to_new
-                .get(fr.feed_name.as_str())
+            let new_count = feed_id_to_new
+                .get(fr.feed_id.as_str())
                 .copied()
                 .unwrap_or(0);
             let _ = writeln!(

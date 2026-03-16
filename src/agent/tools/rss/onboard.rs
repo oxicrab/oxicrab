@@ -75,7 +75,8 @@ pub fn check_gate(db: &MemoryDB, action: &str) -> Result<Option<ToolResult>> {
         "get_articles" | "accept" | "reject" | "get_article_detail" => {
             matches!(state, STATE_NEEDS_CALIBRATION | STATE_COMPLETE)
         }
-        "scan" | "feed_stats" => state == STATE_COMPLETE,
+        "scan" => matches!(state, STATE_NEEDS_CALIBRATION | STATE_COMPLETE),
+        "feed_stats" => state == STATE_COMPLETE,
         _ => true, // unknown actions fall through to execute()'s own error
     };
 
