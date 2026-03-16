@@ -268,6 +268,9 @@ pub async fn handle_scan(db: &MemoryDB, client: &Client, config: &RssConfig) -> 
         .take(config.candidates_per_scan)
         .collect();
 
+    // Prune if feature dimension grew past limit during encoding
+    model.prune_if_needed();
+
     // Save model (feature index may have expanded)
     let (fi_json, mu_bytes, sigma_bytes) = model.to_bytes();
     if let Err(e) = db.save_rss_model(&fi_json, &mu_bytes, &sigma_bytes, now) {

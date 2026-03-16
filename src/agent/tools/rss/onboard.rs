@@ -187,9 +187,14 @@ pub fn handle_onboard(
                         svc.add_job(job)?;
                         db.set_rss_cron_job_id(&job_id, now)?;
                     } else {
-                        // No cron service — still record a placeholder so feed_stats
-                        // doesn't warn, but note that scheduling is unavailable
-                        warn!("rss onboard: cron service unavailable, skipping job creation");
+                        warn!(
+                            "rss onboard: cron service unavailable, staying in needs_calibration"
+                        );
+                        return Ok(ToolResult::new(
+                            "Calibration complete, but a scheduled scan job could not be created \
+                             because the cron service is unavailable. Please run onboard again to \
+                             finish setup once the service is available.",
+                        ));
                     }
                 }
 
@@ -340,6 +345,7 @@ fn next_action_hint(state: &str) -> &'static str {
     match state {
         STATE_NEEDS_PROFILE => "set_profile",
         STATE_NEEDS_FEEDS => "add_feed",
+        STATE_NEEDS_CALIBRATION => "accept",
         STATE_COMPLETE => "scan",
         _ => "onboard",
     }

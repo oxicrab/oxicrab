@@ -739,21 +739,21 @@ async fn test_full_onboarding_flow() {
         assert!(!result.is_error, "reject {i} failed: {}", result.content);
     }
 
-    // 8. Onboard should now complete (>= 5 reviews, no cron service in test)
+    // 8. Onboard detects cron service unavailable (test has no CronService)
     let result = tool
         .execute(serde_json::json!({"action": "onboard"}), &ctx)
         .await
         .unwrap();
     assert!(!result.is_error);
-    // Should mention completion
     let content_lower = result.content.to_lowercase();
     assert!(
-        content_lower.contains("complete")
-            || content_lower.contains("done")
-            || content_lower.contains("configured"),
-        "expected completion message, got: {}",
+        content_lower.contains("cron service") || content_lower.contains("unavailable"),
+        "expected cron unavailable message, got: {}",
         result.content
     );
+
+    // State stays at needs_calibration — manually advance to complete for remaining tests
+    tool.db.set_rss_onboarding_state("complete", 3000).unwrap();
 
     // 9. Now feed_stats should work
     let result = tool

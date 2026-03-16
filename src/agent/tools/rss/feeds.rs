@@ -131,7 +131,7 @@ pub async fn handle_add_feed(
     // 12. Return success
     Ok(ToolResult::new(format!(
         "Feed added successfully.\n\nName: {feed_name}\nURL: {url}\nEntries in feed: {entry_count}\n\n\
-         Use 'scan' to fetch new articles, or 'get_articles' to browse existing ones."
+         Use 'onboard' to check your setup progress, or 'get_articles' to browse existing articles."
     )))
 }
 

@@ -226,8 +226,6 @@ pub(crate) fn update_model_for_article(db: &MemoryDB, article_id: &str, accepted
     let mut model = load_or_create_model(db);
     let x = model.encode_article(&article.feed_id, &tags, &[]);
     model.update(&x, accepted);
-    // Small covariance inflation to prevent over-confidence and handle taste drift
-    model.inflate_covariance(0.01);
     model.prune_if_needed();
     save_model(db, &model);
 }
