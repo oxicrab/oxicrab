@@ -78,6 +78,8 @@ pub async fn register_all_tools(
     register_memory_search(&mut tools, ctx);
     register_workspace(&mut tools, ctx);
     register_interactive(&mut tools, ctx);
+    #[cfg(feature = "tool-rss")]
+    register_rss(&mut tools, ctx);
 
     // Slow async registrations — run in parallel
     let (google_tools, mcp_result) = tokio::join!(create_google_tools(ctx), create_mcp(ctx),);
@@ -403,6 +405,25 @@ fn register_interactive(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::interactive::AddButtonsTool;
 
     registry.register(Arc::new(AddButtonsTool::new(ctx.pending_buttons.clone())));
+}
+
+#[cfg(feature = "tool-rss")]
+fn register_rss(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    use crate::agent::tools::rss::RssTool;
+
+    let enabled = ctx.rss_config.as_ref().is_none_or(|c| c.enabled);
+    if !enabled {
+        return;
+    }
+    if let Some(ref db) = ctx.memory_db {
+        let config = ctx.rss_config.clone().unwrap_or_default();
+        registry.register(Arc::new(RssTool::new(
+            db.clone(),
+            config,
+            ctx.cron_service.clone(),
+        )));
+        info!("RSS tool registered");
+    }
 }
 
 fn register_memory_search(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
