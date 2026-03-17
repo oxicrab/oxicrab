@@ -319,7 +319,7 @@ fn build_google_task_buttons(tasks: &[Value], tasklist_id: &str) -> Vec<Value> {
                 "params": {
                     "action": "update_task",
                     "task_id": task_id,
-                    "tasklist_id": tasklist_id,
+                    "task_list_id": tasklist_id,
                     "status": "completed"
                 }
             }).to_string()

@@ -138,7 +138,7 @@ fn test_build_google_task_buttons_filters_completed() {
     let ctx: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
     assert_eq!(ctx["tool"], "google_tasks");
-    assert_eq!(ctx["params"]["tasklist_id"], "tasklist1");
+    assert_eq!(ctx["params"]["task_list_id"], "tasklist1");
     assert_eq!(ctx["params"]["task_id"], "t1");
     assert_eq!(ctx["params"]["action"], "update_task");
     assert_eq!(ctx["params"]["status"], "completed");
