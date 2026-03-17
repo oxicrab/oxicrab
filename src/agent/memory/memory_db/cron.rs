@@ -5,7 +5,6 @@ use crate::cron::types::{
 use anyhow::Result;
 use rusqlite::params;
 use std::collections::HashMap;
-use tracing::error;
 
 fn schedule_type_str(schedule: &CronSchedule) -> &'static str {
     match schedule {
@@ -88,14 +87,13 @@ fn schedule_columns(schedule: &CronSchedule) -> ScheduleColumns<'_> {
 
 impl MemoryDB {
     pub fn insert_cron_job(&self, job: &CronJob) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mut conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         let stype = schedule_type_str(&job.schedule);
         let cols = schedule_columns(&job.schedule);
 
-        conn.execute_batch("BEGIN")?;
-        let result = (|| -> Result<()> {
-            conn.execute(
-                "INSERT INTO cron_jobs (
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO cron_jobs (
                     id, name, enabled, schedule_type,
                     at_ms, every_ms, cron_expr, cron_tz, event_pattern, event_channel,
                     payload_kind, payload_message, agent_echo,
@@ -112,52 +110,45 @@ impl MemoryDB {
                     ?20, ?21, ?22,
                     ?23, ?24, ?25, ?26
                 )",
-                params![
-                    job.id,
-                    job.name,
-                    job.enabled,
-                    stype,
-                    cols.at_ms,
-                    cols.every_ms,
-                    cols.cron_expr,
-                    cols.cron_tz,
-                    cols.event_pattern,
-                    cols.event_channel,
-                    job.payload.kind,
-                    job.payload.message,
-                    job.payload.agent_echo,
-                    job.state.next_run_at_ms,
-                    job.state.last_run_at_ms,
-                    job.state.last_status,
-                    job.state.last_error,
-                    job.state.run_count,
-                    job.state.last_fired_at_ms,
-                    job.created_at_ms,
-                    job.updated_at_ms,
-                    job.delete_after_run,
-                    job.expires_at_ms,
-                    job.max_runs,
-                    job.cooldown_secs.map(|v| v as i64),
-                    job.max_concurrent,
-                ],
-            )?;
+            params![
+                job.id,
+                job.name,
+                job.enabled,
+                stype,
+                cols.at_ms,
+                cols.every_ms,
+                cols.cron_expr,
+                cols.cron_tz,
+                cols.event_pattern,
+                cols.event_channel,
+                job.payload.kind,
+                job.payload.message,
+                job.payload.agent_echo,
+                job.state.next_run_at_ms,
+                job.state.last_run_at_ms,
+                job.state.last_status,
+                job.state.last_error,
+                job.state.run_count,
+                job.state.last_fired_at_ms,
+                job.created_at_ms,
+                job.updated_at_ms,
+                job.delete_after_run,
+                job.expires_at_ms,
+                job.max_runs,
+                job.cooldown_secs.map(|v| v as i64),
+                job.max_concurrent,
+            ],
+        )?;
 
-            for target in &job.payload.targets {
-                conn.execute(
-                    "INSERT INTO cron_job_targets (job_id, channel, target)
+        for target in &job.payload.targets {
+            tx.execute(
+                "INSERT INTO cron_job_targets (job_id, channel, target)
                      VALUES (?1, ?2, ?3)",
-                    params![job.id, target.channel, target.to],
-                )?;
-            }
-            Ok(())
-        })();
-
-        if result.is_ok() {
-            conn.execute_batch("COMMIT")?;
-        } else if let Err(rollback_err) = conn.execute_batch("ROLLBACK") {
-            error!("ROLLBACK failed: {}", rollback_err);
+                params![job.id, target.channel, target.to],
+            )?;
         }
-        result
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn delete_cron_job(&self, id: &str) -> Result<bool> {
@@ -449,7 +440,7 @@ impl MemoryDB {
         next_run_at_ms: Option<Option<i64>>,
         updated_at_ms: i64,
     ) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mut conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
 
         // Build dynamic SET clause
         let mut set_clauses = vec!["updated_at_ms = ?1".to_string()];
@@ -515,33 +506,25 @@ impl MemoryDB {
             param_values.iter().map(AsRef::as_ref).collect();
 
         // Wrap UPDATE + target replacement in a single transaction
-        conn.execute_batch("BEGIN")?;
-        let result = (|| -> Result<bool> {
-            let updated = conn.execute(&sql, params_ref.as_slice())?;
+        let tx = conn.transaction()?;
+        let updated = tx.execute(&sql, params_ref.as_slice())?;
 
-            if let Some(targets) = &params_upd.targets {
-                conn.execute(
-                    "DELETE FROM cron_job_targets WHERE job_id = ?1",
-                    params![id],
-                )?;
-                for target in targets {
-                    conn.execute(
-                        "INSERT INTO cron_job_targets (job_id, channel, target)
+        if let Some(targets) = &params_upd.targets {
+            tx.execute(
+                "DELETE FROM cron_job_targets WHERE job_id = ?1",
+                params![id],
+            )?;
+            for target in targets {
+                tx.execute(
+                    "INSERT INTO cron_job_targets (job_id, channel, target)
                          VALUES (?1, ?2, ?3)",
-                        params![id, target.channel, target.to],
-                    )?;
-                }
+                    params![id, target.channel, target.to],
+                )?;
             }
-
-            Ok(updated > 0)
-        })();
-
-        if result.is_ok() {
-            conn.execute_batch("COMMIT")?;
-        } else if let Err(rollback_err) = conn.execute_batch("ROLLBACK") {
-            error!("ROLLBACK failed: {}", rollback_err);
         }
-        result
+
+        tx.commit()?;
+        Ok(updated > 0)
     }
 
     /// Update only the completion status and error of a cron job.

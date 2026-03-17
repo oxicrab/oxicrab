@@ -1061,3 +1061,75 @@ fn test_purge_old_cost_logs() {
     assert_eq!(db.purge_old_cost_logs(0).unwrap(), 0);
     assert_eq!(db.purge_old_cost_logs(365).unwrap(), 0);
 }
+
+#[test]
+fn test_purge_old_memory_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
+
+    // Insert entries: old non-knowledge (should be purged), old knowledge (survive),
+    // and recent non-knowledge (survive).
+    db.insert_memory("notes.md", "old regular entry about Rust")
+        .unwrap();
+    db.insert_memory("knowledge:faq.md", "knowledge entry about Rust FAQ")
+        .unwrap();
+    db.insert_memory("notes.md", "recent entry about async Rust")
+        .unwrap();
+
+    // Backdate the first two entries to 60 days ago via direct SQL.
+    // The third entry keeps its current timestamp (treated as recent).
+    {
+        let conn = db.conn.lock().unwrap();
+        let old_ts = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
+        // Update the two entries inserted first (lowest rowids).
+        conn.execute(
+            "UPDATE memory_entries SET created_at = ?1
+             WHERE id IN (SELECT id FROM memory_entries ORDER BY id LIMIT 2)",
+            rusqlite::params![old_ts],
+        )
+        .unwrap();
+    }
+
+    // Store a fake embedding for the old non-knowledge entry so we can verify
+    // orphan cleanup. Find its id first.
+    let missing = db.get_entries_missing_embeddings().unwrap();
+    assert!(!missing.is_empty());
+    // Pick the old non-knowledge entry (content contains "old regular entry").
+    let old_entry_id = missing
+        .iter()
+        .find(|(_, _, c)| c.contains("old regular entry"))
+        .map(|(id, _, _)| *id)
+        .expect("old regular entry should exist");
+    db.store_embedding(old_entry_id, &[0u8; 128]).unwrap();
+
+    // Purge entries older than 30 days — only the old non-knowledge entry is deleted.
+    let deleted = db.purge_old_memory_entries(30).unwrap();
+    assert_eq!(
+        deleted, 1,
+        "only the old non-knowledge entry should be purged"
+    );
+
+    // Verify the knowledge entry still exists.
+    let knowledge_entries = db.get_recent_entries("knowledge:faq.md", 10).unwrap();
+    assert_eq!(
+        knowledge_entries.len(),
+        1,
+        "knowledge entry must survive purge"
+    );
+
+    // Verify the recent non-knowledge entry still exists.
+    let recent_entries = db.get_recent_entries("notes.md", 10).unwrap();
+    assert_eq!(recent_entries.len(), 1, "recent entry must survive purge");
+    assert!(recent_entries[0].contains("recent entry"));
+
+    // Verify the orphaned embedding was cleaned up.
+    let missing_after = db.get_entries_missing_embeddings().unwrap();
+    // The embedding we stored is now orphaned (its entry was deleted);
+    // the remaining entries (knowledge + recent) still have no embeddings.
+    for (id, _, _) in &missing_after {
+        assert_ne!(
+            *id, old_entry_id,
+            "deleted entry's embedding should have been removed"
+        );
+    }
+}
