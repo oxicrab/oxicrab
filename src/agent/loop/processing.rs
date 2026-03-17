@@ -132,9 +132,16 @@ impl AgentLoop {
                     .await;
             }
             crate::router::RoutingDecision::GuidedLLM {
-                tool_subset,
+                tool_subset: _,
                 context_hint,
-            } => (Some(tool_subset.clone()), Some(context_hint.clone())),
+            } => {
+                // GuidedLLM injects the context hint but does NOT filter tools.
+                // Filtering to only the active tool prevents the LLM from handling
+                // cross-domain requests (e.g. "trigger the cron job" while RSS is active).
+                // The hint gives the LLM enough context to prefer the active tool
+                // without blocking access to other tools.
+                (None, Some(context_hint.clone()))
+            }
             // NOTE: SemanticFilter is not yet produced by the router; handled
             // here for exhaustiveness in case it is wired in the future.
             crate::router::RoutingDecision::SemanticFilter { tool_subset } => {
