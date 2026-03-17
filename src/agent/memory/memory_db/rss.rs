@@ -299,13 +299,15 @@ impl MemoryDB {
     }
 
     pub fn insert_rss_article_tags(&self, article_id: &str, tags: &[&str]) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let mut conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let tx = conn.transaction()?;
         for tag in tags {
-            conn.execute(
+            tx.execute(
                 "INSERT OR IGNORE INTO rss_article_tags (article_id, tag) VALUES (?1, ?2)",
                 params![article_id, tag],
             )?;
         }
+        tx.commit()?;
         Ok(())
     }
 

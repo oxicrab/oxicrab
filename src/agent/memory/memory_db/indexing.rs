@@ -47,22 +47,26 @@ impl MemoryDB {
         if days == 0 {
             return Ok(0);
         }
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
         let cutoff = Utc::now() - chrono::Duration::days(i64::from(days));
         let cutoff_str = cutoff.to_rfc3339();
-        let deleted = conn.execute(
+        let tx = conn.transaction()?;
+        let deleted = tx.execute(
             "DELETE FROM memory_entries WHERE source_key NOT LIKE 'knowledge:%' AND created_at < ?",
             params![cutoff_str],
         )?;
         if deleted > 0 {
             // Clean up orphaned embeddings
-            conn.execute(
+            tx.execute(
                 "DELETE FROM memory_embeddings WHERE entry_id NOT IN (SELECT id FROM memory_entries)",
                 [],
             )?;
+        }
+        tx.commit()?;
+        if deleted > 0 {
             // Invalidate embedding cache since entries were removed
             self.embedding_generation
                 .fetch_add(1, std::sync::atomic::Ordering::Release);
