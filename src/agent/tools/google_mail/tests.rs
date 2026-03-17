@@ -116,13 +116,13 @@ fn test_build_search_buttons_basic() {
     let ctx0: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
     assert_eq!(ctx0["tool"], "google_mail");
-    assert_eq!(ctx0["message_id"], "msg1");
-    assert_eq!(ctx0["action"], "read");
+    assert_eq!(ctx0["params"]["message_id"], "msg1");
+    assert_eq!(ctx0["params"]["action"], "read");
 
     assert_eq!(buttons[1]["id"], "read-msg2");
     let ctx1: serde_json::Value =
         serde_json::from_str(buttons[1]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx1["message_id"], "msg2");
+    assert_eq!(ctx1["params"]["message_id"], "msg2");
 }
 
 #[test]
@@ -162,15 +162,15 @@ fn test_build_read_buttons_basic() {
     let ctx0: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
     assert_eq!(ctx0["tool"], "google_mail");
-    assert_eq!(ctx0["message_id"], "abc123");
-    assert_eq!(ctx0["action"], "reply");
+    assert_eq!(ctx0["params"]["message_id"], "abc123");
+    assert_eq!(ctx0["params"]["action"], "reply");
 
     assert_eq!(buttons[1]["id"], "archive-abc123");
     assert_eq!(buttons[1]["label"], "Archive");
     assert_eq!(buttons[1]["style"], "danger");
     let ctx1: serde_json::Value =
         serde_json::from_str(buttons[1]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx1["action"], "archive");
+    assert_eq!(ctx1["params"]["action"], "label");
 }
 
 #[test]

@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::time::SystemTime;
 
 pub struct GoogleMailTool {
     api: GoogleApiClient,
@@ -198,7 +199,7 @@ impl Tool for GoogleMailTool {
                     .unwrap_or(&"(no subject)".to_string())
                     .clone();
 
-                let result = ToolResult::new(format!(
+                let content = format!(
                     "From: {}\nTo: {}\nSubject: {}\nDate: {}\nLabels: {}\n---\n{}",
                     headers.get("From").unwrap_or(&"?".to_string()),
                     headers.get("To").unwrap_or(&"?".to_string()),
@@ -206,9 +207,38 @@ impl Tool for GoogleMailTool {
                     headers.get("Date").unwrap_or(&"?".to_string()),
                     labels.join(", "),
                     body
-                ));
+                );
                 let buttons = build_read_buttons(message_id, &subject);
-                Ok(with_buttons(result, buttons))
+                let now = SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(0));
+                let mut metadata: HashMap<String, Value> = HashMap::new();
+                metadata.insert("active_tool".to_string(), serde_json::json!("google_mail"));
+                metadata.insert(
+                    "action_directives".to_string(),
+                    serde_json::json!([
+                        {
+                            "trigger": {"OneOf": ["reply", "respond"]},
+                            "tool": "google_mail",
+                            "params": {"action": "reply", "message_id": message_id},
+                            "single_use": true,
+                            "ttl_ms": 300_000,
+                            "created_at_ms": now
+                        },
+                        {
+                            "trigger": {"OneOf": ["archive", "dismiss"]},
+                            "tool": "google_mail",
+                            "params": {"action": "label", "message_id": message_id, "remove_label_ids": ["INBOX"]},
+                            "single_use": true,
+                            "ttl_ms": 300_000,
+                            "created_at_ms": now
+                        }
+                    ]),
+                );
+                if !buttons.is_empty() {
+                    metadata.insert("suggested_buttons".to_string(), Value::Array(buttons));
+                }
+                Ok(ToolResult::new(content).with_metadata(metadata))
             }
             "send" => {
                 let to = require_param!(params, "to");
@@ -375,8 +405,10 @@ fn build_search_buttons(messages: &[(String, String)]) -> Vec<Value> {
             "style": "primary",
             "context": serde_json::json!({
                 "tool": "google_mail",
-                "message_id": msg_id,
-                "action": "read"
+                "params": {
+                    "action": "read",
+                    "message_id": msg_id
+                }
             }).to_string()
         }));
     }
@@ -401,8 +433,10 @@ fn build_read_buttons(message_id: &str, subject: &str) -> Vec<Value> {
             "style": "primary",
             "context": serde_json::json!({
                 "tool": "google_mail",
-                "message_id": message_id,
-                "action": "reply"
+                "params": {
+                    "action": "reply",
+                    "message_id": message_id
+                }
             }).to_string()
         }),
         serde_json::json!({
@@ -411,8 +445,11 @@ fn build_read_buttons(message_id: &str, subject: &str) -> Vec<Value> {
             "style": "danger",
             "context": serde_json::json!({
                 "tool": "google_mail",
-                "message_id": message_id,
-                "action": "archive"
+                "params": {
+                    "action": "label",
+                    "message_id": message_id,
+                    "remove_label_ids": ["INBOX"]
+                }
             }).to_string()
         }),
     ]
