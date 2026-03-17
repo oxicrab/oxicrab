@@ -22,27 +22,29 @@ impl MemoryDB {
         payload: &str,
         error_message: &str,
     ) -> Result<i64> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        conn.execute(
+        let mut conn = self.lock_conn()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             "INSERT INTO scheduled_task_dlq (job_id, job_name, payload, error_message)
              VALUES (?1, ?2, ?3, ?4)",
             params![job_id, job_name, payload, error_message],
         )?;
-        let id = conn.last_insert_rowid();
+        let id = tx.last_insert_rowid();
 
         // Auto-purge: keep only 100 most recent entries
-        conn.execute(
+        tx.execute(
             "DELETE FROM scheduled_task_dlq WHERE id NOT IN (
                 SELECT id FROM scheduled_task_dlq ORDER BY id DESC LIMIT 100
             )",
             [],
         )?;
+        tx.commit()?;
 
         Ok(id)
     }
 
     pub fn list_dlq_entries(&self, status_filter: Option<&str>) -> Result<Vec<DlqEntry>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let (sql, filter_params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(
             status,
         ) =
@@ -83,7 +85,7 @@ impl MemoryDB {
     }
 
     pub fn update_dlq_status(&self, id: i64, new_status: &str) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let updated = conn.execute(
             "UPDATE scheduled_task_dlq SET status = ?1 WHERE id = ?2",
             params![new_status, id],
@@ -92,7 +94,7 @@ impl MemoryDB {
     }
 
     pub fn increment_dlq_retry(&self, id: i64) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let updated = conn.execute(
             "UPDATE scheduled_task_dlq SET retry_count = retry_count + 1 WHERE id = ?1",
             params![id],
@@ -101,7 +103,7 @@ impl MemoryDB {
     }
 
     pub fn clear_dlq(&self, status_filter: Option<&str>) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = if let Some(status) = status_filter {
             conn.execute(
                 "DELETE FROM scheduled_task_dlq WHERE status = ?1",

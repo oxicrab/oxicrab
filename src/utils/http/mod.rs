@@ -2,10 +2,46 @@ use anyhow::{Result, bail};
 use reqwest::{Client, Response};
 use std::time::Duration;
 
+use crate::utils::url_security::ResolvedUrl;
+
 /// Default maximum body size for streaming downloads (10 MB).
 pub const DEFAULT_MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
 
+/// Build a reqwest Client pinned to resolved DNS addresses.
+/// Disables redirects (SSRF prevention) and prefers IPv4 when available.
+pub fn build_pinned_client(
+    resolved: &ResolvedUrl,
+    timeout: Duration,
+    user_agent: Option<&str>,
+) -> Result<Client> {
+    let mut builder = Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(timeout)
+        .redirect(reqwest::redirect::Policy::none());
+
+    if let Some(ua) = user_agent {
+        builder = builder.user_agent(ua);
+    }
+
+    // Prefer IPv4 when available (some hosts have broken IPv6)
+    let has_ipv4 = resolved.addrs.iter().any(std::net::SocketAddr::is_ipv4);
+    for addr in &resolved.addrs {
+        if has_ipv4 && addr.is_ipv6() {
+            continue;
+        }
+        builder = builder.resolve(&resolved.host, *addr);
+    }
+
+    builder
+        .build()
+        .map_err(|e| anyhow::anyhow!("failed to build pinned client: {e}"))
+}
+
 /// Build a `reqwest::Client` with standard timeouts (10 s connect, 30 s overall).
+///
+/// Used for trusted API calls (GitHub, Google, Todoist, Weather, etc.) where
+/// redirects are expected and safe. Does NOT disable redirects — that is only
+/// done in `build_pinned_client()` for SSRF-sensitive user-provided URLs.
 ///
 /// Falls back to the default client if the builder fails.
 pub fn default_http_client() -> Client {

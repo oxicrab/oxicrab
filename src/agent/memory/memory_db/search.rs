@@ -48,10 +48,7 @@ impl MemoryDB {
         if keyword_weight > 0.0 {
             let query = fts_query(query_text);
             if !query.is_empty() && self.has_fts {
-                let conn = self
-                    .conn
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+                let conn = self.lock_conn()?;
                 let mut stmt = conn.prepare(
                     "SELECT me.id, me.source_key, me.content, bm25(memory_fts) as score, me.created_at
                      FROM memory_fts
@@ -252,10 +249,7 @@ impl MemoryDB {
 
     /// List all source keys in the database.
     pub fn list_source_keys(&self) -> Result<Vec<String>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare("SELECT source_key FROM memory_sources")?;
         let keys: Result<Vec<_>, _> = stmt.query_map([], |row| row.get(0))?.collect();
         keys.map_err(|e| anyhow::anyhow!("Failed to list source keys: {e}"))
@@ -265,10 +259,7 @@ impl MemoryDB {
     /// More efficient than `list_source_keys()` + client-side filtering for
     /// group-mode daily note exclusion.
     pub fn list_daily_source_keys(&self) -> Result<Vec<String>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt =
             conn.prepare("SELECT source_key FROM memory_sources WHERE source_key LIKE 'daily:%'")?;
         let keys: Result<Vec<_>, _> = stmt.query_map([], |row| row.get(0))?.collect();
@@ -302,10 +293,7 @@ impl MemoryDB {
 
         let default_set = std::collections::HashSet::new();
         let exclude = exclude_sources.unwrap_or(&default_set);
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
 
         if self.has_fts {
             let mut stmt = conn.prepare(

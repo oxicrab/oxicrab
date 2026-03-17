@@ -1075,20 +1075,21 @@ fn test_build_issue_buttons_open_issues() {
             "state": "open"
         }),
     ];
-    let buttons = build_issue_buttons(&issues, "octo/repo");
+    let buttons = build_issue_buttons(&issues, "octo", "repo");
     assert_eq!(buttons.len(), 2); // only open issues
-    assert_eq!(buttons[0]["id"], "close-issue-42");
-    assert_eq!(buttons[0]["style"], "danger");
-    assert!(buttons[0]["label"].as_str().unwrap().starts_with("Close: "));
-    assert_eq!(buttons[1]["id"], "close-issue-44");
+    assert_eq!(buttons[0]["id"], "view-issue-42");
+    assert_eq!(buttons[0]["style"], "primary");
+    assert!(buttons[0]["label"].as_str().unwrap().starts_with("View: "));
+    assert_eq!(buttons[1]["id"], "view-issue-44");
 
-    // Verify context is valid JSON with correct fields
+    // Verify context uses ActionDispatchPayload format
     let ctx: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
     assert_eq!(ctx["tool"], "github");
-    assert_eq!(ctx["repo"], "octo/repo");
-    assert_eq!(ctx["issue_number"], 42);
-    assert_eq!(ctx["action"], "close_issue");
+    assert_eq!(ctx["params"]["owner"], "octo");
+    assert_eq!(ctx["params"]["repo"], "repo");
+    assert_eq!(ctx["params"]["number"], 42);
+    assert_eq!(ctx["params"]["action"], "get_issue");
 }
 
 #[test]
@@ -1102,7 +1103,7 @@ fn test_build_issue_buttons_max_five() {
             })
         })
         .collect();
-    let buttons = build_issue_buttons(&issues, "octo/repo");
+    let buttons = build_issue_buttons(&issues, "octo", "repo");
     assert_eq!(buttons.len(), 5);
 }
 
@@ -1113,7 +1114,7 @@ fn test_build_issue_buttons_no_open() {
         "title": "Closed",
         "state": "closed"
     })];
-    let buttons = build_issue_buttons(&issues, "octo/repo");
+    let buttons = build_issue_buttons(&issues, "octo", "repo");
     assert!(buttons.is_empty());
 }
 
@@ -1131,7 +1132,7 @@ fn test_build_pr_list_buttons_open_prs() {
             "state": "closed"
         }),
     ];
-    let buttons = build_pr_list_buttons(&prs, "octo/repo");
+    let buttons = build_pr_list_buttons(&prs, "octo", "repo");
     assert_eq!(buttons.len(), 1);
     assert_eq!(buttons[0]["id"], "approve-pr-10");
     assert_eq!(buttons[0]["style"], "primary");
@@ -1139,9 +1140,11 @@ fn test_build_pr_list_buttons_open_prs() {
     let ctx: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
     assert_eq!(ctx["tool"], "github");
-    assert_eq!(ctx["repo"], "octo/repo");
-    assert_eq!(ctx["pr_number"], 10);
-    assert_eq!(ctx["action"], "approve_pr");
+    assert_eq!(ctx["params"]["owner"], "octo");
+    assert_eq!(ctx["params"]["repo"], "repo");
+    assert_eq!(ctx["params"]["number"], 10);
+    assert_eq!(ctx["params"]["event"], "APPROVE");
+    assert_eq!(ctx["params"]["action"], "create_pr_review");
 }
 
 #[test]
@@ -1155,7 +1158,7 @@ fn test_build_pr_list_buttons_max_five() {
             })
         })
         .collect();
-    let buttons = build_pr_list_buttons(&prs, "octo/repo");
+    let buttons = build_pr_list_buttons(&prs, "octo", "repo");
     assert_eq!(buttons.len(), 5);
 }
 
@@ -1166,7 +1169,7 @@ fn test_build_pr_detail_buttons_open_pr() {
         "state": "open",
         "merged": false
     });
-    let buttons = build_pr_detail_buttons(&pr, "octo/repo");
+    let buttons = build_pr_detail_buttons(&pr, "octo", "repo");
     assert_eq!(buttons.len(), 2);
     assert_eq!(buttons[0]["id"], "approve-pr-10");
     assert_eq!(buttons[0]["label"], "Approve");
@@ -1177,10 +1180,16 @@ fn test_build_pr_detail_buttons_open_pr() {
 
     let ctx0: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx0["action"], "approve_pr");
-    let ctx1: serde_json::Value =
-        serde_json::from_str(buttons[1]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx1["action"], "request_changes");
+    assert_eq!(ctx0["params"]["action"], "create_pr_review");
+    assert_eq!(ctx0["params"]["owner"], "octo");
+    assert_eq!(ctx0["params"]["repo"], "repo");
+    assert_eq!(ctx0["params"]["number"], 10);
+    assert_eq!(ctx0["params"]["event"], "APPROVE");
+    // "Request Changes" uses a plain string context (routes through LLM for body input)
+    assert_eq!(
+        buttons[1]["context"].as_str().unwrap(),
+        "Request changes on PR #10 in octo/repo"
+    );
 }
 
 #[test]
@@ -1190,7 +1199,7 @@ fn test_build_pr_detail_buttons_closed_pr() {
         "state": "closed",
         "merged": false
     });
-    let buttons = build_pr_detail_buttons(&pr, "octo/repo");
+    let buttons = build_pr_detail_buttons(&pr, "octo", "repo");
     assert!(buttons.is_empty());
 }
 
@@ -1201,7 +1210,7 @@ fn test_build_pr_detail_buttons_merged_pr() {
         "state": "closed",
         "merged": true
     });
-    let buttons = build_pr_detail_buttons(&pr, "octo/repo");
+    let buttons = build_pr_detail_buttons(&pr, "octo", "repo");
     assert!(buttons.is_empty());
 }
 
@@ -1274,7 +1283,7 @@ async fn test_list_issues_returns_suggested_buttons() {
         .as_array()
         .expect("should have buttons");
     assert_eq!(buttons.len(), 1); // only open issue
-    assert_eq!(buttons[0]["id"], "close-issue-42");
+    assert_eq!(buttons[0]["id"], "view-issue-42");
 }
 
 #[tokio::test]
@@ -1314,7 +1323,7 @@ async fn test_get_issue_returns_suggested_buttons() {
     let meta = result.metadata.expect("should have metadata");
     let buttons = meta["suggested_buttons"].as_array().unwrap();
     assert_eq!(buttons.len(), 1);
-    assert_eq!(buttons[0]["id"], "close-issue-42");
+    assert_eq!(buttons[0]["id"], "view-issue-42");
 }
 
 #[tokio::test]

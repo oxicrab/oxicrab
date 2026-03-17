@@ -289,7 +289,7 @@ async fn test_hallucination_detection_triggers_retry() {
     let second_msgs = &recorded[1].messages;
     let has_correction = second_msgs
         .iter()
-        .any(|m| m.role == "user" && m.content.contains("was not delivered"));
+        .any(|m| m.role == "user" && m.content.contains("did not call any tools"));
     assert!(
         has_correction,
         "Second call should contain the hallucination correction"
@@ -473,16 +473,15 @@ async fn test_hallucination_detection_without_tool_forcing() {
 
 #[tokio::test]
 async fn test_repeated_hallucination_corrected_each_time() {
-    // Regression test: with correction_sent gate removed, repeated hallucinations
-    // should each be caught — not just the first one
+    // Layer 1 hallucination detection fires once per agent loop (single-retry guard).
+    // The first hallucination triggers a correction; the second passes through as
+    // the final response since layer1_fired prevents a second correction.
     let tmp = TempDir::new().expect("create temp dir");
     let provider = MockLLMProvider::with_responses(vec![
-        // Iteration 1: hallucinates
+        // Iteration 1: hallucinates → correction injected
         text_response("I've updated the configuration file."),
-        // Iteration 2: hallucinates again (previously this would pass through!)
+        // Iteration 2: hallucinates again → layer1_fired, passes through as final response
         text_response("I've modified the database schema."),
-        // Iteration 3: gives honest response
-        text_response("Which file would you like me to update?"),
     ]);
     let calls = provider.calls.clone();
     let agent = create_test_agent_with(
@@ -500,38 +499,27 @@ async fn test_repeated_hallucination_corrected_each_time() {
         .await
         .expect("process");
 
-    // Should get the honest response (3rd iteration), not the 2nd hallucination
+    // Second hallucination passes through once L1 guard is exhausted
     assert_eq!(
-        resp, "Which file would you like me to update?",
-        "should return honest response after two corrections"
+        resp, "I've modified the database schema.",
+        "should return second response after single-retry correction is exhausted"
     );
 
-    // Should have 3 LLM calls: hallucination → correction → hallucination → correction → honest
+    // Should have 2 LLM calls: hallucination → correction → second hallucination (returned)
     let recorded = calls.lock().expect("lock");
     assert_eq!(
         recorded.len(),
-        3,
-        "should have 3 calls (two corrections + final)"
+        2,
+        "should have 2 calls (one correction + final)"
     );
 
-    // Second call should contain first correction
+    // Second call should contain the correction
     let second_msgs = &recorded[1].messages;
     assert!(
         second_msgs
             .iter()
-            .any(|m| m.role == "user" && m.content.contains("was not delivered")),
-        "second call should contain first correction"
-    );
-
-    // Third call should contain second correction
-    let third_msgs = &recorded[2].messages;
-    let correction_count = third_msgs
-        .iter()
-        .filter(|m| m.role == "user" && m.content.contains("was not delivered"))
-        .count();
-    assert_eq!(
-        correction_count, 2,
-        "third call should contain both corrections in history"
+            .any(|m| m.role == "user" && m.content.contains("did not call any tools")),
+        "second call should contain the hallucination correction"
     );
 }
 

@@ -26,28 +26,14 @@ pub async fn handle_add_feed(
 
     // 2. Build a per-request client pinned to the validated addresses to prevent
     //    DNS rebinding between validation and connection.
-    let pinned = {
-        let mut builder = Client::builder()
-            .user_agent(format!("oxicrab/{}", env!("CARGO_PKG_VERSION")))
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(timeout));
-        // Prefer IPv4 — many hosts advertise AAAA records but have broken IPv6
-        // connectivity, causing reqwest to hang until timeout.
-        let has_ipv4 = resolved.addrs.iter().any(std::net::SocketAddr::is_ipv4);
-        for addr in &resolved.addrs {
-            if has_ipv4 && addr.is_ipv6() {
-                continue;
-            }
-            builder = builder.resolve(&resolved.host, *addr);
-        }
-        match builder.build() {
-            Ok(c) => c,
-            Err(e) => {
-                return Ok(ToolResult::error(format!(
-                    "failed to build pinned HTTP client: {e}"
-                )));
-            }
-        }
+    let ua = format!("oxicrab/{}", env!("CARGO_PKG_VERSION"));
+    let pinned = match crate::utils::http::build_pinned_client(
+        &resolved,
+        Duration::from_secs(timeout),
+        Some(&ua),
+    ) {
+        Ok(c) => c,
+        Err(e) => return Ok(ToolResult::error(format!("{e}"))),
     };
 
     // 3. Fetch the feed

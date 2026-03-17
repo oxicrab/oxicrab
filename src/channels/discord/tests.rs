@@ -54,7 +54,7 @@ fn test_parse_embeds_with_entries() {
 #[test]
 fn test_parse_components_empty_metadata() {
     let meta = HashMap::new();
-    assert!(parse_components_from_metadata(&meta).is_empty());
+    assert!(parse_components_from_metadata(&meta, None).is_empty());
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn test_parse_components_with_buttons() {
             }
         ]),
     );
-    let rows = parse_components_from_metadata(&meta);
+    let rows = parse_components_from_metadata(&meta, None);
     assert_eq!(rows.len(), 1);
 }
 
@@ -82,7 +82,7 @@ fn test_parse_components_empty_buttons_skipped() {
         "discord_components".to_string(),
         serde_json::json!([{"buttons": []}]),
     );
-    let rows = parse_components_from_metadata(&meta);
+    let rows = parse_components_from_metadata(&meta, None);
     assert!(rows.is_empty());
 }
 
@@ -95,7 +95,7 @@ fn test_parse_components_missing_custom_id_skipped() {
             {"buttons": [{"label": "no_id"}]}
         ]),
     );
-    let rows = parse_components_from_metadata(&meta);
+    let rows = parse_components_from_metadata(&meta, None);
     // Button without custom_id is filter_map'd out
     assert!(rows.is_empty());
 }
@@ -112,14 +112,14 @@ fn test_parse_unified_buttons() {
             {"id": "deny", "label": "Deny", "style": "danger"}
         ]),
     );
-    let rows = parse_unified_buttons(&meta);
+    let rows = parse_unified_buttons(&meta, None);
     assert_eq!(rows.len(), 1); // one action row
 }
 
 #[test]
 fn test_parse_unified_buttons_empty() {
     let meta = HashMap::new();
-    assert!(parse_unified_buttons(&meta).is_empty());
+    assert!(parse_unified_buttons(&meta, None).is_empty());
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn test_discord_components_takes_precedence() {
         crate::bus::meta::BUTTONS.to_string(),
         serde_json::json!([{"id": "unified", "label": "Unified"}]),
     );
-    let rows = parse_components_from_metadata(&meta);
+    let rows = parse_components_from_metadata(&meta, None);
     assert_eq!(rows.len(), 1);
     // parse_components_from_metadata checks discord_components first
 }
@@ -148,8 +148,49 @@ fn test_parse_unified_buttons_missing_id_skipped() {
         crate::bus::meta::BUTTONS.to_string(),
         serde_json::json!([{"label": "No ID"}]),
     );
-    let rows = parse_unified_buttons(&meta);
+    let rows = parse_unified_buttons(&meta, None);
     assert!(rows.is_empty());
+}
+
+#[test]
+fn test_parse_unified_buttons_stores_dispatch_payload() {
+    let store = crate::dispatch::DispatchContextStore::new(100);
+    let payload = serde_json::json!({"tool": "rss", "params": {"action": "accept"}});
+    let mut meta = HashMap::new();
+    meta.insert(
+        crate::bus::meta::BUTTONS.to_string(),
+        serde_json::json!([
+            {
+                "id": "rss_accept",
+                "label": "Accept",
+                "style": "success",
+                "context": payload.to_string()
+            }
+        ]),
+    );
+    let rows = parse_unified_buttons(&meta, Some(&store));
+    assert_eq!(rows.len(), 1);
+    let stored = store.get("rss_accept");
+    assert!(stored.is_some());
+    assert_eq!(stored.unwrap().tool, "rss");
+}
+
+#[test]
+fn test_parse_unified_buttons_no_store_no_panic() {
+    // context field present but no store — should silently skip, still render button
+    let mut meta = HashMap::new();
+    meta.insert(
+        crate::bus::meta::BUTTONS.to_string(),
+        serde_json::json!([
+            {
+                "id": "btn1",
+                "label": "Click",
+                "context": r#"{"tool":"x","params":{}}"#
+            }
+        ]),
+    );
+    let rows = parse_unified_buttons(&meta, None);
+    assert_eq!(rows.len(), 1);
 }
 
 #[test]

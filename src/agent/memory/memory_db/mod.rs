@@ -27,8 +27,7 @@ pub use pairing::DbPendingRequest;
 pub use search::MemoryHit;
 pub use stats::SearchDetails;
 pub use stats::{
-    ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, IntentEvent,
-    IntentStats, SearchStats,
+    ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, SearchStats,
 };
 pub use subagent_log::SubagentLogEntry;
 pub use workspace::WorkspaceFileEntry;
@@ -133,6 +132,17 @@ impl MemoryDB {
                 db_path.display()
             )
         })?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = std::fs::metadata(db_path) {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o600);
+                let _ = std::fs::set_permissions(db_path, perms);
+            }
+        }
+
         Ok(db)
     }
 
@@ -150,6 +160,26 @@ impl MemoryDB {
 
         Ok(())
     }
+
+    pub(crate) fn lock_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
+        self.conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))
+    }
+}
+
+impl MemoryDB {
+    /// Invalidate the in-memory embedding cache so the next `hybrid_search`
+    /// reloads from the database. Called after inserting, removing, or
+    /// updating embeddings or the entries they reference.
+    pub(crate) fn invalidate_embedding_cache(&self) {
+        self.embedding_generation
+            .fetch_add(1, std::sync::atomic::Ordering::Release);
+        self.embedding_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+    }
 }
 
 // --- Session storage ---
@@ -157,10 +187,7 @@ impl MemoryDB {
 impl MemoryDB {
     /// Load a session by key. Returns `None` if not found.
     pub fn load_session(&self, key: &str) -> Result<Option<String>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare("SELECT data FROM sessions WHERE key = ?1")?;
         let mut rows = stmt.query(rusqlite::params![key])?;
         if let Some(row) = rows.next()? {
@@ -173,10 +200,7 @@ impl MemoryDB {
 
     /// Save a session (insert or replace).
     pub fn save_session(&self, key: &str, data: &str) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT OR REPLACE INTO sessions (key, data, updated_at) VALUES (?1, ?2, datetime('now'))",
             rusqlite::params![key, data],
@@ -187,10 +211,7 @@ impl MemoryDB {
     /// Delete sessions not updated within `ttl_days`. Returns count deleted.
     /// A TTL of 0 deletes all sessions.
     pub fn cleanup_sessions(&self, ttl_days: u32) -> Result<usize> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = if ttl_days == 0 {
             conn.execute("DELETE FROM sessions", [])?
         } else {

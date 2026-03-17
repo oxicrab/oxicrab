@@ -1,8 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{
-    DmCheckResult, check_dm_access, check_group_access, exponential_backoff_delay,
-    format_pairing_reply,
+    DmCheckResult, MAX_AUDIO_DOWNLOAD, MAX_IMAGE_DOWNLOAD, check_dm_access, check_group_access,
+    exponential_backoff_delay, format_pairing_reply,
 };
 use crate::config::SlackConfig;
 use crate::utils::regex::{RegexPatterns, compile_slack_mention};
@@ -16,8 +16,6 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 const MAX_USER_CACHE: usize = 1000;
-const MAX_IMAGE_DOWNLOAD: usize = 20 * 1024 * 1024; // 20 MB
-const MAX_AUDIO_DOWNLOAD: usize = 50 * 1024 * 1024; // 50 MB
 
 /// Subtypes to ignore when processing Slack message events.
 /// Unknown subtypes are allowed through (safe default = process).
@@ -72,7 +70,33 @@ fn classify_slack_error(http_status: u16, error_field: Option<&str>) -> SlackApi
 }
 
 fn is_retryable(err: &SlackApiError) -> bool {
-    matches!(err, SlackApiError::ServerError(status) if *status >= 500)
+    matches!(
+        err,
+        SlackApiError::ServerError(status) if *status >= 500
+    ) || matches!(err, SlackApiError::RateLimited { .. })
+}
+
+/// Parse HTTP status and retry-after from structured error messages
+/// produced by `parse_slack_response()` (format: "... [status=429] [retry-after=30]").
+fn parse_error_metadata(err_str: &str) -> (u16, Option<u32>) {
+    let status = err_str
+        .find("[status=")
+        .and_then(|pos| {
+            let start = pos + "[status=".len();
+            err_str[start..]
+                .find(']')
+                .and_then(|end| err_str[start..start + end].parse().ok())
+        })
+        .unwrap_or(0);
+
+    let retry_after = err_str.find("[retry-after=").and_then(|pos| {
+        let start = pos + "[retry-after=".len();
+        err_str[start..]
+            .find(']')
+            .and_then(|end| err_str[start..start + end].parse().ok())
+    });
+
+    (status, retry_after)
 }
 
 pub struct SlackChannel {
@@ -345,15 +369,7 @@ impl SlackChannel {
             .send()
             .await?;
 
-        let json: Value = response.json().await?;
-        if json.get("ok").and_then(Value::as_bool) != Some(true) {
-            let error = json
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown");
-            return Err(anyhow::anyhow!("Slack API error: {error}"));
-        }
-        Ok(json)
+        Self::parse_slack_response(response).await
     }
 
     /// Send a JSON-body Slack API request (needed for Block Kit `blocks` payloads).
@@ -369,20 +385,40 @@ impl SlackChannel {
             .send()
             .await?;
 
+        Self::parse_slack_response(response).await
+    }
+
+    /// Parse a Slack API response, extracting HTTP status and Retry-After for
+    /// error classification upstream.
+    async fn parse_slack_response(response: reqwest::Response) -> Result<Value> {
+        let status = response.status().as_u16();
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u32>().ok());
+
         let json: Value = response.json().await?;
         if json.get("ok").and_then(Value::as_bool) != Some(true) {
             let error = json
                 .get("error")
                 .and_then(Value::as_str)
                 .unwrap_or("unknown");
-            return Err(anyhow::anyhow!("Slack API error: {error}"));
+            // Include HTTP status and Retry-After in the error for the retry
+            // wrapper to parse. Format: "Slack API error: {error} [status={status}]"
+            // with optional "[retry-after={secs}]" suffix.
+            let mut msg = format!("Slack API error: {error} [status={status}]");
+            if let Some(secs) = retry_after {
+                use std::fmt::Write;
+                let _ = write!(msg, " [retry-after={secs}]");
+            }
+            return Err(anyhow::anyhow!("{msg}"));
         }
         Ok(json)
     }
 
     /// Retry wrapper for Slack API calls. Retries up to 3 times for transient
-    /// (5xx) errors. Rate limits (429) log a warning but don't retry. Auth
-    /// errors fail immediately.
+    /// (5xx) errors and rate limits (429) with Retry-After backoff.
     async fn send_slack_api_with_retry(
         &self,
         method: &str,
@@ -394,23 +430,19 @@ impl SlackChannel {
                 Ok(json) => return Ok(json),
                 Err(e) => {
                     let err_str = e.to_string();
-                    // Parse the error to determine retryability
-                    let http_status = if err_str.contains("HTTP 5") {
-                        500u16
-                    } else {
-                        0
-                    };
-                    let classified = classify_slack_error(
-                        http_status,
-                        err_str.strip_prefix("Slack API error: "),
-                    );
+                    let (http_status, retry_after) = parse_error_metadata(&err_str);
+                    let error_field = err_str
+                        .strip_prefix("Slack API error: ")
+                        .map(|s| s.split(" [status=").next().unwrap_or(s));
+                    let mut classified = classify_slack_error(http_status, error_field);
+                    // Override retry_after_secs with the parsed Retry-After header value
+                    if let (SlackApiError::RateLimited { retry_after_secs }, Some(parsed)) =
+                        (&mut classified, retry_after)
+                    {
+                        *retry_after_secs = parsed;
+                    }
                     if !is_retryable(&classified) {
                         match &classified {
-                            SlackApiError::RateLimited { retry_after_secs } => {
-                                warn!(
-                                    "slack: rate limited on {method}, retry after {retry_after_secs}s"
-                                );
-                            }
                             SlackApiError::InvalidAuth => {
                                 error!("slack: invalid auth for {method}");
                             }
@@ -423,13 +455,18 @@ impl SlackChannel {
                             SlackApiError::Other(msg) => {
                                 warn!("slack: API error on {method}: {msg}");
                             }
-                            SlackApiError::ServerError(_) => {} // handled by retry
+                            SlackApiError::RateLimited { .. } | SlackApiError::ServerError(_) => {}
                         }
                         return Err(e);
                     }
-                    let delay = 1u64 << attempt;
+                    let delay = match &classified {
+                        SlackApiError::RateLimited { retry_after_secs } => {
+                            u64::from(*retry_after_secs)
+                        }
+                        _ => 1u64 << attempt,
+                    };
                     warn!(
-                        "slack: transient error on {method} (attempt {}): {err_str}, retrying in {delay}s",
+                        "slack: retryable error on {method} (attempt {}): {err_str}, retrying in {delay}s",
                         attempt + 1
                     );
                     tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
@@ -448,21 +485,27 @@ impl SlackChannel {
                 Ok(json) => return Ok(json),
                 Err(e) => {
                     let err_str = e.to_string();
-                    let http_status = if err_str.contains("HTTP 5") {
-                        500u16
-                    } else {
-                        0
-                    };
-                    let classified = classify_slack_error(
-                        http_status,
-                        err_str.strip_prefix("Slack API error: "),
-                    );
+                    let (http_status, retry_after) = parse_error_metadata(&err_str);
+                    let error_field = err_str
+                        .strip_prefix("Slack API error: ")
+                        .map(|s| s.split(" [status=").next().unwrap_or(s));
+                    let mut classified = classify_slack_error(http_status, error_field);
+                    if let (SlackApiError::RateLimited { retry_after_secs }, Some(parsed)) =
+                        (&mut classified, retry_after)
+                    {
+                        *retry_after_secs = parsed;
+                    }
                     if !is_retryable(&classified) {
                         return Err(e);
                     }
-                    let delay = 1u64 << attempt;
+                    let delay = match &classified {
+                        SlackApiError::RateLimited { retry_after_secs } => {
+                            u64::from(*retry_after_secs)
+                        }
+                        _ => 1u64 << attempt,
+                    };
                     warn!(
-                        "slack: transient error on {method} (attempt {}): {err_str}, retrying in {delay}s",
+                        "slack: retryable error on {method} (attempt {}): {err_str}, retrying in {delay}s",
                         attempt + 1
                     );
                     tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
@@ -913,6 +956,25 @@ impl BaseChannel for SlackChannel {
             }
         }
 
+        // If no text chunks but we have buttons, send buttons standalone
+        if chunks.is_empty() && !buttons.is_empty() {
+            let mut body = serde_json::json!({
+                "channel": msg.chat_id,
+                "text": " ",
+                "blocks": buttons,
+            });
+            if let Some(ts) = thread_ts {
+                body["thread_ts"] = Value::String(ts.to_string());
+            }
+            if let Err(e) = self
+                .send_slack_api_json_with_retry("chat.postMessage", &body)
+                .await
+            {
+                error!("Error sending Slack buttons-only message: {}", e);
+                return Err(anyhow::anyhow!("Slack send error: {e}"));
+            }
+        }
+
         // Swap thinking → done reaction (fire-and-forget)
         if let Some(ts) = msg
             .metadata
@@ -1243,11 +1305,26 @@ async fn handle_interactive_payload(
         }
     }
 
-    // Include button context in the message so the LLM can act on it
-    let content = if action_value.is_empty() {
-        format!("[button:{action_id}]")
+    // Try to parse button context as ActionDispatchPayload for direct dispatch
+    let (content, dispatch) = if action_value.is_empty() {
+        (format!("[button:{action_id}]"), None)
+    } else if let Ok(payload) =
+        serde_json::from_str::<crate::dispatch::ActionDispatchPayload>(action_value)
+    {
+        let dispatch = crate::dispatch::ActionDispatch {
+            tool: payload.tool,
+            params: payload.params,
+            source: crate::dispatch::ActionSource::Button {
+                action_id: action_id.to_string(),
+            },
+        };
+        (format!("[button:{action_id}]"), Some(dispatch))
     } else {
-        format!("[button:{action_id}]\nButton context: {action_value}")
+        // Legacy fallback: send as text to LLM
+        (
+            format!("[button:{action_id}]\nButton context: {action_value}"),
+            None,
+        )
     };
     let is_group = !is_dm;
     let mut builder = InboundMessage::builder(
@@ -1264,6 +1341,9 @@ async fn handle_interactive_payload(
     }
     if !message_ts.is_empty() {
         builder = builder.meta(crate::bus::meta::TS, Value::String(message_ts.to_string()));
+    }
+    if let Some(d) = dispatch {
+        builder = builder.action(d);
     }
     let inbound_msg = builder.build();
 

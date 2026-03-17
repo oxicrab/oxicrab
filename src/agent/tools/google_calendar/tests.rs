@@ -174,9 +174,9 @@ fn test_build_event_buttons_list_view_rsvp_yes() {
     let ctx: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
     assert_eq!(ctx["tool"], "google_calendar");
-    assert_eq!(ctx["event_id"], "evt1");
-    assert_eq!(ctx["calendar_id"], "primary");
-    assert_eq!(ctx["action"], "rsvp_yes");
+    assert_eq!(ctx["params"]["event_id"], "evt1");
+    assert_eq!(ctx["params"]["calendar_id"], "primary");
+    assert_eq!(ctx["params"]["action"], "rsvp");
 }
 
 #[test]
@@ -242,11 +242,12 @@ fn test_build_event_buttons_detail_view_full_buttons() {
     assert_eq!(buttons[2]["id"], "delete-evt1");
     assert_eq!(buttons[2]["style"], "danger");
 
-    // Verify context carries calendar_id
+    // Verify context carries calendar_id in params
     let ctx: serde_json::Value =
         serde_json::from_str(buttons[2]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx["calendar_id"], "work-cal");
-    assert_eq!(ctx["action"], "delete");
+    assert_eq!(ctx["tool"], "google_calendar");
+    assert_eq!(ctx["params"]["calendar_id"], "work-cal");
+    assert_eq!(ctx["params"]["action"], "delete_event");
 }
 
 #[test]
@@ -348,7 +349,7 @@ fn test_truncate_label_unicode() {
 #[test]
 fn test_with_buttons_empty() {
     let result = ToolResult::new("test".to_string());
-    let result = with_buttons(result, vec![]);
+    let result = result.with_buttons(vec![]);
     assert!(result.metadata.is_none());
 }
 
@@ -356,7 +357,7 @@ fn test_with_buttons_empty() {
 fn test_with_buttons_non_empty() {
     let result = ToolResult::new("test".to_string());
     let buttons = vec![serde_json::json!({"id": "b1", "label": "Test"})];
-    let result = with_buttons(result, buttons);
+    let result = result.with_buttons(buttons);
     let meta = result.metadata.expect("should have metadata");
     let btns = meta["suggested_buttons"].as_array().unwrap();
     assert_eq!(btns.len(), 1);

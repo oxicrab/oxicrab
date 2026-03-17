@@ -32,10 +32,7 @@ impl MemoryDB {
         last_synced_at: i64,
         size: u64,
     ) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT OR REPLACE INTO obsidian_sync_state
              (vault_name, file_path, content_hash, last_synced_at, size)
@@ -57,10 +54,7 @@ impl MemoryDB {
         vault_name: &str,
         file_path: &str,
     ) -> Result<Option<ObsidianSyncRow>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT content_hash, last_synced_at, size
              FROM obsidian_sync_state WHERE vault_name = ?1 AND file_path = ?2",
@@ -79,10 +73,7 @@ impl MemoryDB {
 
     /// List all sync state entries for a vault.
     pub fn list_obsidian_sync(&self, vault_name: &str) -> Result<HashMap<String, ObsidianSyncRow>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT file_path, content_hash, last_synced_at, size
              FROM obsidian_sync_state WHERE vault_name = ?1",
@@ -104,10 +95,7 @@ impl MemoryDB {
 
     /// Remove a single file's sync state. Returns `true` if a row was deleted.
     pub fn remove_obsidian_sync(&self, vault_name: &str, file_path: &str) -> Result<bool> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = conn.execute(
             "DELETE FROM obsidian_sync_state WHERE vault_name = ?1 AND file_path = ?2",
             params![vault_name, file_path],
@@ -117,10 +105,7 @@ impl MemoryDB {
 
     /// Clear all sync state for a vault. Returns count deleted.
     pub fn clear_obsidian_sync(&self, vault_name: &str) -> Result<usize> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = conn.execute(
             "DELETE FROM obsidian_sync_state WHERE vault_name = ?1",
             params![vault_name],
@@ -131,10 +116,7 @@ impl MemoryDB {
     /// Derive `last_full_sync_at` as the MIN of all `last_synced_at` for the vault,
     /// or 0 if no entries exist.
     pub fn get_last_full_sync(&self, vault_name: &str) -> Result<i64> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let min: Option<i64> = conn.query_row(
             "SELECT MIN(last_synced_at) FROM obsidian_sync_state WHERE vault_name = ?1",
             params![vault_name],
@@ -153,10 +135,7 @@ impl MemoryDB {
         queued_at: i64,
         pre_write_hash: Option<&str>,
     ) -> Result<i64> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO obsidian_write_queue
              (vault_name, path, content, operation, queued_at, pre_write_hash)
@@ -175,10 +154,7 @@ impl MemoryDB {
 
     /// List all queued writes for a vault.
     pub fn list_obsidian_queue(&self, vault_name: &str) -> Result<Vec<ObsidianQueueRow>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, path, content, operation, queued_at, pre_write_hash
              FROM obsidian_write_queue WHERE vault_name = ?1 ORDER BY id",
@@ -200,10 +176,7 @@ impl MemoryDB {
 
     /// Remove a single queued write by id. Returns `true` if a row was deleted.
     pub fn remove_obsidian_queue(&self, id: i64) -> Result<bool> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = conn.execute(
             "DELETE FROM obsidian_write_queue WHERE id = ?1",
             params![id],
@@ -213,10 +186,7 @@ impl MemoryDB {
 
     /// Clear all queued writes for a vault. Returns count deleted.
     pub fn clear_obsidian_queue(&self, vault_name: &str) -> Result<usize> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = conn.execute(
             "DELETE FROM obsidian_write_queue WHERE vault_name = ?1",
             params![vault_name],
@@ -230,38 +200,28 @@ impl MemoryDB {
         vault_name: &str,
         files: &HashMap<String, crate::agent::tools::obsidian::cache::CachedFileMeta>,
     ) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        conn.execute_batch("BEGIN")?;
-        let result = (|| -> Result<()> {
-            conn.execute(
-                "DELETE FROM obsidian_sync_state WHERE vault_name = ?1",
-                params![vault_name],
+        let mut conn = self.lock_conn()?;
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM obsidian_sync_state WHERE vault_name = ?1",
+            params![vault_name],
+        )?;
+        for (path, meta) in files {
+            tx.execute(
+                "INSERT OR REPLACE INTO obsidian_sync_state
+                 (vault_name, file_path, content_hash, last_synced_at, size)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    vault_name,
+                    path,
+                    meta.content_hash,
+                    meta.last_synced_at,
+                    meta.size as i64
+                ],
             )?;
-            for (path, meta) in files {
-                conn.execute(
-                    "INSERT OR REPLACE INTO obsidian_sync_state
-                     (vault_name, file_path, content_hash, last_synced_at, size)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![
-                        vault_name,
-                        path,
-                        meta.content_hash,
-                        meta.last_synced_at,
-                        meta.size as i64
-                    ],
-                )?;
-            }
-            Ok(())
-        })();
-        if result.is_ok() {
-            conn.execute_batch("COMMIT")?;
-        } else {
-            let _ = conn.execute_batch("ROLLBACK");
         }
-        result
+        tx.commit()?;
+        Ok(())
     }
 
     /// Atomically replace all queued writes for a vault (clear + re-insert in one transaction).
@@ -270,47 +230,34 @@ impl MemoryDB {
         vault_name: &str,
         queue: &[crate::agent::tools::obsidian::cache::QueuedWrite],
     ) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        conn.execute_batch("BEGIN")?;
-        let result = (|| -> Result<()> {
-            conn.execute(
-                "DELETE FROM obsidian_write_queue WHERE vault_name = ?1",
-                params![vault_name],
+        let mut conn = self.lock_conn()?;
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM obsidian_write_queue WHERE vault_name = ?1",
+            params![vault_name],
+        )?;
+        for item in queue {
+            tx.execute(
+                "INSERT INTO obsidian_write_queue
+                 (vault_name, path, content, operation, queued_at, pre_write_hash)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    vault_name,
+                    item.path,
+                    item.content,
+                    item.operation,
+                    item.queued_at,
+                    item.pre_write_hash
+                ],
             )?;
-            for item in queue {
-                conn.execute(
-                    "INSERT INTO obsidian_write_queue
-                     (vault_name, path, content, operation, queued_at, pre_write_hash)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![
-                        vault_name,
-                        item.path,
-                        item.content,
-                        item.operation,
-                        item.queued_at,
-                        item.pre_write_hash
-                    ],
-                )?;
-            }
-            Ok(())
-        })();
-        if result.is_ok() {
-            conn.execute_batch("COMMIT")?;
-        } else {
-            let _ = conn.execute_batch("ROLLBACK");
         }
-        result
+        tx.commit()?;
+        Ok(())
     }
 
     /// Count queued writes for a vault.
     pub fn count_obsidian_queue(&self, vault_name: &str) -> Result<usize> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM obsidian_write_queue WHERE vault_name = ?1",
             params![vault_name],

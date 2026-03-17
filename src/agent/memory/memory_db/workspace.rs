@@ -29,7 +29,7 @@ impl MemoryDB {
         source_tool: Option<&str>,
         session_key: Option<&str>,
     ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO workspace_files
                (path, category, original_name, size_bytes, source_tool, session_key, created_at)
@@ -66,7 +66,7 @@ impl MemoryDB {
         session_key: Option<&str>,
         created_at: &str,
     ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO workspace_files
                (path, category, original_name, size_bytes, source_tool, session_key, created_at)
@@ -93,7 +93,7 @@ impl MemoryDB {
 
     /// Remove a workspace file from the manifest.
     pub fn unregister_workspace_file(&self, path: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute("DELETE FROM workspace_files WHERE path = ?1", params![path])?;
         Ok(())
     }
@@ -105,7 +105,7 @@ impl MemoryDB {
         date: Option<&str>,
         tag: Option<&str>,
     ) -> Result<Vec<WorkspaceFileEntry>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
 
         let mut sql = String::from(
             "SELECT id, path, category, original_name, size_bytes, source_tool, tags, created_at, accessed_at, session_key
@@ -118,16 +118,38 @@ impl MemoryDB {
             param_values.push(Box::new(cat.to_string()));
         }
         if let Some(d) = date {
-            let _ = write!(sql, " AND created_at LIKE ?{}", param_values.len() + 1);
-            param_values.push(Box::new(format!("{d}%")));
-        }
-        if let Some(t) = tag {
+            let escaped_date: String = d
+                .chars()
+                .flat_map(|c| match c {
+                    '\\' => vec!['\\', '\\'],
+                    '%' => vec!['\\', '%'],
+                    '_' => vec!['\\', '_'],
+                    other => vec![other],
+                })
+                .collect();
             let _ = write!(
                 sql,
-                " AND (',' || tags || ',' LIKE '%,' || ?{} || ',%')",
+                " AND created_at LIKE ?{} ESCAPE '\\'",
                 param_values.len() + 1
             );
-            param_values.push(Box::new(t.to_string()));
+            param_values.push(Box::new(format!("{escaped_date}%")));
+        }
+        if let Some(t) = tag {
+            let escaped_tag: String = t
+                .chars()
+                .flat_map(|c| match c {
+                    '\\' => vec!['\\', '\\'],
+                    '%' => vec!['\\', '%'],
+                    '_' => vec!['\\', '_'],
+                    other => vec![other],
+                })
+                .collect();
+            let _ = write!(
+                sql,
+                " AND (',' || tags || ',' LIKE '%,' || ?{} || ',%' ESCAPE '\\')",
+                param_values.len() + 1
+            );
+            param_values.push(Box::new(escaped_tag));
         }
         sql.push_str(" ORDER BY created_at DESC");
 
@@ -156,7 +178,7 @@ impl MemoryDB {
 
     /// Search workspace files by path or original name.
     pub fn search_workspace_files(&self, query: &str) -> Result<Vec<WorkspaceFileEntry>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let escaped: String = query
             .chars()
             .flat_map(|c| match c {
@@ -195,7 +217,7 @@ impl MemoryDB {
 
     /// Update `accessed_at` timestamp for a workspace file.
     pub fn touch_workspace_file(&self, path: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE workspace_files SET accessed_at = datetime('now') WHERE path = ?1",
             params![path],
@@ -205,7 +227,7 @@ impl MemoryDB {
 
     /// Set tags on a workspace file.
     pub fn set_workspace_file_tags(&self, path: &str, tags: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE workspace_files SET tags = ?1 WHERE path = ?2",
             params![tags, path],
@@ -219,7 +241,7 @@ impl MemoryDB {
         category: &str,
         ttl_days: u32,
     ) -> Result<Vec<WorkspaceFileEntry>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let modifier = format!("-{ttl_days} days");
         let mut stmt = conn.prepare(
             "SELECT id, path, category, original_name, size_bytes, source_tool, tags, created_at, accessed_at, session_key
@@ -254,7 +276,7 @@ impl MemoryDB {
         new_path: &str,
         new_category: &str,
     ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE workspace_files SET path = ?1, category = ?2 WHERE path = ?3",
             params![new_path, new_category, old_path],

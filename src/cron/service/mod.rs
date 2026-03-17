@@ -5,7 +5,6 @@ use chrono::DateTime;
 use chrono_tz::Tz;
 use cron::Schedule;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
@@ -35,11 +34,7 @@ pub fn detect_system_timezone() -> Option<String> {
     iana_time_zone::get_timezone().ok()
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
-}
+use crate::utils::time::now_ms;
 
 fn compute_next_run(schedule: &CronSchedule, now_ms: i64) -> Option<i64> {
     compute_next_run_with_last(schedule, now_ms, None)

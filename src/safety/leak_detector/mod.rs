@@ -229,6 +229,19 @@ impl LeakDetector {
                     regex,
                 });
             }
+            // URL-encoded variant (percent-encoding)
+            let mut url_encoded = String::with_capacity(value.len() * 3);
+            for b in value.bytes() {
+                use std::fmt::Write;
+                let _ = write!(url_encoded, "%{b:02X}");
+            }
+            let url_escaped = regex::escape(&url_encoded);
+            if let Ok(regex) = Regex::new(&format!("(?i){url_escaped}")) {
+                self.known_secrets.push(KnownSecretPattern {
+                    name: format!("{name}_urlencoded"),
+                    regex,
+                });
+            }
         }
     }
 
@@ -337,6 +350,26 @@ impl LeakDetector {
         // Encoded content scan (base64/hex decoded then checked)
         matches.extend(Self::scan_encoded(text));
 
+        // URL-decoded scan: if text contains percent-encoded sequences,
+        // decode and re-scan for patterns that may be hidden by encoding.
+        if text.contains('%')
+            && let Ok(decoded) = urlencoding::decode(text)
+            && decoded != text
+        {
+            let decoded_candidates = Self::find_candidate_patterns(&decoded);
+            for (i, pattern) in base.patterns.iter().enumerate() {
+                if !decoded_candidates[i] {
+                    continue;
+                }
+                for m in pattern.regex.find_iter(&decoded) {
+                    matches.push(LeakMatch {
+                        name: pattern.name,
+                        start: m.start(),
+                        end: m.end(),
+                    });
+                }
+            }
+        }
         matches
     }
 
@@ -353,6 +386,30 @@ impl LeakDetector {
 
     /// Redact any detected secrets in text, replacing them with `[REDACTED]`.
     pub fn redact(&self, text: &str) -> String {
+        let result = self.redact_inner(text);
+
+        // URL-decode pass: if the (already redacted) text still contains
+        // percent-encoded sequences, decode and re-scan. If new secrets are
+        // found in the decoded form, return the redacted decoded version.
+        // This trades URL-encoding preservation for security — acceptable
+        // because the alternative is leaking secrets.
+        if result.contains('%')
+            && let Ok(decoded) = urlencoding::decode(&result)
+            && *decoded != result
+        {
+            let redacted_decoded = self.redact_inner(&decoded);
+            if redacted_decoded != *decoded {
+                return redacted_decoded;
+            }
+        }
+
+        result
+    }
+
+    /// Core redaction logic (plaintext patterns, known secrets, encoded blobs).
+    /// Separated from `redact()` to allow the URL-decode pass to call it
+    /// without infinite recursion.
+    fn redact_inner(&self, text: &str) -> String {
         let base = &*BASE_PATTERNS;
         let mut result = text.to_string();
         // Redact plaintext pattern matches (only check patterns with prefix hits).

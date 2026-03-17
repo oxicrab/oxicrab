@@ -273,8 +273,8 @@ impl AnthropicOAuthProvider {
             .duration_since(UNIX_EPOCH)
             .context("System time is before UNIX epoch")
             .map(|d| d.as_millis() as i64)?;
-        let expires_at =
-            now_ms + expires_in_secs.saturating_mul(1000).min(i64::MAX as u64) as i64 - 300_000;
+        let expires_in_ms = expires_in_secs.min(86400 * 365).saturating_mul(1000);
+        let expires_at = now_ms + (expires_in_ms as i64) - 300_000;
 
         // Update all three fields atomically (hold all locks at once)
         let (mut at_guard, mut rt_guard, mut ea_guard) = tokio::join!(
@@ -669,6 +669,10 @@ impl LLMProvider for AnthropicOAuthProvider {
             .header("Authorization", format!("Bearer {token}"))
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
+            .header(
+                "x-session-affinity",
+                crate::providers::session_affinity_id(),
+            )
             .timeout(std::time::Duration::from_secs(15))
             .json(&payload)
             .send()

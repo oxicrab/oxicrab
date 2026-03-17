@@ -886,8 +886,9 @@ async fn test_list_tasks_returns_suggested_buttons() {
     assert_eq!(buttons[0]["style"], "primary");
     let ctx_str = buttons[0]["context"].as_str().unwrap();
     let ctx_val: serde_json::Value = serde_json::from_str(ctx_str).unwrap();
-    assert_eq!(ctx_val["task_id"], "123");
-    assert_eq!(ctx_val["action"], "complete");
+    assert_eq!(ctx_val["tool"], "todoist");
+    assert_eq!(ctx_val["params"]["task_id"], "123");
+    assert_eq!(ctx_val["params"]["action"], "complete_task");
 }
 
 #[tokio::test]

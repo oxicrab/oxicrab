@@ -218,7 +218,7 @@ impl MessageBus {
             let pattern_names: Vec<&str> = matches.iter().map(|m| m.name).collect();
             let known_names: Vec<&str> = known_matches.iter().map(|m| m.name.as_str()).collect();
             warn!(
-                "potential secret leak detected in outbound message: patterns={:?}, known={:?}",
+                "security: potential secret leak in outbound message: patterns={:?}, known={:?}",
                 pattern_names, known_names
             );
             msg.content = self.leak_detector.redact(&msg.content);

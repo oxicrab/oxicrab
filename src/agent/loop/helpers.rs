@@ -11,7 +11,6 @@ use tracing::{info, warn};
 const SAVED_TO_PREFIX: &str = "saved to: ";
 const AUDIO_TAG_PREFIX: &str = "[audio: ";
 const TYPING_INDICATOR_INTERVAL_SECS: u64 = 4;
-const TOOL_MENTION_HALLUCINATION_THRESHOLD: usize = 3;
 const MAX_IMAGE_SIZE: usize = 20 * 1024 * 1024; // 20MB (Anthropic limit)
 pub(super) const MAX_IMAGES: usize = 5;
 
@@ -154,7 +153,7 @@ pub(super) async fn execute_tool_call(
             .get(tc_name)
             .is_some_and(|t| t.capabilities().network_outbound);
         if is_network && !allow_tools.contains(&tc_name.to_string()) {
-            warn!("exfiltration guard blocked tool: {}", tc_name);
+            warn!("security: exfiltration guard blocked tool: {}", tc_name);
             return ToolResult::error(
                 "Error: this tool is not available in the current security mode",
             );
@@ -249,102 +248,6 @@ static ACTION_CLAIM_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(||
 /// Returns `true` if the text contains phrases claiming actions were performed.
 pub fn contains_action_claims(text: &str) -> bool {
     ACTION_CLAIM_RE.is_match(text)
-}
-
-/// Regex that matches phrases where the LLM falsely claims it has no tools.
-static FALSE_NO_TOOLS_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-    Regex::new(
-        r"(?i)(?:I (?:don't|do not|cannot|can't) have (?:access to )?(?:any )?tools|(?:no tools|tools (?:are|aren't) (?:not )?available)|I(?:'m| am) (?:not able|unable) to (?:use|access|call) tools)"
-    )
-    .expect("Invalid false-no-tools regex")
-});
-
-/// Returns `true` if the text falsely claims tools are unavailable.
-pub fn is_false_no_tools_claim(text: &str) -> bool {
-    FALSE_NO_TOOLS_RE.is_match(text)
-}
-
-/// Returns `true` if the text mentions at least one tool name from the list.
-/// Uses word-boundary-aware matching to avoid false positives from tool names
-/// that are common English words (e.g. "exec" in "execute", "read" in "reading").
-pub fn mentions_any_tool(text: &str, tool_names: &[String]) -> bool {
-    let text_lower = text.to_lowercase();
-    tool_names.iter().any(|name| {
-        let name_lower = name.to_lowercase();
-        let mut start = 0;
-        while let Some(pos) = text_lower[start..].find(&name_lower) {
-            let abs_pos = start + pos;
-            let end_pos = abs_pos + name_lower.len();
-            let before_ok =
-                abs_pos == 0 || !text_lower.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
-            let after_ok = end_pos >= text_lower.len()
-                || !text_lower.as_bytes()[end_pos].is_ascii_alphanumeric();
-            if before_ok && after_ok {
-                return true;
-            }
-            start = abs_pos
-                + text_lower[abs_pos..]
-                    .chars()
-                    .next()
-                    .map_or(1, char::len_utf8);
-        }
-        false
-    })
-}
-
-/// Returns `true` if the text mentions 3+ tool names, suggesting hallucinated tool results.
-/// When the LLM lists tool names with "results" but never actually called them, this catches
-/// the pattern that the action-claim regex might miss.
-///
-/// When an `ac` automaton is provided, does a single-pass Aho-Corasick scan (O(n + m) where
-/// n = text length, m = total pattern length). Falls back to the O(n·m) per-tool scan when
-/// `ac` is `None`.
-///
-/// The fallback uses word-boundary-aware matching to avoid false positives from tool names
-/// that are common English words (e.g. "exec" in "execute", "read" in "reading").
-pub fn mentions_multiple_tools(
-    text: &str,
-    tool_names: &[String],
-    ac: Option<&aho_corasick::AhoCorasick>,
-) -> bool {
-    // Fast path: single-pass AC scan
-    if let Some(ac) = ac {
-        let text_lower = text.to_lowercase();
-        let unique: std::collections::HashSet<usize> = ac
-            .find_iter(&text_lower)
-            .map(|m| m.pattern().as_usize())
-            .collect();
-        return unique.len() >= TOOL_MENTION_HALLUCINATION_THRESHOLD;
-    }
-
-    // Fallback: O(n·m) per-tool scan with word-boundary checks
-    let text_lower = text.to_lowercase();
-    let count = tool_names
-        .iter()
-        .filter(|name| {
-            let name_lower = name.to_lowercase();
-            // Find all occurrences and check word boundaries
-            let mut start = 0;
-            while let Some(pos) = text_lower[start..].find(&name_lower) {
-                let abs_pos = start + pos;
-                let end_pos = abs_pos + name_lower.len();
-                let before_ok =
-                    abs_pos == 0 || !text_lower.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
-                let after_ok = end_pos >= text_lower.len()
-                    || !text_lower.as_bytes()[end_pos].is_ascii_alphanumeric();
-                if before_ok && after_ok {
-                    return true;
-                }
-                start = abs_pos
-                    + text_lower[abs_pos..]
-                        .chars()
-                        .next()
-                        .map_or(1, char::len_utf8);
-            }
-            false
-        })
-        .count();
-    count >= TOOL_MENTION_HALLUCINATION_THRESHOLD
 }
 
 /// Load media files (images and documents) from disk and base64-encode them for LLM consumption.

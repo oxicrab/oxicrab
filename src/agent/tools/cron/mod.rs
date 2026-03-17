@@ -9,7 +9,6 @@ use crate::require_param;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -264,8 +263,10 @@ fn build_job_buttons(jobs: &[CronJob]) -> Vec<Value> {
             "style": style,
             "context": serde_json::json!({
                 "tool": "cron",
-                "job_id": job.id,
-                "action": action
+                "params": {
+                    "action": action,
+                    "job_id": job.id
+                }
             }).to_string()
         }));
 
@@ -280,24 +281,14 @@ fn build_job_buttons(jobs: &[CronJob]) -> Vec<Value> {
             "style": "danger",
             "context": serde_json::json!({
                 "tool": "cron",
-                "job_id": job.id,
-                "action": "remove"
+                "params": {
+                    "action": "remove",
+                    "job_id": job.id
+                }
             }).to_string()
         }));
     }
     buttons
-}
-
-/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
-fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
-    if buttons.is_empty() {
-        result
-    } else {
-        result.with_metadata(HashMap::from([(
-            "suggested_buttons".to_string(),
-            Value::Array(buttons),
-        )]))
-    }
 }
 
 /// Resolve all enabled channel targets from a `ChannelsConfig`.
@@ -357,7 +348,7 @@ impl Tool for CronTool {
     }
 
     fn description(&self) -> &'static str {
-        "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, remove, run, dlq_list, dlq_replay, dlq_clear. Tip: after listing jobs, use add_buttons to offer Pause or Remove actions."
+        "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, pause, resume, remove, run, dlq_list, dlq_replay, dlq_clear. Tip: after listing jobs, use add_buttons to offer Pause or Remove actions."
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -368,6 +359,8 @@ impl Tool for CronTool {
             actions: actions![
                 add,
                 list: ro,
+                pause,
+                resume,
                 remove,
                 run,
                 dlq_list: ro,
@@ -378,16 +371,43 @@ impl Tool for CronTool {
         }
     }
 
+    fn routing_rules(&self) -> Vec<crate::router::rules::StaticRule> {
+        vec![crate::router::rules::StaticRule {
+            tool: "cron".into(),
+            trigger: crate::router::context::DirectiveTrigger::Exact("list jobs".into()),
+            params: serde_json::json!({"action": "list"}),
+            requires_context: false,
+        }]
+    }
+
+    fn usage_examples(&self) -> Vec<crate::agent::tools::base::ToolExample> {
+        vec![
+            crate::agent::tools::base::ToolExample {
+                user_request: "list my scheduled jobs".into(),
+                params: serde_json::json!({"action": "list"}),
+            },
+            crate::agent::tools::base::ToolExample {
+                user_request: "remind me to check email every day at 9am".into(),
+                params: serde_json::json!({"action": "add", "message": "check email", "cron_expr": "0 9 * * *", "type": "agent"}),
+            },
+            crate::agent::tools::base::ToolExample {
+                user_request: "send me a standup reminder in 5 minutes".into(),
+                params: serde_json::json!({"action": "add", "message": "Standup time!", "delay_seconds": 300, "type": "echo"}),
+            },
+        ]
+    }
+
     fn parameters(&self) -> Value {
         serde_json::json!({
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["add", "list", "remove", "run", "dlq_list", "dlq_replay", "dlq_clear"],
+                    "enum": ["add", "list", "pause", "resume", "remove", "run", "dlq_list", "dlq_replay", "dlq_clear"],
                     "description": "Action to perform. 'add' creates a new scheduled job. \
                      'run' triggers an existing job immediately by job_id. 'list' shows all \
-                     jobs. 'remove' deletes a job. dlq_list/dlq_replay/dlq_clear manage the \
+                     jobs. 'pause' disables a job. 'resume' re-enables a paused job. \
+                     'remove' deletes a job. dlq_list/dlq_replay/dlq_clear manage the \
                      dead letter queue for failed executions."
                 },
                 "type": {
@@ -651,10 +671,30 @@ impl Tool for CronTool {
                     })
                     .collect();
                 let buttons = build_job_buttons(&jobs);
-                Ok(with_buttons(
-                    ToolResult::new(format!("Scheduled jobs:\n{}", lines.join("\n"))),
-                    buttons,
-                ))
+                Ok(
+                    ToolResult::new(format!("Scheduled jobs:\n{}", lines.join("\n")))
+                        .with_buttons(buttons),
+                )
+            }
+            "pause" => {
+                let job_id = require_param!(params, "job_id");
+                match self.cron_service.enable_job(job_id, false)? {
+                    Some(job) => Ok(ToolResult::new(format!(
+                        "Paused job '{}' (id: {})",
+                        job.name, job.id
+                    ))),
+                    None => Ok(ToolResult::error(format!("job {job_id} not found"))),
+                }
+            }
+            "resume" => {
+                let job_id = require_param!(params, "job_id");
+                match self.cron_service.enable_job(job_id, true)? {
+                    Some(job) => Ok(ToolResult::new(format!(
+                        "Resumed job '{}' (id: {})",
+                        job.name, job.id
+                    ))),
+                    None => Ok(ToolResult::error(format!("job {job_id} not found"))),
+                }
             }
             "remove" => {
                 let job_id = require_param!(params, "job_id");

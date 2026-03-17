@@ -339,3 +339,38 @@ async fn test_success_resets_counter() {
     let result = provider.chat(&make_request()).await;
     assert!(result.is_ok());
 }
+
+#[tokio::test]
+async fn test_zero_half_open_probes_clamped_to_one() {
+    let mock = MockProvider::with_responses(vec![
+        Ok(MockProvider::ok_response()),
+        Ok(MockProvider::ok_response()),
+        Err("timeout".into()),
+        Err("timeout".into()),
+        Err("timeout".into()),
+    ]);
+    let config = CircuitBreakerConfig {
+        enabled: true,
+        failure_threshold: 3,
+        recovery_timeout_secs: 0, // immediate recovery
+        half_open_probes: 0,      // would cause permanent lockout without clamping
+    };
+    let provider = CircuitBreakerProvider::wrap(mock.clone(), &config);
+
+    // Trip the breaker with 3 failures
+    let _ = provider.chat(&make_request()).await;
+    let _ = provider.chat(&make_request()).await;
+    let _ = provider.chat(&make_request()).await;
+
+    // With recovery_timeout_secs=0, should immediately enter HalfOpen.
+    // With half_open_probes clamped to 1, a single success should close it.
+    let result = provider.chat(&make_request()).await;
+    assert!(
+        result.is_ok(),
+        "should recover after single successful probe"
+    );
+
+    // Should now be fully closed again
+    let result = provider.chat(&make_request()).await;
+    assert!(result.is_ok(), "should be fully closed after recovery");
+}

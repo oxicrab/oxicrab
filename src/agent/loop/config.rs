@@ -23,6 +23,12 @@ pub struct AgentRunOverrides {
     pub request_id: Option<String>,
     /// Extra metadata to inject into the tool [`ExecutionContext`].
     pub metadata: std::collections::HashMap<String, serde_json::Value>,
+    /// Structured action dispatch — bypasses LLM when Some.
+    pub action: Option<crate::dispatch::ActionDispatch>,
+    /// Tool name filter for `GuidedLLM` path — only include these tools.
+    pub tool_filter: Option<Vec<String>>,
+    /// Context hint injected into system prompt for `GuidedLLM` path.
+    pub context_hint: Option<String>,
 }
 
 /// Tool-specific configurations bundled together. These fields are only used
@@ -65,6 +71,42 @@ pub struct AgentLoopResult {
     pub reasoning_signature: Option<String>,
     /// Extra metadata to merge into the outbound message (e.g. interactive buttons).
     pub response_metadata: std::collections::HashMap<String, serde_json::Value>,
+    /// Metadata from tool results (for directive extraction by caller).
+    pub tool_metadata: Vec<(String, std::collections::HashMap<String, serde_json::Value>)>,
+}
+
+impl AgentLoopResult {
+    /// Build the `assistant_extra` metadata map that gets persisted with the
+    /// assistant message in session history.  Covers `tools_used`,
+    /// `reasoning_content`, and `reasoning_signature`.
+    pub fn to_assistant_extra(&self) -> std::collections::HashMap<String, serde_json::Value> {
+        let mut extra = std::collections::HashMap::new();
+        if !self.tools_used.is_empty() {
+            extra.insert(
+                crate::bus::meta::TOOLS_USED.to_string(),
+                serde_json::Value::Array(
+                    self.tools_used
+                        .iter()
+                        .cloned()
+                        .map(serde_json::Value::String)
+                        .collect(),
+                ),
+            );
+        }
+        if let Some(ref rc) = self.reasoning_content {
+            extra.insert(
+                "reasoning_content".to_string(),
+                serde_json::Value::String(rc.clone()),
+            );
+        }
+        if let Some(ref rs) = self.reasoning_signature {
+            extra.insert(
+                "reasoning_signature".to_string(),
+                serde_json::Value::String(rs.clone()),
+            );
+        }
+        extra
+    }
 }
 
 /// Result of a direct (non-channel) agent invocation.
@@ -139,6 +181,8 @@ pub struct AgentLoopConfig {
     /// Shared leak detector with known secrets pre-registered.
     /// When `None`, a default detector (base patterns only) is created.
     pub leak_detector: Option<Arc<LeakDetector>>,
+    /// Router configuration (prefix commands, user-defined rules).
+    pub router_config: crate::config::RouterConfig,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -246,6 +290,7 @@ impl AgentLoopConfig {
             },
             memory_db: params.memory_db,
             leak_detector: params.leak_detector,
+            router_config: config.router.clone(),
         }
     }
 
@@ -318,6 +363,7 @@ impl AgentLoopConfig {
             },
             memory_db: None,
             leak_detector: None,
+            router_config: crate::config::RouterConfig::default(),
         }
     }
 }

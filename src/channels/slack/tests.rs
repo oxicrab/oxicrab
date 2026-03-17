@@ -600,15 +600,15 @@ fn test_classify_slack_error_other() {
 fn test_is_retryable_server_error() {
     assert!(is_retryable(&SlackApiError::ServerError(500)));
     assert!(is_retryable(&SlackApiError::ServerError(503)));
+    assert!(is_retryable(&SlackApiError::RateLimited {
+        retry_after_secs: 1
+    }));
 }
 
 #[test]
 fn test_is_retryable_non_retryable() {
     assert!(!is_retryable(&SlackApiError::InvalidAuth));
     assert!(!is_retryable(&SlackApiError::ChannelNotFound));
-    assert!(!is_retryable(&SlackApiError::RateLimited {
-        retry_after_secs: 1
-    }));
     assert!(!is_retryable(&SlackApiError::Other("x".into())));
 }
 

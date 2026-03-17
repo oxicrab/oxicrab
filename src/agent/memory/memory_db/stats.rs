@@ -21,26 +21,6 @@ pub struct SearchStats {
 }
 
 #[derive(Debug, Clone)]
-pub struct IntentStats {
-    pub total_classified: u64,
-    pub regex_action: u64,
-    pub semantic_action: u64,
-    pub not_action: u64,
-    pub hallucinations_caught: u64,
-    pub layer1_regex: u64,
-    pub layer2_intent: u64,
-    pub avg_semantic_score_action: f64,
-    pub avg_semantic_score_non_action: f64,
-}
-
-#[derive(Debug, Clone)]
-pub struct IntentEvent {
-    pub timestamp: String,
-    pub detection_layer: Option<String>,
-    pub message_preview: Option<String>,
-}
-
-#[derive(Debug, Clone)]
 pub struct ComplexityTierStats {
     pub tier: String,
     pub count: u64,
@@ -81,10 +61,7 @@ impl MemoryDB {
         top_score: Option<f64>,
         request_id: Option<&str>,
     ) -> Result<()> {
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let mut conn = self.lock_conn()?;
         let tx = conn.transaction()?;
         tx.execute(
             "INSERT INTO memory_access_log (query, search_type, result_count, top_score, request_id)
@@ -104,10 +81,7 @@ impl MemoryDB {
 
     /// Return provenance details for the most recent memory search.
     pub fn get_last_search_details(&self) -> Result<Option<SearchDetails>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
 
         let mut stmt = conn.prepare(
             "SELECT id, query, search_type, result_count, top_score, created_at
@@ -144,10 +118,7 @@ impl MemoryDB {
 
     /// Count how many times a source key appeared in search results.
     pub fn get_source_hit_count(&self, source_key: &str) -> Result<u64> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM memory_search_hits WHERE source_key = ?",
@@ -160,10 +131,7 @@ impl MemoryDB {
 
     /// Get entries that have no embeddings (for back-fill).
     pub fn get_entries_missing_embeddings(&self) -> Result<Vec<(i64, String, String)>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT e.id, e.source_key, e.content FROM memory_entries e
              LEFT JOIN memory_embeddings em ON e.id = em.entry_id
@@ -183,10 +151,7 @@ impl MemoryDB {
 
     /// Get search log stats: total searches, total hits, unique queries.
     pub fn get_search_stats(&self) -> Result<SearchStats> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let total_searches: i64 = conn
             .query_row("SELECT COUNT(*) FROM memory_access_log", [], |row| {
                 row.get(0)
@@ -213,10 +178,7 @@ impl MemoryDB {
 
     /// Get top source keys by search hit count.
     pub fn get_top_sources(&self, limit: usize) -> Result<Vec<(String, u64)>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT source_key, COUNT(*) as hits FROM memory_search_hits
              GROUP BY source_key ORDER BY hits DESC LIMIT ?",
@@ -227,163 +189,6 @@ impl MemoryDB {
             })?
             .collect();
         rows.map_err(|e| anyhow::anyhow!("failed to get top sources: {e}"))
-    }
-
-    /// Record an intent classification or hallucination detection event.
-    ///
-    /// - `event_type`: `"classification"` or `"hallucination"`
-    /// - `intent_method`: `"regex"`, `"semantic"`, or `"none"` (for classification)
-    /// - `semantic_score`: cosine similarity score (if semantic classifier ran)
-    /// - `detection_layer`: `"layer0_false_no_tools"`, `"layer1_regex"`, `"layer2_intent"`
-    /// - `message_preview`: first 100 chars of user message or LLM response
-    pub fn record_intent_event(
-        &self,
-        event_type: &str,
-        intent_method: Option<&str>,
-        semantic_score: Option<f32>,
-        detection_layer: Option<&str>,
-        message_preview: &str,
-        request_id: Option<&str>,
-    ) -> Result<()> {
-        let preview = &message_preview[..message_preview
-            .char_indices()
-            .nth(100)
-            .map_or(message_preview.len(), |(i, _)| i)];
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        conn.execute(
-            "INSERT INTO intent_metrics
-             (event_type, intent_method, semantic_score, detection_layer, message_preview, request_id)
-             VALUES (?, ?, ?, ?, ?, ?)",
-            params![
-                event_type,
-                intent_method,
-                semantic_score,
-                detection_layer,
-                preview,
-                request_id,
-            ],
-        )?;
-        Ok(())
-    }
-
-    /// Get intent metrics summary for the given period.
-    pub fn get_intent_stats(&self, since_date: &str) -> Result<IntentStats> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-
-        let total: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'classification' AND DATE(timestamp) >= ?",
-                [since_date],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        let regex_action: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'classification' AND intent_method = 'regex' AND DATE(timestamp) >= ?",
-                [since_date],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        let semantic_action: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'classification' AND intent_method = 'semantic' AND DATE(timestamp) >= ?",
-                [since_date],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        let not_action: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'classification' AND intent_method = 'none' AND DATE(timestamp) >= ?",
-                [since_date],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        let hallucinations: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'hallucination' AND DATE(timestamp) >= ?",
-                [since_date],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        let layer1_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'hallucination' AND detection_layer = 'layer1_regex' AND DATE(timestamp) >= ?",
-                [since_date],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        let layer2_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM intent_metrics WHERE event_type = 'hallucination' AND detection_layer = 'layer2_intent' AND DATE(timestamp) >= ?",
-                [since_date],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        let avg_semantic_action: f64 = conn
-            .query_row(
-                "SELECT COALESCE(AVG(semantic_score), 0.0) FROM intent_metrics
-                 WHERE event_type = 'classification' AND intent_method = 'semantic' AND DATE(timestamp) >= ?",
-                [since_date],
-                |row| row.get(0),
-            )
-            .unwrap_or_default();
-
-        let avg_semantic_non_action: f64 = conn
-            .query_row(
-                "SELECT COALESCE(AVG(semantic_score), 0.0) FROM intent_metrics
-                 WHERE event_type = 'classification' AND intent_method = 'none' AND semantic_score IS NOT NULL AND DATE(timestamp) >= ?",
-                [since_date],
-                |row| row.get(0),
-            )
-            .unwrap_or_default();
-
-        Ok(IntentStats {
-            total_classified: total as u64,
-            regex_action: regex_action as u64,
-            semantic_action: semantic_action as u64,
-            not_action: not_action as u64,
-            hallucinations_caught: hallucinations as u64,
-            layer1_regex: layer1_count as u64,
-            layer2_intent: layer2_count as u64,
-            avg_semantic_score_action: avg_semantic_action,
-            avg_semantic_score_non_action: avg_semantic_non_action,
-        })
-    }
-
-    /// Get recent hallucination events for inspection.
-    pub fn get_recent_hallucinations(&self, limit: usize) -> Result<Vec<IntentEvent>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        let mut stmt = conn.prepare(
-            "SELECT timestamp, detection_layer, message_preview
-             FROM intent_metrics WHERE event_type = 'hallucination'
-             ORDER BY timestamp DESC LIMIT ?",
-        )?;
-        let rows: Result<Vec<_>, _> = stmt
-            .query_map([limit as i64], |row| {
-                Ok(IntentEvent {
-                    timestamp: row.get(0)?,
-                    detection_layer: row.get(1)?,
-                    message_preview: row.get(2)?,
-                })
-            })?
-            .collect();
-        rows.map_err(|e| anyhow::anyhow!("failed to get recent hallucinations: {e}"))
     }
 
     /// Record a complexity routing decision for a message.
@@ -402,10 +207,7 @@ impl MemoryDB {
             .char_indices()
             .nth(80)
             .map_or(message_preview.len(), |(i, _)| i)];
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO complexity_routing_log
              (request_id, composite_score, resolved_tier, resolved_model, forced, channel, message_preview)
@@ -425,15 +227,13 @@ impl MemoryDB {
 
     /// Get complexity routing statistics for the given period.
     pub fn get_complexity_stats(&self, since_date: &str) -> Result<ComplexityStats> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
 
+        let since_datetime = format!("{since_date} 00:00:00");
         let total: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM complexity_routing_log WHERE DATE(timestamp) >= ?",
-                [since_date],
+                "SELECT COUNT(*) FROM complexity_routing_log WHERE timestamp >= ?",
+                [&since_datetime],
                 |row| row.get(0),
             )
             .unwrap_or(0);
@@ -446,12 +246,12 @@ impl MemoryDB {
                     COALESCE(SUM(l.input_tokens + l.output_tokens), 0) as total_tokens
              FROM complexity_routing_log c
              LEFT JOIN llm_cost_log l ON c.request_id = l.request_id
-             WHERE DATE(c.timestamp) >= ?
+             WHERE c.timestamp >= ?
              GROUP BY c.resolved_tier
              ORDER BY cnt DESC",
         )?;
         let tier_counts: Vec<ComplexityTierStats> = stmt
-            .query_map([since_date], |row| {
+            .query_map([&since_datetime], |row| {
                 Ok(ComplexityTierStats {
                     tier: row.get(0)?,
                     count: row.get::<_, i64>(1)? as u64,
@@ -466,12 +266,12 @@ impl MemoryDB {
         let mut stmt = conn.prepare(
             "SELECT forced, COUNT(*) as cnt
              FROM complexity_routing_log
-             WHERE forced IS NOT NULL AND DATE(timestamp) >= ?
+             WHERE forced IS NOT NULL AND timestamp >= ?
              GROUP BY forced
              ORDER BY cnt DESC",
         )?;
         let force_counts: Vec<ComplexityForceCount> = stmt
-            .query_map([since_date], |row| {
+            .query_map([&since_datetime], |row| {
                 Ok(ComplexityForceCount {
                     reason: row.get(0)?,
                     count: row.get::<_, i64>(1)? as u64,
@@ -493,10 +293,7 @@ impl MemoryDB {
         tier: &str,
         limit: usize,
     ) -> Result<Vec<ComplexityEvent>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT timestamp, composite_score, resolved_tier, resolved_model, forced, message_preview
              FROM complexity_routing_log
@@ -523,15 +320,10 @@ impl MemoryDB {
         if days == 0 {
             return Ok(0);
         }
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
-        let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
+        let conn = self.lock_conn()?;
         let deleted = conn.execute(
-            "DELETE FROM intent_metrics WHERE timestamp < ?",
-            [&cutoff_str],
+            "DELETE FROM intent_metrics WHERE timestamp < datetime('now', ?1)",
+            params![format!("-{days} days")],
         )?;
         Ok(deleted)
     }
@@ -541,10 +333,7 @@ impl MemoryDB {
         if days == 0 {
             return Ok(0);
         }
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
         let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
         let deleted = conn.execute(
@@ -561,10 +350,7 @@ impl MemoryDB {
         if days == 0 {
             return Ok(0);
         }
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let mut conn = self.lock_conn()?;
         let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
         let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
         let tx = conn.transaction()?;

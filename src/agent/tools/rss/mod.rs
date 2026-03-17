@@ -25,14 +25,7 @@ pub(super) fn format_date_ms(ms: i64) -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
-/// Shared timestamp helper — single source of truth for all RSS submodules.
-pub(super) fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
-}
+pub(super) use crate::utils::time::now_ms;
 
 use crate::actions;
 use crate::agent::memory::memory_db::MemoryDB;
@@ -67,6 +60,7 @@ impl RssTool {
             client: Client::builder()
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(timeout))
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             config,
@@ -91,7 +85,7 @@ impl Tool for RssTool {
         "Manage RSS feeds and personalised article recommendations. Actions: onboard, set_profile, \
          add_feed, remove_feed, enable_feed, list_feeds, scan, review (present one article for \
          accept/reject), get_articles (browse/list only), accept, reject, get_article_detail, \
-         feed_stats."
+         feed_stats, done (end review session)."
     }
 
     fn cacheable(&self) -> bool {
@@ -121,6 +115,7 @@ impl Tool for RssTool {
                 reject,
                 get_article_detail: ro,
                 feed_stats: ro,
+                done: ro,
             ],
             category: ToolCategory::Web,
         }
@@ -135,11 +130,11 @@ impl Tool for RssTool {
                     "enum": [
                         "onboard", "set_profile", "add_feed", "remove_feed", "enable_feed",
                         "list_feeds", "scan", "review", "get_articles", "accept", "reject",
-                        "get_article_detail", "feed_stats"
+                        "get_article_detail", "feed_stats", "done"
                     ],
                     "description": "Action to perform. Use 'review' to present one article \
                      at a time with Accept/Reject buttons. Use 'get_articles' only to \
-                     browse or list without reviewing."
+                     browse or list without reviewing. Use 'done' to end the review session."
                 },
                 "url": {
                     "type": "string",
@@ -235,9 +230,49 @@ impl Tool for RssTool {
             }
             "scan" => scanner::handle_scan(&self.db, &self.client, &self.config).await,
             "review" | "next" => articles::handle_next(&self.db),
+            "done" => Ok(ToolResult::new(
+                "Review session ended. Use action=review to start again.",
+            )),
             "feed_stats" => stats::handle_feed_stats(&self.db),
             other => Ok(ToolResult::error(format!("unknown action: {other}"))),
         }
+    }
+
+    fn routing_rules(&self) -> Vec<crate::router::rules::StaticRule> {
+        vec![
+            crate::router::rules::StaticRule {
+                tool: "rss".into(),
+                trigger: crate::router::context::DirectiveTrigger::OneOf(vec![
+                    "next".into(),
+                    "more".into(),
+                ]),
+                params: serde_json::json!({"action": "next"}),
+                requires_context: true,
+            },
+            crate::router::rules::StaticRule {
+                tool: "rss".into(),
+                trigger: crate::router::context::DirectiveTrigger::OneOf(vec![
+                    "done".into(),
+                    "done reviewing".into(),
+                    "stop".into(),
+                ]),
+                params: serde_json::json!({"action": "done"}),
+                requires_context: true,
+            },
+        ]
+    }
+
+    fn usage_examples(&self) -> Vec<crate::agent::tools::base::ToolExample> {
+        vec![
+            crate::agent::tools::base::ToolExample {
+                user_request: "show me the next article".into(),
+                params: serde_json::json!({"action": "next"}),
+            },
+            crate::agent::tools::base::ToolExample {
+                user_request: "scan my feeds for new articles".into(),
+                params: serde_json::json!({"action": "scan"}),
+            },
+        ]
     }
 }
 

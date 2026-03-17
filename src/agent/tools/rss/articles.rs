@@ -153,6 +153,7 @@ pub fn handle_get_articles(
 }
 
 /// Shared logic for accept and reject. `accepted` = true → "accepted", false → "rejected".
+/// After processing all feedback, automatically fetches the next article inline.
 fn handle_feedback(db: &MemoryDB, article_ids: &[&str], accepted: bool) -> ToolResult {
     if article_ids.is_empty() {
         return ToolResult::error(
@@ -220,15 +221,30 @@ fn handle_feedback(db: &MemoryDB, article_ids: &[&str], accepted: bool) -> ToolR
         return ToolResult::error(msg);
     }
 
-    let mut metadata = HashMap::new();
-    metadata.insert(
-        "suggested_buttons".to_string(),
-        serde_json::json!([
-            {"id": "rss-next", "label": "Next Article", "style": "primary", "context": "CALL rss tool with action=review"},
-            {"id": "rss-done", "label": "Done Reviewing", "style": "default", "context": "Stop reviewing articles. Say done."}
-        ]),
-    );
-    ToolResult::new(msg).with_metadata(metadata)
+    // Return the next article inline so the user doesn't have to click "Next"
+    match handle_next(db) {
+        Ok(next_result) => {
+            let combined = format!("{}\n\n{}", msg, next_result.content);
+            let mut result = ToolResult::new(combined);
+            if let Some(meta) = next_result.metadata {
+                let mut meta_map: HashMap<String, serde_json::Value> = meta.into_iter().collect();
+                // Prepend feedback confirmation to display_text so the user
+                // sees both the feedback result and the next article
+                if let Some(display) = meta_map.get("display_text").and_then(|v| v.as_str()) {
+                    meta_map.insert(
+                        "display_text".to_string(),
+                        serde_json::Value::String(format!("{msg}\n\n{display}")),
+                    );
+                }
+                result = result.with_metadata(meta_map);
+            }
+            result
+        }
+        Err(_) => {
+            // If fetching next article fails, just return the feedback summary
+            ToolResult::new(msg)
+        }
+    }
 }
 
 pub fn handle_accept(db: &MemoryDB, article_ids: &[&str]) -> ToolResult {
@@ -282,21 +298,54 @@ pub fn handle_next(db: &MemoryDB) -> Result<ToolResult> {
     }
     let _ = write!(out, "\n\n({remaining} articles remaining)");
 
-    // Include explicit tool call instructions in button context so the LLM
-    // knows exactly what to do when the button click arrives as [button:rss-accept-...]
-    let accept_ctx = format!(
-        "CALL rss tool with action=accept article_ids=[\"{short_id}\"] THEN call rss action=review"
-    );
-    let reject_ctx = format!(
-        "CALL rss tool with action=reject article_ids=[\"{short_id}\"] THEN call rss action=review"
-    );
+    let accept_ctx = serde_json::json!({
+        "tool": "rss",
+        "params": {"action": "accept", "article_ids": [&short_id]}
+    })
+    .to_string();
+    let reject_ctx = serde_json::json!({
+        "tool": "rss",
+        "params": {"action": "reject", "article_ids": [&short_id]}
+    })
+    .to_string();
 
+    let ts = super::now_ms();
     let mut metadata = HashMap::new();
     metadata.insert(
         "suggested_buttons".to_string(),
         serde_json::json!([
             {"id": format!("rss-accept-{short_id}"), "label": "Accept", "style": "primary", "context": accept_ctx},
             {"id": format!("rss-reject-{short_id}"), "label": "Reject", "style": "danger", "context": reject_ctx},
+        ]),
+    );
+    metadata.insert("active_tool".to_string(), serde_json::json!("rss"));
+    metadata.insert(
+        "action_directives".to_string(),
+        serde_json::json!([
+            {
+                "trigger": {"OneOf": ["yes", "accept", "ok", "\u{1f44d}"]},
+                "tool": "rss",
+                "params": {"action": "accept", "article_ids": [&short_id]},
+                "single_use": true,
+                "ttl_ms": 300_000,
+                "created_at_ms": ts
+            },
+            {
+                "trigger": {"OneOf": ["no", "reject", "skip", "\u{1f44e}"]},
+                "tool": "rss",
+                "params": {"action": "reject", "article_ids": [&short_id]},
+                "single_use": true,
+                "ttl_ms": 300_000,
+                "created_at_ms": ts
+            },
+            {
+                "trigger": {"OneOf": ["done", "stop", "done reviewing"]},
+                "tool": "rss",
+                "params": {"action": "done"},
+                "single_use": true,
+                "ttl_ms": 300_000,
+                "created_at_ms": ts
+            }
         ]),
     );
     // Bypass LLM summarization: article content goes directly to the user
@@ -445,11 +494,12 @@ pub async fn handle_get_article_detail(
 
     // If full content already cached, return it
     if let Some(ref content) = article.full_content {
-        let mut out = format!("**{}**\n{}\n\n{}", article.title, article.url, content);
+        let stripped = strip_html_tags(content);
+        let mut out = format!("**{}**\n{}\n\n{}", article.title, article.url, stripped);
         if let Some(ref author) = article.author {
             out = format!(
                 "**{}** by {}\n{}\n\n{}",
-                article.title, author, article.url, content
+                article.title, author, article.url, stripped
             );
         }
         return Ok(ToolResult::new(out));
@@ -469,24 +519,16 @@ pub async fn handle_get_article_detail(
     };
 
     // Build a per-request client pinned to the validated addresses
-    let pinned = {
-        let mut builder = reqwest::Client::builder()
-            .user_agent(format!("oxicrab/{}", env!("CARGO_PKG_VERSION")))
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(30));
-        let has_ipv4 = resolved.addrs.iter().any(std::net::SocketAddr::is_ipv4);
-        for addr in &resolved.addrs {
-            if has_ipv4 && addr.is_ipv6() {
-                continue;
-            }
-            builder = builder.resolve(&resolved.host, *addr);
-        }
-        match builder.build() {
-            Ok(c) => c,
-            Err(e) => {
-                warn!("rss article detail: failed to build pinned client: {e}");
-                return Ok(fallback_to_snippet(&article));
-            }
+    let ua = format!("oxicrab/{}", env!("CARGO_PKG_VERSION"));
+    let pinned = match crate::utils::http::build_pinned_client(
+        &resolved,
+        std::time::Duration::from_secs(30),
+        Some(&ua),
+    ) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("rss article detail: {e}");
+            return Ok(fallback_to_snippet(&article));
         }
     };
 
@@ -506,7 +548,8 @@ pub async fn handle_get_article_detail(
                     } else {
                         format!("**{}**\n{}\n\n", article.title, article.url)
                     };
-                    Ok(ToolResult::new(format!("{header}{content}")))
+                    let stripped = strip_html_tags(&content);
+                    Ok(ToolResult::new(format!("{header}{stripped}")))
                 }
                 Err(e) => {
                     warn!(
@@ -530,6 +573,14 @@ pub async fn handle_get_article_detail(
             Ok(fallback_to_snippet(&article))
         }
     }
+}
+
+fn strip_html_tags(html: &str) -> String {
+    crate::utils::regex::RegexPatterns::html_tags()
+        .replace_all(html, " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn fallback_to_snippet(article: &crate::agent::memory::memory_db::rss::RssArticle) -> ToolResult {

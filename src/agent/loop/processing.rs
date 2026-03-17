@@ -4,7 +4,6 @@ use super::helpers::{
     load_and_encode_images, strip_audio_tags, strip_document_tags, strip_image_tags,
     transcribe_audio_tags,
 };
-use super::intent;
 use crate::agent::tools::base::ExecutionContext;
 use crate::bus::{InboundMessage, OutboundMessage};
 use anyhow::Result;
@@ -88,9 +87,68 @@ impl AgentLoop {
         }
 
         let session_key = msg.session_key();
-        // Reuse session to avoid repeated lookups
+        // Load session early — the router needs RouterContext from session metadata
         debug!("Loading session: {}", session_key);
         let session = self.sessions.get_or_create(&session_key).await?;
+
+        // Load router context and prune expired directives
+        let mut router_context =
+            crate::router::context::RouterContext::from_session_metadata(&session.metadata);
+        router_context.prune_expired(crate::router::now_ms());
+
+        // Router decides the processing path
+        let decision = self
+            .router
+            .route(&msg.content, &router_context, msg.action.as_ref());
+
+        // Capture tool_filter and context_hint from routing decision before
+        // falling through to the normal pipeline
+        let (router_tool_filter, router_context_hint) = match &decision {
+            crate::router::RoutingDecision::DirectDispatch {
+                tool,
+                params,
+                source,
+                directive_index,
+            } => {
+                // Extract compaction_summary from the already-loaded session so
+                // handle_direct_dispatch doesn't need to reload it.
+                let context_summary = session
+                    .metadata
+                    .get("compaction_summary")
+                    .and_then(|v| v.as_str())
+                    .map(std::string::ToString::to_string);
+                // Handle direct dispatch inline — returns early
+                return self
+                    .handle_direct_dispatch(
+                        tool.clone(),
+                        params.clone(),
+                        source,
+                        *directive_index,
+                        &msg,
+                        &session_key,
+                        &mut router_context,
+                        context_summary,
+                    )
+                    .await;
+            }
+            crate::router::RoutingDecision::GuidedLLM {
+                tool_subset: _,
+                context_hint,
+            } => {
+                // GuidedLLM injects the context hint but does NOT filter tools.
+                // Filtering to only the active tool prevents the LLM from handling
+                // cross-domain requests (e.g. "trigger the cron job" while RSS is active).
+                // The hint gives the LLM enough context to prefer the active tool
+                // without blocking access to other tools.
+                (None, Some(context_hint.clone()))
+            }
+            // NOTE: SemanticFilter is not yet produced by the router; handled
+            // here for exhaustiveness in case it is wired in the future.
+            crate::router::RoutingDecision::SemanticFilter { tool_subset } => {
+                (Some(tool_subset.clone()), None)
+            }
+            crate::router::RoutingDecision::FullLLM => (None, None),
+        };
 
         // Build execution context for tool calls
         let context_summary = session
@@ -107,7 +165,9 @@ impl AgentLoop {
 
         debug!("Getting compacted history");
         let checkpoint_before = self.last_checkpoint.lock().await.clone();
-        let history = self.get_compacted_history(&session).await?;
+        let history = self
+            .get_compacted_history_timed(&session, &session.key)
+            .await?;
         debug!("Got {} history messages", history.len());
 
         // Transcribe any audio files before other processing
@@ -134,7 +194,7 @@ impl AgentLoop {
                     .map(|m| m.name)
                     .collect();
                 warn!(
-                    "secret detected in inbound message from {}:{}: {:?} — redacted",
+                    "security: secret detected in inbound message from {}:{}: {:?} — redacted",
                     msg.channel, msg.sender_id, names
                 );
                 redacted
@@ -142,37 +202,16 @@ impl AgentLoop {
         };
 
         // Prompt injection preflight check
-        if let Some(ref guard) = self.prompt_guard {
-            let matches = guard.scan(&msg_content);
-            if !matches.is_empty() {
-                for m in &matches {
-                    warn!(
-                        "prompt injection detected ({:?}): {}",
-                        m.category, m.pattern_name
-                    );
-                }
-                if self.prompt_guard_config.should_block() {
-                    return Ok(Some(OutboundMessage::from_inbound(msg, "I can't process this message as it appears to contain prompt injection patterns.").build()));
-                }
-            }
-        }
-
-        // Remember fast path: bypass LLM for explicit "remember that..." messages
-        if let Some(content) =
-            crate::agent::memory::remember::extract_remember_content(&msg_content)
-        {
-            let response = match self.try_remember_fast_path(&content, &session_key).await {
-                Ok(resp) => resp,
-                Err(e) => {
-                    warn!("remember fast path failed, falling through to LLM: {}", e);
-                    None
-                }
-            };
-            if let Some(response_text) = response {
-                return Ok(Some(
-                    OutboundMessage::from_inbound(msg, response_text).build(),
-                ));
-            }
+        if matches!(
+            check_prompt_guard(
+                self.prompt_guard.as_ref(),
+                &self.prompt_guard_config,
+                &msg_content,
+                "inbound message",
+            ),
+            PromptGuardVerdict::Blocked
+        ) {
+            return Ok(Some(OutboundMessage::from_inbound(msg, "I can't process this message as it appears to contain prompt injection patterns.").build()));
         }
 
         // Load and encode any attached images (skip audio files)
@@ -219,9 +258,14 @@ impl AgentLoop {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or_default();
 
-        let messages = {
+        // Refresh provider context (may run external commands with 5s timeout)
+        // outside the main lock to avoid blocking other sessions.
+        {
             let mut ctx = self.context.lock().await;
             ctx.refresh_provider_context().await;
+        }
+        let messages = {
+            let mut ctx = self.context.lock().await;
             ctx.build_messages(
                 &history,
                 &content,
@@ -236,8 +280,6 @@ impl AgentLoop {
         debug!("Built {} messages, starting agent loop", messages.len());
 
         let request_id = format!("req-{}", Uuid::new_v4());
-
-        let user_action_intent = self.classify_and_record_intent(&content, Some(&request_id));
 
         // Complexity-aware routing: score the message and resolve a model override
         let (complexity_score, complexity_band) = if let Some(ref scorer) = self.complexity_scorer {
@@ -280,7 +322,7 @@ impl AgentLoop {
             .get(crate::bus::meta::RESPONSE_FORMAT)
             .and_then(crate::gateway::response_format_from_json);
 
-        let overrides = match (complexity_overrides, response_format) {
+        let mut overrides = match (complexity_overrides, response_format) {
             (Some(cx), Some(rf)) => AgentRunOverrides {
                 response_format: Some(rf),
                 request_id: Some(request_id.clone()),
@@ -300,6 +342,14 @@ impl AgentLoop {
                 ..AgentRunOverrides::default()
             },
         };
+
+        // Apply router-derived tool filter and context hint
+        if router_tool_filter.is_some() {
+            overrides.tool_filter = router_tool_filter;
+        }
+        if router_context_hint.is_some() {
+            overrides.context_hint = router_context_hint;
+        }
 
         // Record complexity event off the async runtime (fire-and-forget)
         if let (Some(score), Some(band)) = (&complexity_score, &complexity_band) {
@@ -328,14 +378,13 @@ impl AgentLoop {
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
         let loop_result = self
-            .run_agent_loop_with_overrides(
-                messages,
-                typing_ctx,
-                &exec_ctx,
-                &overrides,
-                user_action_intent,
-            )
+            .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &overrides)
             .await?;
+
+        // Extract directives from tool results and update router context.
+        // Accumulate directives from ALL tools before installing once, so
+        // multi-tool turns don't lose earlier tools' directives.
+        Self::apply_tool_metadata_to_router(&mut router_context, &loop_result.tool_metadata);
 
         // Only reload session if compaction updated it (wrote compaction_summary).
         // Compare the actual checkpoint value, not just presence, so that
@@ -348,6 +397,10 @@ impl AgentLoop {
         } else {
             session
         };
+
+        // Save router context to session metadata
+        router_context.to_session_metadata(&mut session.metadata);
+
         let extra = HashMap::new();
         // Use the redacted content (msg_content), not the original (msg.content),
         // so that secrets detected by inbound scanning are not persisted to disk.
@@ -469,6 +522,25 @@ impl AgentLoop {
     async fn process_system_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
         info!("Processing system message from {}", msg.sender_id);
 
+        // Inbound secret scanning
+        let msg_content = self.leak_detector.redact(&msg.content);
+        if msg_content != msg.content {
+            warn!("security: secrets detected in system message content — redacting");
+        }
+
+        // Prompt guard
+        if matches!(
+            check_prompt_guard(
+                self.prompt_guard.as_ref(),
+                &self.prompt_guard_config,
+                &msg_content,
+                "system message",
+            ),
+            PromptGuardVerdict::Blocked
+        ) {
+            return Ok(None);
+        }
+
         let parts: Vec<&str> = msg.chat_id.splitn(2, ':').collect();
         let (origin_channel, origin_chat_id) = if parts.len() == 2 {
             (parts[0].to_string(), parts[1].to_string())
@@ -477,16 +549,27 @@ impl AgentLoop {
         };
 
         let session_key = format!("{origin_channel}:{origin_chat_id}");
+        // Lock the target session to prevent concurrent modification.
+        // process_message() locks on msg.session_key() which is "system:{chat_id}",
+        // but we modify the origin session "{origin_channel}:{origin_chat_id}".
+        let target_lock = self.session_lock(&session_key);
+        let _target_guard = target_lock.lock().await;
         let session = self.sessions.get_or_create(&session_key).await?;
 
-        let history = self.get_compacted_history(&session).await?;
+        let history = self
+            .get_compacted_history_timed(&session, &session_key)
+            .await?;
 
-        let messages = {
+        // Refresh provider context outside the main lock to avoid blocking other sessions
+        {
             let mut context = self.context.lock().await;
             context.refresh_provider_context().await;
+        }
+        let messages = {
+            let mut context = self.context.lock().await;
             context.build_messages(
                 &history,
-                &msg.content,
+                &msg_content,
                 Some(origin_channel.as_str()),
                 Some(origin_chat_id.as_str()),
                 None,
@@ -509,20 +592,14 @@ impl AgentLoop {
             msg.metadata.clone(),
         );
         let request_id = format!("req-{}", Uuid::new_v4());
-        let user_action_intent = self.classify_and_record_intent(&msg.content, Some(&request_id));
         let system_overrides = AgentRunOverrides {
             request_id: Some(request_id),
             ..AgentRunOverrides::default()
         };
         let loop_result = self
-            .run_agent_loop_with_overrides(
-                messages,
-                typing_ctx,
-                &exec_ctx,
-                &system_overrides,
-                user_action_intent,
-            )
+            .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &system_overrides)
             .await?;
+        let assistant_extra = loop_result.to_assistant_extra();
         let final_content = loop_result
             .content
             .unwrap_or_else(|| "Background task completed.".to_string());
@@ -531,28 +608,9 @@ impl AgentLoop {
         let extra = HashMap::new();
         session.add_message(
             "user".to_string(),
-            format!("[System: {}] {}", msg.sender_id, msg.content),
+            format!("[System: {}] {}", msg.sender_id, msg_content),
             extra.clone(),
         );
-        let mut assistant_extra = HashMap::new();
-        if !loop_result.tools_used.is_empty() {
-            assistant_extra.insert(
-                crate::bus::meta::TOOLS_USED.to_string(),
-                Value::Array(
-                    loop_result
-                        .tools_used
-                        .into_iter()
-                        .map(Value::String)
-                        .collect(),
-                ),
-            );
-        }
-        if let Some(ref rc) = loop_result.reasoning_content {
-            assistant_extra.insert("reasoning_content".to_string(), Value::String(rc.clone()));
-        }
-        if let Some(ref rs) = loop_result.reasoning_signature {
-            assistant_extra.insert("reasoning_signature".to_string(), Value::String(rs.clone()));
-        }
         session.add_message(
             "assistant".to_string(),
             final_content.clone(),
@@ -568,6 +626,7 @@ impl AgentLoop {
             )
             .media(loop_result.media)
             .metadata(msg.metadata)
+            .merge_metadata(loop_result.response_metadata)
             .build(),
         ))
     }
@@ -634,65 +693,23 @@ impl AgentLoop {
         Ok(Some(response))
     }
 
-    /// Classify user message intent and record the metric to the database.
-    /// Returns `true` if the message has action intent (should trigger tool use).
-    fn classify_and_record_intent(&self, content: &str, request_id: Option<&str>) -> bool {
-        let regex_intent = intent::classify_action_intent(content);
-        let (semantic_result, semantic_score) = if regex_intent {
-            (None, None)
-        } else {
-            #[cfg(feature = "embeddings")]
-            {
-                self.memory
-                    .embedding_service()
-                    .and_then(|svc| intent::classify_action_intent_semantic(content, svc))
-                    .map_or((None, None), |(result, score)| (Some(result), Some(score)))
-            }
-            #[cfg(not(feature = "embeddings"))]
-            (None, None)
-        };
-        let user_action_intent = regex_intent || semantic_result.unwrap_or_default();
-
-        let intent_method = if regex_intent {
-            "regex"
-        } else if semantic_result == Some(true) {
-            "semantic"
-        } else {
-            "none"
-        };
-        {
-            let db = self.memory.db();
-            let method = intent_method.to_string();
-            let content = content.to_string();
-            let rid = request_id.map(str::to_string);
-            tokio::task::spawn_blocking(move || {
-                if let Err(e) = db.record_intent_event(
-                    "classification",
-                    Some(&method),
-                    semantic_score,
-                    None,
-                    &content,
-                    rid.as_deref(),
-                ) {
-                    debug!("failed to record intent metric: {}", e);
-                }
-            });
+    /// Run `get_compacted_history` with timing instrumentation.
+    /// Logs a warning when compaction takes more than 2 seconds.
+    async fn get_compacted_history_timed(
+        &self,
+        session: &crate::session::Session,
+        session_label: &str,
+    ) -> anyhow::Result<Vec<std::collections::HashMap<String, serde_json::Value>>> {
+        let start = std::time::Instant::now();
+        let history = self.get_compacted_history(session).await?;
+        let elapsed = start.elapsed();
+        if elapsed > std::time::Duration::from_secs(2) {
+            info!(
+                "compaction took {:.1}s for session {session_label}",
+                elapsed.as_secs_f64()
+            );
         }
-
-        user_action_intent
-    }
-
-    fn build_execution_context(
-        channel: &str,
-        chat_id: &str,
-        context_summary: Option<String>,
-    ) -> ExecutionContext {
-        ExecutionContext {
-            channel: channel.to_string(),
-            chat_id: chat_id.to_string(),
-            context_summary,
-            ..Default::default()
-        }
+        Ok(history)
     }
 
     fn build_execution_context_with_metadata(
@@ -707,6 +724,292 @@ impl AgentLoop {
             context_summary,
             metadata,
         }
+    }
+
+    /// Execute a tool directly without LLM involvement (buttons, directives,
+    /// static rules, config commands, remember fast path).
+    #[allow(clippy::too_many_arguments)]
+    async fn handle_direct_dispatch(
+        &self,
+        tool: String,
+        params: serde_json::Value,
+        source: &crate::router::DispatchSource,
+        directive_index: Option<usize>,
+        msg: &InboundMessage,
+        session_key: &str,
+        router_context: &mut crate::router::context::RouterContext,
+        context_summary: Option<String>,
+    ) -> Result<Option<OutboundMessage>> {
+        let source_label = source.label();
+        info!(
+            "direct dispatch: tool={tool} source={source_label} channel={}",
+            msg.channel
+        );
+
+        // Inbound secret scanning: redact secrets before they reach tools or
+        // get persisted in session history / memory.
+        let msg_content = {
+            let redacted = self.leak_detector.redact(&msg.content);
+            if redacted != msg.content {
+                warn!("security: secrets detected in direct dispatch message — redacting");
+            }
+            redacted
+        };
+
+        // Prompt injection preflight check
+        if matches!(
+            check_prompt_guard(
+                self.prompt_guard.as_ref(),
+                &self.prompt_guard_config,
+                &msg_content,
+                "direct dispatch",
+            ),
+            PromptGuardVerdict::Blocked
+        ) {
+            return Ok(Some(
+                OutboundMessage::from_inbound(msg.clone(), "I can't process this message as it appears to contain prompt injection patterns.").build(),
+            ));
+        }
+
+        // Handle remember fast path — uses its own session management
+        if tool == "_remember" {
+            let remember_content =
+                crate::agent::memory::remember::extract_remember_content(&msg_content)
+                    .unwrap_or_else(|| msg_content.clone());
+            let response = if let Ok(Some(text)) = self
+                .try_remember_fast_path(&remember_content, session_key)
+                .await
+            {
+                text
+            } else {
+                warn!("remember fast path failed, returning fallback");
+                "I wasn't able to save that. Please try again.".to_string()
+            };
+            return Ok(Some(
+                OutboundMessage::from_inbound(msg.clone(), response).build(),
+            ));
+        }
+
+        // Validate tool exists
+        let Some(tool_ref) = self.tools.get(&tool) else {
+            return Ok(Some(
+                OutboundMessage::from_inbound(
+                    msg.clone(),
+                    format!("Action failed: tool '{tool}' is not available."),
+                )
+                .build(),
+            ));
+        };
+
+        // Reject approval-required tools in direct dispatch
+        if tool_ref.requires_approval() {
+            return Ok(Some(
+                OutboundMessage::from_inbound(
+                    msg.clone(),
+                    format!("Action failed: tool '{tool}' requires approval."),
+                )
+                .build(),
+            ));
+        }
+
+        // Secret-scan params
+        let params = match redact_dispatch_params(&self.leak_detector, params) {
+            Ok(p) => p,
+            Err(msg_text) => {
+                return Ok(Some(
+                    OutboundMessage::from_inbound(msg.clone(), msg_text).build(),
+                ));
+            }
+        };
+
+        // Build execution context from message metadata (context_summary was
+        // extracted from the session that the caller already loaded)
+        let ctx = Self::build_execution_context_with_metadata(
+            &msg.channel,
+            &msg.chat_id,
+            context_summary,
+            msg.metadata.clone(),
+        );
+
+        // Execute tool
+        let result = match self.tools.execute(&tool, params, &ctx).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("direct dispatch tool execution failed: {e}");
+                let sanitized = crate::utils::path_sanitize::sanitize_error_message(
+                    &format!("{e}"),
+                    Some(self.workspace.as_path()),
+                );
+                return Ok(Some(
+                    OutboundMessage::from_inbound(
+                        msg.clone(),
+                        format!("Action failed: {sanitized}"),
+                    )
+                    .build(),
+                ));
+            }
+        };
+
+        // Secret-scan tool result output
+        let result_content = self.leak_detector.redact(&result.content);
+        if result_content != result.content {
+            warn!(
+                "direct dispatch: secrets detected in tool '{}' output — redacting",
+                tool
+            );
+        }
+
+        // Consume single-use directive BEFORE updating context (which may replace
+        // the directives vector via install_directives(), invalidating the index)
+        if let Some(idx) = directive_index
+            && router_context
+                .action_directives
+                .get(idx)
+                .is_some_and(|d| d.single_use)
+        {
+            router_context.remove_directive_at(idx);
+        }
+
+        // Extract directives from result metadata (may replace directives vector)
+        if let Some(ref meta) = result.metadata {
+            Self::update_router_context(router_context, meta, &tool);
+        }
+
+        // Save router context and session history
+        let mut session = self.sessions.get_or_create(session_key).await?;
+        router_context.to_session_metadata(&mut session.metadata);
+        session.add_message(
+            "user",
+            format!("[action: {tool} via {source_label}]"),
+            HashMap::new(),
+        );
+        session.add_message("assistant", &result_content, HashMap::new());
+        if let Err(e) = self.sessions.save(&session).await {
+            warn!("failed to save session after direct dispatch: {e}");
+        }
+
+        // Extract display_text from tool metadata (direct-to-user passthrough)
+        let final_content = if let Some(ref meta) = result.metadata
+            && let Some(display) = meta.get("display_text").and_then(|v| v.as_str())
+        {
+            // display_text replaces the LLM-facing content for the user
+            let redacted = self.leak_detector.redact(display);
+            if result_content.is_empty() || result_content.contains("shown to user") {
+                redacted
+            } else {
+                format!("{redacted}\n\n{result_content}")
+            }
+        } else {
+            result_content.clone()
+        };
+
+        // Build outbound with buttons from tool metadata
+        let mut metadata = HashMap::new();
+        if let Some(ref meta) = result.metadata
+            && let Some(buttons) = meta.get("suggested_buttons")
+        {
+            metadata.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
+        }
+
+        Ok(Some(
+            OutboundMessage::builder(msg.channel.clone(), msg.chat_id.clone(), final_content)
+                .reply_to(
+                    msg.metadata
+                        .get(crate::bus::meta::TS)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default(),
+                )
+                .metadata(metadata)
+                .build(),
+        ))
+    }
+
+    /// Accumulate directives from all tools in a turn, then install once.
+    /// This prevents multi-tool turns from losing earlier tools' directives
+    /// (each `install_directives` call replaces the full set).
+    fn apply_tool_metadata_to_router(
+        ctx: &mut crate::router::context::RouterContext,
+        tool_metadata: &[(String, HashMap<String, Value>)],
+    ) {
+        let mut all_directives = Vec::new();
+        let mut last_active_tool = None;
+
+        for (tool_name, meta) in tool_metadata {
+            if let Some(active) = meta.get("active_tool").and_then(|v| v.as_str()) {
+                if active == tool_name {
+                    last_active_tool = Some(active.to_string());
+                } else {
+                    warn!(
+                        "tool '{}' tried to set active_tool to '{}' — rejected",
+                        tool_name, active
+                    );
+                }
+            }
+            if let Some(directives_val) = meta.get("action_directives")
+                && let Ok(mut directives) = serde_json::from_value::<
+                    Vec<crate::router::context::ActionDirective>,
+                >(directives_val.clone())
+            {
+                directives.retain(|d| {
+                    if d.tool == *tool_name {
+                        true
+                    } else {
+                        warn!(
+                            "tool '{}' tried to set directive for tool '{}' — rejected",
+                            tool_name, d.tool
+                        );
+                        false
+                    }
+                });
+                all_directives.extend(directives);
+            }
+        }
+
+        if let Some(active) = last_active_tool {
+            ctx.set_active_tool(Some(active));
+        }
+        if !all_directives.is_empty() {
+            ctx.install_directives(all_directives);
+        }
+        ctx.updated_at_ms = crate::router::now_ms();
+    }
+
+    /// Update router context from a single tool's result metadata (`active_tool`, directives).
+    /// Used by `handle_direct_dispatch` which processes one tool at a time.
+    fn update_router_context(
+        ctx: &mut crate::router::context::RouterContext,
+        metadata: &HashMap<String, Value>,
+        producing_tool: &str,
+    ) {
+        if let Some(active) = metadata.get("active_tool").and_then(|v| v.as_str()) {
+            if active == producing_tool {
+                ctx.set_active_tool(Some(active.to_string()));
+            } else {
+                warn!(
+                    "tool '{}' tried to set active_tool to '{}' — rejected",
+                    producing_tool, active
+                );
+            }
+        }
+        if let Some(directives_val) = metadata.get("action_directives")
+            && let Ok(mut directives) = serde_json::from_value::<
+                Vec<crate::router::context::ActionDirective>,
+            >(directives_val.clone())
+        {
+            directives.retain(|d| {
+                if d.tool == producing_tool {
+                    true
+                } else {
+                    warn!(
+                        "tool '{}' tried to set directive for tool '{}' — rejected",
+                        producing_tool, d.tool
+                    );
+                    false
+                }
+            });
+            ctx.install_directives(directives);
+        }
+        ctx.updated_at_ms = crate::router::now_ms();
     }
 
     pub async fn process_direct(
@@ -741,9 +1044,8 @@ impl AgentLoop {
         chat_id: &str,
         overrides: &AgentRunOverrides,
     ) -> Result<super::config::DirectResult> {
-        // Acquire per-channel/chat lock to prevent concurrent sends to the same destination.
-        // Note: this locks on the output channel:chat_id pair, not the session key.
-        let lock_key = format!("{channel}:{chat_id}");
+        // Acquire per-session lock to serialize access to the session being modified.
+        let lock_key = session_key.to_string();
         let lock = self.session_lock(&lock_key);
         let _guard = lock.lock().await;
 
@@ -764,18 +1066,108 @@ impl AgentLoop {
         let content = redacted_content.as_deref().unwrap_or(content);
 
         // Prompt injection preflight check
-        if let Some(ref guard) = self.prompt_guard {
-            let matches = guard.scan(content);
-            if !matches.is_empty() {
-                for m in &matches {
-                    warn!(
-                        "prompt injection detected in direct call ({:?}): {}",
-                        m.category, m.pattern_name
-                    );
-                }
-                if self.prompt_guard_config.should_block() {
+        if matches!(
+            check_prompt_guard(
+                self.prompt_guard.as_ref(),
+                &self.prompt_guard_config,
+                content,
+                "direct call",
+            ),
+            PromptGuardVerdict::Blocked
+        ) {
+            return Ok(super::config::DirectResult {
+                content: "I can't process this message as it appears to contain prompt injection patterns.".to_string(),
+                metadata: HashMap::new(),
+            });
+        }
+
+        // Short-circuit for action dispatch (button/webhook/cron with explicit tool call)
+        if let Some(ref dispatch) = overrides.action {
+            info!(
+                "direct call action dispatch: tool={} source={}",
+                dispatch.tool,
+                dispatch.source.label()
+            );
+
+            // Validate tool exists
+            let Some(tool_ref) = self.tools.get(&dispatch.tool) else {
+                return Ok(super::config::DirectResult {
+                    content: format!("Action failed: tool '{}' is not available.", dispatch.tool),
+                    metadata: HashMap::new(),
+                });
+            };
+
+            // Reject approval-required tools in action dispatch
+            if tool_ref.requires_approval() {
+                return Ok(super::config::DirectResult {
+                    content: format!("Action failed: tool '{}' requires approval.", dispatch.tool),
+                    metadata: HashMap::new(),
+                });
+            }
+
+            // Secret-scan params
+            let params = match redact_dispatch_params(&self.leak_detector, dispatch.params.clone())
+            {
+                Ok(p) => p,
+                Err(msg_text) => {
                     return Ok(super::config::DirectResult {
-                        content: "I can't process this message as it appears to contain prompt injection patterns.".to_string(),
+                        content: msg_text,
+                        metadata: HashMap::new(),
+                    });
+                }
+            };
+
+            let ctx = Self::build_execution_context_with_metadata(
+                channel,
+                chat_id,
+                None,
+                overrides.metadata.clone(),
+            );
+            match self.tools.execute(&dispatch.tool, params, &ctx).await {
+                Ok(result) => {
+                    // Secret-scan tool result output
+                    let result_content = self.leak_detector.redact(&result.content);
+                    if result_content != result.content {
+                        warn!(
+                            "direct call action dispatch: secrets detected in tool '{}' output — redacting",
+                            dispatch.tool
+                        );
+                    }
+
+                    // Save session history
+                    let mut session = self.sessions.get_or_create(session_key).await?;
+                    session.add_message(
+                        "user",
+                        format!(
+                            "[action: {} via {}]",
+                            dispatch.tool,
+                            dispatch.source.label()
+                        ),
+                        HashMap::new(),
+                    );
+                    session.add_message("assistant", &result_content, HashMap::new());
+                    if let Err(e) = self.sessions.save(&session).await {
+                        warn!("failed to save session after direct dispatch: {e}");
+                    }
+
+                    let mut meta = HashMap::new();
+                    if let Some(ref rm) = result.metadata
+                        && let Some(buttons) = rm.get("suggested_buttons")
+                    {
+                        meta.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
+                    }
+                    return Ok(super::config::DirectResult {
+                        content: result_content,
+                        metadata: meta,
+                    });
+                }
+                Err(e) => {
+                    let sanitized = crate::utils::path_sanitize::sanitize_error_message(
+                        &format!("{e}"),
+                        Some(self.workspace.as_path()),
+                    );
+                    return Ok(super::config::DirectResult {
+                        content: format!("Action failed: {sanitized}"),
                         metadata: HashMap::new(),
                     });
                 }
@@ -783,11 +1175,17 @@ impl AgentLoop {
         }
 
         let session = self.sessions.get_or_create(session_key).await?;
-        let history = self.get_compacted_history(&session).await?;
+        let history = self
+            .get_compacted_history_timed(&session, session_key)
+            .await?;
 
-        let messages = {
+        // Refresh provider context outside the main lock to avoid blocking other sessions
+        {
             let mut ctx = self.context.lock().await;
             ctx.refresh_provider_context().await;
+        }
+        let messages = {
+            let mut ctx = self.context.lock().await;
             ctx.build_messages(
                 &history,
                 content,
@@ -801,18 +1199,13 @@ impl AgentLoop {
         };
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
-        let exec_ctx = if overrides.metadata.is_empty() {
-            Self::build_execution_context(channel, chat_id, None)
-        } else {
-            Self::build_execution_context_with_metadata(
-                channel,
-                chat_id,
-                None,
-                overrides.metadata.clone(),
-            )
-        };
+        let exec_ctx = Self::build_execution_context_with_metadata(
+            channel,
+            chat_id,
+            None,
+            overrides.metadata.clone(),
+        );
         let request_id = format!("req-{}", Uuid::new_v4());
-        let user_action_intent = self.classify_and_record_intent(content, Some(&request_id));
 
         let effective_overrides = if overrides.request_id.is_some() {
             overrides.clone()
@@ -824,14 +1217,9 @@ impl AgentLoop {
         };
 
         let loop_result = self
-            .run_agent_loop_with_overrides(
-                messages,
-                typing_ctx,
-                &exec_ctx,
-                &effective_overrides,
-                user_action_intent,
-            )
+            .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &effective_overrides)
             .await?;
+        let assistant_extra = loop_result.to_assistant_extra();
         let response = loop_result
             .content
             .unwrap_or_else(|| "No response generated.".to_string());
@@ -839,25 +1227,6 @@ impl AgentLoop {
         let mut session = self.sessions.get_or_create(session_key).await?;
         let extra = HashMap::new();
         session.add_message("user".to_string(), content.to_string(), extra.clone());
-        let mut assistant_extra = HashMap::new();
-        if !loop_result.tools_used.is_empty() {
-            assistant_extra.insert(
-                crate::bus::meta::TOOLS_USED.to_string(),
-                Value::Array(
-                    loop_result
-                        .tools_used
-                        .into_iter()
-                        .map(Value::String)
-                        .collect(),
-                ),
-            );
-        }
-        if let Some(ref rc) = loop_result.reasoning_content {
-            assistant_extra.insert("reasoning_content".to_string(), Value::String(rc.clone()));
-        }
-        if let Some(ref rs) = loop_result.reasoning_signature {
-            assistant_extra.insert("reasoning_signature".to_string(), Value::String(rs.clone()));
-        }
         session.add_message("assistant".to_string(), response.clone(), assistant_extra);
         self.sessions.save(&session).await?;
 
@@ -865,5 +1234,65 @@ impl AgentLoop {
             content: response,
             metadata: loop_result.response_metadata,
         })
+    }
+}
+
+/// Scan dispatch parameters for leaked secrets and redact them.
+///
+/// Returns `Ok(params)` (possibly redacted) on success, or `Err(user_message)`
+/// when redaction produced invalid JSON.
+fn redact_dispatch_params(
+    leak_detector: &crate::safety::LeakDetector,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let params_str = serde_json::to_string(&params).unwrap_or_default();
+    let redacted = leak_detector.redact(&params_str);
+    if redacted == params_str {
+        Ok(params)
+    } else {
+        warn!("security: secrets redacted from dispatch params");
+        serde_json::from_str(&redacted).map_err(|e| {
+            format!(
+                "Action failed: parameters contain secrets that could not be safely redacted ({e})"
+            )
+        })
+    }
+}
+
+/// Outcome of a prompt-guard scan.
+enum PromptGuardVerdict {
+    /// Content is clean (or guard is disabled / warn-only).
+    Pass,
+    /// Content matched a block-listed pattern - caller should return early.
+    Blocked,
+}
+
+/// Run the prompt guard (if present) against `content` and log any matches.
+///
+/// Returns [`PromptGuardVerdict::Blocked`] when the config is set to block and
+/// at least one pattern matched; otherwise [`PromptGuardVerdict::Pass`].
+fn check_prompt_guard(
+    guard: Option<&crate::safety::prompt_guard::PromptGuard>,
+    config: &crate::config::PromptGuardConfig,
+    content: &str,
+    label: &str,
+) -> PromptGuardVerdict {
+    let Some(guard) = guard else {
+        return PromptGuardVerdict::Pass;
+    };
+    let matches = guard.scan(content);
+    if matches.is_empty() {
+        return PromptGuardVerdict::Pass;
+    }
+    for m in &matches {
+        warn!(
+            "security: prompt injection in {label} ({:?}): {}",
+            m.category, m.pattern_name
+        );
+    }
+    if config.should_block() {
+        PromptGuardVerdict::Blocked
+    } else {
+        PromptGuardVerdict::Pass
     }
 }

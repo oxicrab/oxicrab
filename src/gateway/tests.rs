@@ -1200,6 +1200,24 @@ async fn test_status_html_endpoint() {
 }
 
 #[tokio::test]
+async fn test_status_html_requires_auth_when_key_set() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let state = make_state();
+    let app = build_router(state, None, Some(Arc::new("test-key".to_string())), None);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/status")
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn test_status_json_requires_auth_when_key_set() {
     use axum::http::Request;
     use tower::ServiceExt;

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tool Reference - oxicrab</title>
-  <meta name="description" content="Complete reference for all 27 built-in tools in oxicrab, including setup instructions for configurable tools.">
+  <meta name="description" content="Complete reference for all 29 built-in tools in oxicrab, including setup instructions for configurable tools.">
   <meta name="theme-color" content="#ea580c">
   <link rel="icon" href="oxicrab.png">
   <style>
@@ -424,6 +424,7 @@
         <tr><td>reject</td><td>Mark one or more articles as rejected. Accepts a single <code>article_id</code> or an array of IDs. Each rejected article is used as a negative training signal for the LinTS model.</td></tr>
         <tr><td>get_article_detail</td><td>Fetch the full page content for an article by ID. Downloads and extracts readable text from the article URL.</td></tr>
         <tr><td>feed_stats</td><td>Analytics dashboard. Shows per-feed acceptance rates, overall LinTS model weights, total article counts, and current cron scan job status.</td></tr>
+        <tr><td>done</td><td>Mark the current review batch as complete. Commits all pending accept/reject decisions and updates the LinTS model.</td></tr>
       </tbody>
     </table>
 
@@ -507,6 +508,8 @@
         <tr><td>list</td><td>List all scheduled jobs</td><td>&#x2713;</td></tr>
         <tr><td>remove</td><td>Delete a job by ID</td><td>&mdash;</td></tr>
         <tr><td>run</td><td>Manually trigger a job</td><td>&mdash;</td></tr>
+        <tr><td>pause</td><td>Pause (disable) a job by ID</td><td>&mdash;</td></tr>
+        <tr><td>resume</td><td>Resume (re-enable) a paused job by ID</td><td>&mdash;</td></tr>
         <tr><td>dlq_list</td><td>List dead letter queue entries (failed job executions). Optional <code>dlq_status</code> filter.</td><td>&#x2713;</td></tr>
         <tr><td>dlq_replay</td><td>Retry a failed job by DLQ entry ID (<code>dlq_id</code>)</td><td>&mdash;</td></tr>
         <tr><td>dlq_clear</td><td>Purge DLQ entries. Optional <code>dlq_status</code> filter.</td><td>&mdash;</td></tr>
@@ -676,6 +679,7 @@
         <tr><td>create_event</td><td>Create a new calendar event</td><td>&mdash;</td></tr>
         <tr><td>update_event</td><td>Update an existing event</td><td>&mdash;</td></tr>
         <tr><td>delete_event</td><td>Delete an event</td><td>&mdash;</td></tr>
+        <tr><td>rsvp</td><td>Set attendance status (accepted, declined, tentative) for a calendar event</td><td>&mdash;</td></tr>
         <tr><td>list_calendars</td><td>List available calendars</td><td>&#x2713;</td></tr>
       </tbody>
     </table>

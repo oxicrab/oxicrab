@@ -193,12 +193,6 @@ pub(super) enum StatsCommands {
     },
     /// Show memory search statistics
     Search,
-    /// Show intent classification and hallucination detection metrics
-    Intent {
-        /// Number of days to look back (default: 7)
-        #[arg(long, short = 'd', default_value = "7")]
-        days: u32,
-    },
     /// Show complexity routing statistics and cost correlation
     Complexity {
         /// Number of days to look back (default: 7)

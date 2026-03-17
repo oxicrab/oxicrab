@@ -14,7 +14,7 @@ Channel (Telegram/Discord/Slack/WhatsApp/Twilio)
 
 ## Key Abstractions (3 traits + middleware)
 
-- **`Tool`** (`src/agent/tools/base/mod.rs`): `name()`, `description()`, `parameters()` (JSON Schema), `execute(Value, &ExecutionContext) → ToolResult`. Optional (have defaults): `capabilities()`, `to_schema()`, `cacheable()`, `requires_approval()`, `execution_timeout()`.
+- **`Tool`** (`src/agent/tools/base/mod.rs`): `name()`, `description()`, `parameters()` (JSON Schema), `execute(Value, &ExecutionContext) → ToolResult`. Optional (have defaults): `capabilities()`, `to_schema()`, `cacheable()`, `requires_approval()`, `execution_timeout()`, `routing_rules()`, `usage_examples()`.
 - **`ToolMiddleware`** (`src/agent/tools/base/mod.rs`): `before_execute()` (can short-circuit), `after_execute()` (can modify result). Built-in: `CacheMiddleware`, `TruncationMiddleware`, `LoggingMiddleware`.
 - **`ExecutionContext`** (`src/agent/tools/base/mod.rs`): Passed to every `execute()` call. Fields: `channel`, `chat_id`, `context_summary`, `metadata` (channel-specific metadata from the originating inbound message, e.g. Slack `ts` for threading).
 - **`BaseChannel`** (`src/channels/base/mod.rs`): `start()`, `stop()`, `send()`. Optional: `send_typing()`, `send_and_get_id()`, `edit_message()`, `delete_message()`. Both Discord and Slack support interactive buttons via a unified `metadata["buttons"]` format — each channel converts to its native representation (Discord action rows, Slack Block Kit). Button clicks arrive as `[button:{id}]` inbound messages on both channels. Discord also supports slash commands, embeds, and interaction webhook followups — metadata keys `discord_interaction_token`/`discord_application_id` route responses through webhook API. Interaction tokens have a 15-minute TTL; the channel checks expiry (14-min safety margin) before followup and falls back to a regular channel message if expired. Slack supports configurable reaction emoji lifecycle (`thinkingEmoji` → `doneEmoji`) and structured error classification with retry for transient (5xx) errors.
@@ -50,19 +50,15 @@ This enables the Anthropic prompt cache (5-minute TTL), reducing input token cos
 - **Tool output stash** (`src/agent/tools/stash/mod.rs`): In-memory LRU cache (32 entries, 32 MB total) that preserves large tool outputs before truncation. When `TruncationMiddleware` truncates a result, the full content is stashed and a `stash_retrieve` tool lets the LLM recover it with pagination (`offset`/`limit` params).
 - **Tool parameter auto-casting** (`src/agent/tools/registry/mod.rs`): `coerce_params_to_schema()` runs before tool execution, fixing common LLM type mismatches (string→integer, string→number, number→string, string→boolean, string→array/object). Saves a full round-trip per mismatch.
 - **Schema hint injection** (`src/agent/tools/registry/mod.rs`): `inject_schema_hint()` appends the tool's description and parameter schema to error messages when a tool returns `is_error: true`. Helps the LLM self-correct without needing full schemas in every request.
-- **Tool pre-filtering / ToolCategory** (`src/agent/loop/tool_filter.rs`): `ToolCategory` enum (declared in `src/agent/tools/base/mod.rs`) classifies tools by domain. `tool_filter.rs` uses the category and inbound message content keywords to select a relevant subset of tools per turn, reducing token overhead from tool definitions.
+- **Tool pre-filtering / ToolCategory**: `ToolCategory` enum (declared in `src/agent/tools/base/mod.rs`) classifies tools by domain. The router's `GuidedLLM` path uses `overrides.tool_filter` (a tool name list, not ToolCategory-based filtering) to select a relevant subset of tools per turn, reducing token overhead from tool definitions.
 
 ## Agent Loop (`src/agent/loop/mod.rs`)
 
-`AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. All iterations use `tool_choice=None` (auto). Safety against text-only hallucinations comes from `handle_text_response()` which detects false action claims and false no-tools claims. Hallucination detection runs on final text responses. Responses flow through the loop's return value (no message tool); the caller sends them exactly once. At 70% of `max_iterations`, a system message prompts the LLM to begin wrapping up. Post-compaction recovery instructions include the last user message and a compaction summary. Cognitive `CheckpointTracker` (configured via `agents.defaults.cognitive`) nudges the LLM to self-checkpoint via escalating pressure messages based on tool call volume.
-
-### Intent Classification (`src/agent/loop/intent/mod.rs`)
-
-Classifies each inbound message as action-oriented vs. conversational/informational using regex heuristics (no LLM call). Used by hallucination detection to determine if text-only responses should be flagged as false action claims, and for recording intent analytics.
+`AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. All iterations use `tool_choice=None` (auto). Safety against text-only hallucinations comes from `handle_text_response()` which detects false action claims (Layer 1 only). Hallucination detection runs on final text responses. Responses flow through the loop's return value (no message tool); the caller sends them exactly once. At 70% of `max_iterations`, a system message prompts the LLM to begin wrapping up. Post-compaction recovery instructions include the last user message and a compaction summary. Cognitive `CheckpointTracker` (configured via `agents.defaults.cognitive`) nudges the LLM to self-checkpoint via escalating pressure messages based on tool call volume.
 
 ### Complexity-Aware Routing (`src/agent/loop/complexity/mod.rs`)
 
-`ComplexityScorer` scores inbound messages across 7 dimensions (message length, reasoning keywords, technical vocabulary, question complexity, code presence, instruction complexity, conversational simplicity) using AC automata and regex. Composite score maps to standard/heavy model thresholds defined in `ChatRoutingConfig`. Wired in `process_message_unlocked()` after intent classification.
+`ComplexityScorer` scores inbound messages across 7 dimensions (message length, reasoning keywords, technical vocabulary, question complexity, code presence, instruction complexity, conversational simplicity) using AC automata and regex. Composite score maps to standard/heavy model thresholds defined in `ChatRoutingConfig`. Wired in `process_message_unlocked()` after router pre-classification.
 
 ### Context Providers (`src/agent/context/providers/mod.rs`)
 
@@ -75,6 +71,18 @@ Dynamic system prompt injection via external commands. Config: `agents.defaults.
 ### Group Chat Memory Isolation
 
 When `is_group` metadata is true on an inbound message, `build_system_prompt_inner()` passes `is_group=true` to `MemoryStore::get_memory_context_scoped()`, which excludes personal memory entries from the system prompt and search results. Each channel sets `is_group` in metadata: Telegram (`chat.is_group()/is_supergroup()`), Discord (`guild_id.is_some()`), Slack (channel ID not starting with 'D').
+
+### Message Router (`src/router/mod.rs`)
+
+`MessageRouter` is a stateless routing engine that sits at the top of `process_message_unlocked()`, making sub-100us decisions about whether a message needs LLM involvement. Checks in priority order: structured action payloads (buttons, webhooks) -> session action directives -> prefixed config commands -> static tool rules -> remember fast path -> guided LLM (active context, filtered tools) -> full LLM.
+
+`RouterContext` (active tool, action directives with TTL) persists in `Session.metadata["router_context"]`. Tools declare static rules via `routing_rules()` on the `Tool` trait and dynamic directives via `ToolResult.metadata["action_directives"]` + `["active_tool"]`. Directives are case-insensitive whole-message matches with configurable TTL (default 5 min, max 20 per session).
+
+Config: `router.prefix` (default "!") for prefix commands, `router.rules` for user-defined command mappings.
+
+The `GuidedLLM` path filters tool definitions to the active tool + core tools and injects an `## Active Interaction` context hint into the system prompt. The `DirectDispatch` path executes tools via `ToolRegistry::execute()`, records synthetic session history, and returns the tool result directly without LLM involvement.
+
+Dispatch types (`ActionDispatch`, `ActionSource`, `ActionDispatchPayload`) live in `src/dispatch/mod.rs`. `DispatchContextStore` (in-memory LRU with 15-min TTL) bridges Discord's lack of a button value field.
 
 ## Memory System (`src/agent/memory/`)
 
@@ -93,7 +101,7 @@ When `is_group` metadata is true on an inbound message, `build_system_prompt_inn
 
 ### Remember Fast Path (`src/agent/memory/remember/mod.rs`)
 
-Six trigger patterns (e.g. "remember that ", "please remember ") bypass the LLM entirely, writing directly to daily notes. Rejects content < 8 chars, questions, and interrogative forms. Deduplication via Jaccard similarity (threshold 0.7) against recent DB entries. Intercepts messages in `process_message()` before image encoding.
+Six trigger patterns (e.g. "remember that ", "please remember ") bypass the LLM entirely, writing directly to daily notes. Rejects content < 8 chars, questions, and interrogative forms. Deduplication via Jaccard similarity (threshold 0.7) against recent DB entries. Classified by `MessageRouter::route()` at priority 6 and dispatched via `handle_direct_dispatch()`.
 
 ### Memory Quality Gates (`src/agent/memory/quality/mod.rs`)
 
@@ -115,7 +123,7 @@ Per-channel formatting hints are injected into the system prompt during `build_m
 ## Feature Flags (channel selection + optional features)
 
 ```toml
-default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio", "keyring-store", "browser", "local-whisper", "embeddings"]
+default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio", "keyring-store", "browser", "local-whisper", "embeddings", "tool-rss"]
 channel-telegram = ["dep:teloxide"]
 channel-discord = ["dep:serenity"]
 channel-slack = ["dep:tokio-tungstenite"]
@@ -125,6 +133,7 @@ keyring-store = ["dep:keyring"]
 browser = [...]          # headless browser tool (chromiumoxide)
 local-whisper = [...]    # local whisper.cpp voice transcription
 embeddings = [...]       # fastembed ONNX for vector search
+tool-rss = [...]         # RSS feed reader with LinTS ranking
 ```
 
 Channels are conditionally compiled via `#[cfg(feature = "channel-*")]` in `src/channels/mod.rs`. Keyring support (`keyring-store`) is default-on for desktop; containers should build with `--no-default-features` and use env vars instead.

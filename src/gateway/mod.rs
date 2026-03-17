@@ -220,7 +220,10 @@ async fn api_key_auth(
     match provided {
         Some(key) if key.as_bytes().ct_eq(expected.as_bytes()).into() => next.run(request).await,
         _ => {
-            warn!("rejected unauthenticated request to {}", request.uri());
+            warn!(
+                "security: rejected unauthenticated request to {}",
+                request.uri()
+            );
             (
                 StatusCode::UNAUTHORIZED,
                 Json(ErrorResponse {
@@ -285,7 +288,7 @@ async fn rate_limit_middleware(
     }
 
     let retry_after = state.retry_after_secs.to_string();
-    warn!("rate limit exceeded for {}", ip);
+    warn!("security: rate limit exceeded for {}", ip);
     (
         StatusCode::TOO_MANY_REQUESTS,
         [("retry-after", retry_after.as_str())],
@@ -308,6 +311,7 @@ fn build_router(
     let mut authed_routes = Router::new()
         .route("/api/chat", post(chat_handler))
         .route("/api/status", get(status::status_json_handler))
+        .route("/status", get(status::status_html_handler))
         .with_state(state.clone());
 
     if let Some(ref key) = api_key {
@@ -318,7 +322,6 @@ fn build_router(
     // Public routes (health, webhooks with their own HMAC auth)
     let public_routes = Router::new()
         .route("/api/health", get(health_handler))
-        .route("/status", get(status::status_html_handler))
         .route("/api/webhook/{name}", post(webhook_handler))
         .with_state(state);
 
@@ -636,13 +639,13 @@ async fn webhook_handler(
         .and_then(|v| v.to_str().ok());
 
     let Some(signature) = signature else {
-        warn!("webhook {}: missing signature header", name);
+        warn!("security: webhook {}: missing signature header", name);
         return StatusCode::FORBIDDEN.into_response();
     };
 
     // Validate HMAC-SHA256 signature
     if !validate_webhook_signature(&config.secret, signature, &body) {
-        warn!("webhook {name}: invalid signature");
+        warn!("security: webhook {name}: invalid signature");
         return StatusCode::FORBIDDEN.into_response();
     }
 
@@ -659,7 +662,7 @@ async fn webhook_handler(
     {
         let now = chrono::Utc::now().timestamp();
         if (now - ts_header).abs() > REPLAY_WINDOW_SECS {
-            warn!("webhook {name}: timestamp too old ({ts_header}), rejecting (replay?)");
+            warn!("security: webhook {name}: timestamp too old ({ts_header}), rejecting (replay?)");
             return StatusCode::FORBIDDEN.into_response();
         }
     }
@@ -675,6 +678,49 @@ async fn webhook_handler(
 
     // Apply template
     let message = apply_template(&config.template, &body_str, json_value.as_ref());
+
+    // Structured dispatch: bypass LLM, execute tool directly
+    if let Some(ref dispatch_config) = config.dispatch {
+        let template_str =
+            serde_json::to_string(&dispatch_config.params_template).unwrap_or_default();
+        let rendered = apply_template(&template_str, &body_str, json_value.as_ref());
+        let params: serde_json::Value = match serde_json::from_str(&rendered) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("webhook dispatch: params parse failure after template substitution: {e}");
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    "dispatch params parse failure",
+                )
+                    .into_response();
+            }
+        };
+
+        let dispatch = crate::dispatch::ActionDispatch {
+            tool: dispatch_config.tool.clone(),
+            params,
+            source: crate::dispatch::ActionSource::Webhook {
+                webhook_name: name.clone(),
+            },
+        };
+
+        // Route through agent loop via inbound_tx (same pattern as agent_turn)
+        for target in &config.targets {
+            let inbound = InboundMessage::builder(
+                &target.channel,
+                "webhook".to_string(),
+                &target.chat_id,
+                format!("[webhook-dispatch:{name}]"),
+            )
+            .action(dispatch.clone())
+            .build();
+
+            if let Err(e) = state.inbound_tx.send(inbound).await {
+                warn!("webhook dispatch: failed to send to agent loop: {e}");
+            }
+        }
+        return (axum::http::StatusCode::OK, "dispatched").into_response();
+    }
 
     if config.agent_turn {
         // Route through agent loop — publish as inbound message and wait for response
@@ -772,7 +818,7 @@ async fn deliver_to_targets(
     // detector that has known secrets registered, matching what MessageBus does.
     let safe_content = state.leak_detector.redact(content);
     if safe_content != content {
-        warn!("webhook {webhook_name}: redacted leaked secrets from target delivery");
+        warn!("security: webhook {webhook_name}: redacted leaked secrets from target delivery");
     }
 
     for target in targets {

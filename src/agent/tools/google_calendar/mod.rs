@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::time::SystemTime;
 
 pub struct GoogleCalendarTool {
     api: GoogleApiClient,
@@ -30,7 +31,7 @@ impl Tool for GoogleCalendarTool {
     }
 
     fn description(&self) -> &'static str {
-        "Interact with Google Calendar. Actions: list_events, get_event, create_event, update_event, delete_event, list_calendars."
+        "Interact with Google Calendar. Actions: list_events, get_event, create_event, update_event, delete_event, rsvp, list_calendars."
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -44,10 +45,24 @@ impl Tool for GoogleCalendarTool {
                 create_event,
                 update_event,
                 delete_event,
+                rsvp,
                 list_calendars: ro,
             ],
             category: ToolCategory::Scheduling,
         }
+    }
+
+    fn usage_examples(&self) -> Vec<crate::agent::tools::base::ToolExample> {
+        vec![
+            crate::agent::tools::base::ToolExample {
+                user_request: "what's on my calendar today".into(),
+                params: serde_json::json!({"action": "list_events"}),
+            },
+            crate::agent::tools::base::ToolExample {
+                user_request: "schedule a meeting tomorrow at 2pm".into(),
+                params: serde_json::json!({"action": "create_event", "summary": "Meeting", "start": "tomorrow 14:00"}),
+            },
+        ]
     }
 
     fn parameters(&self) -> Value {
@@ -56,10 +71,10 @@ impl Tool for GoogleCalendarTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list_events", "get_event", "create_event", "update_event", "delete_event", "list_calendars"],
+                    "enum": ["list_events", "get_event", "create_event", "update_event", "delete_event", "rsvp", "list_calendars"],
                     "description": "Action to perform. 'list_events' shows upcoming \
                      events (defaults to next 7 days). 'list_calendars' shows available calendars \
-                     and their IDs."
+                     and their IDs. 'rsvp' responds to an event (accepted/declined/tentative)."
                 },
                 "calendar_id": {
                     "type": "string",
@@ -115,6 +130,11 @@ impl Tool for GoogleCalendarTool {
                 "all_day": {
                     "type": "boolean",
                     "description": "If true, create an all-day event (use date instead of dateTime)"
+                },
+                "response": {
+                    "type": "string",
+                    "enum": ["accepted", "declined", "tentative"],
+                    "description": "RSVP response status (for rsvp action)"
                 }
             },
             "required": ["action"]
@@ -199,7 +219,7 @@ impl Tool for GoogleCalendarTool {
                     ));
                 }
                 let buttons = build_event_buttons(events, cal_id, false);
-                Ok(with_buttons(ToolResult::new(lines.join("\n")), buttons))
+                Ok(ToolResult::new(lines.join("\n")).with_buttons(buttons))
             }
             "get_event" => {
                 let event_id = require_param!(params, "event_id");
@@ -211,10 +231,39 @@ impl Tool for GoogleCalendarTool {
                 );
                 let ev = self.api.call(&endpoint, "GET", None).await?;
                 let buttons = build_event_buttons(std::slice::from_ref(&ev), cal_id, true);
-                Ok(with_buttons(
-                    ToolResult::new(format_event_detail(&ev)),
-                    buttons,
-                ))
+                let now = SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(0));
+                let mut metadata: HashMap<String, Value> = HashMap::new();
+                metadata.insert(
+                    "active_tool".to_string(),
+                    serde_json::json!("google_calendar"),
+                );
+                metadata.insert(
+                    "action_directives".to_string(),
+                    serde_json::json!([
+                        {
+                            "trigger": {"OneOf": ["yes", "accept", "rsvp yes"]},
+                            "tool": "google_calendar",
+                            "params": {"action": "rsvp", "event_id": event_id, "calendar_id": cal_id, "response": "accepted"},
+                            "single_use": true,
+                            "ttl_ms": 300_000,
+                            "created_at_ms": now
+                        },
+                        {
+                            "trigger": {"OneOf": ["no", "decline", "rsvp no"]},
+                            "tool": "google_calendar",
+                            "params": {"action": "rsvp", "event_id": event_id, "calendar_id": cal_id, "response": "declined"},
+                            "single_use": true,
+                            "ttl_ms": 300_000,
+                            "created_at_ms": now
+                        }
+                    ]),
+                );
+                if !buttons.is_empty() {
+                    metadata.insert("suggested_buttons".to_string(), Value::Array(buttons));
+                }
+                Ok(ToolResult::new(format_event_detail(&ev)).with_metadata(metadata))
             }
             "create_event" => {
                 let summary = require_param!(params, "summary");
@@ -355,6 +404,55 @@ impl Tool for GoogleCalendarTool {
                 );
                 self.api.call(&endpoint, "DELETE", None).await?;
                 Ok(ToolResult::new(format!("Event {event_id} deleted.")))
+            }
+            "rsvp" => {
+                let event_id = require_param!(params, "event_id");
+                let response = require_param!(params, "response");
+                if !matches!(response, "accepted" | "declined" | "tentative") {
+                    return Ok(ToolResult::error(format!(
+                        "invalid response '{response}'. Must be accepted, declined, or tentative"
+                    )));
+                }
+
+                let endpoint = format!(
+                    "calendars/{}/events/{}",
+                    urlencoding::encode(cal_id),
+                    urlencoding::encode(event_id)
+                );
+                let mut ev = self.api.call(&endpoint, "GET", None).await?;
+
+                // Find or add the current user in the attendees list
+                let attendees = ev["attendees"].as_array().cloned().unwrap_or_default();
+
+                let mut found = false;
+                let mut updated_attendees: Vec<Value> = attendees
+                    .into_iter()
+                    .map(|mut a| {
+                        if a["self"].as_bool().unwrap_or(false) {
+                            a["responseStatus"] = Value::String(response.to_string());
+                            found = true;
+                        }
+                        a
+                    })
+                    .collect();
+
+                if !found {
+                    // If the user is not in the attendee list, add them with the response
+                    updated_attendees.push(serde_json::json!({
+                        "self": true,
+                        "responseStatus": response
+                    }));
+                }
+
+                ev["attendees"] = Value::Array(updated_attendees);
+
+                let updated = self.api.call(&endpoint, "PUT", Some(ev)).await?;
+                Ok(ToolResult::new(format!(
+                    "RSVP '{}' for event: {} (ID: {})",
+                    response,
+                    updated["summary"].as_str().unwrap_or("?"),
+                    updated["id"].as_str().unwrap_or("?")
+                )))
             }
             "list_calendars" => {
                 let result = self.api.call("users/me/calendarList", "GET", None).await?;
@@ -543,9 +641,12 @@ fn build_event_buttons(events: &[Value], calendar_id: &str, detail: bool) -> Vec
                     "style": "primary",
                     "context": serde_json::json!({
                         "tool": "google_calendar",
-                        "event_id": event_id,
-                        "calendar_id": calendar_id,
-                        "action": "rsvp_yes"
+                        "params": {
+                            "action": "rsvp",
+                            "event_id": event_id,
+                            "calendar_id": calendar_id,
+                            "response": "accepted"
+                        }
                     }).to_string()
                 }));
             }
@@ -558,9 +659,12 @@ fn build_event_buttons(events: &[Value], calendar_id: &str, detail: bool) -> Vec
                     "style": "danger",
                     "context": serde_json::json!({
                         "tool": "google_calendar",
-                        "event_id": event_id,
-                        "calendar_id": calendar_id,
-                        "action": "rsvp_no"
+                        "params": {
+                            "action": "rsvp",
+                            "event_id": event_id,
+                            "calendar_id": calendar_id,
+                            "response": "declined"
+                        }
                     }).to_string()
                 }));
             }
@@ -571,9 +675,11 @@ fn build_event_buttons(events: &[Value], calendar_id: &str, detail: bool) -> Vec
                 "style": "danger",
                 "context": serde_json::json!({
                     "tool": "google_calendar",
-                    "event_id": event_id,
-                    "calendar_id": calendar_id,
-                    "action": "delete"
+                    "params": {
+                        "action": "delete_event",
+                        "event_id": event_id,
+                        "calendar_id": calendar_id
+                    }
                 }).to_string()
             }));
         } else {
@@ -589,27 +695,18 @@ fn build_event_buttons(events: &[Value], calendar_id: &str, detail: bool) -> Vec
                 "style": "primary",
                 "context": serde_json::json!({
                     "tool": "google_calendar",
-                    "event_id": event_id,
-                    "calendar_id": calendar_id,
-                    "action": "rsvp_yes"
+                    "params": {
+                        "action": "rsvp",
+                        "event_id": event_id,
+                        "calendar_id": calendar_id,
+                        "response": "accepted"
+                    }
                 }).to_string()
             }));
         }
     }
 
     buttons
-}
-
-/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
-fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
-    if buttons.is_empty() {
-        result
-    } else {
-        result.with_metadata(HashMap::from([(
-            "suggested_buttons".to_string(),
-            Value::Array(buttons),
-        )]))
-    }
 }
 
 #[cfg(test)]

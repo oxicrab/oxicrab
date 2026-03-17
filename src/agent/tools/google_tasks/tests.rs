@@ -134,13 +134,14 @@ fn test_build_google_task_buttons_filters_completed() {
     assert_eq!(buttons.len(), 2);
     assert_eq!(buttons[0]["id"], "complete-t1");
     assert_eq!(buttons[1]["id"], "complete-t3");
-    // Verify context includes tasklist_id and tool name
+    // Verify context uses ActionDispatchPayload format
     let ctx: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx["tasklist_id"], "tasklist1");
     assert_eq!(ctx["tool"], "google_tasks");
-    assert_eq!(ctx["task_id"], "t1");
-    assert_eq!(ctx["action"], "complete");
+    assert_eq!(ctx["params"]["task_list_id"], "tasklist1");
+    assert_eq!(ctx["params"]["task_id"], "t1");
+    assert_eq!(ctx["params"]["action"], "update_task");
+    assert_eq!(ctx["params"]["status"], "completed");
 }
 
 #[test]
@@ -202,7 +203,7 @@ fn test_build_google_task_buttons_skips_empty_id() {
 #[test]
 fn test_with_buttons_empty_returns_no_metadata() {
     let result = ToolResult::new("test".to_string());
-    let result = with_buttons(result, vec![]);
+    let result = result.with_buttons(vec![]);
     assert!(result.metadata.is_none());
 }
 
@@ -210,7 +211,7 @@ fn test_with_buttons_empty_returns_no_metadata() {
 fn test_with_buttons_non_empty_attaches_metadata() {
     let result = ToolResult::new("test".to_string());
     let buttons = vec![serde_json::json!({"id": "b1", "label": "Click"})];
-    let result = with_buttons(result, buttons);
+    let result = result.with_buttons(buttons);
     assert!(result.metadata.is_some());
     let meta = result.metadata.unwrap();
     let suggested = meta.get("suggested_buttons").unwrap();

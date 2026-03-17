@@ -3,10 +3,9 @@ mod complexity;
 pub mod config;
 mod hallucination;
 mod helpers;
-mod intent;
 mod iteration;
+mod metadata;
 mod processing;
-mod tool_filter;
 
 #[cfg(test)]
 use crate::agent::tools::base::ExecutionContext;
@@ -15,10 +14,8 @@ use helpers::ACTION_CLAIM_PATTERNS;
 #[cfg(test)]
 use helpers::MAX_IMAGES;
 use helpers::cleanup_old_media;
+pub use helpers::contains_action_claims;
 pub(crate) use helpers::validate_tool_params;
-pub use helpers::{
-    contains_action_claims, is_false_no_tools_claim, mentions_any_tool, mentions_multiple_tools,
-};
 #[cfg(test)]
 use helpers::{
     execute_tool_call, extract_media_paths, load_and_encode_images, strip_document_tags,
@@ -29,9 +26,6 @@ pub use config::{
     AgentLoopConfig, AgentLoopResult, AgentLoopRuntimeParams, AgentRunOverrides, DirectResult,
     LifecycleConfig, SafetyConfig, ToolConfigs,
 };
-
-#[cfg(test)]
-use tool_filter::infer_tool_categories;
 
 use crate::agent::compaction::MessageCompactor;
 use crate::agent::context::ContextBuilder;
@@ -62,9 +56,7 @@ const DEFAULT_HISTORY_SIZE: usize = 50;
 const RECOVERY_CONTEXT_MAX_CHARS: usize = 200;
 
 #[cfg(test)]
-use hallucination::MAX_LAYER0_CORRECTIONS;
-#[cfg(test)]
-use hallucination::{CorrectionState, TextAction};
+use hallucination::TextAction;
 
 pub struct AgentLoop {
     inbound_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<InboundMessage>>>,
@@ -120,6 +112,8 @@ pub struct AgentLoop {
     tool_search_activated: Arc<tokio::sync::Mutex<HashSet<String>>>,
     /// Shared state for interactive buttons (written by `add_buttons` tool, read after loop)
     pending_buttons: crate::agent::tools::interactive::PendingButtons,
+    /// Priority-ordered message router for direct dispatch and guided LLM paths
+    router: std::sync::Arc<crate::router::MessageRouter>,
 }
 
 impl AgentLoop {
@@ -157,6 +151,7 @@ impl AgentLoop {
                 },
             memory_db: shared_db,
             leak_detector: shared_leak_detector,
+            router_config,
         } = config;
 
         // Extract receiver from the bus (called once at startup).
@@ -195,7 +190,7 @@ impl AgentLoop {
             let ttl = session_ttl_days;
             let mgr_for_cleanup = SessionManager::new(&workspace)?;
             tokio::spawn(async move {
-                if let Err(e) = mgr_for_cleanup.cleanup_old_sessions(ttl) {
+                if let Err(e) = mgr_for_cleanup.cleanup_old_sessions(ttl).await {
                     warn!("Session cleanup failed: {}", e);
                 }
             });
@@ -364,6 +359,27 @@ impl AgentLoop {
             None
         };
 
+        // Build message router from tool-declared static rules and config rules
+        let config_rules: HashMap<String, crate::router::rules::ConfigRule> = router_config
+            .rules
+            .into_iter()
+            .map(|r| {
+                (
+                    r.trigger.clone(),
+                    crate::router::rules::ConfigRule {
+                        trigger: r.trigger,
+                        tool: r.tool,
+                        params: r.params,
+                    },
+                )
+            })
+            .collect();
+        let router = std::sync::Arc::new(crate::router::MessageRouter::new(
+            tools.routing_rules().to_vec(),
+            config_rules,
+            router_config.prefix,
+        ));
+
         let complexity_scorer = if let Some(ref r) = routing
             && let Some(weights) = r.chat_weights()
         {
@@ -419,6 +435,7 @@ impl AgentLoop {
             complexity_scorer,
             tool_search_activated,
             pending_buttons,
+            router,
         })
     }
 
@@ -455,6 +472,10 @@ impl AgentLoop {
                     msg.chat_id,
                     msg.content.len()
                 );
+                // Capture fields before moving msg into process_message
+                let msg_channel = msg.channel.clone();
+                let msg_chat_id = msg.chat_id.clone();
+                let msg_metadata = msg.metadata.clone();
                 match self.process_message(msg).await {
                     Ok(Some(outbound_msg)) => {
                         // Send response back through the bus
@@ -478,6 +499,18 @@ impl AgentLoop {
                     }
                     Err(e) => {
                         error!("Error processing message: {}", e);
+                        // Send an error outbound so channels can clean up
+                        // (e.g. Slack removes the thinking emoji on any outbound)
+                        let error_outbound = OutboundMessage::builder(
+                            msg_channel,
+                            msg_chat_id,
+                            "Sorry, I encountered an error processing your message.",
+                        )
+                        .metadata(msg_metadata)
+                        .build();
+                        if let Err(send_err) = self.outbound_tx.send(error_outbound).await {
+                            error!("Failed to send error outbound message: {}", send_err);
+                        }
                     }
                 }
             } else {

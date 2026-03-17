@@ -1,6 +1,14 @@
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fmt::Write as _;
+
+/// Usage example for a tool, appended to schema description for LLM accuracy.
+#[derive(Debug, Clone)]
+pub struct ToolExample {
+    pub user_request: String,
+    pub params: serde_json::Value,
+}
 
 #[derive(Debug, Clone)]
 pub struct ToolResult {
@@ -46,6 +54,20 @@ impl ToolResult {
         self.metadata = Some(metadata);
         self
     }
+
+    /// Attach suggested buttons metadata to this result (if any).
+    /// Buttons are surfaced by the agent loop to channels that support them.
+    #[must_use]
+    pub fn with_buttons(self, buttons: Vec<Value>) -> Self {
+        if buttons.is_empty() {
+            self
+        } else {
+            self.with_metadata(HashMap::from([(
+                "suggested_buttons".to_string(),
+                Value::Array(buttons),
+            )]))
+        }
+    }
 }
 
 impl std::fmt::Display for ToolResult {
@@ -74,11 +96,27 @@ pub trait Tool: Send + Sync {
     async fn execute(&self, params: Value, ctx: &ExecutionContext) -> anyhow::Result<ToolResult>;
 
     fn to_schema(&self) -> Value {
+        let examples = self.usage_examples();
+        let description = if examples.is_empty() {
+            self.description().to_string()
+        } else {
+            let mut s = self.description().to_string();
+            s.push_str("\n\nExamples:");
+            for ex in &examples {
+                let _ = write!(
+                    s,
+                    "\n- {:?} → {}",
+                    ex.user_request,
+                    serde_json::to_string(&ex.params).unwrap_or_default()
+                );
+            }
+            s
+        };
         serde_json::json!({
             "type": "function",
             "function": {
                 "name": self.name(),
-                "description": self.description(),
+                "description": description,
                 "parameters": self.parameters()
             }
         })
@@ -105,6 +143,16 @@ pub trait Tool: Send + Sync {
     /// exfiltration guard, and MCP trust filter.
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::default()
+    }
+
+    /// Static routing rules for deterministic dispatch. Called once at registration.
+    fn routing_rules(&self) -> Vec<crate::router::rules::StaticRule> {
+        Vec::new()
+    }
+
+    /// Usage examples appended to tool description in LLM schema.
+    fn usage_examples(&self) -> Vec<ToolExample> {
+        Vec::new()
     }
 }
 

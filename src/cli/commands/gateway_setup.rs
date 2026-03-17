@@ -561,6 +561,11 @@ async fn cron_job_execute(
     Ok(Some(result.content))
 }
 
+/// Set up channel handlers.
+///
+/// Channel handlers send directly to `inbound_tx` (not through `MessageBus::publish_inbound()`).
+/// This is intentional: channels enforce their own message size limits (Slack 4K, Discord 2K,
+/// Telegram 4K). The `MessageBus` rate limiting and 1MB truncation only apply to the HTTP API.
 fn setup_channels(
     config: &Config,
     inbound_tx: tokio::sync::mpsc::Sender<crate::bus::InboundMessage>,
@@ -638,6 +643,12 @@ fn start_channels_loop(
                     msg.chat_id,
                     msg.content.len()
                 );
+
+                // Evict stale status tracking entries to prevent unbounded growth
+                if status_msg_ids.len() > 1000 {
+                    status_msg_ids.clear();
+                    status_content.clear();
+                }
 
                 let is_status = msg
                     .metadata

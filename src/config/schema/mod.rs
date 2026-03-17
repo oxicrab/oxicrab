@@ -62,11 +62,13 @@ macro_rules! redact_debug {
 mod agent;
 mod channels;
 mod providers;
+mod router;
 mod tools;
 
 pub use agent::*;
 pub use channels::*;
 pub use providers::*;
+pub use router::*;
 pub use tools::*;
 
 fn default_true() -> bool {
@@ -206,6 +208,9 @@ pub struct WebhookConfig {
     /// If false (default), the templated message is delivered directly to targets.
     #[serde(default, rename = "agentTurn")]
     pub agent_turn: bool,
+    /// Structured dispatch for direct tool execution, bypassing LLM.
+    #[serde(default)]
+    pub dispatch: Option<WebhookDispatchConfig>,
 }
 
 impl Default for WebhookConfig {
@@ -216,8 +221,19 @@ impl Default for WebhookConfig {
             template: default_webhook_template(),
             targets: vec![],
             agent_turn: false,
+            dispatch: None,
         }
     }
+}
+
+/// Structured dispatch configuration for webhook direct tool execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookDispatchConfig {
+    /// Tool name to dispatch to.
+    pub tool: String,
+    /// Template for tool params. Use `{{key}}` for JSON payload substitution.
+    #[serde(rename = "paramsTemplate")]
+    pub params_template: serde_json::Value,
 }
 
 fn default_webhook_template() -> String {
@@ -263,6 +279,8 @@ pub struct Config {
     pub gateway: GatewayConfig,
     #[serde(default)]
     pub tools: ToolsConfig,
+    #[serde(default)]
+    pub router: RouterConfig,
     #[serde(default)]
     pub voice: VoiceConfig,
     #[serde(default, rename = "credentialHelper")]

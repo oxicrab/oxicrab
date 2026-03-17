@@ -26,10 +26,7 @@ impl MemoryDB {
         caller: &str,
         request_id: Option<&str>,
     ) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO llm_cost_log
              (model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_cents, caller, request_id)
@@ -52,10 +49,7 @@ impl MemoryDB {
         if days == 0 {
             return Ok(0);
         }
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
         let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
         let deleted = conn.execute(
@@ -67,10 +61,8 @@ impl MemoryDB {
 
     /// Get token usage summary grouped by date and model since a given date (YYYY-MM-DD).
     pub fn get_token_summary(&self, since_date: &str) -> Result<Vec<TokenSummaryRow>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
+        let since_datetime = format!("{since_date} 00:00:00");
         let mut stmt = conn.prepare(
             "SELECT DATE(timestamp) as day, model,
                     SUM(input_tokens) as total_input,
@@ -79,12 +71,12 @@ impl MemoryDB {
                     COALESCE(SUM(cache_read_tokens), 0) as total_cache_read,
                     COUNT(*) as call_count
              FROM llm_cost_log
-             WHERE DATE(timestamp) >= ?
+             WHERE timestamp >= ?
              GROUP BY day, model
              ORDER BY day DESC, total_input DESC",
         )?;
         let rows: Result<Vec<_>, _> = stmt
-            .query_map([since_date], |row| {
+            .query_map([&since_datetime], |row| {
                 Ok(TokenSummaryRow {
                     date: row.get(0)?,
                     model: row.get(1)?,

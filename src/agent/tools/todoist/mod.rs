@@ -6,7 +6,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::time::Duration;
 
 const TODOIST_API: &str = "https://api.todoist.com/api/v1";
@@ -498,24 +497,14 @@ fn build_task_buttons(tasks: &[Value]) -> Vec<Value> {
             "style": "primary",
             "context": serde_json::json!({
                 "tool": "todoist",
-                "task_id": task_id,
-                "action": "complete"
+                "params": {
+                    "action": "complete_task",
+                    "task_id": task_id
+                }
             }).to_string()
         }));
     }
     buttons
-}
-
-/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
-fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
-    if buttons.is_empty() {
-        result
-    } else {
-        result.with_metadata(HashMap::from([(
-            "suggested_buttons".to_string(),
-            Value::Array(buttons),
-        )]))
-    }
 }
 
 #[async_trait]
@@ -613,7 +602,7 @@ impl Tool for TodoistTool {
                 match result {
                     Ok((text, tasks)) => {
                         let buttons = build_task_buttons(&tasks);
-                        Ok(with_buttons(ToolResult::new(text), buttons))
+                        Ok(ToolResult::new(text).with_buttons(buttons))
                     }
                     Err(e) => Ok(ToolResult::error(format!("Todoist error: {e}"))),
                 }
@@ -626,7 +615,7 @@ impl Tool for TodoistTool {
                 match result {
                     Ok((text, task)) => {
                         let buttons = build_task_buttons(&[task]);
-                        Ok(with_buttons(ToolResult::new(text), buttons))
+                        Ok(ToolResult::new(text).with_buttons(buttons))
                     }
                     Err(e) => Ok(ToolResult::error(format!("Todoist error: {e}"))),
                 }

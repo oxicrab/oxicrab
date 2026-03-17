@@ -259,6 +259,12 @@ impl LinTSModel {
 
     /// Bayesian update after feedback.
     ///
+    /// NOTE: Sherman-Morrison rank-1 downdates can make the covariance matrix
+    /// non-positive-definite after many updates with similar feature vectors.
+    /// When this happens, Cholesky decomposition in `sample_weights()` fails
+    /// and scoring falls back to natural order. `inflate_covariance()` partially
+    /// mitigates this by boosting diagonal entries periodically.
+    ///
     /// Uses a rank-1 Sherman-Morrison-style update:
     ///
     /// ```text

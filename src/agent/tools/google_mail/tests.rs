@@ -116,13 +116,13 @@ fn test_build_search_buttons_basic() {
     let ctx0: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
     assert_eq!(ctx0["tool"], "google_mail");
-    assert_eq!(ctx0["message_id"], "msg1");
-    assert_eq!(ctx0["action"], "read");
+    assert_eq!(ctx0["params"]["message_id"], "msg1");
+    assert_eq!(ctx0["params"]["action"], "read");
 
     assert_eq!(buttons[1]["id"], "read-msg2");
     let ctx1: serde_json::Value =
         serde_json::from_str(buttons[1]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx1["message_id"], "msg2");
+    assert_eq!(ctx1["params"]["message_id"], "msg2");
 }
 
 #[test]
@@ -159,18 +159,24 @@ fn test_build_read_buttons_basic() {
     assert_eq!(buttons[0]["id"], "reply-abc123");
     assert_eq!(buttons[0]["style"], "primary");
     assert!(buttons[0]["label"].as_str().unwrap().starts_with("Reply:"));
-    let ctx0: serde_json::Value =
-        serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx0["tool"], "google_mail");
-    assert_eq!(ctx0["message_id"], "abc123");
-    assert_eq!(ctx0["action"], "reply");
+    // Reply button context is a plain string (not JSON) so it falls through to
+    // the LLM path — direct dispatch would fail without a `body` parameter.
+    let ctx0 = buttons[0]["context"].as_str().unwrap();
+    assert!(
+        ctx0.contains("abc123"),
+        "context should mention the message id"
+    );
+    assert!(
+        serde_json::from_str::<serde_json::Value>(ctx0).is_err(),
+        "reply context must NOT parse as JSON ActionDispatchPayload"
+    );
 
     assert_eq!(buttons[1]["id"], "archive-abc123");
     assert_eq!(buttons[1]["label"], "Archive");
     assert_eq!(buttons[1]["style"], "danger");
     let ctx1: serde_json::Value =
         serde_json::from_str(buttons[1]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx1["action"], "archive");
+    assert_eq!(ctx1["params"]["action"], "label");
 }
 
 #[test]
@@ -212,7 +218,7 @@ fn test_truncate_label_unicode() {
 #[test]
 fn test_with_buttons_empty() {
     let result = ToolResult::new("test");
-    let result = with_buttons(result, vec![]);
+    let result = result.with_buttons(vec![]);
     assert!(result.metadata.is_none());
 }
 
@@ -220,7 +226,7 @@ fn test_with_buttons_empty() {
 fn test_with_buttons_attaches_metadata() {
     let result = ToolResult::new("test");
     let buttons = vec![json!({"id": "b1", "label": "Button"})];
-    let result = with_buttons(result, buttons);
+    let result = result.with_buttons(buttons);
     let meta = result.metadata.expect("should have metadata");
     let btns = meta["suggested_buttons"].as_array().unwrap();
     assert_eq!(btns.len(), 1);

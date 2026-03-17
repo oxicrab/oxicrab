@@ -1,8 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{
-    DmCheckResult, check_dm_access, check_group_access, exponential_backoff_delay,
-    format_pairing_reply,
+    DmCheckResult, MAX_AUDIO_DOWNLOAD, MAX_IMAGE_DOWNLOAD, check_dm_access, check_group_access,
+    exponential_backoff_delay, format_pairing_reply,
 };
 use crate::config::{DiscordCommand, DiscordConfig};
 use anyhow::Result;
@@ -22,8 +22,6 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 const DISCORD_API_BASE: &str = "https://discord.com/api/v10";
-const MAX_IMAGE_DOWNLOAD: usize = 20 * 1024 * 1024; // 20 MB
-const MAX_AUDIO_DOWNLOAD: usize = 50 * 1024 * 1024; // 50 MB
 
 struct Handler {
     inbound_tx: mpsc::Sender<InboundMessage>,
@@ -32,6 +30,7 @@ struct Handler {
     dm_policy: crate::config::DmPolicy,
     http_client: reqwest::Client,
     commands: Vec<DiscordCommand>,
+    dispatch_store: Arc<crate::dispatch::DispatchContextStore>,
 }
 
 impl Handler {
@@ -187,6 +186,18 @@ impl Handler {
         }
 
         let custom_id = comp.data.custom_id.clone();
+
+        let dispatch =
+            self.dispatch_store
+                .get(&custom_id)
+                .map(|payload| crate::dispatch::ActionDispatch {
+                    tool: payload.tool,
+                    params: payload.params,
+                    source: crate::dispatch::ActionSource::Button {
+                        action_id: custom_id.clone(),
+                    },
+                });
+
         let content = format!("[button:{custom_id}]");
 
         let mut metadata = HashMap::new();
@@ -215,10 +226,13 @@ impl Handler {
             serde_json::Value::Bool(comp.guild_id.is_some()),
         );
 
-        let inbound_msg =
+        let mut builder =
             InboundMessage::builder("discord", sender_id, comp.channel_id.to_string(), content)
-                .metadata(metadata)
-                .build();
+                .metadata(metadata);
+        if let Some(d) = dispatch {
+            builder = builder.action(d);
+        }
+        let inbound_msg = builder.build();
 
         if let Err(e) = self.inbound_tx.send(inbound_msg).await {
             error!("Failed to send Discord component interaction to bus: {}", e);
@@ -416,6 +430,7 @@ pub struct DiscordChannel {
     serenity_http: Arc<serenity::http::Http>,
     _client_handle: Option<tokio::task::JoinHandle<()>>,
     dm_channel_cache: Arc<tokio::sync::Mutex<HashMap<u64, serenity::model::id::ChannelId>>>,
+    dispatch_store: Arc<crate::dispatch::DispatchContextStore>,
 }
 
 impl DiscordChannel {
@@ -433,6 +448,7 @@ impl DiscordChannel {
             serenity_http,
             _client_handle: None,
             dm_channel_cache: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            dispatch_store: Arc::new(crate::dispatch::DispatchContextStore::new(1000)),
         }
     }
 }
@@ -494,6 +510,7 @@ fn parse_button_style(style: &str) -> ButtonStyle {
 
 fn parse_components_from_metadata(
     metadata: &HashMap<String, serde_json::Value>,
+    dispatch_store: Option<&crate::dispatch::DispatchContextStore>,
 ) -> Vec<CreateActionRow> {
     // Prefer discord_components (legacy, backward-compatible)
     if let Some(comp_val) = metadata.get("discord_components")
@@ -531,12 +548,18 @@ fn parse_components_from_metadata(
     }
 
     // Fallback: unified "buttons" format
-    parse_unified_buttons(metadata)
+    parse_unified_buttons(metadata, dispatch_store)
 }
 
 /// Convert unified `metadata["buttons"]` to Discord action rows.
 /// Format: `[{"id": "yes", "label": "Yes", "style": "primary"}, ...]`
-fn parse_unified_buttons(metadata: &HashMap<String, serde_json::Value>) -> Vec<CreateActionRow> {
+///
+/// If `dispatch_store` is provided, any button whose `context` field parses as an
+/// `ActionDispatchPayload` is stored so the payload can be retrieved on click.
+fn parse_unified_buttons(
+    metadata: &HashMap<String, serde_json::Value>,
+    dispatch_store: Option<&crate::dispatch::DispatchContextStore>,
+) -> Vec<CreateActionRow> {
     let Some(buttons_val) = metadata.get(crate::bus::meta::BUTTONS) else {
         return Vec::new();
     };
@@ -550,6 +573,13 @@ fn parse_unified_buttons(metadata: &HashMap<String, serde_json::Value>) -> Vec<C
             let id = b["id"].as_str()?;
             let label = b["label"].as_str().unwrap_or(id);
             let style = parse_button_style(b["style"].as_str().unwrap_or("secondary"));
+            if let Some(store) = dispatch_store
+                && let Some(ctx_str) = b["context"].as_str()
+                && let Ok(payload) =
+                    serde_json::from_str::<crate::dispatch::ActionDispatchPayload>(ctx_str)
+            {
+                store.insert(id.to_string(), payload);
+            }
             Some(CreateButton::new(id).label(label).style(style))
         })
         .collect();
@@ -640,6 +670,7 @@ impl BaseChannel for DiscordChannel {
         let commands = self.config.commands.clone();
         let inbound_tx = self.inbound_tx.clone();
         let running = self.running.clone();
+        let dispatch_store = self.dispatch_store.clone();
 
         let handle = tokio::spawn(async move {
             let mut reconnect_attempt = 0u32;
@@ -660,6 +691,7 @@ impl BaseChannel for DiscordChannel {
                         .build()
                         .unwrap_or_else(|_| reqwest::Client::new()),
                     commands: commands.clone(),
+                    dispatch_store: dispatch_store.clone(),
                 };
 
                 info!("Connecting to Discord gateway...");
@@ -818,7 +850,7 @@ impl BaseChannel for DiscordChannel {
 
         // Parse embeds and components from metadata
         let embeds = parse_embeds_from_metadata(&msg.metadata);
-        let components = parse_components_from_metadata(&msg.metadata);
+        let components = parse_components_from_metadata(&msg.metadata, Some(&self.dispatch_store));
 
         // Send text content (attach embeds/components to the last chunk)
         let chunk_count = chunks.len();
@@ -929,7 +961,10 @@ impl BaseChannel for DiscordChannel {
     }
 }
 
-/// Convert metadata components to Discord API component JSON format for webhooks.
+/// Convert metadata to Discord API JSON for interaction followups.
+/// NOTE: Relies on `parse_components_from_metadata()` having been called first
+/// with a `dispatch_store` to register button dispatch contexts.
+///
 /// Checks `discord_components` first, then falls back to unified `buttons` key.
 fn components_to_api_json(
     metadata: &HashMap<String, serde_json::Value>,
@@ -1018,7 +1053,7 @@ impl DiscordChannel {
     ) -> Result<()> {
         let chunks = split_message(&msg.content, 2000);
         let embeds = parse_embeds_from_metadata(&msg.metadata);
-        let components = parse_components_from_metadata(&msg.metadata);
+        let components = parse_components_from_metadata(&msg.metadata, Some(&self.dispatch_store));
         let api_components = components_to_api_json(&msg.metadata);
 
         // Send media as separate followups

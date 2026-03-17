@@ -2,11 +2,16 @@ use serde::{Deserialize, Serialize};
 
 use super::default_true;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExfiltrationGuardConfig {
+    /// Disabled by default. When enabled with an empty `allow_tools` list,
+    /// ALL network-outbound tools are hidden from the LLM — this includes
+    /// cron, calendar, mail, tasks, github, todoist, weather, web search,
+    /// rss, and most other useful tools. Only enable this when you have
+    /// explicitly configured `allow_tools`.
     #[serde(default)]
     pub enabled: bool,
-    /// Force-allow specific `network_outbound` tools when guard is enabled.
+    /// Force-allow specific network-outbound tools when guard is enabled.
     #[serde(default, rename = "allowTools")]
     pub allow_tools: Vec<String>,
 }
