@@ -361,7 +361,7 @@ impl Tool for CronTool {
     }
 
     fn description(&self) -> &'static str {
-        "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, remove, run, dlq_list, dlq_replay, dlq_clear. Tip: after listing jobs, use add_buttons to offer Pause or Remove actions."
+        "Schedule recurring or one-shot tasks. Two job types: 'agent' (default) processes the message as a full agent turn with all tools; 'echo' delivers the message directly to channels without invoking the LLM (ideal for simple reminders like 'standup in 5 min'). Schedule with cron_expr, every_seconds, or at_time (one-shot ISO 8601). Optional limits: expires_at (auto-disable after datetime) and max_runs (auto-disable after N executions). Actions: add, list, pause, resume, remove, run, dlq_list, dlq_replay, dlq_clear. Tip: after listing jobs, use add_buttons to offer Pause or Remove actions."
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -372,6 +372,8 @@ impl Tool for CronTool {
             actions: actions![
                 add,
                 list: ro,
+                pause,
+                resume,
                 remove,
                 run,
                 dlq_list: ro,
@@ -414,10 +416,11 @@ impl Tool for CronTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["add", "list", "remove", "run", "dlq_list", "dlq_replay", "dlq_clear"],
+                    "enum": ["add", "list", "pause", "resume", "remove", "run", "dlq_list", "dlq_replay", "dlq_clear"],
                     "description": "Action to perform. 'add' creates a new scheduled job. \
                      'run' triggers an existing job immediately by job_id. 'list' shows all \
-                     jobs. 'remove' deletes a job. dlq_list/dlq_replay/dlq_clear manage the \
+                     jobs. 'pause' disables a job. 'resume' re-enables a paused job. \
+                     'remove' deletes a job. dlq_list/dlq_replay/dlq_clear manage the \
                      dead letter queue for failed executions."
                 },
                 "type": {
@@ -685,6 +688,26 @@ impl Tool for CronTool {
                     ToolResult::new(format!("Scheduled jobs:\n{}", lines.join("\n"))),
                     buttons,
                 ))
+            }
+            "pause" => {
+                let job_id = require_param!(params, "job_id");
+                match self.cron_service.enable_job(job_id, false)? {
+                    Some(job) => Ok(ToolResult::new(format!(
+                        "Paused job '{}' (id: {})",
+                        job.name, job.id
+                    ))),
+                    None => Ok(ToolResult::error(format!("job {job_id} not found"))),
+                }
+            }
+            "resume" => {
+                let job_id = require_param!(params, "job_id");
+                match self.cron_service.enable_job(job_id, true)? {
+                    Some(job) => Ok(ToolResult::new(format!(
+                        "Resumed job '{}' (id: {})",
+                        job.name, job.id
+                    ))),
+                    None => Ok(ToolResult::error(format!("job {job_id} not found"))),
+                }
             }
             "remove" => {
                 let job_id = require_param!(params, "job_id");
