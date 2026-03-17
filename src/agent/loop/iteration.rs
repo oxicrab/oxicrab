@@ -83,6 +83,18 @@ impl AgentLoop {
         // Wrap tools in Arc for cheap cloning into each ChatRequest iteration
         let mut tools_arc = Arc::new(tools_defs);
 
+        // Reinforce tool awareness in the system prompt. Without this, models
+        // (especially via proxy APIs like OpenRouter) sometimes claim tools are
+        // unavailable and fabricate responses instead of calling them.
+        if !tool_names.is_empty()
+            && let Some(system_msg) = messages.first_mut()
+        {
+            system_msg.content.push_str(
+                "\n\nYou have tools available. If a user asks you to perform actions, \
+                 call the matching tool directly — do not claim tools are unavailable.",
+            );
+        }
+
         // Inject router context hint into system prompt for GuidedLLM path
         if let Some(ref hint) = overrides.context_hint
             && let Some(system_msg) = messages.first_mut()
