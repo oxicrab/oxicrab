@@ -879,9 +879,16 @@ impl AgentLoop {
             Ok(r) => r,
             Err(e) => {
                 warn!("direct dispatch tool execution failed: {e}");
+                let sanitized = crate::utils::path_sanitize::sanitize_error_message(
+                    &format!("{e}"),
+                    Some(self.workspace.as_path()),
+                );
                 return Ok(Some(
-                    OutboundMessage::from_inbound(msg.clone(), format!("Action failed: {e}"))
-                        .build(),
+                    OutboundMessage::from_inbound(
+                        msg.clone(),
+                        format!("Action failed: {sanitized}"),
+                    )
+                    .build(),
                 ));
             }
         };
@@ -1128,8 +1135,12 @@ impl AgentLoop {
                     });
                 }
                 Err(e) => {
+                    let sanitized = crate::utils::path_sanitize::sanitize_error_message(
+                        &format!("{e}"),
+                        Some(self.workspace.as_path()),
+                    );
                     return Ok(super::config::DirectResult {
-                        content: format!("Action failed: {e}"),
+                        content: format!("Action failed: {sanitized}"),
                         metadata: HashMap::new(),
                     });
                 }
