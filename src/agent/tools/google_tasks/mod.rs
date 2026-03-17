@@ -316,9 +316,12 @@ fn build_google_task_buttons(tasks: &[Value], tasklist_id: &str) -> Vec<Value> {
             "style": "primary",
             "context": serde_json::json!({
                 "tool": "google_tasks",
-                "task_id": task_id,
-                "tasklist_id": tasklist_id,
-                "action": "complete"
+                "params": {
+                    "action": "update_task",
+                    "task_id": task_id,
+                    "tasklist_id": tasklist_id,
+                    "status": "completed"
+                }
             }).to_string()
         }));
     }

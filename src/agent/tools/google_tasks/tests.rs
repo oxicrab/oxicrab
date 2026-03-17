@@ -134,13 +134,14 @@ fn test_build_google_task_buttons_filters_completed() {
     assert_eq!(buttons.len(), 2);
     assert_eq!(buttons[0]["id"], "complete-t1");
     assert_eq!(buttons[1]["id"], "complete-t3");
-    // Verify context includes tasklist_id and tool name
+    // Verify context uses ActionDispatchPayload format
     let ctx: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx["tasklist_id"], "tasklist1");
     assert_eq!(ctx["tool"], "google_tasks");
-    assert_eq!(ctx["task_id"], "t1");
-    assert_eq!(ctx["action"], "complete");
+    assert_eq!(ctx["params"]["tasklist_id"], "tasklist1");
+    assert_eq!(ctx["params"]["task_id"], "t1");
+    assert_eq!(ctx["params"]["action"], "update_task");
+    assert_eq!(ctx["params"]["status"], "completed");
 }
 
 #[test]
