@@ -1,5 +1,5 @@
 use super::config::{AgentLoopResult, AgentRunOverrides};
-use super::hallucination::{self, CorrectionState, TextAction};
+use super::hallucination::{self, TextAction};
 use super::{
     AgentLoop, EMPTY_RESPONSE_RETRIES, MAX_RETRY_DELAY_SECS, MIN_WRAPUP_ITERATION,
     RETRY_BACKOFF_BASE, WRAPUP_THRESHOLD_RATIO,
@@ -30,14 +30,13 @@ impl AgentLoop {
         typing_context: Option<(String, String)>,
         exec_ctx: &ExecutionContext,
         overrides: &AgentRunOverrides,
-        user_has_action_intent: bool,
     ) -> Result<AgentLoopResult> {
         let effective_model = overrides.model.as_deref().unwrap_or(&self.model);
         let effective_provider = overrides.provider.as_ref().unwrap_or(&self.provider);
         let effective_max_iterations = overrides.max_iterations.unwrap_or(self.max_iterations);
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut any_tools_called = false;
-        let mut correction_state = CorrectionState::new();
+        let mut layer1_fired = false;
         let mut last_input_tokens: Option<u64> = None;
         let mut tools_used: Vec<String> = Vec::new();
         let mut collected_media: Vec<String> = Vec::new();
@@ -74,24 +73,6 @@ impl AgentLoop {
 
         // Wrap tools in Arc for cheap cloning into each ChatRequest iteration
         let mut tools_arc = Arc::new(tools_defs);
-        // Build Aho-Corasick automaton for single-pass tool mention scanning
-        let mut tool_mention_ac = aho_corasick::AhoCorasick::builder()
-            .ascii_case_insensitive(true)
-            .build(&tool_names)
-            .ok();
-
-        // Anti-hallucination instruction in the system prompt. The tool definitions
-        // sent via the API `tools` parameter already list all available tools with
-        // descriptions, so we don't duplicate the name list here — just reinforce
-        // that tools ARE available and should be called directly.
-        if !tool_names.is_empty()
-            && let Some(system_msg) = messages.first_mut()
-        {
-            system_msg.content.push_str(
-                "\n\nYou have tools available. If a user asks for external actions, \
-                 do not claim tools are unavailable — call the matching tool directly.",
-            );
-        }
 
         // Append cognitive routines to system prompt when enabled
         if self.cognitive_config.enabled
@@ -254,23 +235,15 @@ impl AgentLoop {
                         }
                         tool_names = tools_defs.iter().map(|td| td.name.clone()).collect();
                         tools_arc = Arc::new(tools_defs);
-                        tool_mention_ac = aho_corasick::AhoCorasick::builder()
-                            .ascii_case_insensitive(true)
-                            .build(&tool_names)
-                            .ok();
                     }
                 }
             } else if let Some(content) = response.content {
                 match hallucination::handle_text_response(
                     &content,
                     &mut messages,
-                    response.reasoning_content.as_deref(),
                     any_tools_called,
-                    &mut correction_state,
+                    &mut layer1_fired,
                     &tool_names,
-                    &tools_used,
-                    user_has_action_intent,
-                    tool_mention_ac.as_ref(),
                 ) {
                     TextAction::Continue => {}
                     TextAction::Return => {

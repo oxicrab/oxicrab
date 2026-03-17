@@ -13,10 +13,8 @@ use helpers::ACTION_CLAIM_PATTERNS;
 #[cfg(test)]
 use helpers::MAX_IMAGES;
 use helpers::cleanup_old_media;
+pub use helpers::contains_action_claims;
 pub(crate) use helpers::validate_tool_params;
-pub use helpers::{
-    contains_action_claims, is_false_no_tools_claim, mentions_any_tool, mentions_multiple_tools,
-};
 #[cfg(test)]
 use helpers::{
     execute_tool_call, extract_media_paths, load_and_encode_images, strip_document_tags,
@@ -57,9 +55,7 @@ const DEFAULT_HISTORY_SIZE: usize = 50;
 const RECOVERY_CONTEXT_MAX_CHARS: usize = 200;
 
 #[cfg(test)]
-use hallucination::MAX_LAYER0_CORRECTIONS;
-#[cfg(test)]
-use hallucination::{CorrectionState, TextAction};
+use hallucination::TextAction;
 
 pub struct AgentLoop {
     inbound_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<InboundMessage>>>,

@@ -4,14 +4,13 @@ use crate::providers::base::ImageData;
 use anyhow::Result;
 use regex::Regex;
 use serde_json::Value;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
 
 const SAVED_TO_PREFIX: &str = "saved to: ";
 const AUDIO_TAG_PREFIX: &str = "[audio: ";
 const TYPING_INDICATOR_INTERVAL_SECS: u64 = 4;
-const TOOL_MENTION_HALLUCINATION_THRESHOLD: usize = 3;
 const MAX_IMAGE_SIZE: usize = 20 * 1024 * 1024; // 20MB (Anthropic limit)
 pub(super) const MAX_IMAGES: usize = 5;
 
@@ -251,102 +250,6 @@ pub fn contains_action_claims(text: &str) -> bool {
     ACTION_CLAIM_RE.is_match(text)
 }
 
-/// Regex that matches phrases where the LLM falsely claims it has no tools.
-static FALSE_NO_TOOLS_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-    Regex::new(
-        r"(?i)(?:I (?:don't|do not|cannot|can't) have (?:access to )?(?:any )?tools|(?:no tools|tools (?:are|aren't) (?:not )?available)|I(?:'m| am) (?:not able|unable) to (?:use|access|call) tools)"
-    )
-    .expect("Invalid false-no-tools regex")
-});
-
-/// Returns `true` if the text falsely claims tools are unavailable.
-pub fn is_false_no_tools_claim(text: &str) -> bool {
-    FALSE_NO_TOOLS_RE.is_match(text)
-}
-
-/// Returns `true` if the text mentions at least one tool name from the list.
-/// Uses word-boundary-aware matching to avoid false positives from tool names
-/// that are common English words (e.g. "exec" in "execute", "read" in "reading").
-pub fn mentions_any_tool(text: &str, tool_names: &[String]) -> bool {
-    let text_lower = text.to_lowercase();
-    tool_names.iter().any(|name| {
-        let name_lower = name.to_lowercase();
-        let mut start = 0;
-        while let Some(pos) = text_lower[start..].find(&name_lower) {
-            let abs_pos = start + pos;
-            let end_pos = abs_pos + name_lower.len();
-            let before_ok =
-                abs_pos == 0 || !text_lower.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
-            let after_ok = end_pos >= text_lower.len()
-                || !text_lower.as_bytes()[end_pos].is_ascii_alphanumeric();
-            if before_ok && after_ok {
-                return true;
-            }
-            start = abs_pos
-                + text_lower[abs_pos..]
-                    .chars()
-                    .next()
-                    .map_or(1, char::len_utf8);
-        }
-        false
-    })
-}
-
-/// Returns `true` if the text mentions 3+ tool names, suggesting hallucinated tool results.
-/// When the LLM lists tool names with "results" but never actually called them, this catches
-/// the pattern that the action-claim regex might miss.
-///
-/// When an `ac` automaton is provided, does a single-pass Aho-Corasick scan (O(n + m) where
-/// n = text length, m = total pattern length). Falls back to the O(n·m) per-tool scan when
-/// `ac` is `None`.
-///
-/// The fallback uses word-boundary-aware matching to avoid false positives from tool names
-/// that are common English words (e.g. "exec" in "execute", "read" in "reading").
-pub fn mentions_multiple_tools(
-    text: &str,
-    tool_names: &[String],
-    ac: Option<&aho_corasick::AhoCorasick>,
-) -> bool {
-    // Fast path: single-pass AC scan
-    if let Some(ac) = ac {
-        let text_lower = text.to_lowercase();
-        let unique: std::collections::HashSet<usize> = ac
-            .find_iter(&text_lower)
-            .map(|m| m.pattern().as_usize())
-            .collect();
-        return unique.len() >= TOOL_MENTION_HALLUCINATION_THRESHOLD;
-    }
-
-    // Fallback: O(n·m) per-tool scan with word-boundary checks
-    let text_lower = text.to_lowercase();
-    let count = tool_names
-        .iter()
-        .filter(|name| {
-            let name_lower = name.to_lowercase();
-            // Find all occurrences and check word boundaries
-            let mut start = 0;
-            while let Some(pos) = text_lower[start..].find(&name_lower) {
-                let abs_pos = start + pos;
-                let end_pos = abs_pos + name_lower.len();
-                let before_ok =
-                    abs_pos == 0 || !text_lower.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
-                let after_ok = end_pos >= text_lower.len()
-                    || !text_lower.as_bytes()[end_pos].is_ascii_alphanumeric();
-                if before_ok && after_ok {
-                    return true;
-                }
-                start = abs_pos
-                    + text_lower[abs_pos..]
-                        .chars()
-                        .next()
-                        .map_or(1, char::len_utf8);
-            }
-            false
-        })
-        .count();
-    count >= TOOL_MENTION_HALLUCINATION_THRESHOLD
-}
-
 /// Load media files (images and documents) from disk and base64-encode them for LLM consumption.
 /// Skips files that are missing, too large, or have unsupported formats.
 pub(super) fn load_and_encode_images(media_paths: &[String]) -> Vec<ImageData> {
@@ -527,52 +430,6 @@ pub(super) async fn transcribe_audio_tags(
     }
     result.push_str(remaining);
     result
-}
-
-/// Detects if the LLM response is a clarification question rather than
-/// a hallucinated action or evasive non-answer.
-static CLARIFICATION_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)(?:which\s+(?:task|one|item|file|project)|what\s+(?:should|would you like|do you want|task|name|title)|could you (?:specify|clarify|tell me)|can you (?:specify|clarify)|do you (?:want|mean|prefer)|would you like me to|did you mean|what['']?s the)\b",
-    )
-    .unwrap()
-});
-
-/// Check if the LLM's response is a legitimate clarification question.
-///
-/// When the LLM asks for more information before acting, that's not a
-/// hallucination -- it's appropriate behavior, especially for under-specified
-/// requests.
-///
-/// However, responses that contain action claims (e.g. "I've completed the
-/// task, should I do anything else?") are NOT treated as clarification even
-/// if they end with `?` -- the action claim is the dominant signal.
-///
-/// Very short questions (< 50 chars) must contain actual clarifying language
-/// (which, what, how, should I, etc.) -- otherwise they may be vapid parroting
-/// of the user's words (e.g. "Accept or reject?") rather than genuine
-/// information-gathering.
-pub(super) fn is_clarification_question(text: &str) -> bool {
-    let trimmed = text.trim();
-
-    // Short responses ending with ? are likely clarification questions,
-    // UNLESS the text also contains action claims -- those are hallucinations
-    // with a trailing question, not legitimate clarifications.
-    if trimmed.ends_with('?') && trimmed.len() < 200 {
-        if contains_action_claims(trimmed) {
-            return false;
-        }
-        // Very short questions (< 50 chars) are often vapid parroting
-        // ("Accept or reject?", "Yes or no?", "Ready?") rather than
-        // genuine clarifications. Require actual clarifying language.
-        if trimmed.len() < 50 {
-            return CLARIFICATION_RE.is_match(trimmed);
-        }
-        return true;
-    }
-
-    // Explicit clarification patterns
-    CLARIFICATION_RE.is_match(trimmed)
 }
 
 /// Delete media files older than the given TTL (in days).

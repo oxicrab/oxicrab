@@ -141,124 +141,10 @@ fn test_action_claim_pattern_fragments_each_match() {
 }
 
 #[test]
-fn test_tool_name_mentions() {
-    let tools = vec![
-        "web_search".to_string(),
-        "weather".to_string(),
-        "cron".to_string(),
-        "reddit".to_string(),
-        "exec".to_string(),
-    ];
-    // 4+ tool names -> triggers
-    assert!(mentions_multiple_tools(
-        "## Tool Test Results\n- web_search - Found news\n- weather - 45°F\n- cron - 5 jobs\n- reddit - 10 posts",
-        &tools,
-        None,
-    ));
-    // 1 tool name -> doesn't trigger
-    let tools3 = vec![
-        "web_search".to_string(),
-        "weather".to_string(),
-        "cron".to_string(),
-    ];
-    assert!(!mentions_multiple_tools(
-        "I can help you with web_search if you'd like.",
-        &tools3,
-        None,
-    ));
-    // 2 tool names -> doesn't trigger
-    assert!(!mentions_multiple_tools(
-        "The web_search and weather tools are available.",
-        &tools3,
-        None,
-    ));
-
-    // Word-boundary matching: tool names embedded in longer words should NOT match
-    let tools_short = vec![
-        "exec".to_string(),
-        "read".to_string(),
-        "list".to_string(),
-        "send".to_string(),
-    ];
-    assert!(
-        !mentions_multiple_tools(
-            "I'll execute the reading list and send it later.",
-            &tools_short,
-            None,
-        ),
-        "tool names as substrings of English words should not match"
-    );
-    // But exact matches separated by non-alphanumeric chars should match
-    assert!(mentions_multiple_tools(
-        "Use exec, then read, then list the results.",
-        &tools_short,
-        None,
-    ));
-}
-
-#[test]
-fn test_mentions_multiple_tools_ac_path() {
-    let names: Vec<String> = vec![
-        "web_search".into(),
-        "read_file".into(),
-        "shell".into(),
-        "cron".into(),
-    ];
-    let ac = aho_corasick::AhoCorasick::builder()
-        .ascii_case_insensitive(true)
-        .build(&names)
-        .unwrap();
-    // 3+ distinct tool mentions -> triggers
-    assert!(mentions_multiple_tools(
-        "I used web_search and read_file and shell",
-        &names,
-        Some(&ac),
-    ));
-    // Only 1 tool mentioned -> doesn't trigger
-    assert!(!mentions_multiple_tools(
-        "I used web_search only",
-        &names,
-        Some(&ac),
-    ));
-    // Case-insensitive matching
-    assert!(mentions_multiple_tools(
-        "WEB_SEARCH found results, READ_FILE loaded data, CRON scheduled it",
-        &names,
-        Some(&ac),
-    ));
-    // Duplicate mentions of the same tool count as 1
-    assert!(!mentions_multiple_tools(
-        "web_search and web_search and web_search again",
-        &names,
-        Some(&ac),
-    ));
-}
-
-#[test]
 fn test_silent_response_prefix() {
     assert!("[SILENT] Internal note recorded.".starts_with("[SILENT]"));
     assert!(!"[silent] This should pass through.".starts_with("[SILENT]"));
     assert!(!"Here is a normal response.".starts_with("[SILENT]"));
-}
-
-#[test]
-fn test_false_no_tools_claims() {
-    let positives = [
-        "I don't have access to tools to help with that.",
-        "I cannot have access to any tools.",
-        "I'm unable to use tools directly.",
-        "No tools are available to me.",
-    ];
-    for text in positives {
-        assert!(is_false_no_tools_claim(text), "should match: {text}");
-    }
-    let negatives = [
-        "Here's how to use the tools in this project.",
-        "I'll use the exec tool to run that command.",
-    ];
-    for text in negatives {
-        assert!(!is_false_no_tools_claim(text), "should NOT match: {text}");
-    }
 }
 
 // --- Parallel tool execution tests ---
@@ -975,7 +861,7 @@ fn test_conversational_reply_passes_through() {
     // Short conversational replies should be returned as-is (not flagged as hallucination)
     let tool_names = vec!["memory_search".to_string(), "cron".to_string()];
     let mut messages = vec![];
-    let mut state = CorrectionState::new();
+    let mut layer1_fired = false;
 
     let cases = [
         "Sure, I'll do that now.",
@@ -988,13 +874,9 @@ fn test_conversational_reply_passes_through() {
         let result = hallucination::handle_text_response(
             reply,
             &mut messages,
-            None,
             false,
-            &mut state,
+            &mut layer1_fired,
             &tool_names,
-            &[],
-            false, // user message was conversational, not action intent
-            None,
         );
         assert!(
             matches!(result, TextAction::Return),
@@ -1008,155 +890,59 @@ fn test_action_hallucination_caught_without_tool_forcing() {
     // Action claims should be caught by hallucination detection even without tool_choice="any"
     let tool_names = vec!["write_file".to_string()];
     let mut messages = vec![];
-    let mut state = CorrectionState::new();
+    let mut layer1_fired = false;
 
     let result = hallucination::handle_text_response(
         "I've updated the configuration file.",
         &mut messages,
-        None,
         false,
-        &mut state,
+        &mut layer1_fired,
         &tool_names,
-        &[],
-        true, // user requested an action
-        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
         "action claim should trigger correction"
     );
-    assert!(state.layer1_fired);
+    assert!(layer1_fired);
 }
 
 #[test]
 fn test_action_hallucination_not_repeated_after_l1_correction() {
-    // After layer1_fired, a second action claim should pass through (L1 budget exhausted).
-    // Layer 2 may still fire if user_has_action_intent is true.
+    // After layer1_fired, a second action claim should pass through (single retry exhausted)
     let tool_names = vec!["write_file".to_string()];
     let mut messages = vec![];
-    let mut state = CorrectionState::new();
-    state.layer1_fired = true; // L1 already corrected
+    let mut layer1_fired = true; // L1 already corrected
 
     let result = hallucination::handle_text_response(
         "I've written the new module.",
         &mut messages,
-        None,
         false,
-        &mut state,
+        &mut layer1_fired,
         &tool_names,
-        &[],
-        false, // no action intent — L2 won't fire either
-        None,
     );
     assert!(
         matches!(result, TextAction::Return),
-        "after L1 correction, text should pass through when no action intent"
+        "after L1 correction, text should pass through"
     );
-}
-
-#[test]
-fn test_layer2_fires_after_layer1_exhausted() {
-    // When L1 has already fired and L2 hasn't, L2 should get its own shot
-    let tool_names = vec!["write_file".to_string()];
-    let mut messages = vec![];
-    let mut state = CorrectionState::new();
-    state.layer1_fired = true; // L1 already corrected
-
-    let result = hallucination::handle_text_response(
-        "Sure, I can help with that.",
-        &mut messages,
-        None,
-        false,
-        &mut state,
-        &tool_names,
-        &[],
-        true, // user has action intent — L2 should fire
-        None,
-    );
-    assert!(
-        matches!(result, TextAction::Continue),
-        "L2 should fire independently after L1 exhausted"
-    );
-    assert!(state.layer2_fired);
 }
 
 #[test]
 fn test_legitimate_tool_response_passes_through() {
-    // After tools were actually called, text responses with action claims pass through
-    // when the tools mentioned were actually used
+    // After tools were actually called, action claims pass through (not a hallucination)
     let tool_names = vec!["write_file".to_string()];
-    let tools_used = vec!["write_file".to_string()];
     let mut messages = vec![];
-    let mut state = CorrectionState::new();
+    let mut layer1_fired = false;
 
     let result = hallucination::handle_text_response(
         "I've updated the configuration file.",
         &mut messages,
-        None,
         true, // tools were called
-        &mut state,
+        &mut layer1_fired,
         &tool_names,
-        &tools_used,
-        true, // user requested an action
-        None,
     );
     assert!(
         matches!(result, TextAction::Return),
         "after real tool calls, text should pass through"
-    );
-}
-
-// --- Multi-iteration hallucination correction tests ---
-
-#[test]
-fn test_false_no_tools_claim_fires_despite_layers() {
-    // false-no-tools correction should fire even after L1/L2 have fired
-    let tool_names = vec!["exec".to_string(), "read_file".to_string()];
-    let mut messages = vec![];
-    let mut state = CorrectionState::new();
-    state.layer1_fired = true;
-    state.layer2_fired = true;
-
-    let result = hallucination::handle_text_response(
-        "I don't have access to tools to help with that.",
-        &mut messages,
-        None,
-        false,
-        &mut state,
-        &tool_names,
-        &[],
-        true, // user requested an action
-        None,
-    );
-    assert!(
-        matches!(result, TextAction::Continue),
-        "false no-tools claim should trigger correction regardless of L1/L2"
-    );
-    assert_eq!(state.layer0_count, 1);
-}
-
-#[test]
-fn test_false_no_tools_claim_capped_at_max_corrections() {
-    // After MAX_LAYER0_CORRECTIONS, no-tools claims should pass through
-    let tool_names = vec!["exec".to_string(), "read_file".to_string()];
-    let mut messages = vec![];
-    let mut state = CorrectionState::new();
-    state.layer0_count = MAX_LAYER0_CORRECTIONS; // exhausted budget
-
-    let result = hallucination::handle_text_response(
-        "I don't have access to tools to help with that.",
-        &mut messages,
-        None,
-        false,
-        &mut state,
-        &tool_names,
-        &[],
-        true,
-        None,
-    );
-    assert!(
-        matches!(result, TextAction::Return),
-        "false no-tools claim should pass through after max corrections"
     );
 }
 
@@ -1169,13 +955,8 @@ fn test_text_after_tools_called_passes_action_claims() {
         "read_file".to_string(),
         "write_file".to_string(),
     ];
-    let tools_used = vec![
-        "exec".to_string(),
-        "read_file".to_string(),
-        "write_file".to_string(),
-    ];
     let mut messages = vec![];
-    let mut state = CorrectionState::new();
+    let mut layer1_fired = false;
 
     let claims = [
         "I've updated the configuration file.",
@@ -1188,295 +969,40 @@ fn test_text_after_tools_called_passes_action_claims() {
         let result = hallucination::handle_text_response(
             claim,
             &mut messages,
-            None,
             true, // tools WERE called
-            &mut state,
+            &mut layer1_fired,
             &tool_names,
-            &tools_used,
-            true, // user requested an action
-            None,
         );
         assert!(
             matches!(result, TextAction::Return),
             "claim '{claim}' should pass through after tools were called"
         );
         assert!(
-            !state.layer1_fired,
+            !layer1_fired,
             "correction should not be sent after real tool use"
         );
     }
 }
 
 #[test]
-fn test_uncalled_tools_detected_after_some_tools_called() {
-    // When tools WERE called but the response mentions many tools that were NOT called,
-    // Layer 1 should catch it (the LLM is embellishing what it did)
-    let tool_names = vec![
-        "web_search".to_string(),
-        "weather".to_string(),
-        "cron".to_string(),
-        "exec".to_string(),
-        "memory_search".to_string(),
-    ];
-    let tools_used = vec!["exec".to_string()]; // only exec was actually called
-    let mut messages = vec![];
-    let mut state = CorrectionState::new();
-
-    let result = hallucination::handle_text_response(
-        "I used web_search, weather, and cron to gather the information.",
-        &mut messages,
-        None,
-        true, // some tools were called
-        &mut state,
-        &tool_names,
-        &tools_used,
-        true,
-        None,
-    );
-    assert!(
-        matches!(result, TextAction::Continue),
-        "mentioning many uncalled tools should trigger correction even after some tools were called"
-    );
-    assert!(state.layer1_fired);
-}
-
-#[test]
-fn test_empty_tool_names_disables_false_no_tools_check() {
-    // When no tools are registered, the false-no-tools check should not fire
+fn test_empty_tool_names_disables_hallucination_check() {
+    // When no tools are registered, hallucination detection should not fire
     let tool_names: Vec<String> = vec![];
     let mut messages = vec![];
-    let mut state = CorrectionState::new();
+    let mut layer1_fired = false;
 
     let result = hallucination::handle_text_response(
-        "I don't have access to tools.",
+        "I've updated the configuration file.",
         &mut messages,
-        None,
         false,
-        &mut state,
+        &mut layer1_fired,
         &tool_names,
-        &[],
-        true, // user requested an action
-        None,
     );
     assert!(
         matches!(result, TextAction::Return),
-        "no-tools claim should pass through when no tools are registered"
+        "action claim should pass through when no tools are registered"
     );
-}
-
-#[test]
-fn test_mentions_multiple_tools_triggers_correction() {
-    // A response listing many tool names (without calling them) should be caught
-    let tool_names = vec![
-        "web_search".to_string(),
-        "weather".to_string(),
-        "cron".to_string(),
-        "exec".to_string(),
-        "read_file".to_string(),
-    ];
-    let mut messages = vec![];
-    let mut state = CorrectionState::new();
-
-    let result = hallucination::handle_text_response(
-        "## Available Tools\n- web_search: Search the web\n- weather: Get weather\n- cron: Schedule jobs\n- exec: Run commands",
-        &mut messages,
-        None,
-        false,
-        &mut state,
-        &tool_names,
-        &[],
-        true, // user requested an action
-        None,
-    );
-    assert!(
-        matches!(result, TextAction::Continue),
-        "listing multiple tools without calling them should trigger correction"
-    );
-}
-
-// --- mentions_any_tool tests ---
-
-#[test]
-fn test_mentions_any_tool_positive() {
-    let tools = vec!["google_calendar".to_string(), "todoist".to_string()];
-    assert!(mentions_any_tool("Creating google_calendar events", &tools));
-    assert!(mentions_any_tool("I used todoist to add tasks", &tools));
-}
-
-#[test]
-fn test_mentions_any_tool_negative() {
-    let tools = vec!["google_calendar".to_string()];
-    assert!(!mentions_any_tool("I read your emails", &tools));
-    // "calendar" != "google_calendar"
-    assert!(!mentions_any_tool("The calendar looks good", &tools));
-}
-
-#[test]
-fn test_mentions_any_tool_word_boundary() {
-    let tools = vec!["exec".to_string()];
-    // "exec" inside "executed" should NOT match
-    assert!(!mentions_any_tool("I executed the command", &tools));
-    assert!(mentions_any_tool("I called exec to run it", &tools));
-}
-
-#[test]
-fn test_mentions_any_tool_empty_list() {
-    let tools: Vec<String> = vec![];
-    assert!(!mentions_any_tool("anything here", &tools));
-}
-
-// --- Layer 3 partial hallucination tests ---
-
-#[test]
-fn test_layer3_partial_hallucination() {
-    // Simulate: gmail was called, LLM claims calendar actions without calling calendar
-    let tool_names = ["google_mail".to_string(), "google_calendar".to_string()];
-    let tools_used = ["google_mail".to_string()]; // only gmail called
-    let content =
-        "I've created 4 calendar events on your google_calendar for the Gotham FC matches.";
-
-    // Layer 3 should trigger: mentions uncalled tool + action claim
-    let uncalled: Vec<String> = tool_names
-        .iter()
-        .filter(|n| !tools_used.contains(n))
-        .cloned()
-        .collect();
-    assert!(mentions_any_tool(content, &uncalled));
-    assert!(contains_action_claims(content));
-}
-
-#[test]
-fn test_layer3_fires_in_handle_text_response() {
-    // Full integration: Layer 3 fires when tools were called but text claims
-    // actions for uncalled tools
-    let tool_names = vec!["google_mail".to_string(), "google_calendar".to_string()];
-    let tools_used = vec!["google_mail".to_string()];
-    let mut messages = vec![];
-    let mut state = CorrectionState::new();
-
-    let result = hallucination::handle_text_response(
-        "I've created 4 calendar events on your google_calendar for the upcoming matches.",
-        &mut messages,
-        None,
-        true, // tools WERE called
-        &mut state,
-        &tool_names,
-        &tools_used,
-        true,
-        None,
-    );
-    assert!(
-        matches!(result, TextAction::Continue),
-        "Layer 3 should detect partial hallucination"
-    );
-    assert!(state.layer3_fired);
-}
-
-#[test]
-fn test_layer3_does_not_fire_when_all_tools_used() {
-    // When all mentioned tools were actually called, Layer 3 should not fire
-    let tool_names = vec!["google_mail".to_string(), "google_calendar".to_string()];
-    let tools_used = vec!["google_mail".to_string(), "google_calendar".to_string()];
-    let mut messages = vec![];
-    let mut state = CorrectionState::new();
-
-    let result = hallucination::handle_text_response(
-        "I've created calendar events on your google_calendar and sent emails via google_mail.",
-        &mut messages,
-        None,
-        true,
-        &mut state,
-        &tool_names,
-        &tools_used,
-        true,
-        None,
-    );
-    assert!(
-        matches!(result, TextAction::Return),
-        "should pass through when all tools were actually called"
-    );
-    assert!(!state.layer3_fired);
-}
-
-#[test]
-fn test_layer3_does_not_fire_without_action_claims() {
-    // Mentioning an uncalled tool without action claims should not trigger Layer 3
-    let tool_names = vec!["google_mail".to_string(), "google_calendar".to_string()];
-    let tools_used = vec!["google_mail".to_string()];
-    let mut messages = vec![];
-    let mut state = CorrectionState::new();
-
-    let result = hallucination::handle_text_response(
-        "You could also use google_calendar for that.",
-        &mut messages,
-        None,
-        true,
-        &mut state,
-        &tool_names,
-        &tools_used,
-        true,
-        None,
-    );
-    assert!(
-        matches!(result, TextAction::Return),
-        "mentioning uncalled tool without action claim should pass through"
-    );
-    assert!(!state.layer3_fired);
-}
-
-#[test]
-fn test_layer3_fires_only_once() {
-    // Layer 3 should only fire once
-    let tool_names = vec!["google_mail".to_string(), "google_calendar".to_string()];
-    let tools_used = vec!["google_mail".to_string()];
-    let mut messages = vec![];
-    let mut state = CorrectionState::new();
-    state.layer3_fired = true; // already fired
-
-    let result = hallucination::handle_text_response(
-        "I've created events on your google_calendar.",
-        &mut messages,
-        None,
-        true,
-        &mut state,
-        &tool_names,
-        &tools_used,
-        true,
-        None,
-    );
-    assert!(
-        matches!(result, TextAction::Return),
-        "Layer 3 should not fire a second time"
-    );
-}
-
-#[test]
-fn test_layer3_does_not_fire_when_no_tools_called() {
-    // Layer 3 is specifically for partial hallucinations (any_tools_called=true).
-    // When no tools were called, Layers 1 and 2 handle it.
-    let tool_names = vec!["google_mail".to_string(), "google_calendar".to_string()];
-    let mut messages = vec![];
-    let mut state = CorrectionState::new();
-    state.layer1_fired = true; // exhaust L1
-    state.layer2_fired = true; // exhaust L2
-
-    let result = hallucination::handle_text_response(
-        "I've created events on your google_calendar.",
-        &mut messages,
-        None,
-        false, // no tools called
-        &mut state,
-        &tool_names,
-        &[],
-        true,
-        None,
-    );
-    // L1 and L2 are exhausted, L3 doesn't apply (no tools called) => Return
-    assert!(
-        matches!(result, TextAction::Return),
-        "Layer 3 should not fire when no tools were called"
-    );
-    assert!(!state.layer3_fired);
+    assert!(!layer1_fired);
 }
 
 // --- Media cleanup tests ---

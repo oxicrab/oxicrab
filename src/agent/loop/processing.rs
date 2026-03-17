@@ -236,8 +236,6 @@ impl AgentLoop {
 
         let request_id = format!("req-{}", Uuid::new_v4());
 
-        let user_action_intent = false;
-
         // Complexity-aware routing: score the message and resolve a model override
         let (complexity_score, complexity_band) = if let Some(ref scorer) = self.complexity_scorer {
             let score = scorer.score(&content);
@@ -327,13 +325,7 @@ impl AgentLoop {
 
         let typing_ctx = Some((msg.channel.clone(), msg.chat_id.clone()));
         let loop_result = self
-            .run_agent_loop_with_overrides(
-                messages,
-                typing_ctx,
-                &exec_ctx,
-                &overrides,
-                user_action_intent,
-            )
+            .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &overrides)
             .await?;
 
         // Only reload session if compaction updated it (wrote compaction_summary).
@@ -508,19 +500,12 @@ impl AgentLoop {
             msg.metadata.clone(),
         );
         let request_id = format!("req-{}", Uuid::new_v4());
-        let user_action_intent = false;
         let system_overrides = AgentRunOverrides {
             request_id: Some(request_id),
             ..AgentRunOverrides::default()
         };
         let loop_result = self
-            .run_agent_loop_with_overrides(
-                messages,
-                typing_ctx,
-                &exec_ctx,
-                &system_overrides,
-                user_action_intent,
-            )
+            .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &system_overrides)
             .await?;
         let final_content = loop_result
             .content
@@ -763,7 +748,6 @@ impl AgentLoop {
             )
         };
         let request_id = format!("req-{}", Uuid::new_v4());
-        let user_action_intent = false;
 
         let effective_overrides = if overrides.request_id.is_some() {
             overrides.clone()
@@ -775,13 +759,7 @@ impl AgentLoop {
         };
 
         let loop_result = self
-            .run_agent_loop_with_overrides(
-                messages,
-                typing_ctx,
-                &exec_ctx,
-                &effective_overrides,
-                user_action_intent,
-            )
+            .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &effective_overrides)
             .await?;
         let response = loop_result
             .content
