@@ -87,8 +87,11 @@ impl AgentLoop {
                 ));
             }
             crate::router::RoutingDecision::SemanticFilter { policy } => {
+                // Keep semantic-filtered turns aligned with guided turns by
+                // always including core interaction helpers and activated tools.
+                let subset = self.build_guided_tool_subset(&policy.allowed_tools).await;
                 routing_policy = Some(self.policy_from_allowlist(
-                    policy.allowed_tools.clone(),
+                    subset,
                     policy.context_hint.clone(),
                     policy.reason,
                 ));

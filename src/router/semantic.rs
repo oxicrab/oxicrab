@@ -130,7 +130,6 @@ impl SemanticToolIndex {
                 if selected.len() < 2 {
                     return None;
                 }
-                crate::router::metrics::record_semantic_filter();
                 return Some(SemanticSelection {
                     tools: selected.iter().map(|(n, _)| n.clone()).collect(),
                     scores: selected.iter().map(|(_, s)| *s).collect(),
@@ -154,7 +153,6 @@ impl SemanticToolIndex {
         crate::router::metrics::record_semantic_scores(
             &selected.iter().map(|(_, s)| *s).collect::<Vec<f32>>(),
         );
-        crate::router::metrics::record_semantic_filter();
         Some(SemanticSelection {
             tools: selected.iter().map(|(n, _)| n.clone()).collect(),
             scores: selected.iter().map(|(_, s)| *s).collect(),
