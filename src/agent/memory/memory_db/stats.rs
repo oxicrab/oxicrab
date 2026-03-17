@@ -253,10 +253,11 @@ impl MemoryDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
 
+        let since_datetime = format!("{since_date} 00:00:00");
         let total: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM complexity_routing_log WHERE DATE(timestamp) >= ?",
-                [since_date],
+                "SELECT COUNT(*) FROM complexity_routing_log WHERE timestamp >= ?",
+                [&since_datetime],
                 |row| row.get(0),
             )
             .unwrap_or(0);
@@ -269,12 +270,12 @@ impl MemoryDB {
                     COALESCE(SUM(l.input_tokens + l.output_tokens), 0) as total_tokens
              FROM complexity_routing_log c
              LEFT JOIN llm_cost_log l ON c.request_id = l.request_id
-             WHERE DATE(c.timestamp) >= ?
+             WHERE c.timestamp >= ?
              GROUP BY c.resolved_tier
              ORDER BY cnt DESC",
         )?;
         let tier_counts: Vec<ComplexityTierStats> = stmt
-            .query_map([since_date], |row| {
+            .query_map([&since_datetime], |row| {
                 Ok(ComplexityTierStats {
                     tier: row.get(0)?,
                     count: row.get::<_, i64>(1)? as u64,
@@ -289,12 +290,12 @@ impl MemoryDB {
         let mut stmt = conn.prepare(
             "SELECT forced, COUNT(*) as cnt
              FROM complexity_routing_log
-             WHERE forced IS NOT NULL AND DATE(timestamp) >= ?
+             WHERE forced IS NOT NULL AND timestamp >= ?
              GROUP BY forced
              ORDER BY cnt DESC",
         )?;
         let force_counts: Vec<ComplexityForceCount> = stmt
-            .query_map([since_date], |row| {
+            .query_map([&since_datetime], |row| {
                 Ok(ComplexityForceCount {
                     reason: row.get(0)?,
                     count: row.get::<_, i64>(1)? as u64,

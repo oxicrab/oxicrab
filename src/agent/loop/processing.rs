@@ -150,7 +150,16 @@ impl AgentLoop {
 
         debug!("Getting compacted history");
         let checkpoint_before = self.last_checkpoint.lock().await.clone();
+        let compaction_start = std::time::Instant::now();
         let history = self.get_compacted_history(&session).await?;
+        let compaction_elapsed = compaction_start.elapsed();
+        if compaction_elapsed > std::time::Duration::from_secs(2) {
+            info!(
+                "compaction took {:.1}s for session {}",
+                compaction_elapsed.as_secs_f64(),
+                session.key
+            );
+        }
         debug!("Got {} history messages", history.len());
 
         // Transcribe any audio files before other processing
@@ -244,9 +253,14 @@ impl AgentLoop {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or_default();
 
-        let messages = {
+        // Refresh provider context (may run external commands with 5s timeout)
+        // outside the main lock to avoid blocking other sessions.
+        {
             let mut ctx = self.context.lock().await;
             ctx.refresh_provider_context().await;
+        }
+        let messages = {
+            let mut ctx = self.context.lock().await;
             ctx.build_messages(
                 &history,
                 &content,
@@ -515,9 +529,13 @@ impl AgentLoop {
 
         let history = self.get_compacted_history(&session).await?;
 
-        let messages = {
+        // Refresh provider context outside the main lock to avoid blocking other sessions
+        {
             let mut context = self.context.lock().await;
             context.refresh_provider_context().await;
+        }
+        let messages = {
+            let mut context = self.context.lock().await;
             context.build_messages(
                 &history,
                 &msg.content,
@@ -1088,9 +1106,13 @@ impl AgentLoop {
         let session = self.sessions.get_or_create(session_key).await?;
         let history = self.get_compacted_history(&session).await?;
 
-        let messages = {
+        // Refresh provider context outside the main lock to avoid blocking other sessions
+        {
             let mut ctx = self.context.lock().await;
             ctx.refresh_provider_context().await;
+        }
+        let messages = {
+            let mut ctx = self.context.lock().await;
             ctx.build_messages(
                 &history,
                 content,

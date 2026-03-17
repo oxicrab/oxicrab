@@ -71,6 +71,7 @@ impl MemoryDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let since_datetime = format!("{since_date} 00:00:00");
         let mut stmt = conn.prepare(
             "SELECT DATE(timestamp) as day, model,
                     SUM(input_tokens) as total_input,
@@ -79,12 +80,12 @@ impl MemoryDB {
                     COALESCE(SUM(cache_read_tokens), 0) as total_cache_read,
                     COUNT(*) as call_count
              FROM llm_cost_log
-             WHERE DATE(timestamp) >= ?
+             WHERE timestamp >= ?
              GROUP BY day, model
              ORDER BY day DESC, total_input DESC",
         )?;
         let rows: Result<Vec<_>, _> = stmt
-            .query_map([since_date], |row| {
+            .query_map([&since_datetime], |row| {
                 Ok(TokenSummaryRow {
                     date: row.get(0)?,
                     model: row.get(1)?,
