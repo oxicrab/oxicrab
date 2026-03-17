@@ -39,12 +39,15 @@ pub fn build_pinned_client(
 
 /// Build a `reqwest::Client` with standard timeouts (10 s connect, 30 s overall).
 ///
+/// Used for trusted API calls (GitHub, Google, Todoist, Weather, etc.) where
+/// redirects are expected and safe. Does NOT disable redirects — that is only
+/// done in `build_pinned_client()` for SSRF-sensitive user-provided URLs.
+///
 /// Falls back to the default client if the builder fails.
 pub fn default_http_client() -> Client {
     Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
-        .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap_or_else(|_| Client::new())
 }
