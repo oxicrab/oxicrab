@@ -250,7 +250,7 @@ fn test_prompt_guard_parses_from_json() {
 #[test]
 fn test_exfiltration_guard_default_config() {
     let config: ExfiltrationGuardConfig = serde_json::from_str("{}").expect("parse json");
-    assert!(config.enabled); // enabled by default (security hardening)
+    assert!(!config.enabled); // disabled by default — enabling with empty allowTools hides all network tools
     assert!(config.allow_tools.is_empty());
 }
 
