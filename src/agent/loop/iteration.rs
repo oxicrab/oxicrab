@@ -71,15 +71,17 @@ impl AgentLoop {
         };
 
         // Router tool filter: constrain available tools for GuidedLLM/SemanticFilter paths
-        if let Some(ref filter) = overrides.tool_filter {
+        if let Some(policy) = overrides.routing_policy.as_ref() {
             tools_defs.retain(|td| {
-                filter.contains(&td.name) || td.name == "add_buttons" || td.name == "tool_search"
+                policy.allowed_tools.contains(&td.name)
+                    || td.name == "add_buttons"
+                    || td.name == "tool_search"
             });
         }
-        if let Some(reason) = overrides.route_reason.as_deref() {
+        if let Some(policy) = overrides.routing_policy.as_ref() {
             debug!(
                 "router policy active: reason={} tools={}",
-                reason,
+                policy.reason,
                 tools_defs.len()
             );
         }
@@ -103,7 +105,10 @@ impl AgentLoop {
         }
 
         // Inject router context hint into system prompt for GuidedLLM path
-        if let Some(ref hint) = overrides.context_hint
+        if let Some(hint) = overrides
+            .routing_policy
+            .as_ref()
+            .and_then(|p| p.context_hint.as_ref())
             && let Some(system_msg) = messages.first_mut()
         {
             use std::fmt::Write;
@@ -242,7 +247,7 @@ impl AgentLoop {
                         &tool_names,
                         exec_ctx,
                         exfil_ref,
-                        overrides.tool_filter.as_deref(),
+                        overrides.routing_policy.as_ref(),
                     )
                     .await;
 
@@ -282,9 +287,9 @@ impl AgentLoop {
                             });
                         }
                         // Re-apply tool filter (GuidedLLM constraint)
-                        if let Some(ref filter) = overrides.tool_filter {
+                        if let Some(policy) = overrides.routing_policy.as_ref() {
                             tools_defs.retain(|td| {
-                                filter.contains(&td.name)
+                                policy.allowed_tools.contains(&td.name)
                                     || td.name == "add_buttons"
                                     || td.name == "tool_search"
                             });
@@ -421,24 +426,32 @@ impl AgentLoop {
         tool_names: &[String],
         exec_ctx: &ExecutionContext,
         exfil_guard: Option<&crate::config::ExfiltrationGuardConfig>,
-        router_filter: Option<&[String]>,
+        routing_policy: Option<&crate::router::RoutingPolicy>,
     ) -> Vec<ToolResult> {
         let allow_tools: Option<Vec<String>> = exfil_guard.map(|g| g.allow_tools.clone());
-        let router_allow: Option<std::collections::HashSet<String>> = router_filter.map(|f| {
-            let mut s: std::collections::HashSet<String> = f.iter().cloned().collect();
-            // Keep interaction helpers available in constrained turns.
-            s.insert("add_buttons".to_string());
-            s.insert("tool_search".to_string());
-            s
-        });
+        let router_allow: Option<std::collections::HashSet<String>> =
+            routing_policy.map(|policy| {
+                let mut s: std::collections::HashSet<String> =
+                    policy.allowed_tools.iter().cloned().collect();
+                // Keep interaction helpers available in constrained turns.
+                s.insert("add_buttons".to_string());
+                s.insert("tool_search".to_string());
+                s
+            });
+        let router_block: Option<std::collections::HashSet<String>> =
+            routing_policy.map(|policy| policy.blocked_tools.iter().cloned().collect());
         let blocked_by_router = |name: &str| {
-            router_allow
+            router_block
                 .as_ref()
-                .is_some_and(|allow| !allow.contains(name))
+                .is_some_and(|blocked| blocked.contains(name))
+                || router_allow
+                    .as_ref()
+                    .is_some_and(|allow| !allow.contains(name))
         };
         if tool_calls.len() == 1 {
             let tc = &tool_calls[0];
             if blocked_by_router(&tc.name) {
+                crate::router::metrics::record_blocked_tool_attempt();
                 return vec![ToolResult::error(format!(
                     "Tool '{}' is not allowed in this routed turn.",
                     tc.name
@@ -471,6 +484,7 @@ impl AgentLoop {
                     let blocked = blocked_by_router(&tc_name);
                     tokio::task::spawn(async move {
                         if blocked {
+                            crate::router::metrics::record_blocked_tool_attempt();
                             return ToolResult::error(format!(
                                 "Tool '{}' is not allowed in this routed turn.",
                                 tc_name

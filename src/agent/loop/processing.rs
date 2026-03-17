@@ -102,9 +102,7 @@ impl AgentLoop {
             .route(&msg.content, &router_context, msg.action.as_ref());
 
         // Capture routing constraints/hints before falling through to the normal pipeline.
-        let mut router_tool_filter: Option<Vec<String>> = None;
-        let mut router_context_hint: Option<String> = None;
-        let mut router_reason: Option<String> = None;
+        let mut routing_policy: Option<crate::router::RoutingPolicy> = None;
         let mut should_try_semantic_filter = false;
         match &decision {
             crate::router::RoutingDecision::DirectDispatch {
@@ -137,13 +135,18 @@ impl AgentLoop {
             crate::router::RoutingDecision::GuidedLLM { policy } => {
                 // GuidedLLM is a strict policy gate: enforce a narrow tool set.
                 let subset = self.build_guided_tool_subset(&policy.allowed_tools).await;
-                router_tool_filter = Some(subset);
-                router_context_hint = policy.context_hint.clone();
-                router_reason = Some(policy.reason.to_string());
+                routing_policy = Some(self.policy_from_allowlist(
+                    subset,
+                    policy.context_hint.clone(),
+                    policy.reason,
+                ));
             }
             crate::router::RoutingDecision::SemanticFilter { policy } => {
-                router_tool_filter = Some(policy.allowed_tools.clone());
-                router_reason = Some(policy.reason.to_string());
+                routing_policy = Some(self.policy_from_allowlist(
+                    policy.allowed_tools.clone(),
+                    policy.context_hint.clone(),
+                    policy.reason,
+                ));
             }
             crate::router::RoutingDecision::FullLLM => {
                 should_try_semantic_filter = true;
@@ -260,8 +263,7 @@ impl AgentLoop {
                 tool_subset.join(","),
                 msg.channel
             );
-            router_tool_filter = Some(tool_subset);
-            router_reason = Some("semantic_filter".to_string());
+            routing_policy = Some(self.policy_from_allowlist(tool_subset, None, "semantic_filter"));
         }
 
         debug!("Acquiring context lock");
@@ -356,10 +358,8 @@ impl AgentLoop {
             },
         };
 
-        // Apply router-derived tool filter and context hint
-        overrides.tool_filter = router_tool_filter;
-        overrides.context_hint = router_context_hint;
-        overrides.route_reason = router_reason;
+        // Apply router-derived strict policy
+        overrides.routing_policy = routing_policy;
 
         // Record complexity event off the async runtime (fire-and-forget)
         if let (Some(score), Some(band)) = (&complexity_score, &complexity_band) {
@@ -736,6 +736,30 @@ impl AgentLoop {
         }
     }
 
+    fn policy_from_allowlist(
+        &self,
+        mut allowed_tools: Vec<String>,
+        context_hint: Option<String>,
+        reason: &'static str,
+    ) -> crate::router::RoutingPolicy {
+        allowed_tools.sort();
+        allowed_tools.dedup();
+        let allowed_set: std::collections::HashSet<&str> =
+            allowed_tools.iter().map(String::as_str).collect();
+        let blocked_tools = self
+            .tools
+            .tool_names()
+            .into_iter()
+            .filter(|name| !allowed_set.contains(name.as_str()))
+            .collect();
+        crate::router::RoutingPolicy {
+            allowed_tools,
+            blocked_tools,
+            context_hint,
+            reason,
+        }
+    }
+
     /// Build the effective GuidedLLM tool subset.
     ///
     /// Keeps router-selected tools, adds core interaction helpers, and includes
@@ -833,6 +857,8 @@ impl AgentLoop {
                             (name.clone(), blended)
                         })
                         .collect();
+                    let score_values: Vec<f32> = scored.iter().map(|(_, s)| *s).collect();
+                    crate::router::metrics::record_semantic_scores(&score_values);
                     scored.sort_by(|a, b| b.1.total_cmp(&a.1));
                     let mut picked: Vec<String> = scored
                         .into_iter()
@@ -853,6 +879,7 @@ impl AgentLoop {
                     {
                         picked.push("tool_search".to_string());
                     }
+                    crate::router::metrics::record_semantic_filter();
                     return Some(picked);
                 }
             }
@@ -874,6 +901,7 @@ impl AgentLoop {
         if self.tools.get("tool_search").is_some() && !picked.iter().any(|n| n == "tool_search") {
             picked.push("tool_search".to_string());
         }
+        crate::router::metrics::record_semantic_filter();
         Some(picked)
     }
 
@@ -1014,7 +1042,7 @@ impl AgentLoop {
         // the directives vector via install_directives(), invalidating the index)
         if let Some(idx) = directive_index
             && router_context
-                .action_directives
+                .directives()
                 .get(idx)
                 .is_some_and(|d| d.single_use)
         {

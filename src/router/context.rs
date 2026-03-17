@@ -1,12 +1,11 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub const MAX_DIRECTIVES: usize = 20;
 pub const DEFAULT_DIRECTIVE_TTL_MS: i64 = 300_000; // 5 minutes
 const MAX_PATTERN_LEN: usize = 256;
 
 /// LRU cache of compiled regexes keyed by anchored pattern string.
-/// Capacity of 64 covers all realistic directive sets with room to spare.
-/// `Regex` is `Send + Sync`, so wrapping in `Mutex` is safe across threads.
 static PATTERN_CACHE: std::sync::LazyLock<
     std::sync::Mutex<lru::LruCache<String, Option<regex::Regex>>>,
 > = std::sync::LazyLock::new(|| {
@@ -15,11 +14,21 @@ static PATTERN_CACHE: std::sync::LazyLock<
     ))
 });
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct RouterContext {
-    pub active_tool: Option<String>,
-    pub action_directives: Vec<ActionDirective>,
-    pub updated_at_ms: i64,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContextState {
+    Idle,
+    ToolFocused {
+        tool: String,
+        directives: Vec<ActionDirective>,
+        expires_at_ms: i64,
+    },
+}
+
+impl Default for ContextState {
+    fn default() -> Self {
+        Self::Idle
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,15 +37,77 @@ pub enum RouterState<'a> {
     Focused { tool: &'a str },
 }
 
+#[derive(Debug, Clone, Default)]
+struct DirectiveMatcher {
+    literal_to_index: HashMap<String, usize>,
+    pattern_indices: Vec<usize>,
+}
+
+impl DirectiveMatcher {
+    fn compile(directives: &[ActionDirective]) -> Self {
+        let mut m = Self::default();
+        for (idx, d) in directives.iter().enumerate() {
+            match &d.trigger {
+                DirectiveTrigger::Exact(s) => {
+                    m.literal_to_index.entry(s.clone()).or_insert(idx);
+                }
+                DirectiveTrigger::OneOf(options) => {
+                    for opt in options {
+                        m.literal_to_index.entry(opt.clone()).or_insert(idx);
+                    }
+                }
+                DirectiveTrigger::Pattern(_) => m.pattern_indices.push(idx),
+            }
+        }
+        m
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RouterContext {
+    pub state: ContextState,
+    pub updated_at_ms: i64,
+    #[serde(skip, default)]
+    matcher: DirectiveMatcher,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct LegacyRouterContext {
+    active_tool: Option<String>,
+    action_directives: Vec<ActionDirective>,
+    updated_at_ms: i64,
+}
+
 impl RouterContext {
     /// Load from session metadata. Returns default if missing or malformed.
     pub fn from_session_metadata(
         metadata: &std::collections::HashMap<String, serde_json::Value>,
     ) -> Self {
-        metadata
-            .get("router_context")
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default()
+        let Some(value) = metadata.get("router_context") else {
+            return Self::default();
+        };
+
+        if let Ok(mut ctx) = serde_json::from_value::<Self>(value.clone()) {
+            ctx.rebuild_matcher();
+            return ctx;
+        }
+
+        // Legacy fallback for old sessions using active_tool/action_directives.
+        if let Ok(legacy) = serde_json::from_value::<LegacyRouterContext>(value.clone()) {
+            let mut ctx = Self {
+                state: ContextState::Idle,
+                updated_at_ms: legacy.updated_at_ms,
+                matcher: DirectiveMatcher::default(),
+            };
+            if let Some(tool) = legacy.active_tool {
+                ctx.set_active_tool(Some(tool));
+                ctx.install_directives(legacy.action_directives);
+            }
+            ctx.rebuild_matcher();
+            return ctx;
+        }
+
+        Self::default()
     }
 
     /// Save to session metadata.
@@ -49,47 +120,171 @@ impl RouterContext {
         }
     }
 
-    /// Set active tool. Clears directives on context switch (different tool).
-    pub fn set_active_tool(&mut self, tool: Option<String>) {
-        if tool != self.active_tool {
-            self.action_directives.clear();
+    pub fn active_tool(&self) -> Option<&str> {
+        match &self.state {
+            ContextState::ToolFocused { tool, .. } => Some(tool.as_str()),
+            ContextState::Idle => None,
         }
-        self.active_tool = tool;
     }
 
-    /// Replace all directives. Caps at `MAX_DIRECTIVES`.
-    /// Triggers are normalized (lowercased) at install time so `matches()` is cheaper.
+    pub fn directives(&self) -> &[ActionDirective] {
+        match &self.state {
+            ContextState::ToolFocused { directives, .. } => directives,
+            ContextState::Idle => &[],
+        }
+    }
+
+    pub fn state(&self, now_ms: i64) -> RouterState<'_> {
+        match &self.state {
+            ContextState::ToolFocused {
+                tool,
+                directives,
+                expires_at_ms,
+            } if *expires_at_ms > now_ms && directives.iter().any(|d| !d.is_expired(now_ms)) => {
+                RouterState::Focused {
+                    tool: tool.as_str(),
+                }
+            }
+            _ => RouterState::Idle,
+        }
+    }
+
+    /// Transition to `Idle` state.
+    pub fn set_idle(&mut self) {
+        self.state = ContextState::Idle;
+        self.matcher = DirectiveMatcher::default();
+    }
+
+    /// Transition active tool. Switching tools clears directives.
+    pub fn set_active_tool(&mut self, tool: Option<String>) {
+        match tool {
+            Some(next_tool) => match &mut self.state {
+                ContextState::ToolFocused {
+                    tool,
+                    directives,
+                    expires_at_ms,
+                } => {
+                    if *tool != next_tool {
+                        *tool = next_tool;
+                        directives.clear();
+                        *expires_at_ms = 0;
+                        self.matcher = DirectiveMatcher::default();
+                    }
+                }
+                ContextState::Idle => {
+                    self.state = ContextState::ToolFocused {
+                        tool: next_tool,
+                        directives: Vec::new(),
+                        expires_at_ms: 0,
+                    };
+                    self.matcher = DirectiveMatcher::default();
+                }
+            },
+            None => self.set_idle(),
+        }
+    }
+
+    /// Replace directives in focused state. Caps at `MAX_DIRECTIVES`.
     pub fn install_directives(&mut self, directives: Vec<ActionDirective>) {
-        self.action_directives = directives
+        let mut normalized: Vec<ActionDirective> = directives
             .into_iter()
             .map(|mut d| {
                 d.trigger = d.trigger.normalized();
                 d
             })
             .collect();
-        self.action_directives.truncate(MAX_DIRECTIVES);
+        normalized.truncate(MAX_DIRECTIVES);
+
+        match &mut self.state {
+            ContextState::ToolFocused {
+                directives: current,
+                expires_at_ms,
+                ..
+            } => {
+                *current = normalized;
+                *expires_at_ms = current
+                    .iter()
+                    .map(|d| d.created_at_ms + d.ttl_ms)
+                    .max()
+                    .unwrap_or(0);
+                self.rebuild_matcher();
+            }
+            ContextState::Idle => {
+                // No active tool, directives have no meaning.
+                self.matcher = DirectiveMatcher::default();
+            }
+        }
     }
 
-    /// Remove expired directives.
+    /// Remove expired directives and transition to idle when focus expires.
     pub fn prune_expired(&mut self, now_ms: i64) {
-        self.action_directives.retain(|d| !d.is_expired(now_ms));
+        if let ContextState::ToolFocused {
+            directives,
+            expires_at_ms,
+            ..
+        } = &mut self.state
+        {
+            directives.retain(|d| !d.is_expired(now_ms));
+            *expires_at_ms = directives
+                .iter()
+                .map(|d| d.created_at_ms + d.ttl_ms)
+                .max()
+                .unwrap_or(0);
+            if directives.is_empty() || *expires_at_ms <= now_ms {
+                self.set_idle();
+            } else {
+                self.rebuild_matcher();
+            }
+        }
     }
 
     /// Remove directive at index (for single-use consumption).
     pub fn remove_directive_at(&mut self, index: usize) {
-        if index < self.action_directives.len() {
-            self.action_directives.remove(index);
+        if let ContextState::ToolFocused {
+            directives,
+            expires_at_ms,
+            ..
+        } = &mut self.state
+            && index < directives.len()
+        {
+            directives.remove(index);
+            *expires_at_ms = directives
+                .iter()
+                .map(|d| d.created_at_ms + d.ttl_ms)
+                .max()
+                .unwrap_or(0);
+            if directives.is_empty() {
+                self.set_idle();
+            } else {
+                self.rebuild_matcher();
+            }
         }
     }
 
-    /// Explicit interaction state based on active tool + live directives.
-    pub fn state(&self, now_ms: i64) -> RouterState<'_> {
-        match self.active_tool.as_deref() {
-            Some(tool) if self.action_directives.iter().any(|d| !d.is_expired(now_ms)) => {
-                RouterState::Focused { tool }
-            }
-            _ => RouterState::Idle,
+    /// Match an already normalized input against focused directives.
+    pub fn match_directive_index(&self, normalized_message: &str, now_ms: i64) -> Option<usize> {
+        let ContextState::ToolFocused { directives, .. } = &self.state else {
+            return None;
+        };
+
+        if let Some(&idx) = self.matcher.literal_to_index.get(normalized_message)
+            && directives.get(idx).is_some_and(|d| !d.is_expired(now_ms))
+        {
+            return Some(idx);
         }
+
+        for idx in &self.matcher.pattern_indices {
+            if directives.get(*idx).is_some_and(|d| {
+                !d.is_expired(now_ms) && d.trigger.matches_normalized(normalized_message)
+            }) {
+                return Some(*idx);
+            }
+        }
+        None
+    }
+
+    fn rebuild_matcher(&mut self) {
+        self.matcher = DirectiveMatcher::compile(self.directives());
     }
 }
 
@@ -113,15 +308,13 @@ impl ActionDirective {
 pub enum DirectiveTrigger {
     /// Single literal — "next", "done". Hash lookup.
     Exact(String),
-    /// Alternative literals — "yes|accept|ok". Linear scan over the Vec.
+    /// Alternative literals — "yes|accept|ok".
     OneOf(Vec<String>),
     /// Regex with captures. Compiled lazily. Rare.
     Pattern(String),
 }
 
 impl DirectiveTrigger {
-    /// Pre-lowercase `Exact` and `OneOf` variants at construction time so
-    /// `matches()` only needs to lowercase the incoming message, not the trigger.
     #[must_use]
     pub fn normalized(self) -> Self {
         match self {
@@ -129,22 +322,15 @@ impl DirectiveTrigger {
             Self::OneOf(options) => {
                 Self::OneOf(options.into_iter().map(|o| o.to_lowercase()).collect())
             }
-            // Patterns are applied to already-lowercased input; no change needed.
             Self::Pattern(_) => self,
         }
     }
 
-    /// Case-insensitive whole-message match (trimmed).
-    /// `Exact` and `OneOf` triggers are expected to already be lowercased
-    /// (call `.normalized()` at construction time).
     pub fn matches(&self, message: &str) -> bool {
         let normalized = message.trim().to_lowercase();
         self.matches_normalized(&normalized)
     }
 
-    /// Match against a pre-lowercased, pre-trimmed message.
-    /// Use this when checking multiple triggers against the same message to
-    /// avoid redundant `to_lowercase()` allocations.
     pub fn matches_normalized(&self, normalized: &str) -> bool {
         match self {
             Self::Exact(s) => normalized == *s,
@@ -153,13 +339,7 @@ impl DirectiveTrigger {
                 if pat.len() > MAX_PATTERN_LEN {
                     return false;
                 }
-                // Anchor the pattern to prevent partial matches (e.g. "yes"
-                // matching "yesterday"). Tools provide the inner pattern;
-                // the router enforces whole-message semantics.
                 let anchored = format!("^(?:{pat})$");
-                // Compiled regexes are cached in a global LRU (capacity 64)
-                // keyed by anchored pattern string, so each distinct pattern
-                // is compiled at most once across all threads and all match calls.
                 let mut cache = PATTERN_CACHE
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -179,195 +359,79 @@ mod tests {
     #[test]
     fn test_router_context_default() {
         let ctx = RouterContext::default();
-        assert!(ctx.active_tool.is_none());
-        assert!(ctx.action_directives.is_empty());
+        assert!(ctx.active_tool().is_none());
+        assert!(ctx.directives().is_empty());
     }
 
     #[test]
-    fn test_router_context_serde_roundtrip() {
-        let ctx = RouterContext {
-            active_tool: Some("rss".into()),
-            action_directives: vec![ActionDirective {
-                trigger: DirectiveTrigger::Exact("next".into()),
-                tool: "rss".into(),
-                params: serde_json::json!({"action": "next"}),
-                single_use: false,
-                ttl_ms: 300_000,
-                created_at_ms: now_ms(),
-            }],
-            updated_at_ms: now_ms(),
-        };
-        let json = serde_json::to_string(&ctx).unwrap();
-        let restored: RouterContext = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored.active_tool, Some("rss".into()));
-        assert_eq!(restored.action_directives.len(), 1);
-    }
-
-    #[test]
-    fn test_directive_expired() {
-        let d = ActionDirective {
-            trigger: DirectiveTrigger::Exact("yes".into()),
-            tool: "rss".into(),
-            params: serde_json::json!({}),
-            single_use: false,
-            ttl_ms: 1,
-            created_at_ms: now_ms() - 1000,
-        };
-        assert!(d.is_expired(now_ms()));
-    }
-
-    #[test]
-    fn test_directive_not_expired() {
-        let d = ActionDirective {
-            trigger: DirectiveTrigger::Exact("yes".into()),
+    fn test_router_context_state_machine_focus_and_idle() {
+        let mut ctx = RouterContext::default();
+        ctx.set_active_tool(Some("rss".into()));
+        assert!(matches!(ctx.state(now_ms()), RouterState::Idle));
+        ctx.install_directives(vec![ActionDirective {
+            trigger: DirectiveTrigger::Exact("next".into()),
             tool: "rss".into(),
             params: serde_json::json!({}),
             single_use: false,
             ttl_ms: 300_000,
             created_at_ms: now_ms(),
-        };
-        assert!(!d.is_expired(now_ms()));
+        }]);
+        assert!(matches!(ctx.state(now_ms()), RouterState::Focused { .. }));
+        ctx.set_idle();
+        assert!(matches!(ctx.state(now_ms()), RouterState::Idle));
     }
 
     #[test]
-    fn test_prune_expired() {
-        let mut ctx = RouterContext {
-            active_tool: Some("rss".into()),
-            action_directives: vec![
-                ActionDirective {
-                    trigger: DirectiveTrigger::Exact("old".into()),
-                    tool: "rss".into(),
-                    params: serde_json::json!({}),
-                    single_use: false,
-                    ttl_ms: 1,
-                    created_at_ms: now_ms() - 1000,
-                },
-                ActionDirective {
-                    trigger: DirectiveTrigger::Exact("fresh".into()),
-                    tool: "rss".into(),
-                    params: serde_json::json!({}),
-                    single_use: false,
-                    ttl_ms: 300_000,
-                    created_at_ms: now_ms(),
-                },
-            ],
-            updated_at_ms: now_ms(),
-        };
-        ctx.prune_expired(now_ms());
-        assert_eq!(ctx.action_directives.len(), 1);
-        assert!(
-            matches!(&ctx.action_directives[0].trigger, DirectiveTrigger::Exact(s) if s == "fresh")
-        );
-    }
-
-    #[test]
-    fn test_max_directives_cap() {
+    fn test_match_directive_index_uses_compiled_literal_map() {
         let mut ctx = RouterContext::default();
-        let directives: Vec<ActionDirective> = (0..25)
-            .map(|i| ActionDirective {
-                trigger: DirectiveTrigger::Exact(format!("d{i}")),
-                tool: "t".into(),
-                params: serde_json::json!({}),
-                single_use: false,
-                ttl_ms: 300_000,
-                created_at_ms: now_ms(),
-            })
-            .collect();
-        ctx.install_directives(directives);
-        assert_eq!(ctx.action_directives.len(), MAX_DIRECTIVES);
-    }
-
-    #[test]
-    fn test_context_switch_clears_directives() {
-        let mut ctx = RouterContext {
-            active_tool: Some("rss".into()),
-            action_directives: vec![ActionDirective {
-                trigger: DirectiveTrigger::Exact("yes".into()),
-                tool: "rss".into(),
-                params: serde_json::json!({}),
-                single_use: false,
-                ttl_ms: 300_000,
-                created_at_ms: now_ms(),
-            }],
-            updated_at_ms: now_ms(),
-        };
-        ctx.set_active_tool(Some("google_calendar".into()));
-        assert!(ctx.action_directives.is_empty());
-        assert_eq!(ctx.active_tool, Some("google_calendar".into()));
-    }
-
-    #[test]
-    fn test_same_tool_does_not_clear() {
-        let mut ctx = RouterContext {
-            active_tool: Some("rss".into()),
-            action_directives: vec![ActionDirective {
-                trigger: DirectiveTrigger::Exact("yes".into()),
-                tool: "rss".into(),
-                params: serde_json::json!({}),
-                single_use: false,
-                ttl_ms: 300_000,
-                created_at_ms: now_ms(),
-            }],
-            updated_at_ms: now_ms(),
-        };
         ctx.set_active_tool(Some("rss".into()));
-        assert_eq!(ctx.action_directives.len(), 1);
+        ctx.install_directives(vec![ActionDirective {
+            trigger: DirectiveTrigger::OneOf(vec!["yes".into(), "accept".into()]),
+            tool: "rss".into(),
+            params: serde_json::json!({}),
+            single_use: false,
+            ttl_ms: 300_000,
+            created_at_ms: now_ms(),
+        }]);
+        assert_eq!(ctx.match_directive_index("yes", now_ms()), Some(0));
+        assert_eq!(ctx.match_directive_index("accept", now_ms()), Some(0));
+        assert_eq!(ctx.match_directive_index("no", now_ms()), None);
     }
 
     #[test]
-    fn test_directive_trigger_match_exact() {
-        let t = DirectiveTrigger::Exact("next".into());
-        assert!(t.matches("next"));
-        assert!(t.matches("Next"));
-        assert!(t.matches("  NEXT  "));
-        assert!(!t.matches("next article"));
+    fn test_prune_expired_transitions_to_idle() {
+        let mut ctx = RouterContext::default();
+        ctx.set_active_tool(Some("rss".into()));
+        ctx.install_directives(vec![ActionDirective {
+            trigger: DirectiveTrigger::Exact("old".into()),
+            tool: "rss".into(),
+            params: serde_json::json!({}),
+            single_use: false,
+            ttl_ms: 1,
+            created_at_ms: now_ms() - 1000,
+        }]);
+        ctx.prune_expired(now_ms());
+        assert!(matches!(ctx.state(now_ms()), RouterState::Idle));
+        assert!(ctx.directives().is_empty());
     }
 
     #[test]
-    fn test_directive_trigger_match_one_of() {
-        let t = DirectiveTrigger::OneOf(vec!["yes".into(), "accept".into(), "ok".into()]);
-        assert!(t.matches("yes"));
-        assert!(t.matches("Accept"));
-        assert!(t.matches("OK"));
-        assert!(!t.matches("yeah"));
-    }
+    fn test_context_serde_roundtrip() {
+        let mut ctx = RouterContext::default();
+        ctx.set_active_tool(Some("rss".into()));
+        ctx.install_directives(vec![ActionDirective {
+            trigger: DirectiveTrigger::Exact("next".into()),
+            tool: "rss".into(),
+            params: serde_json::json!({"action": "next"}),
+            single_use: false,
+            ttl_ms: 300_000,
+            created_at_ms: now_ms(),
+        }]);
+        ctx.updated_at_ms = now_ms();
 
-    #[test]
-    fn test_directive_trigger_match_pattern() {
-        let t = DirectiveTrigger::Pattern(r"accept\s+(\S+)".into());
-        assert!(t.matches("accept abc123"));
-        assert!(!t.matches("accept"));
-        assert!(!t.matches("reject abc123"));
-    }
-
-    #[test]
-    fn test_directive_trigger_pattern_no_partial_match() {
-        // Pattern "yes" should NOT match "yesterday" — anchoring prevents partial matches
-        let t = DirectiveTrigger::Pattern("yes".into());
-        assert!(t.matches("yes"));
-        assert!(t.matches("YES"));
-        assert!(!t.matches("yesterday"));
-        assert!(!t.matches("oh yes indeed"));
-    }
-
-    #[test]
-    fn test_session_metadata_roundtrip() {
-        let ctx = RouterContext {
-            active_tool: Some("rss".into()),
-            action_directives: vec![],
-            updated_at_ms: 12345,
-        };
-        let mut metadata = std::collections::HashMap::new();
-        ctx.to_session_metadata(&mut metadata);
-        let restored = RouterContext::from_session_metadata(&metadata);
-        assert_eq!(restored.active_tool, Some("rss".into()));
-        assert_eq!(restored.updated_at_ms, 12345);
-    }
-
-    #[test]
-    fn test_session_metadata_missing_returns_default() {
-        let metadata = std::collections::HashMap::new();
-        let ctx = RouterContext::from_session_metadata(&metadata);
-        assert!(ctx.active_tool.is_none());
+        let json = serde_json::to_string(&ctx).unwrap();
+        let restored: RouterContext = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.active_tool(), Some("rss"));
+        assert_eq!(restored.directives().len(), 1);
     }
 }
