@@ -423,22 +423,13 @@ impl Tool for WebFetchTool {
 
         // Build a pinned client to prevent DNS rebinding.
         // Redirects are disabled: an attacker could redirect to an internal IP.
-        let pinned = {
-            let mut builder = Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .connect_timeout(Duration::from_secs(10))
-                .timeout(Duration::from_secs(30));
-            for addr in &resolved.addrs {
-                builder = builder.resolve(&resolved.host, *addr);
-            }
-            match builder.build() {
-                Ok(c) => c,
-                Err(e) => {
-                    return Ok(ToolResult::error(format!(
-                        "failed to build pinned HTTP client: {e}"
-                    )));
-                }
-            }
+        let pinned = match crate::utils::http::build_pinned_client(
+            &resolved,
+            Duration::from_secs(30),
+            None,
+        ) {
+            Ok(c) => c,
+            Err(e) => return Ok(ToolResult::error(format!("{e}"))),
         };
 
         self.fetch_url_with_client(&params, &pinned).await

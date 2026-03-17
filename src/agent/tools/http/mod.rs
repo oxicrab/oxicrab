@@ -37,35 +37,20 @@ impl HttpTool {
         Self::default()
     }
 
-    /// Build a one-shot client with DNS pinned to the resolved addresses.
-    ///
-    /// Redirects are disabled to prevent SSRF bypass: an attacker's server could
-    /// redirect to an internal IP that wasn't validated. Callers receive the 3xx
-    /// response as-is (the Location header is included in filtered response headers).
-    fn pinned_client(resolved: &crate::utils::url_security::ResolvedUrl) -> Result<Client, String> {
-        let user_agent = format!("oxicrab/{}", env!("CARGO_PKG_VERSION"));
-        let mut builder = Client::builder()
-            .user_agent(user_agent)
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30));
-        for addr in &resolved.addrs {
-            builder = builder.resolve(&resolved.host, *addr);
-        }
-        builder
-            .build()
-            .map_err(|e| format!("failed to build pinned HTTP client: {e}"))
-    }
-
     /// HTTP execution with DNS-pinned client (used by `execute()` for SSRF-safe requests).
     async fn send_request_pinned(
         &self,
         params: &Value,
         resolved: &crate::utils::url_security::ResolvedUrl,
     ) -> Result<ToolResult> {
-        let client = match Self::pinned_client(resolved) {
+        let ua = format!("oxicrab/{}", env!("CARGO_PKG_VERSION"));
+        let client = match crate::utils::http::build_pinned_client(
+            resolved,
+            Duration::from_secs(30),
+            Some(&ua),
+        ) {
             Ok(c) => c,
-            Err(e) => return Ok(ToolResult::error(e)),
+            Err(e) => return Ok(ToolResult::error(format!("{e}"))),
         };
         self.send_request_with_client(params, &client).await
     }

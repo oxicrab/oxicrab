@@ -519,25 +519,16 @@ pub async fn handle_get_article_detail(
     };
 
     // Build a per-request client pinned to the validated addresses
-    let pinned = {
-        let mut builder = reqwest::Client::builder()
-            .user_agent(format!("oxicrab/{}", env!("CARGO_PKG_VERSION")))
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none());
-        let has_ipv4 = resolved.addrs.iter().any(std::net::SocketAddr::is_ipv4);
-        for addr in &resolved.addrs {
-            if has_ipv4 && addr.is_ipv6() {
-                continue;
-            }
-            builder = builder.resolve(&resolved.host, *addr);
-        }
-        match builder.build() {
-            Ok(c) => c,
-            Err(e) => {
-                warn!("rss article detail: failed to build pinned client: {e}");
-                return Ok(fallback_to_snippet(&article));
-            }
+    let ua = format!("oxicrab/{}", env!("CARGO_PKG_VERSION"));
+    let pinned = match crate::utils::http::build_pinned_client(
+        &resolved,
+        std::time::Duration::from_secs(30),
+        Some(&ua),
+    ) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("rss article detail: {e}");
+            return Ok(fallback_to_snippet(&article));
         }
     };
 
