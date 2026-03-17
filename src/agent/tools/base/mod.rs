@@ -54,6 +54,20 @@ impl ToolResult {
         self.metadata = Some(metadata);
         self
     }
+
+    /// Attach suggested buttons metadata to this result (if any).
+    /// Buttons are surfaced by the agent loop to channels that support them.
+    #[must_use]
+    pub fn with_buttons(self, buttons: Vec<Value>) -> Self {
+        if buttons.is_empty() {
+            self
+        } else {
+            self.with_metadata(HashMap::from([(
+                "suggested_buttons".to_string(),
+                Value::Array(buttons),
+            )]))
+        }
+    }
 }
 
 impl std::fmt::Display for ToolResult {

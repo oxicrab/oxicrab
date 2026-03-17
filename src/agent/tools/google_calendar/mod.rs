@@ -219,7 +219,7 @@ impl Tool for GoogleCalendarTool {
                     ));
                 }
                 let buttons = build_event_buttons(events, cal_id, false);
-                Ok(with_buttons(ToolResult::new(lines.join("\n")), buttons))
+                Ok(ToolResult::new(lines.join("\n")).with_buttons(buttons))
             }
             "get_event" => {
                 let event_id = require_param!(params, "event_id");
@@ -707,18 +707,6 @@ fn build_event_buttons(events: &[Value], calendar_id: &str, detail: bool) -> Vec
     }
 
     buttons
-}
-
-/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
-fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
-    if buttons.is_empty() {
-        result
-    } else {
-        result.with_metadata(HashMap::from([(
-            "suggested_buttons".to_string(),
-            Value::Array(buttons),
-        )]))
-    }
 }
 
 #[cfg(test)]

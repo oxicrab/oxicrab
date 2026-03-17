@@ -9,7 +9,6 @@ use crate::require_param;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -290,18 +289,6 @@ fn build_job_buttons(jobs: &[CronJob]) -> Vec<Value> {
         }));
     }
     buttons
-}
-
-/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
-fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
-    if buttons.is_empty() {
-        result
-    } else {
-        result.with_metadata(HashMap::from([(
-            "suggested_buttons".to_string(),
-            Value::Array(buttons),
-        )]))
-    }
 }
 
 /// Resolve all enabled channel targets from a `ChannelsConfig`.
@@ -684,10 +671,8 @@ impl Tool for CronTool {
                     })
                     .collect();
                 let buttons = build_job_buttons(&jobs);
-                Ok(with_buttons(
-                    ToolResult::new(format!("Scheduled jobs:\n{}", lines.join("\n"))),
-                    buttons,
-                ))
+                Ok(ToolResult::new(format!("Scheduled jobs:\n{}", lines.join("\n")))
+                    .with_buttons(buttons))
             }
             "pause" => {
                 let job_id = require_param!(params, "job_id");

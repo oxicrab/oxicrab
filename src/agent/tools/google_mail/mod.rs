@@ -167,7 +167,7 @@ impl Tool for GoogleMailTool {
                     msg_entries.push((msg_id.to_string(), subject));
                 }
                 let buttons = build_search_buttons(&msg_entries);
-                Ok(with_buttons(ToolResult::new(lines.join("\n")), buttons))
+                Ok(ToolResult::new(lines.join("\n")).with_buttons(buttons))
             }
             "read" => {
                 let message_id = require_param!(params, "message_id");
@@ -458,18 +458,6 @@ fn truncate_label(prefix: &str, text: &str, max_chars: usize) -> String {
         format!("{prefix}: {trimmed}...")
     } else {
         format!("{prefix}: {truncated}")
-    }
-}
-
-/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
-fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
-    if buttons.is_empty() {
-        result
-    } else {
-        result.with_metadata(HashMap::from([(
-            "suggested_buttons".to_string(),
-            Value::Array(buttons),
-        )]))
     }
 }
 

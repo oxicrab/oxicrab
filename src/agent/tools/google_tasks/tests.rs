@@ -203,7 +203,7 @@ fn test_build_google_task_buttons_skips_empty_id() {
 #[test]
 fn test_with_buttons_empty_returns_no_metadata() {
     let result = ToolResult::new("test".to_string());
-    let result = with_buttons(result, vec![]);
+    let result = result.with_buttons(vec![]);
     assert!(result.metadata.is_none());
 }
 
@@ -211,7 +211,7 @@ fn test_with_buttons_empty_returns_no_metadata() {
 fn test_with_buttons_non_empty_attaches_metadata() {
     let result = ToolResult::new("test".to_string());
     let buttons = vec![serde_json::json!({"id": "b1", "label": "Click"})];
-    let result = with_buttons(result, buttons);
+    let result = result.with_buttons(buttons);
     assert!(result.metadata.is_some());
     let meta = result.metadata.unwrap();
     let suggested = meta.get("suggested_buttons").unwrap();

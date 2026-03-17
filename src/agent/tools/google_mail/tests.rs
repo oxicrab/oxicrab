@@ -218,7 +218,7 @@ fn test_truncate_label_unicode() {
 #[test]
 fn test_with_buttons_empty() {
     let result = ToolResult::new("test");
-    let result = with_buttons(result, vec![]);
+    let result = result.with_buttons(vec![]);
     assert!(result.metadata.is_none());
 }
 
@@ -226,7 +226,7 @@ fn test_with_buttons_empty() {
 fn test_with_buttons_attaches_metadata() {
     let result = ToolResult::new("test");
     let buttons = vec![json!({"id": "b1", "label": "Button"})];
-    let result = with_buttons(result, buttons);
+    let result = result.with_buttons(buttons);
     let meta = result.metadata.expect("should have metadata");
     let btns = meta["suggested_buttons"].as_array().unwrap();
     assert_eq!(btns.len(), 1);

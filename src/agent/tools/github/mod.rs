@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use base64::Engine;
 use reqwest::Client;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::time::Duration;
 use tracing::warn;
 
@@ -748,18 +747,6 @@ fn build_pr_detail_buttons(pr: &Value, owner: &str, repo: &str) -> Vec<Value> {
     ]
 }
 
-/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
-fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
-    if buttons.is_empty() {
-        result
-    } else {
-        result.with_metadata(HashMap::from([(
-            "suggested_buttons".to_string(),
-            Value::Array(buttons),
-        )]))
-    }
-}
-
 #[async_trait]
 impl Tool for GitHubTool {
     fn name(&self) -> &'static str {
@@ -934,7 +921,7 @@ impl Tool for GitHubTool {
                         return match self.list_issues(owner, repo, state, &page, &per_page).await {
                             Ok((text, issues)) => {
                                 let buttons = build_issue_buttons(&issues, owner, repo);
-                                Ok(with_buttons(ToolResult::new(text), buttons))
+                                Ok(ToolResult::new(text).with_buttons(buttons))
                             }
                             Err(e) => Ok(ToolResult::error(format!("GitHub error: {e}"))),
                         };
@@ -946,7 +933,7 @@ impl Tool for GitHubTool {
                         return match self.get_issue(owner, repo, number).await {
                             Ok((text, issue)) => {
                                 let buttons = build_issue_buttons(&[issue], owner, repo);
-                                Ok(with_buttons(ToolResult::new(text), buttons))
+                                Ok(ToolResult::new(text).with_buttons(buttons))
                             }
                             Err(e) => Ok(ToolResult::error(format!("GitHub error: {e}"))),
                         };
@@ -961,7 +948,7 @@ impl Tool for GitHubTool {
                         return match self.list_prs(owner, repo, state, &page, &per_page).await {
                             Ok((text, prs)) => {
                                 let buttons = build_pr_list_buttons(&prs, owner, repo);
-                                Ok(with_buttons(ToolResult::new(text), buttons))
+                                Ok(ToolResult::new(text).with_buttons(buttons))
                             }
                             Err(e) => Ok(ToolResult::error(format!("GitHub error: {e}"))),
                         };
@@ -973,7 +960,7 @@ impl Tool for GitHubTool {
                         return match self.get_pr(owner, repo, number).await {
                             Ok((text, pr)) => {
                                 let buttons = build_pr_detail_buttons(&pr, owner, repo);
-                                Ok(with_buttons(ToolResult::new(text), buttons))
+                                Ok(ToolResult::new(text).with_buttons(buttons))
                             }
                             Err(e) => Ok(ToolResult::error(format!("GitHub error: {e}"))),
                         };

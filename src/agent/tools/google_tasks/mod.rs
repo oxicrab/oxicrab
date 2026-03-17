@@ -7,7 +7,6 @@ use crate::require_param;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashMap;
 
 pub struct GoogleTasksTool {
     api: GoogleApiClient,
@@ -165,7 +164,7 @@ impl Tool for GoogleTasksTool {
                     ));
                 }
                 let buttons = build_google_task_buttons(tasks, list_id);
-                Ok(with_buttons(ToolResult::new(lines.join("\n")), buttons))
+                Ok(ToolResult::new(lines.join("\n")).with_buttons(buttons))
             }
             "get_task" => {
                 let task_id = require_param!(params, "task_id");
@@ -177,10 +176,7 @@ impl Tool for GoogleTasksTool {
                 );
                 let task = self.api.call(&endpoint, "GET", None).await?;
                 let buttons = build_google_task_buttons(std::slice::from_ref(&task), list_id);
-                Ok(with_buttons(
-                    ToolResult::new(format_task_detail(&task)),
-                    buttons,
-                ))
+                Ok(ToolResult::new(format_task_detail(&task)).with_buttons(buttons))
             }
             "create_task" => {
                 let title = require_param!(params, "title");
@@ -326,18 +322,6 @@ fn build_google_task_buttons(tasks: &[Value], tasklist_id: &str) -> Vec<Value> {
         }));
     }
     buttons
-}
-
-/// Attach suggested buttons metadata to a `ToolResult` if there are any buttons.
-fn with_buttons(result: ToolResult, buttons: Vec<Value>) -> ToolResult {
-    if buttons.is_empty() {
-        result
-    } else {
-        result.with_metadata(HashMap::from([(
-            "suggested_buttons".to_string(),
-            Value::Array(buttons),
-        )]))
-    }
 }
 
 #[cfg(test)]
