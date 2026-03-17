@@ -374,10 +374,13 @@ impl AgentLoop {
             .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &overrides)
             .await?;
 
-        // Extract directives from tool results and update router context
-        for (tool_name, meta) in &loop_result.tool_metadata {
-            Self::update_router_context(&mut router_context, meta, tool_name);
-        }
+        // Extract directives from tool results and update router context.
+        // Accumulate directives from ALL tools before installing once, so
+        // multi-tool turns don't lose earlier tools' directives.
+        Self::apply_tool_metadata_to_router(
+            &mut router_context,
+            &loop_result.tool_metadata,
+        );
 
         // Only reload session if compaction updated it (wrote compaction_summary).
         // Compare the actual checkpoint value, not just presence, so that
@@ -902,7 +905,58 @@ impl AgentLoop {
         ))
     }
 
-    /// Update router context from tool result metadata (`active_tool`, directives).
+    /// Accumulate directives from all tools in a turn, then install once.
+    /// This prevents multi-tool turns from losing earlier tools' directives
+    /// (each `install_directives` call replaces the full set).
+    fn apply_tool_metadata_to_router(
+        ctx: &mut crate::router::context::RouterContext,
+        tool_metadata: &[(String, HashMap<String, Value>)],
+    ) {
+        let mut all_directives = Vec::new();
+        let mut last_active_tool = None;
+
+        for (tool_name, meta) in tool_metadata {
+            if let Some(active) = meta.get("active_tool").and_then(|v| v.as_str()) {
+                if active == tool_name {
+                    last_active_tool = Some(active.to_string());
+                } else {
+                    warn!(
+                        "tool '{}' tried to set active_tool to '{}' — rejected",
+                        tool_name, active
+                    );
+                }
+            }
+            if let Some(directives_val) = meta.get("action_directives")
+                && let Ok(mut directives) = serde_json::from_value::<
+                    Vec<crate::router::context::ActionDirective>,
+                >(directives_val.clone())
+            {
+                directives.retain(|d| {
+                    if d.tool == *tool_name {
+                        true
+                    } else {
+                        warn!(
+                            "tool '{}' tried to set directive for tool '{}' — rejected",
+                            tool_name, d.tool
+                        );
+                        false
+                    }
+                });
+                all_directives.extend(directives);
+            }
+        }
+
+        if let Some(active) = last_active_tool {
+            ctx.set_active_tool(Some(active));
+        }
+        if !all_directives.is_empty() {
+            ctx.install_directives(all_directives);
+        }
+        ctx.updated_at_ms = crate::router::now_ms();
+    }
+
+    /// Update router context from a single tool's result metadata (`active_tool`, directives).
+    /// Used by `handle_direct_dispatch` which processes one tool at a time.
     fn update_router_context(
         ctx: &mut crate::router::context::RouterContext,
         metadata: &HashMap<String, Value>,
