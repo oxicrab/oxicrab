@@ -545,7 +545,7 @@ impl AgentLoop {
         let session = self.sessions.get_or_create(&session_key).await?;
 
         let history = self
-            .get_compacted_history_timed(&session, session_key)
+            .get_compacted_history_timed(&session, &session_key)
             .await?;
 
         // Refresh provider context outside the main lock to avoid blocking other sessions
