@@ -472,6 +472,10 @@ impl AgentLoop {
                     msg.chat_id,
                     msg.content.len()
                 );
+                // Capture fields before moving msg into process_message
+                let msg_channel = msg.channel.clone();
+                let msg_chat_id = msg.chat_id.clone();
+                let msg_metadata = msg.metadata.clone();
                 match self.process_message(msg).await {
                     Ok(Some(outbound_msg)) => {
                         // Send response back through the bus
@@ -495,6 +499,18 @@ impl AgentLoop {
                     }
                     Err(e) => {
                         error!("Error processing message: {}", e);
+                        // Send an error outbound so channels can clean up
+                        // (e.g. Slack removes the thinking emoji on any outbound)
+                        let error_outbound = OutboundMessage::builder(
+                            msg_channel,
+                            msg_chat_id,
+                            "Sorry, I encountered an error processing your message.",
+                        )
+                        .metadata(msg_metadata)
+                        .build();
+                        if let Err(send_err) = self.outbound_tx.send(error_outbound).await {
+                            error!("Failed to send error outbound message: {}", send_err);
+                        }
                     }
                 }
             } else {
