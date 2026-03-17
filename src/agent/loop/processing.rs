@@ -614,6 +614,7 @@ impl AgentLoop {
             )
             .media(loop_result.media)
             .metadata(msg.metadata)
+            .merge_metadata(loop_result.response_metadata)
             .build(),
         ))
     }
