@@ -49,11 +49,25 @@ impl DirectiveMatcher {
         for (idx, d) in directives.iter().enumerate() {
             match &d.trigger {
                 DirectiveTrigger::Exact(s) => {
-                    m.literal_to_index.entry(s.clone()).or_insert(idx);
+                    if m.literal_to_index.contains_key(s) {
+                        tracing::warn!(
+                            "router: directive literal conflict for '{}' (keeping first)",
+                            s
+                        );
+                    } else {
+                        m.literal_to_index.insert(s.clone(), idx);
+                    }
                 }
                 DirectiveTrigger::OneOf(options) => {
                     for opt in options {
-                        m.literal_to_index.entry(opt.clone()).or_insert(idx);
+                        if m.literal_to_index.contains_key(opt) {
+                            tracing::warn!(
+                                "router: directive literal conflict for '{}' (keeping first)",
+                                opt
+                            );
+                        } else {
+                            m.literal_to_index.insert(opt.clone(), idx);
+                        }
                     }
                 }
                 DirectiveTrigger::Pattern(_) => m.pattern_indices.push(idx),

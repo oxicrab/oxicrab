@@ -405,6 +405,13 @@ impl AgentLoop {
                     "router policy drift: reason={} executed_out_of_policy={:?}",
                     policy.reason, out_of_policy
                 );
+                crate::router::metrics::record_policy_drift();
+            }
+            if policy.reason == "semantic_filter" {
+                crate::router::metrics::record_semantic_turn_quality(
+                    &policy.allowed_tools,
+                    &loop_result.tools_used,
+                );
             }
         }
 
@@ -432,6 +439,10 @@ impl AgentLoop {
         extra.insert(
             "router_decision".to_string(),
             serde_json::Value::String(format!("{decision:?}")),
+        );
+        extra.insert(
+            "router_replay".to_string(),
+            self.build_router_replay_metadata(&content, &router_context, &decision, &overrides),
         );
         if let Some(policy) = overrides.routing_policy.as_ref() {
             extra.insert(
@@ -845,6 +856,37 @@ impl AgentLoop {
             picked.push("tool_search".to_string());
         }
         Some(picked)
+    }
+
+    fn build_router_replay_metadata(
+        &self,
+        content: &str,
+        router_context: &crate::router::context::RouterContext,
+        decision: &crate::router::RoutingDecision,
+        overrides: &AgentRunOverrides,
+    ) -> serde_json::Value {
+        let now = crate::router::now_ms();
+        let (context_state, active_tool) = match router_context.state(now) {
+            crate::router::context::RouterState::Idle => ("idle", None),
+            crate::router::context::RouterState::Focused { tool } => ("tool_focused", Some(tool)),
+        };
+        let decision_kind = match decision {
+            crate::router::RoutingDecision::DirectDispatch { .. } => "direct_dispatch",
+            crate::router::RoutingDecision::GuidedLLM { .. } => "guided_llm",
+            crate::router::RoutingDecision::SemanticFilter { .. } => "semantic_filter",
+            crate::router::RoutingDecision::FullLLM => "full_llm",
+        };
+        serde_json::json!({
+            "ts_ms": now,
+            "message_normalized": content.trim().to_lowercase(),
+            "decision": decision_kind,
+            "context_state": context_state,
+            "active_tool": active_tool,
+            "live_directive_count": router_context.directives().iter().filter(|d| !d.is_expired(now)).count(),
+            "policy_reason": overrides.routing_policy.as_ref().map(|p| p.reason),
+            "policy_allowed_tools": overrides.routing_policy.as_ref().map(|p| p.allowed_tools.clone()).unwrap_or_default(),
+            "policy_blocked_tools": overrides.routing_policy.as_ref().map(|p| p.blocked_tools.clone()).unwrap_or_default(),
+        })
     }
 
     /// Execute a tool directly without LLM involvement (buttons, directives,
