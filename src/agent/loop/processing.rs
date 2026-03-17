@@ -110,6 +110,13 @@ impl AgentLoop {
                 source,
                 directive_index,
             } => {
+                // Extract compaction_summary from the already-loaded session so
+                // handle_direct_dispatch doesn't need to reload it.
+                let context_summary = session
+                    .metadata
+                    .get("compaction_summary")
+                    .and_then(|v| v.as_str())
+                    .map(std::string::ToString::to_string);
                 // Handle direct dispatch inline — returns early
                 return self
                     .handle_direct_dispatch(
@@ -120,6 +127,7 @@ impl AgentLoop {
                         &msg,
                         &session_key,
                         &mut router_context,
+                        context_summary,
                     )
                     .await;
             }
@@ -727,6 +735,7 @@ impl AgentLoop {
         msg: &InboundMessage,
         session_key: &str,
         router_context: &mut crate::router::context::RouterContext,
+        context_summary: Option<String>,
     ) -> Result<Option<OutboundMessage>> {
         let source_label = match source {
             crate::router::DispatchSource::Button => "button",
@@ -834,15 +843,8 @@ impl AgentLoop {
             }
         };
 
-        // Build execution context from message metadata
-        let context_summary = {
-            let session = self.sessions.get_or_create(session_key).await?;
-            session
-                .metadata
-                .get("compaction_summary")
-                .and_then(|v| v.as_str())
-                .map(std::string::ToString::to_string)
-        };
+        // Build execution context from message metadata (context_summary was
+        // extracted from the session that the caller already loaded)
         let ctx = Self::build_execution_context_with_metadata(
             &msg.channel,
             &msg.chat_id,

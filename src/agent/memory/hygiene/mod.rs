@@ -42,6 +42,11 @@ pub fn run_hygiene(db: &MemoryDB, purge_log_days: u32) {
         Err(e) => warn!("search log purge failed: {}", e),
         _ => {}
     }
+    match db.purge_old_intent_metrics(purge_log_days) {
+        Ok(n) if n > 0 => info!("purged {} old intent metric entries", n),
+        Err(e) => warn!("intent metrics purge failed: {}", e),
+        _ => {}
+    }
     match db.purge_old_complexity_logs(purge_log_days) {
         Ok(n) if n > 0 => info!("purged {} old complexity routing log entries", n),
         Err(e) => warn!("complexity log purge failed: {}", e),

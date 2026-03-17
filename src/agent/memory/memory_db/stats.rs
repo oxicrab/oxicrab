@@ -342,6 +342,22 @@ impl MemoryDB {
         rows.map_err(|e| anyhow::anyhow!("recent complexity events query failed: {e}"))
     }
 
+    /// Purge intent metrics older than `days`. Returns number of rows deleted.
+    pub fn purge_old_intent_metrics(&self, days: u32) -> Result<usize> {
+        if days == 0 {
+            return Ok(0);
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let deleted = conn.execute(
+            "DELETE FROM intent_metrics WHERE timestamp < datetime('now', ?1)",
+            params![format!("-{days} days")],
+        )?;
+        Ok(deleted)
+    }
+
     /// Purge complexity routing logs older than `days`. Returns number of rows deleted.
     pub fn purge_old_complexity_logs(&self, days: u32) -> Result<usize> {
         if days == 0 {
