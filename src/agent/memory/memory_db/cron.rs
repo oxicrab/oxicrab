@@ -87,7 +87,7 @@ fn schedule_columns(schedule: &CronSchedule) -> ScheduleColumns<'_> {
 
 impl MemoryDB {
     pub fn insert_cron_job(&self, job: &CronJob) -> Result<()> {
-        let mut conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mut conn = self.lock_conn()?;
         let stype = schedule_type_str(&job.schedule);
         let cols = schedule_columns(&job.schedule);
 
@@ -152,13 +152,13 @@ impl MemoryDB {
     }
 
     pub fn delete_cron_job(&self, id: &str) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = conn.execute("DELETE FROM cron_jobs WHERE id = ?1", params![id])?;
         Ok(deleted > 0)
     }
 
     pub fn list_cron_jobs(&self, include_disabled: bool) -> Result<Vec<CronJob>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
 
         let sql = if include_disabled {
             "SELECT id, name, enabled, schedule_type,
@@ -286,7 +286,7 @@ impl MemoryDB {
     }
 
     pub fn get_cron_job(&self, id: &str) -> Result<Option<CronJob>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
 
         let mut stmt = conn.prepare(
             "SELECT id, name, enabled, schedule_type,
@@ -372,7 +372,7 @@ impl MemoryDB {
         last_fired_at_ms: Option<i64>,
         updated_at_ms: i64,
     ) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let updated = conn.execute(
             "UPDATE cron_jobs SET
                 last_status = ?1, last_error = ?2, run_count = ?3,
@@ -402,7 +402,7 @@ impl MemoryDB {
         last_run_at_ms: i64,
         updated_at_ms: i64,
     ) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let updated = conn.execute(
             "UPDATE cron_jobs SET
                 last_status = 'running', last_error = NULL,
@@ -421,7 +421,7 @@ impl MemoryDB {
         next_run_at_ms: Option<i64>,
         updated_at_ms: i64,
     ) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let updated = conn.execute(
             "UPDATE cron_jobs SET enabled = ?1, next_run_at_ms = ?2, updated_at_ms = ?3
              WHERE id = ?4",
@@ -440,7 +440,7 @@ impl MemoryDB {
         next_run_at_ms: Option<Option<i64>>,
         updated_at_ms: i64,
     ) -> Result<bool> {
-        let mut conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mut conn = self.lock_conn()?;
 
         // Build dynamic SET clause
         let mut set_clauses = vec!["updated_at_ms = ?1".to_string()];
@@ -536,7 +536,7 @@ impl MemoryDB {
         status: &str,
         error: Option<&str>,
     ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE cron_jobs SET last_status = ?1, last_error = ?2 WHERE id = ?3",
             params![status, error, id],
@@ -545,7 +545,7 @@ impl MemoryDB {
     }
 
     pub fn count_cron_jobs_by_name(&self, name: &str) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM cron_jobs WHERE LOWER(name) = LOWER(?1)",
             params![name],
@@ -558,7 +558,7 @@ impl MemoryDB {
     /// Returns `None` if the base name is available. Returns `Some(n)` where
     /// the caller should use `"{name} ({n})"`.
     pub fn next_cron_job_name_suffix(&self, name: &str) -> Result<Option<u32>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let base_lower = name.to_lowercase();
 
         // Check if the base name is taken
@@ -595,7 +595,7 @@ impl MemoryDB {
     }
 
     pub fn prune_disabled_cron_jobs(&self, cutoff_ms: i64) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = conn.execute(
             "DELETE FROM cron_jobs WHERE enabled = 0 AND updated_at_ms < ?1",
             params![cutoff_ms],
@@ -604,7 +604,7 @@ impl MemoryDB {
     }
 
     pub fn recover_running_cron_jobs(&self) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let updated = conn.execute(
             "UPDATE cron_jobs SET last_status = 'interrupted',
                 last_error = 'process restarted while job was running'

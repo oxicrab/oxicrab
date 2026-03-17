@@ -20,10 +20,7 @@ impl MemoryDB {
     /// Invalidates the in-memory embedding cache so the next `hybrid_search`
     /// picks up the new data.
     pub fn store_embedding(&self, entry_id: i64, embedding: &[u8]) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT OR REPLACE INTO memory_embeddings (entry_id, embedding) VALUES (?, ?)",
             params![entry_id, embedding],
@@ -39,10 +36,7 @@ impl MemoryDB {
         &self,
         exclude_sources: Option<&std::collections::HashSet<String>>,
     ) -> Result<Vec<(i64, String, String, Vec<u8>)>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT me.id, me.source_key, me.content, emb.embedding
              FROM memory_embeddings emb

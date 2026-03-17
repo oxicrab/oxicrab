@@ -54,7 +54,7 @@ pub type RssModelRow = (String, Vec<u8>, Vec<u8>);
 
 impl MemoryDB {
     pub fn insert_rss_feed(&self, feed: &RssFeed) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO rss_feeds (id, url, name, site_url, last_fetched_at_ms, last_error,
                                     consecutive_failures, enabled, created_at_ms)
@@ -75,7 +75,7 @@ impl MemoryDB {
     }
 
     pub fn list_rss_feeds(&self) -> Result<Vec<RssFeed>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, url, name, site_url, last_fetched_at_ms, last_error,
                     consecutive_failures, enabled, created_at_ms
@@ -101,13 +101,13 @@ impl MemoryDB {
     }
 
     pub fn delete_rss_feed(&self, id: &str) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = conn.execute("DELETE FROM rss_feeds WHERE id = ?1", params![id])?;
         Ok(deleted)
     }
 
     pub fn insert_rss_article(&self, article: &RssArticle) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO rss_articles
                 (id, feed_id, url, title, author, published_at_ms, fetched_at_ms,
@@ -139,7 +139,7 @@ impl MemoryDB {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<RssArticle>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
 
         let mut conditions: Vec<String> = Vec::new();
         let mut bind_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -200,7 +200,7 @@ impl MemoryDB {
     }
 
     pub fn get_rss_article(&self, id: &str) -> Result<Option<RssArticle>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, feed_id, url, title, author, published_at_ms, fetched_at_ms,
                     description, full_content, summary, status, read, created_at_ms
@@ -232,7 +232,7 @@ impl MemoryDB {
     /// Resolve a short article ID prefix to a full ID.
     /// Returns an error if zero or more than one article matches.
     pub fn resolve_rss_article_id(&self, short_id: &str) -> Result<String> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         // Escape LIKE wildcards to prevent injection via short_id containing % or _
         let escaped = short_id
             .replace('\\', "\\\\")
@@ -253,7 +253,7 @@ impl MemoryDB {
     /// Resolve a short feed ID prefix to a full ID.
     /// Returns an error if zero or more than one feed matches.
     pub fn resolve_rss_feed_id(&self, short_id: &str) -> Result<String> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         let escaped = short_id
             .replace('\\', "\\\\")
             .replace('%', "\\%")
@@ -272,7 +272,7 @@ impl MemoryDB {
 
     /// Re-enable a previously disabled feed and reset its failure counter.
     pub fn enable_rss_feed(&self, id: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE rss_feeds SET enabled = 1, consecutive_failures = 0, last_error = NULL WHERE id = ?1",
             params![id],
@@ -281,7 +281,7 @@ impl MemoryDB {
     }
 
     pub fn update_rss_article_status(&self, id: &str, status: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE rss_articles SET status = ?1 WHERE id = ?2",
             params![status, id],
@@ -290,7 +290,7 @@ impl MemoryDB {
     }
 
     pub fn update_rss_article_full_content(&self, id: &str, content: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE rss_articles SET full_content = ?1, read = 1 WHERE id = ?2",
             params![content, id],
@@ -299,7 +299,7 @@ impl MemoryDB {
     }
 
     pub fn insert_rss_article_tags(&self, article_id: &str, tags: &[&str]) -> Result<()> {
-        let mut conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let mut conn = self.lock_conn()?;
         let tx = conn.transaction()?;
         for tag in tags {
             tx.execute(
@@ -312,7 +312,7 @@ impl MemoryDB {
     }
 
     pub fn get_rss_article_tags(&self, article_id: &str) -> Result<Vec<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt =
             conn.prepare("SELECT tag FROM rss_article_tags WHERE article_id = ?1 ORDER BY tag")?;
         let tags = stmt
@@ -331,7 +331,7 @@ impl MemoryDB {
         if article_ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut map: HashMap<String, Vec<String>> = HashMap::new();
 
         // SQLite default SQLITE_MAX_VARIABLE_NUMBER is 999; chunk to stay safe
@@ -359,7 +359,7 @@ impl MemoryDB {
     }
 
     pub fn get_all_rss_tags(&self) -> Result<Vec<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare("SELECT DISTINCT tag FROM rss_article_tags ORDER BY tag")?;
         let tags = stmt
             .query_map([], |row| row.get(0))?
@@ -368,7 +368,7 @@ impl MemoryDB {
     }
 
     pub fn get_rss_profile(&self) -> Result<Option<RssProfile>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT interests, onboarding_state, cron_job_id, created_at_ms, updated_at_ms
              FROM rss_profile WHERE id = 1",
@@ -388,7 +388,7 @@ impl MemoryDB {
     }
 
     pub fn set_rss_profile(&self, interests: &str, state: &str, now_ms: i64) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO rss_profile (id, interests, onboarding_state, created_at_ms, updated_at_ms)
              VALUES (1, ?1, ?2, ?3, ?3)
@@ -401,7 +401,7 @@ impl MemoryDB {
     }
 
     pub fn set_rss_onboarding_state(&self, state: &str, now_ms: i64) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE rss_profile SET onboarding_state = ?1, updated_at_ms = ?2 WHERE id = 1",
             params![state, now_ms],
@@ -410,7 +410,7 @@ impl MemoryDB {
     }
 
     pub fn set_rss_cron_job_id(&self, job_id: &str, now_ms: i64) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE rss_profile SET cron_job_id = ?1, updated_at_ms = ?2 WHERE id = 1",
             params![job_id, now_ms],
@@ -420,7 +420,7 @@ impl MemoryDB {
 
     /// Reset the feed's failure state after a successful fetch.
     pub fn update_rss_feed_fetch_state(&self, id: &str, now_ms: i64) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE rss_feeds SET last_fetched_at_ms = ?1, consecutive_failures = 0,
                                   last_error = NULL
@@ -432,7 +432,7 @@ impl MemoryDB {
 
     /// Increment the consecutive failure counter. Disables the feed at >=5 failures.
     pub fn increment_rss_feed_failures(&self, id: &str, error: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE rss_feeds
              SET consecutive_failures = consecutive_failures + 1,
@@ -446,7 +446,7 @@ impl MemoryDB {
 
     /// Count articles optionally filtered by status and/or `feed_id`.
     pub fn count_rss_articles(&self, status: Option<&str>, feed_id: Option<&str>) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
 
         let mut conditions: Vec<String> = Vec::new();
         let mut bind_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -475,13 +475,13 @@ impl MemoryDB {
     }
 
     pub fn count_rss_feeds(&self) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM rss_feeds", [], |row| row.get(0))?;
         Ok(count as usize)
     }
 
     pub fn count_rss_reviews(&self) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM rss_articles WHERE status IN ('accepted', 'rejected')",
             [],
@@ -497,7 +497,7 @@ impl MemoryDB {
     /// in the model weights, not the article rows.
     /// Returns the number of rows deleted.
     pub fn purge_stale_rss_articles(&self, days: u64) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         let cutoff_ms = i64::try_from(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -520,7 +520,7 @@ impl MemoryDB {
         sigma: &[u8],
         now_ms: i64,
     ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO rss_model (id, feature_index, mu, sigma, updated_at_ms)
              VALUES (1, ?1, ?2, ?3, ?4)
@@ -534,7 +534,7 @@ impl MemoryDB {
     }
 
     pub fn load_rss_model(&self) -> Result<Option<RssModelRow>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt =
             conn.prepare("SELECT feature_index, mu, sigma FROM rss_model WHERE id = 1")?;
         let mut rows = stmt.query([])?;

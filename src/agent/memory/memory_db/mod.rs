@@ -147,10 +147,7 @@ impl MemoryDB {
     }
 
     fn ensure_schema(&mut self) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
 
         migrations::apply_migrations(&conn)?;
         self.has_fts = migrations::ensure_fts_objects(&conn)?;
@@ -159,6 +156,12 @@ impl MemoryDB {
         }
 
         Ok(())
+    }
+
+    pub(crate) fn lock_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
+        self.conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))
     }
 }
 
@@ -181,10 +184,7 @@ impl MemoryDB {
 impl MemoryDB {
     /// Load a session by key. Returns `None` if not found.
     pub fn load_session(&self, key: &str) -> Result<Option<String>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare("SELECT data FROM sessions WHERE key = ?1")?;
         let mut rows = stmt.query(rusqlite::params![key])?;
         if let Some(row) = rows.next()? {
@@ -197,10 +197,7 @@ impl MemoryDB {
 
     /// Save a session (insert or replace).
     pub fn save_session(&self, key: &str, data: &str) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT OR REPLACE INTO sessions (key, data, updated_at) VALUES (?1, ?2, datetime('now'))",
             rusqlite::params![key, data],
@@ -211,10 +208,7 @@ impl MemoryDB {
     /// Delete sessions not updated within `ttl_days`. Returns count deleted.
     /// A TTL of 0 deletes all sessions.
     pub fn cleanup_sessions(&self, ttl_days: u32) -> Result<usize> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = if ttl_days == 0 {
             conn.execute("DELETE FROM sessions", [])?
         } else {

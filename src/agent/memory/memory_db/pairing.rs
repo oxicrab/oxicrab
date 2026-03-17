@@ -14,7 +14,7 @@ pub struct DbPendingRequest {
 impl MemoryDB {
     /// Add a sender to the pairing allowlist. Returns `true` if newly inserted.
     pub fn add_paired_sender(&self, channel: &str, sender_id: &str) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let inserted = conn.execute(
             "INSERT OR IGNORE INTO pairing_allowlist (channel, sender_id) VALUES (?1, ?2)",
             params![channel, sender_id],
@@ -24,7 +24,7 @@ impl MemoryDB {
 
     /// Remove a sender from the pairing allowlist. Returns `true` if removed.
     pub fn remove_paired_sender(&self, channel: &str, sender_id: &str) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = conn.execute(
             "DELETE FROM pairing_allowlist WHERE channel = ?1 AND sender_id = ?2",
             params![channel, sender_id],
@@ -34,7 +34,7 @@ impl MemoryDB {
 
     /// Check if a sender is paired for a channel.
     pub fn is_sender_paired(&self, channel: &str, sender_id: &str) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let exists: bool = conn
             .query_row(
                 "SELECT 1 FROM pairing_allowlist WHERE channel = ?1 AND sender_id = ?2 LIMIT 1",
@@ -47,7 +47,7 @@ impl MemoryDB {
 
     /// List all paired senders for a channel.
     pub fn list_paired_senders(&self, channel: &str) -> Result<Vec<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt =
             conn.prepare("SELECT sender_id FROM pairing_allowlist WHERE channel = ?1")?;
         let rows = stmt
@@ -58,7 +58,7 @@ impl MemoryDB {
 
     /// Count total paired senders across all channels.
     pub fn count_paired_senders(&self) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM pairing_allowlist", [], |row| {
             row.get(0)
         })?;
@@ -67,7 +67,7 @@ impl MemoryDB {
 
     /// List all paired channels and their senders.
     pub fn list_all_paired_channels(&self) -> Result<Vec<(String, Vec<String>)>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT channel, sender_id FROM pairing_allowlist ORDER BY channel, sender_id",
         )?;
@@ -98,7 +98,7 @@ impl MemoryDB {
         code: &str,
         created_at: u64,
     ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO pairing_pending (channel, sender_id, code, created_at)
              VALUES (?1, ?2, ?3, ?4)",
@@ -111,7 +111,7 @@ impl MemoryDB {
     /// Returns all requests where `now - created_at < ttl_secs`.
     /// The caller does constant-time code comparison in Rust.
     pub fn get_all_pending(&self, ttl_secs: u64) -> Result<Vec<DbPendingRequest>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -142,7 +142,7 @@ impl MemoryDB {
         sender_id: &str,
         ttl_secs: u64,
     ) -> Result<Option<DbPendingRequest>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -168,7 +168,7 @@ impl MemoryDB {
 
     /// Count non-expired pending requests for a channel.
     pub fn count_pending_for_channel(&self, channel: &str, ttl_secs: u64) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -185,14 +185,14 @@ impl MemoryDB {
 
     /// Remove a pending request by code. Returns `true` if removed.
     pub fn remove_pending(&self, code: &str) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = conn.execute("DELETE FROM pairing_pending WHERE code = ?1", params![code])?;
         Ok(deleted > 0)
     }
 
     /// Clean up expired pending requests. Returns count removed.
     pub fn cleanup_expired_pending(&self, ttl_secs: u64) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -208,7 +208,7 @@ impl MemoryDB {
 
     /// Record a failed approval attempt.
     pub fn record_failed_attempt(&self, client_id: &str, timestamp: u64) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO pairing_failed_attempts (client_id, attempted_at) VALUES (?1, ?2)",
             params![client_id, timestamp as i64],
@@ -218,7 +218,7 @@ impl MemoryDB {
 
     /// Count recent failed attempts for a client within a time window.
     pub fn count_recent_failed_attempts(&self, client_id: &str, window_secs: u64) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -236,7 +236,7 @@ impl MemoryDB {
 
     /// Clean up old failed attempts outside the window. Returns count removed.
     pub fn cleanup_old_failed_attempts(&self, window_secs: u64) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -252,7 +252,7 @@ impl MemoryDB {
 
     /// Evict the oldest lockout client if we exceed `max_clients`.
     pub fn evict_oldest_lockout_client(&self, max_clients: usize) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let distinct_count: i64 = conn.query_row(
             "SELECT COUNT(DISTINCT client_id) FROM pairing_failed_attempts",
             [],

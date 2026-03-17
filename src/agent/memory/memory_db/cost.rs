@@ -26,10 +26,7 @@ impl MemoryDB {
         caller: &str,
         request_id: Option<&str>,
     ) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO llm_cost_log
              (model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_cents, caller, request_id)
@@ -52,10 +49,7 @@ impl MemoryDB {
         if days == 0 {
             return Ok(0);
         }
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
         let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
         let deleted = conn.execute(
@@ -67,10 +61,7 @@ impl MemoryDB {
 
     /// Get token usage summary grouped by date and model since a given date (YYYY-MM-DD).
     pub fn get_token_summary(&self, since_date: &str) -> Result<Vec<TokenSummaryRow>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let since_datetime = format!("{since_date} 00:00:00");
         let mut stmt = conn.prepare(
             "SELECT DATE(timestamp) as day, model,

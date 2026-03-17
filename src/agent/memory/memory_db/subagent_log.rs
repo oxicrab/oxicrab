@@ -21,7 +21,7 @@ impl MemoryDB {
         content: &str,
         metadata: Option<&str>,
     ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO subagent_logs (task_id, event_type, content, metadata)
              VALUES (?1, ?2, ?3, ?4)",
@@ -32,7 +32,7 @@ impl MemoryDB {
 
     /// List all log entries for a task, ordered by id.
     pub fn list_subagent_logs(&self, task_id: &str) -> Result<Vec<SubagentLogEntry>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, task_id, timestamp, event_type, content, metadata
              FROM subagent_logs WHERE task_id = ?1 ORDER BY id",
@@ -54,7 +54,7 @@ impl MemoryDB {
 
     /// List distinct `task_ids`, most recent first.
     pub fn list_recent_subagent_tasks(&self, limit: usize) -> Result<Vec<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT task_id FROM subagent_logs
              GROUP BY task_id ORDER BY MAX(id) DESC LIMIT ?1",
@@ -67,7 +67,7 @@ impl MemoryDB {
 
     /// Delete logs for tasks beyond the most recent N. Returns count deleted.
     pub fn purge_old_subagent_logs(&self, keep_tasks: usize) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = conn.execute(
             "DELETE FROM subagent_logs WHERE task_id NOT IN (
                 SELECT task_id FROM subagent_logs

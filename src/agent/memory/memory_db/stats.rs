@@ -61,10 +61,7 @@ impl MemoryDB {
         top_score: Option<f64>,
         request_id: Option<&str>,
     ) -> Result<()> {
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let mut conn = self.lock_conn()?;
         let tx = conn.transaction()?;
         tx.execute(
             "INSERT INTO memory_access_log (query, search_type, result_count, top_score, request_id)
@@ -84,10 +81,7 @@ impl MemoryDB {
 
     /// Return provenance details for the most recent memory search.
     pub fn get_last_search_details(&self) -> Result<Option<SearchDetails>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
 
         let mut stmt = conn.prepare(
             "SELECT id, query, search_type, result_count, top_score, created_at
@@ -124,10 +118,7 @@ impl MemoryDB {
 
     /// Count how many times a source key appeared in search results.
     pub fn get_source_hit_count(&self, source_key: &str) -> Result<u64> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM memory_search_hits WHERE source_key = ?",
@@ -140,10 +131,7 @@ impl MemoryDB {
 
     /// Get entries that have no embeddings (for back-fill).
     pub fn get_entries_missing_embeddings(&self) -> Result<Vec<(i64, String, String)>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT e.id, e.source_key, e.content FROM memory_entries e
              LEFT JOIN memory_embeddings em ON e.id = em.entry_id
@@ -163,10 +151,7 @@ impl MemoryDB {
 
     /// Get search log stats: total searches, total hits, unique queries.
     pub fn get_search_stats(&self) -> Result<SearchStats> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let total_searches: i64 = conn
             .query_row("SELECT COUNT(*) FROM memory_access_log", [], |row| {
                 row.get(0)
@@ -193,10 +178,7 @@ impl MemoryDB {
 
     /// Get top source keys by search hit count.
     pub fn get_top_sources(&self, limit: usize) -> Result<Vec<(String, u64)>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT source_key, COUNT(*) as hits FROM memory_search_hits
              GROUP BY source_key ORDER BY hits DESC LIMIT ?",
@@ -225,10 +207,7 @@ impl MemoryDB {
             .char_indices()
             .nth(80)
             .map_or(message_preview.len(), |(i, _)| i)];
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO complexity_routing_log
              (request_id, composite_score, resolved_tier, resolved_model, forced, channel, message_preview)
@@ -248,10 +227,7 @@ impl MemoryDB {
 
     /// Get complexity routing statistics for the given period.
     pub fn get_complexity_stats(&self, since_date: &str) -> Result<ComplexityStats> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
 
         let since_datetime = format!("{since_date} 00:00:00");
         let total: i64 = conn
@@ -317,10 +293,7 @@ impl MemoryDB {
         tier: &str,
         limit: usize,
     ) -> Result<Vec<ComplexityEvent>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT timestamp, composite_score, resolved_tier, resolved_model, forced, message_preview
              FROM complexity_routing_log
@@ -347,10 +320,7 @@ impl MemoryDB {
         if days == 0 {
             return Ok(0);
         }
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = conn.execute(
             "DELETE FROM intent_metrics WHERE timestamp < datetime('now', ?1)",
             params![format!("-{days} days")],
@@ -363,10 +333,7 @@ impl MemoryDB {
         if days == 0 {
             return Ok(0);
         }
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
         let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
         let deleted = conn.execute(
@@ -383,10 +350,7 @@ impl MemoryDB {
         if days == 0 {
             return Ok(0);
         }
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let mut conn = self.lock_conn()?;
         let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
         let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
         let tx = conn.transaction()?;

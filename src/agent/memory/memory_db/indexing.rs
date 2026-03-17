@@ -17,10 +17,7 @@ impl MemoryDB {
         }
         let now = Utc::now().to_rfc3339();
         let hash = hash_text(content);
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let mut conn = self.lock_conn()?;
         let tx = conn.transaction()?;
         tx.execute(
             "INSERT OR IGNORE INTO memory_entries (source_key, content, content_hash, created_at) VALUES (?, ?, ?, ?)",
@@ -41,10 +38,7 @@ impl MemoryDB {
         if days == 0 {
             return Ok(0);
         }
-        let mut conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let mut conn = self.lock_conn()?;
         let cutoff = Utc::now() - chrono::Duration::days(i64::from(days));
         let cutoff_str = cutoff.to_rfc3339();
         let tx = conn.transaction()?;
@@ -68,10 +62,7 @@ impl MemoryDB {
 
     /// Get recent entries for a source key (for deduplication).
     pub fn get_recent_entries(&self, source_key: &str, limit: usize) -> Result<Vec<String>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT content FROM memory_entries WHERE source_key = ? ORDER BY created_at DESC LIMIT ?",
         )?;
@@ -83,10 +74,7 @@ impl MemoryDB {
 
     /// Get recent entries across all daily source keys (for deduplication).
     pub fn get_recent_daily_entries(&self, limit: usize) -> Result<Vec<String>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT content FROM memory_entries WHERE source_key LIKE 'daily:%' ORDER BY created_at DESC LIMIT ?",
         )?;

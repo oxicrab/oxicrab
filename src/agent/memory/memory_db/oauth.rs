@@ -22,10 +22,7 @@ impl MemoryDB {
         expires_at: i64,
         extra_json: Option<&str>,
     ) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT OR REPLACE INTO oauth_tokens
              (provider, access_token, refresh_token, expires_at, extra_json, updated_at)
@@ -43,10 +40,7 @@ impl MemoryDB {
 
     /// Load an OAuth token row by provider name. Returns `None` if not found.
     pub fn load_oauth_token(&self, provider: &str) -> Result<Option<OAuthTokenRow>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT provider, access_token, refresh_token, expires_at, extra_json
              FROM oauth_tokens WHERE provider = ?1",
@@ -67,10 +61,7 @@ impl MemoryDB {
 
     /// Delete an OAuth token row by provider name. Returns `true` if a row was deleted.
     pub fn delete_oauth_token(&self, provider: &str) -> Result<bool> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let conn = self.lock_conn()?;
         let deleted = conn.execute(
             "DELETE FROM oauth_tokens WHERE provider = ?1",
             params![provider],
