@@ -85,6 +85,18 @@ pub(crate) fn validate_tool_params(
 
     // Check types of provided fields
     if let Some(properties) = schema["properties"].as_object() {
+        // Strict-mode style check: when schema explicitly forbids additional
+        // properties, reject unknown keys up front.
+        let additional_forbidden =
+            schema.get("additionalProperties").and_then(Value::as_bool) == Some(false);
+        if additional_forbidden && let Some(obj) = params.as_object() {
+            for key in obj.keys() {
+                if !properties.contains_key(key) {
+                    errors.push(format!("unknown parameter '{key}'"));
+                }
+            }
+        }
+
         for (field_name, field_schema) in properties {
             if let Some(value) = params.get(field_name)
                 && !value.is_null()

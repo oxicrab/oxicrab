@@ -540,6 +540,35 @@ impl Tool for SchemaTestTool {
     }
 }
 
+struct StrictSchemaTestTool;
+
+#[async_trait]
+impl Tool for StrictSchemaTestTool {
+    fn name(&self) -> &'static str {
+        "strict_schema_test"
+    }
+    fn description(&self) -> &'static str {
+        "strict schema test tool"
+    }
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string" }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+        })
+    }
+    async fn execute(
+        &self,
+        _params: serde_json::Value,
+        _ctx: &ExecutionContext,
+    ) -> anyhow::Result<ToolResult> {
+        Ok(ToolResult::new("ok".to_string()))
+    }
+}
+
 #[test]
 fn test_validate_params_missing_required() {
     let tool = SchemaTestTool;
@@ -589,6 +618,16 @@ fn test_validate_params_optional_missing_ok() {
     let params = serde_json::json!({"query": "test"});
     let result = validate_tool_params(&tool, &params);
     assert!(result.is_none());
+}
+
+#[test]
+fn test_validate_params_rejects_unknown_when_additional_properties_false() {
+    let tool = StrictSchemaTestTool;
+    let params = serde_json::json!({"query": "ok", "extra": 1});
+    let result = validate_tool_params(&tool, &params);
+    assert!(result.is_some());
+    let msg = result.unwrap();
+    assert!(msg.contains("unknown parameter 'extra'"));
 }
 
 #[tokio::test]
