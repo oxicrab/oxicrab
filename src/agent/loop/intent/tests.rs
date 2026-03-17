@@ -114,6 +114,9 @@ fn test_clarification_question_positive() {
         "Did you mean the first or second one?",
         "Sure, but which one?",
         "What's the due date?",
+        // Short but contain clarifying language
+        "Which one?",
+        "What do you want me to review?",
     ];
     for text in cases {
         assert!(
@@ -136,6 +139,13 @@ fn test_clarification_question_negative() {
         "I've completed the task, should I do anything else?",
         "I've updated the config. Need anything else?",
         "I've saved the changes. Want me to continue?",
+        // Short vapid questions that parrot user words — NOT clarifications
+        "Accept or reject?",
+        "Yes or no?",
+        "Ready?",
+        "Now?",
+        "Ok?",
+        "Next article?",
     ];
     for text in cases {
         assert!(

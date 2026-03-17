@@ -209,6 +209,11 @@ pub fn classify_action_intent(text: &str) -> bool {
 /// However, responses that contain action claims (e.g. "I've completed the
 /// task, should I do anything else?") are NOT treated as clarification even
 /// if they end with `?` — the action claim is the dominant signal.
+///
+/// Very short questions (< 50 chars) must contain actual clarifying language
+/// (which, what, how, should I, etc.) — otherwise they may be vapid parroting
+/// of the user's words (e.g. "Accept or reject?") rather than genuine
+/// information-gathering.
 pub fn is_clarification_question(text: &str) -> bool {
     let trimmed = text.trim();
 
@@ -216,7 +221,16 @@ pub fn is_clarification_question(text: &str) -> bool {
     // UNLESS the text also contains action claims — those are hallucinations
     // with a trailing question, not legitimate clarifications.
     if trimmed.ends_with('?') && trimmed.len() < 200 {
-        return !super::helpers::contains_action_claims(trimmed);
+        if super::helpers::contains_action_claims(trimmed) {
+            return false;
+        }
+        // Very short questions (< 50 chars) are often vapid parroting
+        // ("Accept or reject?", "Yes or no?", "Ready?") rather than
+        // genuine clarifications. Require actual clarifying language.
+        if trimmed.len() < 50 {
+            return CLARIFICATION_RE.is_match(trimmed);
+        }
+        return true;
     }
 
     // Explicit clarification patterns

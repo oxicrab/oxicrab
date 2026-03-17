@@ -680,13 +680,25 @@ fn merge_suggested_buttons(
         .cloned()
         .unwrap_or_default();
 
+    // Collect labels already present from tool-suggested buttons for dedup
+    let seen_labels: std::collections::HashSet<String> = suggested
+        .iter()
+        .filter_map(|b| b["label"].as_str().map(str::to_lowercase))
+        .collect();
+
     // Tool-suggested first (priority), then LLM buttons that don't conflict
+    // by ID or label (prevents duplicate Accept/Reject from different sources)
     let mut final_buttons = suggested;
     for b in llm_buttons {
         if let Some(id) = b["id"].as_str()
             && !seen_ids.contains(id)
         {
-            final_buttons.push(b);
+            let label_conflict = b["label"]
+                .as_str()
+                .is_some_and(|l| seen_labels.contains(&l.to_lowercase()));
+            if !label_conflict {
+                final_buttons.push(b);
+            }
         }
     }
     final_buttons.truncate(5);
@@ -820,5 +832,52 @@ mod merge_tests {
         assert_eq!(buttons.len(), 3);
         let b2 = buttons.iter().find(|b| b["id"] == "complete-2").unwrap();
         assert_eq!(b2["label"], "Complete: Task 2 (new)");
+    }
+
+    #[test]
+    fn test_label_conflict_tool_wins() {
+        // Tool suggests "Accept" and "Reject" buttons, LLM also adds buttons
+        // with different IDs but the same labels — LLM duplicates should be dropped
+        let mut meta = HashMap::from([(
+            crate::bus::meta::BUTTONS.to_string(),
+            serde_json::json!([
+                {"id": "accept", "label": "Accept", "style": "primary"},
+                {"id": "reject", "label": "Reject", "style": "danger"},
+            ]),
+        )]);
+        let tool_meta = vec![HashMap::from([(
+            "suggested_buttons".to_string(),
+            serde_json::json!([
+                {"id": "rss-accept-abc12345", "label": "Accept", "style": "primary",
+                 "context": "CALL rss tool with action=accept article_ids=[\"abc12345\"]"},
+                {"id": "rss-reject-abc12345", "label": "Reject", "style": "danger",
+                 "context": "CALL rss tool with action=reject article_ids=[\"abc12345\"]"},
+            ]),
+        )])];
+        merge_suggested_buttons(&mut meta, &tool_meta);
+        let buttons = meta[crate::bus::meta::BUTTONS].as_array().unwrap();
+        assert_eq!(buttons.len(), 2, "LLM duplicates should be dropped");
+        assert_eq!(buttons[0]["id"], "rss-accept-abc12345");
+        assert_eq!(buttons[1]["id"], "rss-reject-abc12345");
+    }
+
+    #[test]
+    fn test_label_conflict_case_insensitive() {
+        let mut meta = HashMap::from([(
+            crate::bus::meta::BUTTONS.to_string(),
+            serde_json::json!([
+                {"id": "my-accept", "label": "ACCEPT", "style": "primary"},
+            ]),
+        )]);
+        let tool_meta = vec![HashMap::from([(
+            "suggested_buttons".to_string(),
+            serde_json::json!([
+                {"id": "rss-accept-x", "label": "Accept", "style": "primary"}
+            ]),
+        )])];
+        merge_suggested_buttons(&mut meta, &tool_meta);
+        let buttons = meta[crate::bus::meta::BUTTONS].as_array().unwrap();
+        assert_eq!(buttons.len(), 1);
+        assert_eq!(buttons[0]["id"], "rss-accept-x");
     }
 }
