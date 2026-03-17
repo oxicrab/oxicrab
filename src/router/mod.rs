@@ -107,6 +107,8 @@ impl MessageRouter {
             return RoutingDecision::FullLLM;
         }
 
+        // Pre-lowercase once for all directive and rule matching
+        let normalized = message.trim().to_lowercase();
         let now = now_ms();
 
         // 3. ActionDirective match (skip expired).
@@ -114,7 +116,7 @@ impl MessageRouter {
             if directive.is_expired(now) {
                 continue;
             }
-            if directive.trigger.matches(message) {
+            if directive.trigger.matches_normalized(&normalized) {
                 info!(
                     "router: decision=DirectDispatch tool={} source=ActionDirective",
                     directive.tool
@@ -151,7 +153,7 @@ impl MessageRouter {
         // 5. StaticRule match.
         let active_tool = ctx.active_tool.as_deref();
         for rule in &self.static_rules {
-            if rule.matches(message, active_tool) {
+            if rule.matches_normalized(&normalized, active_tool) {
                 info!(
                     "router: decision=DirectDispatch tool={} source=StaticRule",
                     rule.tool

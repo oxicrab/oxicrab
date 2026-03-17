@@ -112,9 +112,16 @@ impl DirectiveTrigger {
     /// (call `.normalized()` at construction time).
     pub fn matches(&self, message: &str) -> bool {
         let normalized = message.trim().to_lowercase();
+        self.matches_normalized(&normalized)
+    }
+
+    /// Match against a pre-lowercased, pre-trimmed message.
+    /// Use this when checking multiple triggers against the same message to
+    /// avoid redundant `to_lowercase()` allocations.
+    pub fn matches_normalized(&self, normalized: &str) -> bool {
         match self {
             Self::Exact(s) => normalized == *s,
-            Self::OneOf(options) => options.contains(&normalized),
+            Self::OneOf(options) => options.iter().any(|o| o == normalized),
             Self::Pattern(pat) => {
                 if pat.len() > MAX_PATTERN_LEN {
                     return false;
@@ -123,7 +130,7 @@ impl DirectiveTrigger {
                 // - Directives are short-lived (5 min TTL)
                 // - Pattern triggers are rare (most use Exact/OneOf)
                 // - 256-char length limit bounds compilation cost
-                regex::Regex::new(pat).is_ok_and(|re| re.is_match(&normalized))
+                regex::Regex::new(pat).is_ok_and(|re| re.is_match(normalized))
             }
         }
     }

@@ -20,10 +20,18 @@ pub struct StaticRule {
 impl StaticRule {
     /// Check if this rule matches the message given the active tool context.
     pub fn matches(&self, message: &str, active_tool: Option<&str>) -> bool {
+        let normalized = message.trim().to_lowercase();
+        self.matches_normalized(&normalized, active_tool)
+    }
+
+    /// Match against a pre-lowercased, pre-trimmed message.
+    /// Use this when checking multiple rules against the same message to
+    /// avoid redundant `to_lowercase()` allocations.
+    pub fn matches_normalized(&self, normalized: &str, active_tool: Option<&str>) -> bool {
         if self.requires_context && active_tool != Some(self.tool.as_str()) {
             return false;
         }
-        self.trigger.matches(message)
+        self.trigger.matches_normalized(normalized)
     }
 }
 
