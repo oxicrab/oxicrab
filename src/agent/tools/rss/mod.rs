@@ -25,14 +25,7 @@ pub(super) fn format_date_ms(ms: i64) -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
-/// Shared timestamp helper — single source of truth for all RSS submodules.
-pub(super) fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
-}
+pub(super) use crate::utils::time::now_ms;
 
 use crate::actions;
 use crate::agent::memory::memory_db::MemoryDB;

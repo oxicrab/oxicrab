@@ -139,12 +139,7 @@ impl DirectiveTrigger {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn now_ms() -> i64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(0))
-    }
+    use crate::utils::time::now_ms;
 
     #[test]
     fn test_router_context_default() {

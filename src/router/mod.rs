@@ -230,12 +230,7 @@ fn build_context_hint(ctx: &RouterContext) -> String {
     parts.join(". ")
 }
 
-/// Current time in milliseconds since the Unix epoch.
-pub fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(0))
-}
+pub use crate::utils::time::now_ms;
 
 #[cfg(test)]
 mod tests {

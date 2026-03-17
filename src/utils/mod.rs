@@ -8,6 +8,7 @@ pub mod sandbox;
 pub mod shell_ast;
 pub mod subprocess;
 pub mod task_tracker;
+pub mod time;
 pub mod transcription;
 pub mod url_security;
 
