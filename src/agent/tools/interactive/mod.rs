@@ -128,7 +128,7 @@ impl Tool for AddButtonsTool {
             let style = b["style"].as_str().unwrap_or("secondary");
             let context = b["context"].as_str().map(|s| {
                 if s.len() > 2000 {
-                    s[..2000].to_string()
+                    s[..s.floor_char_boundary(2000)].to_string()
                 } else {
                     s.to_string()
                 }
