@@ -41,9 +41,16 @@ pub enum RoutingDecision {
         source: DispatchSource,
     },
     /// LLM interprets, but with constraints: filtered tool set + context hint.
+    /// Used when active tool context exists but no deterministic match.
     GuidedLLM {
         tool_subset: Vec<String>,
         context_hint: String,
+    },
+    /// LLM interprets with semantically filtered tools.
+    /// Used when no active context but message implies a tool domain.
+    /// Embedding similarity selects top-3 tools from full registry.
+    SemanticFilter {
+        tool_subset: Vec<String>,
     },
     /// Full LLM, no constraints. Today's behavior.
     FullLLM,
@@ -69,7 +76,8 @@ pub enum DispatchSource {
 4. **Static tool rules** — match message text against static rules, filtered to rules where `requires_context == false` OR `requires_context == true && active_tool matches`. Matching is **case-insensitive** and **whole-message** (same as directives). → `DirectDispatch`.
 5. **Remember fast path** — existing `extract_remember_content()` logic, moved into router. Router only **classifies** the message as a remember intent. Actual execution (quality gates, dedup, DB writes) happens in the DirectDispatch handler, not in the router. → `DirectDispatch` to remember handler.
 6. **Active tool context exists** but no direct match → `GuidedLLM`. `tool_subset` contains: the active tool name + core tools (`memory`, `add_buttons`) + any deferred tools activated by `tool_search` during the session. `context_hint` describes current state.
-7. **No context, no matches** → `FullLLM`.
+7. **No context, but message implies a tool domain** → `SemanticFilter`. Embed the user message via `EmbeddingService`, compute cosine similarity against pre-embedded tool descriptions, select top-3 most relevant tools. Pass filtered set to LLM. Falls through to `FullLLM` if no tool scores above threshold (0.5).
+8. **No context, no matches, no semantic signal** → `FullLLM`.
 
 ### Performance Contract
 
@@ -332,6 +340,56 @@ The hint is built from `RouterContext`:
 
 The router constructs this from data it already has — no extra IO.
 
+## SemanticFilter Path — Embedding-Based Tool Selection
+
+When no active context exists and no rules match, but the message might still benefit from a narrowed tool set, the router uses embedding similarity to select the most relevant tools.
+
+### How it works
+
+1. At startup, embed all tool descriptions via `EmbeddingService` (same service used for hybrid search). Cache the embeddings — they don't change.
+2. Per-message (only when reaching priority 7 in the routing chain): embed the user message, compute cosine similarity against cached tool description embeddings.
+3. Select top-3 tools scoring above threshold (0.5). If fewer than 2 tools qualify, fall through to `FullLLM`.
+4. Return `SemanticFilter { tool_subset }`.
+
+### Why this matters
+
+Research shows dramatic improvements from tool filtering:
+- **86% error reduction** and **89% token savings** filtering from 31 tools to 3 (AWS/Strands research)
+- **Opus 4 accuracy: 49% → 74%** with Anthropic's tool search (similar concept)
+- RAG-MCP: **3.2x accuracy improvement** vs all-tools baseline when scaling to 100+ tools
+
+### Performance
+
+The embedding call is the expensive part (~5-20ms for local embedding, ~50-100ms for API). This only runs when the message reaches priority 7 — the fast paths (buttons, directives, config rules, static rules) all short-circuit before this. For the messages that do reach semantic filtering, the cost is amortized against the LLM call it improves (1-3s).
+
+### Existing infrastructure
+
+`EmbeddingService` is already in the codebase with LRU query cache (10,000 entries). Tool descriptions are already available via `Tool::description()`. No new dependencies needed.
+
+### Note: router purity exception
+
+The router is otherwise stateless and IO-free. The semantic filter path is the one exception — it requires the embedding service. To maintain the clean architecture, the router's `route()` method does not call the embedding service directly. Instead, it returns `FullLLM` and the **agent loop** checks whether semantic filtering should be applied before running the LLM, calling the embedding service itself. This keeps the router pure and testable.
+
+## Research Context
+
+This design is informed by several research findings:
+
+### Tool overload threshold
+- **Below 30 tools:** ~90% accuracy across models
+- **30-50 tools:** accuracy starts degrading; filtering recommended
+- **50-100 tools:** significant degradation; semantic filtering essential
+- **100+ tools:** near-failure without dynamic filtering
+- Oxicrab sits at ~30 built-in tools plus MCP tools — right at the degradation threshold.
+
+### Multi-turn reliability collapse
+MCPMark benchmark (127 tasks, avg 16 tool calls each): models scoring 70%+ on single-turn BFCL score **under 30% on real-world multi-turn tasks**. Pass@4 consistency below 15%. The router eliminates multi-turn tool calling for mechanical actions entirely.
+
+### JSON format interference
+The Natural Language Tools (NLT) paper found JSON format constraints cause **20-27% accuracy loss** due to task interference — models must simultaneously handle query understanding, tool selection, format compliance, and response generation. Kimi K2 went from **40% to 90%** when tool selection switched to natural language. This explains why our models fabricate text responses instead of calling tools — the format switching cost is high.
+
+### Industry convergence
+Rasa CALM, Vercel AI SDK (`activeTools`), Semantic Kernel (function filters), and the graph-based self-healing router paper all converge on the same architecture: **deterministic routing for predictable actions, LLM only for interpretation, with filtered tool sets when the LLM is needed**.
+
 ## Agent Loop Integration
 
 ### New flow in `process_message_unlocked()`
@@ -365,6 +423,15 @@ process_message_unlocked(msg):
             prompt guard
             build messages (inject context_hint into system prompt)
             run_agent_loop (tool definitions filtered to tool_subset)
+            extract directives from tool results → update RouterContext
+            save session
+            return OutboundMessage
+
+        SemanticFilter { tool_subset }:
+            secret scanning on message content
+            prompt guard
+            build messages
+            run_agent_loop (tool definitions filtered to tool_subset, no context hint)
             extract directives from tool results → update RouterContext
             save session
             return OutboundMessage
@@ -459,6 +526,7 @@ All routing decisions are logged:
 ```
 info!("router: decision=DirectDispatch tool={tool} source={source} channel={channel}")
 info!("router: decision=GuidedLLM tool_subset=[{tools}] channel={channel}")
+info!("router: decision=SemanticFilter tool_subset=[{tools}] channel={channel}")
 debug!("router: decision=FullLLM channel={channel}")
 ```
 `FullLLM` is `debug!` (most common case, would be noisy at `info!`). Direct dispatch and guided decisions are `info!` since they represent the router actively intervening.
@@ -591,7 +659,43 @@ Discord stores payloads in `DispatchContextStore` on render, looks up on click.
 - Button click (Slack) → DirectDispatch
 - Button click (Discord) → DispatchContextStore → DirectDispatch
 
+### Snapshot testing with `insta`
+
+Use the `insta` crate for snapshot testing routing decisions. Instead of asserting individual fields, snapshot the entire `RoutingDecision` for a given input. This catches regressions in routing priority ordering and makes it easy to review behavior changes across large test suites.
+
 ### Not tested (removed)
 - Intent classification accuracy
 - Hallucination layers 0, 2, 3
 - Tool category filtering
+
+## Implementation Notes
+
+### Recommended crates
+
+| Crate | Purpose | Justification |
+|-------|---------|---------------|
+| `phf` | Compile-time perfect hash sets for static rule keyword lookups | O(1) lookup, zero initialization. Good for the remember-fast-path trigger words and any static keyword sets. |
+| `insta` | Snapshot testing for routing decisions | Review routing behavior changes across test suites without manual assertions. |
+| `aho-corasick` | Already a dependency. Potentially useful for multi-pattern static rule scanning if we ever need substring matching. | Not needed for whole-message matching, but available. |
+
+### Crates evaluated and rejected
+
+| Crate | Reason |
+|-------|--------|
+| `zen-engine` (gorules) | Full BRE with JSON decision tables — overkill for keyword→tool mappings |
+| `rust-fsm` / `statig` | State machine libraries — `RouterContext` is simpler than a state machine |
+| `compact_str` | Small string optimization — marginal benefit, adds dependency for hot-path metadata keys |
+| `matchit` | Radix trie URL router — wrong abstraction for message routing |
+| `intent-classifier` | Few-shot ML classifier — our deterministic routing replaces intent classification |
+| `eventador` | Lock-free pub/sub — our `tokio::sync::broadcast` is sufficient |
+
+### Performance budget
+
+| Operation | Target | Mechanism |
+|-----------|--------|-----------|
+| Route decision (no semantic filter) | < 100μs | HashSet/HashMap lookups, no IO |
+| Directive hashmap rebuild | < 10μs | Only on directive change, ~6 entries typical |
+| Static rule check | < 50μs | Pre-lowercased HashSet lookup |
+| Config rule check | < 1μs | Single HashMap lookup on command word |
+| Semantic filter (when triggered) | < 50ms | Embedding call + cosine similarity on ~30 vectors |
+| Tool description embedding (startup) | < 500ms | One-time, cached for process lifetime |
