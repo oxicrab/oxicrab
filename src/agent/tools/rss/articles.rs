@@ -299,7 +299,16 @@ pub fn handle_next(db: &MemoryDB) -> Result<ToolResult> {
             {"id": format!("rss-reject-{short_id}"), "label": "Reject", "style": "danger", "context": reject_ctx},
         ]),
     );
-    Ok(ToolResult::new(out).with_metadata(metadata))
+    // Bypass LLM summarization: article content goes directly to the user
+    // via display_text metadata, regardless of what the LLM says.
+    metadata.insert(
+        "display_text".to_string(),
+        serde_json::Value::String(out.clone()),
+    );
+    Ok(
+        ToolResult::new("Article shown to user. Ask them to accept or reject it.")
+            .with_metadata(metadata),
+    )
 }
 
 /// Rank articles using the persisted `LinTS` model in read-only mode.

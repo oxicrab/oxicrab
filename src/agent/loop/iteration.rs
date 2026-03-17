@@ -310,6 +310,7 @@ impl AgentLoop {
                     TextAction::Continue => {}
                     TextAction::Return => {
                         let content = strip_think_tags(&content);
+                        let content = prepend_display_text(content, &collected_tool_metadata);
                         let mut response_metadata = self.take_pending_buttons_metadata();
                         merge_suggested_buttons(&mut response_metadata, &collected_tool_metadata);
                         return Ok(AgentLoopResult {
@@ -359,8 +360,22 @@ impl AgentLoop {
                 .await?
         {
             let content = strip_think_tags(&content);
+            let content = prepend_display_text(content, &collected_tool_metadata);
             return Ok(AgentLoopResult {
                 content: Some(content),
+                input_tokens: last_input_tokens,
+                tools_used,
+                media: collected_media,
+                reasoning_content: None,
+                reasoning_signature: None,
+                response_metadata,
+            });
+        }
+
+        // If no LLM response but tools provided display_text, use that as the response
+        if let Some(display) = extract_display_text(&collected_tool_metadata) {
+            return Ok(AgentLoopResult {
+                content: Some(display),
                 input_tokens: last_input_tokens,
                 tools_used,
                 media: collected_media,
@@ -638,6 +653,37 @@ impl AgentLoop {
     }
 }
 
+/// Extract `display_text` from tool metadata for direct-to-user passthrough.
+///
+/// Some tools (e.g. RSS review) put content in `display_text` metadata to
+/// bypass LLM summarization. This content is prepended to the agent's
+/// response so the user sees it regardless of what the LLM says.
+fn extract_display_text(
+    collected_tool_metadata: &[HashMap<String, serde_json::Value>],
+) -> Option<String> {
+    let texts: Vec<&str> = collected_tool_metadata
+        .iter()
+        .filter_map(|meta| meta.get("display_text")?.as_str())
+        .collect();
+    if texts.is_empty() {
+        None
+    } else {
+        Some(texts.join("\n\n"))
+    }
+}
+
+/// Prepend `display_text` to response content if present in tool metadata.
+fn prepend_display_text(
+    content: String,
+    collected_tool_metadata: &[HashMap<String, serde_json::Value>],
+) -> String {
+    if let Some(display) = extract_display_text(collected_tool_metadata) {
+        format!("{display}\n\n{content}")
+    } else {
+        content
+    }
+}
+
 /// Merge tool-suggested buttons with LLM-added buttons.
 ///
 /// Tool-suggested buttons are unconditional (always appear).
@@ -879,5 +925,68 @@ mod merge_tests {
         let buttons = meta[crate::bus::meta::BUTTONS].as_array().unwrap();
         assert_eq!(buttons.len(), 1);
         assert_eq!(buttons[0]["id"], "rss-accept-x");
+    }
+}
+
+#[cfg(test)]
+mod display_text_tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_display_text_empty() {
+        let meta: Vec<HashMap<String, serde_json::Value>> = vec![];
+        assert!(extract_display_text(&meta).is_none());
+    }
+
+    #[test]
+    fn test_extract_display_text_present() {
+        let meta = vec![HashMap::from([(
+            "display_text".to_string(),
+            serde_json::Value::String("**Article Title**\nSome content".to_string()),
+        )])];
+        let result = extract_display_text(&meta).unwrap();
+        assert_eq!(result, "**Article Title**\nSome content");
+    }
+
+    #[test]
+    fn test_extract_display_text_multiple() {
+        let meta = vec![
+            HashMap::from([(
+                "display_text".to_string(),
+                serde_json::Value::String("First article".to_string()),
+            )]),
+            HashMap::from([(
+                "display_text".to_string(),
+                serde_json::Value::String("Second article".to_string()),
+            )]),
+        ];
+        let result = extract_display_text(&meta).unwrap();
+        assert_eq!(result, "First article\n\nSecond article");
+    }
+
+    #[test]
+    fn test_extract_display_text_ignores_other_metadata() {
+        let meta = vec![HashMap::from([(
+            "suggested_buttons".to_string(),
+            serde_json::json!([{"id": "btn", "label": "Click"}]),
+        )])];
+        assert!(extract_display_text(&meta).is_none());
+    }
+
+    #[test]
+    fn test_prepend_display_text_with_content() {
+        let meta = vec![HashMap::from([(
+            "display_text".to_string(),
+            serde_json::Value::String("**Article**".to_string()),
+        )])];
+        let result = prepend_display_text("Accept or reject?".to_string(), &meta);
+        assert_eq!(result, "**Article**\n\nAccept or reject?");
+    }
+
+    #[test]
+    fn test_prepend_display_text_without_content() {
+        let meta: Vec<HashMap<String, serde_json::Value>> = vec![];
+        let result = prepend_display_text("Regular response".to_string(), &meta);
+        assert_eq!(result, "Regular response");
     }
 }

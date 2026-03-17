@@ -152,6 +152,14 @@ pub fn handle_feed_stats(db: &MemoryDB) -> Result<ToolResult> {
             "\n\n{new_count} unreviewed articles. To review one-by-one with Accept/Reject buttons, \
              use action=review."
         );
+
+        // Auto-present the first article when there are unreviewed articles.
+        // This handles the case where the LLM calls feed_stats instead of review —
+        // the user still sees an article to act on via display_text passthrough.
+        let review_result = super::articles::handle_next(db)?;
+        if let Some(meta) = review_result.metadata {
+            return Ok(ToolResult::new(out.trim_end().to_string()).with_metadata(meta));
+        }
     }
 
     Ok(ToolResult::new(out.trim_end().to_string()))
