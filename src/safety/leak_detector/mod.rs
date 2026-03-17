@@ -386,6 +386,31 @@ impl LeakDetector {
 
     /// Redact any detected secrets in text, replacing them with `[REDACTED]`.
     pub fn redact(&self, text: &str) -> String {
+        let result = self.redact_inner(text);
+
+        // URL-decode pass: if the (already redacted) text still contains
+        // percent-encoded sequences, decode and re-scan. If new secrets are
+        // found in the decoded form, return the redacted decoded version.
+        // This trades URL-encoding preservation for security — acceptable
+        // because the alternative is leaking secrets.
+        if result.contains('%') {
+            if let Ok(decoded) = urlencoding::decode(&result) {
+                if *decoded != result {
+                    let redacted_decoded = self.redact_inner(&decoded);
+                    if redacted_decoded != *decoded {
+                        return redacted_decoded;
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Core redaction logic (plaintext patterns, known secrets, encoded blobs).
+    /// Separated from `redact()` to allow the URL-decode pass to call it
+    /// without infinite recursion.
+    fn redact_inner(&self, text: &str) -> String {
         let base = &*BASE_PATTERNS;
         let mut result = text.to_string();
         // Redact plaintext pattern matches (only check patterns with prefix hits).

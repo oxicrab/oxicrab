@@ -352,3 +352,25 @@ fn test_url_decoded_scan_detects_encoded_key() {
         "Should detect URL-encoded API key via decode-then-scan"
     );
 }
+
+#[test]
+fn test_redact_url_encoded_secret() {
+    let detector = LeakDetector::new();
+    // URL-encode an Anthropic API key
+    let key = "sk-ant-api03-abcdefghijklmnopqrst12345";
+    let mut encoded = String::new();
+    for b in key.bytes() {
+        use std::fmt::Write;
+        let _ = write!(encoded, "%{b:02X}");
+    }
+    let text = format!("Leak: {encoded}");
+    let redacted = detector.redact(&text);
+    assert!(
+        !redacted.contains(key),
+        "redact() should catch URL-encoded secrets: {redacted}"
+    );
+    assert!(
+        redacted.contains("[REDACTED]"),
+        "redacted text should contain [REDACTED] marker"
+    );
+}
