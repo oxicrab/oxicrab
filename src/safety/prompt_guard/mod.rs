@@ -85,6 +85,24 @@ static GUARD_PATTERNS: LazyLock<Vec<GuardPattern>> = LazyLock::new(|| {
             "do_anything_now",
             r"(?i)\bdo anything now\b",
         ),
+        // Few-shot prefix injection (impersonating conversation roles)
+        (
+            InjectionCategory::RoleSwitch,
+            "few_shot_prefix",
+            r"(?ism)^\s*(?:assistant|system|human)\s*:",
+        ),
+        // Persona assignment without "you are now"
+        (
+            InjectionCategory::RoleSwitch,
+            "persona_assignment",
+            r"(?is)(?:pretend|act as if|respond as if|take (?:on )?the role of).{0,30}(?:you (?:are|were)|a |an )",
+        ),
+        // Base64/encoded instruction references
+        (
+            InjectionCategory::InstructionOverride,
+            "encoded_instructions",
+            r"(?is)(?:decode|base64|rot13).{0,30}(?:follow|execute|obey|instructions)",
+        ),
     ];
 
     pattern_defs
