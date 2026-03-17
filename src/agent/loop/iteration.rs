@@ -484,7 +484,7 @@ impl AgentLoop {
             // Leak detection
             let redacted = self.leak_detector.redact(&msg.content);
             if redacted != msg.content {
-                warn!("secret detected in tool '{}' output — redacting", tc.name);
+                warn!("security: secret detected in tool '{}' output — redacting", tc.name);
                 msg.content = redacted;
             }
 
@@ -494,7 +494,7 @@ impl AgentLoop {
                 if !tool_matches.is_empty() {
                     for m in &tool_matches {
                         warn!(
-                            "prompt injection in tool '{}' output ({:?}): {}",
+                            "security: prompt injection in tool '{}' output ({:?}): {}",
                             tc.name, m.category, m.pattern_name
                         );
                     }

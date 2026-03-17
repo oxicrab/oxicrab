@@ -153,7 +153,7 @@ pub(super) async fn execute_tool_call(
             .get(tc_name)
             .is_some_and(|t| t.capabilities().network_outbound);
         if is_network && !allow_tools.contains(&tc_name.to_string()) {
-            warn!("exfiltration guard blocked tool: {}", tc_name);
+            warn!("security: exfiltration guard blocked tool: {}", tc_name);
             return ToolResult::error(
                 "Error: this tool is not available in the current security mode",
             );

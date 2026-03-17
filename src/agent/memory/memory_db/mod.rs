@@ -132,6 +132,17 @@ impl MemoryDB {
                 db_path.display()
             )
         })?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = std::fs::metadata(db_path) {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o600);
+                let _ = std::fs::set_permissions(db_path, perms);
+            }
+        }
+
         Ok(db)
     }
 

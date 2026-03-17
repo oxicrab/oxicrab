@@ -220,7 +220,7 @@ async fn api_key_auth(
     match provided {
         Some(key) if key.as_bytes().ct_eq(expected.as_bytes()).into() => next.run(request).await,
         _ => {
-            warn!("rejected unauthenticated request to {}", request.uri());
+            warn!("security: rejected unauthenticated request to {}", request.uri());
             (
                 StatusCode::UNAUTHORIZED,
                 Json(ErrorResponse {
@@ -285,7 +285,7 @@ async fn rate_limit_middleware(
     }
 
     let retry_after = state.retry_after_secs.to_string();
-    warn!("rate limit exceeded for {}", ip);
+    warn!("security: rate limit exceeded for {}", ip);
     (
         StatusCode::TOO_MANY_REQUESTS,
         [("retry-after", retry_after.as_str())],
@@ -308,6 +308,7 @@ fn build_router(
     let mut authed_routes = Router::new()
         .route("/api/chat", post(chat_handler))
         .route("/api/status", get(status::status_json_handler))
+        .route("/status", get(status::status_html_handler))
         .with_state(state.clone());
 
     if let Some(ref key) = api_key {
@@ -318,7 +319,6 @@ fn build_router(
     // Public routes (health, webhooks with their own HMAC auth)
     let public_routes = Router::new()
         .route("/api/health", get(health_handler))
-        .route("/status", get(status::status_html_handler))
         .route("/api/webhook/{name}", post(webhook_handler))
         .with_state(state);
 
@@ -636,13 +636,13 @@ async fn webhook_handler(
         .and_then(|v| v.to_str().ok());
 
     let Some(signature) = signature else {
-        warn!("webhook {}: missing signature header", name);
+        warn!("security: webhook {}: missing signature header", name);
         return StatusCode::FORBIDDEN.into_response();
     };
 
     // Validate HMAC-SHA256 signature
     if !validate_webhook_signature(&config.secret, signature, &body) {
-        warn!("webhook {name}: invalid signature");
+        warn!("security: webhook {name}: invalid signature");
         return StatusCode::FORBIDDEN.into_response();
     }
 
@@ -659,7 +659,7 @@ async fn webhook_handler(
     {
         let now = chrono::Utc::now().timestamp();
         if (now - ts_header).abs() > REPLAY_WINDOW_SECS {
-            warn!("webhook {name}: timestamp too old ({ts_header}), rejecting (replay?)");
+            warn!("security: webhook {name}: timestamp too old ({ts_header}), rejecting (replay?)");
             return StatusCode::FORBIDDEN.into_response();
         }
     }
@@ -815,7 +815,7 @@ async fn deliver_to_targets(
     // detector that has known secrets registered, matching what MessageBus does.
     let safe_content = state.leak_detector.redact(content);
     if safe_content != content {
-        warn!("webhook {webhook_name}: redacted leaked secrets from target delivery");
+        warn!("security: webhook {webhook_name}: redacted leaked secrets from target delivery");
     }
 
     for target in targets {

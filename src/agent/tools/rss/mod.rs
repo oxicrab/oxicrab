@@ -67,6 +67,7 @@ impl RssTool {
             client: Client::builder()
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(timeout))
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             config,

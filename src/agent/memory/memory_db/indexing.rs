@@ -6,6 +6,11 @@ use rusqlite::params;
 impl MemoryDB {
     /// Insert a single memory entry directly into the DB (no backing file required).
     /// Empty or whitespace-only content is silently ignored.
+    ///
+    /// NOTE: Memory entries are not user-scoped. In a multi-user deployment,
+    /// all users share the same memory pool. This is by design for a single-user
+    /// personal agent. Multi-tenant isolation would require adding a scope/owner
+    /// column and filtering on it in all search queries.
     pub fn insert_memory(&self, source_key: &str, content: &str) -> Result<()> {
         if content.trim().is_empty() {
             return Ok(());

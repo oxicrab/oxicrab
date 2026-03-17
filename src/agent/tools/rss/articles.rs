@@ -494,11 +494,12 @@ pub async fn handle_get_article_detail(
 
     // If full content already cached, return it
     if let Some(ref content) = article.full_content {
-        let mut out = format!("**{}**\n{}\n\n{}", article.title, article.url, content);
+        let stripped = strip_html_tags(content);
+        let mut out = format!("**{}**\n{}\n\n{}", article.title, article.url, stripped);
         if let Some(ref author) = article.author {
             out = format!(
                 "**{}** by {}\n{}\n\n{}",
-                article.title, author, article.url, content
+                article.title, author, article.url, stripped
             );
         }
         return Ok(ToolResult::new(out));
@@ -556,7 +557,8 @@ pub async fn handle_get_article_detail(
                     } else {
                         format!("**{}**\n{}\n\n", article.title, article.url)
                     };
-                    Ok(ToolResult::new(format!("{header}{content}")))
+                    let stripped = strip_html_tags(&content);
+                    Ok(ToolResult::new(format!("{header}{stripped}")))
                 }
                 Err(e) => {
                     warn!(
@@ -580,6 +582,14 @@ pub async fn handle_get_article_detail(
             Ok(fallback_to_snippet(&article))
         }
     }
+}
+
+fn strip_html_tags(html: &str) -> String {
+    crate::utils::regex::RegexPatterns::html_tags()
+        .replace_all(html, " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn fallback_to_snippet(article: &crate::agent::memory::memory_db::rss::RssArticle) -> ToolResult {

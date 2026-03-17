@@ -32,6 +32,7 @@ impl ObsidianApiClient {
             .timeout(Duration::from_secs(timeout_secs))
             .pool_max_idle_per_host(4)
             .danger_accept_invalid_certs(is_localhost)
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .unwrap_or_default();
 
@@ -45,7 +46,10 @@ impl ObsidianApiClient {
     #[cfg(test)]
     pub fn with_base_url(base_url: String, api_key: &str) -> Self {
         Self {
-            client: Client::builder().build().unwrap_or_default(),
+            client: Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap_or_default(),
             base_url,
             api_key: api_key.to_string(),
         }

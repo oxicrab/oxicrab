@@ -742,17 +742,8 @@ fn build_pr_detail_buttons(pr: &Value, owner: &str, repo: &str) -> Vec<Value> {
             "id": format!("request-changes-pr-{number}"),
             "label": "Request Changes",
             "style": "danger",
-            "context": serde_json::json!({
-                "tool": "github",
-                "params": {
-                    "action": "create_pr_review",
-                    "owner": owner,
-                    "repo": repo,
-                    "number": number,
-                    "event": "REQUEST_CHANGES",
-                    "body": ""
-                }
-            }).to_string()
+            // Plain string context routes through LLM for body input
+            "context": format!("Request changes on PR #{number} in {owner}/{repo}")
         }),
     ]
 }
