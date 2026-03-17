@@ -1082,13 +1082,13 @@ fn test_build_issue_buttons_open_issues() {
     assert!(buttons[0]["label"].as_str().unwrap().starts_with("Close: "));
     assert_eq!(buttons[1]["id"], "close-issue-44");
 
-    // Verify context is valid JSON with correct fields
+    // Verify context uses ActionDispatchPayload format
     let ctx: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
     assert_eq!(ctx["tool"], "github");
-    assert_eq!(ctx["repo"], "octo/repo");
-    assert_eq!(ctx["issue_number"], 42);
-    assert_eq!(ctx["action"], "close_issue");
+    assert_eq!(ctx["params"]["repo"], "octo/repo");
+    assert_eq!(ctx["params"]["issue_number"], 42);
+    assert_eq!(ctx["params"]["action"], "close_issue");
 }
 
 #[test]
@@ -1139,9 +1139,9 @@ fn test_build_pr_list_buttons_open_prs() {
     let ctx: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
     assert_eq!(ctx["tool"], "github");
-    assert_eq!(ctx["repo"], "octo/repo");
-    assert_eq!(ctx["pr_number"], 10);
-    assert_eq!(ctx["action"], "approve_pr");
+    assert_eq!(ctx["params"]["repo"], "octo/repo");
+    assert_eq!(ctx["params"]["pr_number"], 10);
+    assert_eq!(ctx["params"]["action"], "approve_pr");
 }
 
 #[test]
@@ -1177,10 +1177,10 @@ fn test_build_pr_detail_buttons_open_pr() {
 
     let ctx0: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx0["action"], "approve_pr");
+    assert_eq!(ctx0["params"]["action"], "approve_pr");
     let ctx1: serde_json::Value =
         serde_json::from_str(buttons[1]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx1["action"], "request_changes");
+    assert_eq!(ctx1["params"]["action"], "request_changes");
 }
 
 #[test]

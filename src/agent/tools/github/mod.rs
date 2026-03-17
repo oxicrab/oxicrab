@@ -661,9 +661,11 @@ fn build_issue_buttons(issues: &[Value], repo: &str) -> Vec<Value> {
             "style": "danger",
             "context": serde_json::json!({
                 "tool": "github",
-                "repo": repo,
-                "issue_number": number,
-                "action": "close_issue"
+                "params": {
+                    "action": "close_issue",
+                    "repo": repo,
+                    "issue_number": number
+                }
             }).to_string()
         }));
     }
@@ -693,9 +695,11 @@ fn build_pr_list_buttons(prs: &[Value], repo: &str) -> Vec<Value> {
             "style": "primary",
             "context": serde_json::json!({
                 "tool": "github",
-                "repo": repo,
-                "pr_number": number,
-                "action": "approve_pr"
+                "params": {
+                    "action": "approve_pr",
+                    "repo": repo,
+                    "pr_number": number
+                }
             }).to_string()
         }));
     }
@@ -720,9 +724,11 @@ fn build_pr_detail_buttons(pr: &Value, repo: &str) -> Vec<Value> {
             "style": "primary",
             "context": serde_json::json!({
                 "tool": "github",
-                "repo": repo,
-                "pr_number": number,
-                "action": "approve_pr"
+                "params": {
+                    "action": "approve_pr",
+                    "repo": repo,
+                    "pr_number": number
+                }
             }).to_string()
         }),
         serde_json::json!({
@@ -731,9 +737,11 @@ fn build_pr_detail_buttons(pr: &Value, repo: &str) -> Vec<Value> {
             "style": "danger",
             "context": serde_json::json!({
                 "tool": "github",
-                "repo": repo,
-                "pr_number": number,
-                "action": "request_changes"
+                "params": {
+                    "action": "request_changes",
+                    "repo": repo,
+                    "pr_number": number
+                }
             }).to_string()
         }),
     ]
@@ -784,6 +792,23 @@ impl Tool for GitHubTool {
             ],
             category: ToolCategory::Development,
         }
+    }
+
+    fn usage_examples(&self) -> Vec<crate::agent::tools::base::ToolExample> {
+        vec![
+            crate::agent::tools::base::ToolExample {
+                user_request: "show open issues in myorg/myrepo".into(),
+                params: serde_json::json!({"action": "list_issues", "owner": "myorg", "repo": "myrepo"}),
+            },
+            crate::agent::tools::base::ToolExample {
+                user_request: "list open pull requests".into(),
+                params: serde_json::json!({"action": "list_prs", "owner": "myorg", "repo": "myrepo"}),
+            },
+            crate::agent::tools::base::ToolExample {
+                user_request: "get PR #42 details".into(),
+                params: serde_json::json!({"action": "get_pr", "owner": "myorg", "repo": "myrepo", "number": 42}),
+            },
+        ]
     }
 
     fn parameters(&self) -> Value {
