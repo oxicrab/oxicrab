@@ -43,6 +43,10 @@ impl CircuitBreakerProvider {
         inner: Arc<dyn LLMProvider>,
         config: &CircuitBreakerConfig,
     ) -> Arc<dyn LLMProvider> {
+        // Clamp half_open_probes to at least 1 — zero would permanently lock
+        // the circuit in Open state since no probes could ever succeed.
+        let mut config = config.clone();
+        config.half_open_probes = config.half_open_probes.max(1);
         Arc::new(Self {
             inner,
             breaker: Mutex::new(BreakerState {
@@ -50,7 +54,7 @@ impl CircuitBreakerProvider {
                 consecutive_failures: 0,
                 active_probes: 0,
             }),
-            config: config.clone(),
+            config,
         })
     }
 
