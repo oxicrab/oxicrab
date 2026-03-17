@@ -911,6 +911,25 @@ impl BaseChannel for SlackChannel {
             }
         }
 
+        // If no text chunks but we have buttons, send buttons standalone
+        if chunks.is_empty() && !buttons.is_empty() {
+            let mut body = serde_json::json!({
+                "channel": msg.chat_id,
+                "text": " ",
+                "blocks": buttons,
+            });
+            if let Some(ts) = thread_ts {
+                body["thread_ts"] = Value::String(ts.to_string());
+            }
+            if let Err(e) = self
+                .send_slack_api_json_with_retry("chat.postMessage", &body)
+                .await
+            {
+                error!("Error sending Slack buttons-only message: {}", e);
+                return Err(anyhow::anyhow!("Slack send error: {e}"));
+            }
+        }
+
         // Swap thinking → done reaction (fire-and-forget)
         if let Some(ts) = msg
             .metadata
