@@ -85,10 +85,9 @@ fn json_escape(s: &str) -> String {
 /// If message doesn't start with the prefix, returns ("", vec![]).
 pub fn parse_prefixed_command<'a>(message: &'a str, prefix: &str) -> (&'a str, Vec<&'a str>) {
     let trimmed = message.trim();
-    if !trimmed.starts_with(prefix) {
+    let Some(without_prefix) = trimmed.strip_prefix(prefix) else {
         return ("", vec![]);
-    }
-    let without_prefix = &trimmed[prefix.len()..];
+    };
     let mut parts = without_prefix.split_whitespace();
     let command = parts.next().unwrap_or("");
     let args: Vec<&str> = parts.collect();

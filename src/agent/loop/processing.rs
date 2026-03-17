@@ -867,7 +867,9 @@ impl AgentLoop {
             HashMap::new(),
         );
         session.add_message("assistant", &result_content, HashMap::new());
-        let _ = self.sessions.save(&session).await;
+        if let Err(e) = self.sessions.save(&session).await {
+            warn!("failed to save session after direct dispatch: {e}");
+        }
 
         // Build outbound with buttons from tool metadata
         let mut metadata = HashMap::new();
@@ -1057,7 +1059,9 @@ impl AgentLoop {
                         HashMap::new(),
                     );
                     session.add_message("assistant", &result_content, HashMap::new());
-                    let _ = self.sessions.save(&session).await;
+                    if let Err(e) = self.sessions.save(&session).await {
+                        warn!("failed to save session after direct dispatch: {e}");
+                    }
 
                     let mut meta = HashMap::new();
                     if let Some(ref rm) = result.metadata

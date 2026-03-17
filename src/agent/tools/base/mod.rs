@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 /// Usage example for a tool, appended to schema description for LLM accuracy.
+#[derive(Debug, Clone)]
 pub struct ToolExample {
     pub user_request: String,
     pub params: serde_json::Value,

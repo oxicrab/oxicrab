@@ -186,7 +186,10 @@ impl ToolRegistry {
         // Compute and cache the definition once at registration time
         let definition = Self::tool_to_definition(&tool);
         self.definition_cache.insert(name.clone(), definition);
-        let rules = tool.routing_rules();
+        let rules = tool.routing_rules().into_iter().map(|mut r| {
+            r.trigger = r.trigger.normalized();
+            r
+        });
         self.routing_rules.extend(rules);
         self.tools.insert(name, tool);
         self.cached_definitions.lock().unwrap().take();

@@ -53,6 +53,13 @@ impl MessageRouter {
         config_rules: HashMap<String, rules::ConfigRule>,
         prefix: String,
     ) -> Self {
+        let static_rules = static_rules
+            .into_iter()
+            .map(|mut r| {
+                r.trigger = r.trigger.normalized();
+                r
+            })
+            .collect();
         Self {
             static_rules,
             config_rules,

@@ -41,8 +41,15 @@ impl RouterContext {
     }
 
     /// Replace all directives. Caps at `MAX_DIRECTIVES`.
+    /// Triggers are normalized (lowercased) at install time so `matches()` is cheaper.
     pub fn install_directives(&mut self, directives: Vec<ActionDirective>) {
-        self.action_directives = directives;
+        self.action_directives = directives
+            .into_iter()
+            .map(|mut d| {
+                d.trigger = d.trigger.normalized();
+                d
+            })
+            .collect();
         self.action_directives.truncate(MAX_DIRECTIVES);
     }
 
@@ -86,12 +93,28 @@ pub enum DirectiveTrigger {
 }
 
 impl DirectiveTrigger {
+    /// Pre-lowercase `Exact` and `OneOf` variants at construction time so
+    /// `matches()` only needs to lowercase the incoming message, not the trigger.
+    #[must_use]
+    pub fn normalized(self) -> Self {
+        match self {
+            Self::Exact(s) => Self::Exact(s.to_lowercase()),
+            Self::OneOf(options) => {
+                Self::OneOf(options.into_iter().map(|o| o.to_lowercase()).collect())
+            }
+            // Patterns are applied to already-lowercased input; no change needed.
+            Self::Pattern(_) => self,
+        }
+    }
+
     /// Case-insensitive whole-message match (trimmed).
+    /// `Exact` and `OneOf` triggers are expected to already be lowercased
+    /// (call `.normalized()` at construction time).
     pub fn matches(&self, message: &str) -> bool {
         let normalized = message.trim().to_lowercase();
         match self {
-            Self::Exact(s) => normalized == s.to_lowercase(),
-            Self::OneOf(options) => options.iter().any(|o| normalized == o.to_lowercase()),
+            Self::Exact(s) => normalized == *s,
+            Self::OneOf(options) => options.contains(&normalized),
             Self::Pattern(pat) => {
                 if pat.len() > MAX_PATTERN_LEN {
                     return false;
