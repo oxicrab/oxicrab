@@ -230,7 +230,13 @@ impl AgentLoop {
                     None
                 };
                 let results = self
-                    .execute_tools(&response.tool_calls, &tool_names, exec_ctx, exfil_ref)
+                    .execute_tools(
+                        &response.tool_calls,
+                        &tool_names,
+                        exec_ctx,
+                        exfil_ref,
+                        overrides.tool_filter.as_deref(),
+                    )
                     .await;
 
                 // Stop typing indicator after tool execution (guard aborts on drop)
@@ -408,10 +414,29 @@ impl AgentLoop {
         tool_names: &[String],
         exec_ctx: &ExecutionContext,
         exfil_guard: Option<&crate::config::ExfiltrationGuardConfig>,
+        router_filter: Option<&[String]>,
     ) -> Vec<ToolResult> {
         let allow_tools: Option<Vec<String>> = exfil_guard.map(|g| g.allow_tools.clone());
+        let router_allow: Option<std::collections::HashSet<String>> = router_filter.map(|f| {
+            let mut s: std::collections::HashSet<String> = f.iter().cloned().collect();
+            // Keep interaction helpers available in constrained turns.
+            s.insert("add_buttons".to_string());
+            s.insert("tool_search".to_string());
+            s
+        });
+        let blocked_by_router = |name: &str| {
+            router_allow
+                .as_ref()
+                .is_some_and(|allow| !allow.contains(name))
+        };
         if tool_calls.len() == 1 {
             let tc = &tool_calls[0];
+            if blocked_by_router(&tc.name) {
+                return vec![ToolResult::error(format!(
+                    "Tool '{}' is not allowed in this routed turn.",
+                    tc.name
+                ))];
+            }
             vec![
                 execute_tool_call(
                     &self.tools,
@@ -436,7 +461,14 @@ impl AgentLoop {
                     let ctx = exec_ctx.clone();
                     let allow = allow_tools.clone();
                     let ws = self.workspace.clone();
+                    let blocked = blocked_by_router(&tc_name);
                     tokio::task::spawn(async move {
+                        if blocked {
+                            return ToolResult::error(format!(
+                                "Tool '{}' is not allowed in this routed turn.",
+                                tc_name
+                            ));
+                        }
                         execute_tool_call(
                             &registry,
                             &tc_name,

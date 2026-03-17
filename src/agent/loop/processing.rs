@@ -101,9 +101,11 @@ impl AgentLoop {
             .router
             .route(&msg.content, &router_context, msg.action.as_ref());
 
-        // Capture tool_filter and context_hint from routing decision before
-        // falling through to the normal pipeline
-        let (router_tool_filter, router_context_hint) = match &decision {
+        // Capture routing constraints/hints before falling through to the normal pipeline.
+        let mut router_tool_filter: Option<Vec<String>> = None;
+        let mut router_context_hint: Option<String> = None;
+        let mut should_try_semantic_filter = false;
+        match &decision {
             crate::router::RoutingDecision::DirectDispatch {
                 tool,
                 params,
@@ -132,23 +134,21 @@ impl AgentLoop {
                     .await;
             }
             crate::router::RoutingDecision::GuidedLLM {
-                tool_subset: _,
+                tool_subset,
                 context_hint,
             } => {
-                // GuidedLLM injects the context hint but does NOT filter tools.
-                // Filtering to only the active tool prevents the LLM from handling
-                // cross-domain requests (e.g. "trigger the cron job" while RSS is active).
-                // The hint gives the LLM enough context to prefer the active tool
-                // without blocking access to other tools.
-                (None, Some(context_hint.clone()))
+                // GuidedLLM is a strict policy gate: enforce a narrow tool set.
+                let subset = self.build_guided_tool_subset(tool_subset).await;
+                router_tool_filter = Some(subset);
+                router_context_hint = Some(context_hint.clone());
             }
-            // NOTE: SemanticFilter is not yet produced by the router; handled
-            // here for exhaustiveness in case it is wired in the future.
             crate::router::RoutingDecision::SemanticFilter { tool_subset } => {
-                (Some(tool_subset.clone()), None)
+                router_tool_filter = Some(tool_subset.clone());
             }
-            crate::router::RoutingDecision::FullLLM => (None, None),
-        };
+            crate::router::RoutingDecision::FullLLM => {
+                should_try_semantic_filter = true;
+            }
+        }
 
         // Build execution context for tool calls
         let context_summary = session
@@ -251,6 +251,18 @@ impl AgentLoop {
             strip_document_tags(&strip_image_tags(&msg_content))
         };
 
+        // Apply semantic tool filtering for unconstrained turns when possible.
+        if should_try_semantic_filter
+            && let Some(tool_subset) = self.semantic_filter_tool_subset(&content).await
+        {
+            info!(
+                "router: decision=SemanticFilter tool_subset=[{}] channel={}",
+                tool_subset.join(","),
+                msg.channel
+            );
+            router_tool_filter = Some(tool_subset);
+        }
+
         debug!("Acquiring context lock");
         let is_group = msg
             .metadata
@@ -344,12 +356,8 @@ impl AgentLoop {
         };
 
         // Apply router-derived tool filter and context hint
-        if router_tool_filter.is_some() {
-            overrides.tool_filter = router_tool_filter;
-        }
-        if router_context_hint.is_some() {
-            overrides.context_hint = router_context_hint;
-        }
+        overrides.tool_filter = router_tool_filter;
+        overrides.context_hint = router_context_hint;
 
         // Record complexity event off the async runtime (fire-and-forget)
         if let (Some(score), Some(band)) = (&complexity_score, &complexity_band) {
@@ -726,6 +734,147 @@ impl AgentLoop {
         }
     }
 
+    /// Build the effective GuidedLLM tool subset.
+    ///
+    /// Keeps router-selected tools, adds core interaction helpers, and includes
+    /// deferred tools activated by `tool_search` during this run.
+    async fn build_guided_tool_subset(&self, base_subset: &[String]) -> Vec<String> {
+        let mut allow: std::collections::HashSet<String> = base_subset
+            .iter()
+            .filter(|name| self.tools.get(name).is_some())
+            .cloned()
+            .collect();
+
+        for core in ["memory", "add_buttons"] {
+            if self.tools.get(core).is_some() {
+                allow.insert(core.to_string());
+            }
+        }
+        if self.tools.get("tool_search").is_some() {
+            allow.insert("tool_search".to_string());
+        }
+
+        let activated = self.tool_search_activated.lock().await.clone();
+        for name in activated {
+            if self.tools.get(&name).is_some() {
+                allow.insert(name);
+            }
+        }
+
+        let mut out: Vec<String> = allow.into_iter().collect();
+        out.sort();
+        out
+    }
+
+    /// Compute a semantic filter subset for unconstrained (FullLLM) turns.
+    ///
+    /// Uses a lexical prefilter followed by optional embedding rerank when
+    /// embeddings are available. Returns `None` when signal is weak.
+    async fn semantic_filter_tool_subset(&self, message: &str) -> Option<Vec<String>> {
+        let query = message.trim();
+        if query.is_empty() {
+            return None;
+        }
+
+        let activated = self.tool_search_activated.lock().await.clone();
+        let defs = self.tools.get_tool_definitions_with_activated(&activated);
+        if defs.len() < 2 {
+            return None;
+        }
+
+        let query_lower = query.to_lowercase();
+        let query_tokens: Vec<&str> = query_lower
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .filter(|t| t.len() >= 3)
+            .collect();
+
+        let mut candidates: Vec<(String, String, f32)> = defs
+            .into_iter()
+            .map(|d| {
+                let doc = format!("{} {}", d.name, d.description).to_lowercase();
+                let lexical = if query_tokens.is_empty() {
+                    0.0
+                } else {
+                    query_tokens.iter().filter(|t| doc.contains(**t)).count() as f32
+                        / query_tokens.len() as f32
+                };
+                (d.name, d.description, lexical)
+            })
+            .collect();
+
+        candidates.sort_by(|a, b| b.2.total_cmp(&a.2));
+        candidates.truncate(self.semantic_prefilter_k);
+
+        #[cfg(feature = "embeddings")]
+        {
+            if let Some(emb) = self.memory.embedding_service() {
+                let query_vec = emb.embed_query(query).ok()?;
+                let texts: Vec<String> = candidates
+                    .iter()
+                    .map(|(name, desc, _)| format!("{name}: {desc}"))
+                    .collect();
+                let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+                if let Ok(doc_vecs) = emb.embed_texts(&refs) {
+                    let mut scored: Vec<(String, f32)> = candidates
+                        .iter()
+                        .zip(doc_vecs.iter())
+                        .map(|((name, _desc, lexical), vec)| {
+                            let semantic = crate::agent::memory::embeddings::cosine_similarity(
+                                &query_vec, vec,
+                            );
+                            // Blend lexical precision with semantic recall.
+                            let blended = if query_tokens.is_empty() {
+                                semantic
+                            } else {
+                                (semantic * 0.75) + (*lexical * 0.25)
+                            };
+                            (name.clone(), blended)
+                        })
+                        .collect();
+                    scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+                    let mut picked: Vec<String> = scored
+                        .into_iter()
+                        .filter(|(_name, score)| *score >= self.semantic_threshold)
+                        .take(self.semantic_top_k)
+                        .map(|(name, _)| name)
+                        .collect();
+                    if picked.len() < 2 {
+                        return None;
+                    }
+                    if self.tools.get("add_buttons").is_some()
+                        && !picked.iter().any(|n| n == "add_buttons")
+                    {
+                        picked.push("add_buttons".to_string());
+                    }
+                    if self.tools.get("tool_search").is_some()
+                        && !picked.iter().any(|n| n == "tool_search")
+                    {
+                        picked.push("tool_search".to_string());
+                    }
+                    return Some(picked);
+                }
+            }
+        }
+
+        // Fallback: lexical signal only.
+        let mut picked: Vec<String> = candidates
+            .into_iter()
+            .filter(|(_, _, lexical)| *lexical > 0.0)
+            .take(self.semantic_top_k)
+            .map(|(name, _, _)| name)
+            .collect();
+        if picked.len() < 2 {
+            return None;
+        }
+        if self.tools.get("add_buttons").is_some() && !picked.iter().any(|n| n == "add_buttons") {
+            picked.push("add_buttons".to_string());
+        }
+        if self.tools.get("tool_search").is_some() && !picked.iter().any(|n| n == "tool_search") {
+            picked.push("tool_search".to_string());
+        }
+        Some(picked)
+    }
+
     /// Execute a tool directly without LLM involvement (buttons, directives,
     /// static rules, config commands, remember fast path).
     #[allow(clippy::too_many_arguments)]
@@ -924,15 +1073,18 @@ impl AgentLoop {
         ))
     }
 
-    /// Accumulate directives from all tools in a turn, then install once.
-    /// This prevents multi-tool turns from losing earlier tools' directives
-    /// (each `install_directives` call replaces the full set).
+    /// Apply router metadata from a multi-tool turn.
+    ///
+    /// Last tool wins semantics:
+    /// - the last valid `active_tool` sets context
+    /// - the last present `action_directives` payload replaces directives
+    ///   (including empty arrays, which explicitly clear directives)
     fn apply_tool_metadata_to_router(
         ctx: &mut crate::router::context::RouterContext,
         tool_metadata: &[(String, HashMap<String, Value>)],
     ) {
-        let mut all_directives = Vec::new();
         let mut last_active_tool = None;
+        let mut last_directives: Option<Vec<crate::router::context::ActionDirective>> = None;
 
         for (tool_name, meta) in tool_metadata {
             if let Some(active) = meta.get("active_tool").and_then(|v| v.as_str()) {
@@ -945,31 +1097,39 @@ impl AgentLoop {
                     );
                 }
             }
-            if let Some(directives_val) = meta.get("action_directives")
-                && let Ok(mut directives) = serde_json::from_value::<
-                    Vec<crate::router::context::ActionDirective>,
-                >(directives_val.clone())
-            {
-                directives.retain(|d| {
-                    if d.tool == *tool_name {
-                        true
-                    } else {
-                        warn!(
-                            "tool '{}' tried to set directive for tool '{}' — rejected",
-                            tool_name, d.tool
-                        );
-                        false
+            if let Some(directives_val) = meta.get("action_directives") {
+                match serde_json::from_value::<Vec<crate::router::context::ActionDirective>>(
+                    directives_val.clone(),
+                ) {
+                    Ok(mut directives) => {
+                        directives.retain(|d| {
+                            if d.tool == *tool_name {
+                                true
+                            } else {
+                                warn!(
+                                    "tool '{}' tried to set directive for tool '{}' — rejected",
+                                    tool_name, d.tool
+                                );
+                                false
+                            }
+                        });
+                        last_directives = Some(directives);
                     }
-                });
-                all_directives.extend(directives);
+                    Err(e) => {
+                        warn!(
+                            "tool '{}' returned invalid action_directives payload: {}",
+                            tool_name, e
+                        );
+                    }
+                }
             }
         }
 
         if let Some(active) = last_active_tool {
             ctx.set_active_tool(Some(active));
         }
-        if !all_directives.is_empty() {
-            ctx.install_directives(all_directives);
+        if let Some(directives) = last_directives {
+            ctx.install_directives(directives);
         }
         ctx.updated_at_ms = crate::router::now_ms();
     }

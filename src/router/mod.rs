@@ -40,6 +40,9 @@ pub enum DispatchSource {
     ConfigRule,
     RememberFastPath,
     Webhook,
+    Cron,
+    Command,
+    ToolChain,
 }
 
 impl DispatchSource {
@@ -51,6 +54,9 @@ impl DispatchSource {
             Self::ConfigRule => "command",
             Self::RememberFastPath => "remember",
             Self::Webhook => "webhook",
+            Self::Cron => "cron",
+            Self::Command => "command_dispatch",
+            Self::ToolChain => "chain",
         }
     }
 }
@@ -226,14 +232,9 @@ fn action_source_to_dispatch_source(source: &ActionSource) -> DispatchSource {
     match source {
         ActionSource::Button { .. } => DispatchSource::Button,
         ActionSource::Webhook { .. } => DispatchSource::Webhook,
-        // NOTE: Cron, Command, and ToolChain are collapsed to ActionDirective
-        // because DispatchSource has no dedicated variants for them yet.
-        // This is acceptable because handle_direct_dispatch uses
-        // ActionSource::label() (not DispatchSource::label()) for session
-        // history and logging, preserving the correct source identity.
-        ActionSource::Cron { .. }
-        | ActionSource::Command { .. }
-        | ActionSource::ToolChain { .. } => DispatchSource::ActionDirective,
+        ActionSource::Cron { .. } => DispatchSource::Cron,
+        ActionSource::Command { .. } => DispatchSource::Command,
+        ActionSource::ToolChain { .. } => DispatchSource::ToolChain,
     }
 }
 
@@ -313,6 +314,27 @@ mod tests {
             decision,
             RoutingDecision::DirectDispatch {
                 source: DispatchSource::Button,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_route_action_dispatch_cron_source() {
+        let router = make_router();
+        let ctx = context::RouterContext::default();
+        let dispatch = ActionDispatch {
+            tool: "cron".into(),
+            params: serde_json::json!({"action": "list"}),
+            source: ActionSource::Cron {
+                job_id: "job-1".into(),
+            },
+        };
+        let decision = router.route("ignored", &ctx, Some(&dispatch));
+        assert!(matches!(
+            decision,
+            RoutingDecision::DirectDispatch {
+                source: DispatchSource::Cron,
                 ..
             }
         ));
