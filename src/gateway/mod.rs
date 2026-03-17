@@ -676,6 +676,49 @@ async fn webhook_handler(
     // Apply template
     let message = apply_template(&config.template, &body_str, json_value.as_ref());
 
+    // Structured dispatch: bypass LLM, execute tool directly
+    if let Some(ref dispatch_config) = config.dispatch {
+        let template_str =
+            serde_json::to_string(&dispatch_config.params_template).unwrap_or_default();
+        let rendered = apply_template(&template_str, &body_str, json_value.as_ref());
+        let params: serde_json::Value = match serde_json::from_str(&rendered) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("webhook dispatch: params parse failure after template substitution: {e}");
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    "dispatch params parse failure",
+                )
+                    .into_response();
+            }
+        };
+
+        let dispatch = crate::dispatch::ActionDispatch {
+            tool: dispatch_config.tool.clone(),
+            params,
+            source: crate::dispatch::ActionSource::Webhook {
+                webhook_name: name.clone(),
+            },
+        };
+
+        // Route through agent loop via inbound_tx (same pattern as agent_turn)
+        for target in &config.targets {
+            let inbound = InboundMessage::builder(
+                &target.channel,
+                "webhook".to_string(),
+                &target.chat_id,
+                format!("[webhook-dispatch:{name}]"),
+            )
+            .action(dispatch.clone())
+            .build();
+
+            if let Err(e) = state.inbound_tx.send(inbound).await {
+                warn!("webhook dispatch: failed to send to agent loop: {e}");
+            }
+        }
+        return (axum::http::StatusCode::OK, "dispatched").into_response();
+    }
+
     if config.agent_turn {
         // Route through agent loop — publish as inbound message and wait for response
         let request_id = format!("webhook-{}-{}", name, Uuid::new_v4());

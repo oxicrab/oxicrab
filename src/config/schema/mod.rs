@@ -208,6 +208,9 @@ pub struct WebhookConfig {
     /// If false (default), the templated message is delivered directly to targets.
     #[serde(default, rename = "agentTurn")]
     pub agent_turn: bool,
+    /// Structured dispatch for direct tool execution, bypassing LLM.
+    #[serde(default)]
+    pub dispatch: Option<WebhookDispatchConfig>,
 }
 
 impl Default for WebhookConfig {
@@ -218,8 +221,19 @@ impl Default for WebhookConfig {
             template: default_webhook_template(),
             targets: vec![],
             agent_turn: false,
+            dispatch: None,
         }
     }
+}
+
+/// Structured dispatch configuration for webhook direct tool execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookDispatchConfig {
+    /// Tool name to dispatch to.
+    pub tool: String,
+    /// Template for tool params. Use `{{key}}` for JSON payload substitution.
+    #[serde(rename = "paramsTemplate")]
+    pub params_template: serde_json::Value,
 }
 
 fn default_webhook_template() -> String {
