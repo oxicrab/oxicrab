@@ -426,13 +426,11 @@ fn build_read_buttons(message_id: &str, subject: &str) -> Vec<Value> {
             "id": format!("reply-{message_id}"),
             "label": format!("Reply: {suffix}"),
             "style": "primary",
-            "context": serde_json::json!({
-                "tool": "google_mail",
-                "params": {
-                    "action": "reply",
-                    "message_id": message_id
-                }
-            }).to_string()
+            // Use a plain string (not JSON) so this does NOT parse as
+            // ActionDispatchPayload — the reply action requires a `body`
+            // parameter that can only come from the user, so it must go
+            // through the LLM path rather than direct dispatch.
+            "context": format!("Reply to email {message_id}")
         }),
         serde_json::json!({
             "id": format!("archive-{message_id}"),

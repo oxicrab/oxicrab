@@ -842,13 +842,8 @@ impl AgentLoop {
             );
         }
 
-        // Extract directives from result metadata
-        if let Some(ref meta) = result.metadata {
-            Self::update_router_context(router_context, meta);
-        }
-
-        // Handle single-use directive consumption (index captured at route time
-        // to avoid TOCTOU between route() and a separate lookup)
+        // Consume single-use directive BEFORE updating context (which may replace
+        // the directives vector via install_directives(), invalidating the index)
         if let Some(idx) = directive_index
             && router_context
                 .action_directives
@@ -856,6 +851,11 @@ impl AgentLoop {
                 .is_some_and(|d| d.single_use)
         {
             router_context.remove_directive_at(idx);
+        }
+
+        // Extract directives from result metadata (may replace directives vector)
+        if let Some(ref meta) = result.metadata {
+            Self::update_router_context(router_context, meta);
         }
 
         // Save router context and session history

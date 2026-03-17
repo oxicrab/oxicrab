@@ -1,4 +1,3 @@
-use crate::agent::context::ContextBuilder;
 use crate::providers::base::Message;
 use tracing::warn;
 
@@ -33,15 +32,14 @@ pub(super) fn handle_text_response(
         warn!("hallucination layer 1: action claims detected without tool calls");
         *layer1_fired = true;
 
-        // Inject correction as a system-style tool result
-        ContextBuilder::add_tool_result(
-            messages,
-            "hallucination-check",
-            "system",
+        // Inject correction as a user message so it's valid for all providers
+        // (orphan tool_result messages without a matching assistant tool_calls
+        // entry are rejected by both Anthropic and OpenAI APIs)
+        messages.push(Message::user(
             "You claimed to perform actions but did not call any tools. \
-             Please use the available tools to perform the requested actions.",
-            true,
-        );
+             Please use the available tools to perform the requested actions."
+                .to_string(),
+        ));
         return TextAction::Continue;
     }
 

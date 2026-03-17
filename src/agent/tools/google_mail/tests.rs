@@ -159,11 +159,17 @@ fn test_build_read_buttons_basic() {
     assert_eq!(buttons[0]["id"], "reply-abc123");
     assert_eq!(buttons[0]["style"], "primary");
     assert!(buttons[0]["label"].as_str().unwrap().starts_with("Reply:"));
-    let ctx0: serde_json::Value =
-        serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx0["tool"], "google_mail");
-    assert_eq!(ctx0["params"]["message_id"], "abc123");
-    assert_eq!(ctx0["params"]["action"], "reply");
+    // Reply button context is a plain string (not JSON) so it falls through to
+    // the LLM path — direct dispatch would fail without a `body` parameter.
+    let ctx0 = buttons[0]["context"].as_str().unwrap();
+    assert!(
+        ctx0.contains("abc123"),
+        "context should mention the message id"
+    );
+    assert!(
+        serde_json::from_str::<serde_json::Value>(ctx0).is_err(),
+        "reply context must NOT parse as JSON ActionDispatchPayload"
+    );
 
     assert_eq!(buttons[1]["id"], "archive-abc123");
     assert_eq!(buttons[1]["label"], "Archive");
