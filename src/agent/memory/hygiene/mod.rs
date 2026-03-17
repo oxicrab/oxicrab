@@ -57,6 +57,14 @@ pub fn run_hygiene(db: &MemoryDB, purge_log_days: u32) {
         Err(e) => warn!("cost log purge failed: {}", e),
         _ => {}
     }
+    // Purge old memory entries (keep knowledge: prefixed sources).
+    // Use a longer retention period than log tables since memory entries
+    // are more valuable — 180 days by default.
+    match db.purge_old_memory_entries(180) {
+        Ok(n) if n > 0 => info!("purged {} old memory entries", n),
+        Err(e) => warn!("memory entry purge failed: {}", e),
+        _ => {}
+    }
 }
 
 #[cfg(test)]

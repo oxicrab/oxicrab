@@ -36,6 +36,39 @@ impl MemoryDB {
         Ok(())
     }
 
+    /// Purge memory entries older than `days`, keeping `knowledge:` prefixed sources.
+    /// Also cleans up orphaned embeddings. Returns number of entries deleted.
+    pub fn purge_old_memory_entries(&self, days: u32) -> Result<usize> {
+        if days == 0 {
+            return Ok(0);
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let cutoff = Utc::now() - chrono::Duration::days(i64::from(days));
+        let cutoff_str = cutoff.to_rfc3339();
+        let deleted = conn.execute(
+            "DELETE FROM memory_entries WHERE source_key NOT LIKE 'knowledge:%' AND created_at < ?",
+            params![cutoff_str],
+        )?;
+        if deleted > 0 {
+            // Clean up orphaned embeddings
+            conn.execute(
+                "DELETE FROM memory_embeddings WHERE entry_id NOT IN (SELECT id FROM memory_entries)",
+                [],
+            )?;
+            // Invalidate embedding cache since entries were removed
+            self.embedding_generation
+                .fetch_add(1, std::sync::atomic::Ordering::Release);
+            self.embedding_cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
+        }
+        Ok(deleted)
+    }
+
     /// Get recent entries for a source key (for deduplication).
     pub fn get_recent_entries(&self, source_key: &str, limit: usize) -> Result<Vec<String>> {
         let conn = self
