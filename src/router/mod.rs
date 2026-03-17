@@ -75,6 +75,11 @@ impl MessageRouter {
                 r
             })
             .collect();
+        // Lowercase config rule keys so lookup is case-insensitive
+        let config_rules = config_rules
+            .into_iter()
+            .map(|(k, v)| (k.to_lowercase(), v))
+            .collect();
         Self {
             static_rules,
             config_rules,
@@ -146,8 +151,9 @@ impl MessageRouter {
         // 4. Prefix command → ConfigRule.
         if message.trim().starts_with(&self.prefix) {
             let (cmd, args) = rules::parse_prefixed_command(message, &self.prefix);
-            if !cmd.is_empty()
-                && let Some(rule) = self.config_rules.get(cmd)
+            let cmd_lower = cmd.to_lowercase();
+            if !cmd_lower.is_empty()
+                && let Some(rule) = self.config_rules.get(&cmd_lower)
             {
                 let params = rule.substitute(&args);
                 info!(
@@ -353,6 +359,25 @@ mod tests {
             } => {
                 assert_eq!(tool, "weather");
                 assert_eq!(params["location"], "portland");
+            }
+            _ => panic!("expected DirectDispatch ConfigRule"),
+        }
+    }
+
+    #[test]
+    fn test_route_config_command_case_insensitive() {
+        let router = make_router();
+        let ctx = context::RouterContext::default();
+        let decision = router.route("!Weather Portland", &ctx, None);
+        match decision {
+            RoutingDecision::DirectDispatch {
+                tool,
+                params,
+                source: DispatchSource::ConfigRule,
+                ..
+            } => {
+                assert_eq!(tool, "weather");
+                assert_eq!(params["location"], "Portland");
             }
             _ => panic!("expected DirectDispatch ConfigRule"),
         }
