@@ -25,10 +25,8 @@ pub struct AgentRunOverrides {
     pub metadata: std::collections::HashMap<String, serde_json::Value>,
     /// Structured action dispatch — bypasses LLM when Some.
     pub action: Option<crate::dispatch::ActionDispatch>,
-    /// Tool name filter for `GuidedLLM` path — only include these tools.
-    pub tool_filter: Option<Vec<String>>,
-    /// Context hint injected into system prompt for `GuidedLLM` path.
-    pub context_hint: Option<String>,
+    /// Strict route policy for constrained turns.
+    pub routing_policy: Option<crate::router::RoutingPolicy>,
 }
 
 /// Tool-specific configurations bundled together. These fields are only used

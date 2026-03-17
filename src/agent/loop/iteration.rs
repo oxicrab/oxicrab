@@ -71,10 +71,19 @@ impl AgentLoop {
         };
 
         // Router tool filter: constrain available tools for GuidedLLM/SemanticFilter paths
-        if let Some(ref filter) = overrides.tool_filter {
+        if let Some(policy) = overrides.routing_policy.as_ref() {
             tools_defs.retain(|td| {
-                filter.contains(&td.name) || td.name == "add_buttons" || td.name == "tool_search"
+                policy.allowed_tools.contains(&td.name)
+                    || td.name == "add_buttons"
+                    || td.name == "tool_search"
             });
+        }
+        if let Some(policy) = overrides.routing_policy.as_ref() {
+            debug!(
+                "router policy active: reason={} tools={}",
+                policy.reason,
+                tools_defs.len()
+            );
         }
 
         // Extract tool names for hallucination detection (may be rebuilt if tool_search activates deferred tools)
@@ -96,7 +105,10 @@ impl AgentLoop {
         }
 
         // Inject router context hint into system prompt for GuidedLLM path
-        if let Some(ref hint) = overrides.context_hint
+        if let Some(hint) = overrides
+            .routing_policy
+            .as_ref()
+            .and_then(|p| p.context_hint.as_ref())
             && let Some(system_msg) = messages.first_mut()
         {
             use std::fmt::Write;
@@ -160,20 +172,19 @@ impl AgentLoop {
 
             // Clone needed: messages is mutated after the call (tool results appended),
             // and ChatRequest takes ownership. Cost is negligible vs. the API round-trip.
-            let response = effective_provider
-                .chat_with_retry(
-                    &crate::providers::base::ChatRequest {
-                        messages: messages.clone(),
-                        tools: Some(Arc::clone(&tools_arc)),
-                        model: Some(effective_model.to_string()),
-                        max_tokens: self.max_tokens,
-                        temperature: current_temp,
-                        tool_choice,
-                        response_format: overrides.response_format.clone(),
-                    },
-                    Some(crate::providers::base::RetryConfig::default()),
-                )
-                .await;
+            let response = super::model_gateway::ModelGateway::invoke(
+                effective_provider.as_ref(),
+                super::model_gateway::ModelGateway::build_turn_request(
+                    messages.clone(),
+                    Arc::clone(&tools_arc),
+                    effective_model,
+                    self.max_tokens,
+                    current_temp,
+                    tool_choice,
+                    overrides.response_format.clone(),
+                ),
+            )
+            .await;
 
             // Stop typing indicator after LLM call returns (guard aborts on drop)
             drop(typing_guard);
@@ -230,7 +241,13 @@ impl AgentLoop {
                     None
                 };
                 let results = self
-                    .execute_tools(&response.tool_calls, &tool_names, exec_ctx, exfil_ref)
+                    .execute_tools(
+                        &response.tool_calls,
+                        &tool_names,
+                        exec_ctx,
+                        exfil_ref,
+                        overrides.routing_policy.as_ref(),
+                    )
                     .await;
 
                 // Stop typing indicator after tool execution (guard aborts on drop)
@@ -269,9 +286,9 @@ impl AgentLoop {
                             });
                         }
                         // Re-apply tool filter (GuidedLLM constraint)
-                        if let Some(ref filter) = overrides.tool_filter {
+                        if let Some(policy) = overrides.routing_policy.as_ref() {
                             tools_defs.retain(|td| {
-                                filter.contains(&td.name)
+                                policy.allowed_tools.contains(&td.name)
                                     || td.name == "add_buttons"
                                     || td.name == "tool_search"
                             });
@@ -408,10 +425,37 @@ impl AgentLoop {
         tool_names: &[String],
         exec_ctx: &ExecutionContext,
         exfil_guard: Option<&crate::config::ExfiltrationGuardConfig>,
+        routing_policy: Option<&crate::router::RoutingPolicy>,
     ) -> Vec<ToolResult> {
         let allow_tools: Option<Vec<String>> = exfil_guard.map(|g| g.allow_tools.clone());
+        let router_allow: Option<std::collections::HashSet<String>> =
+            routing_policy.map(|policy| {
+                let mut s: std::collections::HashSet<String> =
+                    policy.allowed_tools.iter().cloned().collect();
+                // Keep interaction helpers available in constrained turns.
+                s.insert("add_buttons".to_string());
+                s.insert("tool_search".to_string());
+                s
+            });
+        let router_block: Option<std::collections::HashSet<String>> =
+            routing_policy.map(|policy| policy.blocked_tools.iter().cloned().collect());
+        let blocked_by_router = |name: &str| {
+            router_block
+                .as_ref()
+                .is_some_and(|blocked| blocked.contains(name))
+                || router_allow
+                    .as_ref()
+                    .is_some_and(|allow| !allow.contains(name))
+        };
         if tool_calls.len() == 1 {
             let tc = &tool_calls[0];
+            if blocked_by_router(&tc.name) {
+                crate::router::metrics::record_blocked_tool_attempt();
+                return vec![ToolResult::error(format!(
+                    "Tool '{}' is not allowed in this routed turn.",
+                    tc.name
+                ))];
+            }
             vec![
                 execute_tool_call(
                     &self.tools,
@@ -436,7 +480,14 @@ impl AgentLoop {
                     let ctx = exec_ctx.clone();
                     let allow = allow_tools.clone();
                     let ws = self.workspace.clone();
+                    let blocked = blocked_by_router(&tc_name);
                     tokio::task::spawn(async move {
+                        if blocked {
+                            crate::router::metrics::record_blocked_tool_attempt();
+                            return ToolResult::error(format!(
+                                "Tool '{tc_name}' is not allowed in this routed turn."
+                            ));
+                        }
                         execute_tool_call(
                             &registry,
                             &tc_name,
@@ -606,18 +657,16 @@ impl AgentLoop {
         messages.push(Message::user(
             "Provide a brief summary of what you accomplished for the user.".to_string(),
         ));
-        match effective_provider
-            .chat_with_retry(
-                &crate::providers::base::ChatRequest {
-                    messages: messages.clone(),
-                    model: Some(effective_model.to_string()),
-                    max_tokens: self.max_tokens,
-                    temperature: self.temperature,
-                    ..Default::default()
-                },
-                Some(crate::providers::base::RetryConfig::default()),
-            )
-            .await
+        match super::model_gateway::ModelGateway::invoke(
+            effective_provider,
+            super::model_gateway::ModelGateway::build_summary_request(
+                messages.clone(),
+                effective_model,
+                self.max_tokens,
+                self.temperature,
+            ),
+        )
+        .await
         {
             Ok(response) => {
                 let cost_model = response

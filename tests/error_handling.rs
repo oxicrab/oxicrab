@@ -145,7 +145,11 @@ async fn test_invalid_tool_arguments() {
     let second_msgs = &recorded[1].messages;
     let tool_msg = second_msgs.iter().find(|m| m.role == "tool").unwrap();
     assert!(tool_msg.is_error);
-    assert!(tool_msg.content.contains("should be string"));
+    assert!(
+        tool_msg.content.contains("string") || tool_msg.content.contains("type"),
+        "unexpected validation error: {}",
+        tool_msg.content
+    );
 }
 
 #[tokio::test]

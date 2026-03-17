@@ -367,7 +367,10 @@
   },
   "router": {
     "prefix": "!",
-    "rules": []
+    "rules": [],
+    "semantic_top_k": 3,
+    "semantic_prefilter_k": 12,
+    "semantic_threshold": 0.5
   },
   "credentialHelper": {
     "command": "",

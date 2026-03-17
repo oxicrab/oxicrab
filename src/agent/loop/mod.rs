@@ -5,7 +5,9 @@ mod hallucination;
 mod helpers;
 mod iteration;
 mod metadata;
+mod model_gateway;
 mod processing;
+mod replay;
 
 #[cfg(test)]
 use crate::agent::tools::base::ExecutionContext;
@@ -114,6 +116,12 @@ pub struct AgentLoop {
     pending_buttons: crate::agent::tools::interactive::PendingButtons,
     /// Priority-ordered message router for direct dispatch and guided LLM paths
     router: std::sync::Arc<crate::router::MessageRouter>,
+    /// Semantic filter size (top-k tools) for no-context LLM turns.
+    semantic_top_k: usize,
+    /// Lexical prefilter size before semantic rerank.
+    semantic_prefilter_k: usize,
+    /// Minimum semantic score for retaining a candidate tool.
+    semantic_threshold: f32,
 }
 
 impl AgentLoop {
@@ -374,6 +382,9 @@ impl AgentLoop {
                 )
             })
             .collect();
+        let semantic_top_k = router_config.semantic_top_k.max(1);
+        let semantic_prefilter_k = router_config.semantic_prefilter_k.max(semantic_top_k);
+        let semantic_threshold = router_config.semantic_threshold.clamp(-1.0, 1.0);
         let router = std::sync::Arc::new(crate::router::MessageRouter::new(
             tools.routing_rules().to_vec(),
             config_rules,
@@ -436,6 +447,9 @@ impl AgentLoop {
             tool_search_activated,
             pending_buttons,
             router,
+            semantic_top_k,
+            semantic_prefilter_k,
+            semantic_threshold,
         })
     }
 
