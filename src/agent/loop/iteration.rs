@@ -76,6 +76,13 @@ impl AgentLoop {
                 filter.contains(&td.name) || td.name == "add_buttons" || td.name == "tool_search"
             });
         }
+        if let Some(reason) = overrides.route_reason.as_deref() {
+            debug!(
+                "router policy active: reason={} tools={}",
+                reason,
+                tools_defs.len()
+            );
+        }
 
         // Extract tool names for hallucination detection (may be rebuilt if tool_search activates deferred tools)
         let mut tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();

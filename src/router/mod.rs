@@ -19,16 +19,24 @@ pub enum RoutingDecision {
         directive_index: Option<usize>,
     },
     /// Send to LLM, but constrain available tools and prepend a context hint.
-    GuidedLLM {
-        tool_subset: Vec<String>,
-        context_hint: String,
-    },
+    GuidedLLM { policy: RoutingPolicy },
     /// LLM interprets with semantically filtered tools.
     /// NOTE: Not yet wired — router returns `FullLLM`; agent loop may construct this
     /// in the future for embedding-based tool selection.
-    SemanticFilter { tool_subset: Vec<String> },
+    SemanticFilter { policy: RoutingPolicy },
     /// Full unconstrained LLM turn.
     FullLLM,
+}
+
+/// Policy payload for constrained LLM turns.
+#[derive(Debug, Clone)]
+pub struct RoutingPolicy {
+    /// Exact tool allow-list for this turn.
+    pub allowed_tools: Vec<String>,
+    /// Optional prompt hint to inject into the system prompt.
+    pub context_hint: Option<String>,
+    /// Human-readable route reason for logs and analytics.
+    pub reason: &'static str,
 }
 
 /// Identifies how a `DirectDispatch` decision was produced.
@@ -208,18 +216,26 @@ impl MessageRouter {
         // (non-expired) directives indicates an ongoing interaction. Stale context
         // (no live directives, or updated_at too old) falls through to FullLLM
         // to avoid biasing the LLM away from the tools the user actually needs.
-        if let Some(tool) = &ctx.active_tool {
-            let has_live_directives = ctx.action_directives.iter().any(|d| !d.is_expired(now));
-            if has_live_directives {
+        match ctx.state(now) {
+            context::RouterState::Focused { tool } => {
                 let context_hint = build_context_hint(ctx);
                 info!("router: decision=GuidedLLM tool_subset=[{tool}]");
                 return RoutingDecision::GuidedLLM {
-                    tool_subset: vec![tool.clone()],
-                    context_hint,
+                    policy: RoutingPolicy {
+                        allowed_tools: vec![tool.to_string()],
+                        context_hint: Some(context_hint),
+                        reason: "active_tool_with_live_directives",
+                    },
                 };
             }
-            // Stale context — all directives expired. Fall through to FullLLM.
-            debug!("router: active_tool={tool} but no live directives, falling through to FullLLM");
+            context::RouterState::Idle => {
+                if let Some(tool) = &ctx.active_tool {
+                    // Stale context — all directives expired. Fall through to FullLLM.
+                    debug!(
+                        "router: active_tool={tool} but no live directives, falling through to FullLLM"
+                    );
+                }
+            }
         }
 
         // 8. Full LLM.
@@ -480,7 +496,14 @@ mod tests {
             created_at_ms: now_ms(),
         });
         let decision = router.route("show me something interesting", &ctx, None);
-        assert!(matches!(decision, RoutingDecision::GuidedLLM { .. }));
+        match decision {
+            RoutingDecision::GuidedLLM { policy } => {
+                assert!(policy.allowed_tools.contains(&"rss".to_string()));
+                assert_eq!(policy.reason, "active_tool_with_live_directives");
+                assert!(policy.context_hint.is_some());
+            }
+            _ => panic!("expected GuidedLLM"),
+        }
     }
 
     #[test]

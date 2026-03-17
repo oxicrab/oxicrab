@@ -29,6 +29,8 @@ pub struct AgentRunOverrides {
     pub tool_filter: Option<Vec<String>>,
     /// Context hint injected into system prompt for `GuidedLLM` path.
     pub context_hint: Option<String>,
+    /// Reason for route policy selection (for observability/debugging).
+    pub route_reason: Option<String>,
 }
 
 /// Tool-specific configurations bundled together. These fields are only used

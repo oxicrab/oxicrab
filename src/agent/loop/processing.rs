@@ -104,6 +104,7 @@ impl AgentLoop {
         // Capture routing constraints/hints before falling through to the normal pipeline.
         let mut router_tool_filter: Option<Vec<String>> = None;
         let mut router_context_hint: Option<String> = None;
+        let mut router_reason: Option<String> = None;
         let mut should_try_semantic_filter = false;
         match &decision {
             crate::router::RoutingDecision::DirectDispatch {
@@ -133,17 +134,16 @@ impl AgentLoop {
                     )
                     .await;
             }
-            crate::router::RoutingDecision::GuidedLLM {
-                tool_subset,
-                context_hint,
-            } => {
+            crate::router::RoutingDecision::GuidedLLM { policy } => {
                 // GuidedLLM is a strict policy gate: enforce a narrow tool set.
-                let subset = self.build_guided_tool_subset(tool_subset).await;
+                let subset = self.build_guided_tool_subset(&policy.allowed_tools).await;
                 router_tool_filter = Some(subset);
-                router_context_hint = Some(context_hint.clone());
+                router_context_hint = policy.context_hint.clone();
+                router_reason = Some(policy.reason.to_string());
             }
-            crate::router::RoutingDecision::SemanticFilter { tool_subset } => {
-                router_tool_filter = Some(tool_subset.clone());
+            crate::router::RoutingDecision::SemanticFilter { policy } => {
+                router_tool_filter = Some(policy.allowed_tools.clone());
+                router_reason = Some(policy.reason.to_string());
             }
             crate::router::RoutingDecision::FullLLM => {
                 should_try_semantic_filter = true;
@@ -261,6 +261,7 @@ impl AgentLoop {
                 msg.channel
             );
             router_tool_filter = Some(tool_subset);
+            router_reason = Some("semantic_filter".to_string());
         }
 
         debug!("Acquiring context lock");
@@ -358,6 +359,7 @@ impl AgentLoop {
         // Apply router-derived tool filter and context hint
         overrides.tool_filter = router_tool_filter;
         overrides.context_hint = router_context_hint;
+        overrides.route_reason = router_reason;
 
         // Record complexity event off the async runtime (fire-and-forget)
         if let (Some(score), Some(band)) = (&complexity_score, &complexity_band) {

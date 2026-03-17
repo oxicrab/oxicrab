@@ -22,6 +22,12 @@ pub struct RouterContext {
     pub updated_at_ms: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouterState<'a> {
+    Idle,
+    Focused { tool: &'a str },
+}
+
 impl RouterContext {
     /// Load from session metadata. Returns default if missing or malformed.
     pub fn from_session_metadata(
@@ -73,6 +79,16 @@ impl RouterContext {
     pub fn remove_directive_at(&mut self, index: usize) {
         if index < self.action_directives.len() {
             self.action_directives.remove(index);
+        }
+    }
+
+    /// Explicit interaction state based on active tool + live directives.
+    pub fn state(&self, now_ms: i64) -> RouterState<'_> {
+        match self.active_tool.as_deref() {
+            Some(tool) if self.action_directives.iter().any(|d| !d.is_expired(now_ms)) => {
+                RouterState::Focused { tool }
+            }
+            _ => RouterState::Idle,
         }
     }
 }
