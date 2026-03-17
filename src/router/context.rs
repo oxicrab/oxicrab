@@ -4,6 +4,17 @@ pub const MAX_DIRECTIVES: usize = 20;
 pub const DEFAULT_DIRECTIVE_TTL_MS: i64 = 300_000; // 5 minutes
 const MAX_PATTERN_LEN: usize = 256;
 
+/// LRU cache of compiled regexes keyed by anchored pattern string.
+/// Capacity of 64 covers all realistic directive sets with room to spare.
+/// `Regex` is `Send + Sync`, so wrapping in `Mutex` is safe across threads.
+static PATTERN_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<lru::LruCache<String, Option<regex::Regex>>>,
+> = std::sync::LazyLock::new(|| {
+    std::sync::Mutex::new(lru::LruCache::new(
+        std::num::NonZeroUsize::new(64).expect("64 > 0"),
+    ))
+});
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RouterContext {
     pub active_tool: Option<String>,
@@ -130,11 +141,16 @@ impl DirectiveTrigger {
                 // matching "yesterday"). Tools provide the inner pattern;
                 // the router enforces whole-message semantics.
                 let anchored = format!("^(?:{pat})$");
-                // Pattern compiled per-match (not cached). Acceptable because:
-                // - Directives are short-lived (5 min TTL)
-                // - Pattern triggers are rare (most use Exact/OneOf)
-                // - 256-char length limit bounds compilation cost
-                regex::Regex::new(&anchored).is_ok_and(|re| re.is_match(normalized))
+                // Compiled regexes are cached in a global LRU (capacity 64)
+                // keyed by anchored pattern string, so each distinct pattern
+                // is compiled at most once across all threads and all match calls.
+                let mut cache = PATTERN_CACHE
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let compiled = cache.get_or_insert(anchored.clone(), || {
+                    regex::Regex::new(&anchored).ok()
+                });
+                compiled.as_ref().is_some_and(|re| re.is_match(normalized))
             }
         }
     }
