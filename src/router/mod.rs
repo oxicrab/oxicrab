@@ -183,20 +183,20 @@ impl MessageRouter {
         let now = now_ms();
 
         // 3. ActionDirective match (skip expired).
-        if let Some(i) = ctx.match_directive_index(&normalized, now) {
-            if let Some(directive) = ctx.directives().get(i) {
-                info!(
-                    "router: decision=DirectDispatch tool={} source=ActionDirective",
-                    directive.tool
-                );
-                metrics::record_direct_dispatch();
-                return RoutingDecision::DirectDispatch {
-                    tool: directive.tool.clone(),
-                    params: directive.params.clone(),
-                    source: DispatchSource::ActionDirective,
-                    directive_index: Some(i),
-                };
-            }
+        if let Some(i) = ctx.match_directive_index(&normalized, now)
+            && let Some(directive) = ctx.directives().get(i)
+        {
+            info!(
+                "router: decision=DirectDispatch tool={} source=ActionDirective",
+                directive.tool
+            );
+            metrics::record_direct_dispatch();
+            return RoutingDecision::DirectDispatch {
+                tool: directive.tool.clone(),
+                params: directive.params.clone(),
+                source: DispatchSource::ActionDirective,
+                directive_index: Some(i),
+            };
         }
 
         // 4. Prefix command → ConfigRule.
@@ -239,20 +239,19 @@ impl MessageRouter {
                 .static_rules
                 .get(*idx)
                 .is_some_and(|rule| rule.matches_normalized(&normalized, active_tool))
+            && let Some(rule) = self.static_rules.get(*idx)
         {
-            if let Some(rule) = self.static_rules.get(*idx) {
-                info!(
-                    "router: decision=DirectDispatch tool={} source=StaticRule",
-                    rule.tool
-                );
-                metrics::record_direct_dispatch();
-                return RoutingDecision::DirectDispatch {
-                    tool: rule.tool.clone(),
-                    params: rule.params.clone(),
-                    source: DispatchSource::StaticRule,
-                    directive_index: None,
-                };
-            }
+            info!(
+                "router: decision=DirectDispatch tool={} source=StaticRule",
+                rule.tool
+            );
+            metrics::record_direct_dispatch();
+            return RoutingDecision::DirectDispatch {
+                tool: rule.tool.clone(),
+                params: rule.params.clone(),
+                source: DispatchSource::StaticRule,
+                directive_index: None,
+            };
         }
         for idx in &self.static_pattern_indices {
             let Some(rule) = self.static_rules.get(*idx) else {

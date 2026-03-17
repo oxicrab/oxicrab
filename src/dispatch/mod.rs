@@ -148,8 +148,7 @@ mod tests {
             .count();
         assert!(
             present <= 2,
-            "cache capacity is 2, but {} entries remained",
-            present
+            "cache capacity is 2, but {present} entries remained"
         );
     }
 

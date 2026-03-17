@@ -802,7 +802,7 @@ impl AgentLoop {
         }
     }
 
-    /// Build the effective GuidedLLM tool subset.
+    /// Build the effective `GuidedLLM` tool subset.
     ///
     /// Keeps router-selected tools, adds core interaction helpers, and includes
     /// deferred tools activated by `tool_search` during this run.
@@ -834,7 +834,7 @@ impl AgentLoop {
         out
     }
 
-    /// Compute a semantic filter subset for unconstrained (FullLLM) turns.
+    /// Compute a semantic filter subset for unconstrained (`FullLLM`) turns.
     ///
     /// Uses a lexical prefilter followed by optional embedding rerank when
     /// embeddings are available. Returns `None` when signal is weak.
@@ -933,7 +933,7 @@ impl AgentLoop {
             ));
         }
         if tool == "_router_replay" {
-            let index = params.get("index").and_then(|v| v.as_i64());
+            let index = params.get("index").and_then(serde_json::Value::as_i64);
             let response = self.render_router_replay(session_key, index).await?;
             return Ok(Some(
                 OutboundMessage::from_inbound(msg.clone(), response).build(),
@@ -1246,7 +1246,10 @@ impl AgentLoop {
             );
 
             if dispatch.tool == "_router_replay" {
-                let index = dispatch.params.get("index").and_then(|v| v.as_i64());
+                let index = dispatch
+                    .params
+                    .get("index")
+                    .and_then(serde_json::Value::as_i64);
                 return Ok(super::config::DirectResult {
                     content: self.render_router_replay(session_key, index).await?,
                     metadata: HashMap::new(),

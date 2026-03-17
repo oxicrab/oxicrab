@@ -485,8 +485,7 @@ impl AgentLoop {
                         if blocked {
                             crate::router::metrics::record_blocked_tool_attempt();
                             return ToolResult::error(format!(
-                                "Tool '{}' is not allowed in this routed turn.",
-                                tc_name
+                                "Tool '{tc_name}' is not allowed in this routed turn."
                             ));
                         }
                         execute_tool_call(

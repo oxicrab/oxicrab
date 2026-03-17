@@ -14,21 +14,16 @@ static PATTERN_CACHE: std::sync::LazyLock<
     ))
 });
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ContextState {
+    #[default]
     Idle,
     ToolFocused {
         tool: String,
         directives: Vec<ActionDirective>,
         expires_at_ms: i64,
     },
-}
-
-impl Default for ContextState {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
