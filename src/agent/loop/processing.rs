@@ -699,19 +699,6 @@ impl AgentLoop {
         Ok(history)
     }
 
-    fn build_execution_context(
-        channel: &str,
-        chat_id: &str,
-        context_summary: Option<String>,
-    ) -> ExecutionContext {
-        ExecutionContext {
-            channel: channel.to_string(),
-            chat_id: chat_id.to_string(),
-            context_summary,
-            ..Default::default()
-        }
-    }
-
     fn build_execution_context_with_metadata(
         channel: &str,
         chat_id: &str,
@@ -1134,16 +1121,12 @@ impl AgentLoop {
         };
 
         let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
-        let exec_ctx = if overrides.metadata.is_empty() {
-            Self::build_execution_context(channel, chat_id, None)
-        } else {
-            Self::build_execution_context_with_metadata(
-                channel,
-                chat_id,
-                None,
-                overrides.metadata.clone(),
-            )
-        };
+        let exec_ctx = Self::build_execution_context_with_metadata(
+            channel,
+            chat_id,
+            None,
+            overrides.metadata.clone(),
+        );
         let request_id = format!("req-{}", Uuid::new_v4());
 
         let effective_overrides = if overrides.request_id.is_some() {
