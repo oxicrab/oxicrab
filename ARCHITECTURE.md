@@ -50,19 +50,15 @@ This enables the Anthropic prompt cache (5-minute TTL), reducing input token cos
 - **Tool output stash** (`src/agent/tools/stash/mod.rs`): In-memory LRU cache (32 entries, 32 MB total) that preserves large tool outputs before truncation. When `TruncationMiddleware` truncates a result, the full content is stashed and a `stash_retrieve` tool lets the LLM recover it with pagination (`offset`/`limit` params).
 - **Tool parameter auto-casting** (`src/agent/tools/registry/mod.rs`): `coerce_params_to_schema()` runs before tool execution, fixing common LLM type mismatches (string→integer, string→number, number→string, string→boolean, string→array/object). Saves a full round-trip per mismatch.
 - **Schema hint injection** (`src/agent/tools/registry/mod.rs`): `inject_schema_hint()` appends the tool's description and parameter schema to error messages when a tool returns `is_error: true`. Helps the LLM self-correct without needing full schemas in every request.
-- **Tool pre-filtering / ToolCategory** (`src/agent/loop/tool_filter.rs`): `ToolCategory` enum (declared in `src/agent/tools/base/mod.rs`) classifies tools by domain. `tool_filter.rs` uses the category and inbound message content keywords to select a relevant subset of tools per turn, reducing token overhead from tool definitions.
+- **Tool pre-filtering / ToolCategory**: `ToolCategory` enum (declared in `src/agent/tools/base/mod.rs`) classifies tools by domain. The router and guided LLM path use the category to select a relevant subset of tools per turn, reducing token overhead from tool definitions.
 
 ## Agent Loop (`src/agent/loop/mod.rs`)
 
 `AgentLoop::new(AgentLoopConfig)` runs up to `max_iterations` (default 20) of: LLM call → parallel tool execution → append to conversation. Tool execution is delegated to `ToolRegistry::execute()` which handles caching, truncation (10k chars), timeout, panic isolation, and logging via the middleware pipeline. All iterations use `tool_choice=None` (auto). Safety against text-only hallucinations comes from `handle_text_response()` which detects false action claims and false no-tools claims. Hallucination detection runs on final text responses. Responses flow through the loop's return value (no message tool); the caller sends them exactly once. At 70% of `max_iterations`, a system message prompts the LLM to begin wrapping up. Post-compaction recovery instructions include the last user message and a compaction summary. Cognitive `CheckpointTracker` (configured via `agents.defaults.cognitive`) nudges the LLM to self-checkpoint via escalating pressure messages based on tool call volume.
 
-### Intent Classification (`src/agent/loop/intent/mod.rs`)
-
-Classifies each inbound message as action-oriented vs. conversational/informational using regex heuristics (no LLM call). Used by hallucination detection to determine if text-only responses should be flagged as false action claims, and for recording intent analytics.
-
 ### Complexity-Aware Routing (`src/agent/loop/complexity/mod.rs`)
 
-`ComplexityScorer` scores inbound messages across 7 dimensions (message length, reasoning keywords, technical vocabulary, question complexity, code presence, instruction complexity, conversational simplicity) using AC automata and regex. Composite score maps to standard/heavy model thresholds defined in `ChatRoutingConfig`. Wired in `process_message_unlocked()` after intent classification.
+`ComplexityScorer` scores inbound messages across 7 dimensions (message length, reasoning keywords, technical vocabulary, question complexity, code presence, instruction complexity, conversational simplicity) using AC automata and regex. Composite score maps to standard/heavy model thresholds defined in `ChatRoutingConfig`. Wired in `process_message_unlocked()` after router pre-classification.
 
 ### Context Providers (`src/agent/context/providers/mod.rs`)
 
@@ -125,6 +121,7 @@ keyring-store = ["dep:keyring"]
 browser = [...]          # headless browser tool (chromiumoxide)
 local-whisper = [...]    # local whisper.cpp voice transcription
 embeddings = [...]       # fastembed ONNX for vector search
+tool-rss = [...]         # RSS feed reader with LinTS ranking
 ```
 
 Channels are conditionally compiled via `#[cfg(feature = "channel-*")]` in `src/channels/mod.rs`. Keyring support (`keyring-store`) is default-on for desktop; containers should build with `--no-default-features` and use env vars instead.
