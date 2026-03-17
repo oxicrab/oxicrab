@@ -87,8 +87,11 @@ impl AgentLoop {
                 ));
             }
             crate::router::RoutingDecision::SemanticFilter { policy } => {
+                // Keep semantic-filtered turns narrow: include only core
+                // interaction helpers on top of semantically selected tools.
+                let subset = self.build_semantic_tool_subset(&policy.allowed_tools);
                 routing_policy = Some(self.policy_from_allowlist(
-                    policy.allowed_tools.clone(),
+                    subset,
                     policy.context_hint.clone(),
                     policy.reason,
                 ));
@@ -832,6 +835,29 @@ impl AgentLoop {
         for name in activated {
             if self.tools.get(&name).is_some() {
                 allow.insert(name);
+            }
+        }
+
+        let mut out: Vec<String> = allow.into_iter().collect();
+        out.sort();
+        out
+    }
+
+    /// Build the effective `SemanticFilter` tool subset.
+    ///
+    /// Keeps semantically-selected tools and adds only core interaction helpers.
+    /// Unlike guided turns, this intentionally does not include deferred tools
+    /// activated by `tool_search`, preserving semantic narrowing.
+    fn build_semantic_tool_subset(&self, base_subset: &[String]) -> Vec<String> {
+        let mut allow: std::collections::HashSet<String> = base_subset
+            .iter()
+            .filter(|name| self.tools.get(name).is_some())
+            .cloned()
+            .collect();
+
+        for core in ["memory", "add_buttons", "tool_search"] {
+            if self.tools.get(core).is_some() {
+                allow.insert(core.to_string());
             }
         }
 

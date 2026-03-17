@@ -115,8 +115,9 @@ impl SemanticToolIndex {
                 if scored.is_empty() {
                     return None;
                 }
-                let score_values: Vec<f32> = scored.iter().map(|(_, s)| *s).collect();
-                crate::router::metrics::record_semantic_scores(&score_values);
+                crate::router::metrics::record_semantic_candidate_scores(
+                    &scored.iter().map(|(_, s)| *s).collect::<Vec<f32>>(),
+                );
                 scored.sort_by(|a, b| b.1.total_cmp(&a.1));
                 if scored.len() >= 2 && (scored[0].1 - scored[1].1) < self.min_margin {
                     crate::router::metrics::record_semantic_low_confidence_fallback();
@@ -130,7 +131,9 @@ impl SemanticToolIndex {
                 if selected.len() < 2 {
                     return None;
                 }
-                crate::router::metrics::record_semantic_filter();
+                crate::router::metrics::record_semantic_scores(
+                    &selected.iter().map(|(_, s)| *s).collect::<Vec<f32>>(),
+                );
                 return Some(SemanticSelection {
                     tools: selected.iter().map(|(n, _)| n.clone()).collect(),
                     scores: selected.iter().map(|(_, s)| *s).collect(),
@@ -138,9 +141,19 @@ impl SemanticToolIndex {
             }
         }
 
-        let selected: Vec<(String, f32)> = lexical
+        let candidates: Vec<(String, f32)> = lexical
             .into_iter()
             .map(|(idx, score)| (self.entries[idx].name.clone(), (score * 2.0) - 1.0))
+            .collect();
+        if candidates.is_empty() {
+            return None;
+        }
+        crate::router::metrics::record_semantic_candidate_scores(
+            &candidates.iter().map(|(_, s)| *s).collect::<Vec<f32>>(),
+        );
+
+        let selected: Vec<(String, f32)> = candidates
+            .into_iter()
             .filter(|(_, score)| *score >= self.threshold)
             .take(self.top_k)
             .collect();
@@ -154,7 +167,6 @@ impl SemanticToolIndex {
         crate::router::metrics::record_semantic_scores(
             &selected.iter().map(|(_, s)| *s).collect::<Vec<f32>>(),
         );
-        crate::router::metrics::record_semantic_filter();
         Some(SemanticSelection {
             tools: selected.iter().map(|(n, _)| n.clone()).collect(),
             scores: selected.iter().map(|(_, s)| *s).collect(),

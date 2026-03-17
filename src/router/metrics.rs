@@ -30,7 +30,7 @@ pub fn record_policy_drift() {
 ///
 /// Precision = hits / used, Recall = hits / allowed.
 pub fn record_semantic_turn_proxy_quality(allowed_tools: &[String], used_tools: &[String]) {
-    let helper = |name: &str| name == "add_buttons" || name == "tool_search";
+    let helper = |name: &str| name == "add_buttons" || name == "tool_search" || name == "memory";
     let allowed: std::collections::HashSet<&str> = allowed_tools
         .iter()
         .map(String::as_str)
@@ -73,5 +73,12 @@ pub fn record_semantic_low_confidence_fallback() {
 pub fn record_semantic_scores(scores: &[f32]) {
     for score in scores {
         metrics::histogram!("router_semantic_score").record(f64::from(*score));
+    }
+}
+
+/// Record semantic candidate score distribution before confidence/threshold checks.
+pub fn record_semantic_candidate_scores(scores: &[f32]) {
+    for score in scores {
+        metrics::histogram!("router_semantic_candidate_score").record(f64::from(*score));
     }
 }
