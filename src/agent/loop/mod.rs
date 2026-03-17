@@ -7,6 +7,7 @@ mod iteration;
 mod metadata;
 mod model_gateway;
 mod processing;
+mod replay;
 
 #[cfg(test)]
 use crate::agent::tools::base::ExecutionContext;

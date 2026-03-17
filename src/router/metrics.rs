@@ -49,26 +49,32 @@ static SEM_BUCKETS: [AtomicU64; 10] = [
 ];
 
 pub fn record_direct_dispatch() {
+    metrics::counter!("router_route_decision_total", "decision" => "direct_dispatch").increment(1);
     DIRECT_DISPATCH.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn record_guided_llm() {
+    metrics::counter!("router_route_decision_total", "decision" => "guided_llm").increment(1);
     GUIDED_LLM.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn record_semantic_filter() {
+    metrics::counter!("router_route_decision_total", "decision" => "semantic_filter").increment(1);
     SEMANTIC_FILTER.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn record_full_llm() {
+    metrics::counter!("router_route_decision_total", "decision" => "full_llm").increment(1);
     FULL_LLM.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn record_blocked_tool_attempt() {
+    metrics::counter!("router_blocked_tool_attempt_total").increment(1);
     BLOCKED_TOOL_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn record_policy_drift() {
+    metrics::counter!("router_policy_drift_total").increment(1);
     POLICY_DRIFT_EVENTS.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -102,8 +108,10 @@ pub fn record_semantic_turn_proxy_quality(allowed_tools: &[String], used_tools: 
     };
 
     SEMANTIC_TURNS.fetch_add(1, Ordering::Relaxed);
+    metrics::counter!("router_semantic_turn_total").increment(1);
     if hits == 0 {
         SEMANTIC_ZERO_HIT_TURNS.fetch_add(1, Ordering::Relaxed);
+        metrics::counter!("router_semantic_zero_hit_turn_total").increment(1);
     }
     SEMANTIC_PROXY_PRECISION_BPS_SUM.fetch_add(precision_bps, Ordering::Relaxed);
     SEMANTIC_PROXY_RECALL_BPS_SUM.fetch_add(recall_bps, Ordering::Relaxed);
@@ -113,12 +121,14 @@ pub fn record_semantic_turn_proxy_quality(allowed_tools: &[String], used_tools: 
 }
 
 pub fn record_semantic_low_confidence_fallback() {
+    metrics::counter!("router_semantic_low_confidence_fallback_total").increment(1);
     SEMANTIC_LOW_CONFIDENCE_FALLBACKS.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Record score distribution in 10 fixed buckets over [-1.0, 1.0].
 pub fn record_semantic_scores(scores: &[f32]) {
     for score in scores {
+        metrics::histogram!("router_semantic_score").record(*score as f64);
         let normalized = ((*score + 1.0) / 2.0).clamp(0.0, 1.0);
         let mut idx = (normalized * 10.0).floor() as usize;
         if idx >= 10 {

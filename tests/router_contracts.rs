@@ -127,7 +127,8 @@ async fn contract_invalid_tool_params_are_rejected_before_execution() {
     let saw_validation_error = second_messages.iter().any(|m| {
         m.role == "tool"
             && m.content.contains("Invalid arguments for tool 'list_dir'")
-            && m.content.contains("missing required parameter 'path'")
+            && m.content.contains("path")
+            && m.content.contains("required")
     });
     assert!(
         saw_validation_error,
@@ -188,5 +189,40 @@ async fn contract_router_replay_command_handles_empty_history() {
     assert!(
         replay.contains("No router replay traces are available"),
         "expected empty-history replay output, got: {replay}"
+    );
+}
+
+#[tokio::test]
+async fn contract_action_dispatch_uses_schema_validation_gateway() {
+    let tmp = tempfile::TempDir::new().expect("tempdir");
+    let provider = MockLLMProvider::with_responses(vec![text_response("unused")]);
+    let agent = create_test_agent_with(provider, &tmp, TestAgentOverrides::default()).await;
+
+    let result = agent
+        .process_direct_with_overrides(
+            "ignored",
+            "test:action_validation",
+            "telegram",
+            "chat1",
+            &AgentRunOverrides {
+                action: Some(ActionDispatch {
+                    tool: "list_dir".to_string(),
+                    params: serde_json::json!({}),
+                    source: ActionSource::Command {
+                        raw: "!list_dir".to_string(),
+                    },
+                }),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("action dispatch result");
+
+    assert!(
+        result
+            .content
+            .contains("Invalid arguments for tool 'list_dir'"),
+        "expected schema validation error, got: {}",
+        result.content
     );
 }

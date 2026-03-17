@@ -576,7 +576,8 @@ fn test_validate_params_missing_required() {
     let result = validate_tool_params(&tool, &params);
     assert!(result.is_some());
     let msg = result.unwrap();
-    assert!(msg.contains("missing required parameter 'query'"));
+    assert!(msg.contains("query"));
+    assert!(msg.contains("required"));
 }
 
 #[test]
@@ -587,7 +588,8 @@ fn test_validate_params_wrong_type() {
     let result = validate_tool_params(&tool, &params);
     assert!(result.is_some());
     let msg = result.unwrap();
-    assert!(msg.contains("parameter 'query' should be string but got number"));
+    assert!(msg.contains("query"));
+    assert!(msg.contains("type"));
 }
 
 #[test]
@@ -627,7 +629,8 @@ fn test_validate_params_rejects_unknown_when_additional_properties_false() {
     let result = validate_tool_params(&tool, &params);
     assert!(result.is_some());
     let msg = result.unwrap();
-    assert!(msg.contains("unknown parameter 'extra'"));
+    assert!(msg.contains("unknown parameter"));
+    assert!(msg.contains("extra"));
 }
 
 #[tokio::test]
@@ -645,11 +648,8 @@ async fn test_validation_rejects_before_execution() {
     )
     .await;
     assert!(result.is_error);
-    assert!(
-        result
-            .content
-            .contains("missing required parameter 'query'")
-    );
+    assert!(result.content.contains("query"));
+    assert!(result.content.contains("required"));
 }
 
 // --- Approval gate tests ---

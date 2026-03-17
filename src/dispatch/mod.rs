@@ -1,8 +1,5 @@
-use lru::LruCache;
 use serde::{Deserialize, Serialize};
-use std::num::NonZeroUsize;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Structured tool call that bypasses the LLM.
 #[derive(Debug, Clone)]
@@ -43,52 +40,33 @@ pub struct ActionDispatchPayload {
 const DEFAULT_DISPATCH_TTL: Duration = Duration::from_mins(15);
 
 /// In-memory LRU store for Discord button dispatch contexts.
-/// Uses `lru::LruCache` for eviction with an additional TTL check on reads.
+/// Uses `moka` for bounded capacity and TTL eviction.
 pub struct DispatchContextStore {
-    inner: Mutex<LruCache<String, (ActionDispatchPayload, Instant)>>,
-    ttl: Duration,
+    inner: moka::sync::Cache<String, ActionDispatchPayload>,
 }
 
 impl DispatchContextStore {
     pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "DispatchContextStore capacity must be > 0");
-        Self {
-            inner: Mutex::new(LruCache::new(NonZeroUsize::new(capacity).unwrap())),
-            ttl: DEFAULT_DISPATCH_TTL,
-        }
+        Self::with_ttl(capacity, DEFAULT_DISPATCH_TTL)
     }
 
-    #[cfg(test)]
     pub fn with_ttl(capacity: usize, ttl: Duration) -> Self {
         assert!(capacity > 0, "DispatchContextStore capacity must be > 0");
         Self {
-            inner: Mutex::new(LruCache::new(NonZeroUsize::new(capacity).unwrap())),
-            ttl,
+            inner: moka::sync::Cache::builder()
+                .max_capacity(capacity as u64)
+                .time_to_live(ttl)
+                .build(),
         }
     }
 
     pub fn insert(&self, key: String, payload: ActionDispatchPayload) {
-        let mut cache = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        cache.put(key, (payload, Instant::now()));
+        self.inner.insert(key, payload);
     }
 
     pub fn get(&self, key: &str) -> Option<ActionDispatchPayload> {
-        let mut cache = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some((payload, inserted_at)) = cache.get(key) {
-            if inserted_at.elapsed() > self.ttl {
-                cache.pop(key);
-                return None;
-            }
-            Some(payload.clone())
-        } else {
-            None
-        }
+        self.inner.get(key)
     }
 }
 
@@ -163,9 +141,16 @@ mod tests {
         store.insert("a".into(), p("a"));
         store.insert("b".into(), p("b"));
         store.insert("c".into(), p("c"));
-        assert!(store.get("a").is_none());
-        assert!(store.get("b").is_some());
-        assert!(store.get("c").is_some());
+        store.inner.run_pending_tasks();
+        let present = ["a", "b", "c"]
+            .iter()
+            .filter(|k| store.get(k).is_some())
+            .count();
+        assert!(
+            present <= 2,
+            "cache capacity is 2, but {} entries remained",
+            present
+        );
     }
 
     #[test]
@@ -178,6 +163,7 @@ mod tests {
         store.insert("btn".into(), p);
         assert!(store.get("btn").is_some());
         std::thread::sleep(std::time::Duration::from_millis(60));
+        store.inner.run_pending_tasks();
         assert!(store.get("btn").is_none());
     }
 
@@ -196,13 +182,9 @@ mod tests {
         };
         store.insert("btn".into(), p);
         std::thread::sleep(std::time::Duration::from_millis(60));
-        // TTL eviction in get() should remove from cache
+        store.inner.run_pending_tasks();
         assert!(store.get("btn").is_none());
-        let cache = store
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        assert!(cache.peek("btn").is_none());
+        assert!(store.inner.get("btn").is_none());
     }
 
     #[test]

@@ -2,6 +2,7 @@ use crate::agent::tools::ToolRegistry;
 use crate::agent::tools::base::{ExecutionContext, ToolResult};
 use crate::providers::base::ImageData;
 use anyhow::Result;
+use jsonschema::error::ValidationErrorKind;
 use regex::Regex;
 use serde_json::Value;
 use std::sync::Arc;
@@ -63,85 +64,48 @@ fn is_safe_media_path(path: &str, media_dir: Option<&std::path::Path>) -> bool {
 }
 
 /// Validate tool arguments against the tool's JSON schema.
-/// Checks: (1) required fields are present, (2) field types match schema.
+/// Uses full JSON Schema validation (draft auto-detected by `jsonschema`).
 /// Returns None if valid, `Some(error_message)` if invalid.
 pub(crate) fn validate_tool_params(
     tool: &dyn crate::agent::tools::base::Tool,
     params: &Value,
 ) -> Option<String> {
     let schema = tool.parameters();
-    let mut errors = Vec::new();
-
-    // Check required fields
-    if let Some(required) = schema["required"].as_array() {
-        for field in required {
-            if let Some(field_name) = field.as_str()
-                && (params.get(field_name).is_none() || params[field_name].is_null())
-            {
-                errors.push(format!("missing required parameter '{field_name}'"));
-            }
+    let compiled = match jsonschema::validator_for(&schema) {
+        Ok(c) => c,
+        Err(e) => {
+            return Some(format!("Invalid schema for tool '{}': {}", tool.name(), e));
         }
+    };
+    if compiled.is_valid(params) {
+        return None;
     }
 
-    // Check types of provided fields
-    if let Some(properties) = schema["properties"].as_object() {
-        // Strict-mode style check: when schema explicitly forbids additional
-        // properties, reject unknown keys up front.
-        let additional_forbidden =
-            schema.get("additionalProperties").and_then(Value::as_bool) == Some(false);
-        if additional_forbidden && let Some(obj) = params.as_object() {
-            for key in obj.keys() {
-                if !properties.contains_key(key) {
-                    errors.push(format!("unknown parameter '{key}'"));
+    let errors: Vec<String> = compiled
+        .iter_errors(params)
+        .take(6)
+        .map(|err| match err.kind() {
+            ValidationErrorKind::Required { property } => {
+                format!("missing required parameter '{property}'")
+            }
+            ValidationErrorKind::AdditionalProperties { unexpected } => {
+                format!("unknown parameter(s) {}", unexpected.join(", "))
+            }
+            _ => {
+                let path = err.instance_path().to_string();
+                if path.is_empty() {
+                    err.to_string()
+                } else {
+                    format!("{path}: {err}")
                 }
             }
-        }
-
-        for (field_name, field_schema) in properties {
-            if let Some(value) = params.get(field_name)
-                && !value.is_null()
-                && let Some(expected_type) = field_schema["type"].as_str()
-            {
-                let type_ok = match expected_type {
-                    "string" => value.is_string(),
-                    "number" | "integer" => value.is_number(),
-                    "boolean" => value.is_boolean(),
-                    "array" => value.is_array(),
-                    "object" => value.is_object(),
-                    _ => true,
-                };
-                if !type_ok {
-                    errors.push(format!(
-                        "parameter '{}' should be {} but got {}",
-                        field_name,
-                        expected_type,
-                        value_type_name(value)
-                    ));
-                }
-            }
-        }
-    }
-
-    if errors.is_empty() {
-        None
-    } else {
-        Some(format!(
-            "Invalid arguments for tool '{}': {}",
-            tool.name(),
-            errors.join("; ")
-        ))
-    }
-}
-
-fn value_type_name(v: &Value) -> &'static str {
-    match v {
-        Value::String(_) => "string",
-        Value::Number(_) => "number",
-        Value::Bool(_) => "boolean",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
-        Value::Null => "null",
-    }
+        })
+        .collect();
+    Some(format!(
+        "Invalid arguments for tool '{}': {}",
+        tool.name(),
+        errors.join("; ")
+    ))
 }
 
 /// Execute a tool call via the registry's middleware pipeline.

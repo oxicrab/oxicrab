@@ -1,8 +1,8 @@
 use super::AgentLoop;
 use super::config::AgentRunOverrides;
 use super::helpers::{
-    load_and_encode_images, strip_audio_tags, strip_document_tags, strip_image_tags,
-    transcribe_audio_tags,
+    execute_tool_call, load_and_encode_images, strip_audio_tags, strip_document_tags,
+    strip_image_tags, transcribe_audio_tags,
 };
 use crate::agent::tools::base::ExecutionContext;
 use crate::bus::{InboundMessage, OutboundMessage};
@@ -442,7 +442,7 @@ impl AgentLoop {
         );
         extra.insert(
             "router_replay".to_string(),
-            self.build_router_replay_metadata(&content, &router_context, &decision, &overrides),
+            Self::build_router_replay_metadata(&content, &router_context, &decision, &overrides),
         );
         if let Some(policy) = overrides.routing_policy.as_ref() {
             extra.insert(
@@ -858,87 +858,6 @@ impl AgentLoop {
         Some(picked)
     }
 
-    fn build_router_replay_metadata(
-        &self,
-        content: &str,
-        router_context: &crate::router::context::RouterContext,
-        decision: &crate::router::RoutingDecision,
-        overrides: &AgentRunOverrides,
-    ) -> serde_json::Value {
-        let now = crate::router::now_ms();
-        let (context_state, active_tool) = match router_context.state(now) {
-            crate::router::context::RouterState::Idle => ("idle", None),
-            crate::router::context::RouterState::Focused { tool } => ("tool_focused", Some(tool)),
-        };
-        let decision_kind = match decision {
-            crate::router::RoutingDecision::DirectDispatch { .. } => "direct_dispatch",
-            crate::router::RoutingDecision::GuidedLLM { .. } => "guided_llm",
-            crate::router::RoutingDecision::SemanticFilter { .. } => "semantic_filter",
-            crate::router::RoutingDecision::FullLLM => "full_llm",
-        };
-        serde_json::json!({
-            "ts_ms": now,
-            "message_normalized": content.trim().to_lowercase(),
-            "decision": decision_kind,
-            "context_state": context_state,
-            "active_tool": active_tool,
-            "live_directive_count": router_context.directives().iter().filter(|d| !d.is_expired(now)).count(),
-            "policy_reason": overrides.routing_policy.as_ref().map(|p| p.reason),
-            "policy_allowed_tools": overrides.routing_policy.as_ref().map(|p| p.allowed_tools.clone()).unwrap_or_default(),
-            "policy_blocked_tools": overrides.routing_policy.as_ref().map(|p| p.blocked_tools.clone()).unwrap_or_default(),
-        })
-    }
-
-    async fn render_router_replay(&self, session_key: &str, index: Option<i64>) -> Result<String> {
-        let session = self.sessions.get_or_create(session_key).await?;
-        let entries: Vec<(usize, &crate::session::manager::MessageData, &Value)> = session
-            .messages
-            .iter()
-            .enumerate()
-            .filter_map(|(i, msg)| {
-                msg.extra
-                    .get("router_replay")
-                    .map(|trace| (i, msg, trace))
-                    .filter(|(_, msg, _)| msg.role == "user")
-            })
-            .collect();
-
-        if entries.is_empty() {
-            return Ok("No router replay traces are available in this session yet.".to_string());
-        }
-
-        let selected = if let Some(i) = index {
-            if i < 0 {
-                entries.last().copied()
-            } else {
-                entries.get(i as usize).copied()
-            }
-        } else {
-            entries.last().copied()
-        };
-        let Some((message_idx, message, trace)) = selected else {
-            return Ok(format!(
-                "Router replay index out of range. Available traces: 0..{}.",
-                entries.len().saturating_sub(1)
-            ));
-        };
-
-        let trace_pos = entries
-            .iter()
-            .position(|(i, _, _)| *i == message_idx)
-            .unwrap_or(0);
-        let pretty_trace =
-            serde_json::to_string_pretty(trace).unwrap_or_else(|_| trace.to_string());
-        Ok(format!(
-            "Router replay trace {trace_pos} of {} (session message #{message_idx}).\n\
-             User message: {}\n\
-             Trace:\n```json\n{}\n```",
-            entries.len().saturating_sub(1),
-            message.content,
-            pretty_trace
-        ))
-    }
-
     /// Execute a tool directly without LLM involvement (buttons, directives,
     /// static rules, config commands, remember fast path).
     #[allow(clippy::too_many_arguments)]
@@ -1051,24 +970,19 @@ impl AgentLoop {
             msg.metadata.clone(),
         );
 
-        // Execute tool
-        let result = match self.tools.execute(&tool, params, &ctx).await {
-            Ok(r) => r,
-            Err(e) => {
-                warn!("direct dispatch tool execution failed: {e}");
-                let sanitized = crate::utils::path_sanitize::sanitize_error_message(
-                    &format!("{e}"),
-                    Some(self.workspace.as_path()),
-                );
-                return Ok(Some(
-                    OutboundMessage::from_inbound(
-                        msg.clone(),
-                        format!("Action failed: {sanitized}"),
-                    )
-                    .build(),
-                ));
-            }
-        };
+        // Execute via the same gateway used by LLM tool calls so direct
+        // dispatch enforces schema/security contracts consistently.
+        let available_tools = self.tools.tool_names();
+        let result = execute_tool_call(
+            &self.tools,
+            &tool,
+            &params,
+            &available_tools,
+            &ctx,
+            None,
+            Some(self.workspace.as_path()),
+        )
+        .await;
 
         // Secret-scan tool result output
         let result_content = self.leak_detector.redact(&result.content);
@@ -1362,55 +1276,52 @@ impl AgentLoop {
                 None,
                 overrides.metadata.clone(),
             );
-            match self.tools.execute(&dispatch.tool, params, &ctx).await {
-                Ok(result) => {
-                    // Secret-scan tool result output
-                    let result_content = self.leak_detector.redact(&result.content);
-                    if result_content != result.content {
-                        warn!(
-                            "direct call action dispatch: secrets detected in tool '{}' output — redacting",
-                            dispatch.tool
-                        );
-                    }
-
-                    // Save session history
-                    let mut session = self.sessions.get_or_create(session_key).await?;
-                    session.add_message(
-                        "user",
-                        format!(
-                            "[action: {} via {}]",
-                            dispatch.tool,
-                            dispatch.source.label()
-                        ),
-                        HashMap::new(),
-                    );
-                    session.add_message("assistant", &result_content, HashMap::new());
-                    if let Err(e) = self.sessions.save(&session).await {
-                        warn!("failed to save session after direct dispatch: {e}");
-                    }
-
-                    let mut meta = HashMap::new();
-                    if let Some(ref rm) = result.metadata
-                        && let Some(buttons) = rm.get("suggested_buttons")
-                    {
-                        meta.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
-                    }
-                    return Ok(super::config::DirectResult {
-                        content: result_content,
-                        metadata: meta,
-                    });
-                }
-                Err(e) => {
-                    let sanitized = crate::utils::path_sanitize::sanitize_error_message(
-                        &format!("{e}"),
-                        Some(self.workspace.as_path()),
-                    );
-                    return Ok(super::config::DirectResult {
-                        content: format!("Action failed: {sanitized}"),
-                        metadata: HashMap::new(),
-                    });
-                }
+            let available_tools = self.tools.tool_names();
+            let result = execute_tool_call(
+                &self.tools,
+                &dispatch.tool,
+                &params,
+                &available_tools,
+                &ctx,
+                None,
+                Some(self.workspace.as_path()),
+            )
+            .await;
+            // Secret-scan tool result output
+            let result_content = self.leak_detector.redact(&result.content);
+            if result_content != result.content {
+                warn!(
+                    "direct call action dispatch: secrets detected in tool '{}' output — redacting",
+                    dispatch.tool
+                );
             }
+
+            // Save session history
+            let mut session = self.sessions.get_or_create(session_key).await?;
+            session.add_message(
+                "user",
+                format!(
+                    "[action: {} via {}]",
+                    dispatch.tool,
+                    dispatch.source.label()
+                ),
+                HashMap::new(),
+            );
+            session.add_message("assistant", &result_content, HashMap::new());
+            if let Err(e) = self.sessions.save(&session).await {
+                warn!("failed to save session after direct dispatch: {e}");
+            }
+
+            let mut meta = HashMap::new();
+            if let Some(ref rm) = result.metadata
+                && let Some(buttons) = rm.get("suggested_buttons")
+            {
+                meta.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
+            }
+            return Ok(super::config::DirectResult {
+                content: result_content,
+                metadata: meta,
+            });
         }
 
         let session = self.sessions.get_or_create(session_key).await?;
