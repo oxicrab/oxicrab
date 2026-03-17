@@ -409,7 +409,8 @@ impl SlackChannel {
             // with optional "[retry-after={secs}]" suffix.
             let mut msg = format!("Slack API error: {error} [status={status}]");
             if let Some(secs) = retry_after {
-                msg.push_str(&format!(" [retry-after={secs}]"));
+                use std::fmt::Write;
+                let _ = write!(msg, " [retry-after={secs}]");
             }
             return Err(anyhow::anyhow!("{msg}"));
         }

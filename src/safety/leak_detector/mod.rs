@@ -393,14 +393,13 @@ impl LeakDetector {
         // found in the decoded form, return the redacted decoded version.
         // This trades URL-encoding preservation for security — acceptable
         // because the alternative is leaking secrets.
-        if result.contains('%') {
-            if let Ok(decoded) = urlencoding::decode(&result) {
-                if *decoded != result {
-                    let redacted_decoded = self.redact_inner(&decoded);
-                    if redacted_decoded != *decoded {
-                        return redacted_decoded;
-                    }
-                }
+        if result.contains('%')
+            && let Ok(decoded) = urlencoding::decode(&result)
+            && *decoded != result
+        {
+            let redacted_decoded = self.redact_inner(&decoded);
+            if redacted_decoded != *decoded {
+                return redacted_decoded;
             }
         }
 
