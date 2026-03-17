@@ -1,5 +1,10 @@
 //! Utility functions for channel implementations
 
+/// Maximum size for downloaded image attachments (20 MB).
+pub const MAX_IMAGE_DOWNLOAD: usize = 20 * 1024 * 1024;
+/// Maximum size for downloaded audio attachments (50 MB).
+pub const MAX_AUDIO_DOWNLOAD: usize = 50 * 1024 * 1024;
+
 /// Check if a sender is allowed based on an allow list OR the pairing store.
 ///
 /// Access is granted if any of these conditions are met:

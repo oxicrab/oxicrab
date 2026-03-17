@@ -1,8 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{
-    DmCheckResult, check_dm_access, check_group_access, exponential_backoff_delay,
-    format_pairing_reply,
+    DmCheckResult, MAX_AUDIO_DOWNLOAD, MAX_IMAGE_DOWNLOAD, check_dm_access, check_group_access,
+    exponential_backoff_delay, format_pairing_reply,
 };
 use crate::config::{DiscordCommand, DiscordConfig};
 use anyhow::Result;
@@ -22,8 +22,6 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 const DISCORD_API_BASE: &str = "https://discord.com/api/v10";
-const MAX_IMAGE_DOWNLOAD: usize = 20 * 1024 * 1024; // 20 MB
-const MAX_AUDIO_DOWNLOAD: usize = 50 * 1024 * 1024; // 50 MB
 
 struct Handler {
     inbound_tx: mpsc::Sender<InboundMessage>,

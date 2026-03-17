@@ -1,8 +1,8 @@
 use crate::bus::{InboundMessage, OutboundMessage};
 use crate::channels::base::{BaseChannel, split_message};
 use crate::channels::utils::{
-    DmCheckResult, check_dm_access, check_group_access, exponential_backoff_delay,
-    format_pairing_reply,
+    DmCheckResult, MAX_AUDIO_DOWNLOAD, MAX_IMAGE_DOWNLOAD, check_dm_access, check_group_access,
+    exponential_backoff_delay, format_pairing_reply,
 };
 use crate::config::SlackConfig;
 use crate::utils::regex::{RegexPatterns, compile_slack_mention};
@@ -16,8 +16,6 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 const MAX_USER_CACHE: usize = 1000;
-const MAX_IMAGE_DOWNLOAD: usize = 20 * 1024 * 1024; // 20 MB
-const MAX_AUDIO_DOWNLOAD: usize = 50 * 1024 * 1024; // 50 MB
 
 /// Subtypes to ignore when processing Slack message events.
 /// Unknown subtypes are allowed through (safe default = process).
