@@ -3,10 +3,8 @@ mod complexity;
 pub mod config;
 mod hallucination;
 mod helpers;
-mod intent;
 mod iteration;
 mod processing;
-mod tool_filter;
 
 #[cfg(test)]
 use crate::agent::tools::base::ExecutionContext;
@@ -29,9 +27,6 @@ pub use config::{
     AgentLoopConfig, AgentLoopResult, AgentLoopRuntimeParams, AgentRunOverrides, DirectResult,
     LifecycleConfig, SafetyConfig, ToolConfigs,
 };
-
-#[cfg(test)]
-use tool_filter::infer_tool_categories;
 
 use crate::agent::compaction::MessageCompactor;
 use crate::agent::context::ContextBuilder;

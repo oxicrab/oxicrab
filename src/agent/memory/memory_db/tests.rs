@@ -1039,28 +1039,6 @@ fn test_list_daily_source_keys() {
 }
 
 #[test]
-fn test_purge_old_intent_metrics() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = MemoryDB::new(dir.path().join("test.db")).unwrap();
-
-    db.record_intent_event(
-        "classification",
-        Some("regex"),
-        None,
-        None,
-        "test message",
-        None,
-    )
-    .unwrap();
-
-    // Purge with 0 days should be a no-op
-    assert_eq!(db.purge_old_intent_metrics(0).unwrap(), 0);
-
-    // Purge with very large days should not delete recent entries
-    assert_eq!(db.purge_old_intent_metrics(365).unwrap(), 0);
-}
-
-#[test]
 fn test_purge_old_complexity_logs() {
     let dir = tempfile::tempdir().unwrap();
     let db = MemoryDB::new(dir.path().join("test.db")).unwrap();

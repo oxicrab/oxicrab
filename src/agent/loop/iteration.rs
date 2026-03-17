@@ -1,6 +1,5 @@
 use super::config::{AgentLoopResult, AgentRunOverrides};
 use super::hallucination::{self, CorrectionState, TextAction};
-use super::tool_filter::{TOOL_FILTER_THRESHOLD, infer_tool_categories};
 use super::{
     AgentLoop, EMPTY_RESPONSE_RETRIES, MAX_RETRY_DELAY_SECS, MIN_WRAPUP_ITERATION,
     RETRY_BACKOFF_BASE, WRAPUP_THRESHOLD_RATIO,
@@ -49,35 +48,9 @@ impl AgentLoop {
         self.tool_search_activated.lock().await.clear();
         let mut activated_snapshot = std::collections::HashSet::new();
 
-        // Tool pre-filtering: when total tools > threshold, select only
-        // categories relevant to the user's message to reduce prompt noise.
-        // Cache categories so deferred tool rebuilds reuse the same filter.
-        let cached_categories = if self.tools.tool_names().len() > TOOL_FILTER_THRESHOLD {
-            let user_content = messages
-                .iter()
-                .rev()
-                .find(|m| m.role == "user")
-                .map_or("", |m| m.content.as_str());
-            Some(infer_tool_categories(user_content))
-        } else {
-            None
-        };
-        let tools_defs = if let Some(ref categories) = cached_categories {
-            let total_tools = self.tools.tool_names().len();
-            let defs = self
-                .tools
-                .get_filtered_definitions_with_activated(categories, &activated_snapshot);
-            debug!(
-                "tool pre-filter: {}/{} tools in {} categories",
-                defs.len(),
-                total_tools,
-                categories.len()
-            );
-            defs
-        } else {
-            self.tools
-                .get_tool_definitions_with_activated(&activated_snapshot)
-        };
+        let tools_defs = self
+            .tools
+            .get_tool_definitions_with_activated(&activated_snapshot);
 
         // Exfiltration guard: hide network-outbound tools from the LLM
         let mut tools_defs = if self.exfiltration_guard.enabled {
@@ -265,15 +238,9 @@ impl AgentLoop {
                         let new_count = current.len() - activated_snapshot.len();
                         debug!("tool_search activated {new_count} new deferred tool(s)");
                         activated_snapshot = current;
-                        tools_defs = if let Some(ref categories) = cached_categories {
-                            self.tools.get_filtered_definitions_with_activated(
-                                categories,
-                                &activated_snapshot,
-                            )
-                        } else {
-                            self.tools
-                                .get_tool_definitions_with_activated(&activated_snapshot)
-                        };
+                        tools_defs = self
+                            .tools
+                            .get_tool_definitions_with_activated(&activated_snapshot);
                         // Re-apply exfiltration guard
                         if self.exfiltration_guard.enabled {
                             let allowed = &self.exfiltration_guard.allow_tools;
@@ -303,8 +270,6 @@ impl AgentLoop {
                     &tool_names,
                     &tools_used,
                     user_has_action_intent,
-                    Some(&self.memory.db()),
-                    overrides.request_id.as_deref(),
                     tool_mention_ac.as_ref(),
                 ) {
                     TextAction::Continue => {}

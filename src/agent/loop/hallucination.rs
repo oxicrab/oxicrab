@@ -1,8 +1,6 @@
-use super::intent;
 use crate::agent::context::ContextBuilder;
-use crate::agent::memory::memory_db::MemoryDB;
 use crate::providers::base::Message;
-use tracing::{debug, warn};
+use tracing::warn;
 
 pub use super::helpers::{
     contains_action_claims, is_false_no_tools_claim, mentions_any_tool, mentions_multiple_tools,
@@ -67,8 +65,6 @@ pub(super) fn handle_text_response(
     tool_names: &[String],
     tools_used: &[String],
     user_has_action_intent: bool,
-    db: Option<&MemoryDB>,
-    request_id: Option<&str>,
     tool_mention_ac: Option<&aho_corasick::AhoCorasick>,
 ) -> TextAction {
     // Layer 0: Detect false "no tools" claims and retry with correction.
@@ -88,18 +84,6 @@ pub(super) fn handle_text_response(
             state.layer0_count + 1,
             MAX_LAYER0_CORRECTIONS
         );
-        if let Some(db) = db
-            && let Err(e) = db.record_intent_event(
-                "hallucination",
-                None,
-                None,
-                Some("layer0_false_no_tools"),
-                content,
-                request_id,
-            )
-        {
-            debug!("failed to record hallucination metric: {}", e);
-        }
         ContextBuilder::add_assistant_message(
             messages,
             Some(content),
@@ -139,18 +123,6 @@ pub(super) fn handle_text_response(
         };
         if trigger {
             warn!("Action hallucination detected: LLM claims actions but tools were not called");
-            if let Some(db) = db
-                && let Err(e) = db.record_intent_event(
-                    "hallucination",
-                    None,
-                    None,
-                    Some("layer1_regex"),
-                    content,
-                    request_id,
-                )
-            {
-                debug!("failed to record hallucination metric: {}", e);
-            }
             ContextBuilder::add_assistant_message(
                 messages,
                 Some(content),
@@ -178,22 +150,10 @@ pub(super) fn handle_text_response(
         && !any_tools_called
         && !tool_names.is_empty()
         && user_has_action_intent
-        && !intent::is_clarification_question(content)
+        && !super::helpers::is_clarification_question(content)
         && !is_legitimate_refusal(content)
     {
         warn!("Intent mismatch: user requested action but LLM returned text without calling tools");
-        if let Some(db) = db
-            && let Err(e) = db.record_intent_event(
-                "hallucination",
-                None,
-                None,
-                Some("layer2_intent"),
-                content,
-                request_id,
-            )
-        {
-            debug!("failed to record hallucination metric: {}", e);
-        }
         ContextBuilder::add_assistant_message(
             messages,
             Some(content),
@@ -229,18 +189,6 @@ pub(super) fn handle_text_response(
             warn!(
                 "Partial hallucination: LLM called some tools but claims actions for uncalled tools"
             );
-            if let Some(db) = db
-                && let Err(e) = db.record_intent_event(
-                    "hallucination",
-                    None,
-                    None,
-                    Some("layer3_action_gap"),
-                    content,
-                    request_id,
-                )
-            {
-                debug!("failed to record hallucination metric: {}", e);
-            }
             ContextBuilder::add_assistant_message(
                 messages,
                 Some(content),

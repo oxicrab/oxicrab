@@ -4,7 +4,7 @@ use crate::providers::base::ImageData;
 use anyhow::Result;
 use regex::Regex;
 use serde_json::Value;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tracing::{info, warn};
 
@@ -527,6 +527,52 @@ pub(super) async fn transcribe_audio_tags(
     }
     result.push_str(remaining);
     result
+}
+
+/// Detects if the LLM response is a clarification question rather than
+/// a hallucinated action or evasive non-answer.
+static CLARIFICATION_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)(?:which\s+(?:task|one|item|file|project)|what\s+(?:should|would you like|do you want|task|name|title)|could you (?:specify|clarify|tell me)|can you (?:specify|clarify)|do you (?:want|mean|prefer)|would you like me to|did you mean|what['']?s the)\b",
+    )
+    .unwrap()
+});
+
+/// Check if the LLM's response is a legitimate clarification question.
+///
+/// When the LLM asks for more information before acting, that's not a
+/// hallucination -- it's appropriate behavior, especially for under-specified
+/// requests.
+///
+/// However, responses that contain action claims (e.g. "I've completed the
+/// task, should I do anything else?") are NOT treated as clarification even
+/// if they end with `?` -- the action claim is the dominant signal.
+///
+/// Very short questions (< 50 chars) must contain actual clarifying language
+/// (which, what, how, should I, etc.) -- otherwise they may be vapid parroting
+/// of the user's words (e.g. "Accept or reject?") rather than genuine
+/// information-gathering.
+pub(super) fn is_clarification_question(text: &str) -> bool {
+    let trimmed = text.trim();
+
+    // Short responses ending with ? are likely clarification questions,
+    // UNLESS the text also contains action claims -- those are hallucinations
+    // with a trailing question, not legitimate clarifications.
+    if trimmed.ends_with('?') && trimmed.len() < 200 {
+        if contains_action_claims(trimmed) {
+            return false;
+        }
+        // Very short questions (< 50 chars) are often vapid parroting
+        // ("Accept or reject?", "Yes or no?", "Ready?") rather than
+        // genuine clarifications. Require actual clarifying language.
+        if trimmed.len() < 50 {
+            return CLARIFICATION_RE.is_match(trimmed);
+        }
+        return true;
+    }
+
+    // Explicit clarification patterns
+    CLARIFICATION_RE.is_match(trimmed)
 }
 
 /// Delete media files older than the given TTL (in days).

@@ -27,8 +27,7 @@ pub use pairing::DbPendingRequest;
 pub use search::MemoryHit;
 pub use stats::SearchDetails;
 pub use stats::{
-    ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, IntentEvent,
-    IntentStats, SearchStats,
+    ComplexityEvent, ComplexityForceCount, ComplexityStats, ComplexityTierStats, SearchStats,
 };
 pub use subagent_log::SubagentLogEntry;
 pub use workspace::WorkspaceFileEntry;

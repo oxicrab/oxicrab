@@ -995,8 +995,6 @@ fn test_conversational_reply_passes_through() {
             &[],
             false, // user message was conversational, not action intent
             None,
-            None,
-            None,
         );
         assert!(
             matches!(result, TextAction::Return),
@@ -1021,8 +1019,6 @@ fn test_action_hallucination_caught_without_tool_forcing() {
         &tool_names,
         &[],
         true, // user requested an action
-        None,
-        None,
         None,
     );
     assert!(
@@ -1051,8 +1047,6 @@ fn test_action_hallucination_not_repeated_after_l1_correction() {
         &[],
         false, // no action intent — L2 won't fire either
         None,
-        None,
-        None,
     );
     assert!(
         matches!(result, TextAction::Return),
@@ -1077,8 +1071,6 @@ fn test_layer2_fires_after_layer1_exhausted() {
         &tool_names,
         &[],
         true, // user has action intent — L2 should fire
-        None,
-        None,
         None,
     );
     assert!(
@@ -1106,8 +1098,6 @@ fn test_legitimate_tool_response_passes_through() {
         &tool_names,
         &tools_used,
         true, // user requested an action
-        None,
-        None,
         None,
     );
     assert!(
@@ -1137,8 +1127,6 @@ fn test_false_no_tools_claim_fires_despite_layers() {
         &[],
         true, // user requested an action
         None,
-        None,
-        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
@@ -1164,8 +1152,6 @@ fn test_false_no_tools_claim_capped_at_max_corrections() {
         &tool_names,
         &[],
         true,
-        None,
-        None,
         None,
     );
     assert!(
@@ -1209,8 +1195,6 @@ fn test_text_after_tools_called_passes_action_claims() {
             &tools_used,
             true, // user requested an action
             None,
-            None,
-            None,
         );
         assert!(
             matches!(result, TextAction::Return),
@@ -1248,8 +1232,6 @@ fn test_uncalled_tools_detected_after_some_tools_called() {
         &tools_used,
         true,
         None,
-        None,
-        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
@@ -1274,8 +1256,6 @@ fn test_empty_tool_names_disables_false_no_tools_check() {
         &tool_names,
         &[],
         true, // user requested an action
-        None,
-        None,
         None,
     );
     assert!(
@@ -1306,8 +1286,6 @@ fn test_mentions_multiple_tools_triggers_correction() {
         &tool_names,
         &[],
         true, // user requested an action
-        None,
-        None,
         None,
     );
     assert!(
@@ -1386,8 +1364,6 @@ fn test_layer3_fires_in_handle_text_response() {
         &tools_used,
         true,
         None,
-        None,
-        None,
     );
     assert!(
         matches!(result, TextAction::Continue),
@@ -1414,8 +1390,6 @@ fn test_layer3_does_not_fire_when_all_tools_used() {
         &tools_used,
         true,
         None,
-        None,
-        None,
     );
     assert!(
         matches!(result, TextAction::Return),
@@ -1441,8 +1415,6 @@ fn test_layer3_does_not_fire_without_action_claims() {
         &tool_names,
         &tools_used,
         true,
-        None,
-        None,
         None,
     );
     assert!(
@@ -1471,8 +1443,6 @@ fn test_layer3_fires_only_once() {
         &tools_used,
         true,
         None,
-        None,
-        None,
     );
     assert!(
         matches!(result, TextAction::Return),
@@ -1499,8 +1469,6 @@ fn test_layer3_does_not_fire_when_no_tools_called() {
         &tool_names,
         &[],
         true,
-        None,
-        None,
         None,
     );
     // L1 and L2 are exhausted, L3 doesn't apply (no tools called) => Return
@@ -1593,54 +1561,6 @@ fn test_extract_media_paths_deduplicates() {
     let text = format!(r#"{{"mediaPath":"{path}"}}"#);
     let paths = extract_media_paths(&text);
     assert_eq!(paths.len(), 1);
-}
-
-// --- Tool category filtering tests ---
-
-#[test]
-fn test_infer_categories_web_keywords() {
-    use crate::agent::tools::base::ToolCategory::*;
-    let cats = infer_tool_categories("search for the latest news");
-    assert!(cats.contains(&Web));
-    assert!(cats.contains(&Core)); // always included
-    assert!(cats.contains(&System)); // always included
-}
-
-#[test]
-fn test_infer_categories_github_keywords() {
-    use crate::agent::tools::base::ToolCategory::*;
-    let cats = infer_tool_categories("create a github issue for the bug");
-    assert!(cats.contains(&Development));
-}
-
-#[test]
-fn test_infer_categories_scheduling_keywords() {
-    use crate::agent::tools::base::ToolCategory::*;
-    let cats = infer_tool_categories("schedule a reminder for tomorrow");
-    assert!(cats.contains(&Scheduling));
-}
-
-#[test]
-fn test_infer_categories_ambiguous_includes_all() {
-    use crate::agent::tools::base::ToolCategory::*;
-    // A message that doesn't match any specific category keywords
-    let cats = infer_tool_categories("hello, how are you?");
-    // Should include all categories (ambiguous fallback)
-    assert!(cats.contains(&Web));
-    assert!(cats.contains(&Communication));
-    assert!(cats.contains(&Development));
-    assert!(cats.contains(&Scheduling));
-    assert!(cats.contains(&Media));
-    assert!(cats.contains(&Productivity));
-}
-
-#[test]
-fn test_infer_categories_multiple_matches() {
-    use crate::agent::tools::base::ToolCategory::*;
-    let cats = infer_tool_categories("search github for issues about email");
-    assert!(cats.contains(&Web));
-    assert!(cats.contains(&Development));
-    assert!(cats.contains(&Communication));
 }
 
 // --- strip_think_tags tests ---

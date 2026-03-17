@@ -4,7 +4,6 @@ use super::helpers::{
     load_and_encode_images, strip_audio_tags, strip_document_tags, strip_image_tags,
     transcribe_audio_tags,
 };
-use super::intent;
 use crate::agent::tools::base::ExecutionContext;
 use crate::bus::{InboundMessage, OutboundMessage};
 use anyhow::Result;
@@ -237,7 +236,7 @@ impl AgentLoop {
 
         let request_id = format!("req-{}", Uuid::new_v4());
 
-        let user_action_intent = self.classify_and_record_intent(&content, Some(&request_id));
+        let user_action_intent = false;
 
         // Complexity-aware routing: score the message and resolve a model override
         let (complexity_score, complexity_band) = if let Some(ref scorer) = self.complexity_scorer {
@@ -509,7 +508,7 @@ impl AgentLoop {
             msg.metadata.clone(),
         );
         let request_id = format!("req-{}", Uuid::new_v4());
-        let user_action_intent = self.classify_and_record_intent(&msg.content, Some(&request_id));
+        let user_action_intent = false;
         let system_overrides = AgentRunOverrides {
             request_id: Some(request_id),
             ..AgentRunOverrides::default()
@@ -632,54 +631,6 @@ impl AgentLoop {
         self.sessions.save(&session).await?;
 
         Ok(Some(response))
-    }
-
-    /// Classify user message intent and record the metric to the database.
-    /// Returns `true` if the message has action intent (should trigger tool use).
-    fn classify_and_record_intent(&self, content: &str, request_id: Option<&str>) -> bool {
-        let regex_intent = intent::classify_action_intent(content);
-        let (semantic_result, semantic_score) = if regex_intent {
-            (None, None)
-        } else {
-            #[cfg(feature = "embeddings")]
-            {
-                self.memory
-                    .embedding_service()
-                    .and_then(|svc| intent::classify_action_intent_semantic(content, svc))
-                    .map_or((None, None), |(result, score)| (Some(result), Some(score)))
-            }
-            #[cfg(not(feature = "embeddings"))]
-            (None, None)
-        };
-        let user_action_intent = regex_intent || semantic_result.unwrap_or_default();
-
-        let intent_method = if regex_intent {
-            "regex"
-        } else if semantic_result == Some(true) {
-            "semantic"
-        } else {
-            "none"
-        };
-        {
-            let db = self.memory.db();
-            let method = intent_method.to_string();
-            let content = content.to_string();
-            let rid = request_id.map(str::to_string);
-            tokio::task::spawn_blocking(move || {
-                if let Err(e) = db.record_intent_event(
-                    "classification",
-                    Some(&method),
-                    semantic_score,
-                    None,
-                    &content,
-                    rid.as_deref(),
-                ) {
-                    debug!("failed to record intent metric: {}", e);
-                }
-            });
-        }
-
-        user_action_intent
     }
 
     fn build_execution_context(
@@ -812,7 +763,7 @@ impl AgentLoop {
             )
         };
         let request_id = format!("req-{}", Uuid::new_v4());
-        let user_action_intent = self.classify_and_record_intent(content, Some(&request_id));
+        let user_action_intent = false;
 
         let effective_overrides = if overrides.request_id.is_some() {
             overrides.clone()
