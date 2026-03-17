@@ -23,6 +23,8 @@ pub struct AgentRunOverrides {
     pub request_id: Option<String>,
     /// Extra metadata to inject into the tool [`ExecutionContext`].
     pub metadata: std::collections::HashMap<String, serde_json::Value>,
+    /// Structured action dispatch — bypasses LLM when Some.
+    pub action: Option<crate::dispatch::ActionDispatch>,
 }
 
 /// Tool-specific configurations bundled together. These fields are only used

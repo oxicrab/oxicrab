@@ -42,6 +42,8 @@ pub struct InboundMessage {
     pub timestamp: DateTime<Utc>,
     pub media: Vec<String>,
     pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(skip)]
+    pub action: Option<crate::dispatch::ActionDispatch>,
 }
 
 impl InboundMessage {
@@ -66,6 +68,7 @@ impl InboundMessage {
                 timestamp: Utc::now(),
                 media: Vec::new(),
                 metadata: HashMap::new(),
+                action: None,
             },
         }
     }
@@ -103,6 +106,11 @@ impl InboundMessageBuilder {
     /// Shorthand for `.meta(meta::IS_GROUP, Value::Bool(flag))`.
     pub fn is_group(self, flag: bool) -> Self {
         self.meta(meta::IS_GROUP, serde_json::Value::Bool(flag))
+    }
+
+    pub fn action(mut self, dispatch: crate::dispatch::ActionDispatch) -> Self {
+        self.inner.action = Some(dispatch);
+        self
     }
 
     pub fn build(self) -> InboundMessage {
