@@ -136,7 +136,9 @@ impl Tool for RssTool {
                         "list_feeds", "scan", "next", "get_articles", "accept", "reject",
                         "get_article_detail", "feed_stats"
                     ],
-                    "description": "Action to perform"
+                    "description": "Action to perform. To review/accept/reject articles, \
+                     use 'next' — it shows one article at a time with Accept/Reject buttons. \
+                     Use 'get_articles' only to browse or list articles without reviewing."
                 },
                 "url": {
                     "type": "string",
