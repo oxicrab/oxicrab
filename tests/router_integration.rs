@@ -68,7 +68,8 @@ fn test_router_context_session_roundtrip_malformed_is_default() {
 
 #[test]
 fn test_directive_trigger_exact_case_insensitive() {
-    let t = DirectiveTrigger::Exact("NEXT".into());
+    // Triggers are pre-lowercased via normalized() at install time
+    let t = DirectiveTrigger::Exact("NEXT".into()).normalized();
     assert!(t.matches("next"));
     assert!(t.matches("Next"));
     assert!(t.matches("  NEXT  "));
