@@ -5,6 +5,7 @@ use common::{
     text_response, tool_call, tool_response,
 };
 use oxicrab::agent::AgentRunOverrides;
+use oxicrab::dispatch::{ActionDispatch, ActionSource};
 use oxicrab::router::context::{ActionDirective, RouterContext};
 use oxicrab::router::{MessageRouter, RoutingDecision};
 
@@ -154,5 +155,38 @@ fn contract_stale_context_falls_back_to_full_llm() {
     assert!(
         matches!(decision, RoutingDecision::FullLLM),
         "expected stale context to route FullLLM, got {decision:?}"
+    );
+}
+
+#[tokio::test]
+async fn contract_router_replay_command_handles_empty_history() {
+    let tmp = tempfile::TempDir::new().expect("tempdir");
+    let provider = MockLLMProvider::with_responses(vec![text_response("ok")]);
+    let agent = create_test_agent_with(provider, &tmp, TestAgentOverrides::default()).await;
+
+    let replay = agent
+        .process_direct_with_overrides(
+            "ignored",
+            "test:replay",
+            "telegram",
+            "chat1",
+            &AgentRunOverrides {
+                action: Some(ActionDispatch {
+                    tool: "_router_replay".to_string(),
+                    params: serde_json::json!({"index": -1}),
+                    source: ActionSource::Command {
+                        raw: "!router_replay -1".to_string(),
+                    },
+                }),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("router replay")
+        .content;
+
+    assert!(
+        replay.contains("No router replay traces are available"),
+        "expected empty-history replay output, got: {replay}"
     );
 }

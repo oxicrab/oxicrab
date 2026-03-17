@@ -5,6 +5,7 @@ mod hallucination;
 mod helpers;
 mod iteration;
 mod metadata;
+mod model_gateway;
 mod processing;
 
 #[cfg(test)]

@@ -172,20 +172,19 @@ impl AgentLoop {
 
             // Clone needed: messages is mutated after the call (tool results appended),
             // and ChatRequest takes ownership. Cost is negligible vs. the API round-trip.
-            let response = effective_provider
-                .chat_with_retry(
-                    &crate::providers::base::ChatRequest {
-                        messages: messages.clone(),
-                        tools: Some(Arc::clone(&tools_arc)),
-                        model: Some(effective_model.to_string()),
-                        max_tokens: self.max_tokens,
-                        temperature: current_temp,
-                        tool_choice,
-                        response_format: overrides.response_format.clone(),
-                    },
-                    Some(crate::providers::base::RetryConfig::default()),
-                )
-                .await;
+            let response = super::model_gateway::ModelGateway::invoke(
+                effective_provider.as_ref(),
+                super::model_gateway::ModelGateway::build_turn_request(
+                    messages.clone(),
+                    Arc::clone(&tools_arc),
+                    effective_model,
+                    self.max_tokens,
+                    current_temp,
+                    tool_choice,
+                    overrides.response_format.clone(),
+                ),
+            )
+            .await;
 
             // Stop typing indicator after LLM call returns (guard aborts on drop)
             drop(typing_guard);
@@ -659,18 +658,16 @@ impl AgentLoop {
         messages.push(Message::user(
             "Provide a brief summary of what you accomplished for the user.".to_string(),
         ));
-        match effective_provider
-            .chat_with_retry(
-                &crate::providers::base::ChatRequest {
-                    messages: messages.clone(),
-                    model: Some(effective_model.to_string()),
-                    max_tokens: self.max_tokens,
-                    temperature: self.temperature,
-                    ..Default::default()
-                },
-                Some(crate::providers::base::RetryConfig::default()),
-            )
-            .await
+        match super::model_gateway::ModelGateway::invoke(
+            effective_provider,
+            super::model_gateway::ModelGateway::build_summary_request(
+                messages.clone(),
+                effective_model,
+                self.max_tokens,
+                self.temperature,
+            ),
+        )
+        .await
         {
             Ok(response) => {
                 let cost_model = response

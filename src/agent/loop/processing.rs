@@ -408,7 +408,7 @@ impl AgentLoop {
                 crate::router::metrics::record_policy_drift();
             }
             if policy.reason == "semantic_filter" {
-                crate::router::metrics::record_semantic_turn_quality(
+                crate::router::metrics::record_semantic_turn_proxy_quality(
                     &policy.allowed_tools,
                     &loop_result.tools_used,
                 );
@@ -889,6 +889,56 @@ impl AgentLoop {
         })
     }
 
+    async fn render_router_replay(&self, session_key: &str, index: Option<i64>) -> Result<String> {
+        let session = self.sessions.get_or_create(session_key).await?;
+        let entries: Vec<(usize, &crate::session::manager::MessageData, &Value)> = session
+            .messages
+            .iter()
+            .enumerate()
+            .filter_map(|(i, msg)| {
+                msg.extra
+                    .get("router_replay")
+                    .map(|trace| (i, msg, trace))
+                    .filter(|(_, msg, _)| msg.role == "user")
+            })
+            .collect();
+
+        if entries.is_empty() {
+            return Ok("No router replay traces are available in this session yet.".to_string());
+        }
+
+        let selected = if let Some(i) = index {
+            if i < 0 {
+                entries.last().copied()
+            } else {
+                entries.get(i as usize).copied()
+            }
+        } else {
+            entries.last().copied()
+        };
+        let Some((message_idx, message, trace)) = selected else {
+            return Ok(format!(
+                "Router replay index out of range. Available traces: 0..{}.",
+                entries.len().saturating_sub(1)
+            ));
+        };
+
+        let trace_pos = entries
+            .iter()
+            .position(|(i, _, _)| *i == message_idx)
+            .unwrap_or(0);
+        let pretty_trace =
+            serde_json::to_string_pretty(trace).unwrap_or_else(|_| trace.to_string());
+        Ok(format!(
+            "Router replay trace {trace_pos} of {} (session message #{message_idx}).\n\
+             User message: {}\n\
+             Trace:\n```json\n{}\n```",
+            entries.len().saturating_sub(1),
+            message.content,
+            pretty_trace
+        ))
+    }
+
     /// Execute a tool directly without LLM involvement (buttons, directives,
     /// static rules, config commands, remember fast path).
     #[allow(clippy::too_many_arguments)]
@@ -948,6 +998,13 @@ impl AgentLoop {
                 warn!("remember fast path failed, returning fallback");
                 "I wasn't able to save that. Please try again.".to_string()
             };
+            return Ok(Some(
+                OutboundMessage::from_inbound(msg.clone(), response).build(),
+            ));
+        }
+        if tool == "_router_replay" {
+            let index = params.get("index").and_then(|v| v.as_i64());
+            let response = self.render_router_replay(session_key, index).await?;
             return Ok(Some(
                 OutboundMessage::from_inbound(msg.clone(), response).build(),
             ));
@@ -1262,6 +1319,14 @@ impl AgentLoop {
                 dispatch.tool,
                 dispatch.source.label()
             );
+
+            if dispatch.tool == "_router_replay" {
+                let index = dispatch.params.get("index").and_then(|v| v.as_i64());
+                return Ok(super::config::DirectResult {
+                    content: self.render_router_replay(session_key, index).await?,
+                    metadata: HashMap::new(),
+                });
+            }
 
             // Validate tool exists
             let Some(tool_ref) = self.tools.get(&dispatch.tool) else {

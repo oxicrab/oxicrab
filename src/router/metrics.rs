@@ -11,10 +11,13 @@ pub struct RouterMetricsSnapshot {
     pub semantic_turns: u64,
     pub semantic_zero_hit_turns: u64,
     pub semantic_low_confidence_fallbacks: u64,
-    /// Mean precision across semantic-filtered turns as basis points [0..10000].
-    pub semantic_avg_precision_bps: u64,
-    /// Mean recall across semantic-filtered turns as basis points [0..10000].
-    pub semantic_avg_recall_bps: u64,
+    /// Mean proxy precision across semantic-filtered turns as basis points [0..10000].
+    pub semantic_proxy_avg_precision_bps: u64,
+    /// Mean proxy recall across semantic-filtered turns as basis points [0..10000].
+    pub semantic_proxy_avg_recall_bps: u64,
+    pub semantic_proxy_hits_total: u64,
+    pub semantic_proxy_used_total: u64,
+    pub semantic_proxy_allowed_total: u64,
     pub semantic_histogram: [u64; 10],
 }
 
@@ -26,8 +29,11 @@ static BLOCKED_TOOL_ATTEMPTS: AtomicU64 = AtomicU64::new(0);
 static POLICY_DRIFT_EVENTS: AtomicU64 = AtomicU64::new(0);
 static SEMANTIC_TURNS: AtomicU64 = AtomicU64::new(0);
 static SEMANTIC_ZERO_HIT_TURNS: AtomicU64 = AtomicU64::new(0);
-static SEMANTIC_PRECISION_BPS_SUM: AtomicU64 = AtomicU64::new(0);
-static SEMANTIC_RECALL_BPS_SUM: AtomicU64 = AtomicU64::new(0);
+static SEMANTIC_PROXY_PRECISION_BPS_SUM: AtomicU64 = AtomicU64::new(0);
+static SEMANTIC_PROXY_RECALL_BPS_SUM: AtomicU64 = AtomicU64::new(0);
+static SEMANTIC_PROXY_HITS_TOTAL: AtomicU64 = AtomicU64::new(0);
+static SEMANTIC_PROXY_USED_TOTAL: AtomicU64 = AtomicU64::new(0);
+static SEMANTIC_PROXY_ALLOWED_TOTAL: AtomicU64 = AtomicU64::new(0);
 static SEMANTIC_LOW_CONFIDENCE_FALLBACKS: AtomicU64 = AtomicU64::new(0);
 static SEM_BUCKETS: [AtomicU64; 10] = [
     AtomicU64::new(0),
@@ -66,11 +72,11 @@ pub fn record_policy_drift() {
     POLICY_DRIFT_EVENTS.fetch_add(1, Ordering::Relaxed);
 }
 
-/// Record semantic selection quality against executed tools for one turn.
+/// Record semantic selection proxy quality against executed tools for one turn.
 ///
 /// Precision = hits / used, Recall = hits / allowed.
 /// Metrics are aggregated in basis points to avoid floating-point atomics.
-pub fn record_semantic_turn_quality(allowed_tools: &[String], used_tools: &[String]) {
+pub fn record_semantic_turn_proxy_quality(allowed_tools: &[String], used_tools: &[String]) {
     let helper = |name: &str| name == "add_buttons" || name == "tool_search";
     let allowed: std::collections::HashSet<&str> = allowed_tools
         .iter()
@@ -99,8 +105,11 @@ pub fn record_semantic_turn_quality(allowed_tools: &[String], used_tools: &[Stri
     if hits == 0 {
         SEMANTIC_ZERO_HIT_TURNS.fetch_add(1, Ordering::Relaxed);
     }
-    SEMANTIC_PRECISION_BPS_SUM.fetch_add(precision_bps, Ordering::Relaxed);
-    SEMANTIC_RECALL_BPS_SUM.fetch_add(recall_bps, Ordering::Relaxed);
+    SEMANTIC_PROXY_PRECISION_BPS_SUM.fetch_add(precision_bps, Ordering::Relaxed);
+    SEMANTIC_PROXY_RECALL_BPS_SUM.fetch_add(recall_bps, Ordering::Relaxed);
+    SEMANTIC_PROXY_HITS_TOTAL.fetch_add(hits, Ordering::Relaxed);
+    SEMANTIC_PROXY_USED_TOTAL.fetch_add(used.len() as u64, Ordering::Relaxed);
+    SEMANTIC_PROXY_ALLOWED_TOTAL.fetch_add(allowed.len() as u64, Ordering::Relaxed);
 }
 
 pub fn record_semantic_low_confidence_fallback() {
@@ -125,8 +134,8 @@ pub fn snapshot() -> RouterMetricsSnapshot {
         histogram[idx] = bucket.load(Ordering::Relaxed);
     }
     let semantic_turns = SEMANTIC_TURNS.load(Ordering::Relaxed);
-    let precision_sum = SEMANTIC_PRECISION_BPS_SUM.load(Ordering::Relaxed);
-    let recall_sum = SEMANTIC_RECALL_BPS_SUM.load(Ordering::Relaxed);
+    let precision_sum = SEMANTIC_PROXY_PRECISION_BPS_SUM.load(Ordering::Relaxed);
+    let recall_sum = SEMANTIC_PROXY_RECALL_BPS_SUM.load(Ordering::Relaxed);
     RouterMetricsSnapshot {
         direct_dispatch: DIRECT_DISPATCH.load(Ordering::Relaxed),
         guided_llm: GUIDED_LLM.load(Ordering::Relaxed),
@@ -138,16 +147,19 @@ pub fn snapshot() -> RouterMetricsSnapshot {
         semantic_zero_hit_turns: SEMANTIC_ZERO_HIT_TURNS.load(Ordering::Relaxed),
         semantic_low_confidence_fallbacks: SEMANTIC_LOW_CONFIDENCE_FALLBACKS
             .load(Ordering::Relaxed),
-        semantic_avg_precision_bps: if semantic_turns == 0 {
+        semantic_proxy_avg_precision_bps: if semantic_turns == 0 {
             0
         } else {
             precision_sum / semantic_turns
         },
-        semantic_avg_recall_bps: if semantic_turns == 0 {
+        semantic_proxy_avg_recall_bps: if semantic_turns == 0 {
             0
         } else {
             recall_sum / semantic_turns
         },
+        semantic_proxy_hits_total: SEMANTIC_PROXY_HITS_TOTAL.load(Ordering::Relaxed),
+        semantic_proxy_used_total: SEMANTIC_PROXY_USED_TOTAL.load(Ordering::Relaxed),
+        semantic_proxy_allowed_total: SEMANTIC_PROXY_ALLOWED_TOTAL.load(Ordering::Relaxed),
         semantic_histogram: histogram,
     }
 }

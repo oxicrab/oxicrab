@@ -203,6 +203,17 @@ impl MessageRouter {
         if message.trim().starts_with(&self.prefix) {
             let (cmd, args) = rules::parse_prefixed_command(message, &self.prefix);
             let cmd_lower = cmd.to_lowercase();
+            if cmd_lower == "router_replay" || cmd_lower == "route_replay" {
+                let index = args.first().and_then(|raw| raw.parse::<i64>().ok());
+                info!("router: decision=DirectDispatch tool=_router_replay source=Command");
+                metrics::record_direct_dispatch();
+                return RoutingDecision::DirectDispatch {
+                    tool: "_router_replay".into(),
+                    params: serde_json::json!({ "index": index }),
+                    source: DispatchSource::Command,
+                    directive_index: None,
+                };
+            }
             if !cmd_lower.is_empty()
                 && let Some(rule) = self.config_rules.get(&cmd_lower)
             {
@@ -497,6 +508,25 @@ mod tests {
                 assert_eq!(params["location"], "Portland");
             }
             _ => panic!("expected DirectDispatch ConfigRule"),
+        }
+    }
+
+    #[test]
+    fn test_route_router_replay_command() {
+        let router = make_router();
+        let ctx = context::RouterContext::default();
+        let decision = router.route("!router_replay 2", &ctx, None);
+        match decision {
+            RoutingDecision::DirectDispatch {
+                tool,
+                params,
+                source: DispatchSource::Command,
+                ..
+            } => {
+                assert_eq!(tool, "_router_replay");
+                assert_eq!(params["index"], 2);
+            }
+            _ => panic!("expected DirectDispatch Command"),
         }
     }
 
