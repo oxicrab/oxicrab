@@ -123,6 +123,8 @@ pub struct ToolRegistry {
     /// Cached sorted+filtered tool definitions list (invalidated on `register`).
     /// Only used when no deferred tools have been activated (the common path).
     cached_definitions: std::sync::Mutex<Option<Vec<crate::providers::base::ToolDefinition>>>,
+    /// Accumulated routing rules collected from all registered tools.
+    routing_rules: Vec<crate::router::rules::StaticRule>,
 }
 
 impl ToolRegistry {
@@ -142,6 +144,7 @@ impl ToolRegistry {
             deferred: HashSet::new(),
             definition_cache: HashMap::new(),
             cached_definitions: std::sync::Mutex::new(None),
+            routing_rules: Vec::new(),
         }
     }
 
@@ -163,6 +166,7 @@ impl ToolRegistry {
             deferred: HashSet::new(),
             definition_cache: HashMap::new(),
             cached_definitions: std::sync::Mutex::new(None),
+            routing_rules: Vec::new(),
         }
     }
 
@@ -182,8 +186,15 @@ impl ToolRegistry {
         // Compute and cache the definition once at registration time
         let definition = Self::tool_to_definition(&tool);
         self.definition_cache.insert(name.clone(), definition);
+        let rules = tool.routing_rules();
+        self.routing_rules.extend(rules);
         self.tools.insert(name, tool);
         self.cached_definitions.lock().unwrap().take();
+    }
+
+    /// All routing rules collected from registered tools.
+    pub fn routing_rules(&self) -> &[crate::router::rules::StaticRule] {
+        &self.routing_rules
     }
 
     /// Register a tool whose schema is hidden from LLM requests until
