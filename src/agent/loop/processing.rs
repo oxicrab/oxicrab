@@ -888,6 +888,21 @@ impl AgentLoop {
             warn!("failed to save session after direct dispatch: {e}");
         }
 
+        // Extract display_text from tool metadata (direct-to-user passthrough)
+        let final_content = if let Some(ref meta) = result.metadata
+            && let Some(display) = meta.get("display_text").and_then(|v| v.as_str())
+        {
+            // display_text replaces the LLM-facing content for the user
+            let redacted = self.leak_detector.redact(display);
+            if result_content.is_empty() || result_content.contains("shown to user") {
+                redacted
+            } else {
+                format!("{redacted}\n\n{result_content}")
+            }
+        } else {
+            result_content.clone()
+        };
+
         // Build outbound with buttons from tool metadata
         let mut metadata = HashMap::new();
         if let Some(ref meta) = result.metadata
@@ -897,7 +912,7 @@ impl AgentLoop {
         }
 
         Ok(Some(
-            OutboundMessage::builder(msg.channel.clone(), msg.chat_id.clone(), result_content)
+            OutboundMessage::builder(msg.channel.clone(), msg.chat_id.clone(), final_content)
                 .reply_to(
                     msg.metadata
                         .get(crate::bus::meta::TS)
