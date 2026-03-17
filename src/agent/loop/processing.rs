@@ -709,11 +709,39 @@ impl AgentLoop {
             msg.channel
         );
 
+        // Inbound secret scanning: redact secrets before they reach tools or
+        // get persisted in session history / memory.
+        let msg_content = {
+            let redacted = self.leak_detector.redact(&msg.content);
+            if redacted != msg.content {
+                warn!("direct dispatch: secrets detected in message content — redacting");
+            }
+            redacted
+        };
+
+        // Prompt injection preflight check
+        if let Some(ref guard) = self.prompt_guard {
+            let matches = guard.scan(&msg_content);
+            if !matches.is_empty() {
+                for m in &matches {
+                    warn!(
+                        "prompt injection detected in direct dispatch ({:?}): {}",
+                        m.category, m.pattern_name
+                    );
+                }
+                if self.prompt_guard_config.should_block() {
+                    return Ok(Some(
+                        OutboundMessage::from_inbound(msg.clone(), "I can't process this message as it appears to contain prompt injection patterns.").build(),
+                    ));
+                }
+            }
+        }
+
         // Handle remember fast path — uses its own session management
         if tool == "_remember" {
             let remember_content =
-                crate::agent::memory::remember::extract_remember_content(&msg.content)
-                    .unwrap_or_else(|| msg.content.clone());
+                crate::agent::memory::remember::extract_remember_content(&msg_content)
+                    .unwrap_or_else(|| msg_content.clone());
             let response = if let Ok(Some(text)) = self
                 .try_remember_fast_path(&remember_content, session_key)
                 .await
@@ -758,7 +786,19 @@ impl AgentLoop {
                 params
             } else {
                 warn!("direct dispatch: secrets redacted from params");
-                serde_json::from_str(&redacted).unwrap_or(params)
+                match serde_json::from_str(&redacted) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        warn!("direct dispatch: redacted params are not valid JSON: {e}");
+                        return Ok(Some(
+                            OutboundMessage::from_inbound(
+                                msg.clone(),
+                                "Action failed: parameters contain secrets that could not be safely redacted.",
+                            )
+                            .build(),
+                        ));
+                    }
+                }
             }
         };
 
@@ -790,6 +830,15 @@ impl AgentLoop {
             }
         };
 
+        // Secret-scan tool result output
+        let result_content = self.leak_detector.redact(&result.content);
+        if result_content != result.content {
+            warn!(
+                "direct dispatch: secrets detected in tool '{}' output — redacting",
+                tool
+            );
+        }
+
         // Extract directives from result metadata
         if let Some(ref meta) = result.metadata {
             Self::update_router_context(router_context, meta);
@@ -799,7 +848,7 @@ impl AgentLoop {
         if matches!(source, crate::router::DispatchSource::ActionDirective)
             && let Some(idx) = self
                 .router
-                .matched_directive_index(&msg.content, router_context)
+                .matched_directive_index(&msg_content, router_context)
             && router_context
                 .action_directives
                 .get(idx)
@@ -816,7 +865,7 @@ impl AgentLoop {
             format!("[action: {tool} via {source_label}]"),
             HashMap::new(),
         );
-        session.add_message("assistant", &result.content, HashMap::new());
+        session.add_message("assistant", &result_content, HashMap::new());
         let _ = self.sessions.save(&session).await;
 
         // Build outbound with buttons from tool metadata
@@ -828,7 +877,7 @@ impl AgentLoop {
         }
 
         Ok(Some(
-            OutboundMessage::builder(msg.channel.clone(), msg.chat_id.clone(), result.content)
+            OutboundMessage::builder(msg.channel.clone(), msg.chat_id.clone(), result_content)
                 .reply_to(
                     msg.metadata
                         .get(crate::bus::meta::TS)
@@ -938,18 +987,77 @@ impl AgentLoop {
                 dispatch.tool,
                 dispatch.source.label()
             );
+
+            // Validate tool exists
+            let Some(tool_ref) = self.tools.get(&dispatch.tool) else {
+                return Ok(super::config::DirectResult {
+                    content: format!("Action failed: tool '{}' is not available.", dispatch.tool),
+                    metadata: HashMap::new(),
+                });
+            };
+
+            // Reject approval-required tools in action dispatch
+            if tool_ref.requires_approval() {
+                return Ok(super::config::DirectResult {
+                    content: format!("Action failed: tool '{}' requires approval.", dispatch.tool),
+                    metadata: HashMap::new(),
+                });
+            }
+
+            // Secret-scan params
+            let params = {
+                let params_str = serde_json::to_string(&dispatch.params).unwrap_or_default();
+                let redacted = self.leak_detector.redact(&params_str);
+                if redacted == params_str {
+                    dispatch.params.clone()
+                } else {
+                    warn!("direct call action dispatch: secrets redacted from params");
+                    match serde_json::from_str(&redacted) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            warn!(
+                                "direct call action dispatch: redacted params are not valid JSON: {e}"
+                            );
+                            return Ok(super::config::DirectResult {
+                                content: "Action failed: parameters contain secrets that could not be safely redacted.".to_string(),
+                                metadata: HashMap::new(),
+                            });
+                        }
+                    }
+                }
+            };
+
             let ctx = Self::build_execution_context_with_metadata(
                 channel,
                 chat_id,
                 None,
                 overrides.metadata.clone(),
             );
-            match self
-                .tools
-                .execute(&dispatch.tool, dispatch.params.clone(), &ctx)
-                .await
-            {
+            match self.tools.execute(&dispatch.tool, params, &ctx).await {
                 Ok(result) => {
+                    // Secret-scan tool result output
+                    let result_content = self.leak_detector.redact(&result.content);
+                    if result_content != result.content {
+                        warn!(
+                            "direct call action dispatch: secrets detected in tool '{}' output — redacting",
+                            dispatch.tool
+                        );
+                    }
+
+                    // Save session history
+                    let mut session = self.sessions.get_or_create(session_key).await?;
+                    session.add_message(
+                        "user",
+                        format!(
+                            "[action: {} via {}]",
+                            dispatch.tool,
+                            dispatch.source.label()
+                        ),
+                        HashMap::new(),
+                    );
+                    session.add_message("assistant", &result_content, HashMap::new());
+                    let _ = self.sessions.save(&session).await;
+
                     let mut meta = HashMap::new();
                     if let Some(ref rm) = result.metadata
                         && let Some(buttons) = rm.get("suggested_buttons")
@@ -957,7 +1065,7 @@ impl AgentLoop {
                         meta.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
                     }
                     return Ok(super::config::DirectResult {
-                        content: result.content,
+                        content: result_content,
                         metadata: meta,
                     });
                 }
