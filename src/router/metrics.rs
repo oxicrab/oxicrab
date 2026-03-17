@@ -10,6 +10,7 @@ pub struct RouterMetricsSnapshot {
     pub policy_drift_events: u64,
     pub semantic_turns: u64,
     pub semantic_zero_hit_turns: u64,
+    pub semantic_low_confidence_fallbacks: u64,
     /// Mean precision across semantic-filtered turns as basis points [0..10000].
     pub semantic_avg_precision_bps: u64,
     /// Mean recall across semantic-filtered turns as basis points [0..10000].
@@ -27,6 +28,7 @@ static SEMANTIC_TURNS: AtomicU64 = AtomicU64::new(0);
 static SEMANTIC_ZERO_HIT_TURNS: AtomicU64 = AtomicU64::new(0);
 static SEMANTIC_PRECISION_BPS_SUM: AtomicU64 = AtomicU64::new(0);
 static SEMANTIC_RECALL_BPS_SUM: AtomicU64 = AtomicU64::new(0);
+static SEMANTIC_LOW_CONFIDENCE_FALLBACKS: AtomicU64 = AtomicU64::new(0);
 static SEM_BUCKETS: [AtomicU64; 10] = [
     AtomicU64::new(0),
     AtomicU64::new(0),
@@ -101,6 +103,10 @@ pub fn record_semantic_turn_quality(allowed_tools: &[String], used_tools: &[Stri
     SEMANTIC_RECALL_BPS_SUM.fetch_add(recall_bps, Ordering::Relaxed);
 }
 
+pub fn record_semantic_low_confidence_fallback() {
+    SEMANTIC_LOW_CONFIDENCE_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+}
+
 /// Record score distribution in 10 fixed buckets over [-1.0, 1.0].
 pub fn record_semantic_scores(scores: &[f32]) {
     for score in scores {
@@ -130,6 +136,8 @@ pub fn snapshot() -> RouterMetricsSnapshot {
         policy_drift_events: POLICY_DRIFT_EVENTS.load(Ordering::Relaxed),
         semantic_turns,
         semantic_zero_hit_turns: SEMANTIC_ZERO_HIT_TURNS.load(Ordering::Relaxed),
+        semantic_low_confidence_fallbacks: SEMANTIC_LOW_CONFIDENCE_FALLBACKS
+            .load(Ordering::Relaxed),
         semantic_avg_precision_bps: if semantic_turns == 0 {
             0
         } else {
