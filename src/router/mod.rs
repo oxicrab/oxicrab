@@ -217,6 +217,11 @@ fn action_source_to_dispatch_source(source: &ActionSource) -> DispatchSource {
     match source {
         ActionSource::Button { .. } => DispatchSource::Button,
         ActionSource::Webhook { .. } => DispatchSource::Webhook,
+        // NOTE: Cron, Command, and ToolChain are collapsed to ActionDirective
+        // because DispatchSource has no dedicated variants for them yet.
+        // This is acceptable because handle_direct_dispatch uses
+        // ActionSource::label() (not DispatchSource::label()) for session
+        // history and logging, preserving the correct source identity.
         ActionSource::Cron { .. }
         | ActionSource::Command { .. }
         | ActionSource::ToolChain { .. } => DispatchSource::ActionDirective,
