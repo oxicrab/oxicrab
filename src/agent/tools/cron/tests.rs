@@ -628,8 +628,8 @@ fn test_build_job_buttons_enabled_job() {
     let ctx: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
     assert_eq!(ctx["tool"], "cron");
-    assert_eq!(ctx["job_id"], "abc123");
-    assert_eq!(ctx["action"], "pause");
+    assert_eq!(ctx["params"]["job_id"], "abc123");
+    assert_eq!(ctx["params"]["action"], "pause");
     // Second button: Remove
     assert_eq!(buttons[1]["id"], "remove-job-abc123");
     assert_eq!(buttons[1]["label"], "Remove: Daily report");
@@ -647,7 +647,7 @@ fn test_build_job_buttons_disabled_job() {
     assert_eq!(buttons[0]["style"], "success");
     let ctx: serde_json::Value =
         serde_json::from_str(buttons[0]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx["action"], "resume");
+    assert_eq!(ctx["params"]["action"], "resume");
 }
 
 #[test]

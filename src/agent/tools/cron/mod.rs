@@ -264,8 +264,10 @@ fn build_job_buttons(jobs: &[CronJob]) -> Vec<Value> {
             "style": style,
             "context": serde_json::json!({
                 "tool": "cron",
-                "job_id": job.id,
-                "action": action
+                "params": {
+                    "action": action,
+                    "job_id": job.id
+                }
             }).to_string()
         }));
 
@@ -280,8 +282,10 @@ fn build_job_buttons(jobs: &[CronJob]) -> Vec<Value> {
             "style": "danger",
             "context": serde_json::json!({
                 "tool": "cron",
-                "job_id": job.id,
-                "action": "remove"
+                "params": {
+                    "action": "remove",
+                    "job_id": job.id
+                }
             }).to_string()
         }));
     }
@@ -376,6 +380,32 @@ impl Tool for CronTool {
             ],
             category: ToolCategory::Scheduling,
         }
+    }
+
+    fn routing_rules(&self) -> Vec<crate::router::rules::StaticRule> {
+        vec![crate::router::rules::StaticRule {
+            tool: "cron".into(),
+            trigger: crate::router::context::DirectiveTrigger::Exact("list jobs".into()),
+            params: serde_json::json!({"action": "list"}),
+            requires_context: false,
+        }]
+    }
+
+    fn usage_examples(&self) -> Vec<crate::agent::tools::base::ToolExample> {
+        vec![
+            crate::agent::tools::base::ToolExample {
+                user_request: "list my scheduled jobs".into(),
+                params: serde_json::json!({"action": "list"}),
+            },
+            crate::agent::tools::base::ToolExample {
+                user_request: "remind me to check email every day at 9am".into(),
+                params: serde_json::json!({"action": "add", "message": "check email", "cron_expr": "0 9 * * *", "type": "agent"}),
+            },
+            crate::agent::tools::base::ToolExample {
+                user_request: "send me a standup reminder in 5 minutes".into(),
+                params: serde_json::json!({"action": "add", "message": "Standup time!", "delay_seconds": 300, "type": "echo"}),
+            },
+        ]
     }
 
     fn parameters(&self) -> Value {
