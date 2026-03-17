@@ -50,17 +50,21 @@ impl ConfigRule {
         let template = serde_json::to_string(&self.params).unwrap_or_default();
         let mut result = template;
 
-        // JSON-escape the remainder before substitution
-        let remainder = json_escape(&args.join(" "));
-        result = result.replace("$*", &remainder);
-
-        // JSON-escape each positional arg (descending order to prevent $1 matching inside $10)
+        // Positional args FIRST (descending order to prevent $1 matching inside $10).
+        // Must run before $* to prevent double-substitution: if a user arg contains
+        // "$2" and $* expands it, the positional loop would substitute it again.
         for (i, arg) in args.iter().enumerate().rev() {
             let escaped = json_escape(arg);
             result = result.replace(&format!("${}", i + 1), &escaped);
         }
 
-        // Clean up unmatched $N references
+        // $* remainder — user values have $ escaped as \u0024 by json_escape,
+        // so they won't match the $N cleanup regex below.
+        let remainder = json_escape(&args.join(" "));
+        result = result.replace("$*", &remainder);
+
+        // Clean up unmatched $N template references (only real placeholders remain,
+        // since user-provided $ is escaped to \u0024 by json_escape).
         result = UNMATCHED_PLACEHOLDER_RE
             .replace_all(&result, "")
             .to_string();
@@ -77,6 +81,9 @@ fn json_escape(s: &str) -> String {
         match c {
             '\\' => escaped.push_str("\\\\"),
             '"' => escaped.push_str("\\\""),
+            // Escape $ to prevent substituted values from being treated as
+            // template placeholders by the $N cleanup regex.
+            '$' => escaped.push_str("\\u0024"),
             '\n' => escaped.push_str("\\n"),
             '\r' => escaped.push_str("\\r"),
             '\t' => escaped.push_str("\\t"),
@@ -229,5 +236,18 @@ mod tests {
         };
         let result = rule.substitute(&[r"C:\Users\test"]);
         assert_eq!(result["path"], r"C:\Users\test");
+    }
+
+    #[test]
+    fn test_config_rule_substitute_no_double_substitution() {
+        // If a user arg contains "$2", it should NOT be re-substituted
+        let rule = ConfigRule {
+            trigger: "cmd".into(),
+            tool: "test".into(),
+            params: serde_json::json!({"content": "$*", "first": "$1"}),
+        };
+        let result = rule.substitute(&["$2", "foo"]);
+        assert_eq!(result["first"], "$2"); // literal $2, not "foo"
+        assert_eq!(result["content"], "$2 foo"); // $* contains the literal $2
     }
 }
