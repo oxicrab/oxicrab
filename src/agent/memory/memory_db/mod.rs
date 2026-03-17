@@ -147,7 +147,10 @@ impl MemoryDB {
     }
 
     fn ensure_schema(&mut self) -> Result<()> {
-        let conn = self.lock_conn()?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
 
         migrations::apply_migrations(&conn)?;
         self.has_fts = migrations::ensure_fts_objects(&conn)?;

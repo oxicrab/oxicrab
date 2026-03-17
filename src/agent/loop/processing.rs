@@ -202,19 +202,16 @@ impl AgentLoop {
         };
 
         // Prompt injection preflight check
-        if let Some(ref guard) = self.prompt_guard {
-            let matches = guard.scan(&msg_content);
-            if !matches.is_empty() {
-                for m in &matches {
-                    warn!(
-                        "security: prompt injection detected ({:?}): {}",
-                        m.category, m.pattern_name
-                    );
-                }
-                if self.prompt_guard_config.should_block() {
-                    return Ok(Some(OutboundMessage::from_inbound(msg, "I can't process this message as it appears to contain prompt injection patterns.").build()));
-                }
-            }
+        if matches!(
+            check_prompt_guard(
+                self.prompt_guard.as_ref(),
+                &self.prompt_guard_config,
+                &msg_content,
+                "inbound message",
+            ),
+            PromptGuardVerdict::Blocked
+        ) {
+            return Ok(Some(OutboundMessage::from_inbound(msg, "I can't process this message as it appears to contain prompt injection patterns.").build()));
         }
 
         // Load and encode any attached images (skip audio files)
@@ -532,19 +529,16 @@ impl AgentLoop {
         }
 
         // Prompt guard
-        if let Some(ref guard) = self.prompt_guard {
-            let matches = guard.scan(&msg_content);
-            if !matches.is_empty() {
-                for m in &matches {
-                    warn!(
-                        "security: prompt injection in system message ({:?}): {}",
-                        m.category, m.pattern_name
-                    );
-                }
-                if self.prompt_guard_config.should_block() {
-                    return Ok(None);
-                }
-            }
+        if matches!(
+            check_prompt_guard(
+                self.prompt_guard.as_ref(),
+                &self.prompt_guard_config,
+                &msg_content,
+                "system message",
+            ),
+            PromptGuardVerdict::Blocked
+        ) {
+            return Ok(None);
         }
 
         let parts: Vec<&str> = msg.chat_id.splitn(2, ':').collect();
@@ -765,21 +759,18 @@ impl AgentLoop {
         };
 
         // Prompt injection preflight check
-        if let Some(ref guard) = self.prompt_guard {
-            let matches = guard.scan(&msg_content);
-            if !matches.is_empty() {
-                for m in &matches {
-                    warn!(
-                        "security: prompt injection detected in direct dispatch ({:?}): {}",
-                        m.category, m.pattern_name
-                    );
-                }
-                if self.prompt_guard_config.should_block() {
-                    return Ok(Some(
-                        OutboundMessage::from_inbound(msg.clone(), "I can't process this message as it appears to contain prompt injection patterns.").build(),
-                    ));
-                }
-            }
+        if matches!(
+            check_prompt_guard(
+                self.prompt_guard.as_ref(),
+                &self.prompt_guard_config,
+                &msg_content,
+                "direct dispatch",
+            ),
+            PromptGuardVerdict::Blocked
+        ) {
+            return Ok(Some(
+                OutboundMessage::from_inbound(msg.clone(), "I can't process this message as it appears to contain prompt injection patterns.").build(),
+            ));
         }
 
         // Handle remember fast path — uses its own session management
@@ -1012,22 +1003,19 @@ impl AgentLoop {
         let content = redacted_content.as_deref().unwrap_or(content);
 
         // Prompt injection preflight check
-        if let Some(ref guard) = self.prompt_guard {
-            let matches = guard.scan(content);
-            if !matches.is_empty() {
-                for m in &matches {
-                    warn!(
-                        "security: prompt injection detected in direct call ({:?}): {}",
-                        m.category, m.pattern_name
-                    );
-                }
-                if self.prompt_guard_config.should_block() {
-                    return Ok(super::config::DirectResult {
-                        content: "I can't process this message as it appears to contain prompt injection patterns.".to_string(),
-                        metadata: HashMap::new(),
-                    });
-                }
-            }
+        if matches!(
+            check_prompt_guard(
+                self.prompt_guard.as_ref(),
+                &self.prompt_guard_config,
+                content,
+                "direct call",
+            ),
+            PromptGuardVerdict::Blocked
+        ) {
+            return Ok(super::config::DirectResult {
+                content: "I can't process this message as it appears to contain prompt injection patterns.".to_string(),
+                metadata: HashMap::new(),
+            });
         }
 
         // Short-circuit for action dispatch (button/webhook/cron with explicit tool call)
@@ -1216,5 +1204,43 @@ fn redact_dispatch_params(
                 "Action failed: parameters contain secrets that could not be safely redacted ({e})"
             )
         })
+    }
+}
+
+/// Outcome of a prompt-guard scan.
+enum PromptGuardVerdict {
+    /// Content is clean (or guard is disabled / warn-only).
+    Pass,
+    /// Content matched a block-listed pattern - caller should return early.
+    Blocked,
+}
+
+/// Run the prompt guard (if present) against `content` and log any matches.
+///
+/// Returns [`PromptGuardVerdict::Blocked`] when the config is set to block and
+/// at least one pattern matched; otherwise [`PromptGuardVerdict::Pass`].
+fn check_prompt_guard(
+    guard: Option<&crate::safety::prompt_guard::PromptGuard>,
+    config: &crate::config::PromptGuardConfig,
+    content: &str,
+    label: &str,
+) -> PromptGuardVerdict {
+    let Some(guard) = guard else {
+        return PromptGuardVerdict::Pass;
+    };
+    let matches = guard.scan(content);
+    if matches.is_empty() {
+        return PromptGuardVerdict::Pass;
+    }
+    for m in &matches {
+        warn!(
+            "security: prompt injection in {label} ({:?}): {}",
+            m.category, m.pattern_name
+        );
+    }
+    if config.should_block() {
+        PromptGuardVerdict::Blocked
+    } else {
+        PromptGuardVerdict::Pass
     }
 }
