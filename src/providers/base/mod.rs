@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use backoff::backoff::Backoff;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -258,13 +257,7 @@ pub trait LLMProvider: Send + Sync {
     ) -> anyhow::Result<LLMResponse> {
         let config = retry_config.unwrap_or_default();
         let mut last_error = None;
-        let mut backoff = backoff::ExponentialBackoffBuilder::new()
-            .with_initial_interval(Duration::from_millis(config.initial_delay_ms))
-            .with_max_interval(Duration::from_millis(config.max_delay_ms))
-            .with_multiplier(config.backoff_multiplier)
-            .with_randomization_factor(0.25)
-            .with_max_elapsed_time(None)
-            .build();
+        let mut next_backoff_ms = config.initial_delay_ms.max(1);
 
         for attempt in 0..=config.max_retries {
             if attempt > 0 {
@@ -317,9 +310,18 @@ pub trait LLMProvider: Send + Sync {
                             debug!("Using retry-after hint: {}s", retry_secs);
                             Duration::from_millis(retry_secs.saturating_mul(1000).max(1000))
                         } else {
-                            backoff
-                                .next_backoff()
-                                .unwrap_or_else(|| Duration::from_millis(config.max_delay_ms))
+                            // Jitter in +/- 25% range.
+                            let jitter = 1.0 + ((fastrand::f64() * 0.5) - 0.25);
+                            let jittered_ms = ((next_backoff_ms as f64) * jitter)
+                                .round()
+                                .clamp(1.0, config.max_delay_ms.max(1) as f64)
+                                as u64;
+                            let delay = Duration::from_millis(jittered_ms);
+                            let multiplied =
+                                ((next_backoff_ms as f64) * config.backoff_multiplier).round();
+                            next_backoff_ms =
+                                multiplied.clamp(1.0, config.max_delay_ms.max(1) as f64) as u64;
+                            delay
                         };
                         debug!("Waiting {}ms before retry", delay.as_millis());
                         tokio::time::sleep(delay).await;
