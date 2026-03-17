@@ -130,7 +130,8 @@ impl PromptGuard {
     /// use to evade regex-based detection (e.g. "ig\u{200B}nore" → "ignore").
     /// Also strips RTL/LTR overrides, combining diacriticals, and variation selectors.
     fn normalize(text: &str) -> String {
-        text.chars()
+        let stripped: String = text
+            .chars()
             .filter(|c| {
                 !matches!(
                     *c,
@@ -157,6 +158,30 @@ impl PromptGuard {
                     | '\u{2066}'..='\u{2069}' // bidi isolates (LRI, RLI, FSI, PDI)
                     | '\u{E0100}'..='\u{E01EF}' // variation selectors supplement
                 )
+            })
+            .collect();
+        Self::transliterate_confusables(&stripped)
+    }
+
+    /// Transliterate common Unicode confusables (homoglyphs) to ASCII equivalents.
+    fn transliterate_confusables(s: &str) -> String {
+        s.chars()
+            .map(|c| match c {
+                // Cyrillic + Greek lookalikes merged by target letter
+                '\u{0410}' | '\u{0430}' | '\u{0391}' | '\u{03B1}' => 'a',
+                '\u{0412}' | '\u{0432}' => 'b',
+                '\u{0421}' | '\u{0441}' => 'c',
+                '\u{0415}' | '\u{0435}' | '\u{0395}' | '\u{03B5}' => 'e',
+                '\u{041D}' | '\u{043D}' => 'h',
+                '\u{0406}' | '\u{0456}' => 'i',
+                '\u{041E}' | '\u{043E}' | '\u{039F}' | '\u{03BF}' => 'o',
+                '\u{0420}' | '\u{0440}' => 'p',
+                '\u{0405}' | '\u{0455}' => 's',
+                '\u{0422}' | '\u{0442}' => 't',
+                '\u{0425}' | '\u{0445}' => 'x',
+                '\u{0423}' | '\u{0443}' => 'y',
+                '\u{FF01}'..='\u{FF5E}' => char::from_u32(c as u32 - 0xFF01 + 0x21).unwrap_or(c),
+                _ => c,
             })
             .collect()
     }
