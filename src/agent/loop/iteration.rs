@@ -283,6 +283,9 @@ impl AgentLoop {
                             content,
                             &collected_tool_metadata,
                             Some(&self.leak_detector),
+                            self.prompt_guard
+                                .as_ref()
+                                .map(|g| (g, &self.prompt_guard_config)),
                         );
                         let mut response_metadata = self.take_pending_buttons_metadata();
                         merge_suggested_buttons(&mut response_metadata, &collected_tool_metadata);
@@ -334,8 +337,14 @@ impl AgentLoop {
                 .await?
         {
             let content = strip_think_tags(&content);
-            let content =
-                prepend_display_text(content, &collected_tool_metadata, Some(&self.leak_detector));
+            let content = prepend_display_text(
+                content,
+                &collected_tool_metadata,
+                Some(&self.leak_detector),
+                self.prompt_guard
+                    .as_ref()
+                    .map(|g| (g, &self.prompt_guard_config)),
+            );
             return Ok(AgentLoopResult {
                 content: Some(content),
                 input_tokens: last_input_tokens,
@@ -349,8 +358,13 @@ impl AgentLoop {
         }
 
         // If no LLM response but tools provided display_text, use that as the response
-        if let Some(display) =
-            extract_display_text(&collected_tool_metadata, Some(&self.leak_detector))
+        if let Some(display) = extract_display_text(
+            &collected_tool_metadata,
+            Some(&self.leak_detector),
+            self.prompt_guard
+                .as_ref()
+                .map(|g| (g, &self.prompt_guard_config)),
+        )
         {
             return Ok(AgentLoopResult {
                 content: Some(display),
