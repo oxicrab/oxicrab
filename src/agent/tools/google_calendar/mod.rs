@@ -57,7 +57,9 @@ impl Tool for GoogleCalendarTool {
                 "action": {
                     "type": "string",
                     "enum": ["list_events", "get_event", "create_event", "update_event", "delete_event", "list_calendars"],
-                    "description": "Action to perform"
+                    "description": "Action to perform. 'list_events' shows upcoming \
+                     events (defaults to next 7 days). 'list_calendars' shows available calendars \
+                     and their IDs."
                 },
                 "calendar_id": {
                     "type": "string",

@@ -35,7 +35,8 @@ impl Tool for SubagentControlTool {
                 "action": {
                     "type": "string",
                     "enum": ["list", "cancel"],
-                    "description": "Action to perform"
+                    "description": "Action to perform. 'list' shows running subagents. \
+                     'cancel' stops a subagent by task_id."
                 },
                 "task_id": {
                     "type": "string",

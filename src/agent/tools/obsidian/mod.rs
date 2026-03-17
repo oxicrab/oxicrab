@@ -131,7 +131,9 @@ impl Tool for ObsidianTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "The action to perform: read, write, append, search, or list",
+                    "description": "The action to perform. 'search' finds notes by content \
+                     (full-text). 'list' browses notes by folder. 'read' reads a specific note \
+                     by path. 'write' creates or overwrites. 'append' adds to end of a note.",
                     "enum": ["read", "write", "append", "search", "list"]
                 },
                 "path": {

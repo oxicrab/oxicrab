@@ -354,7 +354,10 @@ impl Tool for WorkspaceTool {
                 "action": {
                     "type": "string",
                     "enum": ["list", "search", "info", "tree", "move", "delete", "tag", "cleanup", "send"],
-                    "description": "The workspace management action to perform"
+                    "description": "The workspace management action to perform. 'list' \
+                     shows files (filter by category). 'search' finds files by query. 'info' \
+                     shows file details. 'tree' shows directory structure. 'send' delivers a \
+                     file to a channel. 'tag'/'move'/'delete' manage files."
                 },
                 "category": {
                     "type": "string",

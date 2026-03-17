@@ -555,7 +555,9 @@ impl Tool for TodoistTool {
                 "action": {
                     "type": "string",
                     "enum": ["list_tasks", "get_task", "create_task", "update_task", "complete_task", "delete_task", "add_comment", "list_comments", "list_projects"],
-                    "description": "Action to perform"
+                    "description": "Action to perform. 'list_tasks' shows tasks (use \
+                     'filter' param for Todoist queries like 'today', 'overdue', '#Work'). \
+                     'complete_task' marks done. 'list_projects' shows available projects."
                 },
                 "content": {
                     "type": "string",

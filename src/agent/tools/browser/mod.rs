@@ -761,7 +761,11 @@ impl Tool for BrowserTool {
                 "action": {
                     "type": "string",
                     "enum": ["open", "click", "type_text", "fill", "screenshot", "snapshot", "eval", "get", "scroll", "wait", "close", "navigate"],
-                    "description": "The browser action to perform"
+                    "description": "The browser action to perform. 'open' loads a URL \
+                     (starts a new page). 'navigate' changes URL in an already-open page. \
+                     'screenshot' captures a visual image. 'snapshot' returns the DOM as text \
+                     (no image). 'get' extracts content (set 'what' to text/html/title/url/value). \
+                     'type_text' simulates keystrokes; 'fill' sets a field value directly."
                 },
                 "url": {
                     "type": "string",

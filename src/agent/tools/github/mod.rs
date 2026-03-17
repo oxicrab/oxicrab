@@ -798,7 +798,9 @@ impl Tool for GitHubTool {
                         "get_file_content", "trigger_workflow", "get_workflow_runs",
                         "notifications"
                     ],
-                    "description": "Action to perform"
+                    "description": "Action to perform. 'get_pr' returns PR metadata \
+                     (title, description, reviewers, status). 'get_pr_files' returns the \
+                     changed files and diff. 'notifications' lists unread notifications."
                 },
                 "owner": {
                     "type": "string",

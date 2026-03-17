@@ -108,7 +108,10 @@ impl Tool for TmuxTool {
                 "action": {
                     "type": "string",
                     "enum": ["create", "send", "read", "list", "kill"],
-                    "description": "The tmux action to perform"
+                    "description": "The tmux action to perform. 'create' starts a new \
+                     session. 'send' sends a command/text to a session. 'read' captures \
+                     recent output lines. 'list' shows active sessions. 'kill' terminates a \
+                     session."
                 },
                 "session_name": {
                     "type": "string",

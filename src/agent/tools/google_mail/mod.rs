@@ -56,7 +56,9 @@ impl Tool for GoogleMailTool {
                 "action": {
                     "type": "string",
                     "enum": ["search", "read", "send", "reply", "list_labels", "label"],
-                    "description": "Action to perform"
+                    "description": "Action to perform. 'search' finds emails by Gmail \
+                     query (returns a list of matches). 'read' gets a specific email's full \
+                     content by message_id. 'label' adds or removes labels from an email."
                 },
                 "query": {
                     "type": "string",

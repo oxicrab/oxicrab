@@ -55,7 +55,9 @@ impl Tool for GoogleTasksTool {
                 "action": {
                     "type": "string",
                     "enum": ["list_task_lists", "list_tasks", "get_task", "create_task", "update_task", "delete_task"],
-                    "description": "Action to perform"
+                    "description": "Action to perform. 'list_task_lists' shows available \
+                     task lists and their IDs. 'list_tasks' shows tasks in a list (use \
+                     show_completed to include done tasks)."
                 },
                 "task_list_id": {
                     "type": "string",

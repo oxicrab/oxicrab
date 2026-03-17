@@ -385,7 +385,10 @@ impl Tool for CronTool {
                 "action": {
                     "type": "string",
                     "enum": ["add", "list", "remove", "run", "dlq_list", "dlq_replay", "dlq_clear"],
-                    "description": "Action to perform. dlq_list/dlq_replay/dlq_clear manage the dead letter queue for failed executions."
+                    "description": "Action to perform. 'add' creates a new scheduled job. \
+                     'run' triggers an existing job immediately by job_id. 'list' shows all \
+                     jobs. 'remove' deletes a job. dlq_list/dlq_replay/dlq_clear manage the \
+                     dead letter queue for failed executions."
                 },
                 "type": {
                     "type": "string",
