@@ -1,5 +1,6 @@
+use lru::LruCache;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::num::NonZeroUsize;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -41,16 +42,10 @@ pub struct ActionDispatchPayload {
 
 const DEFAULT_DISPATCH_TTL: Duration = Duration::from_mins(15);
 
-struct DispatchStoreInner {
-    entries: HashMap<String, (ActionDispatchPayload, Instant)>,
-    order: VecDeque<String>,
-}
-
 /// In-memory LRU store for Discord button dispatch contexts.
-/// Single mutex protects both map and insertion order for consistency.
+/// Uses `lru::LruCache` for eviction with an additional TTL check on reads.
 pub struct DispatchContextStore {
-    inner: Mutex<DispatchStoreInner>,
-    capacity: usize,
+    inner: Mutex<LruCache<String, (ActionDispatchPayload, Instant)>>,
     ttl: Duration,
 }
 
@@ -58,11 +53,7 @@ impl DispatchContextStore {
     pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "DispatchContextStore capacity must be > 0");
         Self {
-            inner: Mutex::new(DispatchStoreInner {
-                entries: HashMap::new(),
-                order: VecDeque::new(),
-            }),
-            capacity,
+            inner: Mutex::new(LruCache::new(NonZeroUsize::new(capacity).unwrap())),
             ttl: DEFAULT_DISPATCH_TTL,
         }
     }
@@ -71,45 +62,27 @@ impl DispatchContextStore {
     pub fn with_ttl(capacity: usize, ttl: Duration) -> Self {
         assert!(capacity > 0, "DispatchContextStore capacity must be > 0");
         Self {
-            inner: Mutex::new(DispatchStoreInner {
-                entries: HashMap::new(),
-                order: VecDeque::new(),
-            }),
-            capacity,
+            inner: Mutex::new(LruCache::new(NonZeroUsize::new(capacity).unwrap())),
             ttl,
         }
     }
 
     pub fn insert(&self, key: String, payload: ActionDispatchPayload) {
-        let mut inner = self
+        let mut cache = self
             .inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // Handle duplicate key
-        if inner.entries.contains_key(&key) {
-            inner.order.retain(|k| k != &key);
-        }
-        // Evict oldest if at capacity
-        while inner.entries.len() >= self.capacity {
-            if let Some(oldest) = inner.order.pop_front() {
-                inner.entries.remove(&oldest);
-            } else {
-                break;
-            }
-        }
-        inner.entries.insert(key.clone(), (payload, Instant::now()));
-        inner.order.push_back(key);
+        cache.put(key, (payload, Instant::now()));
     }
 
     pub fn get(&self, key: &str) -> Option<ActionDispatchPayload> {
-        let mut inner = self
+        let mut cache = self
             .inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some((payload, inserted_at)) = inner.entries.get(key) {
+        if let Some((payload, inserted_at)) = cache.get(key) {
             if inserted_at.elapsed() > self.ttl {
-                inner.entries.remove(key);
-                inner.order.retain(|k| k != key);
+                cache.pop(key);
                 return None;
             }
             Some(payload.clone())
@@ -215,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dispatch_context_store_ttl_cleans_order() {
+    fn test_dispatch_context_store_ttl_cleans_entry() {
         let store = DispatchContextStore::with_ttl(100, std::time::Duration::from_millis(50));
         let p = ActionDispatchPayload {
             tool: "x".into(),
@@ -223,13 +196,13 @@ mod tests {
         };
         store.insert("btn".into(), p);
         std::thread::sleep(std::time::Duration::from_millis(60));
-        // TTL eviction in get() should also remove from order
+        // TTL eviction in get() should remove from cache
         assert!(store.get("btn").is_none());
-        let inner = store
+        let cache = store
             .inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        assert!(!inner.order.iter().any(|k| k == "btn"));
+        assert!(cache.peek("btn").is_none());
     }
 
     #[test]
