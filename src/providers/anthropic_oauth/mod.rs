@@ -669,6 +669,10 @@ impl LLMProvider for AnthropicOAuthProvider {
             .header("Authorization", format!("Bearer {token}"))
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
+            .header(
+                "x-session-affinity",
+                crate::providers::session_affinity_id(),
+            )
             .timeout(std::time::Duration::from_secs(15))
             .json(&payload)
             .send()
