@@ -56,6 +56,7 @@ pub struct DispatchContextStore {
 
 impl DispatchContextStore {
     pub fn new(capacity: usize) -> Self {
+        assert!(capacity > 0, "DispatchContextStore capacity must be > 0");
         Self {
             inner: Mutex::new(DispatchStoreInner {
                 entries: HashMap::new(),
@@ -68,6 +69,7 @@ impl DispatchContextStore {
 
     #[cfg(test)]
     pub fn with_ttl(capacity: usize, ttl: Duration) -> Self {
+        assert!(capacity > 0, "DispatchContextStore capacity must be > 0");
         Self {
             inner: Mutex::new(DispatchStoreInner {
                 entries: HashMap::new(),
@@ -107,6 +109,7 @@ impl DispatchContextStore {
         if let Some((payload, inserted_at)) = inner.entries.get(key) {
             if inserted_at.elapsed() > self.ttl {
                 inner.entries.remove(key);
+                inner.order.retain(|k| k != key);
                 return None;
             }
             Some(payload.clone())
@@ -203,6 +206,30 @@ mod tests {
         assert!(store.get("btn").is_some());
         std::thread::sleep(std::time::Duration::from_millis(60));
         assert!(store.get("btn").is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "capacity must be > 0")]
+    fn test_dispatch_context_store_zero_capacity_panics() {
+        DispatchContextStore::new(0);
+    }
+
+    #[test]
+    fn test_dispatch_context_store_ttl_cleans_order() {
+        let store = DispatchContextStore::with_ttl(100, std::time::Duration::from_millis(50));
+        let p = ActionDispatchPayload {
+            tool: "x".into(),
+            params: serde_json::json!({}),
+        };
+        store.insert("btn".into(), p);
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        // TTL eviction in get() should also remove from order
+        assert!(store.get("btn").is_none());
+        let inner = store
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(!inner.order.iter().any(|k| k == "btn"));
     }
 
     #[test]

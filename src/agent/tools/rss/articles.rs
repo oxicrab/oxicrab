@@ -227,7 +227,16 @@ fn handle_feedback(db: &MemoryDB, article_ids: &[&str], accepted: bool) -> ToolR
             let combined = format!("{}\n\n{}", msg, next_result.content);
             let mut result = ToolResult::new(combined);
             if let Some(meta) = next_result.metadata {
-                result = result.with_metadata(meta.into_iter().collect());
+                let mut meta_map: HashMap<String, serde_json::Value> = meta.into_iter().collect();
+                // Prepend feedback confirmation to display_text so the user
+                // sees both the feedback result and the next article
+                if let Some(display) = meta_map.get("display_text").and_then(|v| v.as_str()) {
+                    meta_map.insert(
+                        "display_text".to_string(),
+                        serde_json::Value::String(format!("{msg}\n\n{display}")),
+                    );
+                }
+                result = result.with_metadata(meta_map);
             }
             result
         }

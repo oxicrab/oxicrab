@@ -214,17 +214,12 @@ impl Tool for GoogleMailTool {
                     .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(0));
                 let mut metadata: HashMap<String, Value> = HashMap::new();
                 metadata.insert("active_tool".to_string(), serde_json::json!("google_mail"));
+                // Only archive directive is safe for direct dispatch — it has
+                // all required params. Reply needs LLM interpretation (to ask
+                // what to say) so it goes through the normal pipeline.
                 metadata.insert(
                     "action_directives".to_string(),
                     serde_json::json!([
-                        {
-                            "trigger": {"OneOf": ["reply", "respond"]},
-                            "tool": "google_mail",
-                            "params": {"action": "reply", "message_id": message_id},
-                            "single_use": true,
-                            "ttl_ms": 300_000,
-                            "created_at_ms": now
-                        },
                         {
                             "trigger": {"OneOf": ["archive", "dismiss"]},
                             "tool": "google_mail",

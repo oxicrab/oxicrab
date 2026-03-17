@@ -108,7 +108,7 @@ impl AgentLoop {
                 tool,
                 params,
                 source,
-                ..
+                directive_index,
             } => {
                 // Handle direct dispatch inline — returns early
                 return self
@@ -116,6 +116,7 @@ impl AgentLoop {
                         tool.clone(),
                         params.clone(),
                         source,
+                        *directive_index,
                         &msg,
                         &session_key,
                         &mut router_context,
@@ -687,11 +688,13 @@ impl AgentLoop {
 
     /// Execute a tool directly without LLM involvement (buttons, directives,
     /// static rules, config commands, remember fast path).
+    #[allow(clippy::too_many_arguments)]
     async fn handle_direct_dispatch(
         &self,
         tool: String,
         params: serde_json::Value,
         source: &crate::router::DispatchSource,
+        directive_index: Option<usize>,
         msg: &InboundMessage,
         session_key: &str,
         router_context: &mut crate::router::context::RouterContext,
@@ -844,11 +847,9 @@ impl AgentLoop {
             Self::update_router_context(router_context, meta);
         }
 
-        // Handle single-use directive consumption
-        if matches!(source, crate::router::DispatchSource::ActionDirective)
-            && let Some(idx) = self
-                .router
-                .matched_directive_index(&msg_content, router_context)
+        // Handle single-use directive consumption (index captured at route time
+        // to avoid TOCTOU between route() and a separate lookup)
+        if let Some(idx) = directive_index
             && router_context
                 .action_directives
                 .get(idx)

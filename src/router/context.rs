@@ -96,6 +96,10 @@ impl DirectiveTrigger {
                 if pat.len() > MAX_PATTERN_LEN {
                     return false;
                 }
+                // Pattern compiled per-match (not cached). Acceptable because:
+                // - Directives are short-lived (5 min TTL)
+                // - Pattern triggers are rare (most use Exact/OneOf)
+                // - 256-char length limit bounds compilation cost
                 regex::Regex::new(pat).is_ok_and(|re| re.is_match(&normalized))
             }
         }

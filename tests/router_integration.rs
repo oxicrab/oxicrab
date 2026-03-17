@@ -555,6 +555,7 @@ fn test_router_config_command_dispatched() {
             tool,
             params,
             source,
+            ..
         } => {
             assert_eq!(tool, "weather_tool");
             assert_eq!(params["location"], "seattle");
@@ -678,7 +679,7 @@ fn test_router_guided_llm_with_active_tool_no_match() {
 }
 
 #[test]
-fn test_router_matched_directive_index() {
+fn test_route_directive_returns_correct_index() {
     let router = make_router();
     let now = oxicrab::router::now_ms();
     let mut ctx = RouterContext::default();
@@ -698,13 +699,26 @@ fn test_router_matched_directive_index() {
         ttl_ms: 300_000,
         created_at_ms: now,
     });
-    assert_eq!(router.matched_directive_index("yes", &ctx), Some(1));
-    assert_eq!(router.matched_directive_index("no", &ctx), Some(0));
-    assert_eq!(router.matched_directive_index("maybe", &ctx), None);
+    match router.route("yes", &ctx, None) {
+        RoutingDecision::DirectDispatch {
+            directive_index, ..
+        } => assert_eq!(directive_index, Some(1)),
+        other => panic!("expected DirectDispatch, got {other:?}"),
+    }
+    match router.route("no", &ctx, None) {
+        RoutingDecision::DirectDispatch {
+            directive_index, ..
+        } => assert_eq!(directive_index, Some(0)),
+        other => panic!("expected DirectDispatch, got {other:?}"),
+    }
+    match router.route("maybe", &ctx, None) {
+        RoutingDecision::FullLLM => {}
+        other => panic!("expected FullLLM, got {other:?}"),
+    }
 }
 
 #[test]
-fn test_router_matched_directive_index_expired_is_none() {
+fn test_route_expired_directive_returns_no_index() {
     let router = make_router();
     let now = oxicrab::router::now_ms();
     let mut ctx = RouterContext::default();
@@ -716,7 +730,11 @@ fn test_router_matched_directive_index_expired_is_none() {
         ttl_ms: 1,
         created_at_ms: now - 5000,
     });
-    assert_eq!(router.matched_directive_index("yes", &ctx), None);
+    // Expired directive should not match — falls through to FullLLM
+    match router.route("yes", &ctx, None) {
+        RoutingDecision::FullLLM => {}
+        other => panic!("expected FullLLM, got {other:?}"),
+    }
 }
 
 // ---------------------------------------------------------------------------

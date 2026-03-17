@@ -16,6 +16,7 @@ pub enum RoutingDecision {
         tool: String,
         params: serde_json::Value,
         source: DispatchSource,
+        directive_index: Option<usize>,
     },
     /// Send to LLM, but constrain available tools and prepend a context hint.
     GuidedLLM {
@@ -87,6 +88,7 @@ impl MessageRouter {
                 tool: dispatch.tool.clone(),
                 params: dispatch.params.clone(),
                 source,
+                directive_index: None,
             };
         }
 
@@ -99,7 +101,7 @@ impl MessageRouter {
         let now = now_ms();
 
         // 3. ActionDirective match (skip expired).
-        for directive in &ctx.action_directives {
+        for (i, directive) in ctx.action_directives.iter().enumerate() {
             if directive.is_expired(now) {
                 continue;
             }
@@ -112,6 +114,7 @@ impl MessageRouter {
                     tool: directive.tool.clone(),
                     params: directive.params.clone(),
                     source: DispatchSource::ActionDirective,
+                    directive_index: Some(i),
                 };
             }
         }
@@ -131,6 +134,7 @@ impl MessageRouter {
                     tool: rule.tool.clone(),
                     params,
                     source: DispatchSource::ConfigRule,
+                    directive_index: None,
                 };
             }
         }
@@ -147,6 +151,7 @@ impl MessageRouter {
                     tool: rule.tool.clone(),
                     params: rule.params.clone(),
                     source: DispatchSource::StaticRule,
+                    directive_index: None,
                 };
             }
         }
@@ -158,6 +163,7 @@ impl MessageRouter {
                 tool: "_remember".into(),
                 params: serde_json::json!({"content": message}),
                 source: DispatchSource::RememberFastPath,
+                directive_index: None,
             };
         }
 
@@ -174,17 +180,6 @@ impl MessageRouter {
         // 8. Full LLM.
         debug!("router: decision=FullLLM");
         RoutingDecision::FullLLM
-    }
-
-    /// Return the index of the first non-expired directive that matches `message`.
-    /// Used by callers to remove single-use directives after dispatch.
-    pub fn matched_directive_index(&self, message: &str, ctx: &RouterContext) -> Option<usize> {
-        let now = now_ms();
-        ctx.action_directives
-            .iter()
-            .enumerate()
-            .find(|(_, d)| !d.is_expired(now) && d.trigger.matches(message))
-            .map(|(i, _)| i)
     }
 }
 
@@ -205,9 +200,11 @@ fn build_context_hint(ctx: &RouterContext) -> String {
         parts.push(format!("Active tool: {tool}"));
     }
 
+    let now = now_ms();
     let keywords: Vec<String> = ctx
         .action_directives
         .iter()
+        .filter(|d| !d.is_expired(now))
         .filter_map(|d| match &d.trigger {
             context::DirectiveTrigger::Exact(s) => Some(s.clone()),
             context::DirectiveTrigger::OneOf(opts) => Some(opts.join("|")),
@@ -333,6 +330,7 @@ mod tests {
                 tool,
                 params,
                 source: DispatchSource::ConfigRule,
+                ..
             } => {
                 assert_eq!(tool, "weather");
                 assert_eq!(params["location"], "portland");
@@ -428,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    fn test_matched_directive_index() {
+    fn test_route_directive_returns_index() {
         let router = make_router();
         let mut ctx = context::RouterContext::default();
         ctx.action_directives.push(context::ActionDirective {
@@ -447,7 +445,15 @@ mod tests {
             ttl_ms: 300_000,
             created_at_ms: now_ms(),
         });
-        assert_eq!(router.matched_directive_index("yes", &ctx), Some(1));
-        assert_eq!(router.matched_directive_index("maybe", &ctx), None);
+        match router.route("yes", &ctx, None) {
+            RoutingDecision::DirectDispatch {
+                directive_index, ..
+            } => assert_eq!(directive_index, Some(1)),
+            _ => panic!("expected DirectDispatch"),
+        }
+        match router.route("maybe", &ctx, None) {
+            RoutingDecision::FullLLM => {}
+            _ => panic!("expected FullLLM"),
+        }
     }
 }
