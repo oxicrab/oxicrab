@@ -247,7 +247,9 @@ impl Tool for GoogleMailTool {
                 let subject = subject.replace(['\r', '\n'], " ");
                 let body = body.replace('\r', "");
 
-                let email = format!("To: {to}\r\nSubject: {subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}");
+                let email = format!(
+                    "To: {to}\r\nSubject: {subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}"
+                );
                 let raw = URL_SAFE_NO_PAD.encode(email.as_bytes());
 
                 let body_json = serde_json::json!({"raw": raw});

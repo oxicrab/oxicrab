@@ -671,8 +671,10 @@ impl Tool for CronTool {
                     })
                     .collect();
                 let buttons = build_job_buttons(&jobs);
-                Ok(ToolResult::new(format!("Scheduled jobs:\n{}", lines.join("\n")))
-                    .with_buttons(buttons))
+                Ok(
+                    ToolResult::new(format!("Scheduled jobs:\n{}", lines.join("\n")))
+                        .with_buttons(buttons),
+                )
             }
             "pause" => {
                 let job_id = require_param!(params, "job_id");

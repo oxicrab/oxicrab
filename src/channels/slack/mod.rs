@@ -70,7 +70,33 @@ fn classify_slack_error(http_status: u16, error_field: Option<&str>) -> SlackApi
 }
 
 fn is_retryable(err: &SlackApiError) -> bool {
-    matches!(err, SlackApiError::ServerError(status) if *status >= 500)
+    matches!(
+        err,
+        SlackApiError::ServerError(status) if *status >= 500
+    ) || matches!(err, SlackApiError::RateLimited { .. })
+}
+
+/// Parse HTTP status and retry-after from structured error messages
+/// produced by `parse_slack_response()` (format: "... [status=429] [retry-after=30]").
+fn parse_error_metadata(err_str: &str) -> (u16, Option<u32>) {
+    let status = err_str
+        .find("[status=")
+        .and_then(|pos| {
+            let start = pos + "[status=".len();
+            err_str[start..]
+                .find(']')
+                .and_then(|end| err_str[start..start + end].parse().ok())
+        })
+        .unwrap_or(0);
+
+    let retry_after = err_str.find("[retry-after=").and_then(|pos| {
+        let start = pos + "[retry-after=".len();
+        err_str[start..]
+            .find(']')
+            .and_then(|end| err_str[start..start + end].parse().ok())
+    });
+
+    (status, retry_after)
 }
 
 pub struct SlackChannel {
@@ -343,15 +369,7 @@ impl SlackChannel {
             .send()
             .await?;
 
-        let json: Value = response.json().await?;
-        if json.get("ok").and_then(Value::as_bool) != Some(true) {
-            let error = json
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown");
-            return Err(anyhow::anyhow!("Slack API error: {error}"));
-        }
-        Ok(json)
+        Self::parse_slack_response(response).await
     }
 
     /// Send a JSON-body Slack API request (needed for Block Kit `blocks` payloads).
@@ -367,20 +385,39 @@ impl SlackChannel {
             .send()
             .await?;
 
+        Self::parse_slack_response(response).await
+    }
+
+    /// Parse a Slack API response, extracting HTTP status and Retry-After for
+    /// error classification upstream.
+    async fn parse_slack_response(response: reqwest::Response) -> Result<Value> {
+        let status = response.status().as_u16();
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u32>().ok());
+
         let json: Value = response.json().await?;
         if json.get("ok").and_then(Value::as_bool) != Some(true) {
             let error = json
                 .get("error")
                 .and_then(Value::as_str)
                 .unwrap_or("unknown");
-            return Err(anyhow::anyhow!("Slack API error: {error}"));
+            // Include HTTP status and Retry-After in the error for the retry
+            // wrapper to parse. Format: "Slack API error: {error} [status={status}]"
+            // with optional "[retry-after={secs}]" suffix.
+            let mut msg = format!("Slack API error: {error} [status={status}]");
+            if let Some(secs) = retry_after {
+                msg.push_str(&format!(" [retry-after={secs}]"));
+            }
+            return Err(anyhow::anyhow!("{msg}"));
         }
         Ok(json)
     }
 
     /// Retry wrapper for Slack API calls. Retries up to 3 times for transient
-    /// (5xx) errors. Rate limits (429) log a warning but don't retry. Auth
-    /// errors fail immediately.
+    /// (5xx) errors and rate limits (429) with Retry-After backoff.
     async fn send_slack_api_with_retry(
         &self,
         method: &str,
@@ -392,23 +429,19 @@ impl SlackChannel {
                 Ok(json) => return Ok(json),
                 Err(e) => {
                     let err_str = e.to_string();
-                    // Parse the error to determine retryability
-                    let http_status = if err_str.contains("HTTP 5") {
-                        500u16
-                    } else {
-                        0
-                    };
-                    let classified = classify_slack_error(
-                        http_status,
-                        err_str.strip_prefix("Slack API error: "),
-                    );
+                    let (http_status, retry_after) = parse_error_metadata(&err_str);
+                    let error_field = err_str
+                        .strip_prefix("Slack API error: ")
+                        .map(|s| s.split(" [status=").next().unwrap_or(s));
+                    let mut classified = classify_slack_error(http_status, error_field);
+                    // Override retry_after_secs with the parsed Retry-After header value
+                    if let (SlackApiError::RateLimited { retry_after_secs }, Some(parsed)) =
+                        (&mut classified, retry_after)
+                    {
+                        *retry_after_secs = parsed;
+                    }
                     if !is_retryable(&classified) {
                         match &classified {
-                            SlackApiError::RateLimited { retry_after_secs } => {
-                                warn!(
-                                    "slack: rate limited on {method}, retry after {retry_after_secs}s"
-                                );
-                            }
                             SlackApiError::InvalidAuth => {
                                 error!("slack: invalid auth for {method}");
                             }
@@ -421,13 +454,18 @@ impl SlackChannel {
                             SlackApiError::Other(msg) => {
                                 warn!("slack: API error on {method}: {msg}");
                             }
-                            SlackApiError::ServerError(_) => {} // handled by retry
+                            SlackApiError::RateLimited { .. } | SlackApiError::ServerError(_) => {}
                         }
                         return Err(e);
                     }
-                    let delay = 1u64 << attempt;
+                    let delay = match &classified {
+                        SlackApiError::RateLimited { retry_after_secs } => {
+                            u64::from(*retry_after_secs)
+                        }
+                        _ => 1u64 << attempt,
+                    };
                     warn!(
-                        "slack: transient error on {method} (attempt {}): {err_str}, retrying in {delay}s",
+                        "slack: retryable error on {method} (attempt {}): {err_str}, retrying in {delay}s",
                         attempt + 1
                     );
                     tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
@@ -446,21 +484,27 @@ impl SlackChannel {
                 Ok(json) => return Ok(json),
                 Err(e) => {
                     let err_str = e.to_string();
-                    let http_status = if err_str.contains("HTTP 5") {
-                        500u16
-                    } else {
-                        0
-                    };
-                    let classified = classify_slack_error(
-                        http_status,
-                        err_str.strip_prefix("Slack API error: "),
-                    );
+                    let (http_status, retry_after) = parse_error_metadata(&err_str);
+                    let error_field = err_str
+                        .strip_prefix("Slack API error: ")
+                        .map(|s| s.split(" [status=").next().unwrap_or(s));
+                    let mut classified = classify_slack_error(http_status, error_field);
+                    if let (SlackApiError::RateLimited { retry_after_secs }, Some(parsed)) =
+                        (&mut classified, retry_after)
+                    {
+                        *retry_after_secs = parsed;
+                    }
                     if !is_retryable(&classified) {
                         return Err(e);
                     }
-                    let delay = 1u64 << attempt;
+                    let delay = match &classified {
+                        SlackApiError::RateLimited { retry_after_secs } => {
+                            u64::from(*retry_after_secs)
+                        }
+                        _ => 1u64 << attempt,
+                    };
                     warn!(
-                        "slack: transient error on {method} (attempt {}): {err_str}, retrying in {delay}s",
+                        "slack: retryable error on {method} (attempt {}): {err_str}, retrying in {delay}s",
                         attempt + 1
                     );
                     tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;

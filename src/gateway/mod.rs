@@ -220,7 +220,10 @@ async fn api_key_auth(
     match provided {
         Some(key) if key.as_bytes().ct_eq(expected.as_bytes()).into() => next.run(request).await,
         _ => {
-            warn!("security: rejected unauthenticated request to {}", request.uri());
+            warn!(
+                "security: rejected unauthenticated request to {}",
+                request.uri()
+            );
             (
                 StatusCode::UNAUTHORIZED,
                 Json(ErrorResponse {

@@ -365,7 +365,10 @@ async fn test_zero_half_open_probes_clamped_to_one() {
     // With recovery_timeout_secs=0, should immediately enter HalfOpen.
     // With half_open_probes clamped to 1, a single success should close it.
     let result = provider.chat(&make_request()).await;
-    assert!(result.is_ok(), "should recover after single successful probe");
+    assert!(
+        result.is_ok(),
+        "should recover after single successful probe"
+    );
 
     // Should now be fully closed again
     let result = provider.chat(&make_request()).await;

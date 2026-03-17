@@ -377,10 +377,7 @@ impl AgentLoop {
         // Extract directives from tool results and update router context.
         // Accumulate directives from ALL tools before installing once, so
         // multi-tool turns don't lose earlier tools' directives.
-        Self::apply_tool_metadata_to_router(
-            &mut router_context,
-            &loop_result.tool_metadata,
-        );
+        Self::apply_tool_metadata_to_router(&mut router_context, &loop_result.tool_metadata);
 
         // Only reload session if compaction updated it (wrote compaction_summary).
         // Compare the actual checkpoint value, not just presence, so that
