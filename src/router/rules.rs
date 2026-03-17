@@ -2,6 +2,7 @@ use super::context::DirectiveTrigger;
 use serde::{Deserialize, Serialize};
 
 /// Tool-declared static routing rule. Compiled at startup.
+#[derive(Clone)]
 pub struct StaticRule {
     pub tool: String,
     pub trigger: DirectiveTrigger,

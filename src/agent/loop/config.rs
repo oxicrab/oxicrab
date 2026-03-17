@@ -25,6 +25,10 @@ pub struct AgentRunOverrides {
     pub metadata: std::collections::HashMap<String, serde_json::Value>,
     /// Structured action dispatch — bypasses LLM when Some.
     pub action: Option<crate::dispatch::ActionDispatch>,
+    /// Tool name filter for `GuidedLLM` path — only include these tools.
+    pub tool_filter: Option<Vec<String>>,
+    /// Context hint injected into system prompt for `GuidedLLM` path.
+    pub context_hint: Option<String>,
 }
 
 /// Tool-specific configurations bundled together. These fields are only used
@@ -67,6 +71,8 @@ pub struct AgentLoopResult {
     pub reasoning_signature: Option<String>,
     /// Extra metadata to merge into the outbound message (e.g. interactive buttons).
     pub response_metadata: std::collections::HashMap<String, serde_json::Value>,
+    /// Metadata from tool results (for directive extraction by caller).
+    pub tool_metadata: Vec<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 /// Result of a direct (non-channel) agent invocation.
@@ -141,6 +147,8 @@ pub struct AgentLoopConfig {
     /// Shared leak detector with known secrets pre-registered.
     /// When `None`, a default detector (base patterns only) is created.
     pub leak_detector: Option<Arc<LeakDetector>>,
+    /// Router configuration (prefix commands, user-defined rules).
+    pub router_config: crate::config::RouterConfig,
 }
 
 /// Temperature used for tool-calling iterations (low for determinism)
@@ -248,6 +256,7 @@ impl AgentLoopConfig {
             },
             memory_db: params.memory_db,
             leak_detector: params.leak_detector,
+            router_config: config.router.clone(),
         }
     }
 
@@ -320,6 +329,7 @@ impl AgentLoopConfig {
             },
             memory_db: None,
             leak_detector: None,
+            router_config: crate::config::RouterConfig::default(),
         }
     }
 }

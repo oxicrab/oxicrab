@@ -111,6 +111,8 @@ pub struct AgentLoop {
     tool_search_activated: Arc<tokio::sync::Mutex<HashSet<String>>>,
     /// Shared state for interactive buttons (written by `add_buttons` tool, read after loop)
     pending_buttons: crate::agent::tools::interactive::PendingButtons,
+    /// Priority-ordered message router for direct dispatch and guided LLM paths
+    router: std::sync::Arc<crate::router::MessageRouter>,
 }
 
 impl AgentLoop {
@@ -148,6 +150,7 @@ impl AgentLoop {
                 },
             memory_db: shared_db,
             leak_detector: shared_leak_detector,
+            router_config,
         } = config;
 
         // Extract receiver from the bus (called once at startup).
@@ -355,6 +358,27 @@ impl AgentLoop {
             None
         };
 
+        // Build message router from tool-declared static rules and config rules
+        let config_rules: HashMap<String, crate::router::rules::ConfigRule> = router_config
+            .rules
+            .into_iter()
+            .map(|r| {
+                (
+                    r.trigger.clone(),
+                    crate::router::rules::ConfigRule {
+                        trigger: r.trigger,
+                        tool: r.tool,
+                        params: r.params,
+                    },
+                )
+            })
+            .collect();
+        let router = std::sync::Arc::new(crate::router::MessageRouter::new(
+            tools.routing_rules().to_vec(),
+            config_rules,
+            router_config.prefix,
+        ));
+
         let complexity_scorer = if let Some(ref r) = routing
             && let Some(weights) = r.chat_weights()
         {
@@ -410,6 +434,7 @@ impl AgentLoop {
             complexity_scorer,
             tool_search_activated,
             pending_buttons,
+            router,
         })
     }
 

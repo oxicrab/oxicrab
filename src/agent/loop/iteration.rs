@@ -68,11 +68,26 @@ impl AgentLoop {
             tools_defs
         };
 
+        // Router tool filter: constrain available tools for GuidedLLM/SemanticFilter paths
+        if let Some(ref filter) = overrides.tool_filter {
+            tools_defs.retain(|td| {
+                filter.contains(&td.name) || td.name == "add_buttons" || td.name == "tool_search"
+            });
+        }
+
         // Extract tool names for hallucination detection (may be rebuilt if tool_search activates deferred tools)
         let mut tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
 
         // Wrap tools in Arc for cheap cloning into each ChatRequest iteration
         let mut tools_arc = Arc::new(tools_defs);
+
+        // Inject router context hint into system prompt for GuidedLLM path
+        if let Some(ref hint) = overrides.context_hint
+            && let Some(system_msg) = messages.first_mut()
+        {
+            use std::fmt::Write;
+            let _ = write!(system_msg.content, "\n\n## Active Interaction\n\n{hint}");
+        }
 
         // Append cognitive routines to system prompt when enabled
         if self.cognitive_config.enabled
@@ -259,6 +274,7 @@ impl AgentLoop {
                             reasoning_content: response.reasoning_content,
                             reasoning_signature: response.reasoning_signature,
                             response_metadata,
+                            tool_metadata: collected_tool_metadata,
                         });
                     }
                 }
@@ -307,6 +323,7 @@ impl AgentLoop {
                 reasoning_content: None,
                 reasoning_signature: None,
                 response_metadata,
+                tool_metadata: collected_tool_metadata,
             });
         }
 
@@ -320,6 +337,7 @@ impl AgentLoop {
                 reasoning_content: None,
                 reasoning_signature: None,
                 response_metadata,
+                tool_metadata: collected_tool_metadata,
             });
         }
 
@@ -331,6 +349,7 @@ impl AgentLoop {
             reasoning_content: None,
             reasoning_signature: None,
             response_metadata,
+            tool_metadata: collected_tool_metadata,
         })
     }
 
