@@ -176,7 +176,7 @@ fn test_build_event_buttons_list_view_rsvp_yes() {
     assert_eq!(ctx["tool"], "google_calendar");
     assert_eq!(ctx["params"]["event_id"], "evt1");
     assert_eq!(ctx["params"]["calendar_id"], "primary");
-    assert_eq!(ctx["params"]["action"], "rsvp_yes");
+    assert_eq!(ctx["params"]["action"], "rsvp");
 }
 
 #[test]
