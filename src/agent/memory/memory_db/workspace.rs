@@ -118,16 +118,38 @@ impl MemoryDB {
             param_values.push(Box::new(cat.to_string()));
         }
         if let Some(d) = date {
-            let _ = write!(sql, " AND created_at LIKE ?{}", param_values.len() + 1);
-            param_values.push(Box::new(format!("{d}%")));
-        }
-        if let Some(t) = tag {
+            let escaped_date: String = d
+                .chars()
+                .flat_map(|c| match c {
+                    '\\' => vec!['\\', '\\'],
+                    '%' => vec!['\\', '%'],
+                    '_' => vec!['\\', '_'],
+                    other => vec![other],
+                })
+                .collect();
             let _ = write!(
                 sql,
-                " AND (',' || tags || ',' LIKE '%,' || ?{} || ',%')",
+                " AND created_at LIKE ?{} ESCAPE '\\'",
                 param_values.len() + 1
             );
-            param_values.push(Box::new(t.to_string()));
+            param_values.push(Box::new(format!("{escaped_date}%")));
+        }
+        if let Some(t) = tag {
+            let escaped_tag: String = t
+                .chars()
+                .flat_map(|c| match c {
+                    '\\' => vec!['\\', '\\'],
+                    '%' => vec!['\\', '%'],
+                    '_' => vec!['\\', '_'],
+                    other => vec![other],
+                })
+                .collect();
+            let _ = write!(
+                sql,
+                " AND (',' || tags || ',' LIKE '%,' || ?{} || ',%' ESCAPE '\\')",
+                param_values.len() + 1
+            );
+            param_values.push(Box::new(escaped_tag));
         }
         sql.push_str(" ORDER BY created_at DESC");
 
