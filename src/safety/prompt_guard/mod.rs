@@ -85,11 +85,14 @@ static GUARD_PATTERNS: LazyLock<Vec<GuardPattern>> = LazyLock::new(|| {
             "do_anything_now",
             r"(?i)\bdo anything now\b",
         ),
-        // Few-shot prefix injection (impersonating conversation roles)
+        // Few-shot prefix injection (impersonating conversation roles).
+        // Uses (?is) only — no `m` flag — so `^` anchors to the full message
+        // start, not any newline. Requires a space after the colon to avoid
+        // false positives like "system:32bit" or "assistant:required".
         (
             InjectionCategory::RoleSwitch,
             "few_shot_prefix",
-            r"(?ism)^\s*(?:assistant|system|human)\s*:",
+            r"(?is)^\s*(?:assistant|system|human)\s*:\s",
         ),
         // Persona assignment without "you are now"
         (
