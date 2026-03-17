@@ -29,15 +29,11 @@ fn make_router() -> MessageRouter {
             requires_context: false,
         },
     ];
-    let mut config_rules = std::collections::HashMap::new();
-    config_rules.insert(
-        "weather".into(),
-        ConfigRule {
-            trigger: "weather".into(),
-            tool: "weather_tool".into(),
-            params: json!({"location": "$1"}),
-        },
-    );
+    let config_rules = vec![ConfigRule {
+        trigger: "weather".into(),
+        tool: "weather_tool".into(),
+        params: json!({"location": "$1"}),
+    }];
     MessageRouter::new(static_rules, config_rules, "!".into())
 }
 

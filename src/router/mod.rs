@@ -23,8 +23,6 @@ pub enum RoutingDecision {
     /// Send to LLM, but constrain available tools and prepend a context hint.
     GuidedLLM { policy: RoutingPolicy },
     /// LLM interprets with semantically filtered tools.
-    /// NOTE: Not yet wired — router returns `FullLLM`; agent loop may construct this
-    /// in the future for embedding-based tool selection.
     SemanticFilter { policy: RoutingPolicy },
     /// Full unconstrained LLM turn.
     FullLLM,
@@ -85,7 +83,7 @@ pub struct MessageRouter {
 impl MessageRouter {
     pub fn new(
         static_rules: Vec<rules::StaticRule>,
-        config_rules: HashMap<String, rules::ConfigRule>,
+        config_rules: Vec<rules::ConfigRule>,
         prefix: String,
     ) -> Self {
         let static_rules: Vec<rules::StaticRule> = static_rules
@@ -124,14 +122,23 @@ impl MessageRouter {
                 context::DirectiveTrigger::Pattern(_) => static_pattern_indices.push(idx),
             }
         }
-        // Lowercase config rule keys so lookup is case-insensitive
-        let config_rules = config_rules
-            .into_iter()
-            .map(|(k, v)| (k.to_lowercase(), v))
-            .collect();
+        // Lowercase config rule keys so lookup is case-insensitive.
+        // Detect conflicts at startup and keep the first definition.
+        let mut config_rules_map = HashMap::new();
+        for rule in config_rules {
+            let key = rule.trigger.to_lowercase();
+            if config_rules_map.contains_key(&key) {
+                tracing::warn!(
+                    "router: config rule conflict for trigger '{}' (keeping first)",
+                    key
+                );
+                continue;
+            }
+            config_rules_map.insert(key, rule);
+        }
         Self {
             static_rules,
-            config_rules,
+            config_rules: config_rules_map,
             prefix,
             static_literal_to_index,
             static_pattern_indices,
@@ -153,6 +160,17 @@ impl MessageRouter {
         message: &str,
         ctx: &RouterContext,
         action: Option<&ActionDispatch>,
+    ) -> RoutingDecision {
+        self.route_with_semantic(message, ctx, action, None)
+    }
+
+    /// Route a message with optional semantic tool candidates.
+    pub fn route_with_semantic(
+        &self,
+        message: &str,
+        ctx: &RouterContext,
+        action: Option<&ActionDispatch>,
+        semantic_allowed_tools: Option<Vec<String>>,
     ) -> RoutingDecision {
         // 1. Explicit action dispatch (button / webhook / cron).
         if let Some(dispatch) = action {
@@ -314,6 +332,25 @@ impl MessageRouter {
         }
 
         // 8. Full LLM.
+        if let Some(mut tools) = semantic_allowed_tools {
+            tools.sort();
+            tools.dedup();
+            if tools.len() >= 2 {
+                info!(
+                    "router: decision=SemanticFilter tool_subset=[{}]",
+                    tools.join(",")
+                );
+                metrics::record_semantic_filter();
+                return RoutingDecision::SemanticFilter {
+                    policy: RoutingPolicy {
+                        allowed_tools: tools,
+                        blocked_tools: Vec::new(),
+                        context_hint: None,
+                        reason: "semantic_filter",
+                    },
+                };
+            }
+        }
         debug!("router: decision=FullLLM");
         metrics::record_full_llm();
         RoutingDecision::FullLLM
@@ -378,16 +415,66 @@ mod tests {
                 requires_context: false,
             },
         ];
-        let mut config_rules = std::collections::HashMap::new();
-        config_rules.insert(
-            "weather".into(),
-            rules::ConfigRule {
-                trigger: "weather".into(),
-                tool: "weather".into(),
-                params: serde_json::json!({"location": "$1"}),
-            },
-        );
+        let config_rules = vec![rules::ConfigRule {
+            trigger: "weather".into(),
+            tool: "weather".into(),
+            params: serde_json::json!({"location": "$1"}),
+        }];
         MessageRouter::new(static_rules, config_rules, "!".into())
+    }
+
+    #[test]
+    fn test_config_rule_conflict_keeps_first() {
+        let router = MessageRouter::new(
+            vec![],
+            vec![
+                rules::ConfigRule {
+                    trigger: "weather".into(),
+                    tool: "weather".into(),
+                    params: serde_json::json!({"action":"forecast"}),
+                },
+                rules::ConfigRule {
+                    trigger: "WeAtHeR".into(),
+                    tool: "cron".into(),
+                    params: serde_json::json!({"action":"list"}),
+                },
+            ],
+            "!".into(),
+        );
+        let ctx = context::RouterContext::default();
+        let decision = router.route("!weather seattle", &ctx, None);
+        match decision {
+            RoutingDecision::DirectDispatch { tool, .. } => assert_eq!(tool, "weather"),
+            _ => panic!("expected direct dispatch"),
+        }
+    }
+
+    #[test]
+    fn test_route_with_semantic_emits_semantic_filter() {
+        let router = MessageRouter::new(vec![], vec![], "!".into());
+        let ctx = context::RouterContext::default();
+        let decision = router.route_with_semantic(
+            "hello there",
+            &ctx,
+            None,
+            Some(vec!["rss".into(), "cron".into(), "rss".into()]),
+        );
+        match decision {
+            RoutingDecision::SemanticFilter { policy } => {
+                assert_eq!(policy.reason, "semantic_filter");
+                assert_eq!(policy.allowed_tools, vec!["cron", "rss"]);
+            }
+            _ => panic!("expected semantic filter"),
+        }
+    }
+
+    #[test]
+    fn test_route_with_semantic_ignores_single_tool() {
+        let router = MessageRouter::new(vec![], vec![], "!".into());
+        let ctx = context::RouterContext::default();
+        let decision =
+            router.route_with_semantic("hello there", &ctx, None, Some(vec!["rss".into()]));
+        assert!(matches!(decision, RoutingDecision::FullLLM));
     }
 
     #[test]

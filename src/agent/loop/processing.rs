@@ -36,14 +36,19 @@ impl AgentLoop {
             crate::router::context::RouterContext::from_session_metadata(&session.metadata);
         router_context.prune_expired(crate::router::now_ms());
 
+        // Compute semantic candidates up front so the router policy layer can
+        // decide between `FullLLM` and `SemanticFilter` directly.
+        let semantic_allowed_tools = self.semantic_filter_tool_subset(&msg.content).await;
         // Router decides the processing path
-        let decision = self
-            .router
-            .route(&msg.content, &router_context, msg.action.as_ref());
+        let decision = self.router.route_with_semantic(
+            &msg.content,
+            &router_context,
+            msg.action.as_ref(),
+            semantic_allowed_tools,
+        );
 
         // Capture routing constraints/hints before falling through to the normal pipeline.
         let mut routing_policy: Option<crate::router::RoutingPolicy> = None;
-        let mut should_try_semantic_filter = false;
         match &decision {
             crate::router::RoutingDecision::DirectDispatch {
                 tool,
@@ -89,7 +94,7 @@ impl AgentLoop {
                 ));
             }
             crate::router::RoutingDecision::FullLLM => {
-                should_try_semantic_filter = true;
+                // Unconstrained full turn.
             }
         }
 
@@ -140,18 +145,6 @@ impl AgentLoop {
         } else {
             strip_document_tags(&strip_image_tags(&msg_content))
         };
-
-        // Apply semantic tool filtering for unconstrained turns when possible.
-        if should_try_semantic_filter
-            && let Some(tool_subset) = self.semantic_filter_tool_subset(&content).await
-        {
-            info!(
-                "router: decision=SemanticFilter tool_subset=[{}] channel={}",
-                tool_subset.join(","),
-                msg.channel
-            );
-            routing_policy = Some(self.policy_from_allowlist(tool_subset, None, "semantic_filter"));
-        }
 
         debug!("Acquiring context lock");
         let is_group = msg
@@ -861,13 +854,23 @@ impl AgentLoop {
         if defs.len() < 2 {
             return None;
         }
-        let semantic_index = crate::router::semantic::SemanticToolIndex::new(
-            defs,
-            self.semantic_top_k,
-            self.semantic_prefilter_k,
-            self.semantic_threshold,
-        );
-        let selection = semantic_index.select(
+        let signature = Self::semantic_definitions_signature(&defs);
+        let mut cache = self.semantic_index_cache.lock().await;
+        if cache
+            .as_ref()
+            .is_none_or(|cached| cached.signature != signature)
+        {
+            *cache = Some(super::CachedSemanticIndex {
+                signature,
+                index: crate::router::semantic::SemanticToolIndex::new(
+                    defs,
+                    self.semantic_top_k,
+                    self.semantic_prefilter_k,
+                    self.semantic_threshold,
+                ),
+            });
+        }
+        let selection = cache.as_ref()?.index.select(
             query,
             #[cfg(feature = "embeddings")]
             self.memory.embedding_service(),
@@ -880,6 +883,16 @@ impl AgentLoop {
             picked.push("tool_search".to_string());
         }
         Some(picked)
+    }
+
+    fn semantic_definitions_signature(defs: &[crate::providers::base::ToolDefinition]) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for d in defs {
+            d.name.hash(&mut hasher);
+            d.description.hash(&mut hasher);
+        }
+        hasher.finish()
     }
 
     /// Execute a tool directly without LLM involvement (buttons, directives,

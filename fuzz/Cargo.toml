@@ -42,3 +42,8 @@ doc = false
 name = "fuzz_url_validation"
 path = "fuzz_targets/fuzz_url_validation.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_router"
+path = "fuzz_targets/fuzz_router.rs"
+doc = false

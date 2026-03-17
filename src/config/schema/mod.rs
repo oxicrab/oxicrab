@@ -75,6 +75,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_metrics_bind() -> String {
+    "127.0.0.1:9901".to_string()
+}
+
 // ---------------------------------------------------------------------------
 // Gateway
 // ---------------------------------------------------------------------------
@@ -263,6 +267,29 @@ pub struct CredentialHelperConfig {
     pub format: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricsExporterConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_metrics_bind")]
+    pub bind: String,
+}
+
+impl Default for MetricsExporterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind: default_metrics_bind(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ObservabilityConfig {
+    #[serde(default)]
+    pub metrics: MetricsExporterConfig,
+}
+
 // ---------------------------------------------------------------------------
 // Top-level Config
 // ---------------------------------------------------------------------------
@@ -285,6 +312,8 @@ pub struct Config {
     pub voice: VoiceConfig,
     #[serde(default, rename = "credentialHelper")]
     pub credential_helper: CredentialHelperConfig,
+    #[serde(default)]
+    pub observability: ObservabilityConfig,
 }
 
 impl Config {
@@ -303,6 +332,7 @@ impl Config {
         self.validate_channels()?;
         self.validate_model_routing()?;
         self.validate_provider_temperatures()?;
+        self.validate_observability()?;
         Ok(())
     }
 
@@ -386,6 +416,18 @@ impl Config {
                 "agents.defaults.cognitive thresholds must be ordered: gentle < firm < urgent"
                     .into(),
             ));
+        }
+        Ok(())
+    }
+
+    fn validate_observability(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+        let metrics = &self.observability.metrics;
+        if metrics.enabled && metrics.bind.parse::<std::net::SocketAddr>().is_err() {
+            return Err(OxicrabError::Config(format!(
+                "observability.metrics.bind must be host:port, got '{}'",
+                metrics.bind
+            )));
         }
         Ok(())
     }

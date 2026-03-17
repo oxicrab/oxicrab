@@ -138,7 +138,7 @@ async fn contract_invalid_tool_params_are_rejected_before_execution() {
 
 #[test]
 fn contract_stale_context_falls_back_to_full_llm() {
-    let router = MessageRouter::new(vec![], std::collections::HashMap::new(), "/".to_string());
+    let router = MessageRouter::new(vec![], vec![], "/".to_string());
     let now = oxicrab::router::now_ms();
     let mut ctx = RouterContext::default();
     ctx.set_active_tool(Some("rss".to_string()));

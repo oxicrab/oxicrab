@@ -377,6 +377,12 @@
     "args": [],
     "format": "json"
   },
+  "observability": {
+    "metrics": {
+      "enabled": false,
+      "bind": "127.0.0.1:9901"
+    }
+  },
   "voice": {
     "transcription": {
       "enabled": false,

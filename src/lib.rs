@@ -23,6 +23,7 @@ pub mod cron;
 pub mod dispatch;
 pub(crate) mod errors;
 pub mod gateway;
+pub(crate) mod observability;
 pub mod pairing;
 pub mod providers;
 pub mod router;
