@@ -126,11 +126,15 @@ impl DirectiveTrigger {
                 if pat.len() > MAX_PATTERN_LEN {
                     return false;
                 }
+                // Anchor the pattern to prevent partial matches (e.g. "yes"
+                // matching "yesterday"). Tools provide the inner pattern;
+                // the router enforces whole-message semantics.
+                let anchored = format!("^(?:{pat})$");
                 // Pattern compiled per-match (not cached). Acceptable because:
                 // - Directives are short-lived (5 min TTL)
                 // - Pattern triggers are rare (most use Exact/OneOf)
                 // - 256-char length limit bounds compilation cost
-                regex::Regex::new(pat).is_ok_and(|re| re.is_match(normalized))
+                regex::Regex::new(&anchored).is_ok_and(|re| re.is_match(normalized))
             }
         }
     }
@@ -299,10 +303,20 @@ mod tests {
 
     #[test]
     fn test_directive_trigger_match_pattern() {
-        let t = DirectiveTrigger::Pattern(r"^accept\s+(\S+)$".into());
+        let t = DirectiveTrigger::Pattern(r"accept\s+(\S+)".into());
         assert!(t.matches("accept abc123"));
         assert!(!t.matches("accept"));
         assert!(!t.matches("reject abc123"));
+    }
+
+    #[test]
+    fn test_directive_trigger_pattern_no_partial_match() {
+        // Pattern "yes" should NOT match "yesterday" — anchoring prevents partial matches
+        let t = DirectiveTrigger::Pattern("yes".into());
+        assert!(t.matches("yes"));
+        assert!(t.matches("YES"));
+        assert!(!t.matches("yesterday"));
+        assert!(!t.matches("oh yes indeed"));
     }
 
     #[test]
