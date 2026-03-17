@@ -88,4 +88,19 @@ impl MemoryDB {
             .collect();
         rows.map_err(|e| anyhow::anyhow!("failed to get recent entries: {e}"))
     }
+
+    /// Get recent entries across all daily source keys (for deduplication).
+    pub fn get_recent_daily_entries(&self, limit: usize) -> Result<Vec<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT content FROM memory_entries WHERE source_key LIKE 'daily:%' ORDER BY created_at DESC LIMIT ?",
+        )?;
+        let rows: Result<Vec<_>, _> = stmt
+            .query_map(rusqlite::params![limit], |row| row.get(0))?
+            .collect();
+        rows.map_err(|e| anyhow::anyhow!("failed to get recent daily entries: {e}"))
+    }
 }

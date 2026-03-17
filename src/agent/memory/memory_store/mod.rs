@@ -3,7 +3,6 @@ use crate::agent::memory::MemoryDB;
 use crate::agent::memory::embeddings::{EmbeddingService, LazyEmbeddingService};
 use crate::config::MemoryConfig;
 use anyhow::{Context, Result};
-use rusqlite::params;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
@@ -334,16 +333,7 @@ impl MemoryStore {
 
     /// Get recent daily entries across all days for deduplication.
     pub fn get_recent_daily_entries(&self, limit: usize) -> Result<Vec<String>> {
-        let conn = self
-            .db
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        let mut stmt = conn.prepare(
-            "SELECT content FROM memory_entries WHERE source_key LIKE 'daily:%' ORDER BY created_at DESC LIMIT ?",
-        )?;
-        let rows: Result<Vec<_>, _> = stmt.query_map(params![limit], |row| row.get(0))?.collect();
-        rows.map_err(|e| anyhow::anyhow!("failed to get recent daily entries: {e}"))
+        self.db.get_recent_daily_entries(limit)
     }
 
     /// Read entries from a specific section of today's notes.
