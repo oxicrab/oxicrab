@@ -127,6 +127,8 @@ impl AgentLoop {
                 tool_subset,
                 context_hint,
             } => (Some(tool_subset.clone()), Some(context_hint.clone())),
+            // NOTE: SemanticFilter is not yet produced by the router; handled
+            // here for exhaustiveness in case it is wired in the future.
             crate::router::RoutingDecision::SemanticFilter { tool_subset } => {
                 (Some(tool_subset.clone()), None)
             }

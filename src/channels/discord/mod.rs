@@ -963,7 +963,10 @@ impl BaseChannel for DiscordChannel {
     }
 }
 
-/// Convert metadata components to Discord API component JSON format for webhooks.
+/// Convert metadata to Discord API JSON for interaction followups.
+/// NOTE: Relies on `parse_components_from_metadata()` having been called first
+/// with a `dispatch_store` to register button dispatch contexts.
+///
 /// Checks `discord_components` first, then falls back to unified `buttons` key.
 fn components_to_api_json(
     metadata: &HashMap<String, serde_json::Value>,

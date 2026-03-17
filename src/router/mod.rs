@@ -23,7 +23,9 @@ pub enum RoutingDecision {
         tool_subset: Vec<String>,
         context_hint: String,
     },
-    /// Send to LLM with a filtered tool list (no extra hint).
+    /// LLM interprets with semantically filtered tools.
+    /// NOTE: Not yet wired — router returns `FullLLM`; agent loop may construct this
+    /// in the future for embedding-based tool selection.
     SemanticFilter { tool_subset: Vec<String> },
     /// Full unconstrained LLM turn.
     FullLLM,

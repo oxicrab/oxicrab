@@ -86,7 +86,7 @@ impl ActionDirective {
 pub enum DirectiveTrigger {
     /// Single literal — "next", "done". Hash lookup.
     Exact(String),
-    /// Alternative literals — "yes|accept|ok". `HashSet` lookup.
+    /// Alternative literals — "yes|accept|ok". Linear scan over the Vec.
     OneOf(Vec<String>),
     /// Regex with captures. Compiled lazily. Rare.
     Pattern(String),

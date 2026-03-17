@@ -8,7 +8,7 @@ static UNMATCHED_PLACEHOLDER_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\$\d+").unwrap());
 
 /// Tool-declared static routing rule. Compiled at startup.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct StaticRule {
     pub tool: String,
     pub trigger: DirectiveTrigger,
