@@ -1,5 +1,11 @@
+use std::fmt::Write as _;
+use std::sync::LazyLock;
+
 use super::context::DirectiveTrigger;
 use serde::{Deserialize, Serialize};
+
+static UNMATCHED_PLACEHOLDER_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\$\d+").unwrap());
 
 /// Tool-declared static routing rule. Compiled at startup.
 #[derive(Clone)]
@@ -31,25 +37,48 @@ pub struct ConfigRule {
 
 impl ConfigRule {
     /// Substitute $1, $2, ... and $* in params with positional args.
+    /// All arguments are JSON-escaped before substitution to prevent injection.
     pub fn substitute(&self, args: &[&str]) -> serde_json::Value {
         let template = serde_json::to_string(&self.params).unwrap_or_default();
-        let mut result = template.clone();
+        let mut result = template;
 
-        // $* = entire remainder joined by spaces
-        let remainder = args.join(" ");
+        // JSON-escape the remainder before substitution
+        let remainder = json_escape(&args.join(" "));
         result = result.replace("$*", &remainder);
 
-        // $1, $2, ... positional
+        // JSON-escape each positional arg
         for (i, arg) in args.iter().enumerate() {
-            result = result.replace(&format!("${}", i + 1), arg);
+            let escaped = json_escape(arg);
+            result = result.replace(&format!("${}", i + 1), &escaped);
         }
 
         // Clean up unmatched $N references
-        let re = regex::Regex::new(r"\$\d+").unwrap();
-        result = re.replace_all(&result, "").to_string();
+        result = UNMATCHED_PLACEHOLDER_RE
+            .replace_all(&result, "")
+            .to_string();
 
         serde_json::from_str(&result).unwrap_or(self.params.clone())
     }
+}
+
+/// Escape a string for safe embedding inside a JSON string value.
+/// Escapes backslash, double quote, and control characters.
+fn json_escape(s: &str) -> String {
+    let mut escaped = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            c if c.is_control() => {
+                let _ = write!(escaped, "\\u{:04x}", c as u32);
+            }
+            c => escaped.push(c),
+        }
+    }
+    escaped
 }
 
 /// Parse a prefixed command message. Returns (`command_word`, args).
@@ -154,5 +183,29 @@ mod tests {
         let (cmd, args) = parse_prefixed_command(">>weather portland", ">>");
         assert_eq!(cmd, "weather");
         assert_eq!(args, vec!["portland"]);
+    }
+
+    #[test]
+    fn test_config_rule_substitute_json_escape() {
+        let rule = ConfigRule {
+            trigger: "test".into(),
+            tool: "test".into(),
+            params: serde_json::json!({"value": "$1"}),
+        };
+        // This should NOT inject a new JSON key
+        let result = rule.substitute(&[r#"foo","injected":"evil"#]);
+        assert_eq!(result["value"], r#"foo","injected":"evil"#);
+        assert!(result.get("injected").is_none());
+    }
+
+    #[test]
+    fn test_config_rule_substitute_escapes_backslash() {
+        let rule = ConfigRule {
+            trigger: "test".into(),
+            tool: "test".into(),
+            params: serde_json::json!({"path": "$1"}),
+        };
+        let result = rule.substitute(&[r"C:\Users\test"]);
+        assert_eq!(result["path"], r"C:\Users\test");
     }
 }
