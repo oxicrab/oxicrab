@@ -390,6 +390,62 @@ The Natural Language Tools (NLT) paper found JSON format constraints cause **20-
 ### Industry convergence
 Rasa CALM, Vercel AI SDK (`activeTools`), Semantic Kernel (function filters), and the graph-based self-healing router paper all converge on the same architecture: **deterministic routing for predictable actions, LLM only for interpretation, with filtered tool sets when the LLM is needed**.
 
+## Tool Use Examples in Schemas
+
+For the GuidedLLM, SemanticFilter, and FullLLM paths where the LLM still receives JSON tool schemas, tools with complex parameters add 1-3 usage examples to their descriptions. Research shows this improves accuracy from **72% → 90%** on complex parameter handling (Anthropic).
+
+### Implementation
+
+The `Tool` trait gains a default method:
+
+```rust
+pub trait Tool: Send + Sync {
+    // ... existing methods ...
+
+    /// Usage examples appended to the tool description when sent to the LLM.
+    /// Each example shows a user request and the corresponding tool call params.
+    /// Default: no examples.
+    fn usage_examples(&self) -> Vec<ToolExample> {
+        Vec::new()
+    }
+}
+
+pub struct ToolExample {
+    pub user_request: String,
+    pub params: serde_json::Value,
+}
+```
+
+### Schema construction
+
+In `Tool::to_schema()` (or wherever tool definitions are built for LLM requests), if `usage_examples()` returns non-empty, append to the description:
+
+```
+Examples:
+- "schedule a reminder for tomorrow at 9am" → {"action": "add", "at_time": "tomorrow 9:00", "prompt": "reminder"}
+- "pause job 3" → {"action": "pause", "job_id": "3"}
+```
+
+This keeps examples in the description string (all providers support this) rather than a separate field (provider-specific).
+
+### Which tools need examples
+
+Tools with complex or ambiguous parameter schemas:
+
+| Tool | Why | Example count |
+|------|-----|---------------|
+| `cron` | Complex scheduling params (`at_time`, `every_seconds`, `cron_expr`, `delay_seconds`) | 3 |
+| `google_calendar` | Date/time parsing, RSVP responses, calendar IDs | 2 |
+| `github` | `create_pr_review` has body/event params, `trigger_workflow` has inputs | 2 |
+| `rss` | Multiple actions with different param shapes | 2 |
+| `google_mail` | Search query syntax, reply params | 1 |
+
+Tools with simple schemas (todoist `complete_task`, weather `get_forecast`) don't need examples — the schema is self-explanatory.
+
+### Performance impact
+
+Examples add ~100-200 tokens per tool to the LLM request. With semantic filtering (3 tools) this is 300-600 extra tokens — negligible vs the 4,500+ tokens saved by filtering from 30+ tools. With full tool set it's ~1,000 extra tokens, offset by improved first-try accuracy (fewer correction retries).
+
 ## Agent Loop Integration
 
 ### New flow in `process_message_unlocked()`
@@ -576,7 +632,7 @@ Discord stores payloads in `DispatchContextStore` on render, looks up on click.
 
 ### Modified
 - `src/lib.rs` — add `pub mod router;`, `pub mod dispatch;`
-- `src/agent/tools/base/mod.rs` — add `fn routing_rules()` default method to `Tool` trait
+- `src/agent/tools/base/mod.rs` — add `fn routing_rules()` and `fn usage_examples()` default methods to `Tool` trait, add `ToolExample` struct
 - `src/agent/tools/registry/mod.rs` — collect `routing_rules()` at registration, expose for router
 - `src/agent/loop/mod.rs` — `AgentLoop` gains `router: Arc<MessageRouter>`, constructed at startup
 - `src/agent/loop/processing.rs` — replace pipeline top with `router.route()`, remove intent classification, remove remember fast path check, add directive extraction, move session load earlier
