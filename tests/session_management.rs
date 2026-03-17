@@ -76,7 +76,10 @@ async fn test_session_cleanup_removes_old_files() {
     mgr.save(&session).await.expect("save session");
 
     // With TTL of 0 days, all sessions should be cleaned up
-    let deleted = mgr.cleanup_old_sessions(0).await.expect("cleanup old sessions");
+    let deleted = mgr
+        .cleanup_old_sessions(0)
+        .await
+        .expect("cleanup old sessions");
     assert_eq!(deleted, 1);
 
     // Create another fresh session
@@ -88,7 +91,10 @@ async fn test_session_cleanup_removes_old_files() {
     mgr.save(&session2).await.expect("save session");
 
     // With TTL of 365 days, nothing should be cleaned up
-    let deleted = mgr.cleanup_old_sessions(365).await.expect("cleanup old sessions");
+    let deleted = mgr
+        .cleanup_old_sessions(365)
+        .await
+        .expect("cleanup old sessions");
     assert_eq!(deleted, 0);
 }
 
