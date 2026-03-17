@@ -194,7 +194,7 @@ impl AgentLoop {
                     .map(|m| m.name)
                     .collect();
                 warn!(
-                    "secret detected in inbound message from {}:{}: {:?} — redacted",
+                    "security: secret detected in inbound message from {}:{}: {:?} — redacted",
                     msg.channel, msg.sender_id, names
                 );
                 redacted
@@ -207,7 +207,7 @@ impl AgentLoop {
             if !matches.is_empty() {
                 for m in &matches {
                     warn!(
-                        "prompt injection detected ({:?}): {}",
+                        "security: prompt injection detected ({:?}): {}",
                         m.category, m.pattern_name
                     );
                 }
@@ -385,8 +385,8 @@ impl AgentLoop {
             .await?;
 
         // Extract directives from tool results and update router context
-        for meta in &loop_result.tool_metadata {
-            Self::update_router_context(&mut router_context, meta);
+        for (tool_name, meta) in &loop_result.tool_metadata {
+            Self::update_router_context(&mut router_context, meta, tool_name);
         }
 
         // Only reload session if compaction updated it (wrote compaction_summary).
@@ -528,7 +528,7 @@ impl AgentLoop {
         // Inbound secret scanning
         let msg_content = self.leak_detector.redact(&msg.content);
         if msg_content != msg.content {
-            warn!("system message: secrets detected in content — redacting");
+            warn!("security: secrets detected in system message content — redacting");
         }
 
         // Prompt guard
@@ -537,7 +537,7 @@ impl AgentLoop {
             if !matches.is_empty() {
                 for m in &matches {
                     warn!(
-                        "prompt injection in system message ({:?}): {}",
+                        "security: prompt injection in system message ({:?}): {}",
                         m.category, m.pattern_name
                     );
                 }
@@ -777,7 +777,7 @@ impl AgentLoop {
         let msg_content = {
             let redacted = self.leak_detector.redact(&msg.content);
             if redacted != msg.content {
-                warn!("direct dispatch: secrets detected in message content — redacting");
+                warn!("security: secrets detected in direct dispatch message — redacting");
             }
             redacted
         };
@@ -788,7 +788,7 @@ impl AgentLoop {
             if !matches.is_empty() {
                 for m in &matches {
                     warn!(
-                        "prompt injection detected in direct dispatch ({:?}): {}",
+                        "security: prompt injection detected in direct dispatch ({:?}): {}",
                         m.category, m.pattern_name
                     );
                 }
@@ -848,7 +848,7 @@ impl AgentLoop {
             if redacted == params_str {
                 params
             } else {
-                warn!("direct dispatch: secrets redacted from params");
+                warn!("security: secrets redacted from direct dispatch params");
                 match serde_json::from_str(&redacted) {
                     Ok(v) => v,
                     Err(e) => {
@@ -915,7 +915,7 @@ impl AgentLoop {
 
         // Extract directives from result metadata (may replace directives vector)
         if let Some(ref meta) = result.metadata {
-            Self::update_router_context(router_context, meta);
+            Self::update_router_context(router_context, meta, &tool);
         }
 
         // Save router context and session history
@@ -956,15 +956,34 @@ impl AgentLoop {
     fn update_router_context(
         ctx: &mut crate::router::context::RouterContext,
         metadata: &HashMap<String, Value>,
+        producing_tool: &str,
     ) {
         if let Some(active) = metadata.get("active_tool").and_then(|v| v.as_str()) {
-            ctx.set_active_tool(Some(active.to_string()));
+            if active == producing_tool {
+                ctx.set_active_tool(Some(active.to_string()));
+            } else {
+                warn!(
+                    "tool '{}' tried to set active_tool to '{}' — rejected",
+                    producing_tool, active
+                );
+            }
         }
         if let Some(directives_val) = metadata.get("action_directives")
-            && let Ok(directives) = serde_json::from_value::<
+            && let Ok(mut directives) = serde_json::from_value::<
                 Vec<crate::router::context::ActionDirective>,
             >(directives_val.clone())
         {
+            directives.retain(|d| {
+                if d.tool == producing_tool {
+                    true
+                } else {
+                    warn!(
+                        "tool '{}' tried to set directive for tool '{}' — rejected",
+                        producing_tool, d.tool
+                    );
+                    false
+                }
+            });
             ctx.install_directives(directives);
         }
         ctx.updated_at_ms = crate::router::now_ms();
@@ -1030,7 +1049,7 @@ impl AgentLoop {
             if !matches.is_empty() {
                 for m in &matches {
                     warn!(
-                        "prompt injection detected in direct call ({:?}): {}",
+                        "security: prompt injection detected in direct call ({:?}): {}",
                         m.category, m.pattern_name
                     );
                 }
@@ -1074,7 +1093,7 @@ impl AgentLoop {
                 if redacted == params_str {
                     dispatch.params.clone()
                 } else {
-                    warn!("direct call action dispatch: secrets redacted from params");
+                    warn!("security: secrets redacted from direct call dispatch params");
                     match serde_json::from_str(&redacted) {
                         Ok(v) => v,
                         Err(e) => {

@@ -72,7 +72,7 @@ pub struct AgentLoopResult {
     /// Extra metadata to merge into the outbound message (e.g. interactive buttons).
     pub response_metadata: std::collections::HashMap<String, serde_json::Value>,
     /// Metadata from tool results (for directive extraction by caller).
-    pub tool_metadata: Vec<std::collections::HashMap<String, serde_json::Value>>,
+    pub tool_metadata: Vec<(String, std::collections::HashMap<String, serde_json::Value>)>,
 }
 
 /// Result of a direct (non-channel) agent invocation.
