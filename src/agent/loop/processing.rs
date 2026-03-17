@@ -527,7 +527,16 @@ impl AgentLoop {
         let session_key = format!("{origin_channel}:{origin_chat_id}");
         let session = self.sessions.get_or_create(&session_key).await?;
 
+        let compaction_start = std::time::Instant::now();
         let history = self.get_compacted_history(&session).await?;
+        let compaction_elapsed = compaction_start.elapsed();
+        if compaction_elapsed > std::time::Duration::from_secs(2) {
+            info!(
+                "compaction took {:.1}s for session {}",
+                compaction_elapsed.as_secs_f64(),
+                session_key
+            );
+        }
 
         // Refresh provider context outside the main lock to avoid blocking other sessions
         {
@@ -1104,7 +1113,16 @@ impl AgentLoop {
         }
 
         let session = self.sessions.get_or_create(session_key).await?;
+        let compaction_start = std::time::Instant::now();
         let history = self.get_compacted_history(&session).await?;
+        let compaction_elapsed = compaction_start.elapsed();
+        if compaction_elapsed > std::time::Duration::from_secs(2) {
+            info!(
+                "compaction took {:.1}s for session {}",
+                compaction_elapsed.as_secs_f64(),
+                session_key
+            );
+        }
 
         // Refresh provider context outside the main lock to avoid blocking other sessions
         {

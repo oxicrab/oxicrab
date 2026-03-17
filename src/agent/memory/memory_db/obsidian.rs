@@ -230,38 +230,31 @@ impl MemoryDB {
         vault_name: &str,
         files: &HashMap<String, crate::agent::tools::obsidian::cache::CachedFileMeta>,
     ) -> Result<()> {
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        conn.execute_batch("BEGIN")?;
-        let result = (|| -> Result<()> {
-            conn.execute(
-                "DELETE FROM obsidian_sync_state WHERE vault_name = ?1",
-                params![vault_name],
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM obsidian_sync_state WHERE vault_name = ?1",
+            params![vault_name],
+        )?;
+        for (path, meta) in files {
+            tx.execute(
+                "INSERT OR REPLACE INTO obsidian_sync_state
+                 (vault_name, file_path, content_hash, last_synced_at, size)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    vault_name,
+                    path,
+                    meta.content_hash,
+                    meta.last_synced_at,
+                    meta.size as i64
+                ],
             )?;
-            for (path, meta) in files {
-                conn.execute(
-                    "INSERT OR REPLACE INTO obsidian_sync_state
-                     (vault_name, file_path, content_hash, last_synced_at, size)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![
-                        vault_name,
-                        path,
-                        meta.content_hash,
-                        meta.last_synced_at,
-                        meta.size as i64
-                    ],
-                )?;
-            }
-            Ok(())
-        })();
-        if result.is_ok() {
-            conn.execute_batch("COMMIT")?;
-        } else {
-            let _ = conn.execute_batch("ROLLBACK");
         }
-        result
+        tx.commit()?;
+        Ok(())
     }
 
     /// Atomically replace all queued writes for a vault (clear + re-insert in one transaction).
@@ -270,39 +263,32 @@ impl MemoryDB {
         vault_name: &str,
         queue: &[crate::agent::tools::obsidian::cache::QueuedWrite],
     ) -> Result<()> {
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        conn.execute_batch("BEGIN")?;
-        let result = (|| -> Result<()> {
-            conn.execute(
-                "DELETE FROM obsidian_write_queue WHERE vault_name = ?1",
-                params![vault_name],
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM obsidian_write_queue WHERE vault_name = ?1",
+            params![vault_name],
+        )?;
+        for item in queue {
+            tx.execute(
+                "INSERT INTO obsidian_write_queue
+                 (vault_name, path, content, operation, queued_at, pre_write_hash)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    vault_name,
+                    item.path,
+                    item.content,
+                    item.operation,
+                    item.queued_at,
+                    item.pre_write_hash
+                ],
             )?;
-            for item in queue {
-                conn.execute(
-                    "INSERT INTO obsidian_write_queue
-                     (vault_name, path, content, operation, queued_at, pre_write_hash)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![
-                        vault_name,
-                        item.path,
-                        item.content,
-                        item.operation,
-                        item.queued_at,
-                        item.pre_write_hash
-                    ],
-                )?;
-            }
-            Ok(())
-        })();
-        if result.is_ok() {
-            conn.execute_batch("COMMIT")?;
-        } else {
-            let _ = conn.execute_batch("ROLLBACK");
         }
-        result
+        tx.commit()?;
+        Ok(())
     }
 
     /// Count queued writes for a vault.
