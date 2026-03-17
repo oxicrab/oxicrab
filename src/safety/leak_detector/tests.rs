@@ -314,3 +314,41 @@ fn test_discord_not_detected_without_dots() {
         "Discord pattern should not match text without dots"
     );
 }
+
+#[test]
+fn test_url_encoded_secret_detected() {
+    let mut detector = LeakDetector::new();
+    let secret = "my-super-secret-api-key-12345";
+    detector.add_known_secrets(&[("test_secret", secret)]);
+
+    // URL-encoded version
+    let mut url_encoded = String::new();
+    for b in secret.bytes() {
+        use std::fmt::Write;
+        let _ = write!(url_encoded, "%{b:02X}");
+    }
+    let text = format!("Leak: {url_encoded}");
+    let matches = detector.scan(&text);
+    assert!(
+        !matches.is_empty(),
+        "Should detect URL-encoded known secret"
+    );
+}
+
+#[test]
+fn test_url_decoded_scan_detects_encoded_key() {
+    let detector = LeakDetector::new();
+    // URL-encode an Anthropic API key
+    let key = "sk-ant-api03-abcdefghijklmnopqrst12345";
+    let mut encoded = String::new();
+    for b in key.bytes() {
+        use std::fmt::Write;
+        let _ = write!(encoded, "%{b:02X}");
+    }
+    let text = format!("Here: {encoded}");
+    let matches = detector.scan(&text);
+    assert!(
+        !matches.is_empty(),
+        "Should detect URL-encoded API key via decode-then-scan"
+    );
+}

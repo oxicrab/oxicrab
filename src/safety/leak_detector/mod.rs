@@ -229,6 +229,19 @@ impl LeakDetector {
                     regex,
                 });
             }
+            // URL-encoded variant (percent-encoding)
+            let mut url_encoded = String::with_capacity(value.len() * 3);
+            for b in value.bytes() {
+                use std::fmt::Write;
+                let _ = write!(url_encoded, "%{b:02X}");
+            }
+            let url_escaped = regex::escape(&url_encoded);
+            if let Ok(regex) = Regex::new(&format!("(?i){url_escaped}")) {
+                self.known_secrets.push(KnownSecretPattern {
+                    name: format!("{name}_urlencoded"),
+                    regex,
+                });
+            }
         }
     }
 
@@ -337,6 +350,26 @@ impl LeakDetector {
         // Encoded content scan (base64/hex decoded then checked)
         matches.extend(Self::scan_encoded(text));
 
+        // URL-decoded scan: if text contains percent-encoded sequences,
+        // decode and re-scan for patterns that may be hidden by encoding.
+        if text.contains('%')
+            && let Ok(decoded) = urlencoding::decode(text)
+            && decoded != text
+        {
+            let decoded_candidates = Self::find_candidate_patterns(&decoded);
+            for (i, pattern) in base.patterns.iter().enumerate() {
+                if !decoded_candidates[i] {
+                    continue;
+                }
+                for m in pattern.regex.find_iter(&decoded) {
+                    matches.push(LeakMatch {
+                        name: pattern.name,
+                        start: m.start(),
+                        end: m.end(),
+                    });
+                }
+            }
+        }
         matches
     }
 
