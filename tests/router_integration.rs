@@ -187,9 +187,10 @@ fn test_router_static_rule_wrong_context_falls_to_guided_llm() {
         active_tool: Some("cron".into()),
         ..Default::default()
     };
-    // "next" requires rss context, cron context → no static rule match → GuidedLLM
+    // "next" requires rss context, cron context → no static rule match.
+    // active_tool is set but no live directives → stale context → FullLLM
     let decision = router.route("next", &ctx, None);
-    assert!(matches!(decision, RoutingDecision::GuidedLLM { .. }));
+    assert!(matches!(decision, RoutingDecision::FullLLM));
 }
 
 #[test]
@@ -241,13 +242,22 @@ fn test_router_full_llm_fallback() {
 }
 
 #[test]
-fn test_router_guided_llm_with_active_tool_no_match() {
+fn test_router_guided_llm_with_active_tool_and_directives() {
     let router = make_router();
-    let ctx = RouterContext {
+    let now = oxicrab::router::now_ms();
+    let mut ctx = RouterContext {
         active_tool: Some("rss".into()),
         ..Default::default()
     };
-    // Message doesn't match any static rule for rss, but active_tool is set → GuidedLLM
+    // GuidedLLM only fires when active_tool has live directives
+    ctx.action_directives.push(ActionDirective {
+        trigger: DirectiveTrigger::Exact("yes".into()).normalized(),
+        tool: "rss".into(),
+        params: json!({}),
+        single_use: false,
+        ttl_ms: 300_000,
+        created_at_ms: now,
+    });
     let decision = router.route("show me something interesting", &ctx, None);
     match decision {
         RoutingDecision::GuidedLLM {

@@ -198,13 +198,22 @@ impl MessageRouter {
         }
 
         // 7. Active tool context → GuidedLLM.
+        // Only route to GuidedLLM when context is fresh — active_tool with live
+        // (non-expired) directives indicates an ongoing interaction. Stale context
+        // (no live directives, or updated_at too old) falls through to FullLLM
+        // to avoid biasing the LLM away from the tools the user actually needs.
         if let Some(tool) = &ctx.active_tool {
-            let context_hint = build_context_hint(ctx);
-            info!("router: decision=GuidedLLM tool_subset=[{tool}]");
-            return RoutingDecision::GuidedLLM {
-                tool_subset: vec![tool.clone()],
-                context_hint,
-            };
+            let has_live_directives = ctx.action_directives.iter().any(|d| !d.is_expired(now));
+            if has_live_directives {
+                let context_hint = build_context_hint(ctx);
+                info!("router: decision=GuidedLLM tool_subset=[{tool}]");
+                return RoutingDecision::GuidedLLM {
+                    tool_subset: vec![tool.clone()],
+                    context_hint,
+                };
+            }
+            // Stale context — all directives expired. Fall through to FullLLM.
+            debug!("router: active_tool={tool} but no live directives, falling through to FullLLM");
         }
 
         // 8. Full LLM.
@@ -413,10 +422,9 @@ mod tests {
             ..Default::default()
         };
         // "next" requires rss context, so it shouldn't match.
-        // But "list jobs" is context-free, so it also shouldn't match "next".
+        // active_tool is "cron" with no live directives → stale context → FullLLM
         let decision = router.route("next", &ctx, None);
-        // Should fall through to GuidedLLM (active_tool is set to cron)
-        assert!(matches!(decision, RoutingDecision::GuidedLLM { .. }));
+        assert!(matches!(decision, RoutingDecision::FullLLM));
     }
 
     #[test]
@@ -434,14 +442,35 @@ mod tests {
     }
 
     #[test]
-    fn test_route_guided_llm_active_context_no_match() {
+    fn test_route_guided_llm_active_context_with_directives() {
         let router = make_router();
-        let ctx = context::RouterContext {
+        let mut ctx = context::RouterContext {
             active_tool: Some("rss".into()),
             ..Default::default()
         };
+        // GuidedLLM only fires when there are live directives
+        ctx.action_directives.push(context::ActionDirective {
+            trigger: context::DirectiveTrigger::Exact("yes".into()).normalized(),
+            tool: "rss".into(),
+            params: serde_json::json!({}),
+            single_use: false,
+            ttl_ms: 300_000,
+            created_at_ms: now_ms(),
+        });
         let decision = router.route("show me something interesting", &ctx, None);
         assert!(matches!(decision, RoutingDecision::GuidedLLM { .. }));
+    }
+
+    #[test]
+    fn test_route_stale_active_tool_falls_to_full_llm() {
+        let router = make_router();
+        let ctx = context::RouterContext {
+            active_tool: Some("rss".into()),
+            // No directives — stale context
+            ..Default::default()
+        };
+        let decision = router.route("show me something interesting", &ctx, None);
+        assert!(matches!(decision, RoutingDecision::FullLLM));
     }
 
     #[test]
