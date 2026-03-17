@@ -140,9 +140,9 @@ impl SemanticToolIndex {
 
         let selected: Vec<(String, f32)> = lexical
             .into_iter()
-            .filter(|(_, score)| *score > 0.0)
-            .take(self.top_k)
             .map(|(idx, score)| (self.entries[idx].name.clone(), (score * 2.0) - 1.0))
+            .filter(|(_, score)| *score >= self.threshold)
+            .take(self.top_k)
             .collect();
         if selected.len() >= 2 && (selected[0].1 - selected[1].1) < self.min_margin {
             crate::router::metrics::record_semantic_low_confidence_fallback();
@@ -225,5 +225,31 @@ mod tests {
             )
             .expect("should select tools");
         assert!(!selected.tools.is_empty());
+    }
+
+    #[test]
+    fn lexical_path_respects_threshold() {
+        let index = SemanticToolIndex::new(
+            vec![
+                def("weather_today", "weather today current conditions"),
+                def("calendar", "calendar events schedule"),
+                def("todo", "task list checklist"),
+            ],
+            3,
+            3,
+            0.6,
+        );
+
+        // With one lexical overlap out of 3 tokens, normalized score is
+        // ((1/3)*2)-1 = -0.333..., below threshold 0.6.
+        let selected = index.select(
+            "weather foo bar",
+            #[cfg(feature = "embeddings")]
+            None,
+        );
+        assert!(
+            selected.is_none(),
+            "lexical fallback should respect semantic_threshold"
+        );
     }
 }

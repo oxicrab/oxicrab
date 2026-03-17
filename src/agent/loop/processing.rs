@@ -1097,16 +1097,19 @@ impl AgentLoop {
 
     /// Apply router metadata from a multi-tool turn.
     ///
-    /// Last tool wins semantics:
-    /// - the last valid `active_tool` sets context
-    /// - the last present `action_directives` payload replaces directives
-    ///   (including empty arrays, which explicitly clear directives)
+    /// Semantics:
+    /// - the last valid `active_tool` in the turn sets focus
+    /// - non-empty `action_directives` payloads are accumulated across tools
+    /// - an explicit empty array clears directives only when no non-empty payload
+    ///   is present in the same turn
     fn apply_tool_metadata_to_router(
         ctx: &mut crate::router::context::RouterContext,
         tool_metadata: &[(String, HashMap<String, Value>)],
     ) {
         let mut last_active_tool = None;
-        let mut last_directives: Option<Vec<crate::router::context::ActionDirective>> = None;
+        let mut merged_directives: Vec<crate::router::context::ActionDirective> = Vec::new();
+        let mut saw_directives_payload = false;
+        let mut saw_explicit_clear = false;
 
         for (tool_name, meta) in tool_metadata {
             if let Some(active) = meta.get("active_tool").and_then(|v| v.as_str()) {
@@ -1120,10 +1123,16 @@ impl AgentLoop {
                 }
             }
             if let Some(directives_val) = meta.get("action_directives") {
+                saw_directives_payload = true;
                 match serde_json::from_value::<Vec<crate::router::context::ActionDirective>>(
                     directives_val.clone(),
                 ) {
-                    Ok(mut directives) => {
+                    Ok(directives) => {
+                        if directives.is_empty() {
+                            saw_explicit_clear = true;
+                            continue;
+                        }
+                        let mut directives = directives;
                         directives.retain(|d| {
                             if d.tool == *tool_name {
                                 true
@@ -1135,7 +1144,7 @@ impl AgentLoop {
                                 false
                             }
                         });
-                        last_directives = Some(directives);
+                        merged_directives.extend(directives);
                     }
                     Err(e) => {
                         warn!(
@@ -1150,8 +1159,31 @@ impl AgentLoop {
         if let Some(active) = last_active_tool {
             ctx.set_active_tool(Some(active));
         }
-        if let Some(directives) = last_directives {
-            ctx.install_directives(directives);
+
+        if saw_explicit_clear && !merged_directives.is_empty() {
+            warn!(
+                "action_directives included explicit clear plus non-empty directives in same turn; keeping non-empty directives"
+            );
+        }
+
+        if saw_directives_payload {
+            let directives_to_apply = if !merged_directives.is_empty() {
+                Some(merged_directives)
+            } else if saw_explicit_clear {
+                Some(Vec::new())
+            } else {
+                None
+            };
+
+            if let Some(directives) = directives_to_apply {
+                if ctx.active_tool().is_none() {
+                    warn!(
+                        "dropping action_directives because router context is Idle (no active_tool set)"
+                    );
+                } else {
+                    ctx.install_directives(directives);
+                }
+            }
         }
         ctx.updated_at_ms = crate::router::now_ms();
     }
@@ -1178,6 +1210,14 @@ impl AgentLoop {
                 Vec<crate::router::context::ActionDirective>,
             >(directives_val.clone())
         {
+            if ctx.active_tool().is_none() {
+                warn!(
+                    "dropping action_directives from '{}' because router context is Idle (no active_tool set)",
+                    producing_tool
+                );
+                ctx.updated_at_ms = crate::router::now_ms();
+                return;
+            }
             directives.retain(|d| {
                 if d.tool == producing_tool {
                     true
