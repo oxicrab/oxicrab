@@ -967,6 +967,38 @@
         <p>Signature headers checked: <code>X-Signature-256</code>, <code>X-Hub-Signature-256</code>, <code>X-Webhook-Signature</code>. Supports <code>sha256=</code> prefix (GitHub-style). Max payload: 1 MB.</p>
 
         <p>Set <code>host</code> to <code>"0.0.0.0"</code> to listen on all interfaces (required for Docker/container deployments). The Twilio channel uses this same gateway for its webhook listener.</p>
+
+        <h3>Webhook Dispatch</h3>
+        <p>Each webhook can optionally include a <code>dispatch</code> object for structured direct tool execution, bypassing the LLM entirely.</p>
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>dispatch.tool</td><td>string</td><td>&mdash;</td><td>Tool name to execute directly</td></tr>
+            <tr><td>dispatch.paramsTemplate</td><td>object</td><td>&mdash;</td><td>JSON parameters template with <code>{{key}}</code> substitution from the webhook payload</td></tr>
+        </table>
+        <p>When <code>dispatch</code> is present, the webhook payload is parsed and template variables are substituted into the params, then the tool is executed directly without LLM involvement. Mutually exclusive with <code>agentTurn</code>.</p>
+    </div>
+
+    <!-- ROUTER -->
+    <div id="router" class="cfg-section">
+        <h2>Router</h2>
+        <p>Controls the message router that pre-classifies inbound messages before LLM involvement. Config path: <code>router</code></p>
+
+        <pre><code>{
+  "router": {
+    "prefix": "!",
+    "rules": [
+      {"trigger": "weather", "tool": "weather", "params": {"action": "forecast", "location": "$1"}},
+      {"trigger": "remind", "tool": "cron", "params": {"action": "add", "message": "$*"}}
+    ]
+  }
+}</code></pre>
+
+        <table class="cfg-table">
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+            <tr><td>prefix</td><td>string</td><td>"!"</td><td>Command prefix character for prefix commands. Avoids collision with Slack/Discord slash commands.</td></tr>
+            <tr><td>rules</td><td>array</td><td>[]</td><td>User-defined prefix commands. Each rule has <code>trigger</code> (command word), <code>tool</code> (tool name), <code>params</code> (JSON with <code>$1</code>/<code>$2</code>/<code>$*</code> substitution for positional arguments).</td></tr>
+        </table>
+        <p>The message router runs at the top of message processing, making sub-100&micro;s decisions about whether a message needs LLM involvement. Prefix commands (e.g. <code>!weather London</code>) are dispatched directly to the named tool without an LLM call.</p>
     </div>
 
     <!-- SANDBOX -->
