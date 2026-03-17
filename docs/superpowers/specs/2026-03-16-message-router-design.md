@@ -8,6 +8,17 @@
 
 **Supersedes:** `docs/superpowers/specs/2026-03-16-action-dispatch-design.md` — the action dispatch concept is subsumed by the router's `DirectDispatch` path. The earlier spec's `ActionDispatch`, `ActionDispatchPayload`, and `DispatchContextStore` types are retained and used by the router.
 
+## Post-Implementation Updates (2026-03-17)
+
+The current implementation intentionally diverges from parts of this draft spec:
+
+- `GuidedLLM` and `SemanticFilter` now carry a strict `RoutingPolicy` (`allowed_tools`, `blocked_tools`, `reason`, optional `context_hint`) instead of ad-hoc `tool_subset`/hint fields.
+- Execution enforcement is centralized: direct dispatch and LLM-driven tool calls both use the same execution gateway (`execute_tool_call`) for schema validation, approval checks, and security policy checks.
+- Router context lifecycle is an explicit persisted state machine (`Idle` / `ToolFocused { tool, directives, expires_at_ms }`) rather than implicit stale-context heuristics.
+- Semantic filtering is a first-class subsystem (`src/router/semantic.rs`) with lexical prefilter, optional embedding rerank, confidence threshold + margin fallback, and telemetry hooks.
+- `DispatchContextStore` is now a bounded `moka` TTL cache (not a bespoke LRU+TTL implementation).
+- Router replay is first-class: turn traces are persisted in message metadata and exposed via `!router_replay` / `!route_replay`.
+
 ## Core Architecture
 
 ### `MessageRouter`

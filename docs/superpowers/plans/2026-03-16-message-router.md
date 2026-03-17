@@ -10,6 +10,17 @@
 
 **Spec:** `docs/superpowers/specs/2026-03-16-message-router-design.md`
 
+## Post-Implementation Notes (2026-03-17)
+
+This plan has been implemented with targeted refinements:
+
+- Routing constraints were consolidated into `RoutingPolicy` and enforced in execution unconditionally (`allowed_tools` + `blocked_tools` gate).
+- Context handling moved to an explicit state machine persisted in session metadata (`Idle` / `ToolFocused`).
+- Semantic filtering became a dedicated subsystem with confidence fallback behavior and telemetry emission.
+- Direct-dispatch paths were normalized to use the same execution gateway as model tool calls.
+- Router replay metadata is persisted and replayable through `!router_replay`/`!route_replay`.
+- `DispatchContextStore` uses `moka` TTL caching semantics (bounded cache), replacing bespoke LRU/TTL code.
+
 ---
 
 ## Chunk 1: Foundation Types
