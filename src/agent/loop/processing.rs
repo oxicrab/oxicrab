@@ -391,6 +391,23 @@ impl AgentLoop {
             .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &overrides)
             .await?;
 
+        if let Some(policy) = overrides.routing_policy.as_ref() {
+            let allowed: std::collections::HashSet<&str> =
+                policy.allowed_tools.iter().map(String::as_str).collect();
+            let out_of_policy: Vec<&str> = loop_result
+                .tools_used
+                .iter()
+                .map(String::as_str)
+                .filter(|name| !allowed.contains(*name))
+                .collect();
+            if !out_of_policy.is_empty() {
+                warn!(
+                    "router policy drift: reason={} executed_out_of_policy={:?}",
+                    policy.reason, out_of_policy
+                );
+            }
+        }
+
         // Extract directives from tool results and update router context.
         // Accumulate directives from ALL tools before installing once, so
         // multi-tool turns don't lose earlier tools' directives.
@@ -411,7 +428,21 @@ impl AgentLoop {
         // Save router context to session metadata
         router_context.to_session_metadata(&mut session.metadata);
 
-        let extra = HashMap::new();
+        let mut extra = HashMap::new();
+        extra.insert(
+            "router_decision".to_string(),
+            serde_json::Value::String(format!("{decision:?}")),
+        );
+        if let Some(policy) = overrides.routing_policy.as_ref() {
+            extra.insert(
+                "router_policy".to_string(),
+                serde_json::json!({
+                    "reason": policy.reason,
+                    "allowed_tools": policy.allowed_tools,
+                    "blocked_tools": policy.blocked_tools,
+                }),
+            );
+        }
         // Use the redacted content (msg_content), not the original (msg.content),
         // so that secrets detected by inbound scanning are not persisted to disk.
         session.add_message("user".to_string(), content.clone(), extra.clone());
@@ -801,107 +832,18 @@ impl AgentLoop {
         if query.is_empty() {
             return None;
         }
-
-        let activated = self.tool_search_activated.lock().await.clone();
-        let defs = self.tools.get_tool_definitions_with_activated(&activated);
-        if defs.len() < 2 {
-            return None;
-        }
-
-        let query_lower = query.to_lowercase();
-        let query_tokens: Vec<&str> = query_lower
-            .split(|c: char| !c.is_ascii_alphanumeric())
-            .filter(|t| t.len() >= 3)
-            .collect();
-
-        let mut candidates: Vec<(String, String, f32)> = defs
-            .into_iter()
-            .map(|d| {
-                let doc = format!("{} {}", d.name, d.description).to_lowercase();
-                let lexical = if query_tokens.is_empty() {
-                    0.0
-                } else {
-                    query_tokens.iter().filter(|t| doc.contains(**t)).count() as f32
-                        / query_tokens.len() as f32
-                };
-                (d.name, d.description, lexical)
-            })
-            .collect();
-
-        candidates.sort_by(|a, b| b.2.total_cmp(&a.2));
-        candidates.truncate(self.semantic_prefilter_k);
-
-        #[cfg(feature = "embeddings")]
-        {
-            if let Some(emb) = self.memory.embedding_service() {
-                let query_vec = emb.embed_query(query).ok()?;
-                let texts: Vec<String> = candidates
-                    .iter()
-                    .map(|(name, desc, _)| format!("{name}: {desc}"))
-                    .collect();
-                let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
-                if let Ok(doc_vecs) = emb.embed_texts(&refs) {
-                    let mut scored: Vec<(String, f32)> = candidates
-                        .iter()
-                        .zip(doc_vecs.iter())
-                        .map(|((name, _desc, lexical), vec)| {
-                            let semantic = crate::agent::memory::embeddings::cosine_similarity(
-                                &query_vec, vec,
-                            );
-                            // Blend lexical precision with semantic recall.
-                            let blended = if query_tokens.is_empty() {
-                                semantic
-                            } else {
-                                (semantic * 0.75) + (*lexical * 0.25)
-                            };
-                            (name.clone(), blended)
-                        })
-                        .collect();
-                    let score_values: Vec<f32> = scored.iter().map(|(_, s)| *s).collect();
-                    crate::router::metrics::record_semantic_scores(&score_values);
-                    scored.sort_by(|a, b| b.1.total_cmp(&a.1));
-                    let mut picked: Vec<String> = scored
-                        .into_iter()
-                        .filter(|(_name, score)| *score >= self.semantic_threshold)
-                        .take(self.semantic_top_k)
-                        .map(|(name, _)| name)
-                        .collect();
-                    if picked.len() < 2 {
-                        return None;
-                    }
-                    if self.tools.get("add_buttons").is_some()
-                        && !picked.iter().any(|n| n == "add_buttons")
-                    {
-                        picked.push("add_buttons".to_string());
-                    }
-                    if self.tools.get("tool_search").is_some()
-                        && !picked.iter().any(|n| n == "tool_search")
-                    {
-                        picked.push("tool_search".to_string());
-                    }
-                    crate::router::metrics::record_semantic_filter();
-                    return Some(picked);
-                }
-            }
-        }
-
-        // Fallback: lexical signal only.
-        let mut picked: Vec<String> = candidates
-            .into_iter()
-            .filter(|(_, _, lexical)| *lexical > 0.0)
-            .take(self.semantic_top_k)
-            .map(|(name, _, _)| name)
-            .collect();
-        if picked.len() < 2 {
-            return None;
-        }
+        let selection = self.semantic_index.select(
+            query,
+            #[cfg(feature = "embeddings")]
+            self.memory.embedding_service(),
+        )?;
+        let mut picked = selection.tools;
         if self.tools.get("add_buttons").is_some() && !picked.iter().any(|n| n == "add_buttons") {
             picked.push("add_buttons".to_string());
         }
         if self.tools.get("tool_search").is_some() && !picked.iter().any(|n| n == "tool_search") {
             picked.push("tool_search".to_string());
         }
-        crate::router::metrics::record_semantic_filter();
         Some(picked)
     }
 

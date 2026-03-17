@@ -1,6 +1,7 @@
 pub mod context;
 pub mod metrics;
 pub mod rules;
+pub mod semantic;
 
 use std::collections::HashMap;
 
