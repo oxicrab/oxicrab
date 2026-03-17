@@ -117,7 +117,7 @@ fn test_tool_capabilities() {
     assert!(caps.built_in);
     assert!(caps.network_outbound);
     assert_eq!(caps.category, ToolCategory::Web);
-    assert_eq!(caps.actions.len(), 13);
+    assert_eq!(caps.actions.len(), 14);
 }
 
 #[test]
@@ -148,6 +148,7 @@ fn test_parameters_schema_has_all_actions() {
         "reject",
         "get_article_detail",
         "feed_stats",
+        "done",
     ] {
         assert!(
             action_names.contains(&expected),
@@ -386,7 +387,7 @@ async fn test_accept_updates_status() {
 }
 
 #[tokio::test]
-async fn test_accept_returns_buttons() {
+async fn test_accept_returns_next_article_inline() {
     let (tool, ctx) = tool_with_calibration_state().await;
 
     let articles = tool.db.get_rss_articles(None, None, 10, 0).unwrap();
@@ -403,7 +404,19 @@ async fn test_accept_returns_buttons() {
         .await
         .unwrap();
     assert!(!result.is_error);
+    // Should contain both the feedback confirmation and the next article
+    assert!(
+        result.content.contains("accepted"),
+        "should confirm acceptance: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("Article"),
+        "should include next article inline: {}",
+        result.content
+    );
 
+    // Metadata should have accept/reject buttons for the next article (not next/done)
     let metadata = result.metadata.expect("metadata should be present");
     let buttons = metadata
         .get("suggested_buttons")
@@ -412,9 +425,34 @@ async fn test_accept_returns_buttons() {
         .as_array()
         .expect("suggested_buttons should be array");
     assert!(!arr.is_empty(), "should have at least one button");
-    let ids: Vec<&str> = arr.iter().filter_map(|b| b["id"].as_str()).collect();
-    assert!(ids.contains(&"rss-next"), "should have rss-next button");
-    assert!(ids.contains(&"rss-done"), "should have rss-done button");
+    let labels: Vec<&str> = arr.iter().filter_map(|b| b["label"].as_str()).collect();
+    assert!(
+        labels.contains(&"Accept"),
+        "should have Accept button for next article"
+    );
+    assert!(
+        labels.contains(&"Reject"),
+        "should have Reject button for next article"
+    );
+
+    // Button contexts should be structured JSON
+    let ctx_str = arr[0]["context"]
+        .as_str()
+        .expect("context should be string");
+    let parsed: serde_json::Value =
+        serde_json::from_str(ctx_str).expect("context should be valid JSON");
+    assert_eq!(parsed["tool"], "rss", "context should target rss tool");
+
+    // Should have action_directives and active_tool
+    assert_eq!(
+        metadata.get("active_tool").and_then(|v| v.as_str()),
+        Some("rss"),
+        "should set active_tool to rss"
+    );
+    assert!(
+        metadata.contains_key("action_directives"),
+        "should have action_directives"
+    );
 }
 
 #[tokio::test]
@@ -817,4 +855,45 @@ async fn test_reject_updates_model() {
         model.dimension() > 0,
         "model should have at least one feature after reject"
     );
+}
+
+#[tokio::test]
+async fn test_done_action() {
+    let (tool, ctx) = tool_with_calibration_state().await;
+
+    let result = tool
+        .execute(serde_json::json!({"action": "done"}), &ctx)
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert!(
+        result.content.contains("ended"),
+        "done should confirm session ended: {}",
+        result.content
+    );
+}
+
+#[test]
+fn test_routing_rules() {
+    let tool = RssTool::new_for_test();
+    let rules = tool.routing_rules();
+    assert_eq!(rules.len(), 2, "should have next and done rules");
+    assert_eq!(rules[0].tool, "rss");
+    assert!(rules[0].requires_context);
+    assert!(rules[0].matches("next", Some("rss")));
+    assert!(rules[0].matches("more", Some("rss")));
+    assert!(!rules[0].matches("next", None));
+    assert_eq!(rules[1].tool, "rss");
+    assert!(rules[1].matches("done", Some("rss")));
+    assert!(rules[1].matches("stop", Some("rss")));
+    assert!(rules[1].matches("done reviewing", Some("rss")));
+}
+
+#[test]
+fn test_usage_examples() {
+    let tool = RssTool::new_for_test();
+    let examples = tool.usage_examples();
+    assert_eq!(examples.len(), 2);
+    assert!(examples[0].user_request.contains("next article"));
+    assert_eq!(examples[1].params["action"], "scan");
 }

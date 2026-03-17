@@ -67,7 +67,8 @@ pub fn check_gate(db: &MemoryDB, action: &str) -> Result<Option<ToolResult>> {
             state,
             STATE_NEEDS_FEEDS | STATE_NEEDS_CALIBRATION | STATE_COMPLETE
         ),
-        "get_articles" | "accept" | "reject" | "get_article_detail" | "review" | "next" => {
+        "get_articles" | "accept" | "reject" | "get_article_detail" | "review" | "next"
+        | "done" => {
             matches!(state, STATE_NEEDS_CALIBRATION | STATE_COMPLETE)
         }
         "scan" => matches!(state, STATE_NEEDS_CALIBRATION | STATE_COMPLETE),

@@ -153,6 +153,7 @@ pub fn handle_get_articles(
 }
 
 /// Shared logic for accept and reject. `accepted` = true → "accepted", false → "rejected".
+/// After processing all feedback, automatically fetches the next article inline.
 fn handle_feedback(db: &MemoryDB, article_ids: &[&str], accepted: bool) -> ToolResult {
     if article_ids.is_empty() {
         return ToolResult::error(
@@ -220,15 +221,21 @@ fn handle_feedback(db: &MemoryDB, article_ids: &[&str], accepted: bool) -> ToolR
         return ToolResult::error(msg);
     }
 
-    let mut metadata = HashMap::new();
-    metadata.insert(
-        "suggested_buttons".to_string(),
-        serde_json::json!([
-            {"id": "rss-next", "label": "Next Article", "style": "primary", "context": "CALL rss tool with action=review"},
-            {"id": "rss-done", "label": "Done Reviewing", "style": "default", "context": "Stop reviewing articles. Say done."}
-        ]),
-    );
-    ToolResult::new(msg).with_metadata(metadata)
+    // Return the next article inline so the user doesn't have to click "Next"
+    match handle_next(db) {
+        Ok(next_result) => {
+            let combined = format!("{}\n\n{}", msg, next_result.content);
+            let mut result = ToolResult::new(combined);
+            if let Some(meta) = next_result.metadata {
+                result = result.with_metadata(meta.into_iter().collect());
+            }
+            result
+        }
+        Err(_) => {
+            // If fetching next article fails, just return the feedback summary
+            ToolResult::new(msg)
+        }
+    }
 }
 
 pub fn handle_accept(db: &MemoryDB, article_ids: &[&str]) -> ToolResult {
@@ -282,21 +289,54 @@ pub fn handle_next(db: &MemoryDB) -> Result<ToolResult> {
     }
     let _ = write!(out, "\n\n({remaining} articles remaining)");
 
-    // Include explicit tool call instructions in button context so the LLM
-    // knows exactly what to do when the button click arrives as [button:rss-accept-...]
-    let accept_ctx = format!(
-        "CALL rss tool with action=accept article_ids=[\"{short_id}\"] THEN call rss action=review"
-    );
-    let reject_ctx = format!(
-        "CALL rss tool with action=reject article_ids=[\"{short_id}\"] THEN call rss action=review"
-    );
+    let accept_ctx = serde_json::json!({
+        "tool": "rss",
+        "params": {"action": "accept", "article_ids": [&short_id]}
+    })
+    .to_string();
+    let reject_ctx = serde_json::json!({
+        "tool": "rss",
+        "params": {"action": "reject", "article_ids": [&short_id]}
+    })
+    .to_string();
 
+    let ts = super::now_ms();
     let mut metadata = HashMap::new();
     metadata.insert(
         "suggested_buttons".to_string(),
         serde_json::json!([
             {"id": format!("rss-accept-{short_id}"), "label": "Accept", "style": "primary", "context": accept_ctx},
             {"id": format!("rss-reject-{short_id}"), "label": "Reject", "style": "danger", "context": reject_ctx},
+        ]),
+    );
+    metadata.insert("active_tool".to_string(), serde_json::json!("rss"));
+    metadata.insert(
+        "action_directives".to_string(),
+        serde_json::json!([
+            {
+                "trigger": {"OneOf": ["yes", "accept", "ok", "\u{1f44d}"]},
+                "tool": "rss",
+                "params": {"action": "accept", "article_ids": [&short_id]},
+                "single_use": true,
+                "ttl_ms": 300_000,
+                "created_at_ms": ts
+            },
+            {
+                "trigger": {"OneOf": ["no", "reject", "skip", "\u{1f44e}"]},
+                "tool": "rss",
+                "params": {"action": "reject", "article_ids": [&short_id]},
+                "single_use": true,
+                "ttl_ms": 300_000,
+                "created_at_ms": ts
+            },
+            {
+                "trigger": {"OneOf": ["done", "stop", "done reviewing"]},
+                "tool": "rss",
+                "params": {"action": "done"},
+                "single_use": true,
+                "ttl_ms": 300_000,
+                "created_at_ms": ts
+            }
         ]),
     );
     // Bypass LLM summarization: article content goes directly to the user

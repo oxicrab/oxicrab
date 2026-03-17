@@ -91,7 +91,7 @@ impl Tool for RssTool {
         "Manage RSS feeds and personalised article recommendations. Actions: onboard, set_profile, \
          add_feed, remove_feed, enable_feed, list_feeds, scan, review (present one article for \
          accept/reject), get_articles (browse/list only), accept, reject, get_article_detail, \
-         feed_stats."
+         feed_stats, done (end review session)."
     }
 
     fn cacheable(&self) -> bool {
@@ -121,6 +121,7 @@ impl Tool for RssTool {
                 reject,
                 get_article_detail: ro,
                 feed_stats: ro,
+                done: ro,
             ],
             category: ToolCategory::Web,
         }
@@ -135,11 +136,11 @@ impl Tool for RssTool {
                     "enum": [
                         "onboard", "set_profile", "add_feed", "remove_feed", "enable_feed",
                         "list_feeds", "scan", "review", "get_articles", "accept", "reject",
-                        "get_article_detail", "feed_stats"
+                        "get_article_detail", "feed_stats", "done"
                     ],
                     "description": "Action to perform. Use 'review' to present one article \
                      at a time with Accept/Reject buttons. Use 'get_articles' only to \
-                     browse or list without reviewing."
+                     browse or list without reviewing. Use 'done' to end the review session."
                 },
                 "url": {
                     "type": "string",
@@ -235,9 +236,49 @@ impl Tool for RssTool {
             }
             "scan" => scanner::handle_scan(&self.db, &self.client, &self.config).await,
             "review" | "next" => articles::handle_next(&self.db),
+            "done" => Ok(ToolResult::new(
+                "Review session ended. Use action=review to start again.",
+            )),
             "feed_stats" => stats::handle_feed_stats(&self.db),
             other => Ok(ToolResult::error(format!("unknown action: {other}"))),
         }
+    }
+
+    fn routing_rules(&self) -> Vec<crate::router::rules::StaticRule> {
+        vec![
+            crate::router::rules::StaticRule {
+                tool: "rss".into(),
+                trigger: crate::router::context::DirectiveTrigger::OneOf(vec![
+                    "next".into(),
+                    "more".into(),
+                ]),
+                params: serde_json::json!({"action": "next"}),
+                requires_context: true,
+            },
+            crate::router::rules::StaticRule {
+                tool: "rss".into(),
+                trigger: crate::router::context::DirectiveTrigger::OneOf(vec![
+                    "done".into(),
+                    "done reviewing".into(),
+                    "stop".into(),
+                ]),
+                params: serde_json::json!({"action": "done"}),
+                requires_context: true,
+            },
+        ]
+    }
+
+    fn usage_examples(&self) -> Vec<crate::agent::tools::base::ToolExample> {
+        vec![
+            crate::agent::tools::base::ToolExample {
+                user_request: "show me the next article".into(),
+                params: serde_json::json!({"action": "next"}),
+            },
+            crate::agent::tools::base::ToolExample {
+                user_request: "scan my feeds for new articles".into(),
+                params: serde_json::json!({"action": "scan"}),
+            },
+        ]
     }
 }
 
