@@ -158,16 +158,9 @@ impl AgentLoop {
 
         debug!("Getting compacted history");
         let checkpoint_before = self.last_checkpoint.lock().await.clone();
-        let compaction_start = std::time::Instant::now();
-        let history = self.get_compacted_history(&session).await?;
-        let compaction_elapsed = compaction_start.elapsed();
-        if compaction_elapsed > std::time::Duration::from_secs(2) {
-            info!(
-                "compaction took {:.1}s for session {}",
-                compaction_elapsed.as_secs_f64(),
-                session.key
-            );
-        }
+        let history = self
+            .get_compacted_history_timed(&session, &session.key)
+            .await?;
         debug!("Got {} history messages", history.len());
 
         // Transcribe any audio files before other processing
@@ -551,16 +544,9 @@ impl AgentLoop {
         let session_key = format!("{origin_channel}:{origin_chat_id}");
         let session = self.sessions.get_or_create(&session_key).await?;
 
-        let compaction_start = std::time::Instant::now();
-        let history = self.get_compacted_history(&session).await?;
-        let compaction_elapsed = compaction_start.elapsed();
-        if compaction_elapsed > std::time::Duration::from_secs(2) {
-            info!(
-                "compaction took {:.1}s for session {}",
-                compaction_elapsed.as_secs_f64(),
-                session_key
-            );
-        }
+        let history = self
+            .get_compacted_history_timed(&session, session_key)
+            .await?;
 
         // Refresh provider context outside the main lock to avoid blocking other sessions
         {
@@ -694,6 +680,25 @@ impl AgentLoop {
         Ok(Some(response))
     }
 
+    /// Run `get_compacted_history` with timing instrumentation.
+    /// Logs a warning when compaction takes more than 2 seconds.
+    async fn get_compacted_history_timed(
+        &self,
+        session: &crate::session::Session,
+        session_label: &str,
+    ) -> anyhow::Result<Vec<std::collections::HashMap<String, serde_json::Value>>> {
+        let start = std::time::Instant::now();
+        let history = self.get_compacted_history(session).await?;
+        let elapsed = start.elapsed();
+        if elapsed > std::time::Duration::from_secs(2) {
+            info!(
+                "compaction took {:.1}s for session {session_label}",
+                elapsed.as_secs_f64()
+            );
+        }
+        Ok(history)
+    }
+
     fn build_execution_context(
         channel: &str,
         chat_id: &str,
@@ -735,14 +740,7 @@ impl AgentLoop {
         router_context: &mut crate::router::context::RouterContext,
         context_summary: Option<String>,
     ) -> Result<Option<OutboundMessage>> {
-        let source_label = match source {
-            crate::router::DispatchSource::Button => "button",
-            crate::router::DispatchSource::ActionDirective => "directive",
-            crate::router::DispatchSource::StaticRule => "rule",
-            crate::router::DispatchSource::ConfigRule => "command",
-            crate::router::DispatchSource::RememberFastPath => "remember",
-            crate::router::DispatchSource::Webhook => "webhook",
-        };
+        let source_label = source.label();
         info!(
             "direct dispatch: tool={tool} source={source_label} channel={}",
             msg.channel
@@ -1112,16 +1110,9 @@ impl AgentLoop {
         }
 
         let session = self.sessions.get_or_create(session_key).await?;
-        let compaction_start = std::time::Instant::now();
-        let history = self.get_compacted_history(&session).await?;
-        let compaction_elapsed = compaction_start.elapsed();
-        if compaction_elapsed > std::time::Duration::from_secs(2) {
-            info!(
-                "compaction took {:.1}s for session {}",
-                compaction_elapsed.as_secs_f64(),
-                session_key
-            );
-        }
+        let history = self
+            .get_compacted_history_timed(&session, session_key)
+            .await?;
 
         // Refresh provider context outside the main lock to avoid blocking other sessions
         {

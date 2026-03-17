@@ -42,6 +42,19 @@ pub enum DispatchSource {
     Webhook,
 }
 
+impl DispatchSource {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Button => "button",
+            Self::ActionDirective => "directive",
+            Self::StaticRule => "rule",
+            Self::ConfigRule => "command",
+            Self::RememberFastPath => "remember",
+            Self::Webhook => "webhook",
+        }
+    }
+}
+
 /// Priority-ordered message router.
 pub struct MessageRouter {
     static_rules: Vec<rules::StaticRule>,
