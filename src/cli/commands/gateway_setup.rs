@@ -644,6 +644,12 @@ fn start_channels_loop(
                     msg.content.len()
                 );
 
+                // Evict stale status tracking entries to prevent unbounded growth
+                if status_msg_ids.len() > 1000 {
+                    status_msg_ids.clear();
+                    status_content.clear();
+                }
+
                 let is_status = msg
                     .metadata
                     .get(crate::bus::meta::STATUS)
