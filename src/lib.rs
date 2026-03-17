@@ -25,6 +25,7 @@ pub(crate) mod errors;
 pub mod gateway;
 pub mod pairing;
 pub mod providers;
+pub mod router;
 pub mod safety;
 pub mod session;
 pub(crate) mod utils;
