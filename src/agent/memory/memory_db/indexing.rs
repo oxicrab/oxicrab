@@ -52,6 +52,11 @@ impl MemoryDB {
                 "DELETE FROM memory_embeddings WHERE entry_id NOT IN (SELECT id FROM memory_entries)",
                 [],
             )?;
+            // Clean up orphaned memory_sources with no remaining entries
+            tx.execute(
+                "DELETE FROM memory_sources WHERE source_key NOT IN (SELECT DISTINCT source_key FROM memory_entries)",
+                [],
+            )?;
         }
         tx.commit()?;
         if deleted > 0 {
