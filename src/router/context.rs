@@ -147,9 +147,8 @@ impl DirectiveTrigger {
                 let mut cache = PATTERN_CACHE
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                let compiled = cache.get_or_insert(anchored.clone(), || {
-                    regex::Regex::new(&anchored).ok()
-                });
+                let compiled =
+                    cache.get_or_insert(anchored.clone(), || regex::Regex::new(&anchored).ok());
                 compiled.as_ref().is_some_and(|re| re.is_match(normalized))
             }
         }

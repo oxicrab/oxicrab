@@ -364,8 +364,7 @@ impl AgentLoop {
             self.prompt_guard
                 .as_ref()
                 .map(|g| (g, &self.prompt_guard_config)),
-        )
-        {
+        ) {
             return Ok(AgentLoopResult {
                 content: Some(display),
                 input_tokens: last_input_tokens,

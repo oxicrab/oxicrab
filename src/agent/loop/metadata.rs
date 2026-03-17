@@ -65,7 +65,9 @@ pub(super) fn prepend_display_text(
         &crate::config::PromptGuardConfig,
     )>,
 ) -> String {
-    if let Some(display) = extract_display_text(collected_tool_metadata, leak_detector, prompt_guard) {
+    if let Some(display) =
+        extract_display_text(collected_tool_metadata, leak_detector, prompt_guard)
+    {
         format!("{display}\n\n{content}")
     } else {
         content
@@ -436,7 +438,10 @@ mod display_text_tests {
         )];
         // Warn mode: detected but not dropped
         let result = extract_display_text(&meta, None, Some((&guard, &config)));
-        assert!(result.is_some(), "warn mode should pass display_text through");
+        assert!(
+            result.is_some(),
+            "warn mode should pass display_text through"
+        );
     }
 
     #[test]
@@ -457,6 +462,9 @@ mod display_text_tests {
         )];
         // Block mode: injection detected → None
         let result = extract_display_text(&meta, None, Some((&guard, &config)));
-        assert!(result.is_none(), "block mode should drop injected display_text");
+        assert!(
+            result.is_none(),
+            "block mode should drop injected display_text"
+        );
     }
 }
