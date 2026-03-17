@@ -142,7 +142,7 @@ fn test_parameters_schema_has_all_actions() {
         "enable_feed",
         "list_feeds",
         "scan",
-        "next",
+        "review",
         "get_articles",
         "accept",
         "reject",

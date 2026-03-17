@@ -145,6 +145,15 @@ pub fn handle_feed_stats(db: &MemoryDB) -> Result<ToolResult> {
         );
     }
 
+    let new_count = db.count_rss_articles(Some("new"), None)?;
+    if new_count > 0 {
+        let _ = write!(
+            out,
+            "\n\n{new_count} unreviewed articles. To review one-by-one with Accept/Reject buttons, \
+             use action=review."
+        );
+    }
+
     Ok(ToolResult::new(out.trim_end().to_string()))
 }
 

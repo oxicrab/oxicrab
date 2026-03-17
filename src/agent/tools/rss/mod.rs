@@ -89,8 +89,9 @@ impl Tool for RssTool {
 
     fn description(&self) -> &'static str {
         "Manage RSS feeds and personalised article recommendations. Actions: onboard, set_profile, \
-         add_feed, remove_feed, enable_feed, list_feeds, scan, next (review one article with buttons), \
-         get_articles, accept, reject, get_article_detail, feed_stats."
+         add_feed, remove_feed, enable_feed, list_feeds, scan, review (present one article for \
+         accept/reject), get_articles (browse/list only), accept, reject, get_article_detail, \
+         feed_stats."
     }
 
     fn cacheable(&self) -> bool {
@@ -114,7 +115,7 @@ impl Tool for RssTool {
                 enable_feed,
                 list_feeds: ro,
                 scan,
-                next: ro,
+                review: ro,
                 get_articles: ro,
                 accept,
                 reject,
@@ -133,12 +134,12 @@ impl Tool for RssTool {
                     "type": "string",
                     "enum": [
                         "onboard", "set_profile", "add_feed", "remove_feed", "enable_feed",
-                        "list_feeds", "scan", "next", "get_articles", "accept", "reject",
+                        "list_feeds", "scan", "review", "get_articles", "accept", "reject",
                         "get_article_detail", "feed_stats"
                     ],
-                    "description": "Action to perform. To review/accept/reject articles, \
-                     use 'next' — it shows one article at a time with Accept/Reject buttons. \
-                     Use 'get_articles' only to browse or list articles without reviewing."
+                    "description": "Action to perform. Use 'review' to present one article \
+                     at a time with Accept/Reject buttons. Use 'get_articles' only to \
+                     browse or list without reviewing."
                 },
                 "url": {
                     "type": "string",
@@ -233,7 +234,7 @@ impl Tool for RssTool {
                 articles::handle_get_article_detail(&self.db, &self.client, id).await
             }
             "scan" => scanner::handle_scan(&self.db, &self.client, &self.config).await,
-            "next" => articles::handle_next(&self.db),
+            "review" | "next" => articles::handle_next(&self.db),
             "feed_stats" => stats::handle_feed_stats(&self.db),
             other => Ok(ToolResult::error(format!("unknown action: {other}"))),
         }

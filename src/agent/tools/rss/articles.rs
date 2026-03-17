@@ -57,6 +57,13 @@ pub fn handle_get_articles(
         return Ok(ToolResult::new("No articles found."));
     }
 
+    // Hint: if the caller probably wanted the review workflow, tell them
+    let review_hint = if status == Some("new") || status.is_none() {
+        "\n\nTo review articles one-by-one with Accept/Reject buttons, use action=review instead."
+    } else {
+        ""
+    };
+
     // Build a feed-id → name map for display
     let feeds = db.list_rss_feeds().unwrap_or_default();
     let feed_name_map: HashMap<&str, &str> = feeds
@@ -106,6 +113,7 @@ pub fn handle_get_articles(
             );
         }
 
+        out.push_str(review_hint);
         Ok(ToolResult::new(out))
     } else {
         // Non-ranked path: simple pagination
@@ -139,6 +147,7 @@ pub fn handle_get_articles(
             );
         }
 
+        out.push_str(review_hint);
         Ok(ToolResult::new(out))
     }
 }
@@ -215,7 +224,7 @@ fn handle_feedback(db: &MemoryDB, article_ids: &[&str], accepted: bool) -> ToolR
     metadata.insert(
         "suggested_buttons".to_string(),
         serde_json::json!([
-            {"id": "rss-next", "label": "Next Article", "style": "primary", "context": "CALL rss tool with action=next"},
+            {"id": "rss-next", "label": "Next Article", "style": "primary", "context": "CALL rss tool with action=review"},
             {"id": "rss-done", "label": "Done Reviewing", "style": "default", "context": "Stop reviewing articles. Say done."}
         ]),
     );
@@ -276,10 +285,10 @@ pub fn handle_next(db: &MemoryDB) -> Result<ToolResult> {
     // Include explicit tool call instructions in button context so the LLM
     // knows exactly what to do when the button click arrives as [button:rss-accept-...]
     let accept_ctx = format!(
-        "CALL rss tool with action=accept article_ids=[\"{short_id}\"] THEN call rss action=next"
+        "CALL rss tool with action=accept article_ids=[\"{short_id}\"] THEN call rss action=review"
     );
     let reject_ctx = format!(
-        "CALL rss tool with action=reject article_ids=[\"{short_id}\"] THEN call rss action=next"
+        "CALL rss tool with action=reject article_ids=[\"{short_id}\"] THEN call rss action=review"
     );
 
     let mut metadata = HashMap::new();
