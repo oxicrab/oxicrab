@@ -116,8 +116,12 @@ pub struct AgentLoop {
     pending_buttons: crate::agent::tools::interactive::PendingButtons,
     /// Priority-ordered message router for direct dispatch and guided LLM paths
     router: std::sync::Arc<crate::router::MessageRouter>,
-    /// Precomputed semantic tool index for lexical+embedding filtering.
-    semantic_index: Arc<crate::router::semantic::SemanticToolIndex>,
+    /// Semantic filter size (top-k tools) for no-context LLM turns.
+    semantic_top_k: usize,
+    /// Lexical prefilter size before semantic rerank.
+    semantic_prefilter_k: usize,
+    /// Minimum semantic score for retaining a candidate tool.
+    semantic_threshold: f32,
 }
 
 impl AgentLoop {
@@ -386,12 +390,6 @@ impl AgentLoop {
             config_rules,
             router_config.prefix,
         ));
-        let semantic_index = Arc::new(crate::router::semantic::SemanticToolIndex::new(
-            tools.get_tool_definitions(),
-            semantic_top_k,
-            semantic_prefilter_k,
-            semantic_threshold,
-        ));
 
         let complexity_scorer = if let Some(ref r) = routing
             && let Some(weights) = r.chat_weights()
@@ -449,7 +447,9 @@ impl AgentLoop {
             tool_search_activated,
             pending_buttons,
             router,
-            semantic_index,
+            semantic_top_k,
+            semantic_prefilter_k,
+            semantic_threshold,
         })
     }
 

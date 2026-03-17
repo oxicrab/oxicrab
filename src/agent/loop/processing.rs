@@ -843,7 +843,18 @@ impl AgentLoop {
         if query.is_empty() {
             return None;
         }
-        let selection = self.semantic_index.select(
+        let activated = self.tool_search_activated.lock().await.clone();
+        let defs = self.tools.get_tool_definitions_with_activated(&activated);
+        if defs.len() < 2 {
+            return None;
+        }
+        let semantic_index = crate::router::semantic::SemanticToolIndex::new(
+            defs,
+            self.semantic_top_k,
+            self.semantic_prefilter_k,
+            self.semantic_threshold,
+        );
+        let selection = semantic_index.select(
             query,
             #[cfg(feature = "embeddings")]
             self.memory.embedding_service(),

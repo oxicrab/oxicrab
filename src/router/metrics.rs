@@ -1,87 +1,34 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-
-#[derive(Default, Debug, Clone, Copy)]
-pub struct RouterMetricsSnapshot {
-    pub direct_dispatch: u64,
-    pub guided_llm: u64,
-    pub semantic_filter: u64,
-    pub full_llm: u64,
-    pub blocked_tool_attempts: u64,
-    pub policy_drift_events: u64,
-    pub semantic_turns: u64,
-    pub semantic_zero_hit_turns: u64,
-    pub semantic_low_confidence_fallbacks: u64,
-    /// Mean proxy precision across semantic-filtered turns as basis points [0..10000].
-    pub semantic_proxy_avg_precision_bps: u64,
-    /// Mean proxy recall across semantic-filtered turns as basis points [0..10000].
-    pub semantic_proxy_avg_recall_bps: u64,
-    pub semantic_proxy_hits_total: u64,
-    pub semantic_proxy_used_total: u64,
-    pub semantic_proxy_allowed_total: u64,
-    pub semantic_histogram: [u64; 10],
-}
-
-static DIRECT_DISPATCH: AtomicU64 = AtomicU64::new(0);
-static GUIDED_LLM: AtomicU64 = AtomicU64::new(0);
-static SEMANTIC_FILTER: AtomicU64 = AtomicU64::new(0);
-static FULL_LLM: AtomicU64 = AtomicU64::new(0);
-static BLOCKED_TOOL_ATTEMPTS: AtomicU64 = AtomicU64::new(0);
-static POLICY_DRIFT_EVENTS: AtomicU64 = AtomicU64::new(0);
-static SEMANTIC_TURNS: AtomicU64 = AtomicU64::new(0);
-static SEMANTIC_ZERO_HIT_TURNS: AtomicU64 = AtomicU64::new(0);
-static SEMANTIC_PROXY_PRECISION_BPS_SUM: AtomicU64 = AtomicU64::new(0);
-static SEMANTIC_PROXY_RECALL_BPS_SUM: AtomicU64 = AtomicU64::new(0);
-static SEMANTIC_PROXY_HITS_TOTAL: AtomicU64 = AtomicU64::new(0);
-static SEMANTIC_PROXY_USED_TOTAL: AtomicU64 = AtomicU64::new(0);
-static SEMANTIC_PROXY_ALLOWED_TOTAL: AtomicU64 = AtomicU64::new(0);
-static SEMANTIC_LOW_CONFIDENCE_FALLBACKS: AtomicU64 = AtomicU64::new(0);
-static SEM_BUCKETS: [AtomicU64; 10] = [
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-];
-
+/// Router observability hooks backed by the `metrics` facade.
+///
+/// Use an external recorder/exporter (e.g. Prometheus/OpenTelemetry) to collect
+/// and aggregate these signals.
 pub fn record_direct_dispatch() {
     metrics::counter!("router_route_decision_total", "decision" => "direct_dispatch").increment(1);
-    DIRECT_DISPATCH.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn record_guided_llm() {
     metrics::counter!("router_route_decision_total", "decision" => "guided_llm").increment(1);
-    GUIDED_LLM.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn record_semantic_filter() {
     metrics::counter!("router_route_decision_total", "decision" => "semantic_filter").increment(1);
-    SEMANTIC_FILTER.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn record_full_llm() {
     metrics::counter!("router_route_decision_total", "decision" => "full_llm").increment(1);
-    FULL_LLM.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn record_blocked_tool_attempt() {
     metrics::counter!("router_blocked_tool_attempt_total").increment(1);
-    BLOCKED_TOOL_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn record_policy_drift() {
     metrics::counter!("router_policy_drift_total").increment(1);
-    POLICY_DRIFT_EVENTS.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Record semantic selection proxy quality against executed tools for one turn.
 ///
 /// Precision = hits / used, Recall = hits / allowed.
-/// Metrics are aggregated in basis points to avoid floating-point atomics.
 pub fn record_semantic_turn_proxy_quality(allowed_tools: &[String], used_tools: &[String]) {
     let helper = |name: &str| name == "add_buttons" || name == "tool_search";
     let allowed: std::collections::HashSet<&str> = allowed_tools
@@ -96,80 +43,35 @@ pub fn record_semantic_turn_proxy_quality(allowed_tools: &[String], used_tools: 
         .collect();
 
     let hits = used.intersection(&allowed).count() as u64;
-    let precision_bps = if used.is_empty() {
-        0
+    let precision = if used.is_empty() {
+        0.0
     } else {
-        ((hits * 10_000) / used.len() as u64).min(10_000)
+        hits as f64 / used.len() as f64
     };
-    let recall_bps = if allowed.is_empty() {
-        0
+    let recall = if allowed.is_empty() {
+        0.0
     } else {
-        ((hits * 10_000) / allowed.len() as u64).min(10_000)
+        hits as f64 / allowed.len() as f64
     };
 
-    SEMANTIC_TURNS.fetch_add(1, Ordering::Relaxed);
     metrics::counter!("router_semantic_turn_total").increment(1);
     if hits == 0 {
-        SEMANTIC_ZERO_HIT_TURNS.fetch_add(1, Ordering::Relaxed);
         metrics::counter!("router_semantic_zero_hit_turn_total").increment(1);
     }
-    SEMANTIC_PROXY_PRECISION_BPS_SUM.fetch_add(precision_bps, Ordering::Relaxed);
-    SEMANTIC_PROXY_RECALL_BPS_SUM.fetch_add(recall_bps, Ordering::Relaxed);
-    SEMANTIC_PROXY_HITS_TOTAL.fetch_add(hits, Ordering::Relaxed);
-    SEMANTIC_PROXY_USED_TOTAL.fetch_add(used.len() as u64, Ordering::Relaxed);
-    SEMANTIC_PROXY_ALLOWED_TOTAL.fetch_add(allowed.len() as u64, Ordering::Relaxed);
+    metrics::histogram!("router_semantic_proxy_precision").record(precision);
+    metrics::histogram!("router_semantic_proxy_recall").record(recall);
+    metrics::counter!("router_semantic_proxy_hits_total").increment(hits);
+    metrics::counter!("router_semantic_proxy_used_total").increment(used.len() as u64);
+    metrics::counter!("router_semantic_proxy_allowed_total").increment(allowed.len() as u64);
 }
 
 pub fn record_semantic_low_confidence_fallback() {
     metrics::counter!("router_semantic_low_confidence_fallback_total").increment(1);
-    SEMANTIC_LOW_CONFIDENCE_FALLBACKS.fetch_add(1, Ordering::Relaxed);
 }
 
-/// Record score distribution in 10 fixed buckets over [-1.0, 1.0].
+/// Record score distribution input for external histogram aggregation.
 pub fn record_semantic_scores(scores: &[f32]) {
     for score in scores {
-        metrics::histogram!("router_semantic_score").record(*score as f64);
-        let normalized = ((*score + 1.0) / 2.0).clamp(0.0, 1.0);
-        let mut idx = (normalized * 10.0).floor() as usize;
-        if idx >= 10 {
-            idx = 9;
-        }
-        SEM_BUCKETS[idx].fetch_add(1, Ordering::Relaxed);
-    }
-}
-
-pub fn snapshot() -> RouterMetricsSnapshot {
-    let mut histogram = [0u64; 10];
-    for (idx, bucket) in SEM_BUCKETS.iter().enumerate() {
-        histogram[idx] = bucket.load(Ordering::Relaxed);
-    }
-    let semantic_turns = SEMANTIC_TURNS.load(Ordering::Relaxed);
-    let precision_sum = SEMANTIC_PROXY_PRECISION_BPS_SUM.load(Ordering::Relaxed);
-    let recall_sum = SEMANTIC_PROXY_RECALL_BPS_SUM.load(Ordering::Relaxed);
-    RouterMetricsSnapshot {
-        direct_dispatch: DIRECT_DISPATCH.load(Ordering::Relaxed),
-        guided_llm: GUIDED_LLM.load(Ordering::Relaxed),
-        semantic_filter: SEMANTIC_FILTER.load(Ordering::Relaxed),
-        full_llm: FULL_LLM.load(Ordering::Relaxed),
-        blocked_tool_attempts: BLOCKED_TOOL_ATTEMPTS.load(Ordering::Relaxed),
-        policy_drift_events: POLICY_DRIFT_EVENTS.load(Ordering::Relaxed),
-        semantic_turns,
-        semantic_zero_hit_turns: SEMANTIC_ZERO_HIT_TURNS.load(Ordering::Relaxed),
-        semantic_low_confidence_fallbacks: SEMANTIC_LOW_CONFIDENCE_FALLBACKS
-            .load(Ordering::Relaxed),
-        semantic_proxy_avg_precision_bps: if semantic_turns == 0 {
-            0
-        } else {
-            precision_sum / semantic_turns
-        },
-        semantic_proxy_avg_recall_bps: if semantic_turns == 0 {
-            0
-        } else {
-            recall_sum / semantic_turns
-        },
-        semantic_proxy_hits_total: SEMANTIC_PROXY_HITS_TOTAL.load(Ordering::Relaxed),
-        semantic_proxy_used_total: SEMANTIC_PROXY_USED_TOTAL.load(Ordering::Relaxed),
-        semantic_proxy_allowed_total: SEMANTIC_PROXY_ALLOWED_TOTAL.load(Ordering::Relaxed),
-        semantic_histogram: histogram,
+        metrics::histogram!("router_semantic_score").record(f64::from(*score));
     }
 }
