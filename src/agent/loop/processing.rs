@@ -824,26 +824,12 @@ impl AgentLoop {
         }
 
         // Secret-scan params
-        let params = {
-            let params_str = serde_json::to_string(&params).unwrap_or_default();
-            let redacted = self.leak_detector.redact(&params_str);
-            if redacted == params_str {
-                params
-            } else {
-                warn!("security: secrets redacted from direct dispatch params");
-                match serde_json::from_str(&redacted) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        warn!("direct dispatch: redacted params are not valid JSON: {e}");
-                        return Ok(Some(
-                            OutboundMessage::from_inbound(
-                                msg.clone(),
-                                "Action failed: parameters contain secrets that could not be safely redacted.",
-                            )
-                            .build(),
-                        ));
-                    }
-                }
+        let params = match redact_dispatch_params(&self.leak_detector, params) {
+            Ok(p) => p,
+            Err(msg_text) => {
+                return Ok(Some(
+                    OutboundMessage::from_inbound(msg.clone(), msg_text).build(),
+                ));
             }
         };
 
@@ -1069,25 +1055,14 @@ impl AgentLoop {
             }
 
             // Secret-scan params
-            let params = {
-                let params_str = serde_json::to_string(&dispatch.params).unwrap_or_default();
-                let redacted = self.leak_detector.redact(&params_str);
-                if redacted == params_str {
-                    dispatch.params.clone()
-                } else {
-                    warn!("security: secrets redacted from direct call dispatch params");
-                    match serde_json::from_str(&redacted) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            warn!(
-                                "direct call action dispatch: redacted params are not valid JSON: {e}"
-                            );
-                            return Ok(super::config::DirectResult {
-                                content: "Action failed: parameters contain secrets that could not be safely redacted.".to_string(),
-                                metadata: HashMap::new(),
-                            });
-                        }
-                    }
+            let params = match redact_dispatch_params(&self.leak_detector, dispatch.params.clone())
+            {
+                Ok(p) => p,
+                Err(msg_text) => {
+                    return Ok(super::config::DirectResult {
+                        content: msg_text,
+                        metadata: HashMap::new(),
+                    });
                 }
             };
 
@@ -1218,6 +1193,28 @@ impl AgentLoop {
         Ok(super::config::DirectResult {
             content: response,
             metadata: loop_result.response_metadata,
+        })
+    }
+}
+
+/// Scan dispatch parameters for leaked secrets and redact them.
+///
+/// Returns `Ok(params)` (possibly redacted) on success, or `Err(user_message)`
+/// when redaction produced invalid JSON.
+fn redact_dispatch_params(
+    leak_detector: &crate::safety::LeakDetector,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let params_str = serde_json::to_string(&params).unwrap_or_default();
+    let redacted = leak_detector.redact(&params_str);
+    if redacted == params_str {
+        Ok(params)
+    } else {
+        warn!("security: secrets redacted from dispatch params");
+        serde_json::from_str(&redacted).map_err(|e| {
+            format!(
+                "Action failed: parameters contain secrets that could not be safely redacted ({e})"
+            )
         })
     }
 }
