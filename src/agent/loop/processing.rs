@@ -525,6 +525,28 @@ impl AgentLoop {
     async fn process_system_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
         info!("Processing system message from {}", msg.sender_id);
 
+        // Inbound secret scanning
+        let msg_content = self.leak_detector.redact(&msg.content);
+        if msg_content != msg.content {
+            warn!("system message: secrets detected in content — redacting");
+        }
+
+        // Prompt guard
+        if let Some(ref guard) = self.prompt_guard {
+            let matches = guard.scan(&msg_content);
+            if !matches.is_empty() {
+                for m in &matches {
+                    warn!(
+                        "prompt injection in system message ({:?}): {}",
+                        m.category, m.pattern_name
+                    );
+                }
+                if self.prompt_guard_config.should_block() {
+                    return Ok(None);
+                }
+            }
+        }
+
         let parts: Vec<&str> = msg.chat_id.splitn(2, ':').collect();
         let (origin_channel, origin_chat_id) = if parts.len() == 2 {
             (parts[0].to_string(), parts[1].to_string())
@@ -555,7 +577,7 @@ impl AgentLoop {
             let mut context = self.context.lock().await;
             context.build_messages(
                 &history,
-                &msg.content,
+                &msg_content,
                 Some(origin_channel.as_str()),
                 Some(origin_chat_id.as_str()),
                 None,
@@ -593,7 +615,7 @@ impl AgentLoop {
         let extra = HashMap::new();
         session.add_message(
             "user".to_string(),
-            format!("[System: {}] {}", msg.sender_id, msg.content),
+            format!("[System: {}] {}", msg.sender_id, msg_content),
             extra.clone(),
         );
         let mut assistant_extra = HashMap::new();
