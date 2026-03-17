@@ -1243,11 +1243,26 @@ async fn handle_interactive_payload(
         }
     }
 
-    // Include button context in the message so the LLM can act on it
-    let content = if action_value.is_empty() {
-        format!("[button:{action_id}]")
+    // Try to parse button context as ActionDispatchPayload for direct dispatch
+    let (content, dispatch) = if action_value.is_empty() {
+        (format!("[button:{action_id}]"), None)
+    } else if let Ok(payload) =
+        serde_json::from_str::<crate::dispatch::ActionDispatchPayload>(action_value)
+    {
+        let dispatch = crate::dispatch::ActionDispatch {
+            tool: payload.tool,
+            params: payload.params,
+            source: crate::dispatch::ActionSource::Button {
+                action_id: action_id.to_string(),
+            },
+        };
+        (format!("[button:{action_id}]"), Some(dispatch))
     } else {
-        format!("[button:{action_id}]\nButton context: {action_value}")
+        // Legacy fallback: send as text to LLM
+        (
+            format!("[button:{action_id}]\nButton context: {action_value}"),
+            None,
+        )
     };
     let is_group = !is_dm;
     let mut builder = InboundMessage::builder(
@@ -1264,6 +1279,9 @@ async fn handle_interactive_payload(
     }
     if !message_ts.is_empty() {
         builder = builder.meta(crate::bus::meta::TS, Value::String(message_ts.to_string()));
+    }
+    if let Some(d) = dispatch {
+        builder = builder.action(d);
     }
     let inbound_msg = builder.build();
 
