@@ -638,8 +638,8 @@ fn truncate_label(prefix: &str, text: &str, max_text_chars: usize) -> String {
     }
 }
 
-/// Build suggested "Close" buttons for open issues (max 5).
-fn build_issue_buttons(issues: &[Value], repo: &str) -> Vec<Value> {
+/// Build suggested "View" buttons for open issues (max 5).
+fn build_issue_buttons(issues: &[Value], owner: &str, repo: &str) -> Vec<Value> {
     let mut buttons = Vec::new();
     for issue in issues {
         if buttons.len() >= 5 {
@@ -654,17 +654,18 @@ fn build_issue_buttons(issues: &[Value], repo: &str) -> Vec<Value> {
             continue;
         }
         let title = issue["title"].as_str().unwrap_or("issue");
-        let label = truncate_label("Close: ", title, 22);
+        let label = truncate_label("View: ", title, 22);
         buttons.push(serde_json::json!({
-            "id": format!("close-issue-{number}"),
+            "id": format!("view-issue-{number}"),
             "label": label,
-            "style": "danger",
+            "style": "primary",
             "context": serde_json::json!({
                 "tool": "github",
                 "params": {
-                    "action": "close_issue",
+                    "action": "get_issue",
+                    "owner": owner,
                     "repo": repo,
-                    "issue_number": number
+                    "number": number
                 }
             }).to_string()
         }));
@@ -673,7 +674,7 @@ fn build_issue_buttons(issues: &[Value], repo: &str) -> Vec<Value> {
 }
 
 /// Build suggested "Approve" buttons for open PRs (max 5).
-fn build_pr_list_buttons(prs: &[Value], repo: &str) -> Vec<Value> {
+fn build_pr_list_buttons(prs: &[Value], owner: &str, repo: &str) -> Vec<Value> {
     let mut buttons = Vec::new();
     for pr in prs {
         if buttons.len() >= 5 {
@@ -696,9 +697,12 @@ fn build_pr_list_buttons(prs: &[Value], repo: &str) -> Vec<Value> {
             "context": serde_json::json!({
                 "tool": "github",
                 "params": {
-                    "action": "approve_pr",
+                    "action": "create_pr_review",
+                    "owner": owner,
                     "repo": repo,
-                    "pr_number": number
+                    "number": number,
+                    "event": "APPROVE",
+                    "body": ""
                 }
             }).to_string()
         }));
@@ -707,7 +711,7 @@ fn build_pr_list_buttons(prs: &[Value], repo: &str) -> Vec<Value> {
 }
 
 /// Build "Approve" and "Request Changes" buttons for a single open PR.
-fn build_pr_detail_buttons(pr: &Value, repo: &str) -> Vec<Value> {
+fn build_pr_detail_buttons(pr: &Value, owner: &str, repo: &str) -> Vec<Value> {
     let state = pr["state"].as_str().unwrap_or_default();
     let merged = pr["merged"].as_bool().unwrap_or_default();
     if state != "open" || merged {
@@ -725,9 +729,12 @@ fn build_pr_detail_buttons(pr: &Value, repo: &str) -> Vec<Value> {
             "context": serde_json::json!({
                 "tool": "github",
                 "params": {
-                    "action": "approve_pr",
+                    "action": "create_pr_review",
+                    "owner": owner,
                     "repo": repo,
-                    "pr_number": number
+                    "number": number,
+                    "event": "APPROVE",
+                    "body": ""
                 }
             }).to_string()
         }),
@@ -738,9 +745,12 @@ fn build_pr_detail_buttons(pr: &Value, repo: &str) -> Vec<Value> {
             "context": serde_json::json!({
                 "tool": "github",
                 "params": {
-                    "action": "request_changes",
+                    "action": "create_pr_review",
+                    "owner": owner,
                     "repo": repo,
-                    "pr_number": number
+                    "number": number,
+                    "event": "REQUEST_CHANGES",
+                    "body": ""
                 }
             }).to_string()
         }),
@@ -921,8 +931,6 @@ impl Tool for GitHubTool {
                 let page = page_num.to_string();
                 let per_page = per_page_num.to_string();
 
-                let repo_full = format!("{owner}/{repo}");
-
                 // Actions that produce suggested buttons
                 match action {
                     "list_issues" => {
@@ -934,7 +942,7 @@ impl Tool for GitHubTool {
                         }
                         return match self.list_issues(owner, repo, state, &page, &per_page).await {
                             Ok((text, issues)) => {
-                                let buttons = build_issue_buttons(&issues, &repo_full);
+                                let buttons = build_issue_buttons(&issues, owner, repo);
                                 Ok(with_buttons(ToolResult::new(text), buttons))
                             }
                             Err(e) => Ok(ToolResult::error(format!("GitHub error: {e}"))),
@@ -946,7 +954,7 @@ impl Tool for GitHubTool {
                         };
                         return match self.get_issue(owner, repo, number).await {
                             Ok((text, issue)) => {
-                                let buttons = build_issue_buttons(&[issue], &repo_full);
+                                let buttons = build_issue_buttons(&[issue], owner, repo);
                                 Ok(with_buttons(ToolResult::new(text), buttons))
                             }
                             Err(e) => Ok(ToolResult::error(format!("GitHub error: {e}"))),
@@ -961,7 +969,7 @@ impl Tool for GitHubTool {
                         }
                         return match self.list_prs(owner, repo, state, &page, &per_page).await {
                             Ok((text, prs)) => {
-                                let buttons = build_pr_list_buttons(&prs, &repo_full);
+                                let buttons = build_pr_list_buttons(&prs, owner, repo);
                                 Ok(with_buttons(ToolResult::new(text), buttons))
                             }
                             Err(e) => Ok(ToolResult::error(format!("GitHub error: {e}"))),
@@ -973,7 +981,7 @@ impl Tool for GitHubTool {
                         };
                         return match self.get_pr(owner, repo, number).await {
                             Ok((text, pr)) => {
-                                let buttons = build_pr_detail_buttons(&pr, &repo_full);
+                                let buttons = build_pr_detail_buttons(&pr, owner, repo);
                                 Ok(with_buttons(ToolResult::new(text), buttons))
                             }
                             Err(e) => Ok(ToolResult::error(format!("GitHub error: {e}"))),
