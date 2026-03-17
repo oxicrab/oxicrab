@@ -162,6 +162,20 @@ impl MemoryDB {
     }
 }
 
+impl MemoryDB {
+    /// Invalidate the in-memory embedding cache so the next `hybrid_search`
+    /// reloads from the database. Called after inserting, removing, or
+    /// updating embeddings or the entries they reference.
+    pub(crate) fn invalidate_embedding_cache(&self) {
+        self.embedding_generation
+            .fetch_add(1, std::sync::atomic::Ordering::Release);
+        self.embedding_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+    }
+}
+
 // --- Session storage ---
 
 impl MemoryDB {

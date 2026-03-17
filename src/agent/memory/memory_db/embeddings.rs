@@ -28,14 +28,7 @@ impl MemoryDB {
             "INSERT OR REPLACE INTO memory_embeddings (entry_id, embedding) VALUES (?, ?)",
             params![entry_id, embedding],
         )?;
-        // Invalidate cached embeddings so hybrid_search reloads from DB.
-        // Bump generation first (Release) so any concurrent reader that
-        // observes the new generation will know the cache is stale.
-        self.embedding_generation.fetch_add(1, Ordering::Release);
-        self.embedding_cache
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
+        self.invalidate_embedding_cache();
         Ok(())
     }
 

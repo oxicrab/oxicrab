@@ -31,13 +31,7 @@ impl MemoryDB {
             params![source_key, now],
         )?;
         tx.commit()?;
-        // Invalidate embedding cache
-        self.embedding_generation
-            .fetch_add(1, std::sync::atomic::Ordering::Release);
-        self.embedding_cache
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
+        self.invalidate_embedding_cache();
         Ok(())
     }
 
@@ -67,13 +61,7 @@ impl MemoryDB {
         }
         tx.commit()?;
         if deleted > 0 {
-            // Invalidate embedding cache since entries were removed
-            self.embedding_generation
-                .fetch_add(1, std::sync::atomic::Ordering::Release);
-            self.embedding_cache
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .take();
+            self.invalidate_embedding_cache();
         }
         Ok(deleted)
     }
