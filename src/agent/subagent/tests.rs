@@ -137,11 +137,12 @@ fn test_prompt_context_truncated_at_2000_chars() {
 #[test]
 fn test_prompt_lists_tools_from_metadata() {
     let tools = make_test_main_registry();
-    let registry = super::build_subagent_tools(&make_inner_with_tools(
-        crate::config::ExfiltrationGuardConfig::default(),
-        tools,
-    ))
-    .unwrap();
+    // Use a disabled exfil guard so network tools (github, web_fetch) are available.
+    let guard = crate::config::ExfiltrationGuardConfig {
+        enabled: false,
+        allow_tools: vec![],
+    };
+    let registry = super::build_subagent_tools(&make_inner_with_tools(guard, tools)).unwrap();
     let prompt = build_subagent_prompt("Do stuff", Path::new("/ws"), None, &registry);
     assert!(prompt.contains("## Available Tools"));
     // Tool names should appear
@@ -525,7 +526,14 @@ fn make_test_main_registry() -> Arc<crate::agent::tools::ToolRegistry> {
 #[test]
 fn test_subagent_tools_capability_based() {
     let main = make_test_main_registry();
-    let config = make_inner_with_tools(crate::config::ExfiltrationGuardConfig::default(), main);
+    // Use a disabled exfil guard so network tools (web_search, web_fetch, github, reddit)
+    // are included. The exfil-blocking behaviour is tested separately in
+    // test_subagent_tools_exfil_blocks_all_network.
+    let guard = crate::config::ExfiltrationGuardConfig {
+        enabled: false,
+        allow_tools: vec![],
+    };
+    let config = make_inner_with_tools(guard, main);
     let tools = super::build_subagent_tools(&config).unwrap();
     let names = tools.tool_names();
 
@@ -564,7 +572,12 @@ fn test_subagent_tools_denied_tools_excluded() {
 #[test]
 fn test_subagent_github_is_read_only() {
     let main = make_test_main_registry();
-    let config = make_inner_with_tools(crate::config::ExfiltrationGuardConfig::default(), main);
+    // Use a disabled exfil guard so github is included (network_outbound).
+    let guard = crate::config::ExfiltrationGuardConfig {
+        enabled: false,
+        allow_tools: vec![],
+    };
+    let config = make_inner_with_tools(guard, main);
     let tools = super::build_subagent_tools(&config).unwrap();
 
     let github = tools

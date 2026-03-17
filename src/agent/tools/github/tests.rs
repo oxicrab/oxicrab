@@ -1185,10 +1185,11 @@ fn test_build_pr_detail_buttons_open_pr() {
     assert_eq!(ctx0["params"]["repo"], "repo");
     assert_eq!(ctx0["params"]["number"], 10);
     assert_eq!(ctx0["params"]["event"], "APPROVE");
-    let ctx1: serde_json::Value =
-        serde_json::from_str(buttons[1]["context"].as_str().unwrap()).unwrap();
-    assert_eq!(ctx1["params"]["action"], "create_pr_review");
-    assert_eq!(ctx1["params"]["event"], "REQUEST_CHANGES");
+    // "Request Changes" uses a plain string context (routes through LLM for body input)
+    assert_eq!(
+        buttons[1]["context"].as_str().unwrap(),
+        "Request changes on PR #10 in octo/repo"
+    );
 }
 
 #[test]
