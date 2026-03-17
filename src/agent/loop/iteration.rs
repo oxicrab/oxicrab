@@ -256,6 +256,14 @@ impl AgentLoop {
                                 !is_network || allowed.contains(&td.name)
                             });
                         }
+                        // Re-apply tool filter (GuidedLLM constraint)
+                        if let Some(ref filter) = overrides.tool_filter {
+                            tools_defs.retain(|td| {
+                                filter.contains(&td.name)
+                                    || td.name == "add_buttons"
+                                    || td.name == "tool_search"
+                            });
+                        }
                         tool_names = tools_defs.iter().map(|td| td.name.clone()).collect();
                         tools_arc = Arc::new(tools_defs);
                     }
