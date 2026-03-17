@@ -522,7 +522,8 @@ pub async fn handle_get_article_detail(
         let mut builder = reqwest::Client::builder()
             .user_agent(format!("oxicrab/{}", env!("CARGO_PKG_VERSION")))
             .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(30));
+            .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none());
         let has_ipv4 = resolved.addrs.iter().any(std::net::SocketAddr::is_ipv4);
         for addr in &resolved.addrs {
             if has_ipv4 && addr.is_ipv6() {

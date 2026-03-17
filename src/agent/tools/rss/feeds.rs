@@ -30,7 +30,8 @@ pub async fn handle_add_feed(
         let mut builder = Client::builder()
             .user_agent(format!("oxicrab/{}", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(timeout));
+            .timeout(Duration::from_secs(timeout))
+            .redirect(reqwest::redirect::Policy::none());
         // Prefer IPv4 — many hosts advertise AAAA records but have broken IPv6
         // connectivity, causing reqwest to hang until timeout.
         let has_ipv4 = resolved.addrs.iter().any(std::net::SocketAddr::is_ipv4);
