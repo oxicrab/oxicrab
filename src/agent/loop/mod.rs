@@ -4,6 +4,7 @@ pub mod config;
 mod hallucination;
 mod helpers;
 mod iteration;
+mod metadata;
 mod processing;
 
 #[cfg(test)]
