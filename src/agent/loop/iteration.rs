@@ -263,7 +263,11 @@ impl AgentLoop {
                     TextAction::Continue => {}
                     TextAction::Return => {
                         let content = strip_think_tags(&content);
-                        let content = prepend_display_text(content, &collected_tool_metadata);
+                        let content = prepend_display_text(
+                            content,
+                            &collected_tool_metadata,
+                            Some(&self.leak_detector),
+                        );
                         let mut response_metadata = self.take_pending_buttons_metadata();
                         merge_suggested_buttons(&mut response_metadata, &collected_tool_metadata);
                         return Ok(AgentLoopResult {
@@ -314,7 +318,8 @@ impl AgentLoop {
                 .await?
         {
             let content = strip_think_tags(&content);
-            let content = prepend_display_text(content, &collected_tool_metadata);
+            let content =
+                prepend_display_text(content, &collected_tool_metadata, Some(&self.leak_detector));
             return Ok(AgentLoopResult {
                 content: Some(content),
                 input_tokens: last_input_tokens,
@@ -328,7 +333,9 @@ impl AgentLoop {
         }
 
         // If no LLM response but tools provided display_text, use that as the response
-        if let Some(display) = extract_display_text(&collected_tool_metadata) {
+        if let Some(display) =
+            extract_display_text(&collected_tool_metadata, Some(&self.leak_detector))
+        {
             return Ok(AgentLoopResult {
                 content: Some(display),
                 input_tokens: last_input_tokens,
@@ -610,10 +617,22 @@ impl AgentLoop {
 /// response so the user sees it regardless of what the LLM says.
 fn extract_display_text(
     collected_tool_metadata: &[HashMap<String, serde_json::Value>],
+    leak_detector: Option<&crate::safety::LeakDetector>,
 ) -> Option<String> {
-    let texts: Vec<&str> = collected_tool_metadata
+    let texts: Vec<String> = collected_tool_metadata
         .iter()
-        .filter_map(|meta| meta.get("display_text")?.as_str())
+        .filter_map(|meta| {
+            let raw = meta.get("display_text")?.as_str()?;
+            if let Some(detector) = leak_detector {
+                let redacted = detector.redact(raw);
+                if redacted != raw {
+                    warn!("secrets detected in display_text metadata — redacting");
+                }
+                Some(redacted)
+            } else {
+                Some(raw.to_string())
+            }
+        })
         .collect();
     if texts.is_empty() {
         None
@@ -626,8 +645,9 @@ fn extract_display_text(
 fn prepend_display_text(
     content: String,
     collected_tool_metadata: &[HashMap<String, serde_json::Value>],
+    leak_detector: Option<&crate::safety::LeakDetector>,
 ) -> String {
-    if let Some(display) = extract_display_text(collected_tool_metadata) {
+    if let Some(display) = extract_display_text(collected_tool_metadata, leak_detector) {
         format!("{display}\n\n{content}")
     } else {
         content
@@ -885,7 +905,7 @@ mod display_text_tests {
     #[test]
     fn test_extract_display_text_empty() {
         let meta: Vec<HashMap<String, serde_json::Value>> = vec![];
-        assert!(extract_display_text(&meta).is_none());
+        assert!(extract_display_text(&meta, None).is_none());
     }
 
     #[test]
@@ -894,7 +914,7 @@ mod display_text_tests {
             "display_text".to_string(),
             serde_json::Value::String("**Article Title**\nSome content".to_string()),
         )])];
-        let result = extract_display_text(&meta).unwrap();
+        let result = extract_display_text(&meta, None).unwrap();
         assert_eq!(result, "**Article Title**\nSome content");
     }
 
@@ -910,7 +930,7 @@ mod display_text_tests {
                 serde_json::Value::String("Second article".to_string()),
             )]),
         ];
-        let result = extract_display_text(&meta).unwrap();
+        let result = extract_display_text(&meta, None).unwrap();
         assert_eq!(result, "First article\n\nSecond article");
     }
 
@@ -920,7 +940,7 @@ mod display_text_tests {
             "suggested_buttons".to_string(),
             serde_json::json!([{"id": "btn", "label": "Click"}]),
         )])];
-        assert!(extract_display_text(&meta).is_none());
+        assert!(extract_display_text(&meta, None).is_none());
     }
 
     #[test]
@@ -929,14 +949,14 @@ mod display_text_tests {
             "display_text".to_string(),
             serde_json::Value::String("**Article**".to_string()),
         )])];
-        let result = prepend_display_text("Accept or reject?".to_string(), &meta);
+        let result = prepend_display_text("Accept or reject?".to_string(), &meta, None);
         assert_eq!(result, "**Article**\n\nAccept or reject?");
     }
 
     #[test]
     fn test_prepend_display_text_without_content() {
         let meta: Vec<HashMap<String, serde_json::Value>> = vec![];
-        let result = prepend_display_text("Regular response".to_string(), &meta);
+        let result = prepend_display_text("Regular response".to_string(), &meta, None);
         assert_eq!(result, "Regular response");
     }
 }
