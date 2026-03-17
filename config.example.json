@@ -365,6 +365,10 @@
       "covarianceInflation": 0.01
     }
   },
+  "router": {
+    "prefix": "!",
+    "rules": []
+  },
   "credentialHelper": {
     "command": "",
     "args": [],

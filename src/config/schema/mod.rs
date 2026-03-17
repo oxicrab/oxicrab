@@ -62,11 +62,13 @@ macro_rules! redact_debug {
 mod agent;
 mod channels;
 mod providers;
+mod router;
 mod tools;
 
 pub use agent::*;
 pub use channels::*;
 pub use providers::*;
+pub use router::*;
 pub use tools::*;
 
 fn default_true() -> bool {
@@ -263,6 +265,8 @@ pub struct Config {
     pub gateway: GatewayConfig,
     #[serde(default)]
     pub tools: ToolsConfig,
+    #[serde(default)]
+    pub router: RouterConfig,
     #[serde(default)]
     pub voice: VoiceConfig,
     #[serde(default, rename = "credentialHelper")]
