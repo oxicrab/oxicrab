@@ -54,8 +54,8 @@ impl ConfigRule {
         let remainder = json_escape(&args.join(" "));
         result = result.replace("$*", &remainder);
 
-        // JSON-escape each positional arg
-        for (i, arg) in args.iter().enumerate() {
+        // JSON-escape each positional arg (descending order to prevent $1 matching inside $10)
+        for (i, arg) in args.iter().enumerate().rev() {
             let escaped = json_escape(arg);
             result = result.replace(&format!("${}", i + 1), &escaped);
         }
@@ -203,6 +203,21 @@ mod tests {
         let result = rule.substitute(&[r#"foo","injected":"evil"#]);
         assert_eq!(result["value"], r#"foo","injected":"evil"#);
         assert!(result.get("injected").is_none());
+    }
+
+    #[test]
+    fn test_config_rule_substitute_double_digit() {
+        let rule = ConfigRule {
+            trigger: "test".into(),
+            tool: "test".into(),
+            params: serde_json::json!({"a": "$1", "b": "$10"}),
+        };
+        let args: Vec<&str> = (0..10)
+            .map(|i| ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"][i])
+            .collect();
+        let result = rule.substitute(&args);
+        assert_eq!(result["a"], "a");
+        assert_eq!(result["b"], "j"); // $10 = 10th arg, not "$1" + "0"
     }
 
     #[test]
