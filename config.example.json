@@ -27,7 +27,7 @@
         "recencyHalfLifeDays": 90
       },
       "promptGuard": {
-        "enabled": false,
+        "enabled": true,
         "action": "warn"
       },
       "cognitive": {
@@ -193,7 +193,7 @@
   },
   "tools": {
     "exfiltrationGuard": {
-      "enabled": false,
+      "enabled": true,
       "allowTools": []
     },
     "webSearch": {

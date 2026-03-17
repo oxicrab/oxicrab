@@ -2,13 +2,22 @@ use serde::{Deserialize, Serialize};
 
 use super::default_true;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExfiltrationGuardConfig {
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub enabled: bool,
     /// Force-allow specific `network_outbound` tools when guard is enabled.
     #[serde(default, rename = "allowTools")]
     pub allow_tools: Vec<String>,
+}
+
+impl Default for ExfiltrationGuardConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allow_tools: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

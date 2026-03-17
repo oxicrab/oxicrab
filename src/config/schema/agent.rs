@@ -65,7 +65,7 @@ fn default_prompt_guard_action() -> PromptGuardAction {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptGuardConfig {
-    #[serde(default)]
+    #[serde(default = "super::default_true")]
     pub enabled: bool,
     /// Action on detection: `Warn` (log + continue) or `Block` (reject message)
     #[serde(default = "default_prompt_guard_action")]
@@ -82,7 +82,7 @@ impl PromptGuardConfig {
 impl Default for PromptGuardConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             action: default_prompt_guard_action(),
         }
     }
