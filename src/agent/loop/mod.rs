@@ -190,7 +190,7 @@ impl AgentLoop {
             let ttl = session_ttl_days;
             let mgr_for_cleanup = SessionManager::new(&workspace)?;
             tokio::spawn(async move {
-                if let Err(e) = mgr_for_cleanup.cleanup_old_sessions(ttl) {
+                if let Err(e) = mgr_for_cleanup.cleanup_old_sessions(ttl).await {
                     warn!("Session cleanup failed: {}", e);
                 }
             });

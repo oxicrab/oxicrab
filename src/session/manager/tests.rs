@@ -210,7 +210,7 @@ async fn test_cleanup_old_sessions() {
     }
 
     // Cleanup with 30-day TTL should delete it
-    let deleted = mgr.cleanup_old_sessions(30).unwrap();
+    let deleted = mgr.cleanup_old_sessions(30).await.unwrap();
     assert_eq!(deleted, 1);
 
     // Should no longer be loadable
@@ -231,7 +231,7 @@ async fn test_cleanup_preserves_recent_sessions() {
     mgr.save(&session).await.unwrap();
 
     // Cleanup with 30-day TTL should preserve a just-created session
-    let deleted = mgr.cleanup_old_sessions(30).unwrap();
+    let deleted = mgr.cleanup_old_sessions(30).await.unwrap();
     assert_eq!(deleted, 0);
 
     // Should still be loadable
