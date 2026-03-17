@@ -459,43 +459,36 @@ impl AgentLoop {
             );
         }
 
-        // Scan tool results for leaked secrets before they enter LLM context
-        for tc in tool_calls {
-            if let Some(msg) = messages
-                .iter_mut()
-                .rev()
-                .find(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some(&tc.id))
-            {
-                let redacted = self.leak_detector.redact(&msg.content);
-                if redacted != msg.content {
-                    warn!("secret detected in tool '{}' output — redacting", tc.name);
-                    msg.content = redacted;
-                }
-            }
-        }
+        // Scan tool results for leaked secrets and prompt injection in a single
+        // pass. The results were just appended in order, so index directly instead
+        // of reverse-searching by tool_call_id.
+        let results_start = messages.len() - tool_calls.len();
+        for (i, tc) in tool_calls.iter().enumerate() {
+            let msg = &mut messages[results_start + i];
+            debug_assert!(msg.role == "tool" && msg.tool_call_id.as_deref() == Some(&tc.id));
 
-        // Scan tool results for prompt injection
-        if let Some(ref guard) = self.prompt_guard {
-            for tc in tool_calls {
-                if let Some(msg) = messages
-                    .iter_mut()
-                    .rev()
-                    .find(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some(&tc.id))
-                {
-                    let tool_matches = guard.scan(&msg.content);
-                    if !tool_matches.is_empty() {
-                        for m in &tool_matches {
-                            warn!(
-                                "prompt injection in tool '{}' output ({:?}): {}",
-                                tc.name, m.category, m.pattern_name
-                            );
-                        }
-                        if self.prompt_guard_config.should_block() {
-                            msg.content = format!(
-                                "[tool output redacted: prompt injection detected in '{}']",
-                                tc.name
-                            );
-                        }
+            // Leak detection
+            let redacted = self.leak_detector.redact(&msg.content);
+            if redacted != msg.content {
+                warn!("secret detected in tool '{}' output — redacting", tc.name);
+                msg.content = redacted;
+            }
+
+            // Prompt injection guard
+            if let Some(ref guard) = self.prompt_guard {
+                let tool_matches = guard.scan(&msg.content);
+                if !tool_matches.is_empty() {
+                    for m in &tool_matches {
+                        warn!(
+                            "prompt injection in tool '{}' output ({:?}): {}",
+                            tc.name, m.category, m.pattern_name
+                        );
+                    }
+                    if self.prompt_guard_config.should_block() {
+                        msg.content = format!(
+                            "[tool output redacted: prompt injection detected in '{}']",
+                            tc.name
+                        );
                     }
                 }
             }

@@ -12,18 +12,20 @@ impl MemoryDB {
         }
         let now = Utc::now().to_rfc3339();
         let hash = hash_text(content);
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-        conn.execute(
+        let tx = conn.transaction()?;
+        tx.execute(
             "INSERT OR IGNORE INTO memory_entries (source_key, content, content_hash, created_at) VALUES (?, ?, ?, ?)",
             params![source_key, content, hash, now],
         )?;
-        conn.execute(
+        tx.execute(
             "INSERT INTO memory_sources (source_key, mtime_ns, updated_at) VALUES (?, 0, ?) ON CONFLICT(source_key) DO UPDATE SET updated_at = excluded.updated_at",
             params![source_key, now],
         )?;
+        tx.commit()?;
         // Invalidate embedding cache
         self.embedding_generation
             .fetch_add(1, std::sync::atomic::Ordering::Release);
