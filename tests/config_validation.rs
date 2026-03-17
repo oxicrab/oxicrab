@@ -221,7 +221,7 @@ fn test_prompt_guard_invalid_action_rejected_by_serde() {
 #[test]
 fn test_prompt_guard_default_config_valid() {
     let config: PromptGuardConfig = serde_json::from_str("{}").expect("parse json");
-    assert!(!config.enabled);
+    assert!(config.enabled); // enabled by default (security hardening)
     assert_eq!(config.action, PromptGuardAction::Warn);
 }
 
@@ -250,7 +250,7 @@ fn test_prompt_guard_parses_from_json() {
 #[test]
 fn test_exfiltration_guard_default_config() {
     let config: ExfiltrationGuardConfig = serde_json::from_str("{}").expect("parse json");
-    assert!(!config.enabled);
+    assert!(config.enabled); // enabled by default (security hardening)
     assert!(config.allow_tools.is_empty());
 }
 
