@@ -21,70 +21,10 @@ impl AgentLoop {
             return self.process_system_message(msg).await;
         }
 
-        // Send typing indicator before processing
-        if let Some(ref tx) = self.typing_tx
-            && tx
-                .send((msg.channel.clone(), msg.chat_id.clone()))
-                .await
-                .is_err()
-        {
-            debug!("typing indicator channel closed");
-        }
+        self.send_typing_indicator(&msg).await;
 
         info!("Processing message from {}:{}", msg.channel, msg.sender_id);
-
-        // Check for event-triggered cron jobs in the background.
-        // Periodically rebuild the matcher from the cron store (every 60s)
-        // so new/modified event jobs are picked up at runtime.
-        if let Some(cron_svc) = &self.cron_service {
-            // Check-and-claim: CAS on epoch-seconds timestamp to prevent
-            // concurrent messages from triggering duplicate rebuilds.
-            let now_epoch = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs());
-            let last = self
-                .event_matcher_last_rebuild
-                .load(std::sync::atomic::Ordering::Relaxed);
-            let needs_rebuild = now_epoch.saturating_sub(last) >= 60
-                && self
-                    .event_matcher_last_rebuild
-                    .compare_exchange(
-                        last,
-                        now_epoch,
-                        std::sync::atomic::Ordering::AcqRel,
-                        std::sync::atomic::Ordering::Relaxed,
-                    )
-                    .is_ok();
-            if needs_rebuild && let Ok(jobs) = cron_svc.list_jobs(true) {
-                let mut new_matcher = crate::cron::event_matcher::EventMatcher::from_jobs(&jobs);
-                if let Some(ref matcher_mutex) = self.event_matcher
-                    && let Ok(mut guard) = matcher_mutex.lock()
-                {
-                    new_matcher.merge_fired_state(&guard);
-                    *guard = new_matcher;
-                }
-            }
-
-            if let Some(matcher_mutex) = &self.event_matcher {
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as i64);
-                let triggered = matcher_mutex
-                    .lock()
-                    .map(|mut matcher| matcher.check_message(&msg.content, &msg.channel, now_ms))
-                    .unwrap_or_default();
-                for job in triggered {
-                    let cron_svc = cron_svc.clone();
-                    let job_id = job.id.clone();
-                    info!("Event-triggered cron job '{}' ({})", job.name, job.id);
-                    tokio::spawn(async move {
-                        if let Err(e) = cron_svc.run_job(&job_id, true).await {
-                            warn!("Event-triggered job '{}' failed: {}", job_id, e);
-                        }
-                    });
-                }
-            }
-        }
+        self.handle_event_triggered_jobs(&msg);
 
         let session_key = msg.session_key();
         // Load session early — the router needs RouterContext from session metadata
@@ -170,36 +110,8 @@ impl AgentLoop {
             .await?;
         debug!("Got {} history messages", history.len());
 
-        // Transcribe any audio files before other processing
-        let msg_content = if let Some(ref lazy) = self.transcriber
-            && let Some(svc) = lazy.get()
-        {
-            transcribe_audio_tags(&msg.content, svc).await
-        } else {
-            strip_audio_tags(&msg.content)
-        };
-
-        // Inbound secret scanning: redact secrets before they reach the LLM or
-        // get persisted in session history / memory. Uses redact() for a single
-        // pass; scan() only runs when redaction occurred (to get pattern names).
-        let msg_content = {
-            let redacted = self.leak_detector.redact(&msg_content);
-            if redacted == msg_content {
-                msg_content
-            } else {
-                let names: Vec<&str> = self
-                    .leak_detector
-                    .scan(&msg_content)
-                    .iter()
-                    .map(|m| m.name)
-                    .collect();
-                warn!(
-                    "security: secret detected in inbound message from {}:{}: {:?} — redacted",
-                    msg.channel, msg.sender_id, names
-                );
-                redacted
-            }
-        };
+        // Transcribe and sanitize inbound content before the LLM sees it.
+        let msg_content = self.prepare_inbound_content(&msg).await;
 
         // Prompt injection preflight check
         if matches!(
@@ -214,33 +126,8 @@ impl AgentLoop {
             return Ok(Some(OutboundMessage::from_inbound(msg, "I can't process this message as it appears to contain prompt injection patterns.").build()));
         }
 
-        // Load and encode any attached images (skip audio files)
-        let audio_extensions = ["ogg", "mp3", "mp4", "m4a", "wav", "webm", "flac", "oga"];
-        let image_media: Vec<String> = msg
-            .media
-            .iter()
-            .filter(|p| {
-                let ext = std::path::Path::new(p)
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or_default();
-                !audio_extensions.contains(&ext)
-            })
-            .cloned()
-            .collect();
-
-        let images = if image_media.is_empty() {
-            vec![]
-        } else {
-            info!(
-                "Loading {} media files for LLM: {:?}",
-                image_media.len(),
-                image_media
-            );
-            let imgs = load_and_encode_images(&image_media);
-            info!("Encoded {} images for LLM", imgs.len());
-            imgs
-        };
+        // Load and encode attached images (audio files are skipped).
+        let images = Self::encode_non_audio_media(&msg.media);
 
         // Strip [image: ...] and [document: ...] tags from content when media was
         // successfully encoded, since the LLM receives them as content blocks and
@@ -517,6 +404,132 @@ impl AgentLoop {
                 .build(),
             ))
         }
+    }
+
+    async fn send_typing_indicator(&self, msg: &InboundMessage) {
+        if let Some(ref tx) = self.typing_tx
+            && tx
+                .send((msg.channel.clone(), msg.chat_id.clone()))
+                .await
+                .is_err()
+        {
+            debug!("typing indicator channel closed");
+        }
+    }
+
+    fn handle_event_triggered_jobs(&self, msg: &InboundMessage) {
+        // Check for event-triggered cron jobs in the background.
+        // Periodically rebuild the matcher from the cron store (every 60s)
+        // so new/modified event jobs are picked up at runtime.
+        let Some(cron_svc) = &self.cron_service else {
+            return;
+        };
+
+        // Check-and-claim: CAS on epoch-seconds timestamp to prevent
+        // concurrent messages from triggering duplicate rebuilds.
+        let now_epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let last = self
+            .event_matcher_last_rebuild
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let needs_rebuild = now_epoch.saturating_sub(last) >= 60
+            && self
+                .event_matcher_last_rebuild
+                .compare_exchange(
+                    last,
+                    now_epoch,
+                    std::sync::atomic::Ordering::AcqRel,
+                    std::sync::atomic::Ordering::Relaxed,
+                )
+                .is_ok();
+        if needs_rebuild && let Ok(jobs) = cron_svc.list_jobs(true) {
+            let mut new_matcher = crate::cron::event_matcher::EventMatcher::from_jobs(&jobs);
+            if let Some(ref matcher_mutex) = self.event_matcher
+                && let Ok(mut guard) = matcher_mutex.lock()
+            {
+                new_matcher.merge_fired_state(&guard);
+                *guard = new_matcher;
+            }
+        }
+
+        if let Some(matcher_mutex) = &self.event_matcher {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as i64);
+            let triggered = matcher_mutex
+                .lock()
+                .map(|mut matcher| matcher.check_message(&msg.content, &msg.channel, now_ms))
+                .unwrap_or_default();
+            for job in triggered {
+                let cron_svc = cron_svc.clone();
+                let job_id = job.id.clone();
+                info!("Event-triggered cron job '{}' ({})", job.name, job.id);
+                tokio::spawn(async move {
+                    if let Err(e) = cron_svc.run_job(&job_id, true).await {
+                        warn!("Event-triggered job '{}' failed: {}", job_id, e);
+                    }
+                });
+            }
+        }
+    }
+
+    async fn prepare_inbound_content(&self, msg: &InboundMessage) -> String {
+        // Transcribe any audio files before other processing.
+        let content = if let Some(ref lazy) = self.transcriber
+            && let Some(svc) = lazy.get()
+        {
+            transcribe_audio_tags(&msg.content, svc).await
+        } else {
+            strip_audio_tags(&msg.content)
+        };
+
+        // Inbound secret scanning: redact secrets before they reach the LLM or
+        // get persisted in session history / memory.
+        let redacted = self.leak_detector.redact(&content);
+        if redacted == content {
+            return content;
+        }
+
+        let names: Vec<&str> = self
+            .leak_detector
+            .scan(&content)
+            .iter()
+            .map(|m| m.name)
+            .collect();
+        warn!(
+            "security: secret detected in inbound message from {}:{}: {:?} — redacted",
+            msg.channel, msg.sender_id, names
+        );
+        redacted
+    }
+
+    fn encode_non_audio_media(media: &[String]) -> Vec<crate::providers::base::ImageData> {
+        let audio_extensions = ["ogg", "mp3", "mp4", "m4a", "wav", "webm", "flac", "oga"];
+        let image_media: Vec<String> = media
+            .iter()
+            .filter(|p| {
+                let ext = std::path::Path::new(p)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or_default();
+                !audio_extensions.contains(&ext)
+            })
+            .cloned()
+            .collect();
+
+        if image_media.is_empty() {
+            return vec![];
+        }
+
+        info!(
+            "Loading {} media files for LLM: {:?}",
+            image_media.len(),
+            image_media
+        );
+        let images = load_and_encode_images(&image_media);
+        info!("Encoded {} images for LLM", images.len());
+        images
     }
 
     async fn process_system_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {

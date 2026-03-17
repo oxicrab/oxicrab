@@ -5,7 +5,7 @@ use crate::channels::utils::{
     exponential_backoff_delay, format_pairing_reply,
 };
 use crate::config::SlackConfig;
-use crate::utils::regex::{RegexPatterns, compile_slack_mention};
+use crate::utils::regex::compile_slack_mention;
 use anyhow::Result;
 use async_trait::async_trait;
 use futures_util::SinkExt;
@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
+
+mod formatting;
 
 const MAX_USER_CACHE: usize = 1000;
 
@@ -133,130 +135,12 @@ impl SlackChannel {
     }
 
     fn format_for_slack(text: &str) -> String {
-        if text.is_empty() {
-            return String::new();
-        }
-        // Convert markdown tables to Slack-friendly format (before other transforms)
-        let text = Self::convert_tables(text);
-        // Slack uses *bold* not **bold**
-        let text = RegexPatterns::markdown_bold().replace_all(&text, r"*$1*");
-        // Slack uses ~strike~ not ~~strike~~
-        let text = RegexPatterns::markdown_strike().replace_all(&text, r"~$1~");
-        // Slack links: [text](url) -> <url|text>
-        let re_link = RegexPatterns::markdown_link();
-        re_link.replace_all(&text, r"<$2|$1>").to_string()
+        formatting::format_for_slack(text)
     }
 
-    /// Convert markdown tables to Slack-friendly key-value format.
-    /// Slack mrkdwn has no table support, so we convert to plain text.
+    #[cfg(test)]
     fn convert_tables(text: &str) -> String {
-        let separator = RegexPatterns::markdown_table_separator();
-        let mut result = String::with_capacity(text.len());
-        let mut table_lines: Vec<&str> = Vec::new();
-        let mut in_table = false;
-
-        for line in text.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with('|') && trimmed.ends_with('|') {
-                if separator.is_match(trimmed) {
-                    // Skip separator rows
-                    continue;
-                }
-                in_table = true;
-                table_lines.push(trimmed);
-            } else {
-                if in_table {
-                    Self::flush_table(&table_lines, &mut result);
-                    table_lines.clear();
-                    in_table = false;
-                }
-                result.push_str(line);
-                result.push('\n');
-            }
-        }
-
-        if in_table {
-            Self::flush_table(&table_lines, &mut result);
-        }
-
-        // Remove trailing newline added by line iteration
-        if result.ends_with('\n') && !text.ends_with('\n') {
-            result.pop();
-        }
-        result
-    }
-
-    /// Render collected table rows as Slack-friendly bullet list.
-    ///
-    /// Conversion strategies:
-    /// - **1-column**: bullet list (`• value`)
-    /// - **2-column**: bold first column with em dash (`• *col1* — col2`)
-    /// - **3+ columns**: labeled (`• *H1:* v1 · *H2:* v2`)
-    /// - **Header only**: joined with ` · `
-    fn flush_table(lines: &[&str], out: &mut String) {
-        use std::fmt::Write;
-
-        if lines.is_empty() {
-            return;
-        }
-
-        let parse_cells = |line: &str| -> Vec<String> {
-            line.trim_matches('|')
-                .split('|')
-                .map(|c| c.trim().to_string())
-                .collect()
-        };
-
-        let header = parse_cells(lines[0]);
-        let rows = &lines[1..];
-
-        if rows.is_empty() {
-            // Header only — join values
-            out.push_str(&header.join(" · "));
-            out.push('\n');
-            return;
-        }
-
-        let col_count = header.len();
-
-        for row in rows {
-            let cells = parse_cells(row);
-            let non_empty: Vec<_> = cells.iter().filter(|c| !c.is_empty()).collect();
-            if non_empty.is_empty() {
-                continue;
-            }
-
-            match col_count {
-                1 => {
-                    // Single column: bullet list
-                    let _ = writeln!(out, "• {}", cells[0]);
-                }
-                2 => {
-                    // Two columns: bold first, em dash, second
-                    if cells.len() >= 2 && !cells[0].is_empty() {
-                        let _ = writeln!(out, "• *{}* — {}", cells[0], cells[1]);
-                    } else if cells.len() >= 2 {
-                        let _ = writeln!(out, "• {}", cells[1]);
-                    }
-                }
-                _ => {
-                    // 3+ columns: labeled with · separator
-                    let parts: Vec<String> = header
-                        .iter()
-                        .zip(cells.iter())
-                        .filter(|(_, v)| !v.is_empty() && *v != "\u{2014}")
-                        .map(|(h, v)| {
-                            if h.is_empty() {
-                                v.clone()
-                            } else {
-                                format!("*{h}:* {v}")
-                            }
-                        })
-                        .collect();
-                    let _ = writeln!(out, "• {}", parts.join(" · "));
-                }
-            }
-        }
+        formatting::convert_tables(text)
     }
 
     /// Upload a file to a Slack channel using the 3-step upload API.
