@@ -726,7 +726,7 @@
   <div class="hero-text">
     <img src="oxicrab.png" alt="oxicrab" class="hero-logo">
     <h1>Your AI assistant framework, <span class="rust-highlight">built in Rust.</span></h1>
-    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 28 built-in tools, long-term memory, subagents, cron scheduling, and MCP support.</p>
+    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 29 built-in tools, long-term memory, subagents, cron scheduling, and MCP support.</p>
     <div class="hero-actions">
       <a href="#install" class="btn btn-primary">Get Started</a>
       <a href="https://github.com/oxicrab/oxicrab" class="btn btn-ghost">View Source</a>
@@ -743,7 +743,7 @@
       <span class="comment"># start multi-channel daemon</span><br>
       <span class="prompt">$</span> <span class="cmd">oxicrab gateway</span><br>
       <span class="output">INFO  loading config from ~/.oxicrab/config.json</span><br>
-      <span class="output">INFO  registered 27 tools + 2 MCP servers</span><br>
+      <span class="output">INFO  registered 29 tools + 2 MCP servers</span><br>
       <span class="success">INFO  telegram channel started</span><br>
       <span class="success">INFO  discord channel started</span><br>
       <span class="success">INFO  slack channel started (websocket)</span><br>
@@ -811,7 +811,7 @@
         </div>
       </div>
       <div class="feature-row">
-        <div class="feature-name">27 Built-in Tools</div>
+        <div class="feature-name">29 Built-in Tools</div>
         <div class="feature-detail">
           <h3>Filesystem, shell, web, browser, and more</h3>
           <p>Every tool has timeout protection, panic isolation via tokio::spawn, result caching, binary blob sanitization, and truncation middleware. Plus MCP for external tool servers.</p>
@@ -983,7 +983,7 @@ cargo build --release --no-default-features \
 <section id="tools" class="tools-section">
   <div class="container fade-in">
     <div class="section-label">Tools</div>
-    <div class="section-title">28 built-in tools + MCP</div>
+    <div class="section-title">29 built-in tools + MCP</div>
     <div class="section-desc">A comprehensive toolkit for autonomous agents. Every tool features timeout protection, panic isolation, and result caching.</div>
 
     <div class="tools-legend">
@@ -1389,7 +1389,7 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
     <div class="structure-pre">
       <pre><span class="hl-comment">src/</span>
 &#x251C;&#x2500;&#x2500; agent/          <span class="hl-comment"># Agent loop, context, memory, tools, subagents</span>
-&#x2502;   &#x2514;&#x2500;&#x2500; tools/      <span class="hl-comment"># 28 built-in tools + MCP integration</span>
+&#x2502;   &#x2514;&#x2500;&#x2500; tools/      <span class="hl-comment"># 29 built-in tools + MCP integration</span>
 &#x251C;&#x2500;&#x2500; auth/           <span class="hl-comment"># OAuth authentication (Google)</span>
 &#x251C;&#x2500;&#x2500; bus/            <span class="hl-comment"># Message bus for channel-agent communication</span>
 &#x251C;&#x2500;&#x2500; channels/       <span class="hl-comment"># Telegram, Discord, Slack, WhatsApp, Twilio</span>

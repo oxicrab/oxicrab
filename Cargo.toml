@@ -58,9 +58,13 @@ hex = "0.4"
 hmac = "0.12"
 html-escape = "0.2"
 indexmap = "2"
+jsonschema = { version = "0.37", default-features = false, features = ["resolve-http"] }
 libc = "0.2"
 keyring = { version = "3", optional = true }
 lru = "0.16"
+metrics = "0.24"
+metrics-exporter-prometheus = "0.17"
+moka = { version = "0.12", features = ["sync"] }
 oauth2 = "5.0"
 open = "5.0"
 qr2term = { version = "0.3", optional = true }

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -256,6 +257,7 @@ pub trait LLMProvider: Send + Sync {
     ) -> anyhow::Result<LLMResponse> {
         let config = retry_config.unwrap_or_default();
         let mut last_error = None;
+        let mut next_backoff_ms = config.initial_delay_ms.max(1);
 
         for attempt in 0..=config.max_retries {
             if attempt > 0 {
@@ -306,22 +308,23 @@ pub trait LLMProvider: Send + Sync {
                         // Use retry_after from rate limit if available, otherwise exponential backoff
                         let delay = if let Some(retry_secs) = rate_limit_delay {
                             debug!("Using retry-after hint: {}s", retry_secs);
-                            retry_secs.saturating_mul(1000).max(1000)
+                            Duration::from_millis(retry_secs.saturating_mul(1000).max(1000))
                         } else {
-                            let base = (config.initial_delay_ms as f64
-                                * config.backoff_multiplier.powi(attempt as i32))
-                            .min(config.max_delay_ms as f64)
+                            // Jitter in +/- 25% range.
+                            let jitter = 1.0 + ((fastrand::f64() * 0.5) - 0.25);
+                            let jittered_ms = ((next_backoff_ms as f64) * jitter)
+                                .round()
+                                .clamp(1.0, config.max_delay_ms.max(1) as f64)
                                 as u64;
-                            // Add jitter (up to 25% of delay) to avoid thundering herd
-                            let jitter = (base as f64 * 0.25 * fastrand::f64()) as u64;
-                            let total = base + jitter;
-                            debug!(
-                                "Waiting {}ms before retry ({}ms base + {}ms jitter)",
-                                total, base, jitter
-                            );
-                            total
+                            let delay = Duration::from_millis(jittered_ms);
+                            let multiplied =
+                                ((next_backoff_ms as f64) * config.backoff_multiplier).round();
+                            next_backoff_ms =
+                                multiplied.clamp(1.0, config.max_delay_ms.max(1) as f64) as u64;
+                            delay
                         };
-                        tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+                        debug!("Waiting {}ms before retry", delay.as_millis());
+                        tokio::time::sleep(delay).await;
                     }
                 }
             }

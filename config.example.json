@@ -367,12 +367,21 @@
   },
   "router": {
     "prefix": "!",
-    "rules": []
+    "rules": [],
+    "semantic_top_k": 3,
+    "semantic_prefilter_k": 12,
+    "semantic_threshold": 0.5
   },
   "credentialHelper": {
     "command": "",
     "args": [],
     "format": "json"
+  },
+  "observability": {
+    "metrics": {
+      "enabled": false,
+      "bind": "127.0.0.1:9901"
+    }
   },
   "voice": {
     "transcription": {

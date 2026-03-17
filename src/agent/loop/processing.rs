@@ -1,8 +1,8 @@
 use super::AgentLoop;
 use super::config::AgentRunOverrides;
 use super::helpers::{
-    load_and_encode_images, strip_audio_tags, strip_document_tags, strip_image_tags,
-    transcribe_audio_tags,
+    execute_tool_call, load_and_encode_images, strip_audio_tags, strip_document_tags,
+    strip_image_tags, transcribe_audio_tags,
 };
 use crate::agent::tools::base::ExecutionContext;
 use crate::bus::{InboundMessage, OutboundMessage};
@@ -21,70 +21,10 @@ impl AgentLoop {
             return self.process_system_message(msg).await;
         }
 
-        // Send typing indicator before processing
-        if let Some(ref tx) = self.typing_tx
-            && tx
-                .send((msg.channel.clone(), msg.chat_id.clone()))
-                .await
-                .is_err()
-        {
-            debug!("typing indicator channel closed");
-        }
+        self.send_typing_indicator(&msg).await;
 
         info!("Processing message from {}:{}", msg.channel, msg.sender_id);
-
-        // Check for event-triggered cron jobs in the background.
-        // Periodically rebuild the matcher from the cron store (every 60s)
-        // so new/modified event jobs are picked up at runtime.
-        if let Some(cron_svc) = &self.cron_service {
-            // Check-and-claim: CAS on epoch-seconds timestamp to prevent
-            // concurrent messages from triggering duplicate rebuilds.
-            let now_epoch = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs());
-            let last = self
-                .event_matcher_last_rebuild
-                .load(std::sync::atomic::Ordering::Relaxed);
-            let needs_rebuild = now_epoch.saturating_sub(last) >= 60
-                && self
-                    .event_matcher_last_rebuild
-                    .compare_exchange(
-                        last,
-                        now_epoch,
-                        std::sync::atomic::Ordering::AcqRel,
-                        std::sync::atomic::Ordering::Relaxed,
-                    )
-                    .is_ok();
-            if needs_rebuild && let Ok(jobs) = cron_svc.list_jobs(true) {
-                let mut new_matcher = crate::cron::event_matcher::EventMatcher::from_jobs(&jobs);
-                if let Some(ref matcher_mutex) = self.event_matcher
-                    && let Ok(mut guard) = matcher_mutex.lock()
-                {
-                    new_matcher.merge_fired_state(&guard);
-                    *guard = new_matcher;
-                }
-            }
-
-            if let Some(matcher_mutex) = &self.event_matcher {
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as i64);
-                let triggered = matcher_mutex
-                    .lock()
-                    .map(|mut matcher| matcher.check_message(&msg.content, &msg.channel, now_ms))
-                    .unwrap_or_default();
-                for job in triggered {
-                    let cron_svc = cron_svc.clone();
-                    let job_id = job.id.clone();
-                    info!("Event-triggered cron job '{}' ({})", job.name, job.id);
-                    tokio::spawn(async move {
-                        if let Err(e) = cron_svc.run_job(&job_id, true).await {
-                            warn!("Event-triggered job '{}' failed: {}", job_id, e);
-                        }
-                    });
-                }
-            }
-        }
+        self.handle_event_triggered_jobs(&msg);
 
         let session_key = msg.session_key();
         // Load session early — the router needs RouterContext from session metadata
@@ -96,14 +36,20 @@ impl AgentLoop {
             crate::router::context::RouterContext::from_session_metadata(&session.metadata);
         router_context.prune_expired(crate::router::now_ms());
 
+        // Compute semantic candidates up front so the router policy layer can
+        // decide between `FullLLM` and `SemanticFilter` directly.
+        let semantic_allowed_tools = self.semantic_filter_tool_subset(&msg.content).await;
         // Router decides the processing path
-        let decision = self
-            .router
-            .route(&msg.content, &router_context, msg.action.as_ref());
+        let decision = self.router.route_with_semantic(
+            &msg.content,
+            &router_context,
+            msg.action.as_ref(),
+            semantic_allowed_tools,
+        );
 
-        // Capture tool_filter and context_hint from routing decision before
-        // falling through to the normal pipeline
-        let (router_tool_filter, router_context_hint) = match &decision {
+        // Capture routing constraints/hints before falling through to the normal pipeline.
+        let mut routing_policy: Option<crate::router::RoutingPolicy> = None;
+        match &decision {
             crate::router::RoutingDecision::DirectDispatch {
                 tool,
                 params,
@@ -131,24 +77,26 @@ impl AgentLoop {
                     )
                     .await;
             }
-            crate::router::RoutingDecision::GuidedLLM {
-                tool_subset: _,
-                context_hint,
-            } => {
-                // GuidedLLM injects the context hint but does NOT filter tools.
-                // Filtering to only the active tool prevents the LLM from handling
-                // cross-domain requests (e.g. "trigger the cron job" while RSS is active).
-                // The hint gives the LLM enough context to prefer the active tool
-                // without blocking access to other tools.
-                (None, Some(context_hint.clone()))
+            crate::router::RoutingDecision::GuidedLLM { policy } => {
+                // GuidedLLM is a strict policy gate: enforce a narrow tool set.
+                let subset = self.build_guided_tool_subset(&policy.allowed_tools).await;
+                routing_policy = Some(self.policy_from_allowlist(
+                    subset,
+                    policy.context_hint.clone(),
+                    policy.reason,
+                ));
             }
-            // NOTE: SemanticFilter is not yet produced by the router; handled
-            // here for exhaustiveness in case it is wired in the future.
-            crate::router::RoutingDecision::SemanticFilter { tool_subset } => {
-                (Some(tool_subset.clone()), None)
+            crate::router::RoutingDecision::SemanticFilter { policy } => {
+                routing_policy = Some(self.policy_from_allowlist(
+                    policy.allowed_tools.clone(),
+                    policy.context_hint.clone(),
+                    policy.reason,
+                ));
             }
-            crate::router::RoutingDecision::FullLLM => (None, None),
-        };
+            crate::router::RoutingDecision::FullLLM => {
+                // Unconstrained full turn.
+            }
+        }
 
         // Build execution context for tool calls
         let context_summary = session
@@ -170,36 +118,8 @@ impl AgentLoop {
             .await?;
         debug!("Got {} history messages", history.len());
 
-        // Transcribe any audio files before other processing
-        let msg_content = if let Some(ref lazy) = self.transcriber
-            && let Some(svc) = lazy.get()
-        {
-            transcribe_audio_tags(&msg.content, svc).await
-        } else {
-            strip_audio_tags(&msg.content)
-        };
-
-        // Inbound secret scanning: redact secrets before they reach the LLM or
-        // get persisted in session history / memory. Uses redact() for a single
-        // pass; scan() only runs when redaction occurred (to get pattern names).
-        let msg_content = {
-            let redacted = self.leak_detector.redact(&msg_content);
-            if redacted == msg_content {
-                msg_content
-            } else {
-                let names: Vec<&str> = self
-                    .leak_detector
-                    .scan(&msg_content)
-                    .iter()
-                    .map(|m| m.name)
-                    .collect();
-                warn!(
-                    "security: secret detected in inbound message from {}:{}: {:?} — redacted",
-                    msg.channel, msg.sender_id, names
-                );
-                redacted
-            }
-        };
+        // Transcribe and sanitize inbound content before the LLM sees it.
+        let msg_content = self.prepare_inbound_content(&msg).await;
 
         // Prompt injection preflight check
         if matches!(
@@ -214,33 +134,8 @@ impl AgentLoop {
             return Ok(Some(OutboundMessage::from_inbound(msg, "I can't process this message as it appears to contain prompt injection patterns.").build()));
         }
 
-        // Load and encode any attached images (skip audio files)
-        let audio_extensions = ["ogg", "mp3", "mp4", "m4a", "wav", "webm", "flac", "oga"];
-        let image_media: Vec<String> = msg
-            .media
-            .iter()
-            .filter(|p| {
-                let ext = std::path::Path::new(p)
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or_default();
-                !audio_extensions.contains(&ext)
-            })
-            .cloned()
-            .collect();
-
-        let images = if image_media.is_empty() {
-            vec![]
-        } else {
-            info!(
-                "Loading {} media files for LLM: {:?}",
-                image_media.len(),
-                image_media
-            );
-            let imgs = load_and_encode_images(&image_media);
-            info!("Encoded {} images for LLM", imgs.len());
-            imgs
-        };
+        // Load and encode attached images (audio files are skipped).
+        let images = Self::encode_non_audio_media(&msg.media);
 
         // Strip [image: ...] and [document: ...] tags from content when media was
         // successfully encoded, since the LLM receives them as content blocks and
@@ -343,13 +238,8 @@ impl AgentLoop {
             },
         };
 
-        // Apply router-derived tool filter and context hint
-        if router_tool_filter.is_some() {
-            overrides.tool_filter = router_tool_filter;
-        }
-        if router_context_hint.is_some() {
-            overrides.context_hint = router_context_hint;
-        }
+        // Apply router-derived strict policy
+        overrides.routing_policy = routing_policy;
 
         // Record complexity event off the async runtime (fire-and-forget)
         if let (Some(score), Some(band)) = (&complexity_score, &complexity_band) {
@@ -381,6 +271,30 @@ impl AgentLoop {
             .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &overrides)
             .await?;
 
+        if let Some(policy) = overrides.routing_policy.as_ref() {
+            let allowed: std::collections::HashSet<&str> =
+                policy.allowed_tools.iter().map(String::as_str).collect();
+            let out_of_policy: Vec<&str> = loop_result
+                .tools_used
+                .iter()
+                .map(String::as_str)
+                .filter(|name| !allowed.contains(*name))
+                .collect();
+            if !out_of_policy.is_empty() {
+                warn!(
+                    "router policy drift: reason={} executed_out_of_policy={:?}",
+                    policy.reason, out_of_policy
+                );
+                crate::router::metrics::record_policy_drift();
+            }
+            if policy.reason == "semantic_filter" {
+                crate::router::metrics::record_semantic_turn_proxy_quality(
+                    &policy.allowed_tools,
+                    &loop_result.tools_used,
+                );
+            }
+        }
+
         // Extract directives from tool results and update router context.
         // Accumulate directives from ALL tools before installing once, so
         // multi-tool turns don't lose earlier tools' directives.
@@ -401,7 +315,25 @@ impl AgentLoop {
         // Save router context to session metadata
         router_context.to_session_metadata(&mut session.metadata);
 
-        let extra = HashMap::new();
+        let mut extra = HashMap::new();
+        extra.insert(
+            "router_decision".to_string(),
+            serde_json::Value::String(format!("{decision:?}")),
+        );
+        extra.insert(
+            "router_replay".to_string(),
+            Self::build_router_replay_metadata(&content, &router_context, &decision, &overrides),
+        );
+        if let Some(policy) = overrides.routing_policy.as_ref() {
+            extra.insert(
+                "router_policy".to_string(),
+                serde_json::json!({
+                    "reason": policy.reason,
+                    "allowed_tools": policy.allowed_tools,
+                    "blocked_tools": policy.blocked_tools,
+                }),
+            );
+        }
         // Use the redacted content (msg_content), not the original (msg.content),
         // so that secrets detected by inbound scanning are not persisted to disk.
         session.add_message("user".to_string(), content.clone(), extra.clone());
@@ -517,6 +449,132 @@ impl AgentLoop {
                 .build(),
             ))
         }
+    }
+
+    async fn send_typing_indicator(&self, msg: &InboundMessage) {
+        if let Some(ref tx) = self.typing_tx
+            && tx
+                .send((msg.channel.clone(), msg.chat_id.clone()))
+                .await
+                .is_err()
+        {
+            debug!("typing indicator channel closed");
+        }
+    }
+
+    fn handle_event_triggered_jobs(&self, msg: &InboundMessage) {
+        // Check for event-triggered cron jobs in the background.
+        // Periodically rebuild the matcher from the cron store (every 60s)
+        // so new/modified event jobs are picked up at runtime.
+        let Some(cron_svc) = &self.cron_service else {
+            return;
+        };
+
+        // Check-and-claim: CAS on epoch-seconds timestamp to prevent
+        // concurrent messages from triggering duplicate rebuilds.
+        let now_epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let last = self
+            .event_matcher_last_rebuild
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let needs_rebuild = now_epoch.saturating_sub(last) >= 60
+            && self
+                .event_matcher_last_rebuild
+                .compare_exchange(
+                    last,
+                    now_epoch,
+                    std::sync::atomic::Ordering::AcqRel,
+                    std::sync::atomic::Ordering::Relaxed,
+                )
+                .is_ok();
+        if needs_rebuild && let Ok(jobs) = cron_svc.list_jobs(true) {
+            let mut new_matcher = crate::cron::event_matcher::EventMatcher::from_jobs(&jobs);
+            if let Some(ref matcher_mutex) = self.event_matcher
+                && let Ok(mut guard) = matcher_mutex.lock()
+            {
+                new_matcher.merge_fired_state(&guard);
+                *guard = new_matcher;
+            }
+        }
+
+        if let Some(matcher_mutex) = &self.event_matcher {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as i64);
+            let triggered = matcher_mutex
+                .lock()
+                .map(|mut matcher| matcher.check_message(&msg.content, &msg.channel, now_ms))
+                .unwrap_or_default();
+            for job in triggered {
+                let cron_svc = cron_svc.clone();
+                let job_id = job.id.clone();
+                info!("Event-triggered cron job '{}' ({})", job.name, job.id);
+                tokio::spawn(async move {
+                    if let Err(e) = cron_svc.run_job(&job_id, true).await {
+                        warn!("Event-triggered job '{}' failed: {}", job_id, e);
+                    }
+                });
+            }
+        }
+    }
+
+    async fn prepare_inbound_content(&self, msg: &InboundMessage) -> String {
+        // Transcribe any audio files before other processing.
+        let content = if let Some(ref lazy) = self.transcriber
+            && let Some(svc) = lazy.get()
+        {
+            transcribe_audio_tags(&msg.content, svc).await
+        } else {
+            strip_audio_tags(&msg.content)
+        };
+
+        // Inbound secret scanning: redact secrets before they reach the LLM or
+        // get persisted in session history / memory.
+        let redacted = self.leak_detector.redact(&content);
+        if redacted == content {
+            return content;
+        }
+
+        let names: Vec<&str> = self
+            .leak_detector
+            .scan(&content)
+            .iter()
+            .map(|m| m.name)
+            .collect();
+        warn!(
+            "security: secret detected in inbound message from {}:{}: {:?} — redacted",
+            msg.channel, msg.sender_id, names
+        );
+        redacted
+    }
+
+    fn encode_non_audio_media(media: &[String]) -> Vec<crate::providers::base::ImageData> {
+        let audio_extensions = ["ogg", "mp3", "mp4", "m4a", "wav", "webm", "flac", "oga"];
+        let image_media: Vec<String> = media
+            .iter()
+            .filter(|p| {
+                let ext = std::path::Path::new(p)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or_default();
+                !audio_extensions.contains(&ext)
+            })
+            .cloned()
+            .collect();
+
+        if image_media.is_empty() {
+            return vec![];
+        }
+
+        info!(
+            "Loading {} media files for LLM: {:?}",
+            image_media.len(),
+            image_media
+        );
+        let images = load_and_encode_images(&image_media);
+        info!("Encoded {} images for LLM", images.len());
+        images
     }
 
     async fn process_system_message(&self, msg: InboundMessage) -> Result<Option<OutboundMessage>> {
@@ -726,6 +784,117 @@ impl AgentLoop {
         }
     }
 
+    fn policy_from_allowlist(
+        &self,
+        mut allowed_tools: Vec<String>,
+        context_hint: Option<String>,
+        reason: &'static str,
+    ) -> crate::router::RoutingPolicy {
+        allowed_tools.sort();
+        allowed_tools.dedup();
+        let allowed_set: std::collections::HashSet<&str> =
+            allowed_tools.iter().map(String::as_str).collect();
+        let blocked_tools = self
+            .tools
+            .tool_names()
+            .into_iter()
+            .filter(|name| !allowed_set.contains(name.as_str()))
+            .collect();
+        crate::router::RoutingPolicy {
+            allowed_tools,
+            blocked_tools,
+            context_hint,
+            reason,
+        }
+    }
+
+    /// Build the effective `GuidedLLM` tool subset.
+    ///
+    /// Keeps router-selected tools, adds core interaction helpers, and includes
+    /// deferred tools activated by `tool_search` during this run.
+    async fn build_guided_tool_subset(&self, base_subset: &[String]) -> Vec<String> {
+        let mut allow: std::collections::HashSet<String> = base_subset
+            .iter()
+            .filter(|name| self.tools.get(name).is_some())
+            .cloned()
+            .collect();
+
+        for core in ["memory", "add_buttons"] {
+            if self.tools.get(core).is_some() {
+                allow.insert(core.to_string());
+            }
+        }
+        if self.tools.get("tool_search").is_some() {
+            allow.insert("tool_search".to_string());
+        }
+
+        let activated = self.tool_search_activated.lock().await.clone();
+        for name in activated {
+            if self.tools.get(&name).is_some() {
+                allow.insert(name);
+            }
+        }
+
+        let mut out: Vec<String> = allow.into_iter().collect();
+        out.sort();
+        out
+    }
+
+    /// Compute a semantic filter subset for unconstrained (`FullLLM`) turns.
+    ///
+    /// Uses a lexical prefilter followed by optional embedding rerank when
+    /// embeddings are available. Returns `None` when signal is weak.
+    async fn semantic_filter_tool_subset(&self, message: &str) -> Option<Vec<String>> {
+        let query = message.trim();
+        if query.is_empty() {
+            return None;
+        }
+        let activated = self.tool_search_activated.lock().await.clone();
+        let defs = self.tools.get_tool_definitions_with_activated(&activated);
+        if defs.len() < 2 {
+            return None;
+        }
+        let signature = Self::semantic_definitions_signature(&defs);
+        let mut cache = self.semantic_index_cache.lock().await;
+        if cache
+            .as_ref()
+            .is_none_or(|cached| cached.signature != signature)
+        {
+            *cache = Some(super::CachedSemanticIndex {
+                signature,
+                index: crate::router::semantic::SemanticToolIndex::new(
+                    defs,
+                    self.semantic_top_k,
+                    self.semantic_prefilter_k,
+                    self.semantic_threshold,
+                ),
+            });
+        }
+        let selection = cache.as_ref()?.index.select(
+            query,
+            #[cfg(feature = "embeddings")]
+            self.memory.embedding_service(),
+        )?;
+        let mut picked = selection.tools;
+        if self.tools.get("add_buttons").is_some() && !picked.iter().any(|n| n == "add_buttons") {
+            picked.push("add_buttons".to_string());
+        }
+        if self.tools.get("tool_search").is_some() && !picked.iter().any(|n| n == "tool_search") {
+            picked.push("tool_search".to_string());
+        }
+        Some(picked)
+    }
+
+    fn semantic_definitions_signature(defs: &[crate::providers::base::ToolDefinition]) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for d in defs {
+            d.name.hash(&mut hasher);
+            d.description.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
     /// Execute a tool directly without LLM involvement (buttons, directives,
     /// static rules, config commands, remember fast path).
     #[allow(clippy::too_many_arguments)]
@@ -789,6 +958,13 @@ impl AgentLoop {
                 OutboundMessage::from_inbound(msg.clone(), response).build(),
             ));
         }
+        if tool == "_router_replay" {
+            let index = params.get("index").and_then(serde_json::Value::as_i64);
+            let response = self.render_router_replay(session_key, index).await?;
+            return Ok(Some(
+                OutboundMessage::from_inbound(msg.clone(), response).build(),
+            ));
+        }
 
         // Validate tool exists
         let Some(tool_ref) = self.tools.get(&tool) else {
@@ -831,24 +1007,19 @@ impl AgentLoop {
             msg.metadata.clone(),
         );
 
-        // Execute tool
-        let result = match self.tools.execute(&tool, params, &ctx).await {
-            Ok(r) => r,
-            Err(e) => {
-                warn!("direct dispatch tool execution failed: {e}");
-                let sanitized = crate::utils::path_sanitize::sanitize_error_message(
-                    &format!("{e}"),
-                    Some(self.workspace.as_path()),
-                );
-                return Ok(Some(
-                    OutboundMessage::from_inbound(
-                        msg.clone(),
-                        format!("Action failed: {sanitized}"),
-                    )
-                    .build(),
-                ));
-            }
-        };
+        // Execute via the same gateway used by LLM tool calls so direct
+        // dispatch enforces schema/security contracts consistently.
+        let available_tools = self.tools.tool_names();
+        let result = execute_tool_call(
+            &self.tools,
+            &tool,
+            &params,
+            &available_tools,
+            &ctx,
+            None,
+            Some(self.workspace.as_path()),
+        )
+        .await;
 
         // Secret-scan tool result output
         let result_content = self.leak_detector.redact(&result.content);
@@ -863,7 +1034,7 @@ impl AgentLoop {
         // the directives vector via install_directives(), invalidating the index)
         if let Some(idx) = directive_index
             && router_context
-                .action_directives
+                .directives()
                 .get(idx)
                 .is_some_and(|d| d.single_use)
         {
@@ -924,15 +1095,21 @@ impl AgentLoop {
         ))
     }
 
-    /// Accumulate directives from all tools in a turn, then install once.
-    /// This prevents multi-tool turns from losing earlier tools' directives
-    /// (each `install_directives` call replaces the full set).
+    /// Apply router metadata from a multi-tool turn.
+    ///
+    /// Semantics:
+    /// - the last valid `active_tool` in the turn sets focus
+    /// - non-empty `action_directives` payloads are accumulated across tools
+    /// - an explicit empty array clears directives only when no non-empty payload
+    ///   is present in the same turn
     fn apply_tool_metadata_to_router(
         ctx: &mut crate::router::context::RouterContext,
         tool_metadata: &[(String, HashMap<String, Value>)],
     ) {
-        let mut all_directives = Vec::new();
         let mut last_active_tool = None;
+        let mut merged_directives: Vec<crate::router::context::ActionDirective> = Vec::new();
+        let mut saw_directives_payload = false;
+        let mut saw_explicit_clear = false;
 
         for (tool_name, meta) in tool_metadata {
             if let Some(active) = meta.get("active_tool").and_then(|v| v.as_str()) {
@@ -945,31 +1122,68 @@ impl AgentLoop {
                     );
                 }
             }
-            if let Some(directives_val) = meta.get("action_directives")
-                && let Ok(mut directives) = serde_json::from_value::<
-                    Vec<crate::router::context::ActionDirective>,
-                >(directives_val.clone())
-            {
-                directives.retain(|d| {
-                    if d.tool == *tool_name {
-                        true
-                    } else {
-                        warn!(
-                            "tool '{}' tried to set directive for tool '{}' — rejected",
-                            tool_name, d.tool
-                        );
-                        false
+            if let Some(directives_val) = meta.get("action_directives") {
+                saw_directives_payload = true;
+                match serde_json::from_value::<Vec<crate::router::context::ActionDirective>>(
+                    directives_val.clone(),
+                ) {
+                    Ok(directives) => {
+                        if directives.is_empty() {
+                            saw_explicit_clear = true;
+                            continue;
+                        }
+                        let mut directives = directives;
+                        directives.retain(|d| {
+                            if d.tool == *tool_name {
+                                true
+                            } else {
+                                warn!(
+                                    "tool '{}' tried to set directive for tool '{}' — rejected",
+                                    tool_name, d.tool
+                                );
+                                false
+                            }
+                        });
+                        merged_directives.extend(directives);
                     }
-                });
-                all_directives.extend(directives);
+                    Err(e) => {
+                        warn!(
+                            "tool '{}' returned invalid action_directives payload: {}",
+                            tool_name, e
+                        );
+                    }
+                }
             }
         }
 
         if let Some(active) = last_active_tool {
             ctx.set_active_tool(Some(active));
         }
-        if !all_directives.is_empty() {
-            ctx.install_directives(all_directives);
+
+        if saw_explicit_clear && !merged_directives.is_empty() {
+            warn!(
+                "action_directives included explicit clear plus non-empty directives in same turn; keeping non-empty directives"
+            );
+        }
+
+        if saw_directives_payload {
+            let directives_to_apply = if !merged_directives.is_empty() {
+                Some(merged_directives)
+            } else if saw_explicit_clear {
+                Some(Vec::new())
+            } else {
+                None
+            };
+
+            if let Some(directives) = directives_to_apply {
+                if ctx.active_tool().is_none() {
+                    warn!(
+                        "dropping action_directives because router context is Idle (no active_tool set)"
+                    );
+                } else {
+                    ctx.install_directives(directives);
+                }
+            }
         }
         ctx.updated_at_ms = crate::router::now_ms();
     }
@@ -996,6 +1210,14 @@ impl AgentLoop {
                 Vec<crate::router::context::ActionDirective>,
             >(directives_val.clone())
         {
+            if ctx.active_tool().is_none() {
+                warn!(
+                    "dropping action_directives from '{}' because router context is Idle (no active_tool set)",
+                    producing_tool
+                );
+                ctx.updated_at_ms = crate::router::now_ms();
+                return;
+            }
             directives.retain(|d| {
                 if d.tool == producing_tool {
                     true
@@ -1089,6 +1311,17 @@ impl AgentLoop {
                 dispatch.source.label()
             );
 
+            if dispatch.tool == "_router_replay" {
+                let index = dispatch
+                    .params
+                    .get("index")
+                    .and_then(serde_json::Value::as_i64);
+                return Ok(super::config::DirectResult {
+                    content: self.render_router_replay(session_key, index).await?,
+                    metadata: HashMap::new(),
+                });
+            }
+
             // Validate tool exists
             let Some(tool_ref) = self.tools.get(&dispatch.tool) else {
                 return Ok(super::config::DirectResult {
@@ -1123,55 +1356,52 @@ impl AgentLoop {
                 None,
                 overrides.metadata.clone(),
             );
-            match self.tools.execute(&dispatch.tool, params, &ctx).await {
-                Ok(result) => {
-                    // Secret-scan tool result output
-                    let result_content = self.leak_detector.redact(&result.content);
-                    if result_content != result.content {
-                        warn!(
-                            "direct call action dispatch: secrets detected in tool '{}' output — redacting",
-                            dispatch.tool
-                        );
-                    }
-
-                    // Save session history
-                    let mut session = self.sessions.get_or_create(session_key).await?;
-                    session.add_message(
-                        "user",
-                        format!(
-                            "[action: {} via {}]",
-                            dispatch.tool,
-                            dispatch.source.label()
-                        ),
-                        HashMap::new(),
-                    );
-                    session.add_message("assistant", &result_content, HashMap::new());
-                    if let Err(e) = self.sessions.save(&session).await {
-                        warn!("failed to save session after direct dispatch: {e}");
-                    }
-
-                    let mut meta = HashMap::new();
-                    if let Some(ref rm) = result.metadata
-                        && let Some(buttons) = rm.get("suggested_buttons")
-                    {
-                        meta.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
-                    }
-                    return Ok(super::config::DirectResult {
-                        content: result_content,
-                        metadata: meta,
-                    });
-                }
-                Err(e) => {
-                    let sanitized = crate::utils::path_sanitize::sanitize_error_message(
-                        &format!("{e}"),
-                        Some(self.workspace.as_path()),
-                    );
-                    return Ok(super::config::DirectResult {
-                        content: format!("Action failed: {sanitized}"),
-                        metadata: HashMap::new(),
-                    });
-                }
+            let available_tools = self.tools.tool_names();
+            let result = execute_tool_call(
+                &self.tools,
+                &dispatch.tool,
+                &params,
+                &available_tools,
+                &ctx,
+                None,
+                Some(self.workspace.as_path()),
+            )
+            .await;
+            // Secret-scan tool result output
+            let result_content = self.leak_detector.redact(&result.content);
+            if result_content != result.content {
+                warn!(
+                    "direct call action dispatch: secrets detected in tool '{}' output — redacting",
+                    dispatch.tool
+                );
             }
+
+            // Save session history
+            let mut session = self.sessions.get_or_create(session_key).await?;
+            session.add_message(
+                "user",
+                format!(
+                    "[action: {} via {}]",
+                    dispatch.tool,
+                    dispatch.source.label()
+                ),
+                HashMap::new(),
+            );
+            session.add_message("assistant", &result_content, HashMap::new());
+            if let Err(e) = self.sessions.save(&session).await {
+                warn!("failed to save session after direct dispatch: {e}");
+            }
+
+            let mut meta = HashMap::new();
+            if let Some(ref rm) = result.metadata
+                && let Some(buttons) = rm.get("suggested_buttons")
+            {
+                meta.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
+            }
+            return Ok(super::config::DirectResult {
+                content: result_content,
+                metadata: meta,
+            });
         }
 
         let session = self.sessions.get_or_create(session_key).await?;

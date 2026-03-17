@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 pub(super) async fn agent(message: Option<String>, session: String) -> Result<()> {
     let config = load_config(None)?;
+    crate::observability::init_metrics_exporter(&config);
     config.validate()?;
 
     let provider = config.create_provider(None, None)?;

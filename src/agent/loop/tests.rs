@@ -540,6 +540,35 @@ impl Tool for SchemaTestTool {
     }
 }
 
+struct StrictSchemaTestTool;
+
+#[async_trait]
+impl Tool for StrictSchemaTestTool {
+    fn name(&self) -> &'static str {
+        "strict_schema_test"
+    }
+    fn description(&self) -> &'static str {
+        "strict schema test tool"
+    }
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string" }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+        })
+    }
+    async fn execute(
+        &self,
+        _params: serde_json::Value,
+        _ctx: &ExecutionContext,
+    ) -> anyhow::Result<ToolResult> {
+        Ok(ToolResult::new("ok".to_string()))
+    }
+}
+
 #[test]
 fn test_validate_params_missing_required() {
     let tool = SchemaTestTool;
@@ -547,7 +576,8 @@ fn test_validate_params_missing_required() {
     let result = validate_tool_params(&tool, &params);
     assert!(result.is_some());
     let msg = result.unwrap();
-    assert!(msg.contains("missing required parameter 'query'"));
+    assert!(msg.contains("query"));
+    assert!(msg.contains("required"));
 }
 
 #[test]
@@ -558,7 +588,8 @@ fn test_validate_params_wrong_type() {
     let result = validate_tool_params(&tool, &params);
     assert!(result.is_some());
     let msg = result.unwrap();
-    assert!(msg.contains("parameter 'query' should be string but got number"));
+    assert!(msg.contains("query"));
+    assert!(msg.contains("type"));
 }
 
 #[test]
@@ -591,6 +622,17 @@ fn test_validate_params_optional_missing_ok() {
     assert!(result.is_none());
 }
 
+#[test]
+fn test_validate_params_rejects_unknown_when_additional_properties_false() {
+    let tool = StrictSchemaTestTool;
+    let params = serde_json::json!({"query": "ok", "extra": 1});
+    let result = validate_tool_params(&tool, &params);
+    assert!(result.is_some());
+    let msg = result.unwrap();
+    assert!(msg.contains("unknown parameter"));
+    assert!(msg.contains("extra"));
+}
+
 #[tokio::test]
 async fn test_validation_rejects_before_execution() {
     // Tool with required param "query" — call without it, should get validation error
@@ -606,11 +648,8 @@ async fn test_validation_rejects_before_execution() {
     )
     .await;
     assert!(result.is_error);
-    assert!(
-        result
-            .content
-            .contains("missing required parameter 'query'")
-    );
+    assert!(result.content.contains("query"));
+    assert!(result.content.contains("required"));
 }
 
 // --- Approval gate tests ---

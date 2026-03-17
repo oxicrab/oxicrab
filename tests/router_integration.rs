@@ -29,15 +29,11 @@ fn make_router() -> MessageRouter {
             requires_context: false,
         },
     ];
-    let mut config_rules = std::collections::HashMap::new();
-    config_rules.insert(
-        "weather".into(),
-        ConfigRule {
-            trigger: "weather".into(),
-            tool: "weather_tool".into(),
-            params: json!({"location": "$1"}),
-        },
-    );
+    let config_rules = vec![ConfigRule {
+        trigger: "weather".into(),
+        tool: "weather_tool".into(),
+        params: json!({"location": "$1"}),
+    }];
     MessageRouter::new(static_rules, config_rules, "!".into())
 }
 
@@ -47,14 +43,15 @@ fn test_router_action_dispatch_takes_priority_over_everything() {
     let mut ctx = RouterContext::default();
     let now = oxicrab::router::now_ms();
     // Even with a matching directive, explicit ActionDispatch wins
-    ctx.action_directives.push(ActionDirective {
+    ctx.set_active_tool(Some("rss".into()));
+    ctx.install_directives(vec![ActionDirective {
         trigger: DirectiveTrigger::Exact("yes".into()),
         tool: "rss".into(),
         params: json!({}),
         single_use: false,
         ttl_ms: 300_000,
         created_at_ms: now,
-    });
+    }]);
 
     let dispatch = ActionDispatch {
         tool: "calendar".into(),
@@ -87,14 +84,15 @@ fn test_router_expired_directive_is_skipped() {
     let router = make_router();
     let now = oxicrab::router::now_ms();
     let mut ctx = RouterContext::default();
-    ctx.action_directives.push(ActionDirective {
+    ctx.set_active_tool(Some("rss".into()));
+    ctx.install_directives(vec![ActionDirective {
         trigger: DirectiveTrigger::Exact("yes".into()),
         tool: "rss".into(),
         params: json!({}),
         single_use: false,
         ttl_ms: 1,
         created_at_ms: now - 5000, // well past TTL
-    });
+    }]);
     let decision = router.route("yes", &ctx, None);
     // Expired directive is skipped → falls through to FullLLM (no static rule for "yes")
     assert!(matches!(decision, RoutingDecision::FullLLM));
@@ -104,19 +102,17 @@ fn test_router_expired_directive_is_skipped() {
 fn test_router_live_directive_matched_before_static_rules() {
     let router = make_router();
     let now = oxicrab::router::now_ms();
-    let mut ctx = RouterContext {
-        active_tool: Some("rss".into()),
-        ..Default::default()
-    };
+    let mut ctx = RouterContext::default();
+    ctx.set_active_tool(Some("rss".into()));
     // Add a directive for "next" — it should take priority over the static RSS rule
-    ctx.action_directives.push(ActionDirective {
+    ctx.install_directives(vec![ActionDirective {
         trigger: DirectiveTrigger::Exact("next".into()),
         tool: "rss".into(),
         params: json!({"action": "next", "source": "directive"}),
         single_use: true,
         ttl_ms: 300_000,
         created_at_ms: now,
-    });
+    }]);
 
     let decision = router.route("next", &ctx, None);
     match decision {
@@ -166,10 +162,8 @@ fn test_router_config_command_unknown_falls_through() {
 #[test]
 fn test_router_static_rule_with_matching_context() {
     let router = make_router();
-    let ctx = RouterContext {
-        active_tool: Some("rss".into()),
-        ..Default::default()
-    };
+    let mut ctx = RouterContext::default();
+    ctx.set_active_tool(Some("rss".into()));
     let decision = router.route("next", &ctx, None);
     assert!(matches!(
         decision,
@@ -183,10 +177,8 @@ fn test_router_static_rule_with_matching_context() {
 #[test]
 fn test_router_static_rule_wrong_context_falls_to_guided_llm() {
     let router = make_router();
-    let ctx = RouterContext {
-        active_tool: Some("cron".into()),
-        ..Default::default()
-    };
+    let mut ctx = RouterContext::default();
+    ctx.set_active_tool(Some("cron".into()));
     // "next" requires rss context, cron context → no static rule match.
     // active_tool is set but no live directives → stale context → FullLLM
     let decision = router.route("next", &ctx, None);
@@ -206,10 +198,8 @@ fn test_router_context_free_static_rule_any_context() {
         }
     ));
     // Also matches with a different active tool
-    let ctx_rss = RouterContext {
-        active_tool: Some("rss".into()),
-        ..Default::default()
-    };
+    let mut ctx_rss = RouterContext::default();
+    ctx_rss.set_active_tool(Some("rss".into()));
     assert!(matches!(
         router.route("list jobs", &ctx_rss, None),
         RoutingDecision::DirectDispatch {
@@ -245,28 +235,23 @@ fn test_router_full_llm_fallback() {
 fn test_router_guided_llm_with_active_tool_and_directives() {
     let router = make_router();
     let now = oxicrab::router::now_ms();
-    let mut ctx = RouterContext {
-        active_tool: Some("rss".into()),
-        ..Default::default()
-    };
+    let mut ctx = RouterContext::default();
+    ctx.set_active_tool(Some("rss".into()));
     // GuidedLLM only fires when active_tool has live directives
-    ctx.action_directives.push(ActionDirective {
+    ctx.install_directives(vec![ActionDirective {
         trigger: DirectiveTrigger::Exact("yes".into()).normalized(),
         tool: "rss".into(),
         params: json!({}),
         single_use: false,
         ttl_ms: 300_000,
         created_at_ms: now,
-    });
+    }]);
     let decision = router.route("show me something interesting", &ctx, None);
     match decision {
-        RoutingDecision::GuidedLLM {
-            tool_subset,
-            context_hint,
-        } => {
-            assert_eq!(tool_subset, vec!["rss"]);
+        RoutingDecision::GuidedLLM { policy } => {
+            assert_eq!(policy.allowed_tools, vec!["rss"]);
             assert!(
-                context_hint.contains("rss"),
+                policy.context_hint.unwrap_or_default().contains("rss"),
                 "context hint should mention the active tool"
             );
         }
@@ -279,22 +264,25 @@ fn test_route_directive_returns_correct_index() {
     let router = make_router();
     let now = oxicrab::router::now_ms();
     let mut ctx = RouterContext::default();
-    ctx.action_directives.push(ActionDirective {
-        trigger: DirectiveTrigger::Exact("no".into()),
-        tool: "rss".into(),
-        params: json!({}),
-        single_use: true,
-        ttl_ms: 300_000,
-        created_at_ms: now,
-    });
-    ctx.action_directives.push(ActionDirective {
-        trigger: DirectiveTrigger::Exact("yes".into()),
-        tool: "rss".into(),
-        params: json!({}),
-        single_use: true,
-        ttl_ms: 300_000,
-        created_at_ms: now,
-    });
+    ctx.set_active_tool(Some("rss".into()));
+    ctx.install_directives(vec![
+        ActionDirective {
+            trigger: DirectiveTrigger::Exact("no".into()),
+            tool: "rss".into(),
+            params: json!({}),
+            single_use: true,
+            ttl_ms: 300_000,
+            created_at_ms: now,
+        },
+        ActionDirective {
+            trigger: DirectiveTrigger::Exact("yes".into()),
+            tool: "rss".into(),
+            params: json!({}),
+            single_use: true,
+            ttl_ms: 300_000,
+            created_at_ms: now,
+        },
+    ]);
     match router.route("yes", &ctx, None) {
         RoutingDecision::DirectDispatch {
             directive_index, ..
@@ -308,8 +296,8 @@ fn test_route_directive_returns_correct_index() {
         other => panic!("expected DirectDispatch, got {other:?}"),
     }
     match router.route("maybe", &ctx, None) {
-        RoutingDecision::FullLLM => {}
-        other => panic!("expected FullLLM, got {other:?}"),
+        RoutingDecision::GuidedLLM { .. } => {}
+        other => panic!("expected GuidedLLM, got {other:?}"),
     }
 }
 
@@ -318,14 +306,15 @@ fn test_route_expired_directive_returns_no_index() {
     let router = make_router();
     let now = oxicrab::router::now_ms();
     let mut ctx = RouterContext::default();
-    ctx.action_directives.push(ActionDirective {
+    ctx.set_active_tool(Some("rss".into()));
+    ctx.install_directives(vec![ActionDirective {
         trigger: DirectiveTrigger::Exact("yes".into()),
         tool: "rss".into(),
         params: json!({}),
         single_use: true,
         ttl_ms: 1,
         created_at_ms: now - 5000,
-    });
+    }]);
     // Expired directive should not match — falls through to FullLLM
     match router.route("yes", &ctx, None) {
         RoutingDecision::FullLLM => {}

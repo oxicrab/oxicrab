@@ -14,6 +14,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     let process_start = std::time::Instant::now();
     info!("Loading configuration...");
     let config = load_config(None)?;
+    crate::observability::init_metrics_exporter(&config);
     let effective_model = model
         .as_deref()
         .unwrap_or(&config.agents.defaults.model_routing.default);
@@ -221,6 +222,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
 pub(super) async fn gateway_echo() -> Result<()> {
     info!("Loading configuration for echo mode...");
     let config = load_config(None)?;
+    crate::observability::init_metrics_exporter(&config);
 
     // Create shared leak detector for echo mode
     let leak_detector = {

@@ -1,5 +1,8 @@
 pub mod a2a;
+mod response_format;
 pub mod status;
+pub(crate) use response_format::response_format_from_json;
+use response_format::response_format_to_json;
 
 /// HTTP API server for the gateway.
 ///
@@ -36,35 +39,6 @@ use crate::bus::OutboundMessage;
 use crate::config::schema::{WebhookConfig, WebhookTarget};
 
 type HmacSha256 = Hmac<Sha256>;
-
-/// Serialize a provider-level `ResponseFormat` to a JSON value for metadata transport.
-fn response_format_to_json(rf: &crate::providers::base::ResponseFormat) -> serde_json::Value {
-    match rf {
-        crate::providers::base::ResponseFormat::JsonObject => {
-            serde_json::Value::String("json".to_string())
-        }
-        crate::providers::base::ResponseFormat::JsonSchema { name, schema } => {
-            serde_json::json!({ "name": name, "schema": schema })
-        }
-    }
-}
-
-/// Deserialize a provider-level `ResponseFormat` from a metadata JSON value.
-pub(crate) fn response_format_from_json(
-    v: &serde_json::Value,
-) -> Option<crate::providers::base::ResponseFormat> {
-    match v {
-        serde_json::Value::String(s) if s == "json" => {
-            Some(crate::providers::base::ResponseFormat::JsonObject)
-        }
-        serde_json::Value::Object(map) => {
-            let name = map.get("name")?.as_str()?.to_string();
-            let schema = map.get("schema")?.clone();
-            Some(crate::providers::base::ResponseFormat::JsonSchema { name, schema })
-        }
-        _ => None,
-    }
-}
 
 /// Max webhook payload size: 1 MB.
 const WEBHOOK_MAX_BODY: usize = 1_048_576;
