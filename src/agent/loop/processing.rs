@@ -607,6 +607,7 @@ impl AgentLoop {
         let loop_result = self
             .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &system_overrides)
             .await?;
+        let assistant_extra = loop_result.to_assistant_extra();
         let final_content = loop_result
             .content
             .unwrap_or_else(|| "Background task completed.".to_string());
@@ -618,25 +619,6 @@ impl AgentLoop {
             format!("[System: {}] {}", msg.sender_id, msg_content),
             extra.clone(),
         );
-        let mut assistant_extra = HashMap::new();
-        if !loop_result.tools_used.is_empty() {
-            assistant_extra.insert(
-                crate::bus::meta::TOOLS_USED.to_string(),
-                Value::Array(
-                    loop_result
-                        .tools_used
-                        .into_iter()
-                        .map(Value::String)
-                        .collect(),
-                ),
-            );
-        }
-        if let Some(ref rc) = loop_result.reasoning_content {
-            assistant_extra.insert("reasoning_content".to_string(), Value::String(rc.clone()));
-        }
-        if let Some(ref rs) = loop_result.reasoning_signature {
-            assistant_extra.insert("reasoning_signature".to_string(), Value::String(rs.clone()));
-        }
         session.add_message(
             "assistant".to_string(),
             final_content.clone(),
@@ -1222,6 +1204,7 @@ impl AgentLoop {
         let loop_result = self
             .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &effective_overrides)
             .await?;
+        let assistant_extra = loop_result.to_assistant_extra();
         let response = loop_result
             .content
             .unwrap_or_else(|| "No response generated.".to_string());
@@ -1229,25 +1212,6 @@ impl AgentLoop {
         let mut session = self.sessions.get_or_create(session_key).await?;
         let extra = HashMap::new();
         session.add_message("user".to_string(), content.to_string(), extra.clone());
-        let mut assistant_extra = HashMap::new();
-        if !loop_result.tools_used.is_empty() {
-            assistant_extra.insert(
-                crate::bus::meta::TOOLS_USED.to_string(),
-                Value::Array(
-                    loop_result
-                        .tools_used
-                        .into_iter()
-                        .map(Value::String)
-                        .collect(),
-                ),
-            );
-        }
-        if let Some(ref rc) = loop_result.reasoning_content {
-            assistant_extra.insert("reasoning_content".to_string(), Value::String(rc.clone()));
-        }
-        if let Some(ref rs) = loop_result.reasoning_signature {
-            assistant_extra.insert("reasoning_signature".to_string(), Value::String(rs.clone()));
-        }
         session.add_message("assistant".to_string(), response.clone(), assistant_extra);
         self.sessions.save(&session).await?;
 
