@@ -971,9 +971,8 @@ impl AgentLoop {
         chat_id: &str,
         overrides: &AgentRunOverrides,
     ) -> Result<super::config::DirectResult> {
-        // Acquire per-channel/chat lock to prevent concurrent sends to the same destination.
-        // Note: this locks on the output channel:chat_id pair, not the session key.
-        let lock_key = format!("{channel}:{chat_id}");
+        // Acquire per-session lock to serialize access to the session being modified.
+        let lock_key = session_key.to_string();
         let lock = self.session_lock(&lock_key);
         let _guard = lock.lock().await;
 
