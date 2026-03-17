@@ -498,8 +498,10 @@ fn build_task_buttons(tasks: &[Value]) -> Vec<Value> {
             "style": "primary",
             "context": serde_json::json!({
                 "tool": "todoist",
-                "task_id": task_id,
-                "action": "complete"
+                "params": {
+                    "action": "complete_task",
+                    "task_id": task_id
+                }
             }).to_string()
         }));
     }
