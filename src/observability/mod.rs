@@ -51,9 +51,9 @@ fn init_baseline_metrics(bind: String) {
     metrics::gauge!(
         "oxicrab_build_info",
         "version" => env!("CARGO_PKG_VERSION"),
-        "profile" => option_env!("PROFILE").unwrap_or("unknown"),
-        "target" => option_env!("TARGET").unwrap_or("unknown"),
-        "git_sha" => option_env!("VERGEN_GIT_SHA").unwrap_or("unknown")
+        "profile" => env!("OXICRAB_BUILD_PROFILE"),
+        "target" => env!("OXICRAB_BUILD_TARGET"),
+        "git_sha" => env!("OXICRAB_GIT_SHA")
     )
     .set(1.0);
     metrics::gauge!("oxicrab_up").set(1.0);
