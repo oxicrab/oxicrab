@@ -542,6 +542,11 @@ impl AgentLoop {
         };
 
         let session_key = format!("{origin_channel}:{origin_chat_id}");
+        // Lock the target session to prevent concurrent modification.
+        // process_message() locks on msg.session_key() which is "system:{chat_id}",
+        // but we modify the origin session "{origin_channel}:{origin_chat_id}".
+        let target_lock = self.session_lock(&session_key);
+        let _target_guard = target_lock.lock().await;
         let session = self.sessions.get_or_create(&session_key).await?;
 
         let history = self
