@@ -3,5 +3,6 @@
 //! This crate provides foundational types that are shared across
 //! the oxicrab workspace: error types, time utilities, and bus events.
 
+pub mod dispatch;
 pub mod errors;
 pub mod time;
