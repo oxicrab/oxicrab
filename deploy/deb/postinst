@@ -16,12 +16,12 @@ case "$1" in
         install -d -m 0750 -o oxicrab -g oxicrab /etc/oxicrab
 
         # Install example config if no config exists
-        if [ ! -f /etc/oxicrab/config.json ]; then
-            if [ -f /usr/share/doc/oxicrab/config.example.json ]; then
+        if [ ! -f /etc/oxicrab/config.toml ]; then
+            if [ -f /usr/share/doc/oxicrab/config.example.toml ]; then
                 install -m 0640 -o oxicrab -g oxicrab \
-                    /usr/share/doc/oxicrab/config.example.json \
-                    /etc/oxicrab/config.json
-                echo "oxicrab: installed example config to /etc/oxicrab/config.json"
+                    /usr/share/doc/oxicrab/config.example.toml \
+                    /etc/oxicrab/config.toml
+                echo "oxicrab: installed example config to /etc/oxicrab/config.toml"
                 echo "oxicrab: edit it with your API keys, then run: systemctl start oxicrab"
             fi
         fi

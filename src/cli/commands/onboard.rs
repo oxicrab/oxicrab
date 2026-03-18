@@ -32,7 +32,7 @@ pub(super) fn onboard() -> Result<()> {
 
     println!("\n\u{1f916} oxicrab is ready!");
     println!("\nNext steps:");
-    println!("  1. Add your API key to ~/.oxicrab/config.json");
+    println!("  1. Add your API key to ~/.oxicrab/config.toml");
     println!("     Get one at: https://openrouter.ai/keys");
     println!("  2. Chat: oxicrab agent -m \"Hello!\"");
 

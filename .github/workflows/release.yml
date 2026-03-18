@@ -107,7 +107,7 @@ jobs:
           STAGING="oxicrab-${VERSION}-${{ matrix.name }}"
           mkdir -p "$STAGING"
           cp "target/${{ matrix.target }}/release/oxicrab" "$STAGING/"
-          cp config.example.json "$STAGING/"
+          cp config.example.toml "$STAGING/"
           cp README.md "$STAGING/"
           cp LICENSE "$STAGING/"
           # Include platform-specific service files
@@ -163,7 +163,7 @@ jobs:
           mkdir -p dmg-staging
           cp "target/${{ matrix.target }}/release/oxicrab" dmg-staging/
           cp deploy/com.oxicrab.gateway.plist dmg-staging/
-          cp config.example.json dmg-staging/
+          cp config.example.toml dmg-staging/
           cp README.md LICENSE dmg-staging/
           hdiutil create -volname "Oxicrab ${VERSION}" \
             -srcfolder dmg-staging -ov -format UDZO \

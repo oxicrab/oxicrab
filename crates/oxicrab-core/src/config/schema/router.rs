@@ -23,13 +23,16 @@ pub struct RouterConfig {
     #[serde(default)]
     pub rules: Vec<ConfigRuleConfig>,
     /// Number of tools to allow in semantic filter mode.
-    #[serde(default = "default_semantic_top_k")]
+    #[serde(default = "default_semantic_top_k", rename = "semanticTopK")]
     pub semantic_top_k: usize,
     /// Lexical prefilter candidate count before optional embedding rerank.
-    #[serde(default = "default_semantic_prefilter_k")]
+    #[serde(
+        default = "default_semantic_prefilter_k",
+        rename = "semanticPrefilterK"
+    )]
     pub semantic_prefilter_k: usize,
     /// Minimum semantic score required to keep a tool candidate.
-    #[serde(default = "default_semantic_threshold")]
+    #[serde(default = "default_semantic_threshold", rename = "semanticThreshold")]
     pub semantic_threshold: f32,
 }
 

@@ -115,40 +115,35 @@ Other useful commands: `oxicrab doctor` (check config and dependencies), `oxicra
 
 ## Configuration
 
-Configuration lives at `~/.oxicrab/config.json`. Run `oxicrab onboard` for guided setup, or see the [full config reference](https://oxicrab.github.io/oxicrab/config.html).
+Configuration lives at `~/.oxicrab/config.toml`. Optional overlays are loaded from `~/.oxicrab/config.local.toml` and `~/.oxicrab/config.d/*.toml` in lexical order. Run `oxicrab onboard` for a complete starting config, or see the [full config reference](https://oxicrab.github.io/oxicrab/config.html).
 
 Minimal example:
 
-```json
-{
-  "agents": {
-    "defaults": {
-      "modelRouting": {
-        "default": "claude-sonnet-4-5-20250929"
-      }
-    }
-  },
-  "providers": {
-    "anthropic": { "apiKey": "sk-ant-..." }
-  },
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "token": "your-bot-token",
-      "allowFrom": ["your-user-id"]
-    }
-  }
-}
+```toml
+[agents]
+[agents.defaults]
+[agents.defaults.modelRouting]
+default = "claude-sonnet-4-5-20250929"
+
+[providers]
+[providers.anthropic]
+apiKey = "sk-ant-..."
+
+[channels]
+[channels.telegram]
+enabled = true
+token = "your-bot-token"
+allowFrom = ["your-user-id"]
 ```
 
 ### Credential Management
 
-Resolution order: env vars (`OXICRAB_*`) > credential helper (1Password, Bitwarden) > OS keyring > config.json.
+Resolution order: env vars (`OXICRAB_*`) > credential helper (1Password, Bitwarden) > OS keyring > config.toml.
 
 ```bash
 oxicrab credentials set anthropic-api-key
 oxicrab credentials list
-oxicrab credentials import   # bulk-migrate config.json to keyring
+oxicrab credentials import   # bulk-import credentials from config.toml to keyring
 ```
 
 > **Full credential reference:** [oxicrab.github.io/oxicrab/config.html#credentials](https://oxicrab.github.io/oxicrab/config.html#credentials)
@@ -183,7 +178,7 @@ Access control: `allowFrom` (pre-authorized senders), `dmPolicy` (`"allowlist"`,
 
 ```
 ~/.oxicrab/
-├── config.json              # Main configuration
+├── config.toml              # Main configuration
 ├── workspace/
 │   ├── AGENTS.md            # Bot identity and behavioral rules
 │   ├── USER.md              # User preferences

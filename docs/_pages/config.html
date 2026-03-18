@@ -26,7 +26,7 @@ max_width: 820px
 
 <div class="page-header">
     <h1>Configuration</h1>
-    <p>Complete reference for <code>~/.oxicrab/config.json</code> (or <code>$OXICRAB_HOME/config.json</code>). Uses camelCase keys in JSON.</p>
+    <p>Complete reference for <code>~/.oxicrab/config.toml</code> (or <code>$OXICRAB_HOME/config.toml</code>). Uses camelCase keys in TOML, and all layers merge into one canonical internal schema.</p>
 </div>
 
 <div class="content">
@@ -34,6 +34,7 @@ max_width: 820px
     <div class="toc">
         <div class="toc-title">Sections</div>
         <ul>
+            <li><a href="#layout">Layout &amp; Overrides</a></li>
             <li><a href="#models">Models</a></li>
             <li><a href="#credentials">Credentials</a></li>
             <li><a href="#agent-defaults">Agent Defaults</a></li>
@@ -47,6 +48,47 @@ max_width: 820px
             <li><a href="#channels">Channels</a></li>
             <li><a href="#logging">Logging</a></li>
         </ul>
+    </div>
+
+    <div id="layout" class="cfg-section">
+        <h2>Layout &amp; Overrides</h2>
+        <p>oxicrab deserializes exactly one canonical <code>Config</code> schema. TOML layers are merged first, then validated once, so defaults and validation rules stay centralized in Rust rather than drifting across multiple loaders.</p>
+
+        <h3>File Layout</h3>
+        <div class="flow-diagram">
+            <span class="flow-step">config.toml</span>
+            <span class="flow-arrow">&rarr;</span>
+            <span class="flow-step">config.local.toml</span>
+            <span class="flow-arrow">&rarr;</span>
+            <span class="flow-step">config.d/*.toml</span>
+            <span class="flow-arrow">&rarr;</span>
+            <span class="flow-step">Env / Helper / Keyring</span>
+        </div>
+        <p>Merge precedence is left to right. Later TOML layers override earlier ones. After the merged file stack is deserialized, credential sources still resolve in the usual order: environment variables, then credential helper, then OS keyring, then TOML config.</p>
+
+        <h3>Recommended Pattern</h3>
+        <ul class="plain">
+            <li><code>config.toml</code>: committed or primary machine-local settings</li>
+            <li><code>config.local.toml</code>: secrets and one-off local overrides</li>
+            <li><code>config.d/10-*.toml</code>, <code>20-*.toml</code>: environment or role-specific overlays with deterministic lexical ordering</li>
+        </ul>
+
+        <h3>Example</h3>
+        <pre><code># ~/.oxicrab/config.toml
+[agents.defaults.modelRouting]
+default = "anthropic/claude-sonnet-4-5-20250929"
+
+[gateway]
+host = "127.0.0.1"
+
+# ~/.oxicrab/config.local.toml
+[providers.anthropic]
+apiKey = "sk-ant-..."
+
+# ~/.oxicrab/config.d/20-office.toml
+[gateway]
+host = "10.0.0.25"</code></pre>
+        <p>The effective config uses the model from <code>config.toml</code>, the API key from <code>config.local.toml</code>, and the gateway host from <code>config.d/20-office.toml</code>.</p>
     </div>
 
     <!-- MODELS -->
@@ -71,20 +113,14 @@ max_width: 820px
 
         <h3 id="api-key-models">API Key Models</h3>
         <p>Set the model and provide the corresponding API key. The provider is auto-detected from the model name:</p>
-        <pre><code>{
-  "agents": {
-    "defaults": {
-      "modelRouting": {
-        "default": "claude-sonnet-4-5-20250929"
-      }
-    }
-  },
-  "providers": {
-    "anthropic": {
-      "apiKey": "sk-ant-api03-..."
-    }
-  }
-}</code></pre>
+        <pre><code>[agents]
+[agents.defaults]
+[agents.defaults.modelRouting]
+default = "claude-sonnet-4-5-20250929"
+
+[providers]
+[providers.anthropic]
+apiKey = "sk-ant-api03-..."</code></pre>
 
         <p>Available API key models:</p>
         <ul class="plain">
@@ -99,20 +135,14 @@ max_width: 820px
 
         <h3 id="supported-providers">Supported Providers</h3>
         <p>The following providers are supported. Use prefix notation (e.g. <code>groq/llama-3.1-70b</code>) to route to them:</p>
-        <pre><code>{
-  "agents": {
-    "defaults": {
-      "modelRouting": {
-        "default": "deepseek/deepseek-chat"
-      }
-    }
-  },
-  "providers": {
-    "deepseek": {
-      "apiKey": "sk-..."
-    }
-  }
-}</code></pre>
+        <pre><code>[agents]
+[agents.defaults]
+[agents.defaults.modelRouting]
+default = "deepseek/deepseek-chat"
+
+[providers]
+[providers.deepseek]
+apiKey = "sk-..."</code></pre>
 
         <table class="cfg-table">
             <tr><th>Provider</th><th>Default Base URL</th><th>API Key Required</th></tr>
@@ -134,13 +164,9 @@ max_width: 820px
 
         <h3 id="prompt-guided-tools">Prompt-Guided Tool Calling</h3>
         <p>Local models often ignore native JSON tool schemas, responding with plain text instead of structured tool calls. Enable <code>promptGuidedTools</code> on the provider to work around this:</p>
-        <pre><code>{
-  "providers": {
-    "ollama": {
-      "promptGuidedTools": true
-    }
-  }
-}</code></pre>
+        <pre><code>[providers]
+[providers.ollama]
+promptGuidedTools = true</code></pre>
 
         <p>When enabled, the <code>PromptGuidedToolsProvider</code> wrapper:</p>
         <ul class="plain">
@@ -153,41 +179,29 @@ max_width: 820px
         <p>This works with both direct local models and <code>modelRouting.fallbacks</code> for fallback chains. Currently supported for Ollama and vLLM providers.</p>
 
         <p>To override the default endpoint, set <code>apiBase</code> on the provider:</p>
-        <pre><code>{
-  "providers": {
-    "vllm": {
-      "apiKey": "token-abc123",
-      "apiBase": "http://my-server:8080/v1/chat/completions"
-    }
-  }
-}</code></pre>
+        <pre><code>[providers]
+[providers.vllm]
+apiKey = "token-abc123"
+apiBase = "http://my-server:8080/v1/chat/completions"</code></pre>
 
         <h3 id="custom-headers">Custom Headers</h3>
         <p>Inject custom HTTP headers into every request for an OpenAI-compatible provider. Useful for authentication proxies, routing, or API gateways:</p>
-        <pre><code>{
-  "providers": {
-    "openrouter": {
-      "apiKey": "sk-...",
-      "headers": {
-        "X-Custom-Header": "value",
-        "HTTP-Referer": "https://myapp.example.com"
-      }
-    }
-  }
-}</code></pre>
+        <pre><code>[providers]
+[providers.openrouter]
+apiKey = "sk-..."
+
+[providers.openrouter.headers]
+X-Custom-Header = "value"
+HTTP-Referer = "https://myapp.example.com"</code></pre>
         <p>Headers are merged into every chat and warmup request alongside the standard <code>Authorization</code> and <code>Content-Type</code> headers.</p>
 
         <h3 id="per-provider-temperature">Per-Provider Temperature</h3>
         <p>Override the global <code>agents.defaults.temperature</code> for a specific provider. Useful for providers like Moonshot/Kimi that enforce their own temperature constraints:</p>
-        <pre><code>{
-  "providers": {
-    "moonshot": {
-      "apiKey": "sk-...",
-      "temperature": 0.6
-    }
-  }
-}</code></pre>
-        <p>Resolution order: <strong>per-provider</strong> &rarr; <strong>global</strong> &rarr; <strong>omit</strong> (API default). When temperature is <code>null</code> or absent at all levels, the field is omitted from the API payload, letting the provider use its own default.</p>
+        <pre><code>[providers]
+[providers.moonshot]
+apiKey = "sk-..."
+temperature = 0.6</code></pre>
+        <p>Resolution order: <strong>per-provider</strong> &rarr; <strong>global</strong> &rarr; <strong>omit</strong> (API default). In TOML, leave the field unset to omit it from the API payload and let the provider use its own default.</p>
 
         <h3 id="oauth-models">OAuth Models</h3>
         <p>Anthropic OAuth is attempted when the provider resolves to <code>anthropic</code> &mdash; via <code>anthropic/</code> prefix or auto-detection of <code>claude-*</code> models:</p>
@@ -197,15 +211,11 @@ max_width: 820px
         </ul>
 
         <p>For OAuth models, either install <a href="https://github.com/anthropics/claude-cli">Claude CLI</a> (auto-detected) or configure credentials manually:</p>
-        <pre><code>{
-  "providers": {
-    "anthropicOAuth": {
-      "enabled": true,
-      "autoDetect": true,
-      "credentialsPath": "~/.anthropic/credentials.json"
-    }
-  }
-}</code></pre>
+        <pre><code>[providers]
+[providers.anthropicOAuth]
+enabled = true
+autoDetect = true
+credentialsPath = "~/.anthropic/credentials.json"</code></pre>
     </div>
 
     <!-- CREDENTIALS -->
@@ -221,7 +231,7 @@ max_width: 820px
             <span class="flow-arrow">&rarr;</span>
             <span class="flow-step">OS keyring</span>
             <span class="flow-arrow">&rarr;</span>
-            <span class="flow-step">config.json</span>
+            <span class="flow-step">config.toml</span>
         </div>
         <p>Use <code>oxicrab credentials list</code> to see where each credential comes from.</p>
 
@@ -232,40 +242,28 @@ max_width: 820px
         <p>External programs (1Password, Bitwarden, custom scripts) can supply credentials at startup. Configure under the top-level <code>credentialHelper</code> key.</p>
 
         <h3>1Password (desktop)</h3>
-        <pre><code>{
-  "credentialHelper": {
-    "command": "op",
-    "args": ["item", "get", "oxicrab", "--format", "json"],
-    "format": "1password"
-  }
-}</code></pre>
+        <pre><code>[credentialHelper]
+command = "op"
+args = ["item", "get", "oxicrab", "--format", "json"]
+format = "1password"</code></pre>
 
         <h3>1Password (CI / containers)</h3>
-        <pre><code>{
-  "credentialHelper": {
-    "command": "op",
-    "args": ["read", "-"],
-    "format": "json"
-  }
-}</code></pre>
+        <pre><code>[credentialHelper]
+command = "op"
+args = ["read", "-"]
+format = "json"</code></pre>
 
         <h3>Bitwarden</h3>
-        <pre><code>{
-  "credentialHelper": {
-    "command": "bw",
-    "args": ["get", "item", "oxicrab"],
-    "format": "bitwarden"
-  }
-}</code></pre>
+        <pre><code>[credentialHelper]
+command = "bw"
+args = ["get", "item", "oxicrab"]
+format = "bitwarden"</code></pre>
 
         <h3>Custom script</h3>
-        <pre><code>{
-  "credentialHelper": {
-    "command": "/path/to/my-script.sh",
-    "args": [],
-    "format": "json"
-  }
-}</code></pre>
+        <pre><code>[credentialHelper]
+command = "/path/to/my-script.sh"
+args = []
+format = "json"</code></pre>
 
         <table class="cfg-table">
             <tr><th>Format</th><th>Description</th></tr>
@@ -336,14 +334,14 @@ max_width: 820px
     <!-- AGENT DEFAULTS -->
     <div id="agent-defaults" class="cfg-section">
         <h2>Agent Defaults</h2>
-        <p>All agent defaults live under <code>agents.defaults</code> in config.json. See <a href="workspace.html">Workspace Docs</a> for how these settings map to on-disk files.</p>
+        <p>All agent defaults live under <code>agents.defaults</code> in config.toml. See <a href="workspace.html">Workspace Docs</a> for how these settings map to on-disk files.</p>
 
         <h3>Top-level Fields</h3>
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
             <tr><td>workspace</td><td>string</td><td>~/.oxicrab/workspace</td><td>Path to workspace directory (see <a href="workspace.html">Workspace Docs</a>)</td></tr>
             <tr><td>maxTokens</td><td>u32</td><td>8192</td><td>Max tokens per LLM response</td></tr>
-            <tr><td>temperature</td><td>f32?</td><td>0.7</td><td>LLM sampling temperature (0.0&ndash;2.0). Set to <code>null</code> to let the provider use its default. Can be overridden per-provider via <code>providers.&lt;name&gt;.temperature</code>.</td></tr>
+            <tr><td>temperature</td><td>f32?</td><td>0.7</td><td>LLM sampling temperature (0.0&ndash;2.0). Omit the field to let the provider use its default. Can be overridden per-provider via <code>providers.&lt;name&gt;.temperature</code>.</td></tr>
             <tr><td>maxToolIterations</td><td>usize</td><td>20</td><td>Max agent loop iterations per turn</td></tr>
             <tr><td>sessionTtlDays</td><td>u32</td><td>30</td><td>Days before inactive sessions are pruned</td></tr>
             <tr><td>mediaTtlDays</td><td>u32</td><td>7</td><td>Days before cached media files are cleaned up</td></tr>
@@ -352,15 +350,15 @@ max_width: 820px
 
         <h3>Workspace TTL</h3>
         <p>Config path: <code>agents.defaults.workspaceTtl</code></p>
-        <p>Per-category time-to-live (in days) for workspace files tracked by the workspace manager. Files older than their category's TTL are removed during the hygiene cycle. A <code>null</code> value means files in that category never expire.</p>
+        <p>Per-category time-to-live (in days) for workspace files tracked by the workspace manager. Files older than their category's TTL are removed during the hygiene cycle. Omit a category to make it non-expiring.</p>
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
             <tr><td>temp</td><td>u64?</td><td>7</td><td>Temporary files</td></tr>
             <tr><td>downloads</td><td>u64?</td><td>30</td><td>Downloaded files</td></tr>
             <tr><td>images</td><td>u64?</td><td>90</td><td>Image files</td></tr>
-            <tr><td>code</td><td>u64?</td><td>null</td><td>Code files (never expire by default)</td></tr>
-            <tr><td>documents</td><td>u64?</td><td>null</td><td>Document files (never expire by default)</td></tr>
-            <tr><td>data</td><td>u64?</td><td>null</td><td>Data files (never expire by default)</td></tr>
+            <tr><td>code</td><td>u64?</td><td>omitted</td><td>Code files (never expire by default)</td></tr>
+            <tr><td>documents</td><td>u64?</td><td>omitted</td><td>Document files (never expire by default)</td></tr>
+            <tr><td>data</td><td>u64?</td><td>omitted</td><td>Data files (never expire by default)</td></tr>
         </table>
 
         <h3>Compaction</h3>
@@ -372,7 +370,7 @@ max_width: 820px
             <tr><td>thresholdTokens</td><td>u32</td><td>40000</td><td>Token count that triggers compaction</td></tr>
             <tr><td>keepRecent</td><td>usize</td><td>10</td><td>Number of recent messages to preserve verbatim</td></tr>
             <tr><td>extractionEnabled</td><td>bool</td><td>true</td><td>Extract facts to memory during compaction</td></tr>
-            <tr><td>model</td><td>string?</td><td>null</td><td>Override model for compaction (uses default if null)</td></tr>
+            <tr><td>model</td><td>string?</td><td>omitted</td><td>Override model for compaction (uses the default model when omitted)</td></tr>
             <tr><td>preFlushEnabled</td><td>bool</td><td>false</td><td>Flush pending memory notes to disk before compaction runs, ensuring extracted facts survive context truncation</td></tr>
         </table>
 
@@ -404,22 +402,17 @@ max_width: 820px
 
         <h4>Basic Configuration</h4>
         <p>Route background tasks to a cheap model while keeping the default for conversations:</p>
-        <pre><code>{
-  "agents": {
-    "defaults": {
-      "modelRouting": {
-        "default": "moonshot/kimi-k2.5",
-        "fallbacks": ["anthropic/claude-sonnet-4-5-20250929"],
-        "tasks": {
-          "daemon": "anthropic/claude-haiku-4-5-20251001",
-          "cron": "anthropic/claude-haiku-4-5-20251001",
-          "compaction": "anthropic/claude-haiku-4-5-20251001",
-          "subagent": "anthropic/claude-sonnet-4-5-20250929"
-        }
-      }
-    }
-  }
-}</code></pre>
+        <pre><code>[agents]
+[agents.defaults]
+[agents.defaults.modelRouting]
+default = "moonshot/kimi-k2.5"
+fallbacks = ["anthropic/claude-sonnet-4-5-20250929"]
+
+[agents.defaults.modelRouting.tasks]
+daemon = "anthropic/claude-haiku-4-5-20251001"
+cron = "anthropic/claude-haiku-4-5-20251001"
+compaction = "anthropic/claude-haiku-4-5-20251001"
+subagent = "anthropic/claude-sonnet-4-5-20250929"</code></pre>
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
@@ -433,22 +426,21 @@ max_width: 820px
         <h4>Chat Complexity Routing</h4>
         <p>The <code>chat</code> task supports complexity-based model escalation. Each inbound message is scored across 7 dimensions (sub-millisecond, no API calls) and routed to a more capable model when the message is complex. Simple messages use the default model; complex ones escalate.</p>
 
-        <pre><code>{
-  "modelRouting": {
-    "default": "openrouter/google/gemini-3-flash",
-    "tasks": {
-      "daemon": "openrouter/google/gemini-3-flash",
-      "cron": "openrouter/google/gemini-3-flash",
-      "chat": {
-        "thresholds": { "standard": 0.3, "heavy": 0.65 },
-        "models": {
-          "standard": "anthropic/claude-sonnet-4-5-20250929",
-          "heavy": "anthropic/claude-opus-4-6"
-        }
-      }
-    }
-  }
-}</code></pre>
+        <pre><code>[modelRouting]
+default = "openrouter/google/gemini-3-flash"
+
+[modelRouting.tasks]
+daemon = "openrouter/google/gemini-3-flash"
+cron = "openrouter/google/gemini-3-flash"
+
+[modelRouting.tasks.chat]
+[modelRouting.tasks.chat.thresholds]
+standard = 0.3
+heavy = 0.65
+
+[modelRouting.tasks.chat.models]
+standard = "anthropic/claude-sonnet-4-5-20250929"
+heavy = "anthropic/claude-opus-4-6"</code></pre>
         <p>With this config: &ldquo;hi&rdquo; uses Gemini Flash (below 0.3), &ldquo;what is a mutex?&rdquo; uses Claude Sonnet (between 0.3 and 0.65), and &ldquo;analyze the architecture trade-offs step by step&rdquo; uses Claude Opus (above 0.65). Cron and daemon always use Gemini Flash.</p>
 
         <p>Scoring dimensions:</p>
@@ -488,16 +480,12 @@ max_width: 820px
         <p>Wraps the LLM provider with a three-state circuit breaker that trips only on transient errors, preventing cascading failures during outages.</p>
 
         <p>Config path: <code>providers.circuitBreaker</code></p>
-        <pre><code>{
-  "providers": {
-    "circuitBreaker": {
-      "enabled": true,
-      "failureThreshold": 5,
-      "recoveryTimeoutSecs": 60,
-      "halfOpenProbes": 2
-    }
-  }
-}</code></pre>
+        <pre><code>[providers]
+[providers.circuitBreaker]
+enabled = true
+failureThreshold = 5
+recoveryTimeoutSecs = 60
+halfOpenProbes = 2</code></pre>
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
@@ -525,19 +513,14 @@ max_width: 820px
         <p>Escalating pressure signals that nudge the LLM to self-checkpoint its progress during long tool-heavy agent loop runs. Prevents loss of context when compaction discards older messages.</p>
 
         <p>Config path: <code>agents.defaults.cognitive</code></p>
-        <pre><code>{
-  "agents": {
-    "defaults": {
-      "cognitive": {
-        "enabled": true,
-        "gentleThreshold": 12,
-        "firmThreshold": 20,
-        "urgentThreshold": 30,
-        "recentToolsWindow": 10
-      }
-    }
-  }
-}</code></pre>
+        <pre><code>[agents]
+[agents.defaults]
+[agents.defaults.cognitive]
+enabled = true
+gentleThreshold = 12
+firmThreshold = 20
+urgentThreshold = 30
+recentToolsWindow = 10</code></pre>
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
@@ -563,14 +546,10 @@ max_width: 820px
         <p>Hides network-outbound tools from the LLM when enabled, preventing prompt-injected data exfiltration. Tools that declare <code>network_outbound: true</code> in their capabilities are automatically filtered from tool definitions and blocked at dispatch time. Use <code>allowTools</code> to selectively re-enable specific network tools.</p>
 
         <p>Config path: <code>tools.exfiltrationGuard</code></p>
-        <pre><code>{
-  "tools": {
-    "exfiltrationGuard": {
-      "enabled": true,
-      "allowTools": ["web_search"]
-    }
-  }
-}</code></pre>
+        <pre><code>[tools]
+[tools.exfiltrationGuard]
+enabled = true
+allowTools = ["web_search"]</code></pre>
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
@@ -585,16 +564,11 @@ max_width: 820px
         <p>Regex-based prompt injection detection. Scans user messages before LLM processing and tool output after execution. Four pattern categories: role switching, instruction override, secret extraction, and jailbreak patterns.</p>
 
         <p>Config path: <code>agents.defaults.promptGuard</code></p>
-        <pre><code>{
-  "agents": {
-    "defaults": {
-      "promptGuard": {
-        "enabled": true,
-        "action": "block"
-      }
-    }
-  }
-}</code></pre>
+        <pre><code>[agents]
+[agents.defaults]
+[agents.defaults.promptGuard]
+enabled = true
+action = "block"</code></pre>
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
@@ -618,24 +592,17 @@ max_width: 820px
         <p>External shell commands that inject dynamic content into the system prompt each turn. Each provider runs its command, caches the output with a TTL, and appends it under a <code># Dynamic Context</code> header.</p>
 
         <p>Config path: <code>agents.defaults.contextProviders</code></p>
-        <pre><code>{
-  "agents": {
-    "defaults": {
-      "contextProviders": [
-        {
-          "name": "Git Status",
-          "command": "git",
-          "args": ["status", "--short"],
-          "enabled": true,
-          "timeout": 5,
-          "ttl": 60,
-          "requiresBins": ["git"],
-          "requiresEnv": []
-        }
-      ]
-    }
-  }
-}</code></pre>
+        <pre><code>[agents]
+[agents.defaults]
+[[agents.defaults.contextProviders]]
+name = "Git Status"
+command = "git"
+args = ["status", "--short"]
+enabled = true
+timeout = 5
+ttl = 60
+requiresBins = ["git"]
+requiresEnv = []</code></pre>
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
@@ -657,23 +624,22 @@ max_width: 820px
         <h2>Gateway</h2>
         <p>Controls the HTTP gateway server used by <code>oxicrab gateway</code>. Config path: <code>gateway</code></p>
 
-        <pre><code>{
-  "gateway": {
-    "enabled": true,
-    "host": "127.0.0.1",
-    "port": 18790,
-    "apiKey": "your-secret-api-key",
-    "webhooks": {
-      "github": {
-        "enabled": true,
-        "secret": "your-hmac-secret",
-        "template": "GitHub {{action}} on {{repository.full_name}}: {{body}}",
-        "targets": [{"channel": "slack", "chatId": "C12345"}],
-        "agentTurn": true
-      }
-    }
-  }
-}</code></pre>
+        <pre><code>[gateway]
+enabled = true
+host = "127.0.0.1"
+port = 18790
+apiKey = "your-secret-api-key"
+
+[gateway.webhooks]
+[gateway.webhooks.github]
+enabled = true
+secret = "your-hmac-secret"
+template = "GitHub {{action}} on {{repository.full_name}}: {{body}}"
+agentTurn = true
+
+[[gateway.webhooks.github.targets]]
+channel = "slack"
+chatId = "C12345"</code></pre>
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
@@ -701,15 +667,11 @@ max_width: 820px
 
         <h3>Agent-to-Agent (A2A) Protocol</h3>
         <p>Google's A2A protocol for agent discovery and interoperability. When enabled, exposes an <code>AgentCard</code> at <code>/.well-known/agent.json</code> and a task lifecycle at <code>/a2a/tasks</code>.</p>
-        <pre><code>{
-  "gateway": {
-    "a2a": {
-      "enabled": true,
-      "agentName": "My Agent",
-      "agentDescription": "A helpful AI assistant"
-    }
-  }
-}</code></pre>
+        <pre><code>[gateway]
+[gateway.a2a]
+enabled = true
+agentName = "My Agent"
+agentDescription = "A helpful AI assistant"</code></pre>
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
             <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable A2A protocol endpoints</td></tr>
@@ -721,15 +683,11 @@ max_width: 820px
         <h3>Rate Limiting</h3>
         <p>Config path: <code>gateway.rateLimit</code></p>
         <p>Per-IP rate limiting for all gateway endpoints. Uses a token bucket algorithm with configurable sustained rate and burst capacity.</p>
-        <pre><code>{
-  "gateway": {
-    "rateLimit": {
-      "enabled": true,
-      "requestsPerSecond": 10,
-      "burst": 20
-    }
-  }
-}</code></pre>
+        <pre><code>[gateway]
+[gateway.rateLimit]
+enabled = true
+requestsPerSecond = 10
+burst = 20</code></pre>
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
             <tr><td>enabled</td><td>bool</td><td>false</td><td>Enable per-IP rate limiting</td></tr>
@@ -768,14 +726,10 @@ max_width: 820px
         <h2>Observability</h2>
         <p>Controls runtime telemetry exporters. Config path: <code>observability</code></p>
 
-        <pre><code>{
-  "observability": {
-    "metrics": {
-      "enabled": true,
-      "bind": "127.0.0.1:9901"
-    }
-  }
-}</code></pre>
+        <pre><code>[observability]
+[observability.metrics]
+enabled = true
+bind = "127.0.0.1:9901"</code></pre>
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
@@ -790,18 +744,27 @@ max_width: 820px
         <h2>Router</h2>
         <p>Controls the message router that pre-classifies inbound messages before LLM involvement. Config path: <code>router</code></p>
 
-        <pre><code>{
-  "router": {
-    "prefix": "!",
-    "semanticTopK": 3,
-    "semanticPrefilterK": 12,
-    "semanticThreshold": 0.5,
-    "rules": [
-      {"trigger": "weather", "tool": "weather", "params": {"action": "forecast", "location": "$1"}},
-      {"trigger": "remind", "tool": "cron", "params": {"action": "add", "message": "$*"}}
-    ]
-  }
-}</code></pre>
+        <pre><code>[router]
+prefix = "!"
+semanticTopK = 3
+semanticPrefilterK = 12
+semanticThreshold = 0.5
+
+[[router.rules]]
+trigger = "weather"
+tool = "weather"
+
+[router.rules.params]
+action = "forecast"
+location = "$1"
+
+[[router.rules]]
+trigger = "remind"
+tool = "cron"
+
+[router.rules.params]
+action = "add"
+message = "$*"</code></pre>
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
@@ -820,18 +783,13 @@ max_width: 820px
         <h2>Sandbox</h2>
         <p>Kernel-enforced filesystem and network restrictions applied to both shell commands (<code>tools.exec.sandbox</code>) and MCP server child processes (<code>tools.mcp.servers.*.sandbox</code>). On <strong>Linux</strong>, uses Landlock LSM. On <strong>macOS</strong>, uses Seatbelt (<code>sandbox_init</code>). Graceful no-op on unsupported platforms or older Linux kernels.</p>
 
-        <pre><code>{
-  "tools": {
-    "exec": {
-      "sandbox": {
-        "enabled": true,
-        "additionalReadPaths": ["/opt/data"],
-        "additionalWritePaths": ["/home/user/output"],
-        "blockNetwork": true
-      }
-    }
-  }
-}</code></pre>
+        <pre><code>[tools]
+[tools.exec]
+[tools.exec.sandbox]
+enabled = true
+additionalReadPaths = ["/opt/data"]
+additionalWritePaths = ["/home/user/output"]
+blockNetwork = true</code></pre>
 
         <table class="cfg-table">
             <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>

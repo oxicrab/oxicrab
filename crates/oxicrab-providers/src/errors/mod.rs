@@ -30,7 +30,7 @@ impl ProviderErrorHandler {
                 return Err(OxicrabError::Provider {
                     message: format!(
                         "Model '{model_name}' not found. This model may be deprecated or incorrect.\n\
-                            Please update your config file (~/.oxicrab/config.json) to use a valid model:\n\
+                            Please update your config file (~/.oxicrab/config.toml) to use a valid model:\n\
                             - claude-sonnet-4-6 (recommended)\n\
                             - claude-haiku-4-5-20251001 (fastest)\n\
                             - claude-opus-4-6 (most capable)\n\

@@ -13,9 +13,9 @@ fn test_sanitize_path_workspace_relative() {
 #[test]
 fn test_sanitize_path_oxicrab_dir() {
     let home = dirs::home_dir().unwrap();
-    let path = home.join(".oxicrab/config.json");
+    let path = home.join(".oxicrab/config.toml");
     let result = sanitize_path(&path, None);
-    assert_eq!(result, "~/.oxicrab/config.json");
+    assert_eq!(result, "~/.oxicrab/config.toml");
 }
 
 #[test]

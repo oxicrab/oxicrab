@@ -49,7 +49,7 @@ fn check_config_exists() -> CheckResult {
 
 fn check_config_parses() -> CheckResult {
     match crate::config::load_config(None) {
-        Ok(_) => CheckResult::Pass("valid JSON".to_string()),
+        Ok(_) => CheckResult::Pass("valid TOML".to_string()),
         Err(e) => CheckResult::Fail(format!("{e}")),
     }
 }

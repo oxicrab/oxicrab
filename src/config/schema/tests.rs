@@ -624,11 +624,11 @@ fn test_local_provider_config_has_prompt_guided_tools() {
 }
 
 // -----------------------------------------------------------------------
-// config.example.json auto-generation
+// config.example.toml auto-generation
 // -----------------------------------------------------------------------
 
 /// Credential and structural overlays applied on top of `Config::default()`
-/// to produce a useful `config.example.json`. Paths use JSON pointer syntax.
+/// to produce a useful `config.example.toml`. Paths use JSON pointer syntax.
 fn credential_overlays() -> Vec<(&'static str, serde_json::Value)> {
     use serde_json::json;
     vec![
@@ -725,9 +725,9 @@ fn credential_overlays() -> Vec<(&'static str, serde_json::Value)> {
     ]
 }
 
-/// Generate the expected `config.example.json` as a parsed JSON Value
+/// Generate the expected example config as a parsed JSON Value
 /// from `Config::default()` + credential overlays.
-fn generate_example_config() -> serde_json::Value {
+fn generate_example_config_json() -> serde_json::Value {
     let config = Config::default();
     let mut value = serde_json::to_value(&config).expect("Config serializes to JSON");
 
@@ -794,6 +794,53 @@ fn json_diff(path: &str, expected: &serde_json::Value, actual: &serde_json::Valu
         }
     }
     diffs
+}
+
+fn prune_null_object_fields(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            let keys_to_remove = map
+                .iter()
+                .filter_map(|(key, value)| value.is_null().then_some(key.clone()))
+                .collect::<Vec<_>>();
+            for key in keys_to_remove {
+                map.remove(&key);
+            }
+            for child in map.values_mut() {
+                prune_null_object_fields(child);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                prune_null_object_fields(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_underscored_keys(path: &str, value: &serde_json::Value, underscored: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, child) in map {
+                let child_path = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                if key.contains('_') {
+                    underscored.push(child_path.clone());
+                }
+                collect_underscored_keys(&child_path, child, underscored);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (index, child) in items.iter().enumerate() {
+                collect_underscored_keys(&format!("{path}[{index}]"), child, underscored);
+            }
+        }
+        _ => {}
+    }
 }
 
 // -----------------------------------------------------------------------
@@ -981,21 +1028,39 @@ fn test_model_routing_chat_only_on_chat_key() {
 
 #[test]
 fn test_config_example_is_up_to_date() {
-    let expected = generate_example_config();
+    let mut expected = generate_example_config_json();
     let committed_str = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config.example.json"),
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config.example.toml"),
     )
-    .expect("config.example.json should exist");
-    let committed: serde_json::Value =
-        serde_json::from_str(&committed_str).expect("config.example.json should be valid JSON");
+    .expect("config.example.toml should exist");
+    let committed_toml: toml::Value =
+        toml::from_str(&committed_str).expect("config.example.toml should be valid TOML");
+    let mut committed: serde_json::Value =
+        serde_json::to_value(committed_toml).expect("TOML example should convert to JSON");
+
+    prune_null_object_fields(&mut expected);
+    prune_null_object_fields(&mut committed);
 
     let diffs = json_diff("", &expected, &committed);
     assert!(
         diffs.is_empty(),
-        "config.example.json is out of date with Config::default() + overlays!\n\
+        "config.example.toml is out of date with Config::default() + overlays!\n\
          Update the file to match the schema, then re-run this test.\n\
          Differences:\n{}",
         diffs.join("\n")
+    );
+}
+
+#[test]
+fn test_generated_config_example_uses_camel_case_keys() {
+    let mut expected = generate_example_config_json();
+    prune_null_object_fields(&mut expected);
+    let mut underscored = Vec::new();
+    collect_underscored_keys("", &expected, &mut underscored);
+    assert!(
+        underscored.is_empty(),
+        "generated config example still contains snake_case keys:\n{}",
+        underscored.join("\n")
     );
 }
 

@@ -87,14 +87,11 @@ pub(super) async fn auth_command(cmd: AuthCommands) -> Result<()> {
 
             if gcfg.client_id.is_empty() || gcfg.client_secret.is_empty() {
                 eprintln!("Error: Google client_id and client_secret are not configured.");
-                eprintln!("\nAdd them to ~/.oxicrab/config.json under tools.google:");
-                eprintln!("  \"tools\": {{");
-                eprintln!("    \"google\": {{");
-                eprintln!("      \"enabled\": true,");
-                eprintln!("      \"clientId\": \"YOUR_CLIENT_ID\",");
-                eprintln!("      \"clientSecret\": \"YOUR_CLIENT_SECRET\"");
-                eprintln!("    }}");
-                eprintln!("  }}");
+                eprintln!("\nAdd them to ~/.oxicrab/config.toml under tools.google:");
+                eprintln!("  [tools.google]");
+                eprintln!("  enabled = true");
+                eprintln!("  clientId = \"YOUR_CLIENT_ID\"");
+                eprintln!("  clientSecret = \"YOUR_CLIENT_SECRET\"");
                 eprintln!(
                     "\nGet credentials at: https://console.cloud.google.com/apis/credentials"
                 );

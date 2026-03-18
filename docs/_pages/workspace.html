@@ -61,7 +61,7 @@ max_width: 820px
 
     <div class="tree">
 <span class="dir">~/.oxicrab/</span>
-<span class="file">  config.json</span>              <span class="desc"># main configuration</span>
+<span class="file">  config.toml</span>              <span class="desc"># main configuration</span>
 <span class="dir">  workspace/</span>                <span class="desc"># default workspace root</span>
 <span class="file">    AGENTS.md</span>              <span class="desc"># agent identity &amp; personality</span>
 <span class="file">    USER.md</span>                <span class="desc"># user profile &amp; preferences</span>
@@ -75,7 +75,7 @@ max_width: 820px
 <span class="dir">  media/</span>                   <span class="desc"># downloaded images/files (auto-cleaned)</span>
     </div>
 
-    <div class="note"><strong>Tip:</strong> Override the home directory by setting the <code>OXICRAB_HOME</code> environment variable, or change the workspace path in <code>config.json</code> under <code>agents.defaults.workspace</code>.</div>
+    <div class="note"><strong>Tip:</strong> Override the home directory by setting the <code>OXICRAB_HOME</code> environment variable, or change the workspace path in <code>config.toml</code> under <code>agents.defaults.workspace</code>.</div>
   </div>
 
   <!-- AGENTS.MD -->
@@ -165,7 +165,7 @@ additional configuration.
     <div class="file-card">
       <div class="file-card-name">TOOLS.md</div>
       <div class="file-card-path">~/.oxicrab/workspace/TOOLS.md</div>
-      <p>A place to record notes about which tools are configured, any quirks or important details, and which services are connected. This is not where tool configuration lives (that's in <code>config.json</code>) &mdash; it's context for the agent.</p>
+      <p>A place to record notes about which tools are configured, any quirks or important details, and which services are connected. This is not where tool configuration lives (that's in <code>config.toml</code>) &mdash; it's context for the agent.</p>
     </div>
 
     <h3>How it's used</h3>
@@ -305,9 +305,9 @@ Describe the situations where this skill applies.
     <p>These files live in the oxicrab home directory (<code>~/.oxicrab/</code>) rather than the workspace.</p>
 
     <div class="file-card">
-      <div class="file-card-name">config.json</div>
-      <div class="file-card-path">~/.oxicrab/config.json</div>
-      <p>Main configuration file. JSON with camelCase keys. Contains provider API keys, channel tokens, tool settings, and agent defaults. Created by <code>oxicrab onboard</code>. See the <a href="config.html">Configuration</a> page for a complete field reference.</p>
+      <div class="file-card-name">config.toml</div>
+      <div class="file-card-path">~/.oxicrab/config.toml</div>
+      <p>Main configuration file. TOML with camelCase keys. Contains provider API keys, channel tokens, tool settings, and agent defaults. Created by <code>oxicrab onboard</code>. See the <a href="config.html">Configuration</a> page for a complete field reference.</p>
     </div>
 
     <div class="file-card">

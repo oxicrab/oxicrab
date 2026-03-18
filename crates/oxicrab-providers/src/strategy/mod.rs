@@ -122,7 +122,7 @@ impl ProviderFactory {
                     "no Anthropic credentials configured for model: {model}\n\
                      \n\
                      Options:\n\
-                     1. Set providers.anthropic.apiKey in ~/.oxicrab/config.json\n\
+                     1. Set providers.anthropic.apiKey in ~/.oxicrab/config.toml\n\
                      2. Install Claude CLI for OAuth auto-detection\n\
                      3. Install OpenClaw for OAuth auto-detection"
                 )

@@ -222,6 +222,6 @@ pub(super) enum CredentialCommands {
     },
     /// List all credential slots and their sources
     List,
-    /// Import non-empty credentials from config.json into the OS keyring
+    /// Import non-empty credentials from config.toml into the OS keyring
     Import,
 }

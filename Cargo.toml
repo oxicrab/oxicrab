@@ -99,6 +99,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+toml = "0.9"
 serde_yaml_ng = "0.10"
 sha2 = "0.10"
 subtle = "2.6"
@@ -163,7 +164,7 @@ assets = [
     ["target/release/oxicrab", "usr/bin/", "755"],
     ["deploy/oxicrab-system.service", "lib/systemd/system/oxicrab.service", "644"],
     ["deploy/deb/lintian-overrides", "usr/share/lintian/overrides/oxicrab", "644"],
-    ["config.example.json", "usr/share/doc/oxicrab/config.example.json", "644"],
+    ["config.example.toml", "usr/share/doc/oxicrab/config.example.toml", "644"],
     ["README.md", "usr/share/doc/oxicrab/README.md", "644"],
     ["LICENSE", "usr/share/doc/oxicrab/LICENSE", "644"],
 ]
@@ -183,8 +184,8 @@ dest = "/usr/lib/systemd/system/oxicrab.service"
 mode = "0644"
 
 [[package.metadata.generate-rpm.assets]]
-source = "config.example.json"
-dest = "/usr/share/doc/oxicrab/config.example.json"
+source = "config.example.toml"
+dest = "/usr/share/doc/oxicrab/config.example.toml"
 mode = "0644"
 doc = true
 

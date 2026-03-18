@@ -179,7 +179,7 @@ Channel features are forwarded to the `oxicrab-channels` crate, which conditiona
 
 ## Config
 
-JSON at `~/.oxicrab/config.json` (or `OXICRAB_HOME` env var). Uses camelCase in JSON, snake_case in Rust (serde `rename` attrs). Schema in `crates/oxicrab-core/src/config/schema/mod.rs` — 22 structs have custom `Debug` impls (via `redact_debug!` macro) that redact secrets. Validated on startup via `config.validate()`. Notable config fields: `providers.*.headers` (custom HTTP headers for OpenAI-compatible providers), `agents.defaults.cognitive` (`CognitiveConfig` with thresholds for tool-call checkpoint nudges), `tools.exfiltrationGuard` (`ExfiltrationGuardConfig` with `enabled` and `allowTools`), `tools.exec.sandbox` (`SandboxConfig` with `enabled`, `additionalReadPaths`, `additionalWritePaths`, `blockNetwork`), `agents.defaults.promptGuard` (`PromptGuardConfig` with `enabled` and `action`).
+TOML at `~/.oxicrab/config.toml` (or `OXICRAB_HOME` env var), with optional overlays from `config.local.toml` and `config.d/*.toml`. External field names use camelCase. Schema in `crates/oxicrab-core/src/config/schema/mod.rs` — 22 structs have custom `Debug` impls (via `redact_debug!` macro) that redact secrets. TOML layers are merged first, then deserialized into one canonical `Config` and validated via `config.validate()`. Notable config fields: `providers.*.headers` (custom HTTP headers for OpenAI-compatible providers), `agents.defaults.cognitive` (`CognitiveConfig` with thresholds for tool-call checkpoint nudges), `tools.exfiltrationGuard` (`ExfiltrationGuardConfig` with `enabled` and `allowTools`), `tools.exec.sandbox` (`SandboxConfig` with `enabled`, `additionalReadPaths`, `additionalWritePaths`, `blockNetwork`), `agents.defaults.promptGuard` (`PromptGuardConfig` with `enabled` and `action`).
 
 ## Error Handling
 
@@ -219,7 +219,7 @@ Failed cron job executions are stored in the `scheduled_task_dlq` SQLite table (
 
 ## Credential Registry (`src/config/credentials/mod.rs`)
 
-Unified credential management via `define_credentials!` macro. Adding a new credential = one line in the macro. All backends (env vars, keyring, credential helper) are generated from a single declarative table of 29 credential slots. Resolution order: env var → credential helper → keyring → config.json.
+Unified credential management via `define_credentials!` macro. Adding a new credential = one line in the macro. All backends (env vars, keyring, credential helper) are generated from a single declarative table of 29 credential slots. Resolution order: env var → credential helper → keyring → TOML config.
 
 - **`apply_env_overrides()`**: Checks `OXICRAB_*` env vars for all 29 credential slots
 - **`apply_credential_helper()`**: Fetches secrets from external processes (1Password, Bitwarden, custom scripts)
@@ -229,7 +229,7 @@ Unified credential management via `define_credentials!` macro. Adding a new cred
 
 ## Security Hardening
 
-- **Credential backends** (`src/config/credentials/mod.rs`): Three-tier credential resolution (env > helper > keyring > config.json). All 29 credential slots covered by `OXICRAB_*` env vars. OS keychain via `keyring` crate (optional, `keyring-store` feature). External helper protocol supports 1Password (`op`), Bitwarden (`bw`), and custom scripts.
+- **Credential backends** (`src/config/credentials/mod.rs`): Three-tier credential resolution (env > helper > keyring > TOML config). All 29 credential slots covered by `OXICRAB_*` env vars. OS keychain via `keyring` crate (optional, `keyring-store` feature). External helper protocol supports 1Password (`op`), Bitwarden (`bw`), and custom scripts.
 - **Default-deny allowlists** (`crates/oxicrab-channels/src/utils/`): Empty `allowFrom` arrays now deny all senders. Use `["*"]` for open access.
 - **DM policy** (`crates/oxicrab-channels/src/utils/`): Per-channel `dmPolicy` field controls access for unknown senders: `"allowlist"` (default, silent deny), `"pairing"` (send pairing code), `"open"` (allow all). `check_dm_access()` returns `DmCheckResult` (Allowed/Denied/PairingRequired). Each channel handles pairing replies natively (Telegram sends message, Discord sends ephemeral response, Slack posts via API, Twilio returns TwiML, WhatsApp logs the code). **DM access checks are skipped for group messages** — Telegram checks `is_group()/is_supergroup()`, Discord checks `guild_id.is_some()`, Slack checks channel ID prefix (DMs start with `D`). Discord slash commands and component interactions also skip the check for guild interactions.
 - **DM pairing** (`src/pairing/mod.rs`): `PairingStore` provides SQLite-backed per-channel allowlists in the shared `MemoryDB` (tables: `pairing_allowlist`, `pairing_pending`, `pairing_failed_attempts`). 8-char human-friendly codes with 15-min TTL. Per-client lockout tracking prevents brute-force code guessing with bounded client set (1000 max). Code comparison uses `subtle::ConstantTimeEq` in Rust (not SQL) to prevent timing side-channels. CLI: `oxicrab pairing list|approve|revoke`.

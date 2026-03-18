@@ -141,7 +141,7 @@ pub(super) fn credentials_command(cmd: CredentialCommands) -> Result<()> {
                 } else {
                     println!(
                         "\nImported {imported} credential(s) into keyring.\n\
-                         You can now remove them from config.json if desired."
+                         You can now remove them from config.toml if desired."
                     );
                 }
             }

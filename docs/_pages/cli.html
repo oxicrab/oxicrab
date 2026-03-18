@@ -44,7 +44,7 @@ max_width: 820px
     <!-- ONBOARD -->
     <h2 id="onboard">onboard</h2>
     <div class="cmd-sig">oxicrab onboard</div>
-    <p>Initialize oxicrab configuration and workspace. Creates <code>~/.oxicrab/config.json</code> with defaults, sets up the workspace directory, and generates template files (<code>USER.md</code>, <code>AGENTS.md</code>, <code>TOOLS.md</code>).</p>
+    <p>Initialize oxicrab configuration and workspace. Creates <code>~/.oxicrab/config.toml</code> with defaults, sets up the workspace directory, and generates template files (<code>USER.md</code>, <code>AGENTS.md</code>, <code>TOOLS.md</code>).</p>
     <p>If a config file already exists, prompts for confirmation before overwriting.</p>
 
     <!-- GATEWAY -->
@@ -193,7 +193,7 @@ oxicrab cron add -n "Reminder" -m "Meeting in 5 minutes" --at "2026-03-01T14:55:
     <h3>Checks performed</h3>
     <table class="flag-table">
         <tr><th>Category</th><th>Checks</th></tr>
-        <tr><td>Core</td><td>Config file exists, parses as valid JSON, passes validation, workspace directory exists and is writable</td></tr>
+        <tr><td>Core</td><td>Config file exists, parses as valid TOML, passes validation, workspace directory exists and is writable</td></tr>
         <tr><td>Provider</td><td>API keys configured for any provider, provider connectivity (warmup test with latency measurement)</td></tr>
         <tr><td>Channels</td><td>Each channel (Telegram, Discord, Slack, WhatsApp, Twilio): compiled, enabled, tokens/credentials configured</td></tr>
         <tr><td>Voice</td><td>Transcription backend availability (local model, cloud API, or both)</td></tr>
@@ -210,8 +210,8 @@ oxicrab doctor
 
   Core
   --------------------------------------------------------
-  PASS   Config file                    /home/user/.oxicrab/config.json
-  PASS   Config parses                  valid JSON
+  PASS   Config file                    /home/user/.oxicrab/config.toml
+  PASS   Config parses                  valid TOML
   PASS   Config validates               all checks passed
   PASS   Workspace                      /home/user/.oxicrab/workspace (writable)
 
@@ -289,7 +289,7 @@ oxicrab pairing approve ABC12345</pre>
     <!-- CREDENTIALS -->
     <h2 id="credentials">credentials</h2>
     <div class="cmd-sig">oxicrab credentials &lt;SUBCOMMAND&gt;</div>
-    <p>Manage credentials stored in the OS keyring. Credential resolution order: <strong>env vars &rarr; credential helper &rarr; OS keyring &rarr; config.json</strong>. Requires the <code>keyring-store</code> feature (default-on). Containers should use <code>OXICRAB_*</code> env vars instead. See <a href="config.html#credentials">Config &rarr; Credentials</a> for env var tables, credential helper setup, and the full resolution order.</p>
+    <p>Manage credentials stored in the OS keyring. Credential resolution order: <strong>env vars &rarr; credential helper &rarr; OS keyring &rarr; config.toml</strong>. Requires the <code>keyring-store</code> feature (default-on). Containers should use <code>OXICRAB_*</code> env vars instead. See <a href="config.html#credentials">Config &rarr; Credentials</a> for env var tables, credential helper setup, and the full resolution order.</p>
 
     <h3>credentials set</h3>
     <div class="cmd-sig">oxicrab credentials set &lt;NAME&gt; [VALUE]</div>
@@ -314,7 +314,7 @@ oxicrab pairing approve ABC12345</pre>
 
     <h3>credentials import</h3>
     <div class="cmd-sig">oxicrab credentials import</div>
-    <p>Bulk-import all non-empty credentials from <code>config.json</code> into the OS keyring. Does not modify the config file &mdash; you can remove secrets from it afterward.</p>
+    <p>Bulk-import all non-empty credentials from <code>config.toml</code> into the OS keyring. Does not modify the config file &mdash; you can remove secrets from it afterward.</p>
 
     <pre><span class="hl-comment"># Store a credential (prompts for value)</span>
 oxicrab credentials set anthropic-api-key
@@ -322,7 +322,7 @@ oxicrab credentials set anthropic-api-key
 <span class="hl-comment"># Check what's configured</span>
 oxicrab credentials list
 
-<span class="hl-comment"># Migrate secrets from config.json to keyring</span>
+<span class="hl-comment"># Migrate secrets from config.toml to keyring</span>
 oxicrab credentials import
 
 <span class="hl-comment"># Remove a credential</span>

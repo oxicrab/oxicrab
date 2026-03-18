@@ -16,7 +16,6 @@ fn test_migrate_config_moves_restrict_to_workspace() {
         tools.get("restrictToWorkspace"),
         Some(&serde_json::json!(true))
     );
-    // Should be removed from exec
     let exec = tools.get("exec").unwrap();
     assert!(exec.get("restrictToWorkspace").is_none());
 }
@@ -33,7 +32,6 @@ fn test_migrate_config_no_overwrite_existing() {
     });
     let result = migrate_config(input);
     let tools = result.get("tools").unwrap();
-    // Should keep the existing top-level value (false), not overwrite
     assert_eq!(
         tools.get("restrictToWorkspace"),
         Some(&serde_json::json!(false))
@@ -49,7 +47,7 @@ fn test_migrate_config_no_tools_key() {
 
 #[test]
 fn test_load_config_missing_file_returns_default() {
-    let path = std::path::Path::new("/tmp/nonexistent_oxicrab_config_test.json");
+    let path = std::path::Path::new("/tmp/nonexistent_oxicrab_config_test.toml");
     let config = load_config(Some(path)).unwrap();
     assert_eq!(
         config.agents.defaults.model_routing.default,
@@ -58,10 +56,10 @@ fn test_load_config_missing_file_returns_default() {
 }
 
 #[test]
-fn test_load_config_minimal_json() {
+fn test_load_config_minimal_toml() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.json");
-    std::fs::write(&path, "{}").unwrap();
+    let path = dir.path().join("config.toml");
+    std::fs::write(&path, "").unwrap();
     let config = load_config(Some(&path)).unwrap();
     assert_eq!(config.agents.defaults.max_tokens, 8192);
 }
@@ -69,7 +67,7 @@ fn test_load_config_minimal_json() {
 #[test]
 fn test_save_and_load_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.json");
+    let path = dir.path().join("config.toml");
     let config = Config::default();
     save_config(&config, Some(&path)).unwrap();
     let loaded = load_config(Some(&path)).unwrap();
@@ -89,11 +87,67 @@ fn test_save_and_load_roundtrip() {
 
 #[test]
 fn test_example_config_loads_and_validates() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config.example.json");
-    let config = load_config(Some(&path)).expect("config.example.json should load");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config.example.toml");
+    let config = load_config(Some(&path)).expect("config.example.toml should load");
     config
         .validate()
-        .expect("config.example.json should pass validation");
+        .expect("config.example.toml should pass validation");
+}
+
+#[test]
+fn test_layered_config_overrides_merge_before_deserialize() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("config.toml");
+    let local = dir.path().join("config.local.toml");
+    let overlay_dir = dir.path().join("config.d");
+    std::fs::create_dir(&overlay_dir).unwrap();
+
+    std::fs::write(
+        &base,
+        r#"
+[providers.anthropic]
+apiKey = "base-key"
+
+[agents.defaults]
+maxTokens = 4096
+temperature = 0.5
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        &local,
+        r#"
+[agents.defaults.modelRouting]
+default = "openai/gpt-5"
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        overlay_dir.join("10-router.toml"),
+        r#"
+[router]
+enabled = true
+semanticThreshold = 0.61
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        overlay_dir.join("20-agent.toml"),
+        r#"
+[agents.defaults]
+maxTokens = 2048
+"#,
+    )
+    .unwrap();
+
+    let config = load_config(Some(&base)).unwrap();
+    assert_eq!(config.providers.anthropic.api_key, "base-key");
+    assert_eq!(config.agents.defaults.model_routing.default, "openai/gpt-5");
+    assert_eq!(config.agents.defaults.max_tokens, 2048);
+    assert_eq!(config.router.semantic_threshold, 0.61);
 }
 
 #[test]
@@ -103,12 +157,9 @@ fn test_env_override_applies() {
     let mut config = Config::default();
     assert!(config.providers.anthropic.api_key.is_empty());
 
-    // Set env var and apply
     unsafe { std::env::set_var("OXICRAB_ANTHROPIC_API_KEY", "test-key-from-env") };
     apply_env_overrides(&mut config);
     assert_eq!(config.providers.anthropic.api_key, "test-key-from-env");
-
-    // Clean up
     unsafe { std::env::remove_var("OXICRAB_ANTHROPIC_API_KEY") };
 }
 
@@ -122,7 +173,6 @@ fn test_env_override_empty_string_ignored() {
     unsafe { std::env::set_var("OXICRAB_OPENAI_API_KEY", "") };
     apply_env_overrides(&mut config);
     assert_eq!(config.providers.openai.api_key, "original-key");
-
     unsafe { std::env::remove_var("OXICRAB_OPENAI_API_KEY") };
 }
 
@@ -149,11 +199,10 @@ fn test_env_override_channel_tokens() {
 #[test]
 fn test_save_config_atomic_write() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.json");
+    let path = dir.path().join("config.toml");
     let config = Config::default();
     save_config(&config, Some(&path)).unwrap();
 
-    // Verify file exists and can be loaded
     assert!(path.exists());
     let loaded = load_config(Some(&path)).unwrap();
     assert_eq!(
@@ -161,7 +210,6 @@ fn test_save_config_atomic_write() {
         config.agents.defaults.model_routing.default
     );
 
-    // On unix, check permissions are 0600
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -173,7 +221,7 @@ fn test_save_config_atomic_write() {
 #[test]
 fn test_credential_helper_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.json");
+    let path = dir.path().join("config.toml");
     let mut config = Config::default();
     config.credential_helper.command = "my-helper".to_string();
     config.credential_helper.args = vec!["--vault".to_string(), "test".to_string()];
@@ -189,18 +237,17 @@ fn test_credential_helper_roundtrip() {
 }
 
 #[test]
-fn test_load_config_with_credential_helper_json() {
+fn test_load_config_with_credential_helper_toml() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.json");
+    let path = dir.path().join("config.toml");
     std::fs::write(
         &path,
-        r#"{
-            "credentialHelper": {
-                "command": "op",
-                "args": ["--account", "my.1password.com"],
-                "format": "1password"
-            }
-        }"#,
+        r#"
+[credentialHelper]
+command = "op"
+args = ["--account", "my.1password.com"]
+format = "1password"
+"#,
     )
     .unwrap();
     let config = load_config(Some(&path)).unwrap();
@@ -231,14 +278,12 @@ fn test_env_override_new_vars() {
 #[test]
 fn test_concurrent_save_no_corruption() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.json");
+    let path = dir.path().join("config.toml");
     let path_clone = path.clone();
 
-    // Write initial config
     let config = Config::default();
     save_config(&config, Some(&path)).unwrap();
 
-    // Spawn 10 threads that all save different configs concurrently
     let handles: Vec<_> = (0..10)
         .map(|i| {
             let p = path_clone.clone();
@@ -253,19 +298,7 @@ fn test_concurrent_save_no_corruption() {
         h.join().unwrap();
     }
 
-    // File should always be valid JSON after concurrent writes
     let content = std::fs::read_to_string(&path).unwrap();
-    let _: serde_json::Value = serde_json::from_str(&content)
-        .expect("config file should be valid JSON after concurrent saves");
-}
-
-#[test]
-fn test_lock_file_created() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.json");
-    let config = Config::default();
-    save_config(&config, Some(&path)).unwrap();
-
-    let lock_path = path.with_extension("json.lock");
-    assert!(lock_path.exists(), "lock file should exist after save");
+    let _: toml::Value =
+        toml::from_str(&content).expect("config file should be valid TOML after concurrent saves");
 }

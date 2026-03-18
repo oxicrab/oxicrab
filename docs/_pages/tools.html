@@ -123,22 +123,19 @@ max_width: 820px
     </ul>
 
     <h3>Configuration</h3>
-    <div class="config-label">~/.oxicrab/config.json</div>
-    <pre><code>{
-  "tools": {
-    "exec": {
-      "timeout": 60,
-      "allowedCommands": ["ls", "grep", "git", "cargo", "node", "python3"],
-      "sandbox": {
-        "enabled": true,
-        "additionalReadPaths": ["/opt/data"],
-        "additionalWritePaths": ["/home/user/output"],
-        "blockNetwork": true
-      }
-    },
-    "restrictToWorkspace": true
-  }
-}</code></pre>
+    <div class="config-label">~/.oxicrab/config.toml</div>
+    <pre><code>[tools]
+restrictToWorkspace = true
+
+[tools.exec]
+timeout = 60
+allowedCommands = ["ls", "grep", "git", "cargo", "node", "python3"]
+
+[tools.exec.sandbox]
+enabled = true
+additionalReadPaths = ["/opt/data"]
+additionalWritePaths = ["/home/user/output"]
+blockNetwork = true</code></pre>
     <p>The default allowlist includes 80+ commands: file ops (<code>ls</code>, <code>find</code>, <code>tree</code>), text processing (<code>grep</code>, <code>awk</code>, <code>sed</code>, <code>jq</code>), dev tools (<code>git</code>, <code>cargo</code>, <code>npm</code>, <code>python3</code>), and networking (<code>curl</code>, <code>wget</code>, <code>dig</code>). Override with your own list in config.</p>
     <p>Set <code>restrictToWorkspace: true</code> to restrict filesystem access to the workspace directory.</p>
     <p>The <code>sandbox</code> block controls kernel-level process sandboxing. On <strong>Linux</strong>, uses Landlock LSM. On <strong>macOS</strong>, uses Seatbelt (<code>sandbox_init</code>). Default read-only: <code>/usr</code>, <code>/lib</code>, <code>/lib64</code>, <code>/bin</code>, <code>/sbin</code>, <code>/etc</code> (plus <code>/System</code>, <code>/Library</code>, <code>/opt/homebrew</code>, <code>/usr/local</code> on macOS). Default read-write: workspace dir, <code>/tmp</code>, <code>/var/tmp</code> (plus <code>/private/tmp</code>, <code>/private/var/folders</code> on macOS). Use <code>additionalReadPaths</code>/<code>additionalWritePaths</code> to extend. Set <code>blockNetwork: false</code> to allow outbound connections from shell commands.</p>
@@ -160,15 +157,11 @@ max_width: 820px
       <li>Get an API key from <a href="https://api.search.brave.com/">api.search.brave.com</a></li>
       <li>Set in config:</li>
     </ol>
-    <pre><code>{
-  "tools": {
-    "webSearch": {
-      "provider": "brave",
-      "apiKey": "your-brave-search-api-key",
-      "maxResults": 5
-    }
-  }
-}</code></pre>
+    <pre><code>[tools]
+[tools.webSearch]
+provider = "brave"
+apiKey = "your-brave-search-api-key"
+maxResults = 5</code></pre>
     <div class="note"><strong>Fallback:</strong> Without an API key, searches use DuckDuckGo automatically. You can also set the <code>BRAVE_API_KEY</code> environment variable.</div>
   </div>
 
@@ -316,17 +309,12 @@ max_width: 820px
     </table>
 
     <h3>Memory configuration</h3>
-    <pre><code>{
-  "agents": {
-    "defaults": {
-      "memory": {
-        "embeddingsEnabled": true,
-        "embeddingsModel": "BAAI/bge-small-en-v1.5",
-        "hybridWeight": 0.5
-      }
-    }
-  }
-}</code></pre>
+    <pre><code>[agents]
+[agents.defaults]
+[agents.defaults.memory]
+embeddingsEnabled = true
+embeddingsModel = "BAAI/bge-small-en-v1.5"
+hybridWeight = 0.5</code></pre>
     <p>Hybrid vector+keyword search is enabled by default. The embeddings model is downloaded automatically on first use.</p>
   </div>
 
@@ -435,17 +423,13 @@ max_width: 820px
       <li>Copy Client ID and Client Secret to config</li>
       <li>Run <code>./oxicrab auth google</code> to complete the OAuth flow</li>
     </ol>
-    <pre><code>{
-  "tools": {
-    "google": {
-      "clientId": "your-google-client-id",
-      "clientSecret": "your-google-client-secret",
-      "gmail": true,
-      "calendar": true,
-      "tasks": true
-    }
-  }
-}</code></pre>
+    <pre><code>[tools]
+[tools.google]
+clientId = "your-google-client-id"
+clientSecret = "your-google-client-secret"
+gmail = true
+calendar = true
+tasks = true</code></pre>
     <p>Each tool can be individually enabled/disabled. OAuth scopes are derived automatically from which tools are enabled. Tokens are stored in the workspace database and auto-refresh. Run <code>oxicrab auth google</code> to authenticate.</p>
   </div>
 
@@ -523,14 +507,10 @@ max_width: 820px
       <li>Select scopes: <code>repo</code>, <code>read:user</code></li>
       <li>Add to config:</li>
     </ol>
-    <pre><code>{
-  "tools": {
-    "github": {
-      "enabled": true,
-      "token": "ghp_your-github-token"
-    }
-  }
-}</code></pre>
+    <pre><code>[tools]
+[tools.github]
+enabled = true
+token = "ghp_your-github-token"</code></pre>
   </div>
 
   <div id="weather" class="tool-section">
@@ -543,14 +523,10 @@ max_width: 820px
       <li>Copy your API key</li>
       <li>Add to config:</li>
     </ol>
-    <pre><code>{
-  "tools": {
-    "weather": {
-      "enabled": true,
-      "apiKey": "your-openweathermap-api-key"
-    }
-  }
-}</code></pre>
+    <pre><code>[tools]
+[tools.weather]
+enabled = true
+apiKey = "your-openweathermap-api-key"</code></pre>
   </div>
 
   <div id="todoist" class="tool-section">
@@ -578,14 +554,10 @@ max_width: 820px
       <li>Get your API token from <a href="https://todoist.com/app/settings/account">todoist.com/app/settings/account</a></li>
       <li>Add to config:</li>
     </ol>
-    <pre><code>{
-  "tools": {
-    "todoist": {
-      "enabled": true,
-      "token": "your-todoist-api-token"
-    }
-  }
-}</code></pre>
+    <pre><code>[tools]
+[tools.todoist]
+enabled = true
+token = "your-todoist-api-token"</code></pre>
   </div>
 
   <div id="media" class="tool-section">
@@ -613,21 +585,17 @@ max_width: 820px
       <li>Get API keys: Settings &gt; General &gt; API Key (in each app)</li>
       <li>Add to config:</li>
     </ol>
-    <pre><code>{
-  "tools": {
-    "media": {
-      "enabled": true,
-      "radarr": {
-        "url": "http://localhost:7878",
-        "apiKey": "your-radarr-api-key"
-      },
-      "sonarr": {
-        "url": "http://localhost:8989",
-        "apiKey": "your-sonarr-api-key"
-      }
-    }
-  }
-}</code></pre>
+    <pre><code>[tools]
+[tools.media]
+enabled = true
+
+[tools.media.radarr]
+url = "http://localhost:7878"
+apiKey = "your-radarr-api-key"
+
+[tools.media.sonarr]
+url = "http://localhost:8989"
+apiKey = "your-sonarr-api-key"</code></pre>
   </div>
 
   <div id="obsidian" class="tool-section">
@@ -653,18 +621,14 @@ max_width: 820px
       <li>Copy the API key from the plugin settings</li>
       <li>Add to config:</li>
     </ol>
-    <pre><code>{
-  "tools": {
-    "obsidian": {
-      "enabled": true,
-      "apiUrl": "https://127.0.0.1:27124",
-      "apiKey": "your-obsidian-local-rest-api-key",
-      "vaultName": "MyVault",
-      "syncInterval": 300,
-      "timeout": 15
-    }
-  }
-}</code></pre>
+    <pre><code>[tools]
+[tools.obsidian]
+enabled = true
+apiUrl = "https://127.0.0.1:27124"
+apiKey = "your-obsidian-local-rest-api-key"
+vaultName = "MyVault"
+syncInterval = 300
+timeout = 15</code></pre>
     <div class="note"><strong>Note:</strong> Obsidian must be running with the plugin enabled for the tool to work. <code>syncInterval</code> controls background cache refresh in seconds.</div>
   </div>
 
@@ -696,16 +660,11 @@ max_width: 820px
       <li>Install Chrome or Chromium: <code>sudo apt install chromium-browser</code></li>
       <li>Enable in config:</li>
     </ol>
-    <pre><code>{
-  "tools": {
-    "browser": {
-      "enabled": true,
-      "headless": true,
-      "chromePath": null,
-      "timeout": 30
-    }
-  }
-}</code></pre>
+    <pre><code>[tools]
+[tools.browser]
+enabled = true
+headless = true
+timeout = 30</code></pre>
     <p>Set <code>headless: false</code> to see the browser window. Set <code>chromePath</code> if Chrome is not in the default location. Screenshots are saved to <code>~/.oxicrab/media/</code>.</p>
   </div>
 
@@ -719,14 +678,10 @@ max_width: 820px
       <li><strong>OpenAI:</strong> Set <code>providers.openai.apiKey</code></li>
       <li><strong>Google:</strong> Set <code>providers.gemini.apiKey</code></li>
     </ul>
-    <pre><code>{
-  "tools": {
-    "imageGen": {
-      "enabled": true,
-      "defaultProvider": "openai"
-    }
-  }
-}</code></pre>
+    <pre><code>[tools]
+[tools.imageGen]
+enabled = true
+defaultProvider = "openai"</code></pre>
   </div>
 
   <div class="cat-header">External Tools</div>
@@ -736,30 +691,26 @@ max_width: 820px
     <p class="desc">Connect external tool servers via the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>. Tools are auto-discovered at startup from child processes and registered as native tools with full middleware pipeline support. MCP tools cannot shadow built-in tools (rejected if they share a name with a <code>built_in</code> tool) and are not available to subagents. Null parameters are automatically stripped from tool calls before forwarding to MCP servers. Environment variable values containing CRLF characters are rejected at startup.</p>
 
     <h3>Configuration</h3>
-    <pre><code>{
-  "tools": {
-    "mcp": {
-      "servers": {
-        "filesystem": {
-          "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/documents"],
-          "enabled": true
-        },
-        "git": {
-          "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-git"],
-          "env": { "GIT_DIR": "/path/to/repo" },
-          "enabled": true,
-          "sandbox": {
-            "enabled": true,
-            "additionalReadPaths": ["/path/to/repo"],
-            "blockNetwork": false
-          }
-        }
-      }
-    }
-  }
-}</code></pre>
+    <pre><code>[tools]
+[tools.mcp]
+[tools.mcp.servers]
+[tools.mcp.servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/documents"]
+enabled = true
+
+[tools.mcp.servers.git]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-git"]
+enabled = true
+
+[tools.mcp.servers.git.env]
+GIT_DIR = "/path/to/repo"
+
+[tools.mcp.servers.git.sandbox]
+enabled = true
+additionalReadPaths = ["/path/to/repo"]
+blockNetwork = false</code></pre>
 
     <h3>Server config fields</h3>
     <table class="action-table">
@@ -798,19 +749,15 @@ wget -O ~/.oxicrab/models/ggml-large-v3-turbo-q5_0.bin \
     <p>Uses Groq, OpenAI, or any OpenAI-compatible transcription endpoint. Groq offers free inference and is recommended.</p>
 
     <h3>Configuration</h3>
-    <pre><code>{
-  "voice": {
-    "transcription": {
-      "enabled": true,
-      "localModelPath": "~/.oxicrab/models/ggml-large-v3-turbo-q5_0.bin",
-      "preferLocal": true,
-      "threads": 4,
-      "apiKey": "your-groq-or-openai-api-key",
-      "apiBase": "https://api.groq.com/openai/v1/audio/transcriptions",
-      "model": "whisper-large-v3-turbo"
-    }
-  }
-}</code></pre>
+    <pre><code>[voice]
+[voice.transcription]
+enabled = true
+localModelPath = "~/.oxicrab/models/ggml-large-v3-turbo-q5_0.bin"
+preferLocal = true
+threads = 4
+apiKey = "your-groq-or-openai-api-key"
+apiBase = "https://api.groq.com/openai/v1/audio/transcriptions"
+model = "whisper-large-v3-turbo"</code></pre>
     <p><code>preferLocal: true</code> (default) tries local first, falls back to cloud. Set to <code>false</code> to prefer cloud. Either backend alone is sufficient.</p>
   </div>
 

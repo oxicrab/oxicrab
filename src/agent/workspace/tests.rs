@@ -129,7 +129,7 @@ fn test_infer_category_document_extensions() {
 fn test_infer_category_data_extensions() {
     let data_exts = [
         "data.csv",
-        "config.json",
+        "config.toml",
         "config.yaml",
         "config.yml",
         "feed.xml",
@@ -314,7 +314,7 @@ fn test_is_managed_path_root_level_files() {
 
     // Files directly in workspace root are not managed
     assert!(!ws.is_managed_path(Path::new("/tmp/workspace/README.md")));
-    assert!(!ws.is_managed_path(Path::new("/tmp/workspace/config.json")));
+    assert!(!ws.is_managed_path(Path::new("/tmp/workspace/config.toml")));
 }
 
 #[test]

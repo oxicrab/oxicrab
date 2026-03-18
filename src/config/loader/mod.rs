@@ -2,73 +2,187 @@ use crate::config::Config;
 use crate::utils::{ensure_dir, get_oxicrab_home};
 use anyhow::{Context, Result};
 use fs2::FileExt;
-use serde_json::Value;
+use serde_json::Value as JsonValue;
 use std::fs;
 use std::path::{Path, PathBuf};
-
 use tracing::warn;
 
 pub fn get_config_path() -> Result<PathBuf> {
-    Ok(get_oxicrab_home()?.join("config.json"))
+    Ok(get_oxicrab_home()?.join("config.toml"))
 }
 
 pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
-    let default_path = get_config_path().unwrap_or_else(|_| PathBuf::from("config.json"));
-    let path = config_path.unwrap_or(default_path.as_path());
+    let default_path = get_config_path().unwrap_or_else(|_| PathBuf::from("config.toml"));
+    let base_path = config_path.unwrap_or(default_path.as_path());
+    let layer_paths = config_layer_paths(base_path)?;
 
-    if path.exists() {
-        // Acquire shared (read) lock — allows concurrent readers, blocks during writes.
-        // Read from the locked fd (not a second open) so the lock protects the read.
-        let mut file = fs::File::open(path)
-            .with_context(|| format!("Failed to open config at {}", path.display()))?;
-        file.lock_shared()
-            .with_context(|| "Failed to acquire shared lock on config file")?;
+    let mut merged = toml::Value::Table(toml::map::Map::new());
+    let mut loaded_any = false;
 
-        let mut content = String::new();
-        std::io::Read::read_to_string(&mut file, &mut content)
-            .with_context(|| format!("Failed to read config from {}", path.display()))?;
-        // Lock released when `file` drops at end of scope
+    for path in &layer_paths {
+        if !path.exists() {
+            continue;
+        }
 
-        let mut data: Value = serde_json::from_str(&content)
-            .with_context(|| format!("Failed to parse config JSON from {}", path.display()))?;
-
-        // Migrate old config formats
-        data = migrate_config(data);
-
-        // Note: We don't convert keys here because serde's `rename` attributes
-        // expect the original camelCase keys from JSON. The conversion was causing
-        // fields with `rename` attributes to not be deserialized correctly.
-
-        let mut config: Config =
-            serde_json::from_value(data).with_context(|| "Failed to deserialize config")?;
-
-        // Apply credential overrides (env > helper > keyring > config.json)
-        crate::config::credentials::apply_env_overrides(&mut config);
-        crate::config::credentials::apply_credential_helper(&mut config);
-        #[cfg(feature = "keyring-store")]
-        crate::config::credentials::apply_keyring_overrides(&mut config);
-
-        // Check file permissions (unix only, warn-only)
-        check_file_permissions(path);
-
-        // Validate configuration
-        config
-            .validate()
-            .with_context(|| "Configuration validation failed")?;
-
-        return Ok(config);
+        let content = read_locked_file(path)?;
+        let data: toml::Value = toml::from_str(&content)
+            .with_context(|| format!("Failed to parse config TOML from {}", path.display()))?;
+        merge_toml(&mut merged, data);
+        loaded_any = true;
     }
 
-    let mut default_config = Config::default();
-    // Apply credential overrides even with default config
-    crate::config::credentials::apply_env_overrides(&mut default_config);
-    crate::config::credentials::apply_credential_helper(&mut default_config);
-    #[cfg(feature = "keyring-store")]
-    crate::config::credentials::apply_keyring_overrides(&mut default_config);
-    Ok(default_config)
+    if !loaded_any {
+        let mut default_config = Config::default();
+        apply_runtime_overrides(&mut default_config);
+        return Ok(default_config);
+    }
+
+    let migrated = migrate_config(toml_to_json(&merged)?);
+    let mut config: Config =
+        serde_json::from_value(migrated).with_context(|| "Failed to deserialize config")?;
+
+    apply_runtime_overrides(&mut config);
+
+    for path in &layer_paths {
+        if path.exists() {
+            check_file_permissions(path);
+        }
+    }
+
+    config
+        .validate()
+        .with_context(|| "Configuration validation failed")?;
+
+    Ok(config)
 }
 
-/// Warn if the config file or its parent directory has overly permissive permissions.
+pub fn save_config(config: &Config, config_path: Option<&Path>) -> Result<()> {
+    let default_path = get_config_path().unwrap_or_else(|_| PathBuf::from("config.toml"));
+    let path = config_path.unwrap_or(default_path.as_path());
+
+    ensure_dir(path.parent().context("Config path has no parent")?)?;
+
+    // Acquire exclusive lock via separate lockfile.
+    // A separate file is needed because atomic_write() uses rename(), which
+    // invalidates flock on the original inode. The .lock file survives renames.
+    let lock_path = path.with_extension("toml.lock");
+    let lock_file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock_path)
+        .with_context(|| format!("Failed to create lock file at {}", lock_path.display()))?;
+    lock_file
+        .lock_exclusive()
+        .with_context(|| "Failed to acquire exclusive lock on config lock file")?;
+
+    let content = toml::to_string_pretty(config)?;
+    crate::utils::atomic_write(path, &content)
+        .with_context(|| format!("Failed to write config to {}", path.display()))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+    }
+
+    Ok(())
+}
+
+fn config_layer_paths(base_path: &Path) -> Result<Vec<PathBuf>> {
+    let mut layers = vec![base_path.to_path_buf()];
+
+    let parent = base_path
+        .parent()
+        .with_context(|| format!("Config path {} has no parent", base_path.display()))?;
+    let stem = base_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .with_context(|| format!("Config path {} has no file stem", base_path.display()))?;
+    let extension = base_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("toml");
+
+    layers.push(parent.join(format!("{stem}.local.{extension}")));
+
+    let overlay_dir = parent.join(format!("{stem}.d"));
+    if overlay_dir.is_dir() {
+        let mut entries = fs::read_dir(&overlay_dir)
+            .with_context(|| {
+                format!(
+                    "Failed to read config overlay dir {}",
+                    overlay_dir.display()
+                )
+            })?
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some(extension))
+            .collect::<Vec<_>>();
+        entries.sort();
+        layers.extend(entries);
+    }
+
+    Ok(layers)
+}
+
+fn read_locked_file(path: &Path) -> Result<String> {
+    let mut file = fs::File::open(path)
+        .with_context(|| format!("Failed to open config at {}", path.display()))?;
+    file.lock_shared()
+        .with_context(|| "Failed to acquire shared lock on config file")?;
+
+    let mut content = String::new();
+    std::io::Read::read_to_string(&mut file, &mut content)
+        .with_context(|| format!("Failed to read config from {}", path.display()))?;
+    Ok(content)
+}
+
+fn apply_runtime_overrides(config: &mut Config) {
+    // Resolution order: env vars > credential helper > keyring > TOML config
+    crate::config::credentials::apply_env_overrides(config);
+    crate::config::credentials::apply_credential_helper(config);
+    #[cfg(feature = "keyring-store")]
+    crate::config::credentials::apply_keyring_overrides(config);
+}
+
+fn merge_toml(base: &mut toml::Value, overlay: toml::Value) {
+    match (base, overlay) {
+        (toml::Value::Table(base_table), toml::Value::Table(overlay_table)) => {
+            for (key, value) in overlay_table {
+                match base_table.get_mut(&key) {
+                    Some(existing) => merge_toml(existing, value),
+                    None => {
+                        base_table.insert(key, value);
+                    }
+                }
+            }
+        }
+        (base_slot, overlay_value) => *base_slot = overlay_value,
+    }
+}
+
+fn toml_to_json(value: &toml::Value) -> Result<JsonValue> {
+    serde_json::to_value(value).with_context(|| "Failed to convert TOML config to JSON value")
+}
+
+/// Migrate legacy config keys before deserializing into the canonical schema.
+fn migrate_config(data: JsonValue) -> JsonValue {
+    // Move tools.exec.restrictToWorkspace -> tools.restrictToWorkspace
+    if let JsonValue::Object(mut map) = data {
+        if let Some(JsonValue::Object(tools_map)) = map.get_mut("tools")
+            && let Some(JsonValue::Object(exec_map)) = tools_map.get_mut("exec")
+            && let Some(restrict) = exec_map.remove("restrictToWorkspace")
+            && !tools_map.contains_key("restrictToWorkspace")
+        {
+            tools_map.insert("restrictToWorkspace".to_string(), restrict);
+        }
+        JsonValue::Object(map)
+    } else {
+        data
+    }
+}
+
+/// Warn if a config file or its parent directory has overly permissive permissions.
 /// Only emits warnings once per process to avoid spam when config is loaded multiple times.
 #[cfg(unix)]
 fn check_file_permissions(path: &Path) {
@@ -81,7 +195,7 @@ fn check_file_permissions(path: &Path) {
             let mode = meta.permissions().mode();
             if mode & 0o077 != 0 {
                 warn!(
-                    "config file {} has permissions {:o} — recommend 0600",
+                    "config file {} has permissions {:o} - recommend 0600",
                     path.display(),
                     mode & 0o777
                 );
@@ -94,7 +208,7 @@ fn check_file_permissions(path: &Path) {
             let mode = meta.permissions().mode();
             if mode & 0o077 != 0 {
                 warn!(
-                    "config directory {} has permissions {:o} — recommend 0700",
+                    "config directory {} has permissions {:o} - recommend 0700",
                     parent.display(),
                     mode & 0o777
                 );
@@ -104,66 +218,7 @@ fn check_file_permissions(path: &Path) {
 }
 
 #[cfg(not(unix))]
-fn check_file_permissions(_path: &Path) {
-    // Permission checks only apply on unix systems
-}
-
-fn migrate_config(data: Value) -> Value {
-    // Move tools.exec.restrictToWorkspace → tools.restrictToWorkspace
-    if let Value::Object(mut map) = data {
-        if let Some(Value::Object(tools_map)) = map.get_mut("tools")
-            && let Some(Value::Object(exec_map)) = tools_map.get_mut("exec")
-            && let Some(restrict) = exec_map.remove("restrictToWorkspace")
-            && !tools_map.contains_key("restrictToWorkspace")
-        {
-            tools_map.insert("restrictToWorkspace".to_string(), restrict);
-        }
-        Value::Object(map)
-    } else {
-        data
-    }
-}
-
-pub fn save_config(config: &Config, config_path: Option<&Path>) -> Result<()> {
-    let default_path = get_config_path().unwrap_or_else(|_| PathBuf::from("config.json"));
-    let path = config_path.unwrap_or(default_path.as_path());
-
-    ensure_dir(path.parent().context("Config path has no parent")?)?;
-
-    // Acquire exclusive lock via separate lockfile.
-    // A separate file is needed because atomic_write() uses rename(), which
-    // invalidates flock on the original inode. The .lock file survives renames.
-    let lock_path = path.with_extension("json.lock");
-    let lock_file = fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(&lock_path)
-        .with_context(|| format!("Failed to create lock file at {}", lock_path.display()))?;
-    lock_file
-        .lock_exclusive()
-        .with_context(|| "Failed to acquire exclusive lock on config lock file")?;
-
-    // serde `rename` attributes already produce camelCase keys during
-    // serialization, so no post-processing is needed. A prior convert_to_camel
-    // pass was removed because it corrupted HashMap keys (MCP server names,
-    // env vars, custom headers, model cost prefixes) that contain underscores.
-    let data = serde_json::to_value(config)?;
-
-    let content = serde_json::to_string_pretty(&data)?;
-    crate::utils::atomic_write(path, &content)
-        .with_context(|| format!("Failed to write config to {}", path.display()))?;
-
-    // Restrict permissions (best-effort, may fail on Windows)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-    }
-
-    // Lock released when lock_file drops
-    Ok(())
-}
+fn check_file_permissions(_path: &Path) {}
 
 #[cfg(test)]
 mod tests;

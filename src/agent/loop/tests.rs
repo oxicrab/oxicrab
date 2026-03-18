@@ -35,7 +35,7 @@ fn test_action_claims_positive() {
         "Already completed the migration.",
         // Terse-format action claims (no first-person pronoun)
         "Created: Send out the form — due tomorrow at 10:00 AM.",
-        "Updated: config.json with the new API key.",
+        "Updated: config.toml with the new API key.",
         "Deleted: old-backup.tar.gz",
         "Done! The task has been set up.",
         "Sent: the email to the team.",

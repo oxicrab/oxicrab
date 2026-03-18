@@ -392,7 +392,7 @@ pub fn detect_source(name: &str, config: &Config) -> &'static str {
         return "keyring";
     }
 
-    // 3. Check if loaded config has a non-empty value (from config.json or helper)
+    // 3. Check if loaded config has a non-empty value (from config.toml or helper)
     if let Some(val) = get_credential_value(config, name)
         && !val.is_empty()
     {

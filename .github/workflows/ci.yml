@@ -599,7 +599,7 @@ jobs:
           mkdir -p dmg-staging
           cp "target/aarch64-apple-darwin/release/oxicrab" dmg-staging/
           cp deploy/com.oxicrab.gateway.plist dmg-staging/
-          cp config.example.json dmg-staging/
+          cp config.example.toml dmg-staging/
           cp README.md LICENSE dmg-staging/
           hdiutil create -volname "Oxicrab CI" \
             -srcfolder dmg-staging -ov -format UDZO \

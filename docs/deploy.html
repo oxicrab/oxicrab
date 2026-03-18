@@ -308,7 +308,7 @@ curl -LO https://github.com/oxicrab/oxicrab/releases/latest/download/oxicrab_VER
 sudo dpkg -i oxicrab_*_amd64.deb
 
 # Edit config with your API keys
-sudo nano /etc/oxicrab/config.json
+sudo nano /etc/oxicrab/config.toml
 
 # Start the service
 sudo systemctl start oxicrab</code></pre>
@@ -322,7 +322,7 @@ curl -LO https://github.com/oxicrab/oxicrab/releases/latest/download/oxicrab-VER
 sudo rpm -i oxicrab-*.x86_64.rpm
 
 # Edit config with your API keys
-sudo nano /etc/oxicrab/config.json
+sudo nano /etc/oxicrab/config.toml
 
 # Start the service
 sudo systemctl start oxicrab</code></pre>
@@ -341,12 +341,12 @@ cp "/Volumes/Oxicrab "*/com.oxicrab.gateway.plist ~/Library/LaunchAgents/
 
 # Copy example config
 mkdir -p ~/.oxicrab
-cp "/Volumes/Oxicrab "*/config.example.json ~/.oxicrab/config.json
+cp "/Volumes/Oxicrab "*/config.example.toml ~/.oxicrab/config.toml
 
 hdiutil detach "/Volumes/Oxicrab "*
 
 # Edit config with your API keys, then load the service
-nano ~/.oxicrab/config.json
+nano ~/.oxicrab/config.toml
 launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</code></pre>
 
     <h3>What the packages include</h3>
@@ -354,12 +354,12 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</code></pre>
     <ul class="plain">
       <li><strong>Binary</strong> &mdash; <code>/usr/bin/oxicrab</code> (Linux) or <code>/usr/local/bin/oxicrab</code> (macOS)</li>
       <li><strong>Service file</strong> &mdash; systemd unit (DEB/RPM) or launchd plist (DMG)</li>
-      <li><strong>Example config</strong> &mdash; <code>config.example.json</code> with all fields and placeholder values</li>
+      <li><strong>Example config</strong> &mdash; <code>config.example.toml</code> with all fields and placeholder values</li>
       <li><strong>Post-install scripts</strong> (DEB/RPM) &mdash; create <code>oxicrab</code> system user, set up <code>/etc/oxicrab</code> and <code>/var/lib/oxicrab</code>, enable the systemd service</li>
       <li><strong>Pre-remove scripts</strong> (DEB/RPM) &mdash; stop and disable the service on uninstall</li>
     </ul>
 
-    <div class="note"><strong>Note:</strong> The DEB/RPM post-install enables the service but does <strong>not</strong> start it. Edit <code>/etc/oxicrab/config.json</code> with your API keys first, then run <code>systemctl start oxicrab</code>.</div>
+    <div class="note"><strong>Note:</strong> The DEB/RPM post-install enables the service but does <strong>not</strong> start it. Edit <code>/etc/oxicrab/config.toml</code> with your API keys first, then run <code>systemctl start oxicrab</code>.</div>
   </div>
 
   <!-- BUILD FROM SOURCE -->
@@ -590,7 +590,7 @@ WantedBy=default.target</code></pre>
     <pre><code># Create service user
 sudo useradd -r -m -s /usr/sbin/nologin oxicrab
 sudo mkdir -p /home/oxicrab/.oxicrab
-sudo cp ~/.oxicrab/config.json /home/oxicrab/.oxicrab/config.json
+sudo cp ~/.oxicrab/config.toml /home/oxicrab/.oxicrab/config.toml
 sudo chown -R oxicrab:oxicrab /home/oxicrab/.oxicrab
 
 # Install as system service
@@ -606,7 +606,7 @@ sudo systemctl start oxicrab</code></pre>
   <div id="launchd" class="deploy-section">
     <h2>launchd (macOS)</h2>
 
-    <div class="note"><strong>Installed via DMG?</strong> The DMG includes <code>com.oxicrab.gateway.plist</code> and <code>config.example.json</code>. Copy them into place as shown in the <a href="#packages">Native Packages</a> section above.</div>
+    <div class="note"><strong>Installed via DMG?</strong> The DMG includes <code>com.oxicrab.gateway.plist</code> and <code>config.example.toml</code>. Copy them into place as shown in the <a href="#packages">Native Packages</a> section above.</div>
 
     <p>A ready-to-use plist ships with the repo at <code>deploy/com.oxicrab.gateway.plist</code>. It runs as a launch agent (per-user, starts on login).</p>
 
@@ -720,11 +720,11 @@ launchctl unload ~/Library/LaunchAgents/com.oxicrab.gateway.plist</code></pre>
     <pre><code>ssh root@your-vps
 curl -fsSL https://get.docker.com | sh
 mkdir -p ~/.oxicrab
-curl -LO https://raw.githubusercontent.com/oxicrab/oxicrab/main/config.example.json
-cp config.example.json ~/.oxicrab/config.json
+curl -LO https://raw.githubusercontent.com/oxicrab/oxicrab/main/config.example.toml
+cp config.example.toml ~/.oxicrab/config.toml
 curl -LO https://raw.githubusercontent.com/oxicrab/oxicrab/main/docker-compose.yml
 docker compose up -d</code></pre>
-    <p>Edit <code>~/.oxicrab/config.json</code> with your API keys before starting. The <code>~/.oxicrab</code> directory is bind-mounted into the container at <code>/home/oxicrab/.oxicrab</code>, so config, memory, and workspace files persist across restarts.</p>
+    <p>Edit <code>~/.oxicrab/config.toml</code> with your API keys before starting. The <code>~/.oxicrab</code> directory is bind-mounted into the container at <code>/home/oxicrab/.oxicrab</code>, so config, memory, and workspace files persist across restarts.</p>
 
     <h3>docker-compose Configuration</h3>
     <p>The repository includes a <code>docker-compose.yml</code> at the project root. Key configuration is controlled through environment variables:</p>
@@ -747,14 +747,11 @@ docker compose pull &amp;&amp; docker compose up -d</code></pre>
     <pre><code># Install Tailscale on the VPS
 curl -fsSL https://tailscale.com/install.sh | sh
 tailscale up</code></pre>
-    <p>Once Tailscale is running, note your Tailscale IP (e.g. <code>100.x.x.x</code>) and configure the gateway to bind to it. Edit <code>./data/config.json</code>:</p>
-    <div class="config-label">config.json (gateway section)</div>
-    <pre><code>{
-  "gateway": {
-    "host": "100.x.x.x",
-    "apiKey": "your-secret-api-key"
-  }
-}</code></pre>
+    <p>Once Tailscale is running, note your Tailscale IP (e.g. <code>100.x.x.x</code>) and configure the gateway to bind to it. Edit <code>./data/config.toml</code>:</p>
+    <div class="config-label">config.toml (gateway section)</div>
+    <pre><code>[gateway]
+host = "100.x.x.x"
+apiKey = "your-secret-api-key"</code></pre>
     <p>With this configuration:</p>
     <ul class="plain">
       <li>The gateway only listens on the Tailscale interface &mdash; not reachable from the public internet.</li>

@@ -747,7 +747,7 @@
     <div class="terminal-body">
       <span class="comment"># start multi-channel daemon</span><br>
       <span class="prompt">$</span> <span class="cmd">oxicrab gateway</span><br>
-      <span class="output">INFO  loading config from ~/.oxicrab/config.json</span><br>
+      <span class="output">INFO  loading config from ~/.oxicrab/config.toml</span><br>
       <span class="output">INFO  registered 29 tools + 2 MCP servers</span><br>
       <span class="success">INFO  telegram channel started</span><br>
       <span class="success">INFO  discord channel started</span><br>
@@ -868,7 +868,7 @@
         <div class="feature-name">Credentials</div>
         <div class="feature-detail">
           <h3>Multi-backend credential management</h3>
-          <p>OS keyring (macOS Keychain, GNOME Keyring, Windows Credential Manager), external credential helpers (1Password, Bitwarden, custom scripts), and 29 OXICRAB_* env var overrides. Resolution: env &rarr; helper &rarr; keyring &rarr; config.json.</p>
+          <p>OS keyring (macOS Keychain, GNOME Keyring, Windows Credential Manager), external credential helpers (1Password, Bitwarden, custom scripts), and 29 OXICRAB_* env var overrides. Resolution: env &rarr; helper &rarr; keyring &rarr; config.toml.</p>
         </div>
       </div>
       <div class="feature-row">
@@ -1083,7 +1083,7 @@ sudo rpm -i oxicrab-*.x86_64.rpm
         <pre>oxicrab onboard
 <span class="hl-comment"># or manually:</span>
 mkdir -p ~/.oxicrab
-cp config.example.json ~/.oxicrab/config.json</pre>
+cp config.example.toml ~/.oxicrab/config.toml</pre>
       </div>
       <div class="step">
         <div class="step-num">03</div>
@@ -1116,190 +1116,44 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</pre>
 <section id="config" class="config-section">
   <div class="container fade-in">
     <div class="section-label">Configuration</div>
-    <div class="section-title">Simple JSON config</div>
-    <div class="section-desc">One file controls everything. camelCase in JSON, snake_case in Rust.</div>
+    <div class="section-title">Layered TOML config</div>
+    <div class="section-desc">One canonical schema, loaded from <code>config.toml</code> plus optional local and <code>config.d</code> overrides.</div>
 
     <div style="max-width: 720px;">
-      <div class="code-label">~/.oxicrab/config.json &mdash; <a href="https://github.com/oxicrab/oxicrab/blob/main/config.example.json" style="color: var(--accent); text-decoration: none; font-size: 0.7rem;">config.example.json</a></div>
-      <pre style="max-height: 600px; overflow-y: auto;">{
-  <span class="hl-key">"agents"</span>: {
-    <span class="hl-key">"defaults"</span>: {
-      <span class="hl-key">"workspace"</span>: <span class="hl-str">"~/.oxicrab/workspace"</span>,
-      <span class="hl-key">"modelRouting"</span>: {
-        <span class="hl-key">"default"</span>: <span class="hl-str">"claude-sonnet-4-5-20250929"</span>
-      },
-      <span class="hl-key">"maxTokens"</span>: <span class="hl-num">8192</span>,
-      <span class="hl-key">"temperature"</span>: <span class="hl-num">0.7</span>,
-      <span class="hl-key">"maxToolIterations"</span>: <span class="hl-num">20</span>,
-      <span class="hl-key">"sessionTtlDays"</span>: <span class="hl-num">30</span>,
-      <span class="hl-key">"mediaTtlDays"</span>: <span class="hl-num">7</span>,
-      <span class="hl-key">"maxConcurrentSubagents"</span>: <span class="hl-num">5</span>,
-      <span class="hl-key">"contextProviders"</span>: [],
-      <span class="hl-key">"compaction"</span>: {
-        <span class="hl-key">"enabled"</span>: <span class="hl-num">true</span>,
-        <span class="hl-key">"thresholdTokens"</span>: <span class="hl-num">40000</span>,
-        <span class="hl-key">"keepRecent"</span>: <span class="hl-num">10</span>,
-        <span class="hl-key">"extractionEnabled"</span>: <span class="hl-num">true</span>,
-        <span class="hl-key">"model"</span>: <span class="hl-num">null</span>,
-        <span class="hl-key">"preFlushEnabled"</span>: <span class="hl-num">false</span>
-      },
-      <span class="hl-key">"memory"</span>: {
-        <span class="hl-key">"embeddingsEnabled"</span>: <span class="hl-num">true</span>,
-        <span class="hl-key">"embeddingsModel"</span>: <span class="hl-str">"BAAI/bge-small-en-v1.5"</span>,
-        <span class="hl-key">"hybridWeight"</span>: <span class="hl-num">0.5</span>,
-        <span class="hl-key">"searchFusionStrategy"</span>: <span class="hl-str">"weighted_score"</span>,
-        <span class="hl-key">"rrfK"</span>: <span class="hl-num">60</span>,
-        <span class="hl-key">"embeddingCacheSize"</span>: <span class="hl-num">10000</span>
-      }
-    }
-  },
-  <span class="hl-key">"channels"</span>: {
-    <span class="hl-key">"telegram"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"token"</span>: <span class="hl-str">"your-telegram-bot-token"</span>,
-      <span class="hl-key">"allowFrom"</span>: [],
-      <span class="hl-key">"dmPolicy"</span>: <span class="hl-str">"allowlist"</span>
-    },
-    <span class="hl-key">"discord"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"token"</span>: <span class="hl-str">"your-discord-bot-token"</span>,
-      <span class="hl-key">"allowFrom"</span>: [],
-      <span class="hl-key">"dmPolicy"</span>: <span class="hl-str">"allowlist"</span>
-    },
-    <span class="hl-key">"slack"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"botToken"</span>: <span class="hl-str">"xoxb-your-slack-bot-token"</span>,
-      <span class="hl-key">"appToken"</span>: <span class="hl-str">"xapp-your-slack-app-token"</span>,
-      <span class="hl-key">"allowFrom"</span>: [],
-      <span class="hl-key">"dmPolicy"</span>: <span class="hl-str">"allowlist"</span>
-    },
-    <span class="hl-key">"whatsapp"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"allowFrom"</span>: [],
-      <span class="hl-key">"dmPolicy"</span>: <span class="hl-str">"allowlist"</span>
-    },
-    <span class="hl-key">"twilio"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"accountSid"</span>: <span class="hl-str">"your-twilio-account-sid"</span>,
-      <span class="hl-key">"authToken"</span>: <span class="hl-str">"your-twilio-auth-token"</span>,
-      <span class="hl-key">"phoneNumber"</span>: <span class="hl-str">"+1234567890"</span>,
-      <span class="hl-key">"webhookPort"</span>: <span class="hl-num">8080</span>,
-      <span class="hl-key">"webhookPath"</span>: <span class="hl-str">"/twilio/webhook"</span>,
-      <span class="hl-key">"webhookUrl"</span>: <span class="hl-str">"https://your-domain.com/twilio/webhook"</span>,
-      <span class="hl-key">"allowFrom"</span>: [],
-      <span class="hl-key">"dmPolicy"</span>: <span class="hl-str">"allowlist"</span>
-    }
-  },
-  <span class="hl-key">"providers"</span>: {
-    <span class="hl-key">"anthropic"</span>: {
-      <span class="hl-key">"apiKey"</span>: <span class="hl-str">"sk-ant-your-anthropic-key"</span>,
-      <span class="hl-key">"apiBase"</span>: <span class="hl-num">null</span>
-    },
-    <span class="hl-key">"openai"</span>: {
-      <span class="hl-key">"apiKey"</span>: <span class="hl-str">""</span>,
-      <span class="hl-key">"apiBase"</span>: <span class="hl-num">null</span>
-    },
-    <span class="hl-key">"gemini"</span>: {
-      <span class="hl-key">"apiKey"</span>: <span class="hl-str">""</span>,
-      <span class="hl-key">"apiBase"</span>: <span class="hl-num">null</span>
-    }
-    <span class="hl-comment">// Also: OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, MiniMax, vLLM</span>
-    <span class="hl-key">"circuitBreaker"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"failureThreshold"</span>: <span class="hl-num">5</span>,
-      <span class="hl-key">"recoveryTimeoutSecs"</span>: <span class="hl-num">60</span>,
-      <span class="hl-key">"halfOpenProbes"</span>: <span class="hl-num">2</span>
-    }
-  },
-  <span class="hl-key">"gateway"</span>: {
-    <span class="hl-key">"enabled"</span>: <span class="hl-num">true</span>,
-    <span class="hl-key">"host"</span>: <span class="hl-str">"0.0.0.0"</span>,
-    <span class="hl-key">"port"</span>: <span class="hl-num">18790</span>,
-    <span class="hl-key">"webhooks"</span>: {},
-    <span class="hl-key">"a2a"</span>: { <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span> }
-  },
-  <span class="hl-key">"tools"</span>: {
-    <span class="hl-key">"webSearch"</span>: {
-      <span class="hl-key">"provider"</span>: <span class="hl-str">"brave"</span>,
-      <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-brave-search-api-key"</span>,
-      <span class="hl-key">"maxResults"</span>: <span class="hl-num">5</span>
-    },
-    <span class="hl-key">"exec"</span>: {
-      <span class="hl-key">"timeout"</span>: <span class="hl-num">60</span>,
-      <span class="hl-key">"allowedCommands"</span>: [<span class="hl-str">"ls"</span>, <span class="hl-str">"find"</span>, <span class="hl-str">"cat"</span>, <span class="hl-str">"grep"</span>, <span class="hl-str">"git"</span>, <span class="hl-str">"cargo"</span>, <span class="hl-str">"node"</span>, <span class="hl-str">"python3"</span>]
-    },
-    <span class="hl-key">"restrictToWorkspace"</span>: <span class="hl-num">false</span>,
-    <span class="hl-key">"google"</span>: {
-      <span class="hl-key">"clientId"</span>: <span class="hl-str">"your-google-client-id"</span>,
-      <span class="hl-key">"clientSecret"</span>: <span class="hl-str">"your-google-client-secret"</span>,
-      <span class="hl-key">"gmail"</span>: <span class="hl-num">true</span>,
-      <span class="hl-key">"calendar"</span>: <span class="hl-num">true</span>,
-      <span class="hl-key">"tasks"</span>: <span class="hl-num">true</span>
-    },
-    <span class="hl-key">"github"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"token"</span>: <span class="hl-str">"ghp_your-github-token"</span>
-    },
-    <span class="hl-key">"weather"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-openweathermap-api-key"</span>
-    },
-    <span class="hl-key">"todoist"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"token"</span>: <span class="hl-str">"your-todoist-api-token"</span>
-    },
-    <span class="hl-key">"media"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"radarr"</span>: {
-        <span class="hl-key">"url"</span>: <span class="hl-str">"http://localhost:7878"</span>,
-        <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-radarr-api-key"</span>
-      },
-      <span class="hl-key">"sonarr"</span>: {
-        <span class="hl-key">"url"</span>: <span class="hl-str">"http://localhost:8989"</span>,
-        <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-sonarr-api-key"</span>
-      }
-    },
-    <span class="hl-key">"obsidian"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"apiUrl"</span>: <span class="hl-str">"https://127.0.0.1:27124"</span>,
-      <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-obsidian-local-rest-api-key"</span>,
-      <span class="hl-key">"vaultName"</span>: <span class="hl-str">"MyVault"</span>,
-      <span class="hl-key">"syncInterval"</span>: <span class="hl-num">300</span>,
-      <span class="hl-key">"timeout"</span>: <span class="hl-num">15</span>
-    },
-    <span class="hl-key">"browser"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"headless"</span>: <span class="hl-num">true</span>,
-      <span class="hl-key">"chromePath"</span>: <span class="hl-num">null</span>,
-      <span class="hl-key">"timeout"</span>: <span class="hl-num">30</span>
-    },
-    <span class="hl-key">"imageGen"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"defaultProvider"</span>: <span class="hl-str">"openai"</span>
-    },
-    <span class="hl-key">"mcp"</span>: {
-      <span class="hl-key">"servers"</span>: {
-        <span class="hl-key">"example-server"</span>: {
-          <span class="hl-key">"command"</span>: <span class="hl-str">"npx"</span>,
-          <span class="hl-key">"args"</span>: [<span class="hl-str">"-y"</span>, <span class="hl-str">"@example/mcp-server"</span>],
-          <span class="hl-key">"env"</span>: {},
-          <span class="hl-key">"enabled"</span>: <span class="hl-num">true</span>
-        }
-      }
-    }
-  },
-  <span class="hl-key">"voice"</span>: {
-    <span class="hl-key">"transcription"</span>: {
-      <span class="hl-key">"enabled"</span>: <span class="hl-num">false</span>,
-      <span class="hl-key">"apiKey"</span>: <span class="hl-str">"your-groq-api-key"</span>,
-      <span class="hl-key">"apiBase"</span>: <span class="hl-str">"https://api.groq.com/openai/v1/audio/transcriptions"</span>,
-      <span class="hl-key">"model"</span>: <span class="hl-str">"whisper-large-v3-turbo"</span>,
-      <span class="hl-key">"localModelPath"</span>: <span class="hl-str">""</span>,
-      <span class="hl-key">"preferLocal"</span>: <span class="hl-num">true</span>,
-      <span class="hl-key">"threads"</span>: <span class="hl-num">4</span>
-    }
-  }
-}</pre>
+      <div class="code-label">~/.oxicrab/config.toml &mdash; <a href="https://github.com/oxicrab/oxicrab/blob/main/config.example.toml" style="color: var(--accent); text-decoration: none; font-size: 0.7rem;">config.example.toml</a></div>
+      <pre style="max-height: 600px; overflow-y: auto;">[agents.defaults]
+workspace = "~/.oxicrab/workspace"
+maxTokens = 8192
+temperature = 0.7
+
+[agents.defaults.modelRouting]
+default = "claude-sonnet-4-5-20250929"
+
+[agents.defaults.memory]
+embeddingsEnabled = true
+embeddingsModel = "BAAI/bge-small-en-v1.5"
+
+[providers.anthropic]
+apiKey = "sk-ant-..."
+
+[channels.telegram]
+enabled = true
+token = "your-bot-token"
+allowFrom = ["your-user-id"]
+dmPolicy = "allowlist"
+
+[tools.webSearch]
+provider = "brave"
+apiKey = "your-brave-search-api-key"
+maxResults = 5
+
+[router]
+enabled = true
+semanticThreshold = 0.5
+
+# Optional overlay files:
+# ~/.oxicrab/config.local.toml
+# ~/.oxicrab/config.d/*.toml</pre>
     </div>
   </div>
 </section>

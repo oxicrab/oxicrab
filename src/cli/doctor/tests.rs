@@ -60,7 +60,7 @@ fn test_check_file_permissions_secure() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.json");
+    let path = dir.path().join("config.toml");
     std::fs::write(&path, "{}").unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
 
@@ -76,7 +76,7 @@ fn test_check_file_permissions_insecure() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.json");
+    let path = dir.path().join("config.toml");
     std::fs::write(&path, "{}").unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
 

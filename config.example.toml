@@ -1,0 +1,282 @@
+[agents]
+[agents.defaults]
+workspace = "~/.oxicrab/workspace"
+maxTokens = 8192
+temperature = 0.7
+maxToolIterations = 20
+sessionTtlDays = 30
+mediaTtlDays = 7
+maxConcurrentSubagents = 5
+contextProviders = []
+
+[agents.defaults.compaction]
+enabled = true
+thresholdTokens = 40000
+keepRecent = 10
+extractionEnabled = true
+preFlushEnabled = false
+
+[agents.defaults.memory]
+embeddingsEnabled = true
+embeddingsModel = "BAAI/bge-small-en-v1.5"
+hybridWeight = 0.5
+searchFusionStrategy = "weighted_score"
+rrfK = 60
+embeddingCacheSize = 10000
+recencyHalfLifeDays = 90
+
+[agents.defaults.promptGuard]
+enabled = true
+action = "warn"
+
+[agents.defaults.cognitive]
+enabled = false
+gentleThreshold = 12
+firmThreshold = 20
+urgentThreshold = 30
+recentToolsWindow = 10
+
+[agents.defaults.workspaceTtl]
+temp = 7
+downloads = 30
+images = 90
+
+[agents.defaults.modelRouting]
+default = "claude-sonnet-4-5-20250929"
+fallbacks = []
+
+[agents.defaults.modelRouting.tasks]
+
+[channels]
+[channels.telegram]
+enabled = false
+token = "your-telegram-bot-token"
+allowFrom = []
+dmPolicy = "allowlist"
+allowGroups = []
+
+[channels.discord]
+enabled = false
+token = "your-discord-bot-token"
+allowFrom = []
+dmPolicy = "allowlist"
+allowGroups = []
+
+[[channels.discord.commands]]
+name = "ask"
+description = "Ask the AI assistant"
+
+[[channels.discord.commands.options]]
+name = "question"
+description = "Your question or message"
+required = true
+
+[channels.slack]
+enabled = false
+botToken = "xoxb-your-slack-bot-token"
+appToken = "xapp-your-slack-app-token"
+allowFrom = []
+dmPolicy = "allowlist"
+allowGroups = []
+thinkingEmoji = "eyes"
+doneEmoji = "white_check_mark"
+
+[channels.whatsapp]
+enabled = false
+allowFrom = []
+dmPolicy = "allowlist"
+
+[channels.twilio]
+enabled = false
+accountSid = "your-twilio-account-sid"
+authToken = "your-twilio-auth-token"
+phoneNumber = "+1234567890"
+webhookPort = 8080
+webhookPath = "/twilio/webhook"
+webhookUrl = "https://your-domain.com/twilio/webhook"
+allowFrom = []
+dmPolicy = "allowlist"
+
+[providers]
+[providers.anthropic]
+apiKey = "sk-ant-your-anthropic-key"
+
+[providers.anthropicOAuth]
+enabled = false
+accessToken = ""
+refreshToken = ""
+expiresAt = 0
+autoDetect = true
+
+[providers.openai]
+apiKey = ""
+
+[providers.gemini]
+apiKey = ""
+
+[providers.openrouter]
+apiKey = ""
+
+[providers.deepseek]
+apiKey = ""
+
+[providers.groq]
+apiKey = ""
+
+[providers.minimax]
+apiKey = ""
+
+[providers.moonshot]
+apiKey = ""
+
+[providers.zhipu]
+apiKey = ""
+
+[providers.dashscope]
+apiKey = ""
+
+[providers.vllm]
+apiKey = ""
+promptGuidedTools = false
+
+[providers.ollama]
+apiKey = ""
+promptGuidedTools = false
+
+[providers.circuitBreaker]
+enabled = false
+failureThreshold = 5
+recoveryTimeoutSecs = 60
+halfOpenProbes = 2
+
+[gateway]
+enabled = true
+host = "0.0.0.0"
+port = 18790
+apiKey = ""
+
+[gateway.webhooks]
+
+[gateway.a2a]
+enabled = false
+agentName = ""
+agentDescription = ""
+
+[gateway.rateLimit]
+enabled = false
+requestsPerSecond = 10
+burst = 20
+trustProxy = false
+
+[tools]
+restrictToWorkspace = false
+
+[tools.exfiltrationGuard]
+enabled = false
+allowTools = []
+
+[tools.webSearch]
+provider = "brave"
+apiKey = "your-brave-search-api-key"
+maxResults = 5
+
+[tools.exec]
+timeout = 60
+allowedCommands = ["ls", "find", "tree", "pwd", "basename", "dirname", "realpath", "stat", "file", "cat", "head", "tail", "less", "wc", "md5sum", "sha256sum", "grep", "awk", "sed", "sort", "uniq", "cut", "tr", "diff", "comm", "paste", "rg", "ag", "fd", "jq", "yq", "git", "cargo", "rustc", "npm", "npx", "node", "python3", "pip3", "make", "go", "date", "cal", "whoami", "hostname", "uname", "uptime", "df", "du", "free", "ps", "journalctl", "env", "printenv", "which", "type", "curl", "wget", "dig", "nslookup", "ping", "host", "echo", "printf", "test", "true", "false", "yes", "seq", "xargs", "tar", "zip", "unzip", "gzip", "gunzip", "zcat", "tee", "touch", "mkdir", "cp", "mv", "ln"]
+
+[tools.exec.sandbox]
+enabled = true
+additionalReadPaths = []
+additionalWritePaths = []
+blockNetwork = true
+
+[tools.google]
+clientId = "your-google-client-id"
+clientSecret = "your-google-client-secret"
+gmail = true
+calendar = true
+tasks = true
+
+[tools.github]
+enabled = false
+token = "ghp_your-github-token"
+
+[tools.weather]
+enabled = false
+apiKey = "your-openweathermap-api-key"
+
+[tools.todoist]
+enabled = false
+token = "your-todoist-api-token"
+
+[tools.media]
+enabled = false
+
+[tools.media.radarr]
+url = "http://localhost:7878"
+apiKey = "your-radarr-api-key"
+
+[tools.media.sonarr]
+url = "http://localhost:8989"
+apiKey = "your-sonarr-api-key"
+
+[tools.obsidian]
+enabled = false
+apiUrl = "https://127.0.0.1:27124"
+apiKey = "your-obsidian-local-rest-api-key"
+vaultName = "MyVault"
+syncInterval = 300
+timeout = 15
+
+[tools.browser]
+enabled = false
+headless = true
+timeout = 30
+
+[tools.imageGen]
+enabled = false
+defaultProvider = "openai"
+
+[tools.mcp]
+[tools.mcp.servers]
+[tools.mcp.servers.example-server]
+command = "npx"
+args = ["-y", "@example/mcp-server"]
+enabled = true
+
+[tools.mcp.servers.example-server.env]
+
+[tools.rss]
+enabled = true
+scanTimeout = 15
+maxArticlesPerFeed = 50
+purgeDays = 90
+candidatesPerScan = 20
+covarianceInflation = 0.01
+
+[router]
+prefix = "!"
+rules = []
+semanticTopK = 3
+semanticPrefilterK = 12
+semanticThreshold = 0.5
+
+[credentialHelper]
+command = ""
+args = []
+format = "json"
+
+[observability]
+[observability.metrics]
+enabled = false
+bind = "127.0.0.1:9901"
+
+[voice]
+[voice.transcription]
+enabled = false
+apiKey = "your-groq-api-key"
+apiBase = "https://api.groq.com/openai/v1/audio/transcriptions"
+model = "whisper-large-v3-turbo"
+localModelPath = ""
+preferLocal = true
+threads = 4
