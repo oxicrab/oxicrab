@@ -18,7 +18,7 @@
         "preFlushEnabled": false
       },
       "memory": {
-        "embeddingsEnabled": false,
+        "embeddingsEnabled": true,
         "embeddingsModel": "BAAI/bge-small-en-v1.5",
         "hybridWeight": 0.5,
         "searchFusionStrategy": "weighted_score",

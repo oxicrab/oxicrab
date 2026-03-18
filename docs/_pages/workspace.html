@@ -216,7 +216,7 @@ additional configuration.
   "agents": {
     "defaults": {
       "memory": {
-        "embeddingsEnabled": false,
+        "embeddingsEnabled": true,
         "embeddingsModel": "BAAI/bge-small-en-v1.5",
         "hybridWeight": 0.5,
         "searchFusionStrategy": "weighted_score",
@@ -227,7 +227,7 @@ additional configuration.
     }
   }
 }</code></pre>
-    <p>Set <code>embeddingsEnabled: true</code> for hybrid vector+keyword search. The embeddings model is downloaded automatically on first use.</p>
+    <p>Hybrid vector+keyword search is enabled by default. The embeddings model is downloaded automatically on first use.</p>
   </div>
 
   <!-- SKILLS -->

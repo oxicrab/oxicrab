@@ -154,13 +154,17 @@ fn default_embedding_cache_size() -> usize {
     10_000
 }
 
+fn default_embeddings_enabled() -> bool {
+    true
+}
+
 fn default_recency_half_life_days() -> u32 {
     90
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConfig {
-    #[serde(default, rename = "embeddingsEnabled")]
+    #[serde(default = "default_embeddings_enabled", rename = "embeddingsEnabled")]
     pub embeddings_enabled: bool,
     #[serde(default = "default_embeddings_model", rename = "embeddingsModel")]
     pub embeddings_model: String,
@@ -191,7 +195,7 @@ pub struct MemoryConfig {
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
-            embeddings_enabled: false,
+            embeddings_enabled: default_embeddings_enabled(),
             embeddings_model: default_embeddings_model(),
             hybrid_weight: default_hybrid_weight(),
             fusion_strategy: FusionStrategy::default(),
