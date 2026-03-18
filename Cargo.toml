@@ -113,7 +113,6 @@ walkdir = "2.5"
 wa-rs = { version = "0.2", optional = true, default-features = false, features = ["sqlite-storage"] }
 wa-rs-tokio-transport = { version = "0.2", optional = true }
 wa-rs-ureq-http = { version = "0.2", optional = true }
-chromiumoxide = { version = "0.9", default-features = false, optional = true }
 feed-rs = { version = "2", optional = true }
 nalgebra = { version = "0.33", optional = true }
 rand = { version = "0.8", optional = true }
