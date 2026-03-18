@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/oxicrab-core", "crates/oxicrab-memory", "crates/oxicrab-providers", "."]
+members = ["crates/oxicrab-core", "crates/oxicrab-memory", "crates/oxicrab-providers", "crates/oxicrab-channels", "."]
 resolver = "2"
 
 [workspace.dependencies]
@@ -40,15 +40,16 @@ keyring-store = ["dep:keyring"]
 browser = ["dep:chromiumoxide"]
 local-whisper = ["dep:whisper-rs"]
 embeddings = ["dep:fastembed", "oxicrab-memory/embeddings"]
-channel-telegram = ["dep:teloxide"]
-channel-discord = ["dep:serenity"]
-channel-slack = ["dep:tokio-tungstenite"]
-channel-whatsapp = ["dep:whatsapp-rust", "dep:whatsapp-rust-tokio-transport", "dep:whatsapp-rust-ureq-http-client", "dep:qr2term", "dep:qrcode"]
-channel-twilio = ["dep:sha1"]
+channel-telegram = ["oxicrab-channels/channel-telegram"]
+channel-discord = ["oxicrab-channels/channel-discord"]
+channel-slack = ["oxicrab-channels/channel-slack"]
+channel-whatsapp = ["oxicrab-channels/channel-whatsapp", "dep:whatsapp-rust", "dep:whatsapp-rust-tokio-transport", "dep:whatsapp-rust-ureq-http-client", "dep:qr2term", "dep:qrcode"]
+channel-twilio = ["oxicrab-channels/channel-twilio"]
 tool-rss = ["dep:feed-rs", "dep:nalgebra", "dep:rand_distr", "dep:rand", "oxicrab-memory/rss"]
 
 [dependencies]
 oxicrab-core = { path = "crates/oxicrab-core" }
+oxicrab-channels = { path = "crates/oxicrab-channels", default-features = false }
 oxicrab-memory = { path = "crates/oxicrab-memory", default-features = false, features = ["rss"] }
 oxicrab-providers = { path = "crates/oxicrab-providers" }
 aho-corasick = "1.1"
@@ -83,8 +84,6 @@ metrics-exporter-prometheus = "0.17"
 moka = { version = "0.12", features = ["sync"] }
 oauth2 = "5.0"
 open = "5.0"
-qr2term = { version = "0.3", optional = true }
-qrcode = { version = "0.14", optional = true }
 regex = "1.12"
 reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "stream", "rustls", "charset", "http2", "query", "form", "blocking"] }
 rmcp = { version = "1.2", features = ["client", "transport-child-process"] }
@@ -94,15 +93,11 @@ scraper = "0.25"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml_ng = "0.10"
-serenity = { version = "0.12", optional = true }
-sha1 = { version = "0.10", optional = true }
 sha2 = "0.10"
 shlex = "1.3"
 subtle = "2.6"
-teloxide = { version = "0.17", default-features = false, features = ["rustls", "ctrlc_handler"], optional = true }
 tempfile = "3.25"
 tokio = { version = "1.50", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
-tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Note: Ensure >= 0.3.20 for RUSTSEC-2025-0055 (ANSI escape sequence injection) - current: 0.3.22
@@ -110,14 +105,16 @@ url = "2.5"
 urlencoding = "2.1"
 uuid = { version = "1.22", features = ["v4", "serde"] }
 walkdir = "2.5"
-whatsapp-rust = { version = "0.3", optional = true }
-whatsapp-rust-tokio-transport = { version = "0.3", optional = true }
-whatsapp-rust-ureq-http-client = { version = "0.3", optional = true }
 chromiumoxide = { version = "0.9", default-features = false, optional = true }
 feed-rs = { version = "2", optional = true }
 nalgebra = { version = "0.33", optional = true }
 rand = { version = "0.8", optional = true }
 rand_distr = { version = "0.4", optional = true }
+whatsapp-rust = { version = "0.3", optional = true }
+whatsapp-rust-tokio-transport = { version = "0.3", optional = true }
+whatsapp-rust-ureq-http-client = { version = "0.3", optional = true }
+qr2term = { version = "0.3", optional = true }
+qrcode = { version = "0.14", optional = true }
 which = "8.0"
 whisper-rs = { version = "0.16", features = ["tracing_backend"], optional = true }
 

@@ -1,4 +1,5 @@
 use super::*;
+use oxicrab_core::config::schema::DmPolicy;
 
 /// Serialize tests that mutate the `OXICRAB_HOME` env var to prevent races.
 static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -74,10 +75,21 @@ fn test_pairing_store_fallback() {
     let db_dir = dir.path().join("workspace").join("memory");
     std::fs::create_dir_all(&db_dir).unwrap();
     let db_path = db_dir.join("memory.sqlite3");
-    let db = crate::agent::memory::memory_db::MemoryDB::new(&db_path).unwrap();
-    db.add_paired_sender("telegram", "user789").unwrap();
-    // Drop the DB to release the connection before is_sender_paired opens its own
-    drop(db);
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS pairing_allowlist (
+            channel TEXT NOT NULL,
+            sender_id TEXT NOT NULL,
+            PRIMARY KEY (channel, sender_id)
+        )",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO pairing_allowlist (channel, sender_id) VALUES (?1, ?2)",
+        rusqlite::params!["telegram", "user789"],
+    )
+    .unwrap();
+    drop(conn);
 
     // Empty allowFrom but paired → allowed
     assert!(check_allowed_sender("user789", &[], "telegram"));
@@ -95,7 +107,7 @@ fn test_normalize_strips_plus() {
 #[test]
 fn test_dm_access_open_allows_all() {
     assert!(matches!(
-        check_dm_access("anyone", &[], "test", &crate::config::DmPolicy::Open),
+        check_dm_access("anyone", &[], "test", &DmPolicy::Open),
         DmCheckResult::Allowed
     ));
 }
@@ -103,7 +115,7 @@ fn test_dm_access_open_allows_all() {
 #[test]
 fn test_dm_access_allowlist_denies_unknown() {
     assert!(matches!(
-        check_dm_access("unknown", &[], "test", &crate::config::DmPolicy::Allowlist),
+        check_dm_access("unknown", &[], "test", &DmPolicy::Allowlist),
         DmCheckResult::Denied
     ));
 }
@@ -112,41 +124,16 @@ fn test_dm_access_allowlist_denies_unknown() {
 fn test_dm_access_allowlist_allows_known() {
     let list = vec!["alice".to_string()];
     assert!(matches!(
-        check_dm_access("alice", &list, "test", &crate::config::DmPolicy::Allowlist),
+        check_dm_access("alice", &list, "test", &DmPolicy::Allowlist),
         DmCheckResult::Allowed
     ));
-}
-
-#[test]
-fn test_dm_access_pairing_returns_code() {
-    let _lock = ENV_MUTEX
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let dir = tempfile::tempdir().unwrap();
-    // SAFETY: serialized by ENV_MUTEX; cleaned up by EnvVarGuard on drop
-    unsafe { std::env::set_var("OXICRAB_HOME", dir.path().as_os_str()) };
-    let _env = EnvVarGuard("OXICRAB_HOME");
-
-    // Create the workspace/memory directory so PairingStore::open_default() can work
-    // But open_default() uses load_config — in tests, we need a config file.
-    // Instead, test the pairing store directly and verify code format.
-    let db_dir = dir.path().join("workspace").join("memory");
-    std::fs::create_dir_all(&db_dir).unwrap();
-    let db_path = db_dir.join("memory.sqlite3");
-    let db = std::sync::Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path).unwrap());
-    let store = crate::pairing::PairingStore::new(db);
-    let code = store
-        .request_pairing("telegram", "newuser")
-        .unwrap()
-        .unwrap();
-    assert_eq!(code.len(), 8);
 }
 
 #[test]
 fn test_dm_access_pairing_allows_known() {
     let list = vec!["bob".to_string()];
     assert!(matches!(
-        check_dm_access("bob", &list, "test", &crate::config::DmPolicy::Pairing),
+        check_dm_access("bob", &list, "test", &DmPolicy::Pairing),
         DmCheckResult::Allowed
     ));
 }

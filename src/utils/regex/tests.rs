@@ -7,34 +7,7 @@ fn ansi_escape_matches() {
     assert!(!RegexPatterns::ansi_escape().is_match("plain text"));
 }
 
-#[test]
-#[cfg(any(
-    feature = "channel-telegram",
-    feature = "channel-discord",
-    feature = "channel-slack",
-    feature = "channel-whatsapp",
-    feature = "channel-twilio",
-))]
-fn markdown_bold_matches() {
-    assert!(RegexPatterns::markdown_bold().is_match("**bold**"));
-    assert!(!RegexPatterns::markdown_bold().is_match("*italic*"));
-}
-
-#[test]
-#[cfg(any(
-    feature = "channel-telegram",
-    feature = "channel-discord",
-    feature = "channel-slack",
-    feature = "channel-whatsapp",
-    feature = "channel-twilio",
-))]
-fn markdown_link_captures() {
-    let caps = RegexPatterns::markdown_link()
-        .captures("[text](http://example.com)")
-        .unwrap();
-    assert_eq!(&caps[1], "text");
-    assert_eq!(&caps[2], "http://example.com");
-}
+// NOTE: markdown_bold, markdown_link, compile_slack_mention tests moved to oxicrab-channels
 
 #[test]
 fn html_tags_matches() {
@@ -51,21 +24,6 @@ fn compile_regex_valid() {
 #[test]
 fn compile_regex_invalid() {
     assert!(compile_regex(r"[invalid").is_err());
-}
-
-#[test]
-#[cfg(any(
-    feature = "channel-telegram",
-    feature = "channel-discord",
-    feature = "channel-slack",
-    feature = "channel-whatsapp",
-    feature = "channel-twilio",
-))]
-fn slack_mention_matches() {
-    let re = compile_slack_mention("U12345").unwrap();
-    assert!(re.is_match("<@U12345>"));
-    assert!(re.is_match("<@U12345 >"));
-    assert!(!re.is_match("<@U99999>"));
 }
 
 #[test]

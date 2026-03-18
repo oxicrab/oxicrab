@@ -1,13 +1,13 @@
-use crate::bus::{InboundMessage, OutboundMessage};
-use crate::channels::base::BaseChannel;
-use crate::channels::utils::{
+use crate::media_utils::get_oxicrab_home;
+use crate::utils::{
     DmCheckResult, check_allowed_sender, check_dm_access, exponential_backoff_delay,
     format_pairing_reply,
 };
-use crate::config::WhatsAppConfig;
-use crate::utils::get_oxicrab_home;
 use anyhow::Result;
 use async_trait::async_trait;
+use oxicrab_core::bus::events::{InboundMessage, OutboundMessage};
+use oxicrab_core::channels::base::BaseChannel;
+use oxicrab_core::config::schema::WhatsAppConfig;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -574,7 +574,7 @@ async fn send_whatsapp_message(
         .map_err(|e| anyhow::anyhow!("Invalid WhatsApp chat_id '{chat_id_str}': {e}"))?;
 
     // Split long messages using UTF-8 safe splitting
-    let chunks = crate::channels::base::split_message(&msg.content, 4096);
+    let chunks = oxicrab_core::channels::base::split_message(&msg.content, 4096);
 
     let mut last_id = None;
     for (i, chunk) in chunks.iter().enumerate() {
@@ -613,7 +613,7 @@ async fn download_whatsapp_media(
     message_id: &str,
     media_type: &str,
 ) -> Result<String> {
-    let media_dir = crate::utils::media::media_dir()?;
+    let media_dir = crate::media_utils::media_dir()?;
 
     // Infer extension from mimetype
     let ext = match mimetype {
@@ -642,7 +642,7 @@ async fn download_whatsapp_media(
     };
     let file_path = media_dir.join(format!(
         "whatsapp_{}.{}",
-        crate::utils::safe_filename(message_id),
+        crate::media_utils::safe_filename(message_id),
         ext
     ));
 

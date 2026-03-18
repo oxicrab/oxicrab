@@ -1,14 +1,14 @@
-use crate::bus::{InboundMessage, OutboundMessage};
-use crate::channels::base::{BaseChannel, split_message};
-use crate::channels::utils::{
+use crate::regex_utils::compile_slack_mention;
+use crate::utils::{
     DmCheckResult, MAX_AUDIO_DOWNLOAD, MAX_IMAGE_DOWNLOAD, check_dm_access, check_group_access,
     exponential_backoff_delay, format_pairing_reply,
 };
-use crate::config::SlackConfig;
-use crate::utils::regex::compile_slack_mention;
 use anyhow::Result;
 use async_trait::async_trait;
 use futures_util::SinkExt;
+use oxicrab_core::bus::events::{InboundMessage, OutboundMessage};
+use oxicrab_core::channels::base::{BaseChannel, split_message};
+use oxicrab_core::config::schema::SlackConfig;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -791,7 +791,7 @@ impl BaseChannel for SlackChannel {
         // Thread replies: use reply_to or inbound ts metadata for threading
         let thread_ts = msg.reply_to.as_deref().or_else(|| {
             msg.metadata
-                .get(crate::bus::meta::TS)
+                .get(oxicrab_core::bus::events::meta::TS)
                 .and_then(|v| v.as_str())
         });
         let chunks = split_message(&content, 4000);
@@ -862,7 +862,7 @@ impl BaseChannel for SlackChannel {
         // Swap thinking → done reaction (fire-and-forget)
         if let Some(ts) = msg
             .metadata
-            .get(crate::bus::meta::TS)
+            .get(oxicrab_core::bus::events::meta::TS)
             .and_then(|v| v.as_str())
         {
             let client = self.client.clone();
@@ -1070,14 +1070,14 @@ fn resolve_slack_redirect(location: &str) -> String {
 }
 
 /// Check if bytes start with known image magic bytes.
-use crate::utils::media::is_image_magic_bytes;
+use crate::media_utils::is_image_magic_bytes;
 
 /// Convert unified `metadata["buttons"]` to Slack Block Kit action blocks.
 ///
 /// Input format: `[{"id": "yes", "label": "Yes", "style": "primary"}, ...]`
 /// Output: Vec of Block Kit action block JSON values.
 fn convert_buttons_to_blocks(metadata: &HashMap<String, Value>) -> Vec<Value> {
-    let Some(buttons_val) = metadata.get(crate::bus::meta::BUTTONS) else {
+    let Some(buttons_val) = metadata.get(oxicrab_core::bus::events::meta::BUTTONS) else {
         return Vec::new();
     };
     let Some(buttons_arr) = buttons_val.as_array() else {
@@ -1135,7 +1135,7 @@ async fn handle_interactive_payload(
     inbound_tx: &Arc<mpsc::Sender<InboundMessage>>,
     allow_from: &[String],
     allow_groups: &[String],
-    dm_policy: &crate::config::DmPolicy,
+    dm_policy: &oxicrab_core::config::schema::DmPolicy,
     bot_token: &str,
     client: &reqwest::Client,
     thinking_emoji: &str,
@@ -1195,10 +1195,10 @@ async fn handle_interactive_payload(
     } else if let Ok(payload) =
         serde_json::from_str::<crate::dispatch::ActionDispatchPayload>(action_value)
     {
-        let dispatch = crate::dispatch::ActionDispatch {
+        let dispatch = oxicrab_core::dispatch::ActionDispatch {
             tool: payload.tool,
             params: payload.params,
-            source: crate::dispatch::ActionSource::Button {
+            source: oxicrab_core::dispatch::ActionSource::Button {
                 action_id: action_id.to_string(),
             },
         };
@@ -1224,7 +1224,10 @@ async fn handle_interactive_payload(
         builder = builder.meta("button_context", Value::String(action_value.to_string()));
     }
     if !message_ts.is_empty() {
-        builder = builder.meta(crate::bus::meta::TS, Value::String(message_ts.to_string()));
+        builder = builder.meta(
+            oxicrab_core::bus::events::meta::TS,
+            Value::String(message_ts.to_string()),
+        );
     }
     if let Some(d) = dispatch {
         builder = builder.action(d);
@@ -1272,7 +1275,7 @@ async fn handle_slack_event(
     inbound_tx: &Arc<mpsc::Sender<InboundMessage>>,
     allow_from: &[String],
     allow_groups: &[String],
-    dm_policy: &crate::config::DmPolicy,
+    dm_policy: &oxicrab_core::config::schema::DmPolicy,
     bot_token: &str,
     client: &reqwest::Client,
     thinking_emoji: &str,
@@ -1428,7 +1431,7 @@ async fn handle_slack_event(
                             "image/webp" => ".webp",
                             _ => ".bin",
                         };
-                        let Ok(media_dir) = crate::utils::media::media_dir() else {
+                        let Ok(media_dir) = crate::media_utils::media_dir() else {
                             warn!("Failed to create media directory");
                             continue;
                         };
@@ -1485,7 +1488,7 @@ async fn handle_slack_event(
                             "audio/flac" => ".flac",
                             _ => ".ogg",
                         };
-                        let Ok(media_dir) = crate::utils::media::media_dir() else {
+                        let Ok(media_dir) = crate::media_utils::media_dir() else {
                             warn!("Failed to create media directory");
                             continue;
                         };

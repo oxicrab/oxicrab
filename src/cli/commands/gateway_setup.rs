@@ -576,6 +576,9 @@ fn setup_channels(
     config: &Config,
     inbound_tx: tokio::sync::mpsc::Sender<crate::bus::InboundMessage>,
 ) -> ChannelManager {
+    // Register the pairing requester so channels can issue pairing codes
+    oxicrab_channels::set_pairing_requester(Box::new(OxicrabPairingRequester));
+
     info!("Initializing channels...");
     let channels = ChannelManager::new(config, Arc::new(inbound_tx));
     info!(
@@ -583,6 +586,28 @@ fn setup_channels(
         channels.enabled_channels()
     );
     channels
+}
+
+/// Adapter that implements the channels crate's `PairingRequester` trait
+/// using the main crate's `PairingStore`.
+struct OxicrabPairingRequester;
+
+impl oxicrab_channels::PairingRequester for OxicrabPairingRequester {
+    fn request_pairing(&self, channel: &str, sender_id: &str) -> Option<String> {
+        match crate::pairing::PairingStore::open_default() {
+            Ok(store) => match store.request_pairing(channel, sender_id) {
+                Ok(code) => code,
+                Err(e) => {
+                    warn!("failed to create pairing request: {}", e);
+                    None
+                }
+            },
+            Err(e) => {
+                warn!("failed to open pairing store: {}", e);
+                None
+            }
+        }
+    }
 }
 
 async fn start_services(cron: Arc<CronService>) -> Result<()> {

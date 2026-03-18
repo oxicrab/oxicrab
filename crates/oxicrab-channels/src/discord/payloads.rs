@@ -111,7 +111,7 @@ pub(super) fn parse_unified_buttons(
     metadata: &HashMap<String, serde_json::Value>,
     dispatch_store: Option<&crate::dispatch::DispatchContextStore>,
 ) -> Vec<CreateActionRow> {
-    let Some(buttons_val) = metadata.get(crate::bus::meta::BUTTONS) else {
+    let Some(buttons_val) = metadata.get(oxicrab_core::bus::events::meta::BUTTONS) else {
         return Vec::new();
     };
     let Some(buttons_arr) = buttons_val.as_array() else {
@@ -191,7 +191,7 @@ pub(super) fn components_to_api_json(
     }
 
     // Fallback: unified "buttons" format.
-    if let Some(buttons_val) = metadata.get(crate::bus::meta::BUTTONS)
+    if let Some(buttons_val) = metadata.get(oxicrab_core::bus::events::meta::BUTTONS)
         && let Some(buttons_arr) = buttons_val.as_array()
         && !buttons_arr.is_empty()
     {

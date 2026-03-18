@@ -1,12 +1,12 @@
-use crate::bus::{InboundMessage, OutboundMessage};
-use crate::channels::base::{BaseChannel, split_message};
-use crate::channels::utils::{
+use crate::utils::{
     DmCheckResult, MAX_AUDIO_DOWNLOAD, MAX_IMAGE_DOWNLOAD, check_dm_access, check_group_access,
     exponential_backoff_delay, format_pairing_reply,
 };
-use crate::config::{DiscordCommand, DiscordConfig};
 use anyhow::Result;
 use async_trait::async_trait;
+use oxicrab_core::bus::events::{InboundMessage, OutboundMessage};
+use oxicrab_core::channels::base::{BaseChannel, split_message};
+use oxicrab_core::config::schema::{DiscordCommand, DiscordConfig};
 use payloads::{
     components_to_api_json, parse_components_from_metadata, parse_embeds_from_metadata,
 };
@@ -35,7 +35,7 @@ struct Handler {
     inbound_tx: mpsc::Sender<InboundMessage>,
     allow_list: Vec<String>,
     allow_groups: Vec<String>,
-    dm_policy: crate::config::DmPolicy,
+    dm_policy: oxicrab_core::config::schema::DmPolicy,
     http_client: reqwest::Client,
     commands: Vec<DiscordCommand>,
     dispatch_store: Arc<crate::dispatch::DispatchContextStore>,
@@ -127,7 +127,7 @@ impl Handler {
             )),
         );
         metadata.insert(
-            crate::bus::meta::IS_GROUP.to_string(),
+            oxicrab_core::bus::events::meta::IS_GROUP.to_string(),
             serde_json::Value::Bool(cmd.guild_id.is_some()),
         );
 
@@ -195,16 +195,15 @@ impl Handler {
 
         let custom_id = comp.data.custom_id.clone();
 
-        let dispatch =
-            self.dispatch_store
-                .get(&custom_id)
-                .map(|payload| crate::dispatch::ActionDispatch {
-                    tool: payload.tool,
-                    params: payload.params,
-                    source: crate::dispatch::ActionSource::Button {
-                        action_id: custom_id.clone(),
-                    },
-                });
+        let dispatch = self.dispatch_store.get(&custom_id).map(|payload| {
+            oxicrab_core::dispatch::ActionDispatch {
+                tool: payload.tool,
+                params: payload.params,
+                source: oxicrab_core::dispatch::ActionSource::Button {
+                    action_id: custom_id.clone(),
+                },
+            }
+        });
 
         let content = format!("[button:{custom_id}]");
 
@@ -230,7 +229,7 @@ impl Handler {
             serde_json::Value::String(custom_id),
         );
         metadata.insert(
-            crate::bus::meta::IS_GROUP.to_string(),
+            oxicrab_core::bus::events::meta::IS_GROUP.to_string(),
             serde_json::Value::Bool(comp.guild_id.is_some()),
         );
 
@@ -320,7 +319,7 @@ impl EventHandler for Handler {
                     "audio",
                 )
             };
-            let Ok(media_dir) = crate::utils::media::media_dir() else {
+            let Ok(media_dir) = crate::media_utils::media_dir() else {
                 warn!("Failed to create media directory");
                 continue;
             };
@@ -375,7 +374,7 @@ impl EventHandler for Handler {
 
         let mut metadata = HashMap::new();
         metadata.insert(
-            crate::bus::meta::IS_GROUP.to_string(),
+            oxicrab_core::bus::events::meta::IS_GROUP.to_string(),
             serde_json::Value::Bool(is_group),
         );
         let inbound_msg =

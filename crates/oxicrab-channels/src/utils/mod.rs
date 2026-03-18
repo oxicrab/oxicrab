@@ -51,7 +51,7 @@ pub fn check_allowed_sender(sender: &str, allow_list: &[String], channel: &str) 
     feature = "channel-twilio",
 ))]
 fn is_sender_paired(channel: &str, sender: &str) -> bool {
-    let Ok(db_path) = crate::utils::get_memory_db_path() else {
+    let Ok(db_path) = get_memory_db_path() else {
         return false;
     };
 
@@ -149,9 +149,11 @@ pub fn check_dm_access(
     sender: &str,
     allow_list: &[String],
     channel: &str,
-    dm_policy: &crate::config::DmPolicy,
+    dm_policy: &oxicrab_core::config::schema::DmPolicy,
 ) -> DmCheckResult {
-    if *dm_policy == crate::config::DmPolicy::Open {
+    use oxicrab_core::config::schema::DmPolicy;
+
+    if *dm_policy == DmPolicy::Open {
         return DmCheckResult::Allowed;
     }
 
@@ -159,20 +161,14 @@ pub fn check_dm_access(
         return DmCheckResult::Allowed;
     }
 
-    if *dm_policy == crate::config::DmPolicy::Pairing {
-        match crate::pairing::PairingStore::open_default() {
-            Ok(store) => match store.request_pairing(channel, sender) {
-                Ok(Some(code)) => return DmCheckResult::PairingRequired { code },
-                Ok(None) => {
-                    tracing::debug!("pairing request rate-limited for {} on {}", sender, channel);
-                }
-                Err(e) => {
-                    tracing::warn!("failed to create pairing request: {}", e);
-                }
-            },
-            Err(e) => {
-                tracing::warn!("failed to open pairing store: {}", e);
+    if *dm_policy == DmPolicy::Pairing {
+        if let Some(requester) = crate::get_pairing_requester() {
+            if let Some(code) = requester.request_pairing(channel, sender) {
+                return DmCheckResult::PairingRequired { code };
             }
+            tracing::debug!("pairing request rate-limited for {} on {}", sender, channel);
+        } else {
+            tracing::debug!("no pairing requester configured, denying {}", sender);
         }
     }
 
@@ -210,6 +206,39 @@ pub fn exponential_backoff_delay(attempt: u32, base_delay_secs: u64, max_delay_s
     // Add up to 25% jitter to avoid thundering herd
     let jitter = (capped as f64 * 0.25 * fastrand::f64()) as u64;
     capped + jitter
+}
+
+/// Resolve the path to the shared `MemoryDB` file.
+#[cfg(any(
+    feature = "channel-telegram",
+    feature = "channel-discord",
+    feature = "channel-slack",
+    feature = "channel-whatsapp",
+    feature = "channel-twilio",
+))]
+fn get_memory_db_path() -> anyhow::Result<std::path::PathBuf> {
+    Ok(get_oxicrab_home()?
+        .join("workspace")
+        .join("memory")
+        .join("memory.sqlite3"))
+}
+
+/// Get the oxicrab home directory.
+#[cfg(any(
+    feature = "channel-telegram",
+    feature = "channel-discord",
+    feature = "channel-slack",
+    feature = "channel-whatsapp",
+    feature = "channel-twilio",
+))]
+fn get_oxicrab_home() -> anyhow::Result<std::path::PathBuf> {
+    use anyhow::Context;
+    if let Some(home) = std::env::var_os("OXICRAB_HOME") {
+        return Ok(std::path::PathBuf::from(home));
+    }
+    Ok(dirs::home_dir()
+        .context("Could not determine home directory")?
+        .join(".oxicrab"))
 }
 
 #[cfg(test)]

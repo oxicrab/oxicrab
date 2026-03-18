@@ -1,7 +1,4 @@
-use crate::bus::{InboundMessage, OutboundMessage};
-use crate::channels::base::{BaseChannel, split_message};
-use crate::channels::utils::{DmCheckResult, check_dm_access, format_pairing_reply};
-use crate::config::TwilioConfig;
+use crate::utils::{DmCheckResult, check_dm_access, format_pairing_reply};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use axum::Router;
@@ -11,6 +8,9 @@ use axum::response::IntoResponse;
 use axum::routing::post;
 use base64::Engine;
 use hmac::{Hmac, Mac};
+use oxicrab_core::bus::events::{InboundMessage, OutboundMessage};
+use oxicrab_core::channels::base::{BaseChannel, split_message};
+use oxicrab_core::config::schema::TwilioConfig;
 use sha1::Sha1;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -50,7 +50,7 @@ struct WebhookState {
     webhook_url: String,
     phone_number: String,
     allow_from: Vec<String>,
-    dm_policy: crate::config::DmPolicy,
+    dm_policy: oxicrab_core::config::schema::DmPolicy,
     inbound_tx: Arc<mpsc::Sender<InboundMessage>>,
 }
 

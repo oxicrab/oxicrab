@@ -1,17 +1,17 @@
-use crate::bus::{InboundMessage, OutboundMessage};
-use crate::channels::base::BaseChannel;
 #[cfg(feature = "channel-discord")]
-use crate::channels::discord::DiscordChannel;
+use crate::discord::DiscordChannel;
 #[cfg(feature = "channel-slack")]
-use crate::channels::slack::SlackChannel;
+use crate::slack::SlackChannel;
 #[cfg(feature = "channel-telegram")]
-use crate::channels::telegram::TelegramChannel;
+use crate::telegram::TelegramChannel;
 #[cfg(feature = "channel-twilio")]
-use crate::channels::twilio::TwilioChannel;
+use crate::twilio::TwilioChannel;
 #[cfg(feature = "channel-whatsapp")]
-use crate::channels::whatsapp::WhatsAppChannel;
-use crate::config::Config;
+use crate::whatsapp::WhatsAppChannel;
 use anyhow::Result;
+use oxicrab_core::bus::events::{InboundMessage, OutboundMessage};
+use oxicrab_core::channels::base::BaseChannel;
+use oxicrab_core::config::schema::Config;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};

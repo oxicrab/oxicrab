@@ -106,7 +106,7 @@ fn test_parse_components_missing_custom_id_skipped() {
 fn test_parse_unified_buttons() {
     let mut meta = HashMap::new();
     meta.insert(
-        crate::bus::meta::BUTTONS.to_string(),
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
         serde_json::json!([
             {"id": "approve", "label": "Approve", "style": "success"},
             {"id": "deny", "label": "Deny", "style": "danger"}
@@ -133,7 +133,7 @@ fn test_discord_components_takes_precedence() {
         ]),
     );
     meta.insert(
-        crate::bus::meta::BUTTONS.to_string(),
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
         serde_json::json!([{"id": "unified", "label": "Unified"}]),
     );
     let rows = parse_components_from_metadata(&meta, None);
@@ -145,7 +145,7 @@ fn test_discord_components_takes_precedence() {
 fn test_parse_unified_buttons_missing_id_skipped() {
     let mut meta = HashMap::new();
     meta.insert(
-        crate::bus::meta::BUTTONS.to_string(),
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
         serde_json::json!([{"label": "No ID"}]),
     );
     let rows = parse_unified_buttons(&meta, None);
@@ -158,7 +158,7 @@ fn test_parse_unified_buttons_stores_dispatch_payload() {
     let payload = serde_json::json!({"tool": "rss", "params": {"action": "accept"}});
     let mut meta = HashMap::new();
     meta.insert(
-        crate::bus::meta::BUTTONS.to_string(),
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
         serde_json::json!([
             {
                 "id": "rss_accept",
@@ -180,7 +180,7 @@ fn test_parse_unified_buttons_no_store_no_panic() {
     // context field present but no store — should silently skip, still render button
     let mut meta = HashMap::new();
     meta.insert(
-        crate::bus::meta::BUTTONS.to_string(),
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
         serde_json::json!([
             {
                 "id": "btn1",
@@ -197,7 +197,7 @@ fn test_parse_unified_buttons_no_store_no_panic() {
 fn test_components_to_api_json_unified() {
     let mut meta = HashMap::new();
     meta.insert(
-        crate::bus::meta::BUTTONS.to_string(),
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
         serde_json::json!([
             {"id": "yes", "label": "Yes", "style": "primary"},
             {"id": "no", "label": "No", "style": "danger"}

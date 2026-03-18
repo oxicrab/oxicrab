@@ -1,4 +1,4 @@
-use crate::utils::regex::RegexPatterns;
+use crate::regex_utils::RegexPatterns;
 
 pub(super) fn format_for_slack(text: &str) -> String {
     if text.is_empty() {

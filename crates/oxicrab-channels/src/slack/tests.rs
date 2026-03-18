@@ -539,7 +539,7 @@ fn test_format_for_slack_tables_end_to_end() {
 
 #[test]
 fn test_mention_regex_pattern() {
-    let re = crate::utils::regex::compile_slack_mention("U12345").unwrap();
+    let re = crate::regex_utils::compile_slack_mention("U12345").unwrap();
     assert!(re.is_match("<@U12345>"));
     assert!(re.is_match("<@U12345 >"));
     assert!(!re.is_match("<@U99999>"));
@@ -660,7 +660,7 @@ fn test_should_ignore_system_events() {
 fn test_convert_buttons_to_blocks_basic() {
     let mut metadata = HashMap::new();
     metadata.insert(
-        crate::bus::meta::BUTTONS.to_string(),
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
         serde_json::json!([
             {"id": "yes", "label": "Yes", "style": "primary"},
             {"id": "no", "label": "No", "style": "danger"}
@@ -682,7 +682,7 @@ fn test_convert_buttons_to_blocks_basic() {
 fn test_convert_buttons_to_blocks_no_style() {
     let mut metadata = HashMap::new();
     metadata.insert(
-        crate::bus::meta::BUTTONS.to_string(),
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
         serde_json::json!([{"id": "ok", "label": "OK"}]),
     );
 
@@ -703,7 +703,10 @@ fn test_convert_buttons_to_blocks_empty_metadata() {
 #[test]
 fn test_convert_buttons_to_blocks_empty_array() {
     let mut metadata = HashMap::new();
-    metadata.insert(crate::bus::meta::BUTTONS.to_string(), serde_json::json!([]));
+    metadata.insert(
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
+        serde_json::json!([]),
+    );
     assert!(convert_buttons_to_blocks(&metadata).is_empty());
 }
 
@@ -711,7 +714,7 @@ fn test_convert_buttons_to_blocks_empty_array() {
 fn test_convert_buttons_to_blocks_with_context() {
     let mut metadata = HashMap::new();
     metadata.insert(
-        crate::bus::meta::BUTTONS.to_string(),
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
         serde_json::json!([
             {"id": "complete", "label": "Complete", "style": "primary", "context": "{\"task_id\":\"abc123\",\"list_id\":\"list1\"}"},
             {"id": "skip", "label": "Skip"}

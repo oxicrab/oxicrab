@@ -1,13 +1,13 @@
-use crate::bus::{InboundMessage, OutboundMessage};
-use crate::channels::base::{BaseChannel, split_message};
-use crate::channels::utils::{
+use crate::regex_utils::RegexPatterns;
+use crate::utils::{
     DmCheckResult, check_dm_access, check_group_access, exponential_backoff_delay,
     format_pairing_reply,
 };
-use crate::config::TelegramConfig;
-use crate::utils::regex::RegexPatterns;
 use anyhow::Result;
 use async_trait::async_trait;
+use oxicrab_core::bus::events::{InboundMessage, OutboundMessage};
+use oxicrab_core::channels::base::{BaseChannel, split_message};
+use oxicrab_core::config::schema::TelegramConfig;
 use std::fmt::Write as _;
 
 /// Maximum file download size for Telegram media (25 MB).
@@ -137,7 +137,7 @@ impl BaseChannel for TelegramChannel {
                                             warn!("telegram photo too large ({} bytes), skipping", file.size);
                                         }
                                         Ok(file) => {
-                                            let Ok(media_dir) = crate::utils::media::media_dir() else {
+                                            let Ok(media_dir) = crate::media_utils::media_dir() else {
                                                 warn!("Failed to create media directory");
                                                 return Ok(());
                                             };
@@ -199,7 +199,7 @@ impl BaseChannel for TelegramChannel {
                                         warn!("telegram voice too large ({} bytes), skipping", file.size);
                                     }
                                     Ok(file) => {
-                                        let Ok(media_dir) = crate::utils::media::media_dir() else {
+                                        let Ok(media_dir) = crate::media_utils::media_dir() else {
                                             warn!("Failed to create media directory");
                                             return Ok(());
                                         };
@@ -261,7 +261,7 @@ impl BaseChannel for TelegramChannel {
                                         warn!("telegram document too large ({} bytes), skipping", file.size);
                                     }
                                     Ok(file) => {
-                                        let Ok(media_dir) = crate::utils::media::media_dir() else {
+                                        let Ok(media_dir) = crate::media_utils::media_dir() else {
                                             warn!("Failed to create media directory");
                                             return Ok(());
                                         };

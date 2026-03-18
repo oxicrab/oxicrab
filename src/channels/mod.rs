@@ -1,13 +1,3 @@
-pub mod base;
-#[cfg(feature = "channel-discord")]
-pub mod discord;
-pub mod manager;
-#[cfg(feature = "channel-slack")]
-pub mod slack;
-#[cfg(feature = "channel-telegram")]
-pub mod telegram;
-#[cfg(feature = "channel-twilio")]
-pub mod twilio;
-pub mod utils;
-#[cfg(feature = "channel-whatsapp")]
-pub mod whatsapp;
+// Re-export from oxicrab-channels crate.
+// Re-export ChannelManager for use by gateway_setup.
+pub use oxicrab_channels::manager;
