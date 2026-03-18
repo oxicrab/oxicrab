@@ -147,11 +147,30 @@ max_width: 960px
     <p>Common routing controls in <code>router</code> config:</p>
     <pre><code>{
   "router": {
+    "prefix": "!",
+    "rules": [
+      {
+        "trigger": "daily",
+        "tool": "cron",
+        "params": { "action": "list" }
+      },
+      {
+        "trigger": "daily_run",
+        "tool": "cron",
+        "params": { "action": "run", "job_id": "$1" }
+      },
+      {
+        "trigger": "todos",
+        "tool": "todoist",
+        "params": { "action": "list" }
+      }
+    ],
     "semanticTopK": 6,
     "semanticPrefilterK": 16,
     "semanticThreshold": 0.35
   }
 }</code></pre>
+    <div class="example"><strong>Example:</strong> with <code>prefix: "!"</code>, typing <code>!daily</code> lists jobs and <code>!daily_run a42aea75794c</code> runs a specific job ID. Both are deterministic dispatches (no LLM needed).</div>
     <p>See <a href="config.html">Config</a> for full schema and defaults.</p>
     <p>Related guides: <a href="cli.html">CLI Reference</a> and <a href="workspace.html">Workspace Docs</a>.</p>
   </section>
