@@ -42,7 +42,7 @@ embeddings = ["dep:fastembed", "oxicrab-memory/embeddings"]
 channel-telegram = ["oxicrab-channels/channel-telegram"]
 channel-discord = ["oxicrab-channels/channel-discord"]
 channel-slack = ["oxicrab-channels/channel-slack"]
-channel-whatsapp = ["oxicrab-channels/channel-whatsapp", "dep:whatsapp-rust", "dep:whatsapp-rust-tokio-transport", "dep:whatsapp-rust-ureq-http-client", "dep:qr2term", "dep:qrcode"]
+channel-whatsapp = ["oxicrab-channels/channel-whatsapp", "dep:wa-rs", "dep:wa-rs-tokio-transport", "dep:wa-rs-ureq-http", "dep:qr2term", "dep:qrcode"]
 channel-twilio = ["oxicrab-channels/channel-twilio"]
 tool-rss = ["dep:oxicrab-tools-rss", "oxicrab-memory/rss"]
 
@@ -110,13 +110,14 @@ url = "2.5"
 urlencoding = "2.1"
 uuid = { version = "1.22", features = ["v4", "serde"] }
 walkdir = "2.5"
+wa-rs = { version = "0.2", optional = true, default-features = false, features = ["sqlite-storage"] }
+wa-rs-tokio-transport = { version = "0.2", optional = true }
+wa-rs-ureq-http = { version = "0.2", optional = true }
+chromiumoxide = { version = "0.9", default-features = false, optional = true }
 feed-rs = { version = "2", optional = true }
 nalgebra = { version = "0.33", optional = true }
 rand = { version = "0.8", optional = true }
 rand_distr = { version = "0.4", optional = true }
-whatsapp-rust = { version = "0.3", optional = true }
-whatsapp-rust-tokio-transport = { version = "0.3", optional = true }
-whatsapp-rust-ureq-http-client = { version = "0.3", optional = true }
 qr2term = { version = "0.3", optional = true }
 qrcode = { version = "0.14", optional = true }
 which = "8.0"
