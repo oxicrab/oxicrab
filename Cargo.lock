@@ -3441,6 +3441,7 @@ dependencies = [
  "oxicrab-gateway",
  "oxicrab-memory",
  "oxicrab-providers",
+ "oxicrab-tools-api",
  "oxicrab-tools-system",
  "oxicrab-tools-web",
  "proptest",
@@ -3602,6 +3603,27 @@ dependencies = [
  "tracing",
  "urlencoding",
  "uuid",
+ "wiremock",
+]
+
+[[package]]
+name = "oxicrab-tools-api"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "dirs",
+ "fastrand",
+ "form_urlencoded",
+ "oxicrab-core",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "urlencoding",
  "wiremock",
 ]
 

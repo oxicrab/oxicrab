@@ -75,12 +75,23 @@ pub async fn register_all_tools(
     let subagents = register_subagents(&mut tools, ctx);
     #[cfg(feature = "browser")]
     register_browser(&mut tools, ctx);
-    register_image_gen(&mut tools, ctx);
+    #[cfg(feature = "tools-api")]
+    {
+        register_image_gen_ext(&mut tools, ctx);
+        register_github_ext(&mut tools, ctx);
+        register_weather_ext(&mut tools, ctx);
+        register_todoist_ext(&mut tools, ctx);
+        register_media_ext(&mut tools, ctx);
+    }
+    #[cfg(not(feature = "tools-api"))]
+    {
+        register_image_gen(&mut tools, ctx);
+        register_github(&mut tools, ctx);
+        register_weather(&mut tools, ctx);
+        register_todoist(&mut tools, ctx);
+        register_media(&mut tools, ctx);
+    }
     register_cron(&mut tools, ctx);
-    register_github(&mut tools, ctx);
-    register_weather(&mut tools, ctx);
-    register_todoist(&mut tools, ctx);
-    register_media(&mut tools, ctx);
     register_obsidian(&mut tools, ctx);
     register_http(&mut tools);
     register_reddit(&mut tools);
@@ -282,6 +293,68 @@ fn register_browser(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     }
 }
 
+#[cfg(feature = "tools-api")]
+fn register_github_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    if let Some(ref gh_cfg) = ctx.github_config
+        && gh_cfg.enabled
+        && !gh_cfg.token.is_empty()
+    {
+        registry.register(oxicrab_tools_api::create_github_tool(gh_cfg.token.clone()));
+        info!("GitHub tool registered (crate)");
+    }
+}
+
+#[cfg(feature = "tools-api")]
+fn register_weather_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    if let Some(ref weather_cfg) = ctx.weather_config
+        && weather_cfg.enabled
+        && !weather_cfg.api_key.is_empty()
+    {
+        registry.register(oxicrab_tools_api::create_weather_tool(
+            weather_cfg.api_key.clone(),
+        ));
+        info!("Weather tool registered (crate)");
+    }
+}
+
+#[cfg(feature = "tools-api")]
+fn register_todoist_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    if let Some(ref todoist_cfg) = ctx.todoist_config
+        && todoist_cfg.enabled
+        && !todoist_cfg.token.is_empty()
+    {
+        registry.register(oxicrab_tools_api::create_todoist_tool(
+            todoist_cfg.token.clone(),
+        ));
+        info!("Todoist tool registered (crate)");
+    }
+}
+
+#[cfg(feature = "tools-api")]
+fn register_media_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    if let Some(ref media_cfg) = ctx.media_config
+        && media_cfg.enabled
+    {
+        registry.register(oxicrab_tools_api::create_media_tool(media_cfg));
+        info!("Media tool registered (crate)");
+    }
+}
+
+#[cfg(feature = "tools-api")]
+fn register_image_gen_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    if let Some(ref ig_cfg) = ctx.image_gen_config
+        && ig_cfg.enabled
+    {
+        registry.register(oxicrab_tools_api::create_image_gen_tool(
+            ig_cfg.openai_api_key.clone(),
+            ig_cfg.google_api_key.clone(),
+            ig_cfg.default_provider.clone(),
+        ));
+        info!("Image generation tool registered (crate)");
+    }
+}
+
+#[cfg(not(feature = "tools-api"))]
 fn register_image_gen(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::image_gen::ImageGenTool;
 
@@ -355,6 +428,7 @@ async fn create_google_tools(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
     result
 }
 
+#[cfg(not(feature = "tools-api"))]
 fn register_github(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::github::GitHubTool;
 
@@ -367,6 +441,7 @@ fn register_github(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     }
 }
 
+#[cfg(not(feature = "tools-api"))]
 fn register_weather(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::weather::WeatherTool;
 
@@ -379,6 +454,7 @@ fn register_weather(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     }
 }
 
+#[cfg(not(feature = "tools-api"))]
 fn register_todoist(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::todoist::TodoistTool;
 
@@ -391,6 +467,7 @@ fn register_todoist(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     }
 }
 
+#[cfg(not(feature = "tools-api"))]
 fn register_media(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::media::MediaTool;
 
