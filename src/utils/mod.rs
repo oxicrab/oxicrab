@@ -81,27 +81,6 @@ pub fn atomic_write(path: &Path, content: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn get_workspace_path(workspace: &str) -> PathBuf {
-    if workspace.starts_with("~/") {
-        if let Some(home) = dirs::home_dir() {
-            // Strip "~/" prefix to get relative path from home
-            let stripped = workspace.strip_prefix("~/").unwrap_or(workspace);
-            return home.join(stripped);
-        }
-    } else if workspace == "~" {
-        if let Some(home) = dirs::home_dir() {
-            return home;
-        }
-    } else if let Some(rest) = workspace.strip_prefix('~') {
-        // Handle "~something" (without slash) - treat as "~/something"
-        if let Some(home) = dirs::home_dir() {
-            let relative = rest.strip_prefix('/').unwrap_or(rest);
-            return home.join(relative);
-        }
-    }
-    PathBuf::from(workspace)
-}
-
 /// Truncate a string to at most `max_chars` characters, appending `suffix`
 /// (e.g. `"..."`) if truncated. Returns the original string (owned) if short enough.
 /// Safe for multi-byte UTF-8.
@@ -116,6 +95,9 @@ pub fn truncate_chars(s: &str, max_chars: usize, suffix: &str) -> String {
         None => s.to_string(), // fewer chars than max_chars
     }
 }
+
+#[cfg(test)]
+pub(crate) use oxicrab_core::utils::get_workspace_path;
 
 #[cfg(test)]
 mod tests;

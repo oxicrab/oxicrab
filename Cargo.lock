@@ -3483,6 +3483,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "dirs",
  "fastrand",
  "lru",
  "regex",
