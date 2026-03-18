@@ -25,6 +25,7 @@ pub(crate) mod errors;
 pub mod gateway;
 pub(crate) mod observability;
 pub mod pairing;
+pub mod provider_factory;
 pub mod providers;
 pub mod router;
 pub mod safety;
@@ -38,7 +39,7 @@ pub mod fuzz_api {
 
     /// Wrapper around `gateway::validate_webhook_signature` for fuzz targets.
     pub fn validate_webhook_signature(secret: &str, signature: &str, body: &[u8]) -> bool {
-        crate::gateway::validate_webhook_signature(secret, signature, body)
+        oxicrab_gateway::validate_webhook_signature(secret, signature, body)
     }
 }
 

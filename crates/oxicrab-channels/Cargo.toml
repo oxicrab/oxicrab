@@ -1,0 +1,57 @@
+[package]
+name = "oxicrab-channels"
+version = "0.15.0"
+edition = "2024"
+authors = ["James Turnbull <james@ltl.so>"]
+description = "Channel implementations for the oxicrab framework"
+license = "MIT"
+
+[features]
+default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio"]
+channel-telegram = ["dep:teloxide"]
+channel-discord = ["dep:serenity"]
+channel-slack = ["dep:tokio-tungstenite"]
+channel-whatsapp = ["dep:whatsapp-rust", "dep:whatsapp-rust-tokio-transport", "dep:whatsapp-rust-ureq-http-client", "dep:qr2term", "dep:qrcode"]
+channel-twilio = ["dep:sha1"]
+
+[dependencies]
+oxicrab-core = { path = "../oxicrab-core" }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+axum = "0.8"
+base64 = "0.22"
+dirs = "6.0"
+fastrand = "2.0"
+form_urlencoded = "1.2"
+futures-util = "0.3"
+hmac = "0.12"
+indexmap = "2"
+lru = "0.16"
+moka = { version = "0.12", features = ["sync"] }
+regex = { workspace = true }
+reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "stream", "rustls", "charset", "http2", "query", "form"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+subtle = "2.6"
+tokio = { workspace = true }
+tracing = { workspace = true }
+html-escape = "0.2"
+url = "2.5"
+urlencoding = "2.1"
+
+# Optional channel-specific dependencies
+serenity = { version = "0.12", optional = true }
+sha1 = { version = "0.10", optional = true }
+teloxide = { version = "0.17", default-features = false, features = ["rustls", "ctrlc_handler"], optional = true }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
+whatsapp-rust = { version = "0.3", optional = true }
+whatsapp-rust-tokio-transport = { version = "0.3", optional = true }
+whatsapp-rust-ureq-http-client = { version = "0.3", optional = true }
+qr2term = { version = "0.3", optional = true }
+qrcode = { version = "0.14", optional = true }
+
+[dev-dependencies]
+tempfile = "3.25"
+tokio = { version = "1", features = ["macros", "rt"] }
+wiremock = "0.6.5"

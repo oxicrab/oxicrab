@@ -1,0 +1,28 @@
+[package]
+name = "oxicrab-core"
+version = "0.15.0"
+edition = "2024"
+authors = ["James Turnbull <james@ltl.so>"]
+description = "Core types and traits for the oxicrab framework"
+license = "MIT"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6.0"
+fastrand = "2.0"
+humantime = "2.3.0"
+lru = "0.16"
+regex = { workspace = true }
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls", "charset", "http2"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = "2.0.18"
+tokio = { workspace = true }
+tracing = { workspace = true }
+url = "2.5"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+wiremock = "0.6.5"

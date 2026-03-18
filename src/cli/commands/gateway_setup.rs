@@ -45,7 +45,11 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     let memory_db = Arc::new(memory_db);
 
     // Setup components
-    let provider = setup_provider(&config, model.as_deref(), Some(memory_db.clone()))?;
+    let provider = setup_provider(
+        &config,
+        model.as_deref(),
+        Some(memory_db.clone() as Arc<dyn crate::utils::credential_store::OAuthTokenStore>),
+    )?;
 
     // Fire-and-forget warmup — don't block startup on a network round-trip
     {
@@ -126,7 +130,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
                 a2a_config,
                 api_key,
                 &config.gateway.rate_limit,
-                leak_detector.clone(),
+                leak_detector.clone() as Arc<dyn oxicrab_core::safety::LeakRedactor>,
                 ready.clone(),
                 status_lock.clone(),
                 false, // not echo mode
@@ -167,7 +171,11 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     .await?;
 
     // Build status page state now that agent (and its tool registry) is ready
-    let tool_snap = crate::gateway::status::ToolSnapshot::from_registry(&agent.tool_registry());
+    let registry = agent.tool_registry();
+    let tool_snap = crate::gateway::status::ToolSnapshot::from_tools(
+        registry.iter(),
+        registry.deferred_count(),
+    );
     let config_snap = crate::gateway::status::StatusConfigSnapshot::from_config(&config);
     if status_lock
         .set(crate::gateway::status::StatusState {
@@ -259,7 +267,7 @@ pub(super) async fn gateway_echo() -> Result<()> {
             None, // A2A not available in echo mode
             api_key,
             &config.gateway.rate_limit,
-            leak_detector,
+            leak_detector as Arc<dyn oxicrab_core::safety::LeakRedactor>,
             ready,
             Arc::new(std::sync::OnceLock::new()),
             true, // echo mode
@@ -322,11 +330,11 @@ pub(super) async fn gateway_echo() -> Result<()> {
 fn setup_provider(
     config: &Config,
     model: Option<&str>,
-    db: Option<Arc<crate::agent::memory::memory_db::MemoryDB>>,
+    db: Option<Arc<dyn crate::utils::credential_store::OAuthTokenStore>>,
 ) -> Result<Arc<dyn crate::providers::base::LLMProvider>> {
     let effective_model = model.unwrap_or(&config.agents.defaults.model_routing.default);
     info!("Creating LLM provider for model: {}", effective_model);
-    let provider = config.create_provider(model, db)?;
+    let provider = crate::provider_factory::create_provider(config, model, db)?;
     info!(
         "Provider created successfully. Default model: {}",
         provider.default_model()
@@ -419,7 +427,7 @@ pub(super) async fn setup_agent(
     );
 
     // Create model routing providers if configured
-    let routing = match config.create_routed_providers(None) {
+    let routing = match crate::provider_factory::create_routed_providers(config, None) {
         Ok(Some(r)) => {
             info!("model routing active with {} task(s)", r.task_count());
             Some(Arc::new(r))
@@ -572,6 +580,9 @@ fn setup_channels(
     config: &Config,
     inbound_tx: tokio::sync::mpsc::Sender<crate::bus::InboundMessage>,
 ) -> ChannelManager {
+    // Register the pairing requester so channels can issue pairing codes
+    oxicrab_channels::set_pairing_requester(Box::new(OxicrabPairingRequester));
+
     info!("Initializing channels...");
     let channels = ChannelManager::new(config, Arc::new(inbound_tx));
     info!(
@@ -579,6 +590,28 @@ fn setup_channels(
         channels.enabled_channels()
     );
     channels
+}
+
+/// Adapter that implements the channels crate's `PairingRequester` trait
+/// using the main crate's `PairingStore`.
+struct OxicrabPairingRequester;
+
+impl oxicrab_channels::PairingRequester for OxicrabPairingRequester {
+    fn request_pairing(&self, channel: &str, sender_id: &str) -> Option<String> {
+        match crate::pairing::PairingStore::open_default() {
+            Ok(store) => match store.request_pairing(channel, sender_id) {
+                Ok(code) => code,
+                Err(e) => {
+                    warn!("failed to create pairing request: {}", e);
+                    None
+                }
+            },
+            Err(e) => {
+                warn!("failed to open pairing store: {}", e);
+                None
+            }
+        }
+    }
 }
 
 async fn start_services(cron: Arc<CronService>) -> Result<()> {

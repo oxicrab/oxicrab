@@ -134,7 +134,7 @@ fn check_provider_keys() -> CheckResult {
 
 async fn check_provider_connectivity() -> CheckResult {
     match crate::config::load_config(None) {
-        Ok(config) => match config.create_provider(None, None) {
+        Ok(config) => match crate::provider_factory::create_provider(&config, None, None) {
             Ok(provider) => {
                 let start = std::time::Instant::now();
                 match provider.warmup().await {

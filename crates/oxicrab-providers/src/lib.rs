@@ -1,0 +1,43 @@
+//! LLM provider implementations for the oxicrab framework.
+//!
+//! This crate contains all provider-specific code: Anthropic, OpenAI, Gemini,
+//! circuit breaker, fallback, and prompt-guided wrappers.
+
+pub mod anthropic;
+pub mod anthropic_common;
+pub mod anthropic_oauth;
+pub mod circuit_breaker;
+pub mod errors;
+pub mod fallback;
+pub mod gemini;
+pub mod openai;
+pub mod prompt_guided;
+pub mod strategy;
+mod utils;
+
+use reqwest::Client;
+use std::sync::LazyLock;
+use std::time::Duration;
+
+/// Connect timeout for LLM provider HTTP clients (seconds).
+pub const PROVIDER_CONNECT_TIMEOUT_SECS: u64 = 30;
+/// Overall request timeout for LLM provider HTTP clients (seconds).
+pub const PROVIDER_REQUEST_TIMEOUT_SECS: u64 = 120;
+
+/// Per-process session affinity ID. Load balancers can use this to route
+/// requests from the same process to the same backend for prompt cache locality.
+static SESSION_AFFINITY_ID: LazyLock<String> = LazyLock::new(|| uuid::Uuid::new_v4().to_string());
+
+/// Build a `reqwest::Client` with standard provider timeouts (30 s connect, 120 s overall).
+pub fn provider_http_client() -> Client {
+    Client::builder()
+        .connect_timeout(Duration::from_secs(PROVIDER_CONNECT_TIMEOUT_SECS))
+        .timeout(Duration::from_secs(PROVIDER_REQUEST_TIMEOUT_SECS))
+        .build()
+        .unwrap_or_else(|_| Client::new())
+}
+
+/// Return the per-process session affinity ID for cache-locality routing.
+pub fn session_affinity_id() -> &'static str {
+    &SESSION_AFFINITY_ID
+}

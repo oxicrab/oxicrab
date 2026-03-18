@@ -11,7 +11,7 @@ pub(super) async fn agent(message: Option<String>, session: String) -> Result<()
     crate::observability::init_metrics_exporter(&config);
     config.validate()?;
 
-    let provider = config.create_provider(None, None)?;
+    let provider = crate::provider_factory::create_provider(&config, None, None)?;
 
     // Create shared leak detector with known secrets
     let leak_detector = {
@@ -126,6 +126,7 @@ pub(super) async fn auth_command(cmd: AuthCommands) -> Result<()> {
                 .join("memory")
                 .join("memory.sqlite3");
             let db = Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path)?);
+            let oauth_store: &dyn oxicrab_core::credential_store::OAuthTokenStore = db.as_ref();
             let _creds = crate::auth::google::run_oauth_flow(
                 &gcfg.client_id,
                 &gcfg.client_secret,
@@ -133,7 +134,7 @@ pub(super) async fn auth_command(cmd: AuthCommands) -> Result<()> {
                 None,
                 port,
                 headless,
-                Some(&db),
+                Some(oauth_store),
             )
             .await?;
 

@@ -3400,9 +3400,6 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
- "brush-parser",
- "cap-std",
- "chromiumoxide",
  "chrono",
  "chrono-tz",
  "clap",
@@ -3436,6 +3433,20 @@ dependencies = [
  "nalgebra",
  "oauth2",
  "open",
+ "oxicrab-channels",
+ "oxicrab-core",
+ "oxicrab-gateway",
+ "oxicrab-memory",
+ "oxicrab-providers",
+ "oxicrab-router",
+ "oxicrab-safety",
+ "oxicrab-tools-api",
+ "oxicrab-tools-browser",
+ "oxicrab-tools-google",
+ "oxicrab-tools-obsidian",
+ "oxicrab-tools-rss",
+ "oxicrab-tools-system",
+ "oxicrab-tools-web",
  "proptest",
  "qr2term",
  "qrcode",
@@ -3446,20 +3457,14 @@ dependencies = [
  "rmcp",
  "rusqlite",
  "rustls 0.23.37",
- "scraper",
  "serde",
  "serde_json",
  "serde_yaml_ng",
- "serenity",
- "sha1",
  "sha2",
- "shlex",
  "subtle",
- "teloxide",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "tokio-tungstenite 0.28.0",
  "tower",
  "tracing",
  "tracing-subscriber",
@@ -3472,6 +3477,312 @@ dependencies = [
  "whatsapp-rust-ureq-http-client",
  "which",
  "whisper-rs",
+ "wiremock",
+]
+
+[[package]]
+name = "oxicrab-channels"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "dirs",
+ "fastrand",
+ "form_urlencoded",
+ "futures-util",
+ "hmac",
+ "html-escape",
+ "indexmap 2.13.0",
+ "lru",
+ "moka",
+ "oxicrab-core",
+ "qr2term",
+ "qrcode",
+ "regex",
+ "reqwest 0.13.2",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serenity",
+ "sha1",
+ "subtle",
+ "teloxide",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite 0.28.0",
+ "tracing",
+ "url",
+ "urlencoding",
+ "whatsapp-rust",
+ "whatsapp-rust-tokio-transport",
+ "whatsapp-rust-ureq-http-client",
+ "wiremock",
+]
+
+[[package]]
+name = "oxicrab-core"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dirs",
+ "fastrand",
+ "humantime",
+ "lru",
+ "regex",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "url",
+ "wiremock",
+]
+
+[[package]]
+name = "oxicrab-gateway"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "chrono",
+ "governor",
+ "hex",
+ "hmac",
+ "oxicrab-core",
+ "oxicrab-memory",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tokio",
+ "tower",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "oxicrab-memory"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "fastembed",
+ "hex",
+ "lru",
+ "oxicrab-core",
+ "proptest",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "oxicrab-providers"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "dirs",
+ "fs2",
+ "futures-util",
+ "oxicrab-core",
+ "oxicrab-memory",
+ "regex",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "urlencoding",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
+name = "oxicrab-router"
+version = "0.15.0"
+dependencies = [
+ "metrics",
+ "oxicrab-core",
+ "regex",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "oxicrab-safety"
+version = "0.15.0"
+dependencies = [
+ "aho-corasick",
+ "base64 0.22.1",
+ "hex",
+ "oxicrab-core",
+ "regex",
+ "tracing",
+ "urlencoding",
+]
+
+[[package]]
+name = "oxicrab-tools-api"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "dirs",
+ "form_urlencoded",
+ "oxicrab-core",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "urlencoding",
+ "wiremock",
+]
+
+[[package]]
+name = "oxicrab-tools-browser"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chromiumoxide",
+ "chrono",
+ "futures-util",
+ "oxicrab-core",
+ "reqwest 0.13.2",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "oxicrab-tools-google"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "dirs",
+ "hex",
+ "oauth2",
+ "open",
+ "oxicrab-core",
+ "oxicrab-memory",
+ "regex",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "url",
+ "urlencoding",
+ "wiremock",
+]
+
+[[package]]
+name = "oxicrab-tools-obsidian"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dirs",
+ "hex",
+ "oxicrab-core",
+ "oxicrab-memory",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "url",
+ "urlencoding",
+ "walkdir",
+ "wiremock",
+]
+
+[[package]]
+name = "oxicrab-tools-rss"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "feed-rs",
+ "futures-util",
+ "nalgebra",
+ "oxicrab-core",
+ "oxicrab-memory",
+ "rand 0.8.5",
+ "rand_distr",
+ "regex",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "oxicrab-tools-system"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "brush-parser",
+ "cap-std",
+ "chrono",
+ "dirs",
+ "landlock",
+ "libc",
+ "oxicrab-core",
+ "regex",
+ "serde_json",
+ "shlex",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "oxicrab-tools-web"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "html-escape",
+ "oxicrab-core",
+ "regex",
+ "reqwest 0.13.2",
+ "scraper",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
  "wiremock",
 ]
 
@@ -5513,6 +5824,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",

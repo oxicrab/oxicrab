@@ -14,5 +14,6 @@ pub use schema::{
     PromptGuardConfig, ProviderConfig, ProvidersConfig, RouterConfig, RssConfig, SandboxConfig,
     SlackConfig, TaskRouting, TelegramConfig, TodoistConfig, ToolsConfig, TranscriptionConfig,
     TwilioConfig, VoiceConfig, WeatherConfig, WebSearchConfig, WebhookConfig, WebhookTarget,
-    WhatsAppConfig, WorkspaceTtlConfig, normalize_provider,
+    WhatsAppConfig, WorkspaceTtlConfig, infer_provider_from_model, normalize_provider,
+    parse_model_ref,
 };

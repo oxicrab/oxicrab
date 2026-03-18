@@ -1,0 +1,28 @@
+[package]
+name = "oxicrab-providers"
+version = "0.15.0"
+edition = "2024"
+authors = ["James Turnbull <james@ltl.so>"]
+description = "LLM provider implementations for the oxicrab framework"
+license = "MIT"
+
+[dependencies]
+oxicrab-core = { path = "../oxicrab-core" }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+dirs = "6.0"
+fs2 = "0.4"
+futures-util = "0.3"
+regex = { workspace = true }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = "3.25"
+tokio = { workspace = true }
+tracing = { workspace = true }
+urlencoding = "2.1"
+uuid = { version = "1.22", features = ["v4"] }
+
+[dev-dependencies]
+oxicrab-memory = { path = "../oxicrab-memory", default-features = false }
+wiremock = "0.6.5"

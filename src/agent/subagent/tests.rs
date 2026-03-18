@@ -495,11 +495,11 @@ fn make_inner_with_tools(
 /// Build a realistic main tool registry for testing subagent tool filtering.
 fn make_test_main_registry() -> Arc<crate::agent::tools::ToolRegistry> {
     use crate::agent::tools::ToolRegistry;
-    use crate::agent::tools::filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool};
-    use crate::agent::tools::github::GitHubTool;
-    use crate::agent::tools::reddit::RedditTool;
-    use crate::agent::tools::shell::ExecTool;
-    use crate::agent::tools::web::{WebFetchTool, WebSearchTool};
+    use oxicrab_tools_api::github::GitHubTool;
+    use oxicrab_tools_system::filesystem::{
+        EditFileTool, ListDirTool, ReadFileTool, WriteFileTool,
+    };
+    use oxicrab_tools_system::shell::ExecTool;
 
     let mut registry = ToolRegistry::new();
     registry.register(Arc::new(ReadFileTool::new(None, None)));
@@ -516,10 +516,11 @@ fn make_test_main_registry() -> Arc<crate::agent::tools::ToolRegistry> {
         )
         .unwrap(),
     ));
-    registry.register(Arc::new(WebSearchTool::new(None, 5)));
-    registry.register(Arc::new(WebFetchTool::new(50000).unwrap()));
+    for tool in oxicrab_tools_web::create_web_tools(None) {
+        registry.register(tool);
+    }
     registry.register(Arc::new(GitHubTool::new("fake".to_string())));
-    registry.register(Arc::new(RedditTool::new()));
+    registry.register(oxicrab_tools_web::create_reddit_tool());
     Arc::new(registry)
 }
 
@@ -736,7 +737,7 @@ fn test_activity_log_special_entries() {
 #[test]
 fn test_tool_registry_tool_names() {
     use crate::agent::tools::ToolRegistry;
-    use crate::agent::tools::filesystem::ReadFileTool;
+    use oxicrab_tools_system::filesystem::ReadFileTool;
 
     let mut registry = ToolRegistry::new();
     assert!(registry.tool_names().is_empty());
@@ -749,7 +750,7 @@ fn test_tool_registry_tool_names() {
 #[test]
 fn test_tool_registry_tool_names_sorted() {
     use crate::agent::tools::ToolRegistry;
-    use crate::agent::tools::filesystem::{ListDirTool, ReadFileTool, WriteFileTool};
+    use oxicrab_tools_system::filesystem::{ListDirTool, ReadFileTool, WriteFileTool};
 
     let mut registry = ToolRegistry::new();
     // Register in non-sorted order

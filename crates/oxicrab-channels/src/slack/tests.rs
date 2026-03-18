@@ -1,0 +1,747 @@
+use super::*;
+use wiremock::matchers::{header, method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+// --- resolve_slack_redirect tests ---
+
+#[test]
+fn test_resolve_slack_redirect() {
+    let cases = [
+        (
+            "https://myworkspace.slack.com/?redir=%2Ffiles-pri%2FT123-F456%2Fdownload%2Fimage.png",
+            "https://myworkspace.slack.com/files-pri/T123-F456/download/image.png",
+        ),
+        (
+            "https://cdn.slack.com/files/image.png",
+            "https://cdn.slack.com/files/image.png",
+        ),
+        ("not-a-url", "not-a-url"),
+        (
+            "https://ws.slack.com/?redir=%2Ffiles-pri%2FT1-F2%2Fdownload%2Fscreenshot%202026%4016.45.png",
+            "https://ws.slack.com/files-pri/T1-F2/download/screenshot 2026@16.45.png",
+        ),
+        (
+            "https://ws.slack.com/?foo=bar&redir=%2Ffiles-pri%2FT1-F2%2Fdownload%2Fimg.png&baz=1",
+            "https://ws.slack.com/files-pri/T1-F2/download/img.png",
+        ),
+    ];
+    for (input, expected) in cases {
+        let result = resolve_slack_redirect(input);
+        assert_eq!(result, expected, "failed for input: {input}");
+    }
+    // Also verify scheme preservation
+    let http_result = resolve_slack_redirect(
+        "http://ws.slack.com/?redir=%2Ffiles-pri%2FT1-F2%2Fdownload%2Fimg.png",
+    );
+    assert!(
+        http_result.starts_with("http://"),
+        "should preserve http scheme"
+    );
+}
+
+// --- is_image_magic_bytes tests ---
+
+// --- download_slack_file tests (wiremock) ---
+
+#[tokio::test]
+async fn test_download_slack_file_success() {
+    let server = MockServer::start().await;
+    let png_body: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+    Mock::given(method("GET"))
+        .and(path("/files-pri/T1-F2/download/image.png"))
+        .and(header("Authorization", "Bearer xoxb-test"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(png_body.clone())
+                .insert_header("Content-Type", "image/png"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/files-pri/T1-F2/download/image.png", server.uri());
+    let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+    assert!(result.is_ok());
+    let bytes = result.unwrap();
+    assert_eq!(bytes, png_body);
+}
+
+#[tokio::test]
+async fn test_download_slack_file_sends_auth_header() {
+    let server = MockServer::start().await;
+
+    // Only match requests with the correct auth header
+    Mock::given(method("GET"))
+        .and(path("/file.png"))
+        .and(header("Authorization", "Bearer my-secret-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![0x89, 0x50, 0x4E, 0x47]))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/file.png", server.uri());
+    let result = download_slack_file(&client, "my-secret-token", &url).await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_download_slack_file_error_status() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/file.png"))
+        .respond_with(ResponseTemplate::new(403))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/file.png", server.uri());
+    let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("403"));
+}
+
+#[tokio::test]
+async fn test_download_slack_file_empty_body_is_error() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/file.png"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(Vec::<u8>::new()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/file.png", server.uri());
+    let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("empty body"));
+}
+
+#[tokio::test]
+async fn test_download_slack_file_follows_single_redirect() {
+    let server = MockServer::start().await;
+    let jpeg_body: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+
+    // First request: redirect
+    Mock::given(method("GET"))
+        .and(path("/start"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("Location", format!("{}/actual.jpg", server.uri())),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Second request: file content
+    Mock::given(method("GET"))
+        .and(path("/actual.jpg"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(jpeg_body.clone())
+                .insert_header("Content-Type", "image/jpeg"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/start", server.uri());
+    let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), jpeg_body);
+}
+
+#[tokio::test]
+async fn test_download_slack_file_follows_multiple_redirects() {
+    let server = MockServer::start().await;
+    let png_body: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47];
+
+    // Hop 0 -> Hop 1
+    Mock::given(method("GET"))
+        .and(path("/hop0"))
+        .respond_with(
+            ResponseTemplate::new(302).insert_header("Location", format!("{}/hop1", server.uri())),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Hop 1 -> Hop 2
+    Mock::given(method("GET"))
+        .and(path("/hop1"))
+        .respond_with(
+            ResponseTemplate::new(302).insert_header("Location", format!("{}/hop2", server.uri())),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Hop 2 -> final file
+    Mock::given(method("GET"))
+        .and(path("/hop2"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(png_body.clone()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/hop0", server.uri());
+    let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), png_body);
+}
+
+#[tokio::test]
+async fn test_download_slack_file_redirect_preserves_auth_on_each_hop() {
+    // Auth is always sent on the first hop (initial URL from Slack API).
+    // On redirect hops, auth is only sent to Slack-owned domains; since
+    // wiremock uses 127.0.0.1, the redirected hop should NOT receive auth.
+    let server = MockServer::start().await;
+
+    // First hop: requires auth (initial URL)
+    Mock::given(method("GET"))
+        .and(path("/hop0"))
+        .and(header("Authorization", "Bearer xoxb-hop-test"))
+        .respond_with(
+            ResponseTemplate::new(302).insert_header("Location", format!("{}/hop1", server.uri())),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Second hop: no auth required (non-Slack redirect target)
+    Mock::given(method("GET"))
+        .and(path("/hop1"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![0x89, 0x50, 0x4E, 0x47]))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/hop0", server.uri());
+    let result = download_slack_file(&client, "xoxb-hop-test", &url).await;
+
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_download_slack_file_redirect_loop_detection() {
+    let server = MockServer::start().await;
+
+    // Always redirect to self
+    Mock::given(method("GET"))
+        .and(path("/loop"))
+        .respond_with(
+            ResponseTemplate::new(302).insert_header("Location", format!("{}/loop", server.uri())),
+        )
+        .mount(&server)
+        .await;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/loop", server.uri());
+    let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("redirect loop"),
+        "Expected redirect loop error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn test_download_slack_file_redirect_loop_mentions_files_read() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/loop"))
+        .respond_with(
+            ResponseTemplate::new(302).insert_header("Location", format!("{}/loop", server.uri())),
+        )
+        .mount(&server)
+        .await;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/loop", server.uri());
+    let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("files:read"),
+        "Error should mention missing files:read scope, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn test_download_slack_file_exceeds_max_redirects() {
+    let server = MockServer::start().await;
+
+    // Chain of unique redirects that exceeds max_redirects=5.
+    // No .expect() — some hops may not be reached before the limit.
+    for i in 0..6 {
+        Mock::given(method("GET"))
+            .and(path(format!("/hop{i}")))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("Location", format!("{}/hop{}", server.uri(), i + 1)),
+            )
+            .mount(&server)
+            .await;
+    }
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/hop0", server.uri());
+    let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("exceeded"));
+}
+
+#[tokio::test]
+async fn test_download_slack_file_500_error() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/file.png"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/file.png", server.uri());
+    let result = download_slack_file(&client, "xoxb-test", &url).await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("500"));
+}
+
+// --- format_for_slack tests ---
+
+#[test]
+fn test_format_for_slack_bold() {
+    assert_eq!(SlackChannel::format_for_slack("**bold**"), "*bold*");
+}
+
+#[test]
+fn test_format_for_slack_link() {
+    assert_eq!(
+        SlackChannel::format_for_slack("[text](https://example.com)"),
+        "<https://example.com|text>"
+    );
+}
+
+#[test]
+fn test_format_for_slack_strikethrough() {
+    assert_eq!(SlackChannel::format_for_slack("~~strike~~"), "~strike~");
+}
+
+#[test]
+fn test_format_for_slack_empty() {
+    assert_eq!(SlackChannel::format_for_slack(""), "");
+}
+
+#[test]
+fn test_format_for_slack_plain_text() {
+    assert_eq!(
+        SlackChannel::format_for_slack("no formatting here"),
+        "no formatting here"
+    );
+}
+
+#[test]
+fn test_format_for_slack_combined_formatting() {
+    let result =
+        SlackChannel::format_for_slack("**bold** and ~~strike~~ and [link](https://x.com)");
+    assert_eq!(result, "*bold* and ~strike~ and <https://x.com|link>");
+}
+
+#[test]
+fn test_format_for_slack_multiple_bold() {
+    assert_eq!(
+        SlackChannel::format_for_slack("**a** then **b**"),
+        "*a* then *b*"
+    );
+}
+
+#[test]
+fn test_format_for_slack_multiple_links() {
+    let input = "[one](https://one.com) and [two](https://two.com)";
+    let expected = "<https://one.com|one> and <https://two.com|two>";
+    assert_eq!(SlackChannel::format_for_slack(input), expected);
+}
+
+#[test]
+fn test_format_for_slack_preserves_code_backticks() {
+    // Slack also uses backticks for code — should pass through unchanged
+    let input = "run `cargo test`";
+    assert_eq!(SlackChannel::format_for_slack(input), "run `cargo test`");
+}
+
+#[test]
+fn test_format_for_slack_already_slack_bold() {
+    // Single asterisks should NOT be converted (they're already Slack bold)
+    let input = "*already slack bold*";
+    // Since regex matches **..** only, single * passes through
+    assert_eq!(
+        SlackChannel::format_for_slack(input),
+        "*already slack bold*"
+    );
+}
+
+#[test]
+fn test_format_for_slack_newlines_preserved() {
+    let input = "line 1\nline 2\n**bold line**";
+    let expected = "line 1\nline 2\n*bold line*";
+    assert_eq!(SlackChannel::format_for_slack(input), expected);
+}
+
+// --- convert_tables tests ---
+
+#[test]
+fn test_convert_tables_single_column() {
+    let input = "Tasks:\n| Task |\n|------|\n| Buy groceries |";
+    let result = SlackChannel::convert_tables(input);
+    assert!(!result.contains("|---"), "separator should be removed");
+    assert!(
+        result.contains("• Buy groceries"),
+        "bullet format: {result}"
+    );
+}
+
+#[test]
+fn test_convert_tables_two_column() {
+    let input = "| Time | Event |\n|------|-------|\n| 9 AM | Standup |\n| 10 AM | Review |";
+    let result = SlackChannel::convert_tables(input);
+    assert!(!result.contains("|---"), "separator removed");
+    assert!(
+        result.contains("• *9 AM* — Standup"),
+        "two-col bold+dash: {result}"
+    );
+    assert!(
+        result.contains("• *10 AM* — Review"),
+        "two-col bold+dash: {result}"
+    );
+}
+
+#[test]
+fn test_convert_tables_no_table() {
+    let input = "Just text, no tables.\nAnother line.";
+    assert_eq!(SlackChannel::convert_tables(input), input);
+}
+
+#[test]
+fn test_convert_tables_mixed_content() {
+    let input =
+        ":date: Daily Briefing\n\n| Task |\n|------|\n| Do something |\n\nBusy day! :coffee:";
+    let result = SlackChannel::convert_tables(input);
+    assert!(!result.contains("|---"), "separator removed");
+    assert!(
+        result.contains(":date: Daily Briefing"),
+        "non-table preserved"
+    );
+    assert!(result.contains("Busy day! :coffee:"), "non-table preserved");
+    assert!(result.contains("• Do something"), "bullet format: {result}");
+}
+
+#[test]
+fn test_convert_tables_header_only() {
+    let input = "| Name |\n|------|\n";
+    let result = SlackChannel::convert_tables(input);
+    assert!(!result.contains("|---"), "separator removed: {result}");
+    assert!(result.contains("Name"), "header preserved: {result}");
+}
+
+#[test]
+fn test_convert_tables_briefing_calendar() {
+    // Realistic cron briefing calendar table
+    let input = ":calendar: Events (3)\n\
+                  | Time | Event |\n\
+                  |------|-------|\n\
+                  | 9:00 am | Standup |\n\
+                  | 10:00 am | Planning |\n\
+                  | 2:00 pm | Retro |\n\
+                  \n\
+                  Busy day!";
+    let result = SlackChannel::convert_tables(input);
+    assert!(!result.contains("|---"), "no separator: {result}");
+    assert!(
+        result.contains("• *9:00 am* — Standup"),
+        "calendar format: {result}"
+    );
+    assert!(
+        result.contains("• *10:00 am* — Planning"),
+        "calendar format: {result}"
+    );
+    assert!(
+        result.contains("• *2:00 pm* — Retro"),
+        "calendar format: {result}"
+    );
+    assert!(result.contains(":calendar:"), "emoji preserved: {result}");
+    assert!(result.contains("Busy day!"), "footer preserved: {result}");
+    // No raw table pipes at line starts
+    for line in result.lines() {
+        let trimmed = line.trim();
+        assert!(!trimmed.starts_with("| "), "no raw table row: {trimmed}");
+    }
+}
+
+#[test]
+fn test_convert_tables_three_column() {
+    let input =
+        "| Time | Event | Location |\n|------|-------|----------|\n| 9 AM | Standup | Room A |";
+    let result = SlackChannel::convert_tables(input);
+    assert!(
+        result.contains("• *Time:* 9 AM · *Event:* Standup · *Location:* Room A"),
+        "3-col labeled: {result}"
+    );
+}
+
+#[test]
+fn test_convert_tables_todoist_single_column() {
+    // Exact format from the user's briefing
+    let input = ":white_check_mark: Todoist Tasks\n| Task |\n|------|\n| Expected K-1 delivery dates for your AngelList investments |";
+    let result = SlackChannel::convert_tables(input);
+    assert!(
+        result.contains("• Expected K-1 delivery dates"),
+        "todoist bullet: {result}"
+    );
+    assert!(!result.contains("|---"), "no separator: {result}");
+}
+
+#[test]
+fn test_format_for_slack_tables_end_to_end() {
+    // Full pipeline: tables + bold + links
+    let input = "**Summary**\n| Key | Value |\n|-----|-------|\n| Status | OK |\n\nDone.";
+    let result = SlackChannel::format_for_slack(input);
+    assert!(!result.contains("|---"), "table separator stripped");
+    assert!(result.contains("*Summary*"), "bold converted");
+    assert!(
+        result.contains("• *Status* — OK"),
+        "table converted: {result}"
+    );
+    assert!(result.contains("Done."), "footer preserved");
+}
+
+// --- mention_regex tests ---
+
+#[test]
+fn test_mention_regex_pattern() {
+    let re = crate::regex_utils::compile_slack_mention("U12345").unwrap();
+    assert!(re.is_match("<@U12345>"));
+    assert!(re.is_match("<@U12345 >"));
+    assert!(!re.is_match("<@U99999>"));
+}
+
+// --- classify_slack_error tests ---
+
+#[test]
+fn test_classify_slack_error_rate_limited_http() {
+    let err = classify_slack_error(429, None);
+    assert!(matches!(err, SlackApiError::RateLimited { .. }));
+}
+
+#[test]
+fn test_classify_slack_error_rate_limited_field() {
+    let err = classify_slack_error(200, Some("ratelimited"));
+    assert!(matches!(err, SlackApiError::RateLimited { .. }));
+}
+
+#[test]
+fn test_classify_slack_error_invalid_auth() {
+    for variant in &["invalid_auth", "account_inactive", "token_revoked"] {
+        let err = classify_slack_error(200, Some(variant));
+        assert!(
+            matches!(err, SlackApiError::InvalidAuth),
+            "expected InvalidAuth for {variant}"
+        );
+    }
+}
+
+#[test]
+fn test_classify_slack_error_missing_scope() {
+    let err = classify_slack_error(200, Some("missing_scope:chat:write"));
+    assert!(matches!(err, SlackApiError::MissingScope(_)));
+}
+
+#[test]
+fn test_classify_slack_error_channel_not_found() {
+    let err = classify_slack_error(200, Some("channel_not_found"));
+    assert!(matches!(err, SlackApiError::ChannelNotFound));
+}
+
+#[test]
+fn test_classify_slack_error_server_error() {
+    let err = classify_slack_error(502, None);
+    assert!(matches!(err, SlackApiError::ServerError(502)));
+}
+
+#[test]
+fn test_classify_slack_error_other() {
+    let err = classify_slack_error(200, Some("something_weird"));
+    assert!(matches!(err, SlackApiError::Other(_)));
+}
+
+// --- is_retryable tests ---
+
+#[test]
+fn test_is_retryable_server_error() {
+    assert!(is_retryable(&SlackApiError::ServerError(500)));
+    assert!(is_retryable(&SlackApiError::ServerError(503)));
+    assert!(is_retryable(&SlackApiError::RateLimited {
+        retry_after_secs: 1
+    }));
+}
+
+#[test]
+fn test_is_retryable_non_retryable() {
+    assert!(!is_retryable(&SlackApiError::InvalidAuth));
+    assert!(!is_retryable(&SlackApiError::ChannelNotFound));
+    assert!(!is_retryable(&SlackApiError::Other("x".into())));
+}
+
+// --- IGNORED_SUBTYPES tests ---
+
+#[test]
+fn test_should_process_subtype_none() {
+    // No subtype = regular message, should process
+    assert!(!IGNORED_SUBTYPES.contains(&"message"));
+}
+
+#[test]
+fn test_should_process_subtype_file_share() {
+    // file_share should be processed (not in ignored list)
+    assert!(!IGNORED_SUBTYPES.contains(&"file_share"));
+}
+
+#[test]
+fn test_should_process_subtype_thread_broadcast() {
+    // thread_broadcast should be processed (not in ignored list)
+    assert!(!IGNORED_SUBTYPES.contains(&"thread_broadcast"));
+    assert!(!IGNORED_SUBTYPES.contains(&"reply_broadcast"));
+}
+
+#[test]
+fn test_should_ignore_bot_message() {
+    assert!(IGNORED_SUBTYPES.contains(&"bot_message"));
+}
+
+#[test]
+fn test_should_ignore_system_events() {
+    for subtype in &[
+        "message_changed",
+        "message_deleted",
+        "channel_join",
+        "channel_leave",
+        "me_message",
+    ] {
+        assert!(
+            IGNORED_SUBTYPES.contains(subtype),
+            "{subtype} should be ignored"
+        );
+    }
+}
+
+// --- convert_buttons_to_blocks tests ---
+
+#[test]
+fn test_convert_buttons_to_blocks_basic() {
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
+        serde_json::json!([
+            {"id": "yes", "label": "Yes", "style": "primary"},
+            {"id": "no", "label": "No", "style": "danger"}
+        ]),
+    );
+
+    let blocks = convert_buttons_to_blocks(&metadata);
+    assert_eq!(blocks.len(), 1); // one actions block
+    let elements = blocks[0]["elements"].as_array().unwrap();
+    assert_eq!(elements.len(), 2);
+    assert_eq!(elements[0]["action_id"], "yes");
+    assert_eq!(elements[0]["text"]["text"], "Yes");
+    assert_eq!(elements[0]["style"], "primary");
+    assert_eq!(elements[1]["action_id"], "no");
+    assert_eq!(elements[1]["style"], "danger");
+}
+
+#[test]
+fn test_convert_buttons_to_blocks_no_style() {
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
+        serde_json::json!([{"id": "ok", "label": "OK"}]),
+    );
+
+    let blocks = convert_buttons_to_blocks(&metadata);
+    assert_eq!(blocks.len(), 1);
+    let elements = blocks[0]["elements"].as_array().unwrap();
+    assert_eq!(elements[0]["action_id"], "ok");
+    // secondary/success styles are omitted (Slack only supports primary/danger)
+    assert!(elements[0].get("style").is_none() || elements[0]["style"].is_null());
+}
+
+#[test]
+fn test_convert_buttons_to_blocks_empty_metadata() {
+    let metadata = HashMap::new();
+    assert!(convert_buttons_to_blocks(&metadata).is_empty());
+}
+
+#[test]
+fn test_convert_buttons_to_blocks_empty_array() {
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
+        serde_json::json!([]),
+    );
+    assert!(convert_buttons_to_blocks(&metadata).is_empty());
+}
+
+#[test]
+fn test_convert_buttons_to_blocks_with_context() {
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        oxicrab_core::bus::events::meta::BUTTONS.to_string(),
+        serde_json::json!([
+            {"id": "complete", "label": "Complete", "style": "primary", "context": "{\"task_id\":\"abc123\",\"list_id\":\"list1\"}"},
+            {"id": "skip", "label": "Skip"}
+        ]),
+    );
+
+    let blocks = convert_buttons_to_blocks(&metadata);
+    assert_eq!(blocks.len(), 1);
+    let elements = blocks[0]["elements"].as_array().unwrap();
+    assert_eq!(elements.len(), 2);
+    // First button should have the value field set
+    assert_eq!(
+        elements[0]["value"].as_str().unwrap(),
+        "{\"task_id\":\"abc123\",\"list_id\":\"list1\"}"
+    );
+    // Second button should not have a value field
+    assert!(elements[1].get("value").is_none() || elements[1]["value"].is_null());
+}
+
+// --- is_slack_domain tests ---
+
+#[test]
+fn test_is_slack_domain() {
+    assert!(is_slack_domain("https://files.slack.com/foo"));
+    assert!(is_slack_domain("https://slack.com/api/test"));
+    assert!(is_slack_domain("https://a.slack-edge.com/img.png"));
+    assert!(!is_slack_domain("https://evil-slack.com/foo"));
+    assert!(!is_slack_domain("https://attacker.com/slack.com"));
+    assert!(!is_slack_domain("not-a-url"));
+}
