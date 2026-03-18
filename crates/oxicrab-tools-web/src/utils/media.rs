@@ -17,10 +17,6 @@ pub fn media_dir() -> Result<PathBuf> {
 ///
 /// Validates size (20MB max) and image magic bytes for image extensions.
 /// Returns the absolute path to the saved file.
-///
-/// If `db` is provided, registers the file in the `workspace_files` table
-/// under category "media" for cleanup tracking. Registration failure is
-/// silently ignored — it should not prevent the media from being returned.
 pub fn save_media_file(bytes: &[u8], prefix: &str, extension: &str) -> Result<String> {
     if bytes.is_empty() {
         bail!("empty media data");
@@ -41,9 +37,8 @@ pub fn save_media_file(bytes: &[u8], prefix: &str, extension: &str) -> Result<St
 
     let media_dir = media_dir()?;
 
-    // Sanitize prefix and extension to prevent path traversal
-    let safe_prefix = crate::utils::safe_filename(prefix);
-    let safe_ext = crate::utils::safe_filename(extension);
+    let safe_prefix = super::safe_filename(prefix);
+    let safe_ext = super::safe_filename(extension);
 
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
     let random = fastrand::u32(..);
@@ -60,18 +55,13 @@ pub fn save_media_file(bytes: &[u8], prefix: &str, extension: &str) -> Result<St
 ///
 /// Returns `None` for text/* and application/json (callers should fall through
 /// to text handling). Returns `Some("bin")` for unknown binary types.
-///
-/// Primary consumers are now in `oxicrab-tools-web`. Kept here for tests.
-#[cfg(test)]
 pub fn extension_from_content_type(ct: &str) -> Option<&'static str> {
     let ct_lower = ct.to_lowercase();
 
-    // Text types — fall through to text handling
     if ct_lower.starts_with("text/") || ct_lower.contains("application/json") {
         return None;
     }
 
-    // Known image types
     if ct_lower.contains("image/png") {
         return Some("png");
     }
@@ -88,7 +78,6 @@ pub fn extension_from_content_type(ct: &str) -> Option<&'static str> {
         return Some("svg");
     }
 
-    // Known audio types
     if ct_lower.contains("audio/mpeg") {
         return Some("mp3");
     }
@@ -99,7 +88,6 @@ pub fn extension_from_content_type(ct: &str) -> Option<&'static str> {
         return Some("ogg");
     }
 
-    // Known video types
     if ct_lower.contains("video/mp4") {
         return Some("mp4");
     }
@@ -107,12 +95,10 @@ pub fn extension_from_content_type(ct: &str) -> Option<&'static str> {
         return Some("webm");
     }
 
-    // PDF
     if ct_lower.contains("application/pdf") {
         return Some("pdf");
     }
 
-    // application/octet-stream or other binary
     if ct_lower.contains("application/octet-stream")
         || ct_lower.starts_with("image/")
         || ct_lower.starts_with("audio/")
@@ -121,7 +107,6 @@ pub fn extension_from_content_type(ct: &str) -> Option<&'static str> {
         return Some("bin");
     }
 
-    // Unknown — fall through to text handling
     None
 }
 
@@ -130,24 +115,17 @@ pub fn is_image_magic_bytes(data: &[u8]) -> bool {
     if data.len() < 4 {
         return false;
     }
-    // PNG: 89 50 4E 47
     if data.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
         return true;
     }
-    // JPEG: FF D8 FF
     if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
         return true;
     }
-    // GIF: GIF87a or GIF89a
     if data.starts_with(b"GIF8") {
         return true;
     }
-    // WebP: RIFF....WEBP
     if data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WEBP" {
         return true;
     }
     false
 }
-
-#[cfg(test)]
-mod tests;

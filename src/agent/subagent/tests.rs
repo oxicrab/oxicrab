@@ -497,9 +497,7 @@ fn make_test_main_registry() -> Arc<crate::agent::tools::ToolRegistry> {
     use crate::agent::tools::ToolRegistry;
     use crate::agent::tools::filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool};
     use crate::agent::tools::github::GitHubTool;
-    use crate::agent::tools::reddit::RedditTool;
     use crate::agent::tools::shell::ExecTool;
-    use crate::agent::tools::web::{WebFetchTool, WebSearchTool};
 
     let mut registry = ToolRegistry::new();
     registry.register(Arc::new(ReadFileTool::new(None, None)));
@@ -516,10 +514,11 @@ fn make_test_main_registry() -> Arc<crate::agent::tools::ToolRegistry> {
         )
         .unwrap(),
     ));
-    registry.register(Arc::new(WebSearchTool::new(None, 5)));
-    registry.register(Arc::new(WebFetchTool::new(50000).unwrap()));
+    for tool in oxicrab_tools_web::create_web_tools(None) {
+        registry.register(tool);
+    }
     registry.register(Arc::new(GitHubTool::new("fake".to_string())));
-    registry.register(Arc::new(RedditTool::new()));
+    registry.register(oxicrab_tools_web::create_reddit_tool());
     Arc::new(registry)
 }
 

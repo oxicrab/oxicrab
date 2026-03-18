@@ -3441,6 +3441,7 @@ dependencies = [
  "oxicrab-gateway",
  "oxicrab-memory",
  "oxicrab-providers",
+ "oxicrab-tools-web",
  "proptest",
  "qr2term",
  "qrcode",
@@ -3600,6 +3601,28 @@ dependencies = [
  "tracing",
  "urlencoding",
  "uuid",
+ "wiremock",
+]
+
+[[package]]
+name = "oxicrab-tools-web"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dirs",
+ "fastrand",
+ "html-escape",
+ "oxicrab-core",
+ "regex",
+ "reqwest 0.13.2",
+ "scraper",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "url",
  "wiremock",
 ]
 

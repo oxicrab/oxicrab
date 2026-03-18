@@ -28,7 +28,6 @@ fn test_builtin_tools_have_builtin_capability() {
     // Verify that all built-in tool types declare built_in: true
     use crate::agent::tools::filesystem::ReadFileTool;
     use crate::agent::tools::shell::ExecTool;
-    use crate::agent::tools::web::WebSearchTool;
 
     assert!(ReadFileTool::new(None, None).capabilities().built_in);
     assert!(
@@ -37,5 +36,5 @@ fn test_builtin_tools_have_builtin_capability() {
             .capabilities()
             .built_in
     );
-    assert!(WebSearchTool::new(None, 5).capabilities().built_in);
+    // WebSearchTool built_in is tested in oxicrab-tools-web crate
 }

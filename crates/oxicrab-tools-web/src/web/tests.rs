@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::tools::base::ExecutionContext;
+use oxicrab_core::tools::base::ExecutionContext;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -179,7 +179,6 @@ async fn test_fetch_html_extracts_in_text_mode() {
     let text = json["text"].as_str().unwrap();
     assert!(text.contains("Heading"));
     assert!(text.contains("Paragraph text"));
-    // In text mode, should NOT have markdown heading markers
     assert!(!text.contains("# Heading"));
 }
 
@@ -204,7 +203,6 @@ async fn test_fetch_json_response() {
     let json = parse_fetch_result(&result);
     assert_eq!(json["extractor"], "json");
     let text = json["text"].as_str().unwrap();
-    // Should be pretty-printed
     assert!(text.contains("\"key\": \"value\""));
     assert!(text.contains("\"num\": 42"));
 }
@@ -290,7 +288,6 @@ async fn test_fetch_uses_default_max_chars() {
 #[tokio::test]
 async fn test_fetch_html_without_content_type_header() {
     let server = MockServer::start().await;
-    // No content-type header, but body starts with <!DOCTYPE
     Mock::given(method("GET"))
         .and(path("/noheader"))
         .respond_with(
@@ -430,8 +427,7 @@ async fn test_fetch_markdown_mode_includes_title() {
 
 #[test]
 fn test_web_search_capabilities() {
-    use crate::agent::tools::Tool;
-    use crate::agent::tools::base::SubagentAccess;
+    use oxicrab_core::tools::base::{SubagentAccess, Tool};
     let tool = WebSearchTool::new(None, 5);
     let caps = tool.capabilities();
     assert!(caps.built_in);
@@ -442,8 +438,7 @@ fn test_web_search_capabilities() {
 
 #[test]
 fn test_web_fetch_capabilities() {
-    use crate::agent::tools::Tool;
-    use crate::agent::tools::base::SubagentAccess;
+    use oxicrab_core::tools::base::{SubagentAccess, Tool};
     let tool = WebFetchTool::new(50000).unwrap();
     let caps = tool.capabilities();
     assert!(caps.built_in);

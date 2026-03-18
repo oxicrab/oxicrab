@@ -192,15 +192,8 @@ fn register_shell(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Result
 }
 
 fn register_web(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
-    use crate::agent::tools::web::{WebFetchTool, WebSearchTool};
-
-    if let Some(ref ws_cfg) = ctx.web_search_config {
-        registry.register(Arc::new(WebSearchTool::from_config(ws_cfg)));
-    } else {
-        registry.register(Arc::new(WebSearchTool::new(None, 5)));
-    }
-    if let Ok(fetch) = WebFetchTool::new(50000) {
-        registry.register(Arc::new(fetch));
+    for tool in oxicrab_tools_web::create_web_tools(ctx.web_search_config.as_ref()) {
+        registry.register(tool);
     }
 }
 
@@ -390,15 +383,11 @@ fn register_obsidian(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
 }
 
 fn register_http(registry: &mut ToolRegistry) {
-    use crate::agent::tools::http::HttpTool;
-
-    registry.register(Arc::new(HttpTool::new()));
+    registry.register(oxicrab_tools_web::create_http_tool());
 }
 
 fn register_reddit(registry: &mut ToolRegistry) {
-    use crate::agent::tools::reddit::RedditTool;
-
-    registry.register(Arc::new(RedditTool::new()));
+    registry.register(oxicrab_tools_web::create_reddit_tool());
 }
 
 fn register_interactive(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {

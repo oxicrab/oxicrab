@@ -1,12 +1,11 @@
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
-use crate::agent::tools::{Tool, ToolResult};
-use crate::require_param;
 use crate::utils::media::{extension_from_content_type, save_media_file};
 use crate::utils::regex::{RegexPatterns, compile_regex};
 #[cfg(test)]
 use anyhow::Context;
 use anyhow::Result;
 use async_trait::async_trait;
+use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
+use oxicrab_core::tools::base::{Tool, ToolResult};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use serde_json::Value;
@@ -33,7 +32,7 @@ impl WebSearchTool {
         }
     }
 
-    pub fn from_config(config: &crate::config::WebSearchConfig) -> Self {
+    pub fn from_config(config: &oxicrab_core::config::schema::WebSearchConfig) -> Self {
         let api_key = if config.api_key.is_empty() {
             std::env::var("BRAVE_API_KEY").unwrap_or_default()
         } else {
@@ -124,11 +123,11 @@ impl WebSearchTool {
 
 #[async_trait]
 impl Tool for WebSearchTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "web_search"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Search the web. Returns titles, URLs, and snippets. Uses Brave Search if API key is configured, otherwise falls back to DuckDuckGo."
     }
 
@@ -166,7 +165,9 @@ impl Tool for WebSearchTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let query = require_param!(params, "query");
+        let Some(query) = params["query"].as_str() else {
+            return Ok(ToolResult::error("Missing 'query' parameter".to_string()));
+        };
 
         let count = params["count"]
             .as_u64()
@@ -248,7 +249,9 @@ impl WebFetchTool {
     }
 
     async fn fetch_url_with_client(&self, params: &Value, client: &Client) -> Result<ToolResult> {
-        let url_str = require_param!(params, "url");
+        let Some(url_str) = params["url"].as_str() else {
+            return Ok(ToolResult::error("Missing 'url' parameter".to_string()));
+        };
 
         let extract_mode = params["extractMode"].as_str().unwrap_or("markdown");
         let max_chars = params["maxChars"]
@@ -271,7 +274,7 @@ impl WebFetchTool {
                     .unwrap_or_default()
                     .to_string();
 
-                // Handle binary content (images, etc.) — save to disk
+                // Handle binary content (images, etc.) -- save to disk
                 if let Some(ext) = extension_from_content_type(&content_type) {
                     let (bytes, _truncated) = crate::utils::http::limited_body(
                         resp,
@@ -368,11 +371,11 @@ impl WebFetchTool {
 
 #[async_trait]
 impl Tool for WebFetchTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "web_fetch"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Fetch URL and extract readable content (HTML → markdown/text)."
     }
 
@@ -413,7 +416,9 @@ impl Tool for WebFetchTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
-        let url_str = require_param!(params, "url");
+        let Some(url_str) = params["url"].as_str() else {
+            return Ok(ToolResult::error("Missing 'url' parameter".to_string()));
+        };
 
         // Validate URL and resolve DNS for pinning (prevents TOCTOU rebinding)
         let resolved = match crate::utils::url_security::validate_and_resolve(url_str).await {
@@ -451,7 +456,6 @@ fn normalize(text: &str) -> String {
 fn extract_html(html: &str, markdown: bool) -> Result<String> {
     let document = Html::parse_document(html);
 
-    // Extract title using scraper
     let title_selector = Selector::parse("title")
         .map_err(|e| anyhow::anyhow!("Failed to parse title selector: {e:?}"))?;
     let title = document
@@ -460,7 +464,6 @@ fn extract_html(html: &str, markdown: bool) -> Result<String> {
         .map(|e| e.text().collect::<String>())
         .unwrap_or_default();
 
-    // Try to find main content: article > main > body (using scraper for better extraction)
     let content_html = if let Ok(article_sel) = Selector::parse("article") {
         if let Some(element) = document.select(&article_sel).next() {
             element.html()
@@ -482,7 +485,6 @@ fn extract_html(html: &str, markdown: bool) -> Result<String> {
         strip_scripts_styles(html)
     };
 
-    // Convert to markdown or plain text
     let content = if markdown {
         html_to_markdown(&content_html)
     } else {
@@ -504,11 +506,9 @@ fn strip_scripts_styles(html: &str) -> String {
 }
 
 fn html_to_markdown(html: &str) -> String {
-    // Use scraper to parse and convert HTML elements to markdown
     let fragment = Html::parse_fragment(html);
     let mut parts = Vec::new();
 
-    // Convert links
     if let Ok(link_sel) = Selector::parse("a") {
         for link in fragment.select(&link_sel) {
             if let Some(href) = link.value().attr("href") {
@@ -520,7 +520,6 @@ fn html_to_markdown(html: &str) -> String {
         }
     }
 
-    // Convert headings
     for level in 1..=6 {
         if let Ok(heading_sel) = Selector::parse(&format!("h{level}")) {
             for heading in fragment.select(&heading_sel) {
@@ -532,7 +531,6 @@ fn html_to_markdown(html: &str) -> String {
         }
     }
 
-    // Convert lists
     if let Ok(li_sel) = Selector::parse("li") {
         for li in fragment.select(&li_sel) {
             let text: String = li.text().collect();
@@ -542,11 +540,8 @@ fn html_to_markdown(html: &str) -> String {
         }
     }
 
-    // If we extracted specific elements, use them; otherwise fall back to regex-based conversion
     if parts.is_empty() {
-        // Fallback: use regex-based markdown conversion (like Python version)
         let mut text = html.to_string();
-        // Convert links
         if let Ok(re_link) =
             compile_regex(r#"(?i)<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)</a>"#)
         {
@@ -559,7 +554,6 @@ fn html_to_markdown(html: &str) -> String {
                 .to_string();
         }
 
-        // Convert headings
         for level in 1..=6 {
             if let Ok(re_heading) =
                 compile_regex(&format!(r"(?i)<h{level}[^>]*>([\s\S]*?)</h{level}>"))
@@ -573,7 +567,6 @@ fn html_to_markdown(html: &str) -> String {
             }
         }
 
-        // Convert lists
         if let Ok(re_list) = compile_regex(r"(?i)<li[^>]*>([\s\S]*?)</li>") {
             text = re_list
                 .replace_all(&text, |caps: &regex::Captures| {
@@ -583,19 +576,16 @@ fn html_to_markdown(html: &str) -> String {
                 .to_string();
         }
 
-        // Convert block elements
         if let Ok(re_block) = compile_regex(r"(?i)</(p|div|section|article)>") {
             text = re_block.replace_all(&text, "\n\n").to_string();
         }
 
-        // Convert br/hr
         if let Ok(re_br) = compile_regex(r"(?i)<(br|hr)\s*/?>") {
             text = re_br.replace_all(&text, "\n").to_string();
         }
 
         normalize(&strip_tags(&text))
     } else {
-        // Use extracted parts, but also include remaining text content
         let remaining_text = normalize(&strip_tags(html));
         if !remaining_text.trim().is_empty() {
             parts.push(remaining_text);

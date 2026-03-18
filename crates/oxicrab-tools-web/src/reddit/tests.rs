@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::tools::base::ExecutionContext;
+use oxicrab_core::tools::base::ExecutionContext;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -313,7 +313,7 @@ async fn test_new_posts_action() {
 
 #[test]
 fn test_reddit_capabilities() {
-    use crate::agent::tools::base::SubagentAccess;
+    use oxicrab_core::tools::base::SubagentAccess;
     let tool = RedditTool::new();
     let caps = tool.capabilities();
     assert!(caps.built_in);

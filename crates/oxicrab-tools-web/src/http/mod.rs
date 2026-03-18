@@ -1,8 +1,8 @@
-use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
-use crate::agent::tools::{Tool, ToolResult};
 use crate::utils::media::{extension_from_content_type, save_media_file};
 use anyhow::Result;
 use async_trait::async_trait;
+use oxicrab_core::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
+use oxicrab_core::tools::base::{Tool, ToolResult};
 use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
@@ -144,7 +144,7 @@ impl HttpTool {
                     format!("\n{}", headers.join("\n"))
                 };
 
-                // Handle binary content — save to disk
+                // Handle binary content -- save to disk
                 if let Some(ext) = extension_from_content_type(&content_type) {
                     let (bytes, _truncated) = match crate::utils::http::limited_body(
                         resp,
@@ -212,11 +212,11 @@ impl HttpTool {
 
 #[async_trait]
 impl Tool for HttpTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "http"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Make HTTP requests (GET/POST/PUT/PATCH/DELETE). For REST APIs, webhooks, and services."
     }
 

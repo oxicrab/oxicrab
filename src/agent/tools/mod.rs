@@ -8,7 +8,6 @@ pub mod google_calendar;
 pub mod google_common;
 pub mod google_mail;
 pub mod google_tasks;
-pub mod http;
 pub mod image_gen;
 pub mod interactive;
 pub mod mcp;
@@ -16,7 +15,6 @@ pub mod media;
 pub mod memory_search;
 pub mod obsidian;
 pub mod read_only_wrapper;
-pub mod reddit;
 pub mod registry;
 #[cfg(feature = "tool-rss")]
 pub mod rss;
@@ -29,7 +27,6 @@ pub mod tmux;
 pub mod todoist;
 pub mod tool_search;
 pub mod weather;
-pub mod web;
 pub mod workspace_tool;
 
 pub use base::{

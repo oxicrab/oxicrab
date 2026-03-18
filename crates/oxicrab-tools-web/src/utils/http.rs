@@ -2,12 +2,9 @@ use anyhow::{Result, bail};
 use reqwest::{Client, Response};
 use std::time::Duration;
 
-use crate::utils::url_security::ResolvedUrl;
+use super::url_security::ResolvedUrl;
 
 /// Default maximum body size for streaming downloads (10 MB).
-///
-/// Primary consumers are now in `oxicrab-tools-web`. Kept here for tests.
-#[cfg(test)]
 pub const DEFAULT_MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
 
 /// Build a reqwest Client pinned to resolved DNS addresses.
@@ -42,10 +39,6 @@ pub fn build_pinned_client(
 
 /// Build a `reqwest::Client` with standard timeouts (10 s connect, 30 s overall).
 ///
-/// Used for trusted API calls (GitHub, Google, Todoist, Weather, etc.) where
-/// redirects are expected and safe. Does NOT disable redirects — that is only
-/// done in `build_pinned_client()` for SSRF-sensitive user-provided URLs.
-///
 /// Falls back to the default client if the builder fails.
 pub fn default_http_client() -> Client {
     Client::builder()
@@ -57,12 +50,8 @@ pub fn default_http_client() -> Client {
 
 /// Download a response body as bytes with a size limit.
 ///
-/// - Checks the `Content-Length` header first; rejects immediately if over limit.
-/// - Streams via `chunk()` with a running counter; truncates at the limit.
-/// - Returns `(bytes, was_truncated)`. The bytes are raw with no marker appended,
-///   so binary content (images, audio) is not corrupted on truncation.
+/// Returns `(bytes, was_truncated)`.
 pub async fn limited_body(resp: Response, max_bytes: usize) -> Result<(Vec<u8>, bool)> {
-    // Pre-check Content-Length header
     if let Some(cl) = resp.content_length()
         && cl as usize > max_bytes
     {
@@ -83,9 +72,6 @@ pub async fn limited_body(resp: Response, max_bytes: usize) -> Result<(Vec<u8>, 
 }
 
 /// Download a response body as a UTF-8 string with a size limit.
-///
-/// Same semantics as [`limited_body`] but converts the result to a `String`
-/// and appends a `\n[truncated]` marker when the body exceeds the limit.
 pub async fn limited_text(resp: Response, max_bytes: usize) -> Result<String> {
     let (bytes, truncated) = limited_body(resp, max_bytes).await?;
     let mut text = String::from_utf8_lossy(&bytes).into_owned();
@@ -94,6 +80,3 @@ pub async fn limited_text(resp: Response, max_bytes: usize) -> Result<String> {
     }
     Ok(text)
 }
-
-#[cfg(test)]
-mod tests;

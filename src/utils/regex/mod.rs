@@ -17,42 +17,13 @@ impl RegexPatterns {
     // NOTE: Channel-specific markdown patterns (bold, strike, link, italic,
     // code, code_block, table_separator) and compile_slack_mention() have been
     // moved to `oxicrab-channels::regex_utils`.
+    // NOTE: HTML-specific patterns (html_script, html_style, html_tags,
+    // whitespace, newlines) have been moved to `oxicrab-tools-web::utils::regex`.
 
-    /// Regex for matching HTML script tags
-    pub fn html_script() -> &'static Regex {
-        static RE: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r"(?i)<script[\s\S]*?</script>")
-                .expect("Failed to compile HTML script regex")
-        });
-        &RE
-    }
-
-    /// Regex for matching HTML style tags
-    pub fn html_style() -> &'static Regex {
-        static RE: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r"(?i)<style[\s\S]*?</style>").expect("Failed to compile HTML style regex")
-        });
-        &RE
-    }
-
-    /// Regex for matching HTML tags
+    /// Regex for matching HTML tags (used by RSS, Google Mail, and truncation)
     pub fn html_tags() -> &'static Regex {
         static RE: LazyLock<Regex> =
             LazyLock::new(|| Regex::new(r"<[^>]+>").expect("Failed to compile HTML tags regex"));
-        &RE
-    }
-
-    /// Regex for matching whitespace
-    pub fn whitespace() -> &'static Regex {
-        static RE: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"[ \t]+").expect("Failed to compile whitespace regex"));
-        &RE
-    }
-
-    /// Regex for matching multiple newlines
-    pub fn newlines() -> &'static Regex {
-        static RE: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"\n{3,}").expect("Failed to compile newlines regex"));
         &RE
     }
 

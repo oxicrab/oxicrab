@@ -1,8 +1,9 @@
-use crate::actions;
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
-use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
+use oxicrab_core::tools::base::{
+    ActionDescriptor, ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory,
+};
+use oxicrab_core::tools::base::{Tool, ToolResult};
 use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
@@ -183,11 +184,11 @@ impl RedditTool {
 
 #[async_trait]
 impl Tool for RedditTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "reddit"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Browse Reddit. Get hot, new, or top posts from a subreddit, or search within a subreddit. Read-only, no authentication required."
     }
 
@@ -200,11 +201,23 @@ impl Tool for RedditTool {
             built_in: true,
             network_outbound: true,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: actions![
-                hot: ro,
-                new: ro,
-                top: ro,
-                search: ro,
+            actions: vec![
+                ActionDescriptor {
+                    name: "hot",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "new",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "top",
+                    read_only: true,
+                },
+                ActionDescriptor {
+                    name: "search",
+                    read_only: true,
+                },
             ],
             category: ToolCategory::Productivity,
         }

@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::tools::base::ExecutionContext;
+use oxicrab_core::tools::base::ExecutionContext;
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -254,7 +254,6 @@ async fn test_json_response_pretty_printed() {
         .unwrap();
 
     assert!(!result.is_error);
-    // Pretty-printed JSON should have newlines and indentation
     assert!(result.content.contains("\"name\": \"test\""));
     assert!(result.content.contains("\"count\": 42"));
     assert!(result.content.contains("content-type: application/json"));
@@ -284,7 +283,6 @@ async fn test_response_header_filtering() {
 
     assert!(result.content.contains("content-type: text/plain"));
     assert!(result.content.contains("x-request-id: req-123"));
-    // Internal headers should be filtered out
     assert!(!result.content.contains("x-internal-secret"));
     assert!(!result.content.contains("should-not-appear"));
 }
@@ -332,7 +330,6 @@ async fn test_response_truncation() {
 
     assert!(!result.is_error);
     assert!(result.content.contains("[truncated]"));
-    // Total content should be bounded
     assert!(result.content.len() < MAX_RESPONSE_CHARS + 500);
 }
 
@@ -351,7 +348,6 @@ async fn test_404_error_status() {
         .await
         .unwrap();
 
-    // HTTP errors are not tool errors — they're valid responses
     assert!(!result.is_error);
     assert!(result.content.contains("HTTP 404 GET"));
     assert!(result.content.contains("not found"));
@@ -387,7 +383,6 @@ async fn test_default_method_is_get() {
         .await;
 
     let tool = HttpTool::new();
-    // No method specified — should default to GET
     let result = tool
         .send_request(&serde_json::json!({"url": format!("{}/default", server.uri())}))
         .await
@@ -400,7 +395,6 @@ async fn test_default_method_is_get() {
 #[tokio::test]
 async fn test_non_json_response_not_pretty_printed() {
     let server = MockServer::start().await;
-    // set_body_string sets content-type to text/plain by default
     Mock::given(method("GET"))
         .and(path("/plain"))
         .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"not":"pretty printed"}"#))
@@ -413,7 +407,6 @@ async fn test_non_json_response_not_pretty_printed() {
         .await
         .unwrap();
 
-    // text/plain content should NOT be pretty-printed even if it looks like JSON
     assert!(result.content.contains(r#"{"not":"pretty printed"}"#));
 }
 
@@ -438,8 +431,7 @@ async fn test_empty_response_body() {
 
 #[test]
 fn test_http_capabilities() {
-    use crate::agent::tools::Tool;
-    use crate::agent::tools::base::SubagentAccess;
+    use oxicrab_core::tools::base::{SubagentAccess, Tool};
     let tool = HttpTool::new();
     let caps = tool.capabilities();
     assert!(caps.built_in);
