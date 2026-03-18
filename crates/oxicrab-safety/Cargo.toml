@@ -1,0 +1,16 @@
+[package]
+name = "oxicrab-safety"
+version = "0.15.0"
+edition = "2024"
+authors = ["James Turnbull <james@ltl.so>"]
+description = "Safety subsystem for the oxicrab framework (leak detection, prompt guard)"
+license = "MIT"
+
+[dependencies]
+oxicrab-core = { path = "../oxicrab-core" }
+aho-corasick = "1.1"
+base64 = "0.22"
+hex = "0.4"
+regex = { workspace = true }
+tracing = { workspace = true }
+urlencoding = "2.1"

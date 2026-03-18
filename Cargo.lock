@@ -3439,6 +3439,7 @@ dependencies = [
  "oxicrab-memory",
  "oxicrab-providers",
  "oxicrab-router",
+ "oxicrab-safety",
  "oxicrab-tools-api",
  "oxicrab-tools-browser",
  "oxicrab-tools-google",
@@ -3618,6 +3619,19 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+]
+
+[[package]]
+name = "oxicrab-safety"
+version = "0.15.0"
+dependencies = [
+ "aho-corasick",
+ "base64 0.22.1",
+ "hex",
+ "oxicrab-core",
+ "regex",
+ "tracing",
+ "urlencoding",
 ]
 
 [[package]]
