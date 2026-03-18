@@ -539,5 +539,16 @@ impl CronService {
     }
 }
 
+impl oxicrab_core::cron_types::CronScheduler for CronService {
+    fn add_job(&self, job: CronJob) -> Result<()> {
+        self.add_job(job)
+    }
+
+    fn remove_job(&self, id: &str) -> Result<()> {
+        let _ = self.remove_job(id)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests;

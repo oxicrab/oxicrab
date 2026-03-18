@@ -1,0 +1,131 @@
+//! URL validation to prevent SSRF attacks.
+
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::time::Duration;
+
+/// Validated URL with pinned DNS resolution.
+///
+/// Contains the resolved addresses so the caller can pin reqwest's DNS
+/// resolution, preventing TOCTOU DNS rebinding attacks.
+pub struct ResolvedUrl {
+    pub _host: String,
+    pub _addrs: Vec<SocketAddr>,
+}
+
+/// Validate URL and return resolved addresses for DNS pinning.
+pub async fn validate_and_resolve(url_str: &str) -> Result<ResolvedUrl, String> {
+    let parsed = url::Url::parse(url_str).map_err(|e| format!("Invalid URL: {e}"))?;
+
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(format!(
+            "Only http/https allowed, got '{}'",
+            parsed.scheme()
+        ));
+    }
+
+    // Reject URLs with embedded credentials
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("URLs with embedded credentials are not allowed".to_string());
+    }
+
+    let host = parsed.host().ok_or("URL has no host")?;
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let host_str = host.to_string();
+
+    let addrs = match host {
+        url::Host::Ipv4(v4) => {
+            check_ip_allowed(IpAddr::V4(v4))?;
+            vec![SocketAddr::new(IpAddr::V4(v4), port)]
+        }
+        url::Host::Ipv6(v6) => {
+            check_ip_allowed(IpAddr::V6(v6))?;
+            vec![SocketAddr::new(IpAddr::V6(v6), port)]
+        }
+        url::Host::Domain(domain) => {
+            let lookup_addr = format!("{domain}:{port}");
+            let resolved = tokio::time::timeout(
+                Duration::from_secs(5),
+                tokio::net::lookup_host(&lookup_addr),
+            )
+            .await
+            .map_err(|_| format!("DNS resolution timed out for domain: {domain}"))?
+            .map_err(|_| format!("DNS resolution failed for domain: {domain}"))?;
+            let mut addrs: Vec<SocketAddr> = resolved.collect();
+            for addr in &addrs {
+                check_ip_allowed(addr.ip())?;
+            }
+            if addrs.is_empty() {
+                return Err(format!("DNS resolved no addresses for: {domain}"));
+            }
+            addrs.sort_by_key(|a| matches!(a.ip(), IpAddr::V6(_)));
+            addrs
+        }
+    };
+
+    Ok(ResolvedUrl {
+        _host: host_str,
+        _addrs: addrs,
+    })
+}
+
+fn check_ip_allowed(ip: IpAddr) -> Result<(), String> {
+    match ip {
+        IpAddr::V4(v4) => {
+            if v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_multicast()
+                || v4.is_unspecified()
+                || v4.octets()[0] == 0
+            {
+                return Err(format!("Blocked: requests to {v4} are not allowed"));
+            }
+            let cgnat_start = Ipv4Addr::new(100, 64, 0, 0);
+            let cgnat_end = Ipv4Addr::new(100, 127, 255, 255);
+            if v4 >= cgnat_start && v4 <= cgnat_end {
+                return Err(format!("Blocked: requests to {v4} are not allowed"));
+            }
+        }
+        IpAddr::V6(v6) => {
+            if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
+                return Err(format!("Blocked: requests to {v6} are not allowed"));
+            }
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return check_ip_allowed(IpAddr::V4(v4));
+            }
+            let segments = v6.segments();
+            if segments[0] & 0xffc0 == 0xfe80 {
+                return Err(format!("Blocked: requests to {v6} are not allowed"));
+            }
+            if segments[0] & 0xfe00 == 0xfc00 {
+                return Err(format!("Blocked: requests to {v6} are not allowed"));
+            }
+            if segments[0] == 0x2001 && segments[1] == 0x0db8 {
+                return Err(format!("Blocked: requests to {v6} are not allowed"));
+            }
+            if segments[0] == 0x2001 && segments[1] == 0x0000 {
+                return Err(format!("Blocked: requests to {v6} are not allowed"));
+            }
+            if segments[0] == 0x2002 {
+                return Err(format!("Blocked: requests to {v6} are not allowed"));
+            }
+            if segments[0] == 0x0064
+                && segments[1] == 0xff9b
+                && segments[2] == 0
+                && segments[3] == 0
+                && segments[4] == 0
+                && segments[5] == 0
+            {
+                let v4 = std::net::Ipv4Addr::new(
+                    (segments[6] >> 8) as u8,
+                    segments[6] as u8,
+                    (segments[7] >> 8) as u8,
+                    segments[7] as u8,
+                );
+                return check_ip_allowed(IpAddr::V4(v4));
+            }
+        }
+    }
+    Ok(())
+}

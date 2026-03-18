@@ -164,5 +164,16 @@ pub struct UpdateJobParams {
     pub targets: Option<Vec<CronTarget>>,
 }
 
+/// Trait for scheduling cron jobs.
+///
+/// Allows tool crates (like RSS) to create/remove cron jobs without
+/// depending on the full `CronService` implementation.
+pub trait CronScheduler: Send + Sync {
+    /// Add a cron job.
+    fn add_job(&self, job: CronJob) -> anyhow::Result<()>;
+    /// Remove a cron job by ID.
+    fn remove_job(&self, id: &str) -> anyhow::Result<()>;
+}
+
 #[cfg(test)]
 mod tests;

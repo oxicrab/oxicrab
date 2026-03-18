@@ -3442,6 +3442,7 @@ dependencies = [
  "oxicrab-memory",
  "oxicrab-providers",
  "oxicrab-tools-api",
+ "oxicrab-tools-browser",
  "oxicrab-tools-google",
  "oxicrab-tools-system",
  "oxicrab-tools-web",
@@ -3626,6 +3627,26 @@ dependencies = [
  "tracing",
  "urlencoding",
  "wiremock",
+]
+
+[[package]]
+name = "oxicrab-tools-browser"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chromiumoxide",
+ "chrono",
+ "dirs",
+ "fastrand",
+ "futures-util",
+ "oxicrab-core",
+ "reqwest 0.13.2",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
 ]
 
 [[package]]

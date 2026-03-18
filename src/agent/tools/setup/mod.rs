@@ -73,7 +73,9 @@ pub async fn register_all_tools(
     }
     register_web(&mut tools, ctx);
     let subagents = register_subagents(&mut tools, ctx);
-    #[cfg(feature = "browser")]
+    #[cfg(feature = "tools-browser")]
+    register_browser_ext(&mut tools, ctx);
+    #[cfg(all(feature = "browser", not(feature = "tools-browser")))]
     register_browser(&mut tools, ctx);
     #[cfg(feature = "tools-api")]
     {
@@ -284,7 +286,17 @@ fn register_tmux(registry: &mut ToolRegistry) {
     registry.register(Arc::new(TmuxTool::new()));
 }
 
-#[cfg(feature = "browser")]
+#[cfg(feature = "tools-browser")]
+fn register_browser_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    if let Some(ref browser_cfg) = ctx.browser_config
+        && browser_cfg.enabled
+    {
+        registry.register(oxicrab_tools_browser::create_browser_tool(browser_cfg));
+        info!("Browser tool registered (crate)");
+    }
+}
+
+#[cfg(all(feature = "browser", not(feature = "tools-browser")))]
 fn register_browser(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::browser::BrowserTool;
 
