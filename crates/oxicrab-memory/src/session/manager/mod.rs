@@ -1,4 +1,4 @@
-use crate::agent::memory::MemoryDB;
+use crate::memory_db::MemoryDB;
 use crate::session::store::SessionStore;
 use anyhow::{Context, Result};
 use async_trait::async_trait;

@@ -3571,11 +3571,13 @@ name = "oxicrab-memory"
 version = "0.15.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "chrono",
  "fastembed",
  "hex",
  "lru",
  "oxicrab-core",
+ "proptest",
  "regex",
  "rusqlite",
  "serde",
