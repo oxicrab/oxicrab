@@ -1,0 +1,532 @@
+use super::*;
+use oxicrab_core::providers::base::{LLMProvider, Message};
+use wiremock::matchers::{header, method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+// --- Wiremock tests ---
+
+fn simple_chat_request(content: &str) -> ChatRequest {
+    ChatRequest::builder(vec![Message::user(content)], 1024)
+        .temperature(0.7)
+        .build()
+}
+
+#[tokio::test]
+async fn test_chat_success() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(header("Authorization", "Bearer test_key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "Hello! How can I help?"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 8, "total_tokens": 18}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let result = provider.chat(&simple_chat_request("Hi")).await.unwrap();
+
+    assert_eq!(result.content.unwrap(), "Hello! How can I help?");
+    assert!(result.tool_calls.is_empty());
+}
+
+#[tokio::test]
+async fn test_chat_with_tool_calls() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {
+                            "name": "weather",
+                            "arguments": "{\"city\": \"NYC\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {"prompt_tokens": 15, "completion_tokens": 20, "total_tokens": 35}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let result = provider
+        .chat(&simple_chat_request("What's the weather?"))
+        .await
+        .unwrap();
+
+    assert!(result.has_tool_calls());
+    assert_eq!(result.tool_calls[0].name, "weather");
+    assert_eq!(result.tool_calls[0].id, "call_123");
+    assert_eq!(result.tool_calls[0].arguments["city"], "NYC");
+}
+
+#[tokio::test]
+async fn test_chat_unauthorized() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "error": {"type": "authentication_error", "message": "Invalid API key"}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("bad_key".to_string(), None, server.uri());
+    let result = provider.chat(&simple_chat_request("Hi")).await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("Authentication"), "Error: {err}");
+}
+
+#[tokio::test]
+async fn test_chat_rate_limit() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("retry-after", "60")
+                .set_body_json(json!({
+                    "error": {"type": "rate_limit", "message": "Too many requests"}
+                })),
+        )
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let result = provider.chat(&simple_chat_request("Hi")).await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("Rate limit") || err.contains("rate limit"),
+        "Error: {err}"
+    );
+}
+
+#[tokio::test]
+async fn test_chat_server_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(500).set_body_json(json!({
+            "error": {"type": "server_error", "message": "Internal server error"}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let result = provider.chat(&simple_chat_request("Hi")).await;
+
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_chat_custom_model() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "Response from custom model"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"total_tokens": 10}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url(
+        "test_key".to_string(),
+        Some("gpt-4-turbo".to_string()),
+        server.uri(),
+    );
+    let result = provider.chat(&simple_chat_request("Hi")).await.unwrap();
+
+    assert_eq!(result.content.unwrap(), "Response from custom model");
+}
+
+#[tokio::test]
+async fn test_with_config_custom_provider() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(header("Authorization", "Bearer deepseek_key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "DeepSeek response"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"total_tokens": 12}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_config(
+        "deepseek_key".to_string(),
+        "deepseek-chat".to_string(),
+        server.uri(),
+        "DeepSeek".to_string(),
+    );
+
+    assert_eq!(provider.default_model(), "deepseek-chat");
+
+    let result = provider.chat(&simple_chat_request("Hi")).await.unwrap();
+    assert_eq!(result.content.unwrap(), "DeepSeek response");
+}
+
+// --- parse_response unit tests (no network) ---
+
+#[test]
+fn test_parse_response_text_only() {
+    let json = json!({
+        "choices": [{"message": {"content": "hello"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 1}
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    assert_eq!(resp.content.as_deref(), Some("hello"));
+    assert!(resp.tool_calls.is_empty());
+    assert_eq!(resp.input_tokens, Some(5));
+    assert_eq!(resp.output_tokens, Some(1));
+}
+
+#[test]
+fn test_parse_response_tool_calls() {
+    let json = json!({
+        "choices": [{"message": {
+            "content": null,
+            "tool_calls": [{
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "get_weather", "arguments": "{\"city\":\"London\"}"}
+            }]
+        }}],
+        "usage": {}
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    assert!(resp.content.is_none());
+    assert_eq!(resp.tool_calls.len(), 1);
+    assert_eq!(resp.tool_calls[0].name, "get_weather");
+    assert_eq!(resp.tool_calls[0].arguments["city"], "London");
+}
+
+#[test]
+fn test_parse_response_no_choices() {
+    let json = json!({"choices": []});
+    let result = OpenAIProvider::parse_response(&json);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_parse_response_malformed_tool_arguments() {
+    let json = json!({
+        "choices": [{"message": {
+            "tool_calls": [{
+                "id": "call_2",
+                "function": {"name": "broken", "arguments": "not-json"}
+            }]
+        }}],
+        "usage": {}
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    // Malformed arguments should cause the tool call to be skipped entirely
+    assert!(resp.tool_calls.is_empty());
+}
+
+#[test]
+fn test_parse_response_multiple_tool_calls() {
+    let json = json!({
+        "choices": [{"message": {
+            "tool_calls": [
+                {"id": "c1", "function": {"name": "a", "arguments": "{}"}},
+                {"id": "c2", "function": {"name": "b", "arguments": "{}"}}
+            ]
+        }}]
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    assert_eq!(resp.tool_calls.len(), 2);
+    assert_eq!(resp.tool_calls[0].id, "c1");
+    assert_eq!(resp.tool_calls[1].id, "c2");
+}
+
+#[test]
+fn test_parse_response_no_usage() {
+    let json = json!({
+        "choices": [{"message": {"content": "hi"}}]
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    assert!(resp.input_tokens.is_none());
+    assert!(resp.output_tokens.is_none());
+}
+
+#[tokio::test]
+async fn test_chat_with_json_object_format() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"answer\": 42}"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let req = ChatRequest::builder(vec![Message::user("return json")], 1024)
+        .temperature(0.7)
+        .response_format(oxicrab_core::providers::base::ResponseFormat::JsonObject)
+        .build();
+    let result = provider.chat(&req).await.unwrap();
+    assert_eq!(result.content.unwrap(), "{\"answer\": 42}");
+}
+
+#[tokio::test]
+async fn test_chat_with_json_schema_format() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"name\": \"Alice\", \"age\": 30}"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "age": {"type": "integer"}
+        },
+        "required": ["name", "age"]
+    });
+    let req = ChatRequest::builder(vec![Message::user("return a person")], 1024)
+        .temperature(0.7)
+        .response_format(oxicrab_core::providers::base::ResponseFormat::JsonSchema {
+            name: "person".into(),
+            schema,
+        })
+        .build();
+    let result = provider.chat(&req).await.unwrap();
+    assert!(result.content.unwrap().contains("Alice"));
+}
+
+// --- Additional coverage tests ---
+
+#[test]
+fn test_parse_response_with_reasoning_content() {
+    let json = json!({
+        "choices": [{"message": {
+            "content": "The answer is 42",
+            "reasoning_content": "Let me think..."
+        }, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5}
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    assert_eq!(resp.content.as_deref(), Some("The answer is 42"));
+    assert_eq!(resp.reasoning_content.as_deref(), Some("Let me think..."));
+}
+
+#[test]
+fn test_parse_response_content_and_tool_calls_together() {
+    let json = json!({
+        "choices": [{"message": {
+            "content": "I'll check",
+            "tool_calls": [{
+                "id": "call_abc",
+                "type": "function",
+                "function": {"name": "lookup", "arguments": "{\"q\":\"test\"}"}
+            }]
+        }, "finish_reason": "tool_calls"}],
+        "usage": {"prompt_tokens": 8, "completion_tokens": 12}
+    });
+    let resp = OpenAIProvider::parse_response(&json).unwrap();
+    assert_eq!(resp.content.as_deref(), Some("I'll check"));
+    assert_eq!(resp.tool_calls.len(), 1);
+    assert_eq!(resp.tool_calls[0].name, "lookup");
+    assert_eq!(resp.tool_calls[0].id, "call_abc");
+    assert_eq!(resp.tool_calls[0].arguments["q"], "test");
+}
+
+#[tokio::test]
+async fn test_chat_tool_choice_any_mapped_to_required() {
+    use wiremock::matchers::body_partial_json;
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(body_partial_json(json!({"tool_choice": "required"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "my_tool", "arguments": "{}"}
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let req = ChatRequest::builder(vec![Message::user("do something")], 1024)
+        .tools(vec![oxicrab_core::providers::base::ToolDefinition {
+            name: "my_tool".to_string(),
+            description: "a test tool".to_string(),
+            parameters: json!({"type": "object", "properties": {}}),
+        }])
+        .temperature(0.7)
+        .tool_choice("any")
+        .build();
+    let result = provider.chat(&req).await.unwrap();
+    assert!(result.has_tool_calls());
+    assert_eq!(result.tool_calls[0].name, "my_tool");
+}
+
+#[tokio::test]
+async fn test_chat_with_image_in_message() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "I see an image"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 20, "completion_tokens": 5, "total_tokens": 25}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let req = ChatRequest::builder(
+        vec![Message::user_with_images(
+            "What is this?",
+            vec![oxicrab_core::providers::base::ImageData {
+                media_type: "image/png".to_string(),
+                data: "iVBORw0KGgoAAAANSUhEUg==".to_string(),
+            }],
+        )],
+        1024,
+    )
+    .temperature(0.7)
+    .build();
+    let result = provider.chat(&req).await.unwrap();
+    assert_eq!(result.content.as_deref(), Some("I see an image"));
+}
+
+#[tokio::test]
+async fn test_chat_with_document_in_message() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "I read the PDF"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 30, "completion_tokens": 5, "total_tokens": 35}
+        })))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAIProvider::with_base_url("test_key".to_string(), None, server.uri());
+    let req = ChatRequest::builder(
+        vec![Message::user_with_images(
+            "Summarize this document",
+            vec![oxicrab_core::providers::base::ImageData {
+                media_type: "application/pdf".to_string(),
+                data: "JVBERi0xLjQK".to_string(),
+            }],
+        )],
+        1024,
+    )
+    .temperature(0.7)
+    .build();
+    let result = provider.chat(&req).await.unwrap();
+    assert_eq!(result.content.as_deref(), Some("I read the PDF"));
+}
+
+#[tokio::test]
+async fn test_custom_headers_are_sent() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(header("X-Custom", "my-value"))
+        .and(header("Authorization", "Bearer hdr_key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "ok"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"total_tokens": 5}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut headers = std::collections::HashMap::new();
+    headers.insert("X-Custom".to_string(), "my-value".to_string());
+    let provider = OpenAIProvider::with_config_and_headers(
+        "hdr_key".to_string(),
+        "gpt-4o".to_string(),
+        server.uri(),
+        "TestProvider".to_string(),
+        headers,
+    );
+    let result = provider.chat(&simple_chat_request("Hi")).await.unwrap();
+    assert_eq!(result.content.as_deref(), Some("ok"));
+}
+
+#[test]
+fn test_default_model_new() {
+    let provider = OpenAIProvider::new("key".to_string(), None);
+    assert_eq!(provider.default_model(), "gpt-4o");
+}
+
+#[test]
+fn test_default_model_with_config() {
+    let provider = OpenAIProvider::with_config(
+        "key".to_string(),
+        "deepseek-r1".to_string(),
+        "https://example.com".to_string(),
+        "DeepSeek".to_string(),
+    );
+    assert_eq!(provider.default_model(), "deepseek-r1");
+}

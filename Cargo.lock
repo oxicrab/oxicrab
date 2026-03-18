@@ -3438,6 +3438,7 @@ dependencies = [
  "open",
  "oxicrab-core",
  "oxicrab-memory",
+ "oxicrab-providers",
  "proptest",
  "qr2term",
  "qrcode",
@@ -3515,6 +3516,29 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "oxicrab-providers"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "dirs",
+ "fs2",
+ "futures-util",
+ "oxicrab-core",
+ "oxicrab-memory",
+ "regex",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "urlencoding",
+ "uuid",
+ "wiremock",
 ]
 
 [[package]]

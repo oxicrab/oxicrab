@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/oxicrab-core", "crates/oxicrab-memory", "."]
+members = ["crates/oxicrab-core", "crates/oxicrab-memory", "crates/oxicrab-providers", "."]
 resolver = "2"
 
 [workspace.dependencies]
@@ -50,6 +50,7 @@ tool-rss = ["dep:feed-rs", "dep:nalgebra", "dep:rand_distr", "dep:rand", "oxicra
 [dependencies]
 oxicrab-core = { path = "crates/oxicrab-core" }
 oxicrab-memory = { path = "crates/oxicrab-memory", default-features = false, features = ["rss"] }
+oxicrab-providers = { path = "crates/oxicrab-providers" }
 aho-corasick = "1.1"
 anyhow = "1.0"
 async-trait = "0.1"
