@@ -6,9 +6,9 @@ use reqwest::Client;
 use tracing::warn;
 
 use super::model::LinTSModel;
-use crate::agent::memory::memory_db::MemoryDB;
-use crate::agent::tools::ToolResult;
-use crate::utils::http::limited_text;
+use oxicrab_core::tools::base::ToolResult;
+use oxicrab_core::utils::http::limited_text;
+use oxicrab_memory::memory_db::MemoryDB;
 
 pub fn handle_get_articles(
     db: &MemoryDB,
@@ -367,7 +367,7 @@ pub fn handle_next(db: &MemoryDB) -> Result<ToolResult> {
 /// keeps covariance/pruning semantics consistent with the scan path.
 fn rank_articles(
     db: &MemoryDB,
-    articles: &[crate::agent::memory::memory_db::rss::RssArticle],
+    articles: &[oxicrab_memory::memory_db::rss::RssArticle],
 ) -> Vec<usize> {
     let model = load_or_create_model(db);
 
@@ -506,7 +506,8 @@ pub async fn handle_get_article_detail(
     }
 
     // Validate URL via SSRF guard and get pinned addresses to prevent DNS rebinding
-    let resolved = match crate::utils::url_security::validate_and_resolve(&article.url).await {
+    let resolved = match oxicrab_core::utils::url_security::validate_and_resolve(&article.url).await
+    {
         Ok(r) => r,
         Err(e) => {
             warn!(
@@ -520,7 +521,7 @@ pub async fn handle_get_article_detail(
 
     // Build a per-request client pinned to the validated addresses
     let ua = format!("oxicrab/{}", env!("CARGO_PKG_VERSION"));
-    let pinned = match crate::utils::http::build_pinned_client(
+    let pinned = match oxicrab_core::utils::http::build_pinned_client(
         &resolved,
         std::time::Duration::from_secs(30),
         Some(&ua),
@@ -576,14 +577,17 @@ pub async fn handle_get_article_detail(
 }
 
 fn strip_html_tags(html: &str) -> String {
-    crate::utils::regex::RegexPatterns::html_tags()
+    use std::sync::LazyLock;
+    static HTML_TAGS: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"<[^>]+>").expect("html_tags regex"));
+    HTML_TAGS
         .replace_all(html, " ")
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
 }
 
-fn fallback_to_snippet(article: &crate::agent::memory::memory_db::rss::RssArticle) -> ToolResult {
+fn fallback_to_snippet(article: &oxicrab_memory::memory_db::rss::RssArticle) -> ToolResult {
     let snippet = article
         .description
         .as_deref()

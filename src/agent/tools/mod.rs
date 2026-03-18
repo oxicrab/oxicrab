@@ -5,8 +5,6 @@ pub mod mcp;
 pub mod memory_search;
 pub mod read_only_wrapper;
 pub mod registry;
-#[cfg(feature = "tool-rss")]
-pub mod rss;
 pub mod setup;
 pub mod spawn;
 pub mod stash;

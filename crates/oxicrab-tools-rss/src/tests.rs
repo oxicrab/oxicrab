@@ -1,6 +1,6 @@
 use super::*;
-use crate::agent::memory::memory_db::rss::{RssArticle, RssFeed};
-use crate::agent::tools::base::ExecutionContext;
+use oxicrab_core::tools::base::ExecutionContext;
+use oxicrab_memory::memory_db::rss::{RssArticle, RssFeed};
 use std::collections::HashMap;
 
 /// Helper: set up a tool past the `needs_feeds` gate
@@ -221,7 +221,7 @@ async fn test_add_feed_ssrf_blocked() {
 // ── Article action helpers ─────────────────────────────────────────────────
 
 fn insert_test_feed_and_articles(
-    db: &crate::agent::memory::memory_db::MemoryDB,
+    db: &oxicrab_memory::memory_db::MemoryDB,
 ) -> (String, Vec<String>) {
     let feed = RssFeed {
         id: "test-feed".into(),

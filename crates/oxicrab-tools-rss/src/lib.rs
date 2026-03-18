@@ -1,6 +1,6 @@
 mod articles;
 mod feeds;
-pub(crate) mod model;
+pub mod model;
 mod onboard;
 mod scanner;
 mod stats;
@@ -9,7 +9,7 @@ mod stats;
 mod tests;
 
 /// Format a millisecond timestamp as a human-readable date (UTC, no external deps).
-pub(super) fn format_date_ms(ms: i64) -> String {
+pub(crate) fn format_date_ms(ms: i64) -> String {
     // Convert ms → seconds, then days since Unix epoch
     let days = ms / 1000 / 86400;
     // Gregorian calendar algorithm (Richards, 2013 — via Astronomical Algorithms)
@@ -25,17 +25,21 @@ pub(super) fn format_date_ms(ms: i64) -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
-pub(super) use crate::utils::time::now_ms;
+pub(crate) use oxicrab_core::time::now_ms;
 
-use crate::actions;
-use crate::agent::memory::memory_db::MemoryDB;
-use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
-use crate::agent::tools::{Tool, ToolResult};
-use crate::config::RssConfig;
-use crate::cron::service::CronService;
-use crate::require_param;
+use oxicrab_core::actions;
+use oxicrab_core::config::schema::RssConfig;
+use oxicrab_core::cron_types::CronScheduler;
+use oxicrab_core::require_param;
+use oxicrab_core::tools::base::routing_types::{DirectiveTrigger, StaticRule};
+use oxicrab_core::tools::base::{
+    ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory, ToolExample, ToolResult,
+};
+use oxicrab_memory::memory_db::MemoryDB;
+
 use anyhow::Result;
 use async_trait::async_trait;
+use oxicrab_core::tools::base::Tool;
 use reqwest::Client;
 use serde_json::Value;
 use std::sync::Arc;
@@ -45,14 +49,14 @@ pub struct RssTool {
     pub db: Arc<MemoryDB>,
     pub client: Client,
     pub config: RssConfig,
-    pub cron_service: Option<Arc<CronService>>,
+    pub cron_service: Option<Arc<dyn CronScheduler>>,
 }
 
 impl RssTool {
     pub fn new(
         db: Arc<MemoryDB>,
         config: RssConfig,
-        cron_service: Option<Arc<CronService>>,
+        cron_service: Option<Arc<dyn CronScheduler>>,
     ) -> Self {
         let timeout = config.scan_timeout;
         Self {
@@ -77,11 +81,11 @@ impl RssTool {
 
 #[async_trait]
 impl Tool for RssTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "rss"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Manage RSS feeds and personalised article recommendations. Actions: onboard, set_profile, \
          add_feed, remove_feed, enable_feed, list_feeds, scan, review (present one article for \
          accept/reject), get_articles (browse/list only), accept, reject, get_article_detail, \
@@ -238,20 +242,17 @@ impl Tool for RssTool {
         }
     }
 
-    fn routing_rules(&self) -> Vec<crate::agent::tools::base::routing_types::StaticRule> {
+    fn routing_rules(&self) -> Vec<StaticRule> {
         vec![
-            crate::agent::tools::base::routing_types::StaticRule {
+            StaticRule {
                 tool: "rss".into(),
-                trigger: crate::agent::tools::base::routing_types::DirectiveTrigger::OneOf(vec![
-                    "next".into(),
-                    "more".into(),
-                ]),
+                trigger: DirectiveTrigger::OneOf(vec!["next".into(), "more".into()]),
                 params: serde_json::json!({"action": "next"}),
                 requires_context: true,
             },
-            crate::agent::tools::base::routing_types::StaticRule {
+            StaticRule {
                 tool: "rss".into(),
-                trigger: crate::agent::tools::base::routing_types::DirectiveTrigger::OneOf(vec![
+                trigger: DirectiveTrigger::OneOf(vec![
                     "done".into(),
                     "done reviewing".into(),
                     "stop".into(),
@@ -262,13 +263,13 @@ impl Tool for RssTool {
         ]
     }
 
-    fn usage_examples(&self) -> Vec<crate::agent::tools::base::ToolExample> {
+    fn usage_examples(&self) -> Vec<ToolExample> {
         vec![
-            crate::agent::tools::base::ToolExample {
+            ToolExample {
                 user_request: "show me the next article".into(),
                 params: serde_json::json!({"action": "next"}),
             },
-            crate::agent::tools::base::ToolExample {
+            ToolExample {
                 user_request: "scan my feeds for new articles".into(),
                 params: serde_json::json!({"action": "scan"}),
             },

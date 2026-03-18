@@ -5,9 +5,9 @@ use anyhow::Result;
 use reqwest::Client;
 use tracing::{info, warn};
 
-use crate::agent::memory::memory_db::MemoryDB;
-use crate::agent::memory::memory_db::rss::{RssFeed, STATE_NEEDS_CALIBRATION, STATE_NEEDS_FEEDS};
-use crate::agent::tools::ToolResult;
+use oxicrab_core::tools::base::ToolResult;
+use oxicrab_memory::memory_db::MemoryDB;
+use oxicrab_memory::memory_db::rss::{RssFeed, STATE_NEEDS_CALIBRATION, STATE_NEEDS_FEEDS};
 
 use super::now_ms;
 
@@ -19,7 +19,7 @@ pub async fn handle_add_feed(
     timeout: u64,
 ) -> Result<ToolResult> {
     // 1. Validate URL via SSRF guard and get pinned addresses
-    let resolved = match crate::utils::url_security::validate_and_resolve(url).await {
+    let resolved = match oxicrab_core::utils::url_security::validate_and_resolve(url).await {
         Ok(r) => r,
         Err(e) => return Ok(ToolResult::error(format!("invalid feed URL: {e}"))),
     };
@@ -27,7 +27,7 @@ pub async fn handle_add_feed(
     // 2. Build a per-request client pinned to the validated addresses to prevent
     //    DNS rebinding between validation and connection.
     let ua = format!("oxicrab/{}", env!("CARGO_PKG_VERSION"));
-    let pinned = match crate::utils::http::build_pinned_client(
+    let pinned = match oxicrab_core::utils::http::build_pinned_client(
         &resolved,
         Duration::from_secs(timeout),
         Some(&ua),
@@ -59,7 +59,7 @@ pub async fn handle_add_feed(
     }
 
     // 5. Read body with size limit (10 MB) to prevent OOM from malicious feeds
-    let body = match crate::utils::http::limited_body(response, 10 * 1024 * 1024).await {
+    let body = match oxicrab_core::utils::http::limited_body(response, 10 * 1024 * 1024).await {
         Ok((bytes, _truncated)) => bytes,
         Err(e) => {
             return Ok(ToolResult::error(format!("failed to read feed body: {e}")));

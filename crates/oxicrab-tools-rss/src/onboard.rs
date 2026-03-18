@@ -4,14 +4,14 @@ use std::sync::Arc;
 use anyhow::Result;
 use tracing::warn;
 
-use crate::agent::memory::memory_db::MemoryDB;
-use crate::agent::memory::memory_db::rss::{
+use oxicrab_core::cron_types::CronScheduler;
+use oxicrab_core::cron_types::{CronJob, CronJobState, CronPayload, CronSchedule, CronTarget};
+use oxicrab_core::tools::base::ExecutionContext;
+use oxicrab_core::tools::base::ToolResult;
+use oxicrab_memory::memory_db::MemoryDB;
+use oxicrab_memory::memory_db::rss::{
     STATE_COMPLETE, STATE_NEEDS_CALIBRATION, STATE_NEEDS_FEEDS, STATE_NEEDS_PROFILE,
 };
-use crate::agent::tools::ToolResult;
-use crate::agent::tools::base::ExecutionContext;
-use crate::cron::service::CronService;
-use crate::cron::types::{CronJob, CronJobState, CronPayload, CronSchedule, CronTarget};
 
 type FeedList = &'static [(&'static str, &'static str)];
 
@@ -97,7 +97,7 @@ pub fn check_gate(db: &MemoryDB, action: &str) -> Result<Option<ToolResult>> {
 pub fn handle_onboard(
     db: &MemoryDB,
     ctx: &ExecutionContext,
-    cron_service: Option<&Arc<CronService>>,
+    cron_service: Option<&Arc<dyn CronScheduler>>,
 ) -> Result<ToolResult> {
     let profile = db.get_rss_profile()?;
     let state = profile
@@ -130,7 +130,7 @@ pub fn handle_onboard(
                 // Check if we're running inside a cron job — can't create cron from cron
                 let in_cron = ctx
                     .metadata
-                    .get(crate::bus::meta::IS_CRON_JOB)
+                    .get(oxicrab_core::bus::events::meta::IS_CRON_JOB)
                     .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false);
 

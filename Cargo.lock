@@ -3444,6 +3444,7 @@ dependencies = [
  "oxicrab-tools-browser",
  "oxicrab-tools-google",
  "oxicrab-tools-obsidian",
+ "oxicrab-tools-rss",
  "oxicrab-tools-system",
  "oxicrab-tools-web",
  "proptest",
@@ -3712,6 +3713,28 @@ dependencies = [
  "urlencoding",
  "walkdir",
  "wiremock",
+]
+
+[[package]]
+name = "oxicrab-tools-rss"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "feed-rs",
+ "futures-util",
+ "nalgebra",
+ "oxicrab-core",
+ "oxicrab-memory",
+ "rand 0.8.5",
+ "rand_distr",
+ "regex",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

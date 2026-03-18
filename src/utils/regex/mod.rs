@@ -18,13 +18,7 @@ impl RegexPatterns {
     // moved to `oxicrab-channels::regex_utils`.
     // NOTE: HTML-specific patterns (html_script, html_style, html_tags,
     // whitespace, newlines) have been moved to `oxicrab-tools-web::utils::regex`.
-
-    /// Regex for matching HTML tags (used by RSS, Google Mail, and truncation)
-    pub fn html_tags() -> &'static Regex {
-        static RE: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"<[^>]+>").expect("Failed to compile HTML tags regex"));
-        &RE
-    }
+    // NOTE: html_tags() moved to `oxicrab-tools-rss` (inline) and `oxicrab-tools-web`.
 
     /// Regex for matching data URIs (`data:mime/type;base64,...`)
     pub fn data_uri() -> &'static Regex {

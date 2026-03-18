@@ -22,6 +22,12 @@ pub struct LinTSModel {
     pub feature_index: HashMap<String, usize>,
 }
 
+impl Default for LinTSModel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LinTSModel {
     /// Create an empty model with zero dimensions.
     pub fn new() -> Self {

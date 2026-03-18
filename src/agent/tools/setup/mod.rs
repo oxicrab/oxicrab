@@ -367,7 +367,7 @@ fn register_interactive(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
 
 #[cfg(feature = "tool-rss")]
 fn register_rss(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
-    use crate::agent::tools::rss::RssTool;
+    use oxicrab_tools_rss::RssTool;
 
     let enabled = ctx.rss_config.as_ref().is_none_or(|c| c.enabled);
     if !enabled {
@@ -375,11 +375,9 @@ fn register_rss(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     }
     if let Some(ref db) = ctx.memory_db {
         let config = ctx.rss_config.clone().unwrap_or_default();
-        registry.register(Arc::new(RssTool::new(
-            db.clone(),
-            config,
-            ctx.cron_service.clone(),
-        )));
+        let cron_svc: Option<Arc<dyn oxicrab_core::cron_types::CronScheduler>> =
+            ctx.cron_service.clone().map(|s| s as _);
+        registry.register(Arc::new(RssTool::new(db.clone(), config, cron_svc)));
         info!("RSS tool registered");
     }
 }

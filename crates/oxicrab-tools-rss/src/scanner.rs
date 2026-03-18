@@ -8,11 +8,11 @@ use reqwest::Client;
 use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 
-use crate::agent::memory::memory_db::MemoryDB;
-use crate::agent::memory::memory_db::rss::RssArticle;
-use crate::agent::tools::ToolResult;
-use crate::agent::tools::rss::model::LinTSModel;
-use crate::config::RssConfig;
+use crate::model::LinTSModel;
+use oxicrab_core::config::schema::RssConfig;
+use oxicrab_core::tools::base::ToolResult;
+use oxicrab_memory::memory_db::MemoryDB;
+use oxicrab_memory::memory_db::rss::RssArticle;
 
 use super::now_ms;
 
@@ -396,13 +396,13 @@ async fn do_fetch_feed(
     max_per_feed: usize,
 ) -> Result<Vec<ParsedEntry>> {
     // SSRF validation — also returns pinned addresses to prevent DNS rebinding
-    let resolved = crate::utils::url_security::validate_and_resolve(url)
+    let resolved = oxicrab_core::utils::url_security::validate_and_resolve(url)
         .await
         .map_err(|e| anyhow::anyhow!("SSRF blocked: {e}"))?;
 
     // Build a per-request client pinned to the validated addresses
     let ua = format!("oxicrab/{}", env!("CARGO_PKG_VERSION"));
-    let pinned = crate::utils::http::build_pinned_client(
+    let pinned = oxicrab_core::utils::http::build_pinned_client(
         &resolved,
         Duration::from_secs(timeout_secs),
         Some(&ua),
@@ -421,7 +421,7 @@ async fn do_fetch_feed(
     }
 
     // Read body with size limit (10 MB) to prevent OOM from malicious feeds
-    let (body, _truncated) = crate::utils::http::limited_body(resp, 10 * 1024 * 1024)
+    let (body, _truncated) = oxicrab_core::utils::http::limited_body(resp, 10 * 1024 * 1024)
         .await
         .map_err(|e| anyhow::anyhow!("body read failed: {e}"))?;
 
@@ -536,9 +536,9 @@ pub(super) fn extract_profile_keywords(db: &MemoryDB) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::memory::memory_db::MemoryDB;
-    use crate::agent::memory::memory_db::rss::{RssFeed, STATE_COMPLETE};
-    use crate::config::RssConfig;
+    use oxicrab_core::config::schema::RssConfig;
+    use oxicrab_memory::memory_db::MemoryDB;
+    use oxicrab_memory::memory_db::rss::{RssFeed, STATE_COMPLETE};
 
     fn test_db_with_profile() -> MemoryDB {
         let db = MemoryDB::new(":memory:").unwrap();

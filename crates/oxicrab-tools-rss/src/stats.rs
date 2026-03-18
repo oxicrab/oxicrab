@@ -2,8 +2,8 @@ use std::fmt::Write as _;
 
 use anyhow::Result;
 
-use crate::agent::memory::memory_db::MemoryDB;
-use crate::agent::tools::ToolResult;
+use oxicrab_core::tools::base::ToolResult;
+use oxicrab_memory::memory_db::MemoryDB;
 
 pub fn handle_feed_stats(db: &MemoryDB) -> Result<ToolResult> {
     let mut out = String::new();
