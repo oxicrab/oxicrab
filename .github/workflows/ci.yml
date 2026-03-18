@@ -661,6 +661,44 @@ jobs:
         working-directory: fuzz
         continue-on-error: true
 
+  fuzz-security:
+    name: Fuzz Security Gate
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ needs.changes.outputs.toolchain }}
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-fuzz
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Fuzz webhook signature (30s)
+        run: cargo fuzz run fuzz_webhook_signature -- -max_total_time=30
+        working-directory: fuzz
+
+      - name: Fuzz leak detector (30s)
+        run: cargo fuzz run fuzz_leak_detector -- -max_total_time=30
+        working-directory: fuzz
+
+      - name: Fuzz URL validation (30s)
+        run: cargo fuzz run fuzz_url_validation -- -max_total_time=30
+        working-directory: fuzz
+
   # ══════════════════════════════════════════════════════════════════
   # CI Gate — required for merge
   # Only fast-path jobs block. Extended jobs report but don't gate.
@@ -669,7 +707,7 @@ jobs:
     name: CI
     runs-on: ubuntu-latest
     if: always()
-    needs: [changes, check, clippy, test-unit, test-integration, build-linux]
+    needs: [changes, check, clippy, test-unit, test-integration, build-linux, fuzz-security]
     steps:
       - name: Check results
         run: |
@@ -679,6 +717,7 @@ jobs:
           echo "test-unit: ${{ needs.test-unit.result }}"
           echo "test-integration: ${{ needs.test-integration.result }}"
           echo "build-linux: ${{ needs.build-linux.result }}"
+          echo "fuzz-security: ${{ needs.fuzz-security.result }}"
 
           # check always runs — must pass
           if [[ "${{ needs.check.result }}" == "failure" || "${{ needs.check.result }}" == "cancelled" ]]; then
@@ -687,7 +726,7 @@ jobs:
           fi
 
           # Code-gated jobs: fail on failure/cancelled, accept skipped (docs-only changes)
-          for job in clippy test-unit test-integration build-linux; do
+          for job in clippy test-unit test-integration build-linux fuzz-security; do
             result="${{ needs[job].result }}"
             if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
               echo "::error::${job} failed"

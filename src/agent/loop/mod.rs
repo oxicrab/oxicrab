@@ -67,6 +67,7 @@ use hallucination::TextAction;
 
 pub struct AgentLoop {
     inbound_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<InboundMessage>>>,
+    bus: Arc<crate::bus::MessageBus>,
     provider: Arc<dyn LLMProvider>,
     workspace: PathBuf,
     model: String,
@@ -83,7 +84,6 @@ pub struct AgentLoop {
     /// sessions to be processed concurrently.
     session_locks: Arc<std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
     running: Arc<tokio::sync::Mutex<bool>>,
-    outbound_tx: Arc<tokio::sync::mpsc::Sender<OutboundMessage>>,
     task_tracker: Arc<TaskTracker>,
     temperature: Option<f32>,
     tool_temperature: Option<f32>,
@@ -407,6 +407,7 @@ impl AgentLoop {
 
         Ok(Self {
             inbound_rx,
+            bus,
             provider,
             workspace: workspace.clone(),
             model,
@@ -420,7 +421,6 @@ impl AgentLoop {
             _subagents: Some(subagents),
             session_locks: Arc::new(std::sync::Mutex::new(HashMap::new())),
             running: Arc::new(tokio::sync::Mutex::new(false)),
-            outbound_tx,
             task_tracker: Arc::new(TaskTracker::new()),
             temperature,
             tool_temperature,
@@ -505,7 +505,7 @@ impl AgentLoop {
                             outbound_msg.chat_id,
                             outbound_msg.content.len()
                         );
-                        if let Err(e) = self.outbound_tx.send(outbound_msg).await {
+                        if let Err(e) = self.bus.publish_outbound(outbound_msg).await {
                             error!("Failed to send outbound message: {}", e);
                         } else {
                             info!("Successfully sent outbound message to bus");
@@ -528,7 +528,7 @@ impl AgentLoop {
                         )
                         .metadata(msg_metadata)
                         .build();
-                        if let Err(send_err) = self.outbound_tx.send(error_outbound).await {
+                        if let Err(send_err) = self.bus.publish_outbound(error_outbound).await {
                             error!("Failed to send error outbound message: {}", send_err);
                         }
                     }

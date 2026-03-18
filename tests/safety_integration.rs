@@ -4,9 +4,11 @@ use common::{
     TestAgentOverrides, ToolCapturingProvider, create_test_agent_with, text_response, tool_call,
     tool_response,
 };
-use oxicrab::bus::{MessageBus, OutboundMessage};
+use oxicrab::agent::{AgentLoop, AgentLoopConfig};
+use oxicrab::bus::{InboundMessage, MessageBus, OutboundMessage};
 use oxicrab::config::{ExfiltrationGuardConfig, PromptGuardAction, PromptGuardConfig};
 use serde_json::json;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 // ===========================================================================
@@ -259,6 +261,86 @@ async fn test_leak_detector_with_known_secrets_via_bus() {
         "Known secret should be redacted"
     );
     assert!(redacted.contains("[REDACTED]"));
+}
+
+#[tokio::test]
+async fn test_leak_detector_redacts_known_secret_inbound_and_outbound_end_to_end() {
+    let tmp = TempDir::new().expect("create temp dir");
+    let shared_secret = "internal-secret-token-12345";
+
+    let mut detector = oxicrab::safety::LeakDetector::new();
+    detector.add_known_secrets(&[("custom", shared_secret)]);
+    let detector = Arc::new(detector);
+
+    let provider = common::MockLLMProvider::with_responses(vec![text_response(&format!(
+        "I found the secret: {shared_secret}"
+    ))]);
+    let calls = provider.calls.clone();
+
+    let bus = MessageBus::with_leak_detector(30, 60.0, 1000, 1000, detector.clone());
+    let mut outbound_rx = bus.take_outbound_rx().expect("take outbound rx");
+    let bus = Arc::new(bus);
+
+    let mut config = AgentLoopConfig::test_defaults(
+        bus.clone(),
+        Arc::new(provider),
+        tmp.path().to_path_buf(),
+        Arc::new(bus.outbound_tx.clone()),
+    );
+    config.leak_detector = Some(detector);
+
+    let agent = AgentLoop::new(config).await.expect("create agent");
+    let agent_task = tokio::spawn({
+        let agent = agent;
+        async move { agent.run().await }
+    });
+
+    bus.publish_inbound(
+        InboundMessage::builder(
+            "telegram",
+            "user1",
+            "chat1",
+            format!("Please inspect this secret: {shared_secret}"),
+        )
+        .build(),
+    )
+    .await
+    .expect("publish inbound");
+
+    let outbound = tokio::time::timeout(std::time::Duration::from_secs(5), outbound_rx.recv())
+        .await
+        .expect("timed out waiting for outbound")
+        .expect("outbound message");
+
+    agent_task.abort();
+
+    let recorded = calls.lock().expect("lock recorded calls");
+    let user_msg = recorded[0]
+        .messages
+        .iter()
+        .find(|msg| msg.role == "user")
+        .expect("user message recorded");
+    assert!(
+        !user_msg.content.contains(shared_secret),
+        "inbound content should be redacted before LLM call, got: {}",
+        user_msg.content
+    );
+    assert!(
+        user_msg.content.contains("[REDACTED]"),
+        "redacted inbound content should contain marker, got: {}",
+        user_msg.content
+    );
+
+    assert!(
+        !outbound.content.contains(shared_secret),
+        "outbound content should be redacted before leaving bus, got: {}",
+        outbound.content
+    );
+    assert!(
+        outbound.content.contains("[REDACTED]"),
+        "redacted outbound content should contain marker, got: {}",
+        outbound.content
+    );
 }
 
 #[tokio::test]
