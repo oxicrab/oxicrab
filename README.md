@@ -94,7 +94,7 @@ cargo build --release --no-default-features --features channel-telegram,channel-
 cargo build --release --no-default-features
 ```
 
-Features: `channel-telegram`, `channel-discord`, `channel-slack`, `channel-whatsapp`, `channel-twilio`, `keyring-store`, `browser`, `local-whisper`, `embeddings` (all default-on).
+Features: `channel-telegram`, `channel-discord`, `channel-slack`, `channel-whatsapp`, `channel-twilio`, `keyring-store`, `local-whisper`, `embeddings`, `tool-rss` (all default-on).
 
 ## Quick Start
 
