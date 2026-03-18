@@ -3442,6 +3442,7 @@ dependencies = [
  "oxicrab-memory",
  "oxicrab-providers",
  "oxicrab-tools-api",
+ "oxicrab-tools-google",
  "oxicrab-tools-system",
  "oxicrab-tools-web",
  "proptest",
@@ -3618,6 +3619,25 @@ dependencies = [
  "fastrand",
  "form_urlencoded",
  "oxicrab-core",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "urlencoding",
+ "wiremock",
+]
+
+[[package]]
+name = "oxicrab-tools-google"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "oxicrab-core",
+ "regex",
  "reqwest 0.13.2",
  "serde",
  "serde_json",

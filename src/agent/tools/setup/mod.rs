@@ -102,6 +102,9 @@ pub async fn register_all_tools(
     register_rss(&mut tools, ctx);
 
     // Slow async registrations — run in parallel
+    #[cfg(feature = "tools-google")]
+    let (google_tools, mcp_result) = tokio::join!(create_google_tools_ext(ctx), create_mcp(ctx),);
+    #[cfg(not(feature = "tools-google"))]
     let (google_tools, mcp_result) = tokio::join!(create_google_tools(ctx), create_mcp(ctx),);
 
     for tool in google_tools {
@@ -382,6 +385,54 @@ fn register_cron(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     }
 }
 
+#[cfg(feature = "tools-google")]
+async fn create_google_tools_ext(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
+    let mut result: Vec<Arc<dyn Tool>> = Vec::new();
+
+    if let Some(ref google_cfg) = ctx.google_config
+        && google_cfg.is_configured()
+        && google_cfg.any_tool_enabled()
+    {
+        let scopes = google_cfg.required_scopes();
+        match crate::auth::google::get_credentials(
+            &google_cfg.client_id,
+            &google_cfg.client_secret,
+            Some(&scopes),
+            None,
+            ctx.memory_db.as_ref(),
+        )
+        .await
+        {
+            Ok(creds) => {
+                // Convert binary-crate GoogleCredentials to the crate's type
+                let google_creds = oxicrab_tools_google::credentials::GoogleCredentials {
+                    token: creds.token.clone(),
+                    refresh_token: creds.refresh_token.clone(),
+                    token_uri: creds.token_uri.clone(),
+                    client_id: creds.client_id.clone(),
+                    client_secret: creds.client_secret.clone(),
+                    scopes: creds.scopes.clone(),
+                    expiry: creds.expiry,
+                };
+                result = oxicrab_tools_google::create_google_tools(
+                    google_creds,
+                    google_cfg.gmail,
+                    google_cfg.calendar,
+                    google_cfg.tasks,
+                );
+                let names: Vec<&str> = result.iter().map(|t| t.name()).collect();
+                info!("Google tools registered (crate): {}", names.join(", "));
+            }
+            Err(e) => {
+                warn!("Google tools not available: {}", e);
+            }
+        }
+    }
+
+    result
+}
+
+#[cfg(not(feature = "tools-google"))]
 async fn create_google_tools(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
     use crate::agent::tools::google_calendar::GoogleCalendarTool;
     use crate::agent::tools::google_mail::GoogleMailTool;

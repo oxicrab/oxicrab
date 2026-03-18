@@ -1,0 +1,25 @@
+[package]
+name = "oxicrab-tools-google"
+version = "0.15.0"
+edition = "2024"
+authors = ["James Turnbull <james@ltl.so>"]
+description = "Google tools for the oxicrab framework (Gmail, Calendar, Tasks)"
+license = "MIT"
+
+[dependencies]
+oxicrab-core = { path = "../oxicrab-core" }
+anyhow = { workspace = true }
+base64 = "0.22"
+async-trait = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "charset", "http2", "form"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+urlencoding = "2.1"
+regex = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+wiremock = "0.6.5"

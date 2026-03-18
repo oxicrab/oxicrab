@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/oxicrab-core", "crates/oxicrab-memory", "crates/oxicrab-providers", "crates/oxicrab-channels", "crates/oxicrab-gateway", "crates/oxicrab-tools-web", "crates/oxicrab-tools-system", "crates/oxicrab-tools-api", "."]
+members = ["crates/oxicrab-core", "crates/oxicrab-memory", "crates/oxicrab-providers", "crates/oxicrab-channels", "crates/oxicrab-gateway", "crates/oxicrab-tools-web", "crates/oxicrab-tools-system", "crates/oxicrab-tools-api", "crates/oxicrab-tools-google", "."]
 resolver = "2"
 
 [workspace.dependencies]
@@ -47,6 +47,7 @@ channel-whatsapp = ["oxicrab-channels/channel-whatsapp", "dep:whatsapp-rust", "d
 channel-twilio = ["oxicrab-channels/channel-twilio"]
 tools-system = ["dep:oxicrab-tools-system"]
 tools-api = ["dep:oxicrab-tools-api"]
+tools-google = ["dep:oxicrab-tools-google"]
 tool-rss = ["dep:feed-rs", "dep:nalgebra", "dep:rand_distr", "dep:rand", "oxicrab-memory/rss"]
 
 [dependencies]
@@ -54,6 +55,7 @@ oxicrab-core = { path = "crates/oxicrab-core" }
 oxicrab-tools-web = { path = "crates/oxicrab-tools-web" }
 oxicrab-tools-system = { path = "crates/oxicrab-tools-system", optional = true }
 oxicrab-tools-api = { path = "crates/oxicrab-tools-api", optional = true }
+oxicrab-tools-google = { path = "crates/oxicrab-tools-google", optional = true }
 oxicrab-channels = { path = "crates/oxicrab-channels", default-features = false }
 oxicrab-gateway = { path = "crates/oxicrab-gateway" }
 oxicrab-memory = { path = "crates/oxicrab-memory", default-features = false, features = ["rss"] }
