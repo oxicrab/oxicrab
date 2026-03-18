@@ -125,10 +125,6 @@ impl GoogleCredentials {
 
         Ok(())
     }
-
-    pub fn get_access_token(&self) -> &str {
-        &self.token
-    }
 }
 
 pub async fn get_credentials(

@@ -59,44 +59,18 @@ pub async fn register_all_tools(
     let stash = Arc::new(crate::agent::tools::stash::ToolOutputStash::new());
     let mut tools = ToolRegistry::with_stash(stash.clone());
 
-    #[cfg(feature = "tools-system")]
-    {
-        register_filesystem_ext(&mut tools, ctx);
-        register_shell_ext(&mut tools, ctx)?;
-        register_tmux_ext(&mut tools);
-    }
-    #[cfg(not(feature = "tools-system"))]
-    {
-        register_filesystem(&mut tools, ctx);
-        register_shell(&mut tools, ctx)?;
-        register_tmux(&mut tools);
-    }
+    register_filesystem(&mut tools, ctx);
+    register_shell(&mut tools, ctx)?;
+    register_tmux(&mut tools);
     register_web(&mut tools, ctx);
     let subagents = register_subagents(&mut tools, ctx);
-    #[cfg(feature = "tools-browser")]
-    register_browser_ext(&mut tools, ctx);
-    #[cfg(all(feature = "browser", not(feature = "tools-browser")))]
     register_browser(&mut tools, ctx);
-    #[cfg(feature = "tools-api")]
-    {
-        register_image_gen_ext(&mut tools, ctx);
-        register_github_ext(&mut tools, ctx);
-        register_weather_ext(&mut tools, ctx);
-        register_todoist_ext(&mut tools, ctx);
-        register_media_ext(&mut tools, ctx);
-    }
-    #[cfg(not(feature = "tools-api"))]
-    {
-        register_image_gen(&mut tools, ctx);
-        register_github(&mut tools, ctx);
-        register_weather(&mut tools, ctx);
-        register_todoist(&mut tools, ctx);
-        register_media(&mut tools, ctx);
-    }
+    register_image_gen(&mut tools, ctx);
+    register_github(&mut tools, ctx);
+    register_weather(&mut tools, ctx);
+    register_todoist(&mut tools, ctx);
+    register_media(&mut tools, ctx);
     register_cron(&mut tools, ctx);
-    #[cfg(feature = "tools-obsidian")]
-    register_obsidian_ext(&mut tools, ctx);
-    #[cfg(not(feature = "tools-obsidian"))]
     register_obsidian(&mut tools, ctx);
     register_http(&mut tools);
     register_reddit(&mut tools);
@@ -107,9 +81,6 @@ pub async fn register_all_tools(
     register_rss(&mut tools, ctx);
 
     // Slow async registrations — run in parallel
-    #[cfg(feature = "tools-google")]
-    let (google_tools, mcp_result) = tokio::join!(create_google_tools_ext(ctx), create_mcp(ctx),);
-    #[cfg(not(feature = "tools-google"))]
     let (google_tools, mcp_result) = tokio::join!(create_google_tools(ctx), create_mcp(ctx),);
 
     for tool in google_tools {
@@ -166,8 +137,7 @@ pub async fn register_all_tools(
     Ok((tools, subagents, mcp_manager, activated))
 }
 
-#[cfg(feature = "tools-system")]
-fn register_filesystem_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+fn register_filesystem(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     let allowed_roots = if ctx.restrict_to_workspace {
         let mut roots = vec![ctx.workspace.clone()];
         if let Ok(oxicrab_home) = crate::utils::get_oxicrab_home() {
@@ -189,8 +159,7 @@ fn register_filesystem_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) 
     }
 }
 
-#[cfg(feature = "tools-system")]
-fn register_shell_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Result<()> {
+fn register_shell(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Result<()> {
     registry.register(oxicrab_tools_system::create_exec_tool(
         ctx.exec_timeout,
         Some(ctx.workspace.clone()),
@@ -201,64 +170,8 @@ fn register_shell_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Re
     Ok(())
 }
 
-#[cfg(feature = "tools-system")]
-fn register_tmux_ext(registry: &mut ToolRegistry) {
+fn register_tmux(registry: &mut ToolRegistry) {
     registry.register(oxicrab_tools_system::create_tmux_tool());
-}
-
-#[cfg(not(feature = "tools-system"))]
-fn register_filesystem(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
-    use crate::agent::tools::filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool};
-
-    let allowed_roots = if ctx.restrict_to_workspace {
-        let mut roots = vec![ctx.workspace.clone()];
-        if let Ok(oxicrab_home) = crate::utils::get_oxicrab_home() {
-            roots.push(oxicrab_home);
-        }
-        Some(roots)
-    } else {
-        None
-    };
-
-    let backup_dir = crate::utils::get_oxicrab_home()
-        .ok()
-        .map(|h| h.join("backups"));
-    let workspace = Some(ctx.workspace.clone());
-    let ws_mgr = ctx.workspace_manager.clone();
-
-    let mut read_tool = ReadFileTool::new(allowed_roots.clone(), workspace.clone());
-    if let Some(ref mgr) = ws_mgr {
-        read_tool = read_tool.with_workspace_manager(mgr.clone());
-    }
-    registry.register(Arc::new(read_tool));
-
-    let mut write_tool =
-        WriteFileTool::new(allowed_roots.clone(), backup_dir.clone(), workspace.clone());
-    if let Some(ref mgr) = ws_mgr {
-        write_tool = write_tool.with_workspace_manager(mgr.clone());
-    }
-    registry.register(Arc::new(write_tool));
-
-    registry.register(Arc::new(EditFileTool::new(
-        allowed_roots.clone(),
-        backup_dir,
-        workspace.clone(),
-    )));
-    registry.register(Arc::new(ListDirTool::new(allowed_roots, workspace)));
-}
-
-#[cfg(not(feature = "tools-system"))]
-fn register_shell(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Result<()> {
-    use crate::agent::tools::shell::ExecTool;
-
-    registry.register(Arc::new(ExecTool::new(
-        ctx.exec_timeout,
-        Some(ctx.workspace.clone()),
-        ctx.restrict_to_workspace,
-        ctx.allowed_commands.clone(),
-        ctx.sandbox_config.clone(),
-    )?));
-    Ok(())
 }
 
 fn register_web(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
@@ -282,48 +195,26 @@ fn register_subagents(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Ar
     subagents
 }
 
-#[cfg(not(feature = "tools-system"))]
-fn register_tmux(registry: &mut ToolRegistry) {
-    use crate::agent::tools::tmux::TmuxTool;
-
-    registry.register(Arc::new(TmuxTool::new()));
-}
-
-#[cfg(feature = "tools-browser")]
-fn register_browser_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+fn register_browser(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     if let Some(ref browser_cfg) = ctx.browser_config
         && browser_cfg.enabled
     {
         registry.register(oxicrab_tools_browser::create_browser_tool(browser_cfg));
-        info!("Browser tool registered (crate)");
-    }
-}
-
-#[cfg(all(feature = "browser", not(feature = "tools-browser")))]
-fn register_browser(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
-    use crate::agent::tools::browser::BrowserTool;
-
-    if let Some(ref browser_cfg) = ctx.browser_config
-        && browser_cfg.enabled
-    {
-        registry.register(Arc::new(BrowserTool::new(browser_cfg)));
         info!("Browser tool registered");
     }
 }
 
-#[cfg(feature = "tools-api")]
-fn register_github_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+fn register_github(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     if let Some(ref gh_cfg) = ctx.github_config
         && gh_cfg.enabled
         && !gh_cfg.token.is_empty()
     {
         registry.register(oxicrab_tools_api::create_github_tool(gh_cfg.token.clone()));
-        info!("GitHub tool registered (crate)");
+        info!("GitHub tool registered");
     }
 }
 
-#[cfg(feature = "tools-api")]
-fn register_weather_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+fn register_weather(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     if let Some(ref weather_cfg) = ctx.weather_config
         && weather_cfg.enabled
         && !weather_cfg.api_key.is_empty()
@@ -331,12 +222,11 @@ fn register_weather_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         registry.register(oxicrab_tools_api::create_weather_tool(
             weather_cfg.api_key.clone(),
         ));
-        info!("Weather tool registered (crate)");
+        info!("Weather tool registered");
     }
 }
 
-#[cfg(feature = "tools-api")]
-fn register_todoist_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+fn register_todoist(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     if let Some(ref todoist_cfg) = ctx.todoist_config
         && todoist_cfg.enabled
         && !todoist_cfg.token.is_empty()
@@ -344,22 +234,20 @@ fn register_todoist_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
         registry.register(oxicrab_tools_api::create_todoist_tool(
             todoist_cfg.token.clone(),
         ));
-        info!("Todoist tool registered (crate)");
+        info!("Todoist tool registered");
     }
 }
 
-#[cfg(feature = "tools-api")]
-fn register_media_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+fn register_media(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     if let Some(ref media_cfg) = ctx.media_config
         && media_cfg.enabled
     {
         registry.register(oxicrab_tools_api::create_media_tool(media_cfg));
-        info!("Media tool registered (crate)");
+        info!("Media tool registered (Radarr/Sonarr)");
     }
 }
 
-#[cfg(feature = "tools-api")]
-fn register_image_gen_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+fn register_image_gen(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     if let Some(ref ig_cfg) = ctx.image_gen_config
         && ig_cfg.enabled
     {
@@ -368,22 +256,6 @@ fn register_image_gen_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
             ig_cfg.google_api_key.clone(),
             ig_cfg.default_provider.clone(),
         ));
-        info!("Image generation tool registered (crate)");
-    }
-}
-
-#[cfg(not(feature = "tools-api"))]
-fn register_image_gen(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
-    use crate::agent::tools::image_gen::ImageGenTool;
-
-    if let Some(ref ig_cfg) = ctx.image_gen_config
-        && ig_cfg.enabled
-    {
-        registry.register(Arc::new(ImageGenTool::new(
-            ig_cfg.openai_api_key.clone(),
-            ig_cfg.google_api_key.clone(),
-            ig_cfg.default_provider.clone(),
-        )));
         info!("Image generation tool registered");
     }
 }
@@ -400,8 +272,7 @@ fn register_cron(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     }
 }
 
-#[cfg(feature = "tools-google")]
-async fn create_google_tools_ext(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
+async fn create_google_tools(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
     let mut result: Vec<Arc<dyn Tool>> = Vec::new();
 
     if let Some(ref google_cfg) = ctx.google_config
@@ -436,7 +307,7 @@ async fn create_google_tools_ext(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
                     google_cfg.tasks,
                 );
                 let names: Vec<&str> = result.iter().map(|t| t.name()).collect();
-                info!("Google tools registered (crate): {}", names.join(", "));
+                info!("Google tools registered: {}", names.join(", "));
             }
             Err(e) => {
                 warn!("Google tools not available: {}", e);
@@ -447,106 +318,7 @@ async fn create_google_tools_ext(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
     result
 }
 
-#[cfg(not(feature = "tools-google"))]
-async fn create_google_tools(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
-    use crate::agent::tools::google_calendar::GoogleCalendarTool;
-    use crate::agent::tools::google_mail::GoogleMailTool;
-    use crate::agent::tools::google_tasks::GoogleTasksTool;
-
-    let mut result: Vec<Arc<dyn Tool>> = Vec::new();
-
-    if let Some(ref google_cfg) = ctx.google_config
-        && google_cfg.is_configured()
-        && google_cfg.any_tool_enabled()
-    {
-        let scopes = google_cfg.required_scopes();
-        match crate::auth::google::get_credentials(
-            &google_cfg.client_id,
-            &google_cfg.client_secret,
-            Some(&scopes),
-            None,
-            ctx.memory_db.as_ref(),
-        )
-        .await
-        {
-            Ok(creds) => {
-                let mut names = Vec::new();
-                if google_cfg.gmail {
-                    result.push(Arc::new(GoogleMailTool::new(creds.clone())));
-                    names.push("gmail");
-                }
-                if google_cfg.calendar {
-                    result.push(Arc::new(GoogleCalendarTool::new(creds.clone())));
-                    names.push("calendar");
-                }
-                if google_cfg.tasks {
-                    result.push(Arc::new(GoogleTasksTool::new(creds)));
-                    names.push("tasks");
-                }
-                info!("Google tools registered ({})", names.join(", "));
-            }
-            Err(e) => {
-                warn!("Google tools not available: {}", e);
-            }
-        }
-    }
-
-    result
-}
-
-#[cfg(not(feature = "tools-api"))]
-fn register_github(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
-    use crate::agent::tools::github::GitHubTool;
-
-    if let Some(ref gh_cfg) = ctx.github_config
-        && gh_cfg.enabled
-        && !gh_cfg.token.is_empty()
-    {
-        registry.register(Arc::new(GitHubTool::new(gh_cfg.token.clone())));
-        info!("GitHub tool registered");
-    }
-}
-
-#[cfg(not(feature = "tools-api"))]
-fn register_weather(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
-    use crate::agent::tools::weather::WeatherTool;
-
-    if let Some(ref weather_cfg) = ctx.weather_config
-        && weather_cfg.enabled
-        && !weather_cfg.api_key.is_empty()
-    {
-        registry.register(Arc::new(WeatherTool::new(weather_cfg.api_key.clone())));
-        info!("Weather tool registered");
-    }
-}
-
-#[cfg(not(feature = "tools-api"))]
-fn register_todoist(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
-    use crate::agent::tools::todoist::TodoistTool;
-
-    if let Some(ref todoist_cfg) = ctx.todoist_config
-        && todoist_cfg.enabled
-        && !todoist_cfg.token.is_empty()
-    {
-        registry.register(Arc::new(TodoistTool::new(todoist_cfg.token.clone())));
-        info!("Todoist tool registered");
-    }
-}
-
-#[cfg(not(feature = "tools-api"))]
-fn register_media(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
-    use crate::agent::tools::media::MediaTool;
-
-    if let Some(ref media_cfg) = ctx.media_config
-        && media_cfg.enabled
-    {
-        registry.register(Arc::new(MediaTool::new(media_cfg)));
-        info!("Media tool registered (Radarr/Sonarr)");
-    }
-}
-
-#[cfg(feature = "tools-obsidian")]
-fn register_obsidian_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+fn register_obsidian(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     if let Some(ref obsidian_cfg) = ctx.obsidian_config
         && obsidian_cfg.enabled
         && !obsidian_cfg.api_url.is_empty()
@@ -565,39 +337,6 @@ fn register_obsidian_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
                     cache,
                     obsidian_cfg.sync_interval,
                 );
-                tokio::spawn(async move {
-                    if let Err(e) = sync_svc.start().await {
-                        error!("Obsidian sync failed to start: {}", e);
-                    }
-                });
-                info!("Obsidian tool registered (crate)");
-            }
-            Err(e) => {
-                warn!("Obsidian tool not available: {}", e);
-            }
-        }
-    }
-}
-
-#[cfg(not(feature = "tools-obsidian"))]
-fn register_obsidian(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
-    use crate::agent::tools::obsidian::{ObsidianSyncService, ObsidianTool};
-
-    if let Some(ref obsidian_cfg) = ctx.obsidian_config
-        && obsidian_cfg.enabled
-        && !obsidian_cfg.api_url.is_empty()
-        && !obsidian_cfg.api_key.is_empty()
-    {
-        match ObsidianTool::new(
-            &obsidian_cfg.api_url,
-            &obsidian_cfg.api_key,
-            &obsidian_cfg.vault_name,
-            obsidian_cfg.timeout,
-            ctx.memory_db.clone(),
-        ) {
-            Ok((tool, cache)) => {
-                registry.register(Arc::new(tool));
-                let sync_svc = ObsidianSyncService::new(cache, obsidian_cfg.sync_interval);
                 tokio::spawn(async move {
                     if let Err(e) = sync_svc.start().await {
                         error!("Obsidian sync failed to start: {}", e);
@@ -664,7 +403,7 @@ fn register_workspace(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
 }
 
 /// Check whether a tool name is safe for community-trust MCP servers.
-/// Uses word-boundary matching (camelCase → segments) to avoid substring
+/// Uses word-boundary matching (camelCase -> segments) to avoid substring
 /// false positives like "breadcrumb" containing "read".
 fn is_community_safe(tool_name: &str) -> bool {
     const SAFE_KEYWORDS: &[&str] = &[

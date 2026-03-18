@@ -3,7 +3,6 @@ pub mod io_safe;
 pub mod path_sanitize;
 pub mod regex;
 pub mod sandbox;
-pub mod shell_ast;
 pub mod subprocess;
 pub mod task_tracker;
 pub mod time;

@@ -495,9 +495,11 @@ fn make_inner_with_tools(
 /// Build a realistic main tool registry for testing subagent tool filtering.
 fn make_test_main_registry() -> Arc<crate::agent::tools::ToolRegistry> {
     use crate::agent::tools::ToolRegistry;
-    use crate::agent::tools::filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool};
-    use crate::agent::tools::github::GitHubTool;
-    use crate::agent::tools::shell::ExecTool;
+    use oxicrab_tools_api::github::GitHubTool;
+    use oxicrab_tools_system::filesystem::{
+        EditFileTool, ListDirTool, ReadFileTool, WriteFileTool,
+    };
+    use oxicrab_tools_system::shell::ExecTool;
 
     let mut registry = ToolRegistry::new();
     registry.register(Arc::new(ReadFileTool::new(None, None)));
@@ -735,7 +737,7 @@ fn test_activity_log_special_entries() {
 #[test]
 fn test_tool_registry_tool_names() {
     use crate::agent::tools::ToolRegistry;
-    use crate::agent::tools::filesystem::ReadFileTool;
+    use oxicrab_tools_system::filesystem::ReadFileTool;
 
     let mut registry = ToolRegistry::new();
     assert!(registry.tool_names().is_empty());
@@ -748,7 +750,7 @@ fn test_tool_registry_tool_names() {
 #[test]
 fn test_tool_registry_tool_names_sorted() {
     use crate::agent::tools::ToolRegistry;
-    use crate::agent::tools::filesystem::{ListDirTool, ReadFileTool, WriteFileTool};
+    use oxicrab_tools_system::filesystem::{ListDirTool, ReadFileTool, WriteFileTool};
 
     let mut registry = ToolRegistry::new();
     // Register in non-sorted order

@@ -26,8 +26,8 @@ fn test_community_safe_keyword_matching() {
 #[test]
 fn test_builtin_tools_have_builtin_capability() {
     // Verify that all built-in tool types declare built_in: true
-    use crate::agent::tools::filesystem::ReadFileTool;
-    use crate::agent::tools::shell::ExecTool;
+    use oxicrab_tools_system::filesystem::ReadFileTool;
+    use oxicrab_tools_system::shell::ExecTool;
 
     assert!(ReadFileTool::new(None, None).capabilities().built_in);
     assert!(
