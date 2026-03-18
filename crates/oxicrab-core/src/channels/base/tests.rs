@@ -56,12 +56,12 @@ fn test_utf8_multibyte_boundary_safety() {
 
 #[test]
 fn test_utf8_two_byte_chars() {
-    // é is 2 bytes in UTF-8
-    let msg = "é".repeat(60); // 120 bytes
+    // e with accent is 2 bytes in UTF-8
+    let msg = "\u{00E9}".repeat(60); // 120 bytes
     let result = split_message(&msg, 50);
     for chunk in &result {
         for c in chunk.chars() {
-            assert_eq!(c, 'é');
+            assert_eq!(c, '\u{00E9}');
         }
     }
 }

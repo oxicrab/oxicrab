@@ -4,6 +4,7 @@
 //! the oxicrab workspace: error types, time utilities, and bus events.
 
 pub mod bus;
+pub mod channels;
 pub mod dispatch;
 pub mod errors;
 pub mod providers;
