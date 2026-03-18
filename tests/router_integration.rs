@@ -34,7 +34,27 @@ fn make_router() -> MessageRouter {
         tool: "weather_tool".into(),
         params: json!({"location": "$1"}),
     }];
-    MessageRouter::new(static_rules, config_rules, "!".into())
+    // Include remember checker so the remember fast path test works
+    let remember_checker: Box<dyn Fn(&str) -> bool + Send + Sync> = Box::new(|msg: &str| {
+        let lower = msg.to_lowercase();
+        let trimmed = lower.trim();
+        [
+            "remember that ",
+            "remember: ",
+            "please remember ",
+            "don't forget ",
+            "note that ",
+            "keep in mind ",
+        ]
+        .iter()
+        .any(|p| trimmed.starts_with(p))
+    });
+    MessageRouter::with_remember_checker(
+        static_rules,
+        config_rules,
+        "!".into(),
+        Some(remember_checker),
+    )
 }
 
 #[test]
