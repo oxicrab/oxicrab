@@ -1,5 +1,6 @@
 use crate::agent::memory::memory_db::MemoryDB;
 use anyhow::Result;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, warn};
@@ -34,6 +35,13 @@ impl PairingStore {
     /// Convenience for CLI commands and places that don't have a shared DB reference.
     pub fn open_default() -> Result<Self> {
         let db_path = crate::utils::get_memory_db_path()?;
+        let db = Arc::new(MemoryDB::new(&db_path)?);
+        Ok(Self { db })
+    }
+
+    /// Open a `PairingStore` using an explicit workspace path.
+    pub fn open_for_workspace(workspace: &Path) -> Result<Self> {
+        let db_path = workspace.join("memory").join("memory.sqlite3");
         let db = Arc::new(MemoryDB::new(&db_path)?);
         Ok(Self { db })
     }

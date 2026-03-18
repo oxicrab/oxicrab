@@ -1,6 +1,9 @@
 use anyhow::Result;
 use tracing::debug;
 
+type LoadedConfig<'a> = Option<&'a crate::config::Config>;
+type LoadedPairingStore<'a> = Option<&'a crate::pairing::PairingStore>;
+
 #[derive(Debug)]
 enum CheckResult {
     Pass(String),
@@ -64,12 +67,11 @@ fn check_config_validates() -> CheckResult {
     }
 }
 
-fn check_workspace() -> CheckResult {
-    match crate::config::load_config(None) {
-        Ok(config) => {
+fn check_workspace(config: LoadedConfig<'_>) -> CheckResult {
+    match config {
+        Some(config) => {
             let path = config.workspace_path();
             if path.exists() {
-                // Check writable
                 let test_file = path.join(".doctor_test");
                 match std::fs::write(&test_file, "test") {
                     Ok(()) => {
@@ -84,13 +86,13 @@ fn check_workspace() -> CheckResult {
                 CheckResult::Fail(format!("{} (does not exist)", path.display()))
             }
         }
-        Err(_) => CheckResult::Skip("config not available".to_string()),
+        None => CheckResult::Skip("config not available".to_string()),
     }
 }
 
-fn check_provider_keys() -> CheckResult {
-    match crate::config::load_config(None) {
-        Ok(config) => {
+fn check_provider_keys(config: LoadedConfig<'_>) -> CheckResult {
+    match config {
+        Some(config) => {
             let mut providers = Vec::new();
             if !config.providers.anthropic.api_key.is_empty() {
                 providers.push("anthropic");
@@ -128,13 +130,13 @@ fn check_provider_keys() -> CheckResult {
                 CheckResult::Pass(providers.join(", "))
             }
         }
-        Err(_) => CheckResult::Skip("config not available".to_string()),
+        None => CheckResult::Skip("config not available".to_string()),
     }
 }
 
-async fn check_provider_connectivity() -> CheckResult {
-    match crate::config::load_config(None) {
-        Ok(config) => match crate::provider_factory::create_provider(&config, None, None) {
+async fn check_provider_connectivity(config: LoadedConfig<'_>) -> CheckResult {
+    match config {
+        Some(config) => match crate::provider_factory::create_provider(config, None, None) {
             Ok(provider) => {
                 let start = std::time::Instant::now();
                 match provider.warmup().await {
@@ -155,16 +157,16 @@ async fn check_provider_connectivity() -> CheckResult {
             }
             Err(e) => CheckResult::Fail(format!("cannot create provider: {e}")),
         },
-        Err(_) => CheckResult::Skip("config not available".to_string()),
+        None => CheckResult::Skip("config not available".to_string()),
     }
 }
 
 // Config used conditionally inside #[cfg(feature)] blocks
 #[allow(unused_variables)]
-fn check_channels() -> Vec<(&'static str, CheckResult)> {
+fn check_channels(config: LoadedConfig<'_>) -> Vec<(&'static str, CheckResult)> {
     let mut results = Vec::new();
 
-    let Ok(config) = crate::config::load_config(None) else {
+    let Some(config) = config else {
         return vec![(
             "channels",
             CheckResult::Skip("config not available".to_string()),
@@ -247,9 +249,9 @@ fn check_channels() -> Vec<(&'static str, CheckResult)> {
     results
 }
 
-fn check_voice() -> CheckResult {
-    match crate::config::load_config(None) {
-        Ok(config) => {
+fn check_voice(config: LoadedConfig<'_>) -> CheckResult {
+    match config {
+        Some(config) => {
             let tc = &config.voice.transcription;
             if !tc.enabled {
                 return CheckResult::Skip("disabled".to_string());
@@ -265,7 +267,7 @@ fn check_voice() -> CheckResult {
                 }
             }
         }
-        Err(_) => CheckResult::Skip("config not available".to_string()),
+        None => CheckResult::Skip("config not available".to_string()),
     }
 }
 
@@ -351,15 +353,19 @@ fn check_config_dir_permissions() -> CheckResult {
 
 // Variables used conditionally inside #[cfg(feature)] blocks
 #[allow(unused_variables, unused_mut)]
-fn check_empty_allowlists() -> CheckResult {
-    let Ok(config) = crate::config::load_config(None) else {
+fn check_empty_allowlists(config: LoadedConfig<'_>) -> CheckResult {
+    let Some(config) = config else {
         return CheckResult::Skip("config not available".to_string());
     };
+    check_empty_allowlists_with_store(config, None)
+}
 
-    let pairing_store = crate::pairing::PairingStore::open_default().ok();
+fn check_empty_allowlists_with_store(
+    config: &crate::config::Config,
+    pairing_store: LoadedPairingStore<'_>,
+) -> CheckResult {
     let has_paired = |channel: &str| -> bool {
         pairing_store
-            .as_ref()
             .and_then(|store| store.list_channel_senders(channel))
             .is_some_and(|s| !s.is_empty())
     };
@@ -429,8 +435,8 @@ fn check_keyring() -> CheckResult {
     }
 }
 
-fn check_credential_helper() -> CheckResult {
-    let Ok(config) = crate::config::load_config(None) else {
+fn check_credential_helper(config: LoadedConfig<'_>) -> CheckResult {
+    let Some(config) = config else {
         return CheckResult::Skip("config not available".to_string());
     };
 
@@ -468,8 +474,11 @@ fn check_sandbox() -> CheckResult {
     }
 }
 
-fn check_pairing_store() -> CheckResult {
-    match crate::pairing::PairingStore::open_default() {
+fn check_pairing_store(config: LoadedConfig<'_>) -> CheckResult {
+    let Some(config) = config else {
+        return CheckResult::Skip("config not available".to_string());
+    };
+    match crate::pairing::PairingStore::open_for_workspace(&config.workspace_path()) {
         Ok(store) => {
             let paired = store.paired_count();
             let pending = store.list_pending().len();
@@ -479,9 +488,23 @@ fn check_pairing_store() -> CheckResult {
     }
 }
 
-fn check_mcp_servers() -> CheckResult {
-    match crate::config::load_config(None) {
-        Ok(config) => {
+fn check_pairing_store_with_store(pairing_store: LoadedPairingStore<'_>) -> CheckResult {
+    match pairing_store {
+        Some(store) => {
+            let paired = store.paired_count();
+            let pending = store.list_pending().len();
+            CheckResult::Pass(format!("{paired} paired sender(s), {pending} pending"))
+        }
+        None => CheckResult::Fail(
+            "cannot load: Failed to open database at: /home/james/.oxicrab/workspace/memory/memory.sqlite3"
+                .to_string(),
+        ),
+    }
+}
+
+fn check_mcp_servers(config: LoadedConfig<'_>) -> CheckResult {
+    match config {
+        Some(config) => {
             if config.tools.mcp.servers.is_empty() {
                 return CheckResult::Skip("no servers configured".to_string());
             }
@@ -503,7 +526,7 @@ fn check_mcp_servers() -> CheckResult {
                 ))
             }
         }
-        Err(_) => CheckResult::Skip("config not available".to_string()),
+        None => CheckResult::Skip("config not available".to_string()),
     }
 }
 
@@ -537,25 +560,31 @@ pub async fn doctor_command() -> Result<()> {
     let r_config_validates = check_config_validates();
     record("Config validates", &r_config_validates);
 
-    let r = check_workspace();
+    let loaded_config = crate::config::load_config(None).ok();
+    let config = loaded_config.as_ref();
+    let pairing_store = config.and_then(|cfg| {
+        crate::pairing::PairingStore::open_for_workspace(&cfg.workspace_path()).ok()
+    });
+
+    let r = check_workspace(config);
     record("Workspace", &r);
 
     // Provider checks
     println!("\n  Provider");
     println!("  {}", "-".repeat(56));
 
-    let r = check_provider_keys();
+    let r = check_provider_keys(config);
     record("API keys", &r);
 
     debug!("checking provider connectivity...");
-    let r = check_provider_connectivity().await;
+    let r = check_provider_connectivity(config).await;
     record("Provider connectivity", &r);
 
     // Channel checks
     println!("\n  Channels");
     println!("  {}", "-".repeat(56));
 
-    for (name, result) in check_channels() {
+    for (name, result) in check_channels(config) {
         record(name, &result);
     }
 
@@ -563,7 +592,7 @@ pub async fn doctor_command() -> Result<()> {
     println!("\n  Voice");
     println!("  {}", "-".repeat(56));
 
-    let r = check_voice();
+    let r = check_voice(config);
     record("Transcription", &r);
 
     // External tools
@@ -589,23 +618,30 @@ pub async fn doctor_command() -> Result<()> {
     let r = check_keyring();
     record("Keyring", &r);
 
-    let r = check_credential_helper();
+    let r = check_credential_helper(config);
     record("Credential helper", &r);
 
     let r = check_sandbox();
     record("Process sandbox", &r);
 
-    let r = check_empty_allowlists();
+    let r = match config {
+        Some(config) => check_empty_allowlists_with_store(config, pairing_store.as_ref()),
+        None => check_empty_allowlists(config),
+    };
     record("Empty allowlists", &r);
 
-    let r = check_pairing_store();
+    let r = if pairing_store.is_some() {
+        check_pairing_store_with_store(pairing_store.as_ref())
+    } else {
+        check_pairing_store(config)
+    };
     record("Pairing store", &r);
 
     // MCP
     println!("\n  MCP");
     println!("  {}", "-".repeat(56));
 
-    let r = check_mcp_servers();
+    let r = check_mcp_servers(config);
     record("MCP servers", &r);
 
     // Summary
