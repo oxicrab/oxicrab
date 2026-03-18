@@ -11,7 +11,7 @@ default = ["channel-telegram", "channel-discord", "channel-slack", "channel-what
 channel-telegram = ["dep:teloxide"]
 channel-discord = ["dep:serenity"]
 channel-slack = ["dep:tokio-tungstenite"]
-channel-whatsapp = ["dep:whatsapp-rust", "dep:whatsapp-rust-tokio-transport", "dep:whatsapp-rust-ureq-http-client", "dep:qr2term", "dep:qrcode"]
+channel-whatsapp = ["dep:wa-rs", "dep:wa-rs-tokio-transport", "dep:wa-rs-ureq-http", "dep:qr2term", "dep:qrcode"]
 channel-twilio = ["dep:sha1"]
 
 [dependencies]
@@ -45,9 +45,9 @@ serenity = { version = "0.12", optional = true }
 sha1 = { version = "0.10", optional = true }
 teloxide = { version = "0.17", default-features = false, features = ["rustls", "ctrlc_handler"], optional = true }
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
-whatsapp-rust = { version = "0.3", optional = true }
-whatsapp-rust-tokio-transport = { version = "0.3", optional = true }
-whatsapp-rust-ureq-http-client = { version = "0.3", optional = true }
+wa-rs = { version = "0.2", optional = true, default-features = false, features = ["sqlite-storage"] }
+wa-rs-tokio-transport = { version = "0.2", optional = true }
+wa-rs-ureq-http = { version = "0.2", optional = true }
 qr2term = { version = "0.3", optional = true }
 qrcode = { version = "0.14", optional = true }
 

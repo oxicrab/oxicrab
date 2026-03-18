@@ -9,11 +9,11 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Read nightly version from rust-toolchain.toml (single source of truth)
+# Read toolchain version from rust-toolchain.toml (single source of truth)
 COPY rust-toolchain.toml .
-RUN NIGHTLY=$(grep 'channel' rust-toolchain.toml | cut -d'"' -f2) \
-    && rustup toolchain install "$NIGHTLY" \
-    && rustup default "$NIGHTLY"
+RUN TOOLCHAIN=$(grep 'channel' rust-toolchain.toml | cut -d'"' -f2) \
+    && rustup toolchain install "$TOOLCHAIN" \
+    && rustup default "$TOOLCHAIN"
 
 RUN cargo install cargo-chef --locked
 
