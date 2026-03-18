@@ -1,14 +1,12 @@
-use crate::agent::memory::memory_db::MemoryDB;
-use crate::utils::credential_store::{self, OAuthTokenStore};
 use anyhow::{Context, Result};
 use oauth2::{
     AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, TokenUrl,
     basic::BasicClient,
 };
+use oxicrab_core::credential_store::{self, OAuthTokenStore};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
@@ -70,7 +68,7 @@ impl GoogleCredentials {
             .refresh_token
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("No refresh token available"))?;
-        let client = crate::utils::http::default_http_client();
+        let client = crate::utils::default_http_client();
         let mut params = HashMap::new();
         params.insert("refresh_token", refresh_token.clone());
         params.insert("client_id", self.client_id.clone());
@@ -132,7 +130,7 @@ pub async fn get_credentials(
     _client_secret: &str,
     scopes: Option<&[String]>,
     token_path: Option<&Path>,
-    db: Option<&Arc<MemoryDB>>,
+    store: Option<&dyn OAuthTokenStore>,
 ) -> Result<GoogleCredentials> {
     let scopes = scopes.map_or_else(
         || DEFAULT_SCOPES.to_vec(),
@@ -148,7 +146,7 @@ pub async fn get_credentials(
         Path::to_path_buf,
     );
 
-    let mut creds = load_credentials(&token_path, &scopes, db)?;
+    let mut creds = load_credentials(&token_path, &scopes, store)?;
 
     if let Some(ref mut c) = creds {
         if c.is_valid() {
@@ -158,7 +156,7 @@ pub async fn get_credentials(
         if c.refresh_token.is_some() {
             match c.refresh().await {
                 Ok(()) => {
-                    save_credentials(c, &token_path, db)?;
+                    save_credentials(c, &token_path, store)?;
                     return Ok(c.clone());
                 }
                 Err(e) => {
@@ -180,7 +178,7 @@ pub async fn run_oauth_flow(
     token_path: Option<&Path>,
     port: u16,
     headless: bool,
-    db: Option<&Arc<MemoryDB>>,
+    store: Option<&dyn OAuthTokenStore>,
 ) -> Result<GoogleCredentials> {
     let scopes = scopes.map_or_else(
         || DEFAULT_SCOPES.to_vec(),
@@ -226,7 +224,7 @@ pub async fn run_oauth_flow(
             auth_url.clone(),
             &redirect_uri,
             pkce_verifier.secret(),
-            db,
+            store,
         )
         .await;
     }
@@ -244,14 +242,14 @@ pub async fn run_oauth_flow(
                 auth_url,
                 &redirect_uri,
                 pkce_verifier.secret(),
-                db,
+                store,
             )
             .await;
         }
     };
 
     // Exchange code for token via direct HTTP (avoids reqwest version coupling with oauth2 crate)
-    let http_client = crate::utils::http::default_http_client();
+    let http_client = crate::utils::default_http_client();
     let mut params = HashMap::new();
     params.insert("code", code);
     params.insert("client_id", client_id.to_string());
@@ -288,7 +286,7 @@ pub async fn run_oauth_flow(
 
     let creds = build_credentials_from_token(&token_data, client_id, client_secret, &scopes)?;
 
-    save_credentials(&creds, &token_path, db)?;
+    save_credentials(&creds, &token_path, store)?;
     info!("Google credentials saved to {}", token_path.display());
     Ok(creds)
 }
@@ -345,7 +343,7 @@ async fn run_manual_flow(
     auth_url: url::Url,
     redirect_uri: &str,
     pkce_verifier: &str,
-    db: Option<&Arc<MemoryDB>>,
+    store: Option<&dyn OAuthTokenStore>,
 ) -> Result<GoogleCredentials> {
     use std::io::{self, Write};
 
@@ -415,7 +413,7 @@ async fn run_manual_flow(
 
     let creds = build_credentials_from_token(&token_data, client_id, client_secret, scopes)?;
 
-    save_credentials(&creds, token_path, db)?;
+    save_credentials(&creds, token_path, store)?;
     info!("Google credentials saved to {}", token_path.display());
 
     Ok(creds)
@@ -531,10 +529,10 @@ pub fn has_valid_credentials(
 fn load_credentials(
     path: &Path,
     scopes: &[&str],
-    db: Option<&Arc<MemoryDB>>,
+    store: Option<&dyn OAuthTokenStore>,
 ) -> Result<Option<GoogleCredentials>> {
     // Try DB first
-    if let Some(store) = db.map(|d| d.as_ref() as &dyn OAuthTokenStore)
+    if let Some(store) = store
         && let Some(creds) = load_credentials_from_store(store, scopes)?
     {
         return Ok(Some(creds));
@@ -611,7 +609,12 @@ fn load_credentials_from_store(
 }
 
 fn load_credentials_from_file(path: &Path, scopes: &[&str]) -> Result<Option<GoogleCredentials>> {
-    let Some(creds) = credential_store::read_json_locked::<GoogleCredentials>(path)? else {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read credentials file: {}", path.display()))?;
+    let Some(creds) = serde_json::from_str::<GoogleCredentials>(&content).ok() else {
         return Ok(None);
     };
 
@@ -630,10 +633,10 @@ fn load_credentials_from_file(path: &Path, scopes: &[&str]) -> Result<Option<Goo
 fn save_credentials(
     creds: &GoogleCredentials,
     path: &Path,
-    db: Option<&Arc<MemoryDB>>,
+    store: Option<&dyn OAuthTokenStore>,
 ) -> Result<()> {
     // Try DB first
-    if let Some(store) = db.map(|d| d.as_ref() as &dyn OAuthTokenStore) {
+    if let Some(store) = store {
         if let Ok(()) = save_credentials_to_store(creds, store) {
             debug!("Google credentials saved to database");
             return Ok(());
@@ -665,7 +668,17 @@ fn save_credentials_to_store(creds: &GoogleCredentials, store: &dyn OAuthTokenSt
 }
 
 fn save_credentials_to_file(creds: &GoogleCredentials, path: &Path) -> Result<()> {
-    credential_store::write_json_locked(path, creds)
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let content = serde_json::to_string_pretty(creds)?;
+    std::fs::write(path, &content)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

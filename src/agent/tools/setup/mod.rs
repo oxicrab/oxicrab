@@ -280,12 +280,14 @@ async fn create_google_tools(ctx: &ToolBuildContext) -> Vec<Arc<dyn Tool>> {
         && google_cfg.any_tool_enabled()
     {
         let scopes = google_cfg.required_scopes();
+        let oauth_store: Option<&dyn oxicrab_core::credential_store::OAuthTokenStore> =
+            ctx.memory_db.as_deref().map(|db| db as _);
         match crate::auth::google::get_credentials(
             &google_cfg.client_id,
             &google_cfg.client_secret,
             Some(&scopes),
             None,
-            ctx.memory_db.as_ref(),
+            oauth_store,
         )
         .await
         {

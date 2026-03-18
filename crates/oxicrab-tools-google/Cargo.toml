@@ -19,7 +19,14 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 urlencoding = "2.1"
 regex = { workspace = true }
+oauth2 = "5.0"
+dirs = "6.0"
+open = "5.0"
+url = "2.5"
+hex = "0.4"
 
 [dev-dependencies]
+oxicrab-memory = { path = "../oxicrab-memory", default-features = false }
 tokio = { version = "1", features = ["macros", "rt"] }
 wiremock = "0.6.5"
+tempfile = "3.25"

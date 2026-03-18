@@ -2,6 +2,7 @@
 //!
 //! This crate provides Gmail, Google Calendar, and Google Tasks tools.
 
+pub mod auth;
 pub mod credentials;
 pub mod google_calendar;
 pub mod google_common;

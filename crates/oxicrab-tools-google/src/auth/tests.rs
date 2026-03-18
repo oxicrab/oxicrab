@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::Arc;
 
 fn make_creds(expiry: Option<u64>) -> GoogleCredentials {
     GoogleCredentials {
@@ -200,15 +201,17 @@ fn test_has_valid_no_file() {
 
 #[test]
 fn test_save_and_load_db_round_trip() {
+    use oxicrab_memory::memory_db::MemoryDB;
     let db = Arc::new(MemoryDB::new(":memory:").unwrap());
+    let store: &dyn OAuthTokenStore = db.as_ref();
     let creds = make_creds(Some(9_999_999_999));
     let dummy_path = std::path::Path::new("/nonexistent");
 
-    save_credentials(&creds, dummy_path, Some(&db)).unwrap();
+    save_credentials(&creds, dummy_path, Some(store)).unwrap();
     let loaded = load_credentials(
         dummy_path,
         &["https://www.googleapis.com/auth/gmail.modify"],
-        Some(&db),
+        Some(store),
     )
     .unwrap();
     let loaded = loaded.expect("should load credentials from DB");
@@ -221,15 +224,17 @@ fn test_save_and_load_db_round_trip() {
 
 #[test]
 fn test_db_scope_mismatch_returns_none() {
+    use oxicrab_memory::memory_db::MemoryDB;
     let db = Arc::new(MemoryDB::new(":memory:").unwrap());
+    let store: &dyn OAuthTokenStore = db.as_ref();
     let creds = make_creds(Some(9_999_999_999));
     let dummy_path = std::path::Path::new("/nonexistent");
 
-    save_credentials(&creds, dummy_path, Some(&db)).unwrap();
+    save_credentials(&creds, dummy_path, Some(store)).unwrap();
     let loaded = load_credentials(
         dummy_path,
         &["https://www.googleapis.com/auth/drive.readonly"],
-        Some(&db),
+        Some(store),
     )
     .unwrap();
     assert!(loaded.is_none());
@@ -237,8 +242,10 @@ fn test_db_scope_mismatch_returns_none() {
 
 #[test]
 fn test_db_empty_returns_none() {
+    use oxicrab_memory::memory_db::MemoryDB;
     let db = Arc::new(MemoryDB::new(":memory:").unwrap());
+    let store: &dyn OAuthTokenStore = db.as_ref();
     let dummy_path = std::path::Path::new("/nonexistent");
-    let loaded = load_credentials(dummy_path, &["scope"], Some(&db)).unwrap();
+    let loaded = load_credentials(dummy_path, &["scope"], Some(store)).unwrap();
     assert!(loaded.is_none());
 }

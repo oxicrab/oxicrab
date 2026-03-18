@@ -9,7 +9,7 @@ pub mod time;
 pub mod transcription;
 
 // Shared utilities re-exported from oxicrab-core
-pub use oxicrab_core::utils::{get_oxicrab_home, http, media, truncate_chars, url_security};
+pub use oxicrab_core::utils::{get_oxicrab_home, media, truncate_chars, url_security};
 
 use anyhow::{Context, Result};
 use std::io::Write;
