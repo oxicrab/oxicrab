@@ -11,7 +11,7 @@ pub(super) async fn agent(message: Option<String>, session: String) -> Result<()
     crate::observability::init_metrics_exporter(&config);
     config.validate()?;
 
-    let provider = config.create_provider(None, None)?;
+    let provider = crate::provider_factory::create_provider(&config, None, None)?;
 
     // Create shared leak detector with known secrets
     let leak_detector = {

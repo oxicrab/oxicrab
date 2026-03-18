@@ -297,27 +297,6 @@ fn test_collect_secrets_returns_non_empty_and_includes_custom_headers() {
 }
 
 // -----------------------------------------------------------------------
-// should_use_prompt_guided_tools
-// -----------------------------------------------------------------------
-
-#[test]
-fn test_prompt_guided_tools_prefix_notation() {
-    let mut config = Config::default();
-    config.providers.ollama.prompt_guided_tools = true;
-    // No explicit provider set; prefix notation should be detected
-    assert!(config.should_use_prompt_guided_tools("ollama/llama3"));
-}
-
-#[test]
-fn test_prompt_guided_tools_known_model_returns_false() {
-    let config = Config::default();
-    // claude-sonnet is inferred as anthropic, which never uses prompt-guided tools
-    assert!(!config.should_use_prompt_guided_tools("claude-sonnet-4-5-20250929"));
-    assert!(!config.should_use_prompt_guided_tools("gpt-4"));
-    assert!(!config.should_use_prompt_guided_tools("gemini-pro"));
-}
-
-// -----------------------------------------------------------------------
 // Validation: max_tokens too large
 // -----------------------------------------------------------------------
 

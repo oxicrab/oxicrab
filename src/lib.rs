@@ -25,6 +25,7 @@ pub(crate) mod errors;
 pub mod gateway;
 pub(crate) mod observability;
 pub mod pairing;
+pub mod provider_factory;
 pub mod providers;
 pub mod router;
 pub mod safety;

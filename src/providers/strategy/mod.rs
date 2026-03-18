@@ -1,6 +1,9 @@
 use crate::config::schema::{
     AnthropicOAuthConfig, ProviderConfig, ProvidersConfig, normalize_provider,
 };
+// Re-export model resolution functions for backward compatibility.
+// Canonical definitions are in `crate::config::schema::providers`.
+pub use crate::config::schema::{ModelRef, infer_provider_from_model, parse_model_ref};
 use crate::providers::base::LLMProvider;
 use crate::utils::credential_store::OAuthTokenStore;
 use anyhow::Result;
@@ -35,75 +38,6 @@ const OPENAI_COMPAT_URLS: &[(&str, &str)] = &[
     ("vllm", "http://localhost:8000/v1/chat/completions"),
     ("ollama", "http://localhost:11434/v1/chat/completions"),
 ];
-
-// ---------------------------------------------------------------------------
-// Model reference parser
-// ---------------------------------------------------------------------------
-
-/// Parsed model reference: optional provider prefix + bare model name.
-pub struct ModelRef<'a> {
-    pub provider: Option<&'a str>,
-    pub model: &'a str,
-}
-
-/// Known provider prefixes recognized in `provider/model` notation.
-const KNOWN_PREFIXES: &[&str] = &[
-    "anthropic",
-    "openai",
-    "gemini",
-    "openrouter",
-    "deepseek",
-    "groq",
-    "minimax",
-    "moonshot",
-    "zhipu",
-    "dashscope",
-    "vllm",
-    "ollama",
-];
-
-/// Parse `"provider/model"` notation. Returns `provider=None` if there is no
-/// slash or if the part before the slash isn't a recognized provider prefix.
-///
-/// This prevents `meta-llama/Llama-3.3-70B` from being incorrectly split,
-/// since `meta-llama` is not a known provider.
-pub fn parse_model_ref(raw: &str) -> ModelRef<'_> {
-    if let Some(idx) = raw.find('/') {
-        let candidate = &raw[..idx];
-        let candidate_lower = candidate.to_lowercase();
-        if KNOWN_PREFIXES.contains(&candidate_lower.as_str()) && idx + 1 < raw.len() {
-            return ModelRef {
-                provider: Some(candidate),
-                model: &raw[idx + 1..],
-            };
-        }
-    }
-    ModelRef {
-        provider: None,
-        model: raw,
-    }
-}
-
-/// Infer the provider from a bare model name using `starts_with` patterns.
-///
-/// This is the convenience fallback — only matches well-known model name
-/// prefixes. Returns `None` for unrecognized names (caller should error).
-pub fn infer_provider_from_model(model: &str) -> Option<&'static str> {
-    let m = model.to_lowercase();
-    if m.starts_with("claude-") || m.starts_with("claude_") {
-        return Some("anthropic");
-    }
-    if m.starts_with("gpt-") || m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4") {
-        return Some("openai");
-    }
-    if m.starts_with("gemini") {
-        return Some("gemini");
-    }
-    if m.starts_with("deepseek") {
-        return Some("deepseek");
-    }
-    None
-}
 
 // ---------------------------------------------------------------------------
 // Provider factory — 2-tier resolution

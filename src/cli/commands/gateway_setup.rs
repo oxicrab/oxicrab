@@ -330,7 +330,7 @@ fn setup_provider(
 ) -> Result<Arc<dyn crate::providers::base::LLMProvider>> {
     let effective_model = model.unwrap_or(&config.agents.defaults.model_routing.default);
     info!("Creating LLM provider for model: {}", effective_model);
-    let provider = config.create_provider(model, db)?;
+    let provider = crate::provider_factory::create_provider(config, model, db)?;
     info!(
         "Provider created successfully. Default model: {}",
         provider.default_model()
@@ -423,7 +423,7 @@ pub(super) async fn setup_agent(
     );
 
     // Create model routing providers if configured
-    let routing = match config.create_routed_providers(None) {
+    let routing = match crate::provider_factory::create_routed_providers(config, None) {
         Ok(Some(r)) => {
             info!("model routing active with {} task(s)", r.task_count());
             Some(Arc::new(r))

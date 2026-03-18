@@ -3,6 +3,75 @@ use std::borrow::Cow;
 
 use super::default_true;
 
+// ---------------------------------------------------------------------------
+// Model reference parser — pure string parsing, no provider instantiation
+// ---------------------------------------------------------------------------
+
+/// Parsed model reference: optional provider prefix + bare model name.
+pub struct ModelRef<'a> {
+    pub provider: Option<&'a str>,
+    pub model: &'a str,
+}
+
+/// Known provider prefixes recognized in `provider/model` notation.
+const KNOWN_PREFIXES: &[&str] = &[
+    "anthropic",
+    "openai",
+    "gemini",
+    "openrouter",
+    "deepseek",
+    "groq",
+    "minimax",
+    "moonshot",
+    "zhipu",
+    "dashscope",
+    "vllm",
+    "ollama",
+];
+
+/// Parse `"provider/model"` notation. Returns `provider=None` if there is no
+/// slash or if the part before the slash isn't a recognized provider prefix.
+///
+/// This prevents `meta-llama/Llama-3.3-70B` from being incorrectly split,
+/// since `meta-llama` is not a known provider.
+pub fn parse_model_ref(raw: &str) -> ModelRef<'_> {
+    if let Some(idx) = raw.find('/') {
+        let candidate = &raw[..idx];
+        let candidate_lower = candidate.to_lowercase();
+        if KNOWN_PREFIXES.contains(&candidate_lower.as_str()) && idx + 1 < raw.len() {
+            return ModelRef {
+                provider: Some(candidate),
+                model: &raw[idx + 1..],
+            };
+        }
+    }
+    ModelRef {
+        provider: None,
+        model: raw,
+    }
+}
+
+/// Infer the provider from a bare model name using `starts_with` patterns.
+///
+/// This is the convenience fallback — only matches well-known model name
+/// prefixes. Returns `None` for unrecognized names (caller should error).
+pub fn infer_provider_from_model(model: &str) -> Option<&'static str> {
+    let m = model.to_lowercase();
+    if m.starts_with("claude-") || m.starts_with("claude_") {
+        return Some("anthropic");
+    }
+    if m.starts_with("gpt-") || m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4") {
+        return Some("openai");
+    }
+    if m.starts_with("gemini") {
+        return Some("gemini");
+    }
+    if m.starts_with("deepseek") {
+        return Some("deepseek");
+    }
+    None
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct ProviderConfig {
     #[serde(default, rename = "apiKey")]
@@ -190,8 +259,6 @@ impl ProvidersConfig {
     /// Uses the same 2-tier resolution as `ProviderFactory`: prefix notation,
     /// model-name inference, then fallback to first available key.
     pub fn get_api_key(&self, model: &str) -> Option<&str> {
-        use crate::providers::strategy::{infer_provider_from_model, parse_model_ref};
-
         let model_ref = parse_model_ref(model);
         let provider_name = model_ref
             .provider
@@ -238,8 +305,6 @@ impl ProvidersConfig {
     /// Uses the same 2-tier resolution as `get_api_key`: prefix notation,
     /// then model-name inference.
     pub fn get_temperature_for_model(&self, model: &str) -> Option<f32> {
-        use crate::providers::strategy::{infer_provider_from_model, parse_model_ref};
-
         let model_ref = parse_model_ref(model);
         let provider_name = model_ref
             .provider
