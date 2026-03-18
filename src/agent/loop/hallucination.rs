@@ -12,6 +12,18 @@ pub(super) enum TextAction {
     Return,
 }
 
+pub(super) fn record_detection() {
+    metrics::counter!("agent_hallucination_detected_total", "layer" => "regex_l1").increment(1);
+}
+
+pub(super) fn record_retry_success() {
+    metrics::counter!("agent_hallucination_retry_total", "layer" => "regex_l1", "outcome" => "succeeded").increment(1);
+}
+
+pub(super) fn record_retry_failure() {
+    metrics::counter!("agent_hallucination_retry_total", "layer" => "regex_l1", "outcome" => "failed").increment(1);
+}
+
 /// Single-layer hallucination detection: catches action claims without tool calls.
 ///
 /// If the LLM claims to have performed actions (regex match) but never called
@@ -30,6 +42,7 @@ pub(super) fn handle_text_response(
         && contains_action_claims(content)
     {
         warn!("hallucination layer 1: action claims detected without tool calls");
+        record_detection();
         *layer1_fired = true;
 
         // Inject correction as a user message so it's valid for all providers

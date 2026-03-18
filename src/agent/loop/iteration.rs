@@ -307,6 +307,14 @@ impl AgentLoop {
                 ) {
                     TextAction::Continue => {}
                     TextAction::Return => {
+                        if layer1_fired {
+                            if any_tools_called || !hallucination::contains_action_claims(&content)
+                            {
+                                hallucination::record_retry_success();
+                            } else {
+                                hallucination::record_retry_failure();
+                            }
+                        }
                         let content = strip_think_tags(&content);
                         let content = prepend_display_text(
                             content,
