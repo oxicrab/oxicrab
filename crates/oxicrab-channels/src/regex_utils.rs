@@ -1,5 +1,26 @@
+#[cfg(any(
+    feature = "channel-telegram",
+    feature = "channel-discord",
+    feature = "channel-slack",
+    feature = "channel-whatsapp",
+    feature = "channel-twilio",
+))]
 use anyhow::{Context, Result};
+#[cfg(any(
+    feature = "channel-telegram",
+    feature = "channel-discord",
+    feature = "channel-slack",
+    feature = "channel-whatsapp",
+    feature = "channel-twilio",
+))]
 use regex::Regex;
+#[cfg(any(
+    feature = "channel-telegram",
+    feature = "channel-discord",
+    feature = "channel-slack",
+    feature = "channel-whatsapp",
+    feature = "channel-twilio",
+))]
 use std::sync::LazyLock;
 
 /// Compiled regex patterns used by channel implementations.
@@ -96,6 +117,13 @@ impl RegexPatterns {
 }
 
 /// Compile a regex pattern with proper error handling
+#[cfg(any(
+    feature = "channel-telegram",
+    feature = "channel-discord",
+    feature = "channel-slack",
+    feature = "channel-whatsapp",
+    feature = "channel-twilio",
+))]
 pub fn compile_regex(pattern: &str) -> Result<Regex> {
     Regex::new(pattern).with_context(|| format!("Failed to compile regex pattern: {pattern}"))
 }
