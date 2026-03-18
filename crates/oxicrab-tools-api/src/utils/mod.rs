@@ -1,36 +1,4 @@
-pub(crate) mod http;
-pub(crate) mod media;
-
-use std::path::PathBuf;
-
-use anyhow::{Context, Result};
-
-pub(crate) fn get_oxicrab_home() -> Result<PathBuf> {
-    if let Some(home) = std::env::var_os("OXICRAB_HOME") {
-        return Ok(PathBuf::from(home));
-    }
-    Ok(dirs::home_dir()
-        .context("Could not determine home directory")?
-        .join(".oxicrab"))
-}
-
-pub(crate) fn safe_filename(name: &str) -> String {
-    name.chars()
-        .filter(|c| *c != '\0')
-        .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            _ => c,
-        })
-        .collect()
-}
-
-pub(crate) fn truncate_chars(s: &str, max_chars: usize, suffix: &str) -> String {
-    if s.len() <= max_chars {
-        return s.to_string();
-    }
-    let truncated: String = s.chars().take(max_chars).collect();
-    format!("{truncated}{suffix}")
-}
+pub(crate) use oxicrab_core::utils::{http, media, truncate_chars};
 
 pub(crate) fn sanitize_path(
     path: &std::path::Path,

@@ -3535,11 +3535,14 @@ dependencies = [
  "humantime",
  "lru",
  "regex",
+ "reqwest 0.13.2",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "url",
+ "wiremock",
 ]
 
 [[package]]
@@ -3618,7 +3621,6 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "dirs",
- "fastrand",
  "form_urlencoded",
  "oxicrab-core",
  "reqwest 0.13.2",
@@ -3638,15 +3640,12 @@ dependencies = [
  "async-trait",
  "chromiumoxide",
  "chrono",
- "dirs",
- "fastrand",
  "futures-util",
  "oxicrab-core",
  "reqwest 0.13.2",
  "serde_json",
  "tokio",
  "tracing",
- "url",
  "uuid",
 ]
 
@@ -3721,8 +3720,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "dirs",
- "fastrand",
  "html-escape",
  "oxicrab-core",
  "regex",
@@ -3732,7 +3729,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
- "url",
  "wiremock",
 ]
 

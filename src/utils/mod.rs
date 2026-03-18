@@ -1,7 +1,5 @@
 pub mod credential_store;
-pub mod http;
 pub mod io_safe;
-pub mod media;
 pub mod path_sanitize;
 pub mod regex;
 pub mod sandbox;
@@ -10,7 +8,9 @@ pub mod subprocess;
 pub mod task_tracker;
 pub mod time;
 pub mod transcription;
-pub mod url_security;
+
+// Shared utilities re-exported from oxicrab-core
+pub use oxicrab_core::utils::{get_oxicrab_home, http, media, truncate_chars, url_security};
 
 use anyhow::{Context, Result};
 use std::io::Write;
@@ -21,25 +21,6 @@ pub fn ensure_dir(path: impl AsRef<Path>) -> Result<PathBuf> {
     std::fs::create_dir_all(path)
         .with_context(|| format!("Failed to create directory: {}", path.display()))?;
     Ok(path.to_path_buf())
-}
-
-pub fn safe_filename(name: &str) -> String {
-    name.chars()
-        .filter(|c| *c != '\0')
-        .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            _ => c,
-        })
-        .collect()
-}
-
-pub fn get_oxicrab_home() -> Result<PathBuf> {
-    if let Some(home) = std::env::var_os("OXICRAB_HOME") {
-        return Ok(PathBuf::from(home));
-    }
-    Ok(dirs::home_dir()
-        .context("Could not determine home directory")?
-        .join(".oxicrab"))
 }
 
 /// Resolve the path to the shared `MemoryDB` file using the default workspace
@@ -81,23 +62,8 @@ pub fn atomic_write(path: &Path, content: &str) -> Result<()> {
     Ok(())
 }
 
-/// Truncate a string to at most `max_chars` characters, appending `suffix`
-/// (e.g. `"..."`) if truncated. Returns the original string (owned) if short enough.
-/// Safe for multi-byte UTF-8.
-pub fn truncate_chars(s: &str, max_chars: usize, suffix: &str) -> String {
-    // Fast path: ASCII-only strings where len == char count
-    if s.len() <= max_chars {
-        return s.to_string();
-    }
-    // Find the byte index of the max_chars-th character
-    match s.char_indices().nth(max_chars) {
-        Some((byte_idx, _)) => format!("{}{}", &s[..byte_idx], suffix),
-        None => s.to_string(), // fewer chars than max_chars
-    }
-}
-
 #[cfg(test)]
-pub(crate) use oxicrab_core::utils::get_workspace_path;
+pub(crate) use oxicrab_core::utils::{get_workspace_path, safe_filename};
 
 #[cfg(test)]
 mod tests;

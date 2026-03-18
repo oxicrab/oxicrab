@@ -13,7 +13,6 @@ async-trait = { workspace = true }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6.0"
-fastrand = "2.0"
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls", "charset", "http2", "query", "multipart", "form"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
