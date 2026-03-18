@@ -1,0 +1,179 @@
+---
+title: oxicrab Routing Layers
+description: Simple guide to how oxicrab routes messages across deterministic rules, constrained LLM, semantic filtering, and full LLM.
+active: routing
+max_width: 960px
+---
+<style>
+  .routing-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1rem;
+    margin: 1rem 0 2rem;
+    overflow: auto;
+  }
+  .routing-diagram svg {
+    width: 100%;
+    min-width: 760px;
+    height: auto;
+    display: block;
+  }
+  .layer-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    margin-bottom: 0.9rem;
+  }
+  .layer-card h3 {
+    font-size: 1rem;
+    margin-bottom: 0.35rem;
+  }
+  .example {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 10px;
+    padding: 0.8rem 0.9rem;
+    margin-top: 0.7rem;
+  }
+  .example strong {
+    color: #9a3412;
+  }
+</style>
+
+<header class="page-header">
+  <h1>How Routing Works</h1>
+  <p>oxicrab routes each message through a simple layered policy: deterministic first, constrained LLM next, full LLM last.</p>
+</header>
+
+<main class="content">
+  <div class="toc">
+    <div class="toc-title">On this page</div>
+    <ul>
+      <li><a href="#flow">Flow</a></li>
+      <li><a href="#layers">Layers</a></li>
+      <li><a href="#context">Context State</a></li>
+      <li><a href="#examples">Examples</a></li>
+      <li><a href="#config">Config</a></li>
+    </ul>
+  </div>
+
+  <section id="flow">
+    <h2>Flow</h2>
+    <p>Each inbound message is evaluated in order. As soon as one layer can confidently handle it, routing stops and execution proceeds with a strict tool policy.</p>
+    <div class="routing-diagram">
+      <svg viewBox="0 0 1080 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Routing layers flow diagram">
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <path d="M0,0 L10,3 L0,6 Z" fill="#78716c"/>
+          </marker>
+        </defs>
+        <rect x="20" y="120" width="170" height="70" rx="10" fill="#fff7ed" stroke="#fdba74"/>
+        <text x="105" y="148" text-anchor="middle" font-size="14" fill="#9a3412">User Message</text>
+        <text x="105" y="166" text-anchor="middle" font-size="12" fill="#9a3412">session + context</text>
+
+        <rect x="250" y="35" width="220" height="72" rx="10" fill="#f0fdf4" stroke="#86efac"/>
+        <text x="360" y="62" text-anchor="middle" font-size="14" fill="#14532d">1) Deterministic Router</text>
+        <text x="360" y="80" text-anchor="middle" font-size="12" fill="#14532d">buttons / directives / rules</text>
+
+        <rect x="250" y="125" width="220" height="72" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
+        <text x="360" y="152" text-anchor="middle" font-size="14" fill="#1e3a8a">2) Constrained LLM</text>
+        <text x="360" y="170" text-anchor="middle" font-size="12" fill="#1e3a8a">strict allow/block tool policy</text>
+
+        <rect x="250" y="215" width="220" height="72" rx="10" fill="#fefce8" stroke="#fde047"/>
+        <text x="360" y="242" text-anchor="middle" font-size="14" fill="#713f12">3) Full LLM</text>
+        <text x="360" y="260" text-anchor="middle" font-size="12" fill="#713f12">semantic prefilter optional</text>
+
+        <rect x="560" y="120" width="220" height="70" rx="10" fill="#faf5ff" stroke="#d8b4fe"/>
+        <text x="670" y="148" text-anchor="middle" font-size="14" fill="#581c87">Tool Execution</text>
+        <text x="670" y="166" text-anchor="middle" font-size="12" fill="#581c87">policy enforced again</text>
+
+        <rect x="860" y="120" width="200" height="70" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+        <text x="960" y="148" text-anchor="middle" font-size="14" fill="#0f172a">State Update</text>
+        <text x="960" y="166" text-anchor="middle" font-size="12" fill="#0f172a">session metadata + replay</text>
+
+        <line x1="190" y1="155" x2="245" y2="71" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="190" y1="155" x2="245" y2="161" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="190" y1="155" x2="245" y2="251" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+
+        <line x1="470" y1="71" x2="555" y2="136" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="470" y1="161" x2="555" y2="155" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="470" y1="251" x2="555" y2="174" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+
+        <text x="210" y="104" font-size="11" fill="#57534e">first match wins</text>
+        <line x1="780" y1="155" x2="855" y2="155" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+      </svg>
+    </div>
+  </section>
+
+  <section id="layers">
+    <h2>Layers</h2>
+
+    <div class="layer-card">
+      <h3>1) Deterministic Router (first)</h3>
+      <p>Fast, rule-based dispatch for high-confidence actions: button clicks, active directives, prefix commands, and configured static rules.</p>
+      <div class="example"><strong>Example:</strong> User clicks a button payload mapped to <code>todoist</code> → immediate direct tool call, no LLM needed.</div>
+    </div>
+
+    <div class="layer-card">
+      <h3>2) Constrained LLM (second)</h3>
+      <p>When context is tool-focused, the LLM runs with a strict <code>RoutingPolicy</code>: exact <code>allowed_tools</code>, <code>blocked_tools</code>, and reason.</p>
+      <div class="example"><strong>Example:</strong> In a cron-focused thread, only cron-related tools + interaction helpers are exposed.</div>
+    </div>
+
+    <div class="layer-card">
+      <h3>3) Full LLM (last)</h3>
+      <p>Fallback when deterministic and constrained routing do not apply. Semantic filtering can reduce the tool set first; if confidence is low, it falls back to unconstrained full LLM.</p>
+      <div class="example"><strong>Example:</strong> “Plan my day from calendar + weather + tasks” may trigger semantic narrowing before the model reasons.</div>
+    </div>
+  </section>
+
+  <section id="context">
+    <h2>Context State</h2>
+    <p>Router context is stored in session metadata with an explicit state machine:</p>
+    <ol>
+      <li><strong>Idle</strong>: no active tool context.</li>
+      <li><strong>ToolFocused(tool, directives, ttl)</strong>: directed flow with expiry and explicit transitions.</li>
+    </ol>
+    <div class="note"><strong>Important:</strong> execution enforces route policy even if a model tries calling an out-of-policy tool.</div>
+  </section>
+
+  <section id="examples">
+    <h2>Simple Usage Examples</h2>
+    <ol>
+      <li><strong>“Run my daily briefing cron job”</strong>: deterministic route can dispatch directly to cron when a static rule/directive matches.</li>
+      <li><strong>“Show me cron failures from yesterday”</strong>: constrained LLM in a cron-focused context with strict tool allowlist.</li>
+      <li><strong>“What should I do this afternoon?”</strong>: full LLM path, optionally narrowed by semantic tool selection.</li>
+      <li><strong>Button follow-up flow</strong>: button payload routes direct, then context can remain tool-focused for next turns until TTL/override.</li>
+    </ol>
+  </section>
+
+  <section id="config">
+    <h2>Router Configuration</h2>
+    <p>Common routing controls in <code>router</code> config:</p>
+    <pre><code>{
+  "router": {
+    "prefix": "!",
+    "rules": [
+      {
+        "trigger": "briefing",
+        "tool": "cron",
+        "params": { "action": "list" }
+      },
+      {
+        "trigger": "todos",
+        "tool": "todoist",
+        "params": { "action": "list" }
+      }
+    ],
+    "semanticTopK": 6,
+    "semanticPrefilterK": 16,
+    "semanticThreshold": 0.35
+  }
+}</code></pre>
+    <div class="example"><strong>Example:</strong> with <code>prefix: "!"</code>, typing <code>!briefing</code> lists cron jobs and <code>!todos</code> lists tasks. Both are deterministic dispatches (no LLM needed).</div>
+    <p>See <a href="config.html">Config</a> for full schema and defaults.</p>
+    <p>Related guides: <a href="cli.html">CLI Reference</a> and <a href="workspace.html">Workspace Docs</a>.</p>
+  </section>
+</main>

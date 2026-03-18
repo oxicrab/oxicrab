@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>oxicrab Routing Layers</title>
+  <meta name="description" content="Simple guide to how oxicrab routes messages across deterministic rules, constrained LLM, semantic filtering, and full LLM.">
+  <meta name="theme-color" content="#ea580c">
+  <link rel="icon" href="oxicrab.png">
+  <style>
+    :root {
+      --bg: #faf8f5; --bg-alt: #f5f0eb; --bg-dark: #1c1917;
+      --text: #1c1917; --text-muted: #78716c; --text-light: #a8a29e;
+      --accent: #ea580c; --accent-dark: #c2410c; --accent-light: #fed7aa;
+      --coral: #f97066; --teal: #0d9488; --teal-light: #5eead4;
+      --border: #e7e5e4; --surface: #fffbf5;
+      --code-bg: #292524; --code-text: #e7e5e4;
+      --max-w: 960px;
+      --mono: 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+      --heading: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* NOISE TEXTURE OVERLAY */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      background-repeat: repeat;
+      background-size: 256px 256px;
+    }
+
+    /* NAV */
+    nav {
+      position: sticky;
+      top: 0;
+      background: rgba(250,248,245,0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      z-index: 100;
+      padding: 0 2rem;
+    }
+    .nav-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 60px; }
+    .nav-logo {
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 1.15rem;
+      color: var(--text);
+      text-decoration: none;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .nav-logo img { image-rendering: pixelated; }
+    .nav-logo .oxi { color: var(--accent); }
+    .nav-links { display: flex; gap: 1.5rem; list-style: none; align-items: center; }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: color 0.2s;
+      position: relative;
+      padding-bottom: 2px;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .nav-links a.active {
+      color: var(--accent);
+      border-bottom: 2px solid var(--accent);
+    }
+
+    /* TOC */
+    .toc {
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 14px 12px 16px 10px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 3rem;
+    }
+    .toc-title {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-light);
+      margin-bottom: 0.5rem;
+    }
+    .toc ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .toc a {
+      display: inline-block;
+      padding: 0.35rem 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 600;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
+    }
+    .toc a:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: #fff7ed;
+    }
+
+    /* PAGE LAYOUT */
+    .page-header { padding: 4rem 2rem 2rem; max-width: var(--max-w); margin: 0 auto; }
+    .page-header h1 {
+      font-family: var(--heading);
+      font-size: 2.5rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+    }
+    .page-header p { color: var(--text-muted); font-size: 1.1rem; }
+    .content { max-width: var(--max-w); margin: 0 auto; padding: 0 2rem 4rem; }
+
+    /* CODE */
+    pre {
+      background: var(--code-bg);
+      border-radius: 10px 12px 10px 14px;
+      padding: 1rem 1.25rem;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.7;
+      color: var(--code-text);
+      margin: 0.75rem 0 1rem;
+    }
+    code {
+      font-family: var(--mono);
+      font-size: 0.85em;
+      background: var(--bg-alt);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      color: var(--accent-dark);
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+
+    /* COMPONENTS */
+    .note {
+      background: rgba(234,88,12,0.05);
+      border-left: 3px solid var(--accent);
+      padding: 0.75rem 1rem;
+      border-radius: 0 8px 8px 0;
+      margin: 1rem 0;
+      font-size: 0.85rem;
+      color: var(--text);
+    }
+    .note strong { color: var(--accent); }
+    .config-block { margin: 1rem 0; }
+    .config-label { font-family: var(--mono); font-size: 0.7rem; color: var(--text-light); margin-bottom: 0.25rem; }
+
+    /* LISTS */
+    ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+    ol li { margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--text); }
+    ol li strong { color: var(--text); }
+
+    /* FOOTER */
+    footer {
+      background: var(--bg-dark);
+      padding: 3rem 2rem;
+      color: #a8a29e;
+    }
+    .footer-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+    .footer-links { display: flex; gap: 1.5rem; }
+    .footer-links a { color: #a8a29e; text-decoration: none; font-size: 0.8rem; transition: color 0.2s; }
+    .footer-links a:hover { color: #fef2f2; }
+    .footer-links a.active {
+      color: #fef2f2;
+      text-decoration: underline;
+      pointer-events: none;
+      cursor: default;
+    }
+    .footer-copy { color: #78716c; font-size: 0.75rem; }
+    .footer-copy a { color: var(--accent); text-decoration: none; }
+    .footer-copy a:hover { text-decoration: underline; }
+    footer .nav-logo { color: #e7e5e4; }
+    footer .nav-logo .oxi { color: var(--accent); }
+
+    /* RESPONSIVE */
+    @media (max-width: 768px) {
+      .nav-links { gap: 1rem; }
+      .page-header h1 { font-size: 1.75rem; }
+      .toc ul { flex-direction: column; }
+      .footer-inner { flex-direction: column; gap: 1rem; }
+    }
+
+    /* PAGE-SPECIFIC CSS */
+
+  .routing-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1rem;
+    margin: 1rem 0 2rem;
+    overflow: auto;
+  }
+  .routing-diagram svg {
+    width: 100%;
+    min-width: 760px;
+    height: auto;
+    display: block;
+  }
+  .layer-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    margin-bottom: 0.9rem;
+  }
+  .layer-card h3 {
+    font-size: 1rem;
+    margin-bottom: 0.35rem;
+  }
+  .example {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 10px;
+    padding: 0.8rem 0.9rem;
+    margin-top: 0.7rem;
+  }
+  .example strong {
+    color: #9a3412;
+  }
+
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo"><img src="oxicrab.png" alt="" width="28" height="28"><span class="oxi">oxi</span>crab</a>
+    <ul class="nav-links">
+      <li><a href="index.html" >Home</a></li>
+      <li><a href="routing.html" class="active">Routing</a></li>
+      <li><a href="config.html" >Config</a></li>
+      <li><a href="channels.html" >Channels</a></li>
+      <li><a href="tools.html" >Tools</a></li>
+      <li><a href="deploy.html" >Deploy</a></li>
+      <li><a href="https://github.com/oxicrab/oxicrab">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<header class="page-header">
+  <h1>How Routing Works</h1>
+  <p>oxicrab routes each message through a simple layered policy: deterministic first, constrained LLM next, full LLM last.</p>
+</header>
+
+<main class="content">
+  <div class="toc">
+    <div class="toc-title">On this page</div>
+    <ul>
+      <li><a href="#flow">Flow</a></li>
+      <li><a href="#layers">Layers</a></li>
+      <li><a href="#context">Context State</a></li>
+      <li><a href="#examples">Examples</a></li>
+      <li><a href="#config">Config</a></li>
+    </ul>
+  </div>
+
+  <section id="flow">
+    <h2>Flow</h2>
+    <p>Each inbound message is evaluated in order. As soon as one layer can confidently handle it, routing stops and execution proceeds with a strict tool policy.</p>
+    <div class="routing-diagram">
+      <svg viewBox="0 0 1080 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Routing layers flow diagram">
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <path d="M0,0 L10,3 L0,6 Z" fill="#78716c"/>
+          </marker>
+        </defs>
+        <rect x="20" y="120" width="170" height="70" rx="10" fill="#fff7ed" stroke="#fdba74"/>
+        <text x="105" y="148" text-anchor="middle" font-size="14" fill="#9a3412">User Message</text>
+        <text x="105" y="166" text-anchor="middle" font-size="12" fill="#9a3412">session + context</text>
+
+        <rect x="250" y="35" width="220" height="72" rx="10" fill="#f0fdf4" stroke="#86efac"/>
+        <text x="360" y="62" text-anchor="middle" font-size="14" fill="#14532d">1) Deterministic Router</text>
+        <text x="360" y="80" text-anchor="middle" font-size="12" fill="#14532d">buttons / directives / rules</text>
+
+        <rect x="250" y="125" width="220" height="72" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
+        <text x="360" y="152" text-anchor="middle" font-size="14" fill="#1e3a8a">2) Constrained LLM</text>
+        <text x="360" y="170" text-anchor="middle" font-size="12" fill="#1e3a8a">strict allow/block tool policy</text>
+
+        <rect x="250" y="215" width="220" height="72" rx="10" fill="#fefce8" stroke="#fde047"/>
+        <text x="360" y="242" text-anchor="middle" font-size="14" fill="#713f12">3) Full LLM</text>
+        <text x="360" y="260" text-anchor="middle" font-size="12" fill="#713f12">semantic prefilter optional</text>
+
+        <rect x="560" y="120" width="220" height="70" rx="10" fill="#faf5ff" stroke="#d8b4fe"/>
+        <text x="670" y="148" text-anchor="middle" font-size="14" fill="#581c87">Tool Execution</text>
+        <text x="670" y="166" text-anchor="middle" font-size="12" fill="#581c87">policy enforced again</text>
+
+        <rect x="860" y="120" width="200" height="70" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+        <text x="960" y="148" text-anchor="middle" font-size="14" fill="#0f172a">State Update</text>
+        <text x="960" y="166" text-anchor="middle" font-size="12" fill="#0f172a">session metadata + replay</text>
+
+        <line x1="190" y1="155" x2="245" y2="71" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="190" y1="155" x2="245" y2="161" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="190" y1="155" x2="245" y2="251" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+
+        <line x1="470" y1="71" x2="555" y2="136" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="470" y1="161" x2="555" y2="155" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="470" y1="251" x2="555" y2="174" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+
+        <text x="210" y="104" font-size="11" fill="#57534e">first match wins</text>
+        <line x1="780" y1="155" x2="855" y2="155" stroke="#78716c" stroke-width="2" marker-end="url(#arrow)"/>
+      </svg>
+    </div>
+  </section>
+
+  <section id="layers">
+    <h2>Layers</h2>
+
+    <div class="layer-card">
+      <h3>1) Deterministic Router (first)</h3>
+      <p>Fast, rule-based dispatch for high-confidence actions: button clicks, active directives, prefix commands, and configured static rules.</p>
+      <div class="example"><strong>Example:</strong> User clicks a button payload mapped to <code>todoist</code> → immediate direct tool call, no LLM needed.</div>
+    </div>
+
+    <div class="layer-card">
+      <h3>2) Constrained LLM (second)</h3>
+      <p>When context is tool-focused, the LLM runs with a strict <code>RoutingPolicy</code>: exact <code>allowed_tools</code>, <code>blocked_tools</code>, and reason.</p>
+      <div class="example"><strong>Example:</strong> In a cron-focused thread, only cron-related tools + interaction helpers are exposed.</div>
+    </div>
+
+    <div class="layer-card">
+      <h3>3) Full LLM (last)</h3>
+      <p>Fallback when deterministic and constrained routing do not apply. Semantic filtering can reduce the tool set first; if confidence is low, it falls back to unconstrained full LLM.</p>
+      <div class="example"><strong>Example:</strong> “Plan my day from calendar + weather + tasks” may trigger semantic narrowing before the model reasons.</div>
+    </div>
+  </section>
+
+  <section id="context">
+    <h2>Context State</h2>
+    <p>Router context is stored in session metadata with an explicit state machine:</p>
+    <ol>
+      <li><strong>Idle</strong>: no active tool context.</li>
+      <li><strong>ToolFocused(tool, directives, ttl)</strong>: directed flow with expiry and explicit transitions.</li>
+    </ol>
+    <div class="note"><strong>Important:</strong> execution enforces route policy even if a model tries calling an out-of-policy tool.</div>
+  </section>
+
+  <section id="examples">
+    <h2>Simple Usage Examples</h2>
+    <ol>
+      <li><strong>“Run my daily briefing cron job”</strong>: deterministic route can dispatch directly to cron when a static rule/directive matches.</li>
+      <li><strong>“Show me cron failures from yesterday”</strong>: constrained LLM in a cron-focused context with strict tool allowlist.</li>
+      <li><strong>“What should I do this afternoon?”</strong>: full LLM path, optionally narrowed by semantic tool selection.</li>
+      <li><strong>Button follow-up flow</strong>: button payload routes direct, then context can remain tool-focused for next turns until TTL/override.</li>
+    </ol>
+  </section>
+
+  <section id="config">
+    <h2>Router Configuration</h2>
+    <p>Common routing controls in <code>router</code> config:</p>
+    <pre><code>{
+  "router": {
+    "prefix": "!",
+    "rules": [
+      {
+        "trigger": "briefing",
+        "tool": "cron",
+        "params": { "action": "list" }
+      },
+      {
+        "trigger": "todos",
+        "tool": "todoist",
+        "params": { "action": "list" }
+      }
+    ],
+    "semanticTopK": 6,
+    "semanticPrefilterK": 16,
+    "semanticThreshold": 0.35
+  }
+}</code></pre>
+    <div class="example"><strong>Example:</strong> with <code>prefix: "!"</code>, typing <code>!briefing</code> lists cron jobs and <code>!todos</code> lists tasks. Both are deterministic dispatches (no LLM needed).</div>
+    <p>See <a href="config.html">Config</a> for full schema and defaults.</p>
+    <p>Related guides: <a href="cli.html">CLI Reference</a> and <a href="workspace.html">Workspace Docs</a>.</p>
+  </section>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <a href="index.html" class="nav-logo" style="font-size: 0.95rem;"><img src="oxicrab.png" alt="" width="24" height="24"><span class="oxi">oxi</span>crab</a>
+    <div class="footer-links">
+      <a href="https://github.com/oxicrab/oxicrab">GitHub</a>
+      <a href="https://crates.io/crates/oxicrab">crates.io</a>
+      <a href="workspace.html" >Workspace Docs</a>
+      <a href="cli.html" >CLI Docs</a>
+      <a href="https://github.com/oxicrab/oxicrab/blob/main/README.md">README</a>
+      <a href="https://github.com/oxicrab/oxicrab/blob/main/LICENSE">MIT License</a>
+    </div>
+    <span class="footer-copy">Built by <a href="https://github.com/oxicrab">James Turnbull</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -183,6 +183,12 @@
     .footer-links { display: flex; gap: 1.5rem; }
     .footer-links a { color: #a8a29e; text-decoration: none; font-size: 0.8rem; transition: color 0.2s; }
     .footer-links a:hover { color: #fef2f2; }
+    .footer-links a.active {
+      color: #fef2f2;
+      text-decoration: underline;
+      pointer-events: none;
+      cursor: default;
+    }
     .footer-copy { color: #78716c; font-size: 0.75rem; }
     .footer-copy a { color: var(--accent); text-decoration: none; }
     .footer-copy a:hover { text-decoration: underline; }
@@ -224,12 +230,11 @@
     <a href="index.html" class="nav-logo"><img src="oxicrab.png" alt="" width="28" height="28"><span class="oxi">oxi</span>crab</a>
     <ul class="nav-links">
       <li><a href="index.html" >Home</a></li>
+      <li><a href="routing.html" >Routing</a></li>
       <li><a href="config.html" >Config</a></li>
       <li><a href="channels.html" >Channels</a></li>
       <li><a href="tools.html" >Tools</a></li>
-      <li><a href="workspace.html" >Workspace</a></li>
       <li><a href="deploy.html" class="active">Deploy</a></li>
-      <li><a href="cli.html" >CLI</a></li>
       <li><a href="https://github.com/oxicrab/oxicrab">GitHub</a></li>
     </ul>
   </div>
@@ -418,6 +423,7 @@ docker run -d \
     <p>The <code>-p 18790:18790</code> port mapping is needed for the gateway HTTP API (chat, health, webhooks, A2A). Other channels use outbound connections only.</p>
 
     <h3>CLI mode</h3>
+    <p>For the full command list and flags, see <a href="cli.html">CLI Reference</a>.</p>
     <pre><code># Single message
 docker run --rm \
   -v ~/.oxicrab:/home/oxicrab/.oxicrab \
@@ -778,6 +784,8 @@ tailscale up</code></pre>
     <div class="footer-links">
       <a href="https://github.com/oxicrab/oxicrab">GitHub</a>
       <a href="https://crates.io/crates/oxicrab">crates.io</a>
+      <a href="workspace.html" >Workspace Docs</a>
+      <a href="cli.html" >CLI Docs</a>
       <a href="https://github.com/oxicrab/oxicrab/blob/main/README.md">README</a>
       <a href="https://github.com/oxicrab/oxicrab/blob/main/LICENSE">MIT License</a>
     </div>
