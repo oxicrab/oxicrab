@@ -3476,6 +3476,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxicrab-core"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
