@@ -3444,6 +3444,7 @@ dependencies = [
  "oxicrab-tools-api",
  "oxicrab-tools-browser",
  "oxicrab-tools-google",
+ "oxicrab-tools-obsidian",
  "oxicrab-tools-system",
  "oxicrab-tools-web",
  "proptest",
@@ -3665,6 +3666,30 @@ dependencies = [
  "tokio",
  "tracing",
  "urlencoding",
+ "wiremock",
+]
+
+[[package]]
+name = "oxicrab-tools-obsidian"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dirs",
+ "hex",
+ "oxicrab-core",
+ "oxicrab-memory",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "url",
+ "urlencoding",
+ "walkdir",
  "wiremock",
 ]
 

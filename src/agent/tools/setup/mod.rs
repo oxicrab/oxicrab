@@ -94,6 +94,9 @@ pub async fn register_all_tools(
         register_media(&mut tools, ctx);
     }
     register_cron(&mut tools, ctx);
+    #[cfg(feature = "tools-obsidian")]
+    register_obsidian_ext(&mut tools, ctx);
+    #[cfg(not(feature = "tools-obsidian"))]
     register_obsidian(&mut tools, ctx);
     register_http(&mut tools);
     register_reddit(&mut tools);
@@ -542,6 +545,41 @@ fn register_media(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     }
 }
 
+#[cfg(feature = "tools-obsidian")]
+fn register_obsidian_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    if let Some(ref obsidian_cfg) = ctx.obsidian_config
+        && obsidian_cfg.enabled
+        && !obsidian_cfg.api_url.is_empty()
+        && !obsidian_cfg.api_key.is_empty()
+    {
+        match oxicrab_tools_obsidian::create_obsidian_tool(
+            &obsidian_cfg.api_url,
+            &obsidian_cfg.api_key,
+            &obsidian_cfg.vault_name,
+            obsidian_cfg.timeout,
+            ctx.memory_db.clone(),
+        ) {
+            Ok((tool, cache)) => {
+                registry.register(tool);
+                let sync_svc = oxicrab_tools_obsidian::ObsidianSyncService::new(
+                    cache,
+                    obsidian_cfg.sync_interval,
+                );
+                tokio::spawn(async move {
+                    if let Err(e) = sync_svc.start().await {
+                        error!("Obsidian sync failed to start: {}", e);
+                    }
+                });
+                info!("Obsidian tool registered (crate)");
+            }
+            Err(e) => {
+                warn!("Obsidian tool not available: {}", e);
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "tools-obsidian"))]
 fn register_obsidian(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::obsidian::{ObsidianSyncService, ObsidianTool};
 
