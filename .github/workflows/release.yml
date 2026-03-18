@@ -12,6 +12,11 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   changelog:
@@ -67,35 +72,36 @@ jobs:
           toolchain: ${{ steps.toolchain.outputs.version }}
           targets: ${{ matrix.target }}
 
+      - name: Install packaging tools
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb,cargo-generate-rpm
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ steps.toolchain.outputs.version }}-${{ matrix.target }}
+
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
+          command -v cmake >/dev/null || { sudo apt-get update && sudo apt-get install -y cmake; }
           if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            command -v aarch64-linux-gnu-gcc >/dev/null || { sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu; }
           fi
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install cmake
-
-      - name: Cache cargo registry
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.target }}-cargo-release-
+        run: command -v cmake >/dev/null || brew install cmake
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
         env:
+          RUSTC_WRAPPER: sccache
           SOURCE_DATE_EPOCH: "1"
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && 'aarch64-linux-gnu-gcc' || '' }}
           # Disable native CPU detection in whisper.cpp/ggml to avoid ARM i8mm build failures on macOS CI
@@ -130,7 +136,6 @@ jobs:
       - name: Build DEB package
         if: runner.os == 'Linux'
         run: |
-          cargo install cargo-deb --force
           cargo deb --no-build --target ${{ matrix.target }}
           cp target/${{ matrix.target }}/debian/*.deb .
 
@@ -145,7 +150,6 @@ jobs:
       - name: Build RPM package
         if: runner.os == 'Linux'
         run: |
-          cargo install cargo-generate-rpm --force
           cargo generate-rpm --target ${{ matrix.target }}
           cp target/${{ matrix.target }}/generate-rpm/*.rpm .
 
@@ -183,6 +187,7 @@ jobs:
             *.deb
             *.rpm
             oxicrab-*.dmg
+          compression-level: 0
 
   docker:
     name: Docker

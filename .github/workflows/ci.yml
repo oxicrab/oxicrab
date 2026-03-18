@@ -15,6 +15,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   # ── Change Detection ────────────────────────────────────────────────
@@ -91,6 +92,14 @@ jobs:
         with:
           tool: cargo-deny
 
+      - name: Install actionlint
+        uses: taiki-e/install-action@v2
+        with:
+          tool: actionlint
+
+      - name: Lint GitHub Actions workflows
+        run: actionlint
+
       - name: Check formatting
         run: cargo fmt -- --check
 
@@ -119,23 +128,38 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ needs.changes.outputs.toolchain }}
-          components: clippy
+
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-linux-debug
+          shared-key: ci-linux-${{ needs.changes.outputs.toolchain }}
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
+          command -v cmake >/dev/null || { sudo apt-get update && sudo apt-get install -y cmake; }
 
       - name: Build (all features)
         run: cargo build --all-targets --all-features --timings
+        env:
+          RUSTC_WRAPPER: sccache
 
       - name: Build without optional channels
         run: cargo build --no-default-features
+        env:
+          RUSTC_WRAPPER: sccache
+
+      - name: Build reusable nextest archive
+        run: cargo nextest archive --workspace --all-features --archive-file nextest-linux.tar.zst
+        env:
+          RUSTC_WRAPPER: sccache
 
       - name: Upload build timings
         uses: actions/upload-artifact@v7
@@ -143,11 +167,18 @@ jobs:
           name: build-timings-linux
           path: target/cargo-timings/cargo-timing.html
 
+      - name: Upload nextest archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: nextest-archive-linux
+          path: nextest-linux.tar.zst
+          compression-level: 0
+
   # ── Clippy (Linux, fast path) ──────────────────────────────────────
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
-    needs: [changes, build-linux]
+    needs: [changes]
     if: needs.changes.outputs.code == 'true'
     permissions:
       contents: read
@@ -166,15 +197,17 @@ jobs:
         with:
           tool: clippy-sarif,sarif-fmt
 
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-linux-debug
+          shared-key: ci-linux-${{ needs.changes.outputs.toolchain }}
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
+          command -v cmake >/dev/null || { sudo apt-get update && sudo apt-get install -y cmake; }
 
       - name: Clippy (SARIF + fail on warnings)
         run: >
@@ -182,6 +215,8 @@ jobs:
           | clippy-sarif
           | tee clippy-results.sarif
           | sarif-fmt
+        env:
+          RUSTC_WRAPPER: sccache
 
       - name: Upload SARIF to Code Scanning
         if: always()
@@ -210,18 +245,13 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Download nextest archive
+        uses: actions/download-artifact@v8
         with:
-          shared-key: ci-linux-debug
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
+          name: nextest-archive-linux
 
       - name: Run unit tests
-        run: cargo nextest run --lib --profile default
+        run: cargo nextest run --archive-file nextest-linux.tar.zst --lib --profile default
 
       - name: Upload test results
         if: always()
@@ -250,19 +280,14 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Download nextest archive
+        uses: actions/download-artifact@v8
         with:
-          shared-key: ci-linux-debug
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
+          name: nextest-archive-linux
 
       - name: Run integration tests
         run: >
-          cargo nextest run --profile integration
+          cargo nextest run --archive-file nextest-linux.tar.zst --profile integration
           --test session_management
           --test cron_jobs
           --test tool_registry
@@ -336,10 +361,13 @@ jobs:
         with:
           tool: cargo-nextest
 
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-macos-debug
+          shared-key: ci-macos-${{ needs.changes.outputs.toolchain }}
 
       - name: Install system dependencies
         run: command -v cmake || brew install cmake
@@ -347,11 +375,13 @@ jobs:
       - name: Build (all features)
         run: cargo build --all-targets --all-features
         env:
+          RUSTC_WRAPPER: sccache
           CMAKE_PROJECT_INCLUDE: ${{ format('{0}/cmake/disable-ggml-native.cmake', github.workspace) }}
 
       - name: Run unit tests
         run: cargo nextest run --lib --profile default
         env:
+          RUSTC_WRAPPER: sccache
           CMAKE_PROJECT_INCLUDE: ${{ format('{0}/cmake/disable-ggml-native.cmake', github.workspace) }}
 
       - name: Run integration tests
@@ -373,6 +403,7 @@ jobs:
           --test safety_integration
         env:
           OXICRAB_HOME: ${{ runner.temp }}/oxicrab-test
+          RUSTC_WRAPPER: sccache
           CMAKE_PROJECT_INCLUDE: ${{ format('{0}/cmake/disable-ggml-native.cmake', github.workspace) }}
 
   # ── Coverage ────────────────────────────────────────────────────────
@@ -396,15 +427,17 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-coverage
+          shared-key: ci-coverage-${{ needs.changes.outputs.toolchain }}
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
+          command -v cmake >/dev/null || { sudo apt-get update && sudo apt-get install -y cmake; }
 
       - name: Generate coverage
         run: >
@@ -417,6 +450,7 @@ jobs:
           --test-threads=1
         env:
           OXICRAB_HOME: ${{ runner.temp }}/oxicrab-test
+          RUSTC_WRAPPER: sccache
 
       - name: Upload to Coveralls
         uses: coverallsapp/github-action@v2
@@ -442,17 +476,20 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-release-linux
+          shared-key: ci-release-linux-${{ needs.changes.outputs.toolchain }}
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
+          command -v cmake >/dev/null || { sudo apt-get update && sudo apt-get install -y cmake; }
 
       - name: Build release
         run: cargo build --release --target x86_64-unknown-linux-gnu
         env:
           SOURCE_DATE_EPOCH: "1"
+          RUSTC_WRAPPER: sccache
 
       - name: Measure binary size
         id: size
@@ -515,7 +552,7 @@ jobs:
   package-linux:
     name: Package (linux)
     runs-on: ubuntu-latest
-    needs: [changes, binary-size]
+    needs: [changes]
     if: needs.changes.outputs.code == 'true'
     continue-on-error: true
     steps:
@@ -529,21 +566,28 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-release-linux
+          shared-key: ci-release-linux-${{ needs.changes.outputs.toolchain }}
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
+          command -v cmake >/dev/null || { sudo apt-get update && sudo apt-get install -y cmake; }
 
       - name: Build release binary (cache hit = no-op)
         run: cargo build --release --target x86_64-unknown-linux-gnu
         env:
           SOURCE_DATE_EPOCH: "1"
+          RUSTC_WRAPPER: sccache
+
+      - name: Install packaging tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb,cargo-generate-rpm
 
       - name: Build DEB package
         run: |
-          cargo install cargo-deb --force
           cargo deb --no-build --target x86_64-unknown-linux-gnu
           cp target/x86_64-unknown-linux-gnu/debian/*.deb .
 
@@ -555,7 +599,6 @@ jobs:
 
       - name: Build RPM package
         run: |
-          cargo install cargo-generate-rpm --force
           cargo generate-rpm --target x86_64-unknown-linux-gnu
           cp target/x86_64-unknown-linux-gnu/generate-rpm/*.rpm .
 
@@ -583,7 +626,10 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-macos-release
+          shared-key: ci-macos-release-${{ needs.changes.outputs.toolchain }}
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install system dependencies
         run: command -v cmake || brew install cmake
@@ -592,6 +638,7 @@ jobs:
         run: cargo build --release --target aarch64-apple-darwin
         env:
           SOURCE_DATE_EPOCH: "1"
+          RUSTC_WRAPPER: sccache
           CMAKE_PROJECT_INCLUDE: ${{ format('{0}/cmake/disable-ggml-native.cmake', github.workspace) }}
 
       - name: Build DMG
@@ -624,17 +671,21 @@ jobs:
           toolchain: ${{ needs.changes.outputs.toolchain }}
 
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-fuzz
+          shared-key: ci-fuzz-${{ needs.changes.outputs.toolchain }}
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
+          command -v cmake >/dev/null || { sudo apt-get update && sudo apt-get install -y cmake; }
 
       - name: Fuzz webhook signature (30s)
         run: cargo fuzz run fuzz_webhook_signature -- -max_total_time=30
@@ -675,17 +726,21 @@ jobs:
           toolchain: ${{ needs.changes.outputs.toolchain }}
 
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-fuzz
+          shared-key: ci-fuzz-${{ needs.changes.outputs.toolchain }}
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
+          command -v cmake >/dev/null || { sudo apt-get update && sudo apt-get install -y cmake; }
 
       - name: Fuzz webhook signature (30s)
         run: cargo fuzz run fuzz_webhook_signature -- -max_total_time=30
