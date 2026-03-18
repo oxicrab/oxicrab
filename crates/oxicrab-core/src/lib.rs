@@ -6,4 +6,5 @@
 pub mod bus;
 pub mod dispatch;
 pub mod errors;
+pub mod providers;
 pub mod time;
