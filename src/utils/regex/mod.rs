@@ -150,14 +150,6 @@ impl RegexPatterns {
         &RE
     }
 
-    /// Regex for matching words (alphanumeric + underscore, 2+ chars)
-    pub fn words() -> &'static Regex {
-        static RE: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r"[A-Za-z0-9_]{2,}").expect("Failed to compile words regex")
-        });
-        &RE
-    }
-
     /// Regex for matching `<think>...</think>` blocks (models like `DeepSeek`, `Qwen`)
     pub fn think_tags() -> &'static Regex {
         static RE: LazyLock<Regex> = LazyLock::new(|| {

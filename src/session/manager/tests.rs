@@ -198,7 +198,7 @@ async fn test_cleanup_old_sessions() {
     {
         let db = mgr.db.clone();
         tokio::task::spawn_blocking(move || {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.lock_conn().unwrap();
             conn.execute(
                 "UPDATE sessions SET updated_at = datetime('now', '-100 days') WHERE key = ?1",
                 rusqlite::params!["old:session"],

@@ -38,29 +38,14 @@ use tracing::{debug, info, warn};
 /// Maximum number of queued writes when the API is unreachable.
 const MAX_QUEUE_SIZE: usize = 100;
 
-/// Metadata for a single cached file.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct CachedFileMeta {
-    pub content_hash: String,
-    pub last_synced_at: i64,
-    pub size: u64,
-}
+// Re-export obsidian types from the memory crate
+pub use crate::agent::memory::memory_db::obsidian::{CachedFileMeta, QueuedWrite};
 
 /// Persistent sync state for the vault cache.
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct SyncState {
     pub files: HashMap<String, CachedFileMeta>,
     pub last_full_sync_at: i64,
-}
-
-/// A queued write operation for when the API is unreachable.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct QueuedWrite {
-    pub path: String,
-    pub content: String,
-    pub operation: String, // "write" or "append"
-    pub queued_at: i64,
-    pub pre_write_hash: Option<String>,
 }
 
 pub(crate) fn content_hash(content: &str) -> String {

@@ -22,6 +22,26 @@ pub struct ObsidianQueueRow {
     pub pre_write_hash: Option<String>,
 }
 
+/// Cached file metadata, matching the obsidian tool's `CachedFileMeta` struct.
+/// Defined here to avoid circular dependencies between memory and tool crates.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CachedFileMeta {
+    pub content_hash: String,
+    pub last_synced_at: i64,
+    pub size: u64,
+}
+
+/// A queued write operation, matching the obsidian tool's `QueuedWrite` struct.
+/// Defined here to avoid circular dependencies between memory and tool crates.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct QueuedWrite {
+    pub path: String,
+    pub content: String,
+    pub operation: String,
+    pub queued_at: i64,
+    pub pre_write_hash: Option<String>,
+}
+
 impl MemoryDB {
     /// Insert or replace a sync state entry for a single file in a vault.
     pub fn upsert_obsidian_sync(
@@ -198,7 +218,7 @@ impl MemoryDB {
     pub fn replace_obsidian_sync(
         &self,
         vault_name: &str,
-        files: &HashMap<String, crate::agent::tools::obsidian::cache::CachedFileMeta>,
+        files: &HashMap<String, CachedFileMeta>,
     ) -> Result<()> {
         let mut conn = self.lock_conn()?;
         let tx = conn.transaction()?;
@@ -225,11 +245,7 @@ impl MemoryDB {
     }
 
     /// Atomically replace all queued writes for a vault (clear + re-insert in one transaction).
-    pub fn replace_obsidian_queue(
-        &self,
-        vault_name: &str,
-        queue: &[crate::agent::tools::obsidian::cache::QueuedWrite],
-    ) -> Result<()> {
+    pub fn replace_obsidian_queue(&self, vault_name: &str, queue: &[QueuedWrite]) -> Result<()> {
         let mut conn = self.lock_conn()?;
         let tx = conn.transaction()?;
         tx.execute(

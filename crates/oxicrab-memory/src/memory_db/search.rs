@@ -1,8 +1,8 @@
 use super::MemoryDB;
 use super::recency_decay;
-use crate::config::FusionStrategy;
 use anyhow::Result;
 use chrono::Utc;
+use oxicrab_core::config::schema::FusionStrategy;
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
@@ -32,7 +32,7 @@ impl MemoryDB {
         rrf_k: u32,
         recency_half_life_days: u32,
     ) -> Result<Vec<MemoryHit>> {
-        use crate::agent::memory::embeddings::cosine_similarity;
+        use crate::embeddings::cosine_similarity;
 
         if query_embedding.is_empty() {
             anyhow::bail!("query embedding is empty");
@@ -374,7 +374,10 @@ impl MemoryDB {
 }
 
 pub(super) fn fts_query(text: &str) -> String {
-    let re = crate::utils::regex::RegexPatterns::words();
+    use std::sync::LazyLock;
+    static WORDS_RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"[A-Za-z0-9_]{2,}").expect("words regex"));
+    let re = &*WORDS_RE;
     let mut seen = std::collections::HashSet::new();
     let mut unique = Vec::new();
 

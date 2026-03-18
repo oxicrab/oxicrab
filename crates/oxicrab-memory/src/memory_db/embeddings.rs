@@ -71,7 +71,7 @@ impl MemoryDB {
         &self,
         exclude_sources: Option<&std::collections::HashSet<String>>,
     ) -> Result<Vec<CachedEmbedding>> {
-        use crate::agent::memory::embeddings::deserialize_embedding;
+        use crate::embeddings::deserialize_embedding;
 
         let default_set = std::collections::HashSet::new();
         let exclude = exclude_sources.unwrap_or(&default_set);

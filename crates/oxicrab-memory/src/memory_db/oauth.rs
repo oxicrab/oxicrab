@@ -1,6 +1,6 @@
 use super::MemoryDB;
-use crate::utils::credential_store::{OAuthTokenRow, OAuthTokenStore};
 use anyhow::Result;
+use oxicrab_core::credential_store::{OAuthTokenRow, OAuthTokenStore};
 use rusqlite::params;
 
 impl MemoryDB {

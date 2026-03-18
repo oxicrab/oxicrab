@@ -3437,6 +3437,7 @@ dependencies = [
  "oauth2",
  "open",
  "oxicrab-core",
+ "oxicrab-memory",
  "proptest",
  "qr2term",
  "qrcode",
@@ -3485,6 +3486,7 @@ dependencies = [
  "chrono",
  "dirs",
  "fastrand",
+ "humantime",
  "lru",
  "regex",
  "serde",
@@ -3492,6 +3494,27 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "oxicrab-memory"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "fastembed",
+ "hex",
+ "lru",
+ "oxicrab-core",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

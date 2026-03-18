@@ -1,9 +1,10 @@
-pub mod embeddings;
-pub mod hygiene;
-pub mod memory_db;
-pub mod memory_store;
-pub mod quality;
-pub mod remember;
+// Re-export from oxicrab-memory crate
+pub use oxicrab_memory::embeddings;
+pub use oxicrab_memory::hygiene;
+pub use oxicrab_memory::memory_db;
+pub use oxicrab_memory::memory_store;
+pub use oxicrab_memory::quality;
+pub use oxicrab_memory::remember;
 
-pub use memory_db::MemoryDB;
-pub use memory_store::MemoryStore;
+pub use oxicrab_memory::MemoryDB;
+pub use oxicrab_memory::MemoryStore;

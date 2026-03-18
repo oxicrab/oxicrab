@@ -1,8 +1,8 @@
-use crate::agent::memory::MemoryDB;
 #[cfg(feature = "embeddings")]
-use crate::agent::memory::embeddings::{EmbeddingService, LazyEmbeddingService};
-use crate::config::MemoryConfig;
+use crate::embeddings::{EmbeddingService, LazyEmbeddingService};
+use crate::memory_db::MemoryDB;
 use anyhow::{Context, Result};
+use oxicrab_core::config::schema::MemoryConfig;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ pub struct MemoryStore {
     #[cfg(feature = "embeddings")]
     hybrid_weight: f32,
     #[cfg(feature = "embeddings")]
-    fusion_strategy: crate::config::FusionStrategy,
+    fusion_strategy: oxicrab_core::config::schema::FusionStrategy,
     #[cfg(feature = "embeddings")]
     rrf_k: u32,
     #[cfg(feature = "embeddings")]
@@ -60,7 +60,7 @@ impl MemoryStore {
             #[cfg(feature = "embeddings")]
             hybrid_weight: 0.5,
             #[cfg(feature = "embeddings")]
-            fusion_strategy: crate::config::FusionStrategy::default(),
+            fusion_strategy: oxicrab_core::config::schema::FusionStrategy::default(),
             #[cfg(feature = "embeddings")]
             rrf_k: 60,
             #[cfg(feature = "embeddings")]
@@ -78,7 +78,7 @@ impl MemoryStore {
             #[cfg(feature = "embeddings")]
             hybrid_weight: 0.5,
             #[cfg(feature = "embeddings")]
-            fusion_strategy: crate::config::FusionStrategy::default(),
+            fusion_strategy: oxicrab_core::config::schema::FusionStrategy::default(),
             #[cfg(feature = "embeddings")]
             rrf_k: 60,
             #[cfg(feature = "embeddings")]
@@ -200,7 +200,7 @@ impl MemoryStore {
         query: &str,
         limit: usize,
         exclude_sources: Option<&HashSet<String>>,
-    ) -> Result<Vec<crate::agent::memory::memory_db::MemoryHit>> {
+    ) -> Result<Vec<crate::memory_db::MemoryHit>> {
         let emb_svc = self
             .embedding_service
             .as_ref()
@@ -314,8 +314,7 @@ impl MemoryStore {
                     match svc.embed_texts(&texts) {
                         Ok(vectors) => {
                             for ((id, _, _), vec) in entries.iter().zip(vectors.iter()) {
-                                let bytes =
-                                    crate::agent::memory::embeddings::serialize_embedding(vec);
+                                let bytes = crate::embeddings::serialize_embedding(vec);
                                 if let Err(e) = self.db.store_embedding(*id, &bytes) {
                                     warn!("failed to store embedding for entry {id}: {e}");
                                 }

@@ -11,18 +11,18 @@ mod embeddings;
 mod indexing;
 mod migrations;
 mod oauth;
-mod obsidian;
+pub mod obsidian;
 mod pairing;
-#[cfg(feature = "tool-rss")]
+#[cfg(feature = "rss")]
 pub mod rss;
 mod search;
 mod stats;
 mod subagent_log;
 mod workspace;
 
-pub use crate::utils::credential_store::OAuthTokenRow;
 pub use cost::TokenSummaryRow;
 pub use dlq::DlqEntry;
+pub use oxicrab_core::credential_store::OAuthTokenRow;
 pub use pairing::DbPendingRequest;
 pub use search::MemoryHit;
 pub use stats::SearchDetails;
@@ -161,7 +161,7 @@ impl MemoryDB {
         Ok(())
     }
 
-    pub(crate) fn lock_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
+    pub fn lock_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
         self.conn
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))

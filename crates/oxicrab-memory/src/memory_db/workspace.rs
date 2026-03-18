@@ -54,7 +54,6 @@ impl MemoryDB {
     }
 
     /// Register a workspace file with an explicit `created_at` timestamp (for testing).
-    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn register_workspace_file_with_date(
         &self,

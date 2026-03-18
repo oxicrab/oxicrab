@@ -1,5 +1,5 @@
 /// Memory hygiene: purge old search logs and clean up workspace files.
-use crate::agent::memory::MemoryDB;
+use crate::MemoryDB;
 use anyhow::Result;
 use tracing::{info, warn};
 

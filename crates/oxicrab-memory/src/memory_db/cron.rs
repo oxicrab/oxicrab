@@ -1,8 +1,8 @@
 use super::MemoryDB;
-use crate::cron::types::{
+use anyhow::Result;
+use oxicrab_core::cron_types::{
     CronJob, CronJobState, CronPayload, CronSchedule, CronTarget, UpdateJobParams,
 };
-use anyhow::Result;
 use rusqlite::params;
 use std::collections::HashMap;
 
@@ -648,7 +648,7 @@ struct CronJobRow {
 #[cfg(test)]
 mod tests {
     use super::super::MemoryDB;
-    use crate::cron::types::{
+    use oxicrab_core::cron_types::{
         CronJob, CronJobState, CronPayload, CronSchedule, CronTarget, UpdateJobParams,
     };
 

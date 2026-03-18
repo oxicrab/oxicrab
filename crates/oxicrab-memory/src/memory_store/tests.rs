@@ -5,13 +5,16 @@ use super::*;
 fn test_with_config_wires_fusion_strategy() {
     let tmp = tempfile::TempDir::new().unwrap();
 
-    let mut config = crate::config::MemoryConfig::default();
-    config.fusion_strategy = crate::config::FusionStrategy::Rrf;
+    let mut config = oxicrab_core::config::schema::MemoryConfig::default();
+    config.fusion_strategy = oxicrab_core::config::schema::FusionStrategy::Rrf;
     config.rrf_k = 42;
     config.hybrid_weight = 0.3;
 
     let store = MemoryStore::with_config(tmp.path(), &config).unwrap();
-    assert_eq!(store.fusion_strategy, crate::config::FusionStrategy::Rrf);
+    assert_eq!(
+        store.fusion_strategy,
+        oxicrab_core::config::schema::FusionStrategy::Rrf
+    );
     assert_eq!(store.rrf_k, 42);
     assert!((store.hybrid_weight - 0.3).abs() < f32::EPSILON);
 }

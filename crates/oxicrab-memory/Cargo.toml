@@ -1,0 +1,31 @@
+[package]
+name = "oxicrab-memory"
+version = "0.15.0"
+edition = "2024"
+authors = ["James Turnbull <james@ltl.so>"]
+description = "Memory subsystem for the oxicrab framework"
+license = "MIT"
+
+[features]
+default = ["embeddings"]
+embeddings = ["dep:fastembed", "dep:lru"]
+rss = []
+
+[dependencies]
+oxicrab-core = { path = "../oxicrab-core" }
+anyhow = { workspace = true }
+regex = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+fastembed = { version = "5", default-features = false, features = ["hf-hub", "hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"], optional = true }
+hex = "0.4"
+lru = { version = "0.16", optional = true }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { version = "1.22", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3.25"

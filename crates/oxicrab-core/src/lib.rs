@@ -6,6 +6,8 @@
 pub mod bus;
 pub mod channels;
 pub mod config;
+pub mod credential_store;
+pub mod cron_types;
 pub mod dispatch;
 pub mod errors;
 pub mod providers;

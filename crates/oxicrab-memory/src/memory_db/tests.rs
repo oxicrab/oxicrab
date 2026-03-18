@@ -299,22 +299,23 @@ fn test_token_record_and_summary() {
 #[test]
 fn test_fusion_strategy_default_is_weighted_score() {
     assert_eq!(
-        crate::config::FusionStrategy::default(),
-        crate::config::FusionStrategy::WeightedScore
+        oxicrab_core::config::schema::FusionStrategy::default(),
+        oxicrab_core::config::schema::FusionStrategy::WeightedScore
     );
 }
 
 #[test]
 fn test_fusion_strategy_serde_roundtrip() {
-    let rrf = crate::config::FusionStrategy::Rrf;
+    let rrf = oxicrab_core::config::schema::FusionStrategy::Rrf;
     let json = serde_json::to_string(&rrf).unwrap();
     assert_eq!(json, "\"rrf\"");
-    let ws = crate::config::FusionStrategy::WeightedScore;
+    let ws = oxicrab_core::config::schema::FusionStrategy::WeightedScore;
     let json = serde_json::to_string(&ws).unwrap();
     assert_eq!(json, "\"weighted_score\"");
 
-    let parsed: crate::config::FusionStrategy = serde_json::from_str("\"rrf\"").unwrap();
-    assert_eq!(parsed, crate::config::FusionStrategy::Rrf);
+    let parsed: oxicrab_core::config::schema::FusionStrategy =
+        serde_json::from_str("\"rrf\"").unwrap();
+    assert_eq!(parsed, oxicrab_core::config::schema::FusionStrategy::Rrf);
 }
 
 // ── DLQ tests ────────────────────────────────────────────
@@ -914,8 +915,8 @@ fn test_get_complexity_stats() {
 
 #[test]
 fn test_hybrid_search_with_manual_embeddings() {
-    use crate::agent::memory::embeddings::serialize_embedding;
-    use crate::config::FusionStrategy;
+    use crate::embeddings::serialize_embedding;
+    use oxicrab_core::config::schema::FusionStrategy;
 
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory.db");

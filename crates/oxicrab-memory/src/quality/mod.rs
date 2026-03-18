@@ -21,7 +21,7 @@ pub enum RejectReason {
 
 const MIN_USEFUL_LEN: usize = 15;
 
-pub(crate) const GREETINGS: &[&str] = &[
+pub const GREETINGS: &[&str] = &[
     "hi",
     "hello",
     "hey",
@@ -41,7 +41,7 @@ pub(crate) const GREETINGS: &[&str] = &[
     "gn",
 ];
 
-pub(crate) const FILLER: &[&str] = &[
+pub const FILLER: &[&str] = &[
     "ok",
     "okay",
     "sure",
