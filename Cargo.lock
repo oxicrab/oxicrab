@@ -3447,6 +3447,7 @@ dependencies = [
  "oxicrab-tools-rss",
  "oxicrab-tools-system",
  "oxicrab-tools-web",
+ "oxicrab-transcription",
  "proptest",
  "qr2term",
  "qrcode",
@@ -3476,7 +3477,6 @@ dependencies = [
  "wa-rs-ureq-http",
  "walkdir",
  "which",
- "whisper-rs",
  "wiremock",
 ]
 
@@ -3784,6 +3784,20 @@ dependencies = [
  "tokio",
  "tracing",
  "wiremock",
+]
+
+[[package]]
+name = "oxicrab-transcription"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "oxicrab-core",
+ "reqwest 0.13.2",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "whisper-rs",
 ]
 
 [[package]]

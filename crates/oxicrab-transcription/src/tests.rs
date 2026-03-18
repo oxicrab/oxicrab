@@ -1,5 +1,7 @@
 use super::*;
+use oxicrab_core::config::schema::TranscriptionConfig;
 
+#[cfg(feature = "local-whisper")]
 #[test]
 fn test_expand_tilde_with_home_prefix() {
     let result = expand_tilde("~/models/whisper.bin");
@@ -8,18 +10,21 @@ fn test_expand_tilde_with_home_prefix() {
     assert!(result.to_string_lossy().ends_with("models/whisper.bin"));
 }
 
+#[cfg(feature = "local-whisper")]
 #[test]
 fn test_expand_tilde_absolute_path_unchanged() {
     let result = expand_tilde("/usr/local/models/whisper.bin");
     assert_eq!(result, PathBuf::from("/usr/local/models/whisper.bin"));
 }
 
+#[cfg(feature = "local-whisper")]
 #[test]
 fn test_expand_tilde_relative_path_unchanged() {
     let result = expand_tilde("models/whisper.bin");
     assert_eq!(result, PathBuf::from("models/whisper.bin"));
 }
 
+#[cfg(feature = "local-whisper")]
 #[test]
 fn test_expand_tilde_just_tilde_slash() {
     let result = expand_tilde("~/");
@@ -29,6 +34,7 @@ fn test_expand_tilde_just_tilde_slash() {
     }
 }
 
+#[cfg(feature = "local-whisper")]
 #[test]
 fn test_expand_tilde_bare_tilde_not_expanded() {
     // Bare "~" without trailing slash is NOT expanded (strip_prefix("~/") doesn't match)

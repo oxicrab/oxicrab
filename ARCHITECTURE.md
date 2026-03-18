@@ -166,14 +166,14 @@ channel-slack = ["oxicrab-channels/channel-slack"]
 channel-whatsapp = ["oxicrab-channels/channel-whatsapp", ...]
 channel-twilio = ["oxicrab-channels/channel-twilio"]
 keyring-store = ["dep:keyring"]
-local-whisper = ["dep:whisper-rs"]  # local whisper.cpp voice transcription
+local-whisper = ["oxicrab-transcription/local-whisper"]  # local whisper.cpp voice transcription
 embeddings = ["dep:fastembed", "oxicrab-memory/embeddings"]  # fastembed ONNX for vector search
 tool-rss = ["dep:oxicrab-tools-rss", "oxicrab-memory/rss"]   # RSS feed reader with LinTS ranking
 ```
 
 Channel features are forwarded to the `oxicrab-channels` crate, which conditionally compiles each channel. Keyring support (`keyring-store`) is default-on for desktop; containers should build with `--no-default-features` and use env vars instead.
 
-## Voice Transcription (`src/utils/transcription/mod.rs`)
+## Voice Transcription (`crates/oxicrab-transcription/src/lib.rs`)
 
 `TranscriptionService` supports two backends: local (whisper-rs + ffmpeg) and cloud (Whisper API). Routing controlled by `prefer_local` config flag — tries preferred backend first, falls back to the other. Local inference runs whisper.cpp via `spawn_blocking`; audio converted to 16kHz mono f32 PCM via ffmpeg subprocess. `TranscriptionService::new()` returns `Some` if at least one backend is available.
 

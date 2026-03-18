@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/oxicrab-core", "crates/oxicrab-memory", "crates/oxicrab-providers", "crates/oxicrab-channels", "crates/oxicrab-gateway", "crates/oxicrab-router", "crates/oxicrab-safety", "crates/oxicrab-tools-rss", "crates/oxicrab-tools-web", "crates/oxicrab-tools-system", "crates/oxicrab-tools-api", "crates/oxicrab-tools-google", "crates/oxicrab-tools-browser", "crates/oxicrab-tools-obsidian", "."]
+members = ["crates/oxicrab-core", "crates/oxicrab-memory", "crates/oxicrab-providers", "crates/oxicrab-channels", "crates/oxicrab-gateway", "crates/oxicrab-router", "crates/oxicrab-safety", "crates/oxicrab-tools-rss", "crates/oxicrab-tools-web", "crates/oxicrab-tools-system", "crates/oxicrab-tools-api", "crates/oxicrab-tools-google", "crates/oxicrab-tools-browser", "crates/oxicrab-tools-obsidian", "crates/oxicrab-transcription", "."]
 resolver = "2"
 
 [workspace.dependencies]
@@ -37,7 +37,7 @@ path = "src/main.rs"
 [features]
 default = ["channel-telegram", "channel-discord", "channel-slack", "channel-whatsapp", "channel-twilio", "keyring-store", "local-whisper", "embeddings", "tool-rss"]
 keyring-store = ["dep:keyring"]
-local-whisper = ["dep:whisper-rs"]
+local-whisper = ["oxicrab-transcription/local-whisper"]
 embeddings = ["dep:fastembed", "oxicrab-memory/embeddings"]
 channel-telegram = ["oxicrab-channels/channel-telegram"]
 channel-discord = ["oxicrab-channels/channel-discord"]
@@ -61,6 +61,7 @@ oxicrab-providers = { path = "crates/oxicrab-providers" }
 oxicrab-router = { path = "crates/oxicrab-router" }
 oxicrab-safety = { path = "crates/oxicrab-safety" }
 oxicrab-tools-rss = { path = "crates/oxicrab-tools-rss", optional = true }
+oxicrab-transcription = { path = "crates/oxicrab-transcription" }
 aho-corasick = "1.1"
 anyhow = "1.0"
 async-trait = "0.1"
@@ -120,7 +121,6 @@ rand_distr = { version = "0.4", optional = true }
 qr2term = { version = "0.3", optional = true }
 qrcode = { version = "0.14", optional = true }
 which = "8.0"
-whisper-rs = { version = "0.16", features = ["tracing_backend"], optional = true }
 
 # Security: Force minimum versions of transitive dependencies to resolve vulnerabilities
 # - CVE-2022-23639 / GHSA-qc84-gqf4-9926: crossbeam-utils AtomicCell unsoundness (fixed in >= 0.8.7)
