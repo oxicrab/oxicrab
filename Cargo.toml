@@ -48,6 +48,7 @@ channel-twilio = ["dep:sha1"]
 tool-rss = ["dep:feed-rs", "dep:nalgebra", "dep:rand_distr", "dep:rand"]
 
 [dependencies]
+oxicrab-core = { path = "crates/oxicrab-core" }
 aho-corasick = "1.1"
 anyhow = "1.0"
 async-trait = "0.1"

@@ -3436,6 +3436,7 @@ dependencies = [
  "nalgebra",
  "oauth2",
  "open",
+ "oxicrab-core",
  "proptest",
  "qr2term",
  "qrcode",
