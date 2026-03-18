@@ -409,8 +409,20 @@ impl AgentLoop {
                                 } else if let Err(e) =
                                     memory.append_to_section("Facts", &filtered)
                                 {
+                                    metrics::counter!(
+                                        "memory_remember_write_total",
+                                        "path" => "llm",
+                                        "outcome" => "error"
+                                    )
+                                    .increment(1);
                                     warn!("failed to save facts to daily note: {}", e);
                                 } else {
+                                    metrics::counter!(
+                                        "memory_remember_write_total",
+                                        "path" => "llm",
+                                        "outcome" => "written"
+                                    )
+                                    .increment(1);
                                     debug!(
                                         "saved extracted facts to daily note ({} bytes, {} filtered)",
                                         filtered.len(),
@@ -706,6 +718,12 @@ impl AgentLoop {
         // Quality gate: reject low-signal content
         let response = match check_quality(content) {
             QualityVerdict::Reject(reason) => {
+                metrics::counter!(
+                    "memory_remember_write_total",
+                    "path" => "fast",
+                    "outcome" => "rejected"
+                )
+                .increment(1);
                 info!("remember fast path: rejected ({:?})", reason);
                 "That doesn't seem like something worth remembering. Try being more specific."
                     .to_string()
@@ -713,10 +731,22 @@ impl AgentLoop {
             QualityVerdict::Reframed(reframed) => {
                 let recent = self.memory.get_recent_daily_entries(50).unwrap_or_default();
                 if is_duplicate_of_entries(&reframed, &recent) {
+                    metrics::counter!(
+                        "memory_remember_write_total",
+                        "path" => "fast",
+                        "outcome" => "duplicate"
+                    )
+                    .increment(1);
                     info!("remember fast path: duplicate detected, skipping write");
                     "I already have that noted.".to_string()
                 } else {
                     self.memory.append_today(&reframed)?;
+                    metrics::counter!(
+                        "memory_remember_write_total",
+                        "path" => "fast",
+                        "outcome" => "written_reframed"
+                    )
+                    .increment(1);
                     info!(
                         "remember fast path: wrote {} chars to daily notes (reframed)",
                         reframed.len()
@@ -727,10 +757,22 @@ impl AgentLoop {
             QualityVerdict::Pass => {
                 let recent = self.memory.get_recent_daily_entries(50).unwrap_or_default();
                 if is_duplicate_of_entries(content, &recent) {
+                    metrics::counter!(
+                        "memory_remember_write_total",
+                        "path" => "fast",
+                        "outcome" => "duplicate"
+                    )
+                    .increment(1);
                     info!("remember fast path: duplicate detected, skipping write");
                     "I already have that noted.".to_string()
                 } else {
                     self.memory.append_today(content)?;
+                    metrics::counter!(
+                        "memory_remember_write_total",
+                        "path" => "fast",
+                        "outcome" => "written"
+                    )
+                    .increment(1);
                     info!(
                         "remember fast path: wrote {} chars to daily notes",
                         content.len()

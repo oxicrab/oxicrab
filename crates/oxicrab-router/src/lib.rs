@@ -5,7 +5,7 @@ pub mod semantic;
 
 use std::collections::HashMap;
 
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
 use context::RouterContext;
 use oxicrab_core::dispatch::{ActionDispatch, ActionSource};
@@ -186,7 +186,19 @@ impl MessageRouter {
         action: Option<&ActionDispatch>,
         semantic_allowed_tools: Option<Vec<String>>,
     ) -> RoutingDecision {
+        trace!(
+            message_len = message.len(),
+            has_action = action.is_some(),
+            active_tool = ctx.active_tool().unwrap_or(""),
+            directive_count = ctx.directives().len(),
+            semantic_candidate_count = semantic_allowed_tools.as_ref().map_or(0, Vec::len),
+            "router: begin route evaluation"
+        );
         // 1. Explicit action dispatch (button / webhook / cron).
+        trace!(
+            matched = action.is_some(),
+            "router: priority=1 explicit action dispatch"
+        );
         if let Some(dispatch) = action {
             let source = action_source_to_dispatch_source(&dispatch.source);
             let source_label = dispatch.source.label();
@@ -204,6 +216,10 @@ impl MessageRouter {
         }
 
         // 2. Empty message.
+        trace!(
+            is_empty = message.is_empty(),
+            "router: priority=2 empty message"
+        );
         if message.is_empty() {
             debug!("router: decision=FullLLM");
             metrics::record_full_llm();
@@ -215,9 +231,15 @@ impl MessageRouter {
         let now = now_ms();
 
         // 3. ActionDirective match (skip expired).
+        trace!("router: priority=3 action directive match");
         if let Some(i) = ctx.match_directive_index(&normalized, now)
             && let Some(directive) = ctx.directives().get(i)
         {
+            trace!(
+                directive_index = i,
+                tool = directive.tool.as_str(),
+                "router: matched live action directive"
+            );
             info!(
                 "router: decision=DirectDispatch tool={} source=ActionDirective",
                 directive.tool
@@ -232,9 +254,19 @@ impl MessageRouter {
         }
 
         // 4. Prefix command → ConfigRule.
+        trace!(
+            starts_with_prefix = message.trim().starts_with(&self.prefix),
+            prefix = self.prefix.as_str(),
+            "router: priority=4 prefix command"
+        );
         if message.trim().starts_with(&self.prefix) {
             let (cmd, args) = rules::parse_prefixed_command(message, &self.prefix);
             let cmd_lower = cmd.to_lowercase();
+            trace!(
+                command = cmd_lower.as_str(),
+                argc = args.len(),
+                "router: parsed prefixed command"
+            );
             if cmd_lower == "router_replay" || cmd_lower == "route_replay" {
                 let index = args.first().and_then(|raw| raw.parse::<i64>().ok());
                 info!("router: decision=DirectDispatch tool=_router_replay source=Command");
@@ -249,6 +281,11 @@ impl MessageRouter {
             if !cmd_lower.is_empty()
                 && let Some(rule) = self.config_rules.get(&cmd_lower)
             {
+                trace!(
+                    command = cmd_lower.as_str(),
+                    tool = rule.tool.as_str(),
+                    "router: matched config rule"
+                );
                 let params = rule.substitute(&args);
                 info!(
                     "router: decision=DirectDispatch tool={} source=ConfigRule",
@@ -266,6 +303,11 @@ impl MessageRouter {
 
         // 5. StaticRule match.
         let active_tool = ctx.active_tool();
+        trace!(
+            has_exact_candidate = self.static_literal_to_index.contains_key(&normalized),
+            pattern_rule_count = self.static_pattern_indices.len(),
+            "router: priority=5 static rule match"
+        );
         if let Some(idx) = self.static_literal_to_index.get(&normalized)
             && self
                 .static_rules
@@ -273,6 +315,11 @@ impl MessageRouter {
                 .is_some_and(|rule| rule.matches_normalized(&normalized, active_tool))
             && let Some(rule) = self.static_rules.get(*idx)
         {
+            trace!(
+                rule_index = *idx,
+                tool = rule.tool.as_str(),
+                "router: matched exact static rule"
+            );
             info!(
                 "router: decision=DirectDispatch tool={} source=StaticRule",
                 rule.tool
@@ -290,6 +337,11 @@ impl MessageRouter {
                 continue;
             };
             if rule.matches_normalized(&normalized, active_tool) {
+                trace!(
+                    rule_index = *idx,
+                    tool = rule.tool.as_str(),
+                    "router: matched pattern static rule"
+                );
                 info!(
                     "router: decision=DirectDispatch tool={} source=StaticRule",
                     rule.tool
@@ -305,9 +357,14 @@ impl MessageRouter {
         }
 
         // 6. Remember fast path.
+        trace!(
+            enabled = self.remember_checker.is_some(),
+            "router: priority=6 remember fast path"
+        );
         if let Some(ref checker) = self.remember_checker
             && checker(message)
         {
+            trace!("router: remember fast path matched");
             info!("router: decision=DirectDispatch tool=_remember source=RememberFastPath");
             metrics::record_direct_dispatch();
             return RoutingDecision::DirectDispatch {
@@ -323,8 +380,10 @@ impl MessageRouter {
         // (non-expired) directives indicates an ongoing interaction. Stale context
         // (no live directives, or updated_at too old) falls through to FullLLM
         // to avoid biasing the LLM away from the tools the user actually needs.
+        trace!("router: priority=7 active tool context");
         match ctx.state(now) {
             context::RouterState::Focused { tool } => {
+                trace!(tool = tool, "router: active tool context is focused");
                 let context_hint = build_context_hint(ctx);
                 info!("router: decision=GuidedLLM tool_subset=[{tool}]");
                 metrics::record_guided_llm();
@@ -339,6 +398,10 @@ impl MessageRouter {
             }
             context::RouterState::Idle => {
                 if let Some(tool) = ctx.active_tool() {
+                    trace!(
+                        tool = tool,
+                        "router: active tool present but context is stale"
+                    );
                     // Stale context — all directives expired. Fall through to FullLLM.
                     debug!(
                         "router: active_tool={tool} but no live directives, falling through to FullLLM"
@@ -348,10 +411,18 @@ impl MessageRouter {
         }
 
         // 8. Full LLM.
+        trace!(
+            semantic_candidate_count = semantic_allowed_tools.as_ref().map_or(0, Vec::len),
+            "router: priority=8 semantic filter / full llm"
+        );
         if let Some(mut tools) = semantic_allowed_tools {
             tools.sort();
             tools.dedup();
             if tools.len() >= 2 {
+                trace!(
+                    tool_count = tools.len(),
+                    "router: semantic filter selected enough tools"
+                );
                 info!(
                     "router: decision=SemanticFilter tool_subset=[{}]",
                     tools.join(",")

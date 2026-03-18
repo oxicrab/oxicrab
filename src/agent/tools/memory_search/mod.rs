@@ -15,6 +15,30 @@ impl MemorySearchTool {
     pub fn new(memory: Arc<MemoryStore>) -> Self {
         Self { memory }
     }
+
+    fn record_retrieval_metrics(hits: &[oxicrab_memory::memory_db::MemoryHit]) {
+        let mut fast_hits = 0_u64;
+        let mut llm_hits = 0_u64;
+
+        for hit in hits {
+            if hit.source_key.starts_with("daily:") {
+                if hit.source_key.matches(':').count() >= 2 && hit.source_key.ends_with(":Facts") {
+                    llm_hits += 1;
+                } else {
+                    fast_hits += 1;
+                }
+            }
+        }
+
+        if fast_hits > 0 {
+            metrics::counter!("memory_remember_retrieved_total", "path" => "fast")
+                .increment(fast_hits);
+        }
+        if llm_hits > 0 {
+            metrics::counter!("memory_remember_retrieved_total", "path" => "llm")
+                .increment(llm_hits);
+        }
+    }
 }
 
 impl MemorySearchTool {
@@ -109,6 +133,7 @@ impl Tool for MemorySearchTool {
         if self.memory.has_embeddings() {
             match self.memory.hybrid_search(query, 8, None) {
                 Ok(hits) if !hits.is_empty() => {
+                    Self::record_retrieval_metrics(&hits);
                     let chunks: Vec<String> = hits
                         .iter()
                         .map(|h| format!("**{}**: {}", h.source_key, h.content))
@@ -130,6 +155,36 @@ impl Tool for MemorySearchTool {
                         "No relevant memories found for this query.".to_string(),
                     ))
                 } else {
+                    let details = self.memory.db().get_last_search_details()?;
+                    if let Some(details) = details {
+                        let mut fast_hits = 0_u64;
+                        let mut llm_hits = 0_u64;
+                        for source_key in details.source_keys {
+                            if source_key.starts_with("daily:") {
+                                if source_key.matches(':').count() >= 2
+                                    && source_key.ends_with(":Facts")
+                                {
+                                    llm_hits += 1;
+                                } else {
+                                    fast_hits += 1;
+                                }
+                            }
+                        }
+                        if fast_hits > 0 {
+                            metrics::counter!(
+                                "memory_remember_retrieved_total",
+                                "path" => "fast"
+                            )
+                            .increment(fast_hits);
+                        }
+                        if llm_hits > 0 {
+                            metrics::counter!(
+                                "memory_remember_retrieved_total",
+                                "path" => "llm"
+                            )
+                            .increment(llm_hits);
+                        }
+                    }
                     Ok(ToolResult::new(context))
                 }
             }
