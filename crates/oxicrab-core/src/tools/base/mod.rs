@@ -5,6 +5,42 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+/// Shorthand for declaring `ActionDescriptor` vecs.
+///
+/// Usage: `actions![list: ro, create, delete]` produces a `Vec<ActionDescriptor>`.
+/// Append `: ro` to mark an action as read-only.
+#[macro_export]
+macro_rules! actions {
+    (@one $name:ident : ro) => {
+        $crate::tools::base::ActionDescriptor { name: stringify!($name), read_only: true }
+    };
+    (@one $name:ident) => {
+        $crate::tools::base::ActionDescriptor { name: stringify!($name), read_only: false }
+    };
+    ($($name:ident $(: $ro:ident)?),+ $(,)?) => {
+        vec![$(actions!(@one $name $(: $ro)?)),+]
+    };
+}
+
+/// Extract a required string parameter from a JSON `Value`, returning a
+/// `ToolResult::error` if the key is missing or not a string.
+///
+/// Usage: `let action = require_param!(params, "action");`
+#[macro_export]
+macro_rules! require_param {
+    ($params:expr, $key:literal) => {
+        match $params[$key].as_str() {
+            Some(v) => v,
+            None => {
+                return Ok($crate::tools::base::ToolResult::error(format!(
+                    "Missing '{}' parameter",
+                    $key
+                )));
+            }
+        }
+    };
+}
+
 /// Usage example for a tool, appended to schema description for LLM accuracy.
 #[derive(Debug, Clone)]
 pub struct ToolExample {

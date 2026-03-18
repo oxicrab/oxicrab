@@ -59,11 +59,20 @@ pub async fn register_all_tools(
     let stash = Arc::new(crate::agent::tools::stash::ToolOutputStash::new());
     let mut tools = ToolRegistry::with_stash(stash.clone());
 
-    register_filesystem(&mut tools, ctx);
-    register_shell(&mut tools, ctx)?;
+    #[cfg(feature = "tools-system")]
+    {
+        register_filesystem_ext(&mut tools, ctx);
+        register_shell_ext(&mut tools, ctx)?;
+        register_tmux_ext(&mut tools);
+    }
+    #[cfg(not(feature = "tools-system"))]
+    {
+        register_filesystem(&mut tools, ctx);
+        register_shell(&mut tools, ctx)?;
+        register_tmux(&mut tools);
+    }
     register_web(&mut tools, ctx);
     let subagents = register_subagents(&mut tools, ctx);
-    register_tmux(&mut tools);
     #[cfg(feature = "browser")]
     register_browser(&mut tools, ctx);
     register_image_gen(&mut tools, ctx);
@@ -138,6 +147,47 @@ pub async fn register_all_tools(
     Ok((tools, subagents, mcp_manager, activated))
 }
 
+#[cfg(feature = "tools-system")]
+fn register_filesystem_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
+    let allowed_roots = if ctx.restrict_to_workspace {
+        let mut roots = vec![ctx.workspace.clone()];
+        if let Ok(oxicrab_home) = crate::utils::get_oxicrab_home() {
+            roots.push(oxicrab_home);
+        }
+        Some(roots)
+    } else {
+        None
+    };
+
+    let backup_dir = crate::utils::get_oxicrab_home()
+        .ok()
+        .map(|h| h.join("backups"));
+
+    for tool in
+        oxicrab_tools_system::create_filesystem_tools(&ctx.workspace, allowed_roots, backup_dir)
+    {
+        registry.register(tool);
+    }
+}
+
+#[cfg(feature = "tools-system")]
+fn register_shell_ext(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Result<()> {
+    registry.register(oxicrab_tools_system::create_exec_tool(
+        ctx.exec_timeout,
+        Some(ctx.workspace.clone()),
+        ctx.restrict_to_workspace,
+        ctx.allowed_commands.clone(),
+        ctx.sandbox_config.clone(),
+    )?);
+    Ok(())
+}
+
+#[cfg(feature = "tools-system")]
+fn register_tmux_ext(registry: &mut ToolRegistry) {
+    registry.register(oxicrab_tools_system::create_tmux_tool());
+}
+
+#[cfg(not(feature = "tools-system"))]
 fn register_filesystem(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     use crate::agent::tools::filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool};
 
@@ -178,6 +228,7 @@ fn register_filesystem(registry: &mut ToolRegistry, ctx: &ToolBuildContext) {
     registry.register(Arc::new(ListDirTool::new(allowed_roots, workspace)));
 }
 
+#[cfg(not(feature = "tools-system"))]
 fn register_shell(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Result<()> {
     use crate::agent::tools::shell::ExecTool;
 
@@ -212,6 +263,7 @@ fn register_subagents(registry: &mut ToolRegistry, ctx: &ToolBuildContext) -> Ar
     subagents
 }
 
+#[cfg(not(feature = "tools-system"))]
 fn register_tmux(registry: &mut ToolRegistry) {
     use crate::agent::tools::tmux::TmuxTool;
 

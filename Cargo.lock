@@ -3441,6 +3441,7 @@ dependencies = [
  "oxicrab-gateway",
  "oxicrab-memory",
  "oxicrab-providers",
+ "oxicrab-tools-system",
  "oxicrab-tools-web",
  "proptest",
  "qr2term",
@@ -3602,6 +3603,27 @@ dependencies = [
  "urlencoding",
  "uuid",
  "wiremock",
+]
+
+[[package]]
+name = "oxicrab-tools-system"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "brush-parser",
+ "cap-std",
+ "chrono",
+ "dirs",
+ "landlock",
+ "libc",
+ "oxicrab-core",
+ "regex",
+ "serde_json",
+ "shlex",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
