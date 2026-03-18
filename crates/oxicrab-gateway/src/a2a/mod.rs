@@ -12,8 +12,8 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, warn};
 use uuid::Uuid;
 
-use crate::bus::{InboundMessage, OutboundMessage};
-use crate::config::A2aConfig;
+use oxicrab_core::bus::{InboundMessage, OutboundMessage};
+use oxicrab_core::config::schema::A2aConfig;
 
 /// Timeout for A2A task processing (same as chat handler).
 const A2A_TIMEOUT_SECS: u64 = 120;

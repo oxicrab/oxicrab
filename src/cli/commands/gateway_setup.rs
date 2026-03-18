@@ -130,7 +130,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
                 a2a_config,
                 api_key,
                 &config.gateway.rate_limit,
-                leak_detector.clone(),
+                leak_detector.clone() as Arc<dyn oxicrab_core::safety::LeakRedactor>,
                 ready.clone(),
                 status_lock.clone(),
                 false, // not echo mode
@@ -171,7 +171,11 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     .await?;
 
     // Build status page state now that agent (and its tool registry) is ready
-    let tool_snap = crate::gateway::status::ToolSnapshot::from_registry(&agent.tool_registry());
+    let registry = agent.tool_registry();
+    let tool_snap = crate::gateway::status::ToolSnapshot::from_tools(
+        registry.iter(),
+        registry.deferred_count(),
+    );
     let config_snap = crate::gateway::status::StatusConfigSnapshot::from_config(&config);
     if status_lock
         .set(crate::gateway::status::StatusState {
@@ -263,7 +267,7 @@ pub(super) async fn gateway_echo() -> Result<()> {
             None, // A2A not available in echo mode
             api_key,
             &config.gateway.rate_limit,
-            leak_detector,
+            leak_detector as Arc<dyn oxicrab_core::safety::LeakRedactor>,
             ready,
             Arc::new(std::sync::OnceLock::new()),
             true, // echo mode

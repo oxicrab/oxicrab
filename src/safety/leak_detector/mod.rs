@@ -470,5 +470,11 @@ impl Default for LeakDetector {
     }
 }
 
+impl oxicrab_core::safety::LeakRedactor for LeakDetector {
+    fn redact(&self, text: &str) -> String {
+        self.redact(text)
+    }
+}
+
 #[cfg(test)]
 mod tests;

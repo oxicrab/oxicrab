@@ -3438,6 +3438,7 @@ dependencies = [
  "open",
  "oxicrab-channels",
  "oxicrab-core",
+ "oxicrab-gateway",
  "oxicrab-memory",
  "oxicrab-providers",
  "proptest",
@@ -3533,6 +3534,29 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "oxicrab-gateway"
+version = "0.15.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "chrono",
+ "governor",
+ "hex",
+ "hmac",
+ "oxicrab-core",
+ "oxicrab-memory",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tokio",
+ "tower",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -7,9 +7,9 @@ use axum::extract::State;
 use axum::response::IntoResponse;
 use serde::Serialize;
 
-use crate::agent::memory::memory_db::MemoryDB;
-use crate::agent::tools::ToolRegistry;
-use crate::config::Config;
+use oxicrab_core::config::schema::Config;
+use oxicrab_core::tools::base::Tool;
+use oxicrab_memory::MemoryDB;
 
 use super::HttpApiState;
 
@@ -108,7 +108,7 @@ pub struct StatusState {
 impl StatusConfigSnapshot {
     /// Build from Config, extracting only display-safe fields.
     pub fn from_config(config: &Config) -> Self {
-        use crate::config::TaskRouting;
+        use oxicrab_core::config::schema::TaskRouting;
 
         let routing = &config.agents.defaults.model_routing;
 
@@ -180,12 +180,18 @@ impl StatusConfigSnapshot {
 }
 
 impl ToolSnapshot {
-    /// Build from a `ToolRegistry`, grouping tool names by category.
-    pub fn from_registry(registry: &ToolRegistry) -> Self {
+    /// Build from an iterator of (name, tool) pairs with a separate deferred count.
+    ///
+    /// This is the generic constructor; callers provide the iteration and deferred
+    /// count from their own registry type.
+    pub fn from_tools<'a>(
+        tools: impl Iterator<Item = (&'a str, &'a Arc<dyn Tool>)>,
+        deferred: usize,
+    ) -> Self {
         let mut by_category: HashMap<String, Vec<String>> = HashMap::new();
         let mut total = 0;
 
-        for (name, tool) in registry.iter() {
+        for (name, tool) in tools {
             total += 1;
             let category = format!("{:?}", tool.capabilities().category);
             by_category
@@ -200,7 +206,7 @@ impl ToolSnapshot {
 
         Self {
             total,
-            deferred: registry.deferred_count(),
+            deferred,
             by_category,
         }
     }
@@ -217,7 +223,7 @@ pub async fn status_json_handler(State(state): State<HttpApiState>) -> impl Into
         return Json(serde_json::json!({
             "status": "unavailable",
             "mode": mode,
-            "version": crate::VERSION,
+            "version": super::VERSION,
         }));
     };
 
@@ -243,7 +249,7 @@ pub async fn status_json_handler(State(state): State<HttpApiState>) -> impl Into
             return Json(serde_json::json!({
                 "status": "error",
                 "error": "db query failed",
-                "version": crate::VERSION,
+                "version": super::VERSION,
             }));
         }
     };
@@ -292,10 +298,10 @@ pub async fn status_json_handler(State(state): State<HttpApiState>) -> impl Into
     });
 
     Json(serde_json::json!({
-        "version": crate::VERSION,
+        "version": super::VERSION,
         "uptime_seconds": uptime,
         "models": status.config_snapshot.models,
-        "tools": status.tool_snapshot,
+        "tools": *status.tool_snapshot,
         "channels": status.config_snapshot.channels,
         "tokens": {
             "today": {
@@ -330,9 +336,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_tool_snapshot_empty_registry() {
-        let registry = ToolRegistry::new();
-        let snap = ToolSnapshot::from_registry(&registry);
+    fn test_tool_snapshot_empty() {
+        let snap = ToolSnapshot::from_tools(std::iter::empty(), 0);
         assert_eq!(snap.total, 0);
         assert_eq!(snap.deferred, 0);
         assert!(snap.by_category.is_empty());
@@ -340,9 +345,9 @@ mod tests {
 
     #[test]
     fn test_tool_snapshot_groups_by_category() {
-        use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
-        use crate::agent::tools::{Tool, ToolResult};
         use async_trait::async_trait;
+        use oxicrab_core::tools::base::ToolResult;
+        use oxicrab_core::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
         use serde_json::Value;
 
         struct FakeTool {
@@ -372,21 +377,23 @@ mod tests {
             }
         }
 
-        let mut registry = ToolRegistry::new();
-        registry.register(Arc::new(FakeTool {
-            tool_name: "shell",
-            cat: ToolCategory::Core,
-        }));
-        registry.register(Arc::new(FakeTool {
-            tool_name: "read_file",
-            cat: ToolCategory::Core,
-        }));
-        registry.register(Arc::new(FakeTool {
-            tool_name: "web_search",
-            cat: ToolCategory::Web,
-        }));
+        let tools: Vec<Arc<dyn Tool>> = vec![
+            Arc::new(FakeTool {
+                tool_name: "shell",
+                cat: ToolCategory::Core,
+            }),
+            Arc::new(FakeTool {
+                tool_name: "read_file",
+                cat: ToolCategory::Core,
+            }),
+            Arc::new(FakeTool {
+                tool_name: "web_search",
+                cat: ToolCategory::Web,
+            }),
+        ];
 
-        let snap = ToolSnapshot::from_registry(&registry);
+        let pairs: Vec<(&str, &Arc<dyn Tool>)> = tools.iter().map(|t| (t.name(), t)).collect();
+        let snap = ToolSnapshot::from_tools(pairs.into_iter(), 0);
         assert_eq!(snap.total, 3);
         assert_eq!(snap.by_category["Core"], vec!["read_file", "shell"]);
         assert_eq!(snap.by_category["Web"], vec!["web_search"]);

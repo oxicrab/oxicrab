@@ -1,0 +1,28 @@
+[package]
+name = "oxicrab-gateway"
+version = "0.15.0"
+edition = "2024"
+authors = ["James Turnbull <james@ltl.so>"]
+description = "HTTP API and webhook handling for the oxicrab framework"
+license = "MIT"
+
+[dependencies]
+oxicrab-core = { path = "../oxicrab-core" }
+oxicrab-memory = { path = "../oxicrab-memory", default-features = false }
+anyhow = { workspace = true }
+axum = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+governor = "0.10"
+hex = "0.4"
+hmac = "0.12"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+subtle = "2.6"
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { version = "1.22", features = ["v4"] }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+tower = { version = "0.5", features = ["util"] }

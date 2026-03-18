@@ -6,7 +6,7 @@ fn make_state() -> HttpApiState {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -33,7 +33,7 @@ async fn test_health_endpoint_returns_json() {
     let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["status"], "ready");
-    assert_eq!(json["version"], crate::VERSION);
+    assert_eq!(json["version"], VERSION);
 }
 
 #[tokio::test]
@@ -159,7 +159,7 @@ fn make_state_with_webhooks(webhooks: HashMap<String, WebhookConfig>) -> HttpApi
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(webhooks),
         outbound_tx: None,
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -384,7 +384,7 @@ async fn test_webhook_direct_delivery_to_targets() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(webhooks),
         outbound_tx: Some(Arc::new(outbound_tx)),
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -448,7 +448,7 @@ async fn test_webhook_agent_turn_routes_through_agent() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(webhooks),
         outbound_tx: Some(Arc::new(outbound_tx)),
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -507,7 +507,7 @@ async fn test_chat_handler_sends_inbound_and_returns_response() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -556,7 +556,7 @@ async fn test_chat_handler_with_session_id() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -600,7 +600,7 @@ async fn test_chat_handler_creates_pending_and_publishes_inbound() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -636,7 +636,7 @@ async fn test_deliver_to_targets_no_outbound_tx() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -675,7 +675,7 @@ async fn test_webhook_template_with_json_fields() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(webhooks),
         outbound_tx: Some(Arc::new(outbound_tx)),
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -720,7 +720,7 @@ async fn test_chat_handler_rejects_oversized_message() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -754,7 +754,7 @@ async fn test_chat_handler_inbound_send_fails() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -807,7 +807,7 @@ fn test_gateway_response_format_deserialize_absent() {
 
 #[test]
 fn test_response_format_json_roundtrip_json_object() {
-    use crate::providers::base::ResponseFormat;
+    use oxicrab_core::providers::base::ResponseFormat;
     let rf = ResponseFormat::JsonObject;
     let json = response_format_to_json(&rf);
     assert_eq!(json, serde_json::Value::String("json".to_string()));
@@ -820,7 +820,7 @@ fn test_response_format_json_roundtrip_json_object() {
 
 #[test]
 fn test_response_format_json_roundtrip_json_schema() {
-    use crate::providers::base::ResponseFormat;
+    use oxicrab_core::providers::base::ResponseFormat;
     let rf = ResponseFormat::JsonSchema {
         name: "my_schema".to_string(),
         schema: serde_json::json!({"type": "object", "properties": {"x": {"type": "number"}}}),
@@ -848,7 +848,7 @@ fn test_response_format_from_json_invalid() {
 
 #[test]
 fn test_gateway_response_format_into_response_format() {
-    use crate::providers::base::ResponseFormat;
+    use oxicrab_core::providers::base::ResponseFormat;
 
     // "json" -> JsonObject
     let grf = GatewayResponseFormat::Simple("json".to_string());
@@ -889,7 +889,7 @@ async fn test_chat_handler_with_response_format_metadata() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -911,7 +911,10 @@ async fn test_chat_handler_with_response_format_metadata() {
     let msg = inbound_rx.recv().await.unwrap();
     assert_eq!(msg.content, "list items");
     // Verify response_format was serialized into metadata
-    let rf_meta = msg.metadata.get(crate::bus::meta::RESPONSE_FORMAT).unwrap();
+    let rf_meta = msg
+        .metadata
+        .get(oxicrab_core::bus::meta::RESPONSE_FORMAT)
+        .unwrap();
     assert_eq!(rf_meta, &serde_json::Value::String("json".to_string()));
 
     // Complete the request to avoid timeout
@@ -935,7 +938,7 @@ async fn test_chat_handler_without_response_format_no_metadata() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -953,7 +956,10 @@ async fn test_chat_handler_without_response_format_no_metadata() {
     let handle = tokio::spawn(async move { app.oneshot(req).await.unwrap() });
 
     let msg = inbound_rx.recv().await.unwrap();
-    assert!(!msg.metadata.contains_key(crate::bus::meta::RESPONSE_FORMAT));
+    assert!(
+        !msg.metadata
+            .contains_key(oxicrab_core::bus::meta::RESPONSE_FORMAT)
+    );
 
     let request_id = msg.chat_id.clone();
     let tx = pending.lock().unwrap().remove(&request_id).unwrap();
@@ -975,7 +981,7 @@ async fn test_chat_handler_rejects_oversized_schema() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -1031,7 +1037,7 @@ async fn test_chat_handler_rejects_oversized_schema_name() {
         pending: Arc::new(Mutex::new(HashMap::new())),
         webhooks: Arc::new(HashMap::new()),
         outbound_tx: None,
-        leak_detector: Arc::new(crate::safety::leak_detector::LeakDetector::new()),
+        leak_detector: Arc::new(NoopRedactor),
         ready: Arc::new(AtomicBool::new(true)),
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
@@ -1240,37 +1246,36 @@ async fn test_status_json_with_populated_state() {
     use axum::http::Request;
     use tower::ServiceExt;
 
-    let db =
-        Arc::new(crate::agent::memory::memory_db::MemoryDB::new(":memory:").expect("in-memory DB"));
-    let status_state = crate::gateway::status::StatusState {
+    let db = Arc::new(oxicrab_memory::MemoryDB::new(":memory:").expect("in-memory DB"));
+    let status_state = status::StatusState {
         start_time: std::time::Instant::now(),
-        config_snapshot: Arc::new(crate::gateway::status::StatusConfigSnapshot {
-            models: crate::gateway::status::ModelsSnapshot {
+        config_snapshot: Arc::new(status::StatusConfigSnapshot {
+            models: status::ModelsSnapshot {
                 default: "test/model".to_string(),
                 tasks: HashMap::new(),
                 fallbacks: vec![],
                 chat_routing: None,
             },
-            channels: crate::gateway::status::ChannelsSnapshot {
+            channels: status::ChannelsSnapshot {
                 telegram: true,
                 discord: false,
                 slack: false,
                 whatsapp: false,
                 twilio: false,
             },
-            safety: crate::gateway::status::SafetySnapshot {
-                prompt_guard: crate::gateway::status::PromptGuardSnapshot {
+            safety: status::SafetySnapshot {
+                prompt_guard: status::PromptGuardSnapshot {
                     enabled: true,
                     action: "Block".to_string(),
                 },
                 exfiltration_guard: false,
-                sandbox: crate::gateway::status::SandboxSnapshot {
+                sandbox: status::SandboxSnapshot {
                     enabled: true,
                     block_network: true,
                 },
             },
-            gateway: crate::gateway::status::GatewaySnapshot {
-                rate_limit: crate::gateway::status::RateLimitSnapshot {
+            gateway: status::GatewaySnapshot {
+                rate_limit: status::RateLimitSnapshot {
                     enabled: false,
                     rps: 10,
                     burst: 30,
@@ -1280,7 +1285,7 @@ async fn test_status_json_with_populated_state() {
             },
             embeddings_enabled: false,
         }),
-        tool_snapshot: Arc::new(crate::gateway::status::ToolSnapshot {
+        tool_snapshot: Arc::new(status::ToolSnapshot {
             total: 2,
             deferred: 0,
             by_category: {
@@ -1311,7 +1316,7 @@ async fn test_status_json_with_populated_state() {
     let body = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(json["version"], crate::VERSION);
+    assert_eq!(json["version"], VERSION);
     assert!(json["uptime_seconds"].is_number());
     assert_eq!(json["models"]["default"], "test/model");
     assert_eq!(json["channels"]["telegram"], true);
