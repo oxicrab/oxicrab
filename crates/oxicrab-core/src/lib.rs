@@ -4,3 +4,4 @@
 //! the oxicrab workspace: error types, time utilities, and bus events.
 
 pub mod errors;
+pub mod time;
