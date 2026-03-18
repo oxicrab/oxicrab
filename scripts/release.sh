@@ -59,10 +59,16 @@ TAG="v$NEW"
 # Check tag doesn't already exist
 git rev-parse "$TAG" &>/dev/null && die "tag $TAG already exists"
 
-# ── Update Cargo.toml ───────────────────────────────────────────────
+# ── Update all Cargo.toml versions (workspace) ─────────────────────
 sed -i.bak "s/^version = \"$CURRENT\"/version = \"$NEW\"/" "$CARGO_TOML"
 rm -f "${CARGO_TOML}.bak"
 echo "updated $CARGO_TOML"
+
+for crate_toml in crates/*/Cargo.toml; do
+  sed -i.bak "s/^version = \"$CURRENT\"/version = \"$NEW\"/" "$crate_toml"
+  rm -f "${crate_toml}.bak"
+  echo "updated $crate_toml"
+done
 
 # ── Update Cargo.lock ────────────────────────────────────────────────
 cargo check --quiet 2>/dev/null || cargo check
@@ -84,7 +90,7 @@ DEBEOF
 echo "updated $DEB_CHANGELOG"
 
 # ── Commit and tag ───────────────────────────────────────────────────
-git add Cargo.toml Cargo.lock CHANGELOG.md "$DEB_CHANGELOG"
+git add Cargo.toml Cargo.lock CHANGELOG.md "$DEB_CHANGELOG" crates/*/Cargo.toml
 git commit -m "chore(release): $NEW"
 git tag -a "$TAG" -m "Release $NEW"
 echo ""
