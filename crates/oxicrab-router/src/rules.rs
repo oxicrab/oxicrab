@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 
-pub use crate::agent::tools::base::routing_types::{DirectiveTrigger, StaticRule};
+pub use oxicrab_core::tools::base::routing_types::{DirectiveTrigger, StaticRule};
 use serde::{Deserialize, Serialize};
 
 static UNMATCHED_PLACEHOLDER_RE: LazyLock<regex::Regex> =

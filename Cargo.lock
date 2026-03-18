@@ -3438,6 +3438,7 @@ dependencies = [
  "oxicrab-gateway",
  "oxicrab-memory",
  "oxicrab-providers",
+ "oxicrab-router",
  "oxicrab-tools-api",
  "oxicrab-tools-browser",
  "oxicrab-tools-google",
@@ -3605,6 +3606,18 @@ dependencies = [
  "urlencoding",
  "uuid",
  "wiremock",
+]
+
+[[package]]
+name = "oxicrab-router"
+version = "0.15.0"
+dependencies = [
+ "metrics",
+ "oxicrab-core",
+ "regex",
+ "serde",
+ "serde_json",
+ "tracing",
 ]
 
 [[package]]

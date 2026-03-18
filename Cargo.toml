@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/oxicrab-core", "crates/oxicrab-memory", "crates/oxicrab-providers", "crates/oxicrab-channels", "crates/oxicrab-gateway", "crates/oxicrab-tools-web", "crates/oxicrab-tools-system", "crates/oxicrab-tools-api", "crates/oxicrab-tools-google", "crates/oxicrab-tools-browser", "crates/oxicrab-tools-obsidian", "."]
+members = ["crates/oxicrab-core", "crates/oxicrab-memory", "crates/oxicrab-providers", "crates/oxicrab-channels", "crates/oxicrab-gateway", "crates/oxicrab-router", "crates/oxicrab-tools-web", "crates/oxicrab-tools-system", "crates/oxicrab-tools-api", "crates/oxicrab-tools-google", "crates/oxicrab-tools-browser", "crates/oxicrab-tools-obsidian", "."]
 resolver = "2"
 
 [workspace.dependencies]
@@ -58,6 +58,7 @@ oxicrab-channels = { path = "crates/oxicrab-channels", default-features = false 
 oxicrab-gateway = { path = "crates/oxicrab-gateway" }
 oxicrab-memory = { path = "crates/oxicrab-memory", default-features = false, features = ["rss"] }
 oxicrab-providers = { path = "crates/oxicrab-providers" }
+oxicrab-router = { path = "crates/oxicrab-router" }
 aho-corasick = "1.1"
 anyhow = "1.0"
 async-trait = "0.1"

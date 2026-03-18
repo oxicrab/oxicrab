@@ -387,10 +387,13 @@ impl AgentLoop {
         let semantic_top_k = router_config.semantic_top_k.max(1);
         let semantic_prefilter_k = router_config.semantic_prefilter_k.max(semantic_top_k);
         let semantic_threshold = router_config.semantic_threshold.clamp(-1.0, 1.0);
-        let router = std::sync::Arc::new(crate::router::MessageRouter::new(
+        let router = std::sync::Arc::new(crate::router::MessageRouter::with_remember_checker(
             tools.routing_rules().to_vec(),
             config_rules,
             router_config.prefix,
+            Some(Box::new(|msg: &str| {
+                crate::agent::memory::remember::extract_remember_content(msg).is_some()
+            })),
         ));
 
         let complexity_scorer = if let Some(ref r) = routing

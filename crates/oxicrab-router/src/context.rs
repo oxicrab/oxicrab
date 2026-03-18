@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub use crate::agent::tools::base::routing_types::DirectiveTrigger;
+pub use oxicrab_core::tools::base::routing_types::DirectiveTrigger;
 
 pub const MAX_DIRECTIVES: usize = 20;
 pub const DEFAULT_DIRECTIVE_TTL_MS: i64 = 300_000; // 5 minutes
@@ -308,7 +308,7 @@ impl ActionDirective {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::time::now_ms;
+    use oxicrab_core::time::now_ms;
 
     #[test]
     fn test_router_context_default() {

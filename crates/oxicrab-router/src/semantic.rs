@@ -1,4 +1,4 @@
-use crate::providers::base::ToolDefinition;
+use oxicrab_core::providers::base::ToolDefinition;
 
 #[derive(Debug, Clone)]
 pub struct SemanticSelection {
@@ -9,6 +9,7 @@ pub struct SemanticSelection {
 #[derive(Debug, Clone)]
 struct SemanticEntry {
     name: String,
+    #[allow(dead_code)]
     text: String,
     tokens: Vec<String>,
 }
@@ -23,8 +24,6 @@ pub struct SemanticToolIndex {
     prefilter_k: usize,
     threshold: f32,
     min_margin: f32,
-    #[cfg(feature = "embeddings")]
-    cached_doc_embeddings: std::sync::Mutex<Option<Vec<Vec<f32>>>>,
 }
 
 impl SemanticToolIndex {
@@ -52,17 +51,71 @@ impl SemanticToolIndex {
             prefilter_k: prefilter_k.max(1),
             threshold,
             min_margin: MIN_CONFIDENCE_MARGIN,
-            #[cfg(feature = "embeddings")]
-            cached_doc_embeddings: std::sync::Mutex::new(None),
         }
     }
 
-    pub fn select(
+    /// Lexical-only selection path. Returns tool candidates based on token overlap.
+    pub fn select(&self, query: &str) -> Option<SemanticSelection> {
+        let query_tokens = tokenize(query);
+        if query_tokens.is_empty() {
+            return None;
+        }
+
+        let mut lexical: Vec<(usize, f32)> = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(idx, entry)| {
+                let overlap = query_tokens
+                    .iter()
+                    .filter(|t| entry.tokens.iter().any(|et| et == *t))
+                    .count();
+                (idx, overlap as f32 / query_tokens.len().max(1) as f32)
+            })
+            .collect();
+        lexical.sort_by(|a, b| b.1.total_cmp(&a.1));
+        lexical.truncate(self.prefilter_k.min(lexical.len()));
+
+        let candidates: Vec<(String, f32)> = lexical
+            .into_iter()
+            .map(|(idx, score)| (self.entries[idx].name.clone(), (score * 2.0) - 1.0))
+            .collect();
+        if candidates.is_empty() {
+            return None;
+        }
+        crate::metrics::record_semantic_candidate_scores(
+            &candidates.iter().map(|(_, s)| *s).collect::<Vec<f32>>(),
+        );
+
+        let selected: Vec<(String, f32)> = candidates
+            .into_iter()
+            .filter(|(_, score)| *score >= self.threshold)
+            .take(self.top_k)
+            .collect();
+        if selected.len() >= 2 && (selected[0].1 - selected[1].1) < self.min_margin {
+            crate::metrics::record_semantic_low_confidence_fallback();
+            return None;
+        }
+        if selected.len() < 2 {
+            return None;
+        }
+        crate::metrics::record_semantic_scores(
+            &selected.iter().map(|(_, s)| *s).collect::<Vec<f32>>(),
+        );
+        Some(SemanticSelection {
+            tools: selected.iter().map(|(n, _)| n.clone()).collect(),
+            scores: selected.iter().map(|(_, s)| *s).collect(),
+        })
+    }
+
+    /// Selection with pre-computed embedding scores from an external embedder.
+    ///
+    /// Takes lexical prefilter candidates and their embedding-based scores,
+    /// fuses them (0.75 embedding + 0.25 lexical), and applies threshold/margin filters.
+    pub fn select_with_embeddings(
         &self,
         query: &str,
-        #[cfg(feature = "embeddings")] emb: Option<
-            &crate::agent::memory::embeddings::EmbeddingService,
-        >,
+        embed_scores: &[(usize, f32)],
     ) -> Option<SemanticSelection> {
         let query_tokens = tokenize(query);
         if query_tokens.is_empty() {
@@ -84,93 +137,76 @@ impl SemanticToolIndex {
         lexical.sort_by(|a, b| b.1.total_cmp(&a.1));
         lexical.truncate(self.prefilter_k.min(lexical.len()));
 
-        #[cfg(feature = "embeddings")]
-        {
-            if let Some(emb) = emb {
-                let query_vec = emb.embed_query(query).ok()?;
-                let doc_vecs = {
-                    let mut guard = self
-                        .cached_doc_embeddings
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    if guard.is_none() {
-                        let texts: Vec<&str> =
-                            self.entries.iter().map(|e| e.text.as_str()).collect();
-                        *guard = emb.embed_texts(&texts).ok();
-                    }
-                    guard.clone()?
-                };
+        let lex_map: std::collections::HashMap<usize, f32> = lexical.into_iter().collect();
 
-                let mut scored: Vec<(String, f32)> = lexical
-                    .iter()
-                    .filter_map(|(idx, lex)| {
-                        doc_vecs.get(*idx).map(|dv| {
-                            let sem =
-                                crate::agent::memory::embeddings::cosine_similarity(&query_vec, dv);
-                            let blended = sem * 0.75 + *lex * 0.25;
-                            (self.entries[*idx].name.clone(), blended)
-                        })
-                    })
-                    .collect();
-                if scored.is_empty() {
-                    return None;
-                }
-                crate::router::metrics::record_semantic_candidate_scores(
-                    &scored.iter().map(|(_, s)| *s).collect::<Vec<f32>>(),
-                );
-                scored.sort_by(|a, b| b.1.total_cmp(&a.1));
-                if scored.len() >= 2 && (scored[0].1 - scored[1].1) < self.min_margin {
-                    crate::router::metrics::record_semantic_low_confidence_fallback();
-                    return None;
-                }
-                let selected: Vec<(String, f32)> = scored
-                    .into_iter()
-                    .filter(|(_, s)| *s >= self.threshold)
-                    .take(self.top_k)
-                    .collect();
-                if selected.len() < 2 {
-                    return None;
-                }
-                crate::router::metrics::record_semantic_scores(
-                    &selected.iter().map(|(_, s)| *s).collect::<Vec<f32>>(),
-                );
-                return Some(SemanticSelection {
-                    tools: selected.iter().map(|(n, _)| n.clone()).collect(),
-                    scores: selected.iter().map(|(_, s)| *s).collect(),
-                });
-            }
-        }
-
-        let candidates: Vec<(String, f32)> = lexical
-            .into_iter()
-            .map(|(idx, score)| (self.entries[idx].name.clone(), (score * 2.0) - 1.0))
+        let mut scored: Vec<(String, f32)> = embed_scores
+            .iter()
+            .filter_map(|(idx, sem)| {
+                let lex = lex_map.get(idx).copied().unwrap_or(0.0);
+                let blended = sem * 0.75 + lex * 0.25;
+                self.entries.get(*idx).map(|e| (e.name.clone(), blended))
+            })
             .collect();
-        if candidates.is_empty() {
+
+        if scored.is_empty() {
             return None;
         }
-        crate::router::metrics::record_semantic_candidate_scores(
-            &candidates.iter().map(|(_, s)| *s).collect::<Vec<f32>>(),
+        crate::metrics::record_semantic_candidate_scores(
+            &scored.iter().map(|(_, s)| *s).collect::<Vec<f32>>(),
         );
-
-        let selected: Vec<(String, f32)> = candidates
+        scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+        if scored.len() >= 2 && (scored[0].1 - scored[1].1) < self.min_margin {
+            crate::metrics::record_semantic_low_confidence_fallback();
+            return None;
+        }
+        let selected: Vec<(String, f32)> = scored
             .into_iter()
-            .filter(|(_, score)| *score >= self.threshold)
+            .filter(|(_, s)| *s >= self.threshold)
             .take(self.top_k)
             .collect();
-        if selected.len() >= 2 && (selected[0].1 - selected[1].1) < self.min_margin {
-            crate::router::metrics::record_semantic_low_confidence_fallback();
-            return None;
-        }
         if selected.len() < 2 {
             return None;
         }
-        crate::router::metrics::record_semantic_scores(
+        crate::metrics::record_semantic_scores(
             &selected.iter().map(|(_, s)| *s).collect::<Vec<f32>>(),
         );
         Some(SemanticSelection {
             tools: selected.iter().map(|(n, _)| n.clone()).collect(),
             scores: selected.iter().map(|(_, s)| *s).collect(),
         })
+    }
+
+    /// Access entries for external embedding computation.
+    pub fn entry_texts(&self) -> Vec<&str> {
+        self.entries.iter().map(|e| e.text.as_str()).collect()
+    }
+
+    /// Get the prefilter_k value.
+    pub fn prefilter_k(&self) -> usize {
+        self.prefilter_k
+    }
+
+    /// Get lexical prefilter candidates for a query (index, score).
+    pub fn lexical_prefilter(&self, query: &str) -> Vec<(usize, f32)> {
+        let query_tokens = tokenize(query);
+        if query_tokens.is_empty() {
+            return Vec::new();
+        }
+        let mut lexical: Vec<(usize, f32)> = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(idx, entry)| {
+                let overlap = query_tokens
+                    .iter()
+                    .filter(|t| entry.tokens.iter().any(|et| et == *t))
+                    .count();
+                (idx, overlap as f32 / query_tokens.len().max(1) as f32)
+            })
+            .collect();
+        lexical.sort_by(|a, b| b.1.total_cmp(&a.1));
+        lexical.truncate(self.prefilter_k.min(lexical.len()));
+        lexical
     }
 }
 
@@ -185,7 +221,7 @@ fn tokenize(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::SemanticToolIndex;
-    use crate::providers::base::ToolDefinition;
+    use oxicrab_core::providers::base::ToolDefinition;
 
     fn def(name: &str, description: &str) -> ToolDefinition {
         ToolDefinition {
@@ -208,11 +244,7 @@ mod tests {
             -1.0,
         );
 
-        let selected = index.select(
-            "weather",
-            #[cfg(feature = "embeddings")]
-            None,
-        );
+        let selected = index.select("weather");
         assert!(selected.is_none(), "expected low-confidence fallback");
     }
 
@@ -230,11 +262,7 @@ mod tests {
         );
 
         let selected = index
-            .select(
-                "run cron job status",
-                #[cfg(feature = "embeddings")]
-                None,
-            )
+            .select("run cron job status")
             .expect("should select tools");
         assert!(!selected.tools.is_empty());
     }
@@ -254,11 +282,7 @@ mod tests {
 
         // With one lexical overlap out of 3 tokens, normalized score is
         // ((1/3)*2)-1 = -0.333..., below threshold 0.6.
-        let selected = index.select(
-            "weather foo bar",
-            #[cfg(feature = "embeddings")]
-            None,
-        );
+        let selected = index.select("weather foo bar");
         assert!(
             selected.is_none(),
             "lexical fallback should respect semantic_threshold"

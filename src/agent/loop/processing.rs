@@ -896,11 +896,35 @@ impl AgentLoop {
                 ),
             });
         }
-        let selection = cache.as_ref()?.index.select(
-            query,
-            #[cfg(feature = "embeddings")]
-            self.memory.embedding_service(),
-        )?;
+        let index = &cache.as_ref()?.index;
+        #[cfg(feature = "embeddings")]
+        let selection = {
+            if let Some(emb) = self.memory.embedding_service()
+                && let Ok(qv) = emb.embed_query(query)
+            {
+                let texts = index.entry_texts();
+                if let Ok(doc_vecs) = emb.embed_texts(&texts) {
+                    let prefilter = index.lexical_prefilter(query);
+                    let embed_scores: Vec<(usize, f32)> = prefilter
+                        .iter()
+                        .filter_map(|(idx, _)| {
+                            doc_vecs.get(*idx).map(|dv| {
+                                let sem =
+                                    crate::agent::memory::embeddings::cosine_similarity(&qv, dv);
+                                (*idx, sem)
+                            })
+                        })
+                        .collect();
+                    index.select_with_embeddings(query, &embed_scores)
+                } else {
+                    index.select(query)
+                }
+            } else {
+                index.select(query)
+            }
+        }?;
+        #[cfg(not(feature = "embeddings"))]
+        let selection = index.select(query)?;
         let mut picked = selection.tools;
         if self.tools.get("add_buttons").is_some() && !picked.iter().any(|n| n == "add_buttons") {
             picked.push("add_buttons".to_string());
