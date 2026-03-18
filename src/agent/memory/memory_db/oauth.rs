@@ -1,16 +1,7 @@
 use super::MemoryDB;
+use crate::utils::credential_store::{OAuthTokenRow, OAuthTokenStore};
 use anyhow::Result;
 use rusqlite::params;
-
-/// A row from the `oauth_tokens` table.
-#[derive(Debug, Clone)]
-pub struct OAuthTokenRow {
-    pub provider: String,
-    pub access_token: String,
-    pub refresh_token: Option<String>,
-    pub expires_at: i64,
-    pub extra_json: Option<String>,
-}
 
 impl MemoryDB {
     /// Save (insert or replace) an OAuth token for a provider.
@@ -67,6 +58,33 @@ impl MemoryDB {
             params![provider],
         )?;
         Ok(deleted > 0)
+    }
+}
+
+impl OAuthTokenStore for MemoryDB {
+    fn load_token(&self, provider: &str) -> Result<Option<OAuthTokenRow>> {
+        self.load_oauth_token(provider)
+    }
+
+    fn save_token(
+        &self,
+        provider: &str,
+        access_token: &str,
+        refresh_token: Option<&str>,
+        expires_at: i64,
+        extra_json: Option<&str>,
+    ) -> Result<()> {
+        self.save_oauth_token(
+            provider,
+            access_token,
+            refresh_token,
+            expires_at,
+            extra_json,
+        )
+    }
+
+    fn delete_token(&self, provider: &str) -> Result<bool> {
+        self.delete_oauth_token(provider)
     }
 }
 

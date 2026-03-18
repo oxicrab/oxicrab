@@ -45,7 +45,11 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     let memory_db = Arc::new(memory_db);
 
     // Setup components
-    let provider = setup_provider(&config, model.as_deref(), Some(memory_db.clone()))?;
+    let provider = setup_provider(
+        &config,
+        model.as_deref(),
+        Some(memory_db.clone() as Arc<dyn crate::utils::credential_store::OAuthTokenStore>),
+    )?;
 
     // Fire-and-forget warmup — don't block startup on a network round-trip
     {
@@ -322,7 +326,7 @@ pub(super) async fn gateway_echo() -> Result<()> {
 fn setup_provider(
     config: &Config,
     model: Option<&str>,
-    db: Option<Arc<crate::agent::memory::memory_db::MemoryDB>>,
+    db: Option<Arc<dyn crate::utils::credential_store::OAuthTokenStore>>,
 ) -> Result<Arc<dyn crate::providers::base::LLMProvider>> {
     let effective_model = model.unwrap_or(&config.agents.defaults.model_routing.default);
     info!("Creating LLM provider for model: {}", effective_model);

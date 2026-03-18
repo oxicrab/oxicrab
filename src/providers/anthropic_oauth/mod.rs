@@ -1,4 +1,3 @@
-use crate::agent::memory::memory_db::MemoryDB;
 use crate::providers::anthropic_common;
 use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse};
 use crate::providers::errors::ProviderErrorHandler;
@@ -48,7 +47,7 @@ pub struct AnthropicOAuthProvider {
     expires_at: Arc<Mutex<i64>>,
     default_model: String,
     credentials_path: Option<PathBuf>,
-    db: Option<Arc<MemoryDB>>,
+    db: Option<Arc<dyn OAuthTokenStore>>,
     client: Client,
 }
 
@@ -59,7 +58,7 @@ impl AnthropicOAuthProvider {
         expires_at: i64,
         default_model: Option<String>,
         credentials_path: Option<PathBuf>,
-        db: Option<Arc<MemoryDB>>,
+        db: Option<Arc<dyn OAuthTokenStore>>,
     ) -> Result<Self> {
         let client = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(30))
@@ -97,9 +96,9 @@ impl AnthropicOAuthProvider {
         Ok(provider)
     }
 
-    /// Try to load cached tokens from the `MemoryDB` (preferred over file).
+    /// Try to load cached tokens from the token store (preferred over file).
     fn load_cached_tokens_from_db(&self) {
-        let Some(store) = self.db.as_ref().map(|d| d.as_ref() as &dyn OAuthTokenStore) else {
+        let Some(store) = self.db.as_deref() else {
             return;
         };
         match credential_store::load_oauth_token(Some(store), "anthropic") {
@@ -320,7 +319,7 @@ impl AnthropicOAuthProvider {
         let expires = *self.expires_at.lock().await;
 
         // Prefer DB storage
-        if let Some(store) = self.db.as_ref().map(|d| d.as_ref() as &dyn OAuthTokenStore) {
+        if let Some(store) = self.db.as_deref() {
             let refresh_opt = if refresh.is_empty() {
                 None
             } else {
@@ -407,7 +406,7 @@ impl AnthropicOAuthProvider {
 
     pub fn from_openclaw(
         default_model: Option<String>,
-        db: Option<Arc<MemoryDB>>,
+        db: Option<Arc<dyn OAuthTokenStore>>,
     ) -> Result<Option<Self>> {
         let store_path = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("No home directory"))?
@@ -501,7 +500,7 @@ impl AnthropicOAuthProvider {
 
     pub fn from_claude_cli(
         default_model: Option<String>,
-        db: Option<Arc<MemoryDB>>,
+        db: Option<Arc<dyn OAuthTokenStore>>,
     ) -> Result<Option<Self>> {
         let cred_path = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("No home directory"))?

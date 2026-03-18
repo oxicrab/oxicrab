@@ -1,9 +1,18 @@
-use crate::agent::memory::memory_db::{MemoryDB, OAuthTokenRow};
 use anyhow::Result;
 use std::path::Path;
 
+/// A row from the `oauth_tokens` table.
+#[derive(Debug, Clone)]
+pub struct OAuthTokenRow {
+    pub provider: String,
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub expires_at: i64,
+    pub extra_json: Option<String>,
+}
+
 /// Storage abstraction for OAuth token state.
-pub trait OAuthTokenStore {
+pub trait OAuthTokenStore: Send + Sync {
     fn load_token(&self, provider: &str) -> Result<Option<OAuthTokenRow>>;
     fn save_token(
         &self,
@@ -13,29 +22,7 @@ pub trait OAuthTokenStore {
         expires_at: i64,
         extra_json: Option<&str>,
     ) -> Result<()>;
-}
-
-impl OAuthTokenStore for MemoryDB {
-    fn load_token(&self, provider: &str) -> Result<Option<OAuthTokenRow>> {
-        self.load_oauth_token(provider)
-    }
-
-    fn save_token(
-        &self,
-        provider: &str,
-        access_token: &str,
-        refresh_token: Option<&str>,
-        expires_at: i64,
-        extra_json: Option<&str>,
-    ) -> Result<()> {
-        self.save_oauth_token(
-            provider,
-            access_token,
-            refresh_token,
-            expires_at,
-            extra_json,
-        )
-    }
+    fn delete_token(&self, provider: &str) -> Result<bool>;
 }
 
 /// Load an OAuth token row from a state store, if available.

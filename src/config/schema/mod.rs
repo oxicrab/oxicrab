@@ -811,7 +811,7 @@ impl Config {
     /// Create providers for all configured model routing task overrides.
     pub fn create_routed_providers(
         &self,
-        db: Option<std::sync::Arc<crate::agent::memory::memory_db::MemoryDB>>,
+        db: Option<std::sync::Arc<dyn crate::utils::credential_store::OAuthTokenStore>>,
     ) -> anyhow::Result<Option<crate::config::routing::ResolvedRouting>> {
         use crate::config::routing::ResolvedChatRouting;
         use crate::config::schema::agent::TaskRouting;
@@ -888,7 +888,7 @@ impl Config {
     pub fn create_provider(
         &self,
         model: Option<&str>,
-        db: Option<std::sync::Arc<crate::agent::memory::memory_db::MemoryDB>>,
+        db: Option<std::sync::Arc<dyn crate::utils::credential_store::OAuthTokenStore>>,
     ) -> anyhow::Result<std::sync::Arc<dyn crate::providers::base::LLMProvider>> {
         use crate::providers::strategy::ProviderFactory;
 

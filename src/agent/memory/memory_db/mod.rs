@@ -20,9 +20,9 @@ mod stats;
 mod subagent_log;
 mod workspace;
 
+pub use crate::utils::credential_store::OAuthTokenRow;
 pub use cost::TokenSummaryRow;
 pub use dlq::DlqEntry;
-pub use oauth::OAuthTokenRow;
 pub use pairing::DbPendingRequest;
 pub use search::MemoryHit;
 pub use stats::SearchDetails;

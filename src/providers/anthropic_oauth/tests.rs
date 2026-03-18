@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::memory::memory_db::MemoryDB;
 
 #[test]
 fn test_claude_code_headers_has_required_keys() {
@@ -177,7 +178,7 @@ fn test_load_cached_tokens_from_db_fresher_applied() {
         1000,
         None,
         None,
-        Some(db),
+        Some(db as Arc<dyn OAuthTokenStore>),
     )
     .unwrap();
 
@@ -199,7 +200,7 @@ fn test_load_cached_tokens_from_db_stale_ignored() {
         1000,
         None,
         None,
-        Some(db),
+        Some(db as Arc<dyn OAuthTokenStore>),
     )
     .unwrap();
 

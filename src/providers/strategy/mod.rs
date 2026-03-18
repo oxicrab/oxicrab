@@ -1,8 +1,8 @@
-use crate::agent::memory::memory_db::MemoryDB;
 use crate::config::schema::{
     AnthropicOAuthConfig, ProviderConfig, ProvidersConfig, normalize_provider,
 };
 use crate::providers::base::LLMProvider;
+use crate::utils::credential_store::OAuthTokenStore;
 use anyhow::Result;
 use std::sync::Arc;
 use tracing::info;
@@ -116,7 +116,7 @@ pub fn infer_provider_from_model(model: &str) -> Option<&'static str> {
 pub struct ProviderFactory {
     providers_config: ProvidersConfig,
     oauth_config: AnthropicOAuthConfig,
-    db: Option<Arc<MemoryDB>>,
+    db: Option<Arc<dyn OAuthTokenStore>>,
 }
 
 impl ProviderFactory {
@@ -128,7 +128,10 @@ impl ProviderFactory {
         }
     }
 
-    pub fn with_db(config: &crate::config::schema::Config, db: Option<Arc<MemoryDB>>) -> Self {
+    pub fn with_db(
+        config: &crate::config::schema::Config,
+        db: Option<Arc<dyn OAuthTokenStore>>,
+    ) -> Self {
         Self {
             providers_config: config.providers.clone(),
             oauth_config: config.providers.anthropic_oauth.clone(),
