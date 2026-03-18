@@ -3400,6 +3400,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
+ "chromiumoxide",
  "chrono",
  "chrono-tz",
  "clap",
@@ -3515,9 +3516,9 @@ dependencies = [
  "tracing",
  "url",
  "urlencoding",
- "whatsapp-rust",
- "whatsapp-rust-tokio-transport",
- "whatsapp-rust-ureq-http-client",
+ "wa-rs",
+ "wa-rs-tokio-transport",
+ "wa-rs-ureq-http",
  "wiremock",
 ]
 
