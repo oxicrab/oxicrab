@@ -88,6 +88,18 @@ Dispatch types (`ActionDispatch`, `ActionSource`, `ActionDispatchPayload`) live 
 
 `MemoryStore` wraps `MemoryDB` (SQLite FTS5) + `EmbeddingService` (fastembed ONNX). Memory entries are stored directly in the SQLite database (no file-based notes or background indexer). The `memory_search` tool and system prompt context injection query the database directly.
 
+### Schema Migrations (`src/agent/memory/memory_db/migrations.rs`)
+
+SQLite schema is versioned via `PRAGMA user_version`. `apply_migrations()` runs at startup and applies each migration block sequentially, gated by `user_version(conn)? < N`. Currently at version 5:
+
+- **v1**: Base schema — `memory_entries` (FTS5), `memory_sources`, `memory_embeddings`, `llm_cost_log`, `intent_metrics`, `sessions`, `cron_jobs` + `cron_job_targets`, `scheduled_task_dlq`, `memory_access_log` + `memory_search_hits`, `pairing_pending` + `pairing_failed_attempts`, `oauth_tokens`, `workspace_files`, `subagent_logs`. Created from `migrations/0001_base.sql` via `include_str!`.
+- **v2**: Add `request_id TEXT` column to `llm_cost_log`, `intent_metrics`, `memory_access_log`.
+- **v3**: Add composite index on `memory_entries(source_key, created_at)`.
+- **v4**: Add index on `sessions(updated_at)`.
+- **v5**: Add RSS tables (`rss_feeds`, `rss_articles`, `rss_article_tags`, `rss_profile`, `rss_model`) with indexes.
+
+All migrations are idempotent (`CREATE TABLE/INDEX IF NOT EXISTS`, `add_column_if_missing()`). Column additions are security-hardened via `ensure_allowed_column_addition()` which allowlists exact `(table, column, type)` triples — any other combination is rejected with `bail!()`. FTS5 virtual tables and triggers are created separately in `ensure_fts_objects()` to gracefully degrade on systems without FTS5 support.
+
 ### Hybrid Search
 
 `MemoryDB::hybrid_search()` combines FTS5 BM25 keyword matching with vector cosine similarity. Two fusion strategies (configurable via `agents.defaults.memory.searchFusionStrategy`):
