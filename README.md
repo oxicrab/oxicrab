@@ -206,7 +206,7 @@ Channel → MessageBus → AgentLoop (LLM ↔ tools) → MessageBus → Channel
 
 ## Development
 
-Requires **Rust nightly** and `cmake`. Voice transcription also requires `ffmpeg`.
+Requires **Rust stable** and `cmake`. Voice transcription also requires `ffmpeg`.
 
 ```bash
 cargo test --lib                    # unit tests

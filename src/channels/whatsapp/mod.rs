@@ -14,7 +14,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
-use whatsapp_rust::proto_helpers::MessageExt;
+use wa_rs::proto_helpers::MessageExt;
 
 pub struct WhatsAppChannel {
     config: WhatsAppConfig,
@@ -22,7 +22,7 @@ pub struct WhatsAppChannel {
     bot_handle: Option<tokio::task::JoinHandle<()>>,
     running: Arc<tokio::sync::Mutex<bool>>,
     session_path: PathBuf,
-    client: Arc<tokio::sync::Mutex<Option<Arc<whatsapp_rust::client::Client>>>>,
+    client: Arc<tokio::sync::Mutex<Option<Arc<wa_rs::client::Client>>>>,
     message_queue: Arc<tokio::sync::Mutex<Vec<OutboundMessage>>>,
 }
 
@@ -92,7 +92,7 @@ impl BaseChannel for WhatsAppChannel {
 
                 // Create SQLite backend for session storage
                 debug!("Creating WhatsApp SQLite backend at: {}", session_db_str);
-                let backend = match whatsapp_rust::store::SqliteStore::new(&session_db_str).await {
+                let backend = match wa_rs::store::SqliteStore::new(&session_db_str).await {
                     Ok(b) => Arc::new(b),
                     Err(e) => {
                         error!("Failed to create WhatsApp backend: {}", e);
@@ -106,8 +106,8 @@ impl BaseChannel for WhatsAppChannel {
 
                 // Create transport factory and HTTP client
                 let transport_factory =
-                    whatsapp_rust_tokio_transport::TokioWebSocketTransportFactory::new();
-                let http_client = whatsapp_rust_ureq_http_client::UreqHttpClient::new();
+                    wa_rs_tokio_transport::TokioWebSocketTransportFactory::new();
+                let http_client = wa_rs_ureq_http::UreqHttpClient::new();
 
                 // Build bot with event handler
                 let inbound_tx_clone = inbound_tx.clone();
@@ -116,7 +116,7 @@ impl BaseChannel for WhatsAppChannel {
                 let dm_policy_clone = dm_policy.clone();
                 let client_storage_clone = client_for_storage.clone();
 
-                let bot_builder = whatsapp_rust::bot::Bot::builder()
+                let bot_builder = wa_rs::bot::Bot::builder()
                     .with_backend(backend.clone())
                     .with_transport_factory(transport_factory)
                     .with_http_client(http_client)
@@ -136,7 +136,7 @@ impl BaseChannel for WhatsAppChannel {
                             // Process events
                             debug!("WhatsApp event received: type={:?}", std::mem::discriminant(&event));
                             match &event {
-                                whatsapp_rust::types::events::Event::Message(msg, info) => {
+                                wa_rs::types::events::Event::Message(msg, info) => {
                                     // In linked-device mode the bot IS the user's phone,
                                     // so is_from_me is true for ALL messages from this account.
                                     // Use should_skip_own_message() to filter out messages
@@ -204,8 +204,8 @@ impl BaseChannel for WhatsAppChannel {
                                             } else {
                                                 format!("{chat_id}@s.whatsapp.net")
                                             };
-                                            if let Ok(jid) = whatsapp_rust::Jid::from_str(&jid_str) {
-                                                let text_message = whatsapp_rust::waproto::whatsapp::Message {
+                                            if let Ok(jid) = wa_rs::Jid::from_str(&jid_str) {
+                                                let text_message = wa_rs::wa_rs_proto::whatsapp::Message {
                                                     conversation: Some(reply),
                                                     ..Default::default()
                                                 };
@@ -314,7 +314,7 @@ impl BaseChannel for WhatsAppChannel {
                                         error!("Failed to send WhatsApp inbound message: {}", e);
                                     }
                                 }
-                                whatsapp_rust::types::events::Event::PairingQrCode { code, .. } => {
+                                wa_rs::types::events::Event::PairingQrCode { code, .. } => {
                                     // Display QR code (organized inline)
                                     println!("\n🤖 WhatsApp QR Code:");
                                     match qr2term::print_qr(code) {
@@ -348,24 +348,24 @@ impl BaseChannel for WhatsAppChannel {
                                     }
                                     info!("WhatsApp QR code displayed");
                                 }
-                                whatsapp_rust::types::events::Event::PairingCode { code, .. } => {
+                                wa_rs::types::events::Event::PairingCode { code, .. } => {
                                     println!("\n🤖 WhatsApp Pairing Code: {code}\nEnter this code on your phone.\n");
                                     info!("WhatsApp pairing code: {}", code);
                                 }
-                                whatsapp_rust::types::events::Event::PairSuccess(_pair_success) => {
+                                wa_rs::types::events::Event::PairSuccess(_pair_success) => {
                                     println!("\n✅ WhatsApp connected successfully!\n");
                                     info!("WhatsApp pairing successful");
                                 }
-                                whatsapp_rust::types::events::Event::PairError(pair_error) => {
+                                wa_rs::types::events::Event::PairError(pair_error) => {
                                     error!("WhatsApp pairing failed: {:?}", pair_error);
                                 }
-                                whatsapp_rust::types::events::Event::Disconnected(_disconnected) => {
+                                wa_rs::types::events::Event::Disconnected(_disconnected) => {
                                     warn!("WhatsApp disconnected");
                                     if *running.lock().await {
                                         info!("Will attempt to reconnect...");
                                     }
                                 }
-                                whatsapp_rust::types::events::Event::Connected(_connected) => {
+                                wa_rs::types::events::Event::Connected(_connected) => {
                                     info!("WhatsApp connected");
                                 }
                                 _ => {
@@ -449,7 +449,7 @@ impl BaseChannel for WhatsAppChannel {
                 format!("{chat_id}@s.whatsapp.net")
             };
 
-            if let Ok(jid) = whatsapp_rust::Jid::from_str(&jid_str) {
+            if let Ok(jid) = wa_rs::Jid::from_str(&jid_str) {
                 let _ = client.chatstate().send_composing(&jid).await;
             }
         }
@@ -539,7 +539,7 @@ impl BaseChannel for WhatsAppChannel {
 }
 
 async fn send_whatsapp_message(
-    client: &Arc<whatsapp_rust::client::Client>,
+    client: &Arc<wa_rs::client::Client>,
     msg: &OutboundMessage,
 ) -> Result<Option<String>> {
     // Format chat_id - ensure it has @s.whatsapp.net suffix if it's a phone number
@@ -569,8 +569,8 @@ async fn send_whatsapp_message(
         msg.chat_id, chat_id_str
     );
 
-    // Parse chat_id as JID (whatsapp-rust re-exports Jid)
-    let jid = whatsapp_rust::Jid::from_str(&chat_id_str)
+    // Parse chat_id as JID (wa-rs re-exports Jid)
+    let jid = wa_rs::Jid::from_str(&chat_id_str)
         .map_err(|e| anyhow::anyhow!("Invalid WhatsApp chat_id '{chat_id_str}': {e}"))?;
 
     // Split long messages using UTF-8 safe splitting
@@ -584,7 +584,7 @@ async fn send_whatsapp_message(
             chunks.len(),
             chunk.len(),
         );
-        let text_message = whatsapp_rust::waproto::whatsapp::Message {
+        let text_message = wa_rs::wa_rs_proto::whatsapp::Message {
             conversation: Some(chunk.clone()),
             ..Default::default()
         };
@@ -607,8 +607,8 @@ const MAX_MEDIA_DOWNLOAD: usize = 50 * 1024 * 1024; // 50 MB
 
 /// Download a `WhatsApp` media file and save to ~/.oxicrab/media/.
 async fn download_whatsapp_media(
-    client: &Arc<whatsapp_rust::client::Client>,
-    downloadable: &dyn whatsapp_rust::download::Downloadable,
+    client: &Arc<wa_rs::client::Client>,
+    downloadable: &dyn wa_rs::download::Downloadable,
     mimetype: Option<&str>,
     message_id: &str,
     media_type: &str,
@@ -646,7 +646,7 @@ async fn download_whatsapp_media(
         ext
     ));
 
-    // NOTE: The whatsapp_rust Downloadable trait provides no file_length
+    // NOTE: The wa-rs Downloadable trait provides no file_length
     // pre-check, so the full payload is downloaded before the size check.
     // Network-level egress limits are the primary defense against OOM here.
     let data = client.download(downloadable).await?;
@@ -667,22 +667,10 @@ async fn download_whatsapp_media(
 
 /// Classification of a `WhatsApp` media attachment for download.
 enum MediaKind<'a> {
-    Image(
-        &'a dyn whatsapp_rust::download::Downloadable,
-        Option<&'a str>,
-    ),
-    Audio(
-        &'a dyn whatsapp_rust::download::Downloadable,
-        Option<&'a str>,
-    ),
-    Document(
-        &'a dyn whatsapp_rust::download::Downloadable,
-        Option<&'a str>,
-    ),
-    Video(
-        &'a dyn whatsapp_rust::download::Downloadable,
-        Option<&'a str>,
-    ),
+    Image(&'a dyn wa_rs::download::Downloadable, Option<&'a str>),
+    Audio(&'a dyn wa_rs::download::Downloadable, Option<&'a str>),
+    Document(&'a dyn wa_rs::download::Downloadable, Option<&'a str>),
+    Video(&'a dyn wa_rs::download::Downloadable, Option<&'a str>),
 }
 
 /// Check if a MIME type is an image type.

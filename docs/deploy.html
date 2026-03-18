@@ -369,7 +369,7 @@ launchctl load ~/Library/LaunchAgents/com.oxicrab.gateway.plist</code></pre>
 
     <h3>Prerequisites</h3>
     <ul class="plain">
-      <li><strong>Rust nightly</strong> &mdash; version pinned in <code>rust-toolchain.toml</code>. Install via <a href="https://rustup.rs">rustup</a>.</li>
+      <li><strong>Rust stable</strong> &mdash; version pinned in <code>rust-toolchain.toml</code>. Install via <a href="https://rustup.rs">rustup</a>.</li>
       <li><strong>cmake</strong> &mdash; required by native dependencies.</li>
       <li><strong>ffmpeg</strong> (optional) &mdash; only needed for local voice transcription.</li>
     </ul>
@@ -402,7 +402,7 @@ cp target/release/oxicrab /usr/local/bin/</code></pre>
   <!-- DOCKER -->
   <div id="docker" class="deploy-section">
     <h2>Docker</h2>
-    <p>The included <code>Dockerfile</code> uses a multi-stage build: Rust nightly for compilation, Debian slim for runtime.</p>
+    <p>The included <code>Dockerfile</code> uses a multi-stage build: Rust stable for compilation, Debian slim for runtime.</p>
 
     <h3>Build the image</h3>
     <pre><code># All channels (default)
