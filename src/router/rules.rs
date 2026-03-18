@@ -1,39 +1,11 @@
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 
-use super::context::DirectiveTrigger;
+pub use crate::agent::tools::base::routing_types::{DirectiveTrigger, StaticRule};
 use serde::{Deserialize, Serialize};
 
 static UNMATCHED_PLACEHOLDER_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\$\d+").unwrap());
-
-/// Tool-declared static routing rule. Compiled at startup.
-#[derive(Debug, Clone)]
-pub struct StaticRule {
-    pub tool: String,
-    pub trigger: DirectiveTrigger,
-    pub params: serde_json::Value,
-    /// Only matches when this tool is the `active_tool` in `RouterContext`.
-    pub requires_context: bool,
-}
-
-impl StaticRule {
-    /// Check if this rule matches the message given the active tool context.
-    pub fn matches(&self, message: &str, active_tool: Option<&str>) -> bool {
-        let normalized = message.trim().to_lowercase();
-        self.matches_normalized(&normalized, active_tool)
-    }
-
-    /// Match against a pre-lowercased, pre-trimmed message.
-    /// Use this when checking multiple rules against the same message to
-    /// avoid redundant `to_lowercase()` allocations.
-    pub fn matches_normalized(&self, normalized: &str, active_tool: Option<&str>) -> bool {
-        if self.requires_context && active_tool != Some(self.tool.as_str()) {
-            return false;
-        }
-        self.trigger.matches_normalized(normalized)
-    }
-}
 
 /// User-defined prefix command from config.
 #[derive(Debug, Clone, Serialize, Deserialize)]

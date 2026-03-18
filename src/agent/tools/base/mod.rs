@@ -1,3 +1,5 @@
+pub mod routing_types;
+
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -146,7 +148,7 @@ pub trait Tool: Send + Sync {
     }
 
     /// Static routing rules for deterministic dispatch. Called once at registration.
-    fn routing_rules(&self) -> Vec<crate::router::rules::StaticRule> {
+    fn routing_rules(&self) -> Vec<routing_types::StaticRule> {
         Vec::new()
     }
 

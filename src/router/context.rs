@@ -1,18 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub use crate::agent::tools::base::routing_types::DirectiveTrigger;
+
 pub const MAX_DIRECTIVES: usize = 20;
 pub const DEFAULT_DIRECTIVE_TTL_MS: i64 = 300_000; // 5 minutes
-const MAX_PATTERN_LEN: usize = 256;
-
-/// LRU cache of compiled regexes keyed by anchored pattern string.
-static PATTERN_CACHE: std::sync::LazyLock<
-    std::sync::Mutex<lru::LruCache<String, Option<regex::Regex>>>,
-> = std::sync::LazyLock::new(|| {
-    std::sync::Mutex::new(lru::LruCache::new(
-        std::num::NonZeroUsize::new(64).expect("64 > 0"),
-    ))
-});
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -310,53 +302,6 @@ pub struct ActionDirective {
 impl ActionDirective {
     pub fn is_expired(&self, now_ms: i64) -> bool {
         now_ms > self.created_at_ms + self.ttl_ms
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DirectiveTrigger {
-    /// Single literal — "next", "done". Hash lookup.
-    Exact(String),
-    /// Alternative literals — "yes|accept|ok".
-    OneOf(Vec<String>),
-    /// Regex with captures. Compiled lazily. Rare.
-    Pattern(String),
-}
-
-impl DirectiveTrigger {
-    #[must_use]
-    pub fn normalized(self) -> Self {
-        match self {
-            Self::Exact(s) => Self::Exact(s.to_lowercase()),
-            Self::OneOf(options) => {
-                Self::OneOf(options.into_iter().map(|o| o.to_lowercase()).collect())
-            }
-            Self::Pattern(_) => self,
-        }
-    }
-
-    pub fn matches(&self, message: &str) -> bool {
-        let normalized = message.trim().to_lowercase();
-        self.matches_normalized(&normalized)
-    }
-
-    pub fn matches_normalized(&self, normalized: &str) -> bool {
-        match self {
-            Self::Exact(s) => normalized == *s,
-            Self::OneOf(options) => options.iter().any(|o| o == normalized),
-            Self::Pattern(pat) => {
-                if pat.len() > MAX_PATTERN_LEN {
-                    return false;
-                }
-                let anchored = format!("^(?:{pat})$");
-                let mut cache = PATTERN_CACHE
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                let compiled =
-                    cache.get_or_insert(anchored.clone(), || regex::Regex::new(&anchored).ok());
-                compiled.as_ref().is_some_and(|re| re.is_match(normalized))
-            }
-        }
     }
 }
 

@@ -371,10 +371,12 @@ impl Tool for CronTool {
         }
     }
 
-    fn routing_rules(&self) -> Vec<crate::router::rules::StaticRule> {
-        vec![crate::router::rules::StaticRule {
+    fn routing_rules(&self) -> Vec<crate::agent::tools::base::routing_types::StaticRule> {
+        vec![crate::agent::tools::base::routing_types::StaticRule {
             tool: "cron".into(),
-            trigger: crate::router::context::DirectiveTrigger::Exact("list jobs".into()),
+            trigger: crate::agent::tools::base::routing_types::DirectiveTrigger::Exact(
+                "list jobs".into(),
+            ),
             params: serde_json::json!({"action": "list"}),
             requires_context: false,
         }]

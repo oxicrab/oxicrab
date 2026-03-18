@@ -124,7 +124,7 @@ pub struct ToolRegistry {
     /// Only used when no deferred tools have been activated (the common path).
     cached_definitions: std::sync::Mutex<Option<Vec<crate::providers::base::ToolDefinition>>>,
     /// Accumulated routing rules collected from all registered tools.
-    routing_rules: Vec<crate::router::rules::StaticRule>,
+    routing_rules: Vec<crate::agent::tools::base::routing_types::StaticRule>,
 }
 
 impl ToolRegistry {
@@ -196,7 +196,7 @@ impl ToolRegistry {
     }
 
     /// All routing rules collected from registered tools.
-    pub fn routing_rules(&self) -> &[crate::router::rules::StaticRule] {
+    pub fn routing_rules(&self) -> &[crate::agent::tools::base::routing_types::StaticRule] {
         &self.routing_rules
     }
 

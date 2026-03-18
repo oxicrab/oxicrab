@@ -238,20 +238,20 @@ impl Tool for RssTool {
         }
     }
 
-    fn routing_rules(&self) -> Vec<crate::router::rules::StaticRule> {
+    fn routing_rules(&self) -> Vec<crate::agent::tools::base::routing_types::StaticRule> {
         vec![
-            crate::router::rules::StaticRule {
+            crate::agent::tools::base::routing_types::StaticRule {
                 tool: "rss".into(),
-                trigger: crate::router::context::DirectiveTrigger::OneOf(vec![
+                trigger: crate::agent::tools::base::routing_types::DirectiveTrigger::OneOf(vec![
                     "next".into(),
                     "more".into(),
                 ]),
                 params: serde_json::json!({"action": "next"}),
                 requires_context: true,
             },
-            crate::router::rules::StaticRule {
+            crate::agent::tools::base::routing_types::StaticRule {
                 tool: "rss".into(),
-                trigger: crate::router::context::DirectiveTrigger::OneOf(vec![
+                trigger: crate::agent::tools::base::routing_types::DirectiveTrigger::OneOf(vec![
                     "done".into(),
                     "done reviewing".into(),
                     "stop".into(),

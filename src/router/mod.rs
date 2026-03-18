@@ -393,6 +393,7 @@ fn build_context_hint(ctx: &RouterContext) -> String {
     parts.join(". ")
 }
 
+pub use crate::agent::tools::base::routing_types::{DirectiveTrigger, StaticRule};
 pub use crate::utils::time::now_ms;
 
 #[cfg(test)]
