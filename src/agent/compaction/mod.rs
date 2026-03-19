@@ -396,5 +396,34 @@ impl MessageCompactor {
     }
 }
 
+/// Find the split point in a message list that preserves the last N complete turns.
+/// A turn starts with a user message and includes all following non-user messages
+/// until the next user message. Returns the index to split at (messages before
+/// the index are "old", messages at and after are "recent").
+#[allow(clippy::implicit_hasher)]
+pub fn split_at_turn_boundary(messages: &[HashMap<String, Value>], keep_turns: usize) -> usize {
+    if keep_turns == 0 || messages.is_empty() {
+        return 0;
+    }
+
+    // Walk backwards to find turn boundaries (user messages)
+    let mut turn_starts: Vec<usize> = Vec::new();
+    for (i, msg) in messages.iter().enumerate().rev() {
+        if msg.get("role").and_then(Value::as_str) == Some("user") {
+            turn_starts.push(i);
+            if turn_starts.len() >= keep_turns {
+                break;
+            }
+        }
+    }
+
+    if turn_starts.is_empty() {
+        return 0;
+    }
+
+    // The last element in turn_starts is the earliest user message we want to keep
+    *turn_starts.last().unwrap_or(&0)
+}
+
 #[cfg(test)]
 mod tests;

@@ -8,6 +8,8 @@ pub struct CompactionConfig {
     pub threshold_tokens: u32,
     #[serde(default = "default_keep_recent", rename = "keepRecent")]
     pub keep_recent: usize,
+    #[serde(default, rename = "keepRecentTurns")]
+    pub keep_recent_turns: Option<usize>,
     #[serde(default = "super::default_true", rename = "extractionEnabled")]
     pub extraction_enabled: bool,
     #[serde(default)]
@@ -24,6 +26,7 @@ impl Default for CompactionConfig {
             enabled: true,
             threshold_tokens: default_threshold_tokens(),
             keep_recent: default_keep_recent(),
+            keep_recent_turns: None,
             extraction_enabled: true,
             model: None,
             pre_flush_enabled: false,

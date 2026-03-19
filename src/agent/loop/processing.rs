@@ -746,6 +746,16 @@ impl AgentLoop {
                     .increment(1);
                     info!("remember fast path: duplicate detected, skipping write");
                     "I already have that noted.".to_string()
+                } else if self.memory.is_semantically_duplicate(&reframed, 0.85) {
+                    metrics::counter!(
+                        "memory_remember_write_total",
+                        "path" => "fast",
+                        "outcome" => "duplicate"
+                    )
+                    .increment(1);
+                    debug!("remember fast path: semantic duplicate detected");
+                    info!("remember fast path: duplicate detected, skipping write");
+                    "I already have that noted.".to_string()
                 } else {
                     self.memory.append_today(&reframed)?;
                     metrics::counter!(
@@ -770,6 +780,16 @@ impl AgentLoop {
                         "outcome" => "duplicate"
                     )
                     .increment(1);
+                    info!("remember fast path: duplicate detected, skipping write");
+                    "I already have that noted.".to_string()
+                } else if self.memory.is_semantically_duplicate(content, 0.85) {
+                    metrics::counter!(
+                        "memory_remember_write_total",
+                        "path" => "fast",
+                        "outcome" => "duplicate"
+                    )
+                    .increment(1);
+                    debug!("remember fast path: semantic duplicate detected");
                     info!("remember fast path: duplicate detected, skipping write");
                     "I already have that noted.".to_string()
                 } else {

@@ -71,6 +71,12 @@ impl MemoryDB {
     /// `expected_dim` is the expected embedding dimension (from the current model).
     /// Cached embeddings with a different dimension (e.g. after a model change)
     /// are skipped with a warning.
+    ///
+    // TODO: This performs a brute-force linear scan over all embeddings.
+    // For vaults with >50K entries, consider an ANN index (e.g. HNSW via
+    // `instant-distance` or `usearch` crate) to reduce search from O(n)
+    // to O(log n). The cache invalidation via generation counter would
+    // need to trigger an index rebuild.
     pub(super) fn get_cached_embeddings(
         &self,
         exclude_sources: Option<&std::collections::HashSet<String>>,

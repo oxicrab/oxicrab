@@ -88,4 +88,44 @@ impl MemoryDB {
             .collect();
         rows.map_err(|e| anyhow::anyhow!("failed to get recent daily entries: {e}"))
     }
+
+    /// Delete all memory entries for a given source key.
+    /// Also removes associated embeddings and the source record.
+    /// Returns number of entries deleted.
+    pub fn delete_by_source_key(&self, source_key: &str) -> Result<usize> {
+        let mut conn = self.lock_conn()?;
+        let tx = conn.transaction()?;
+        // Delete embeddings first (foreign key)
+        tx.execute(
+            "DELETE FROM memory_embeddings WHERE entry_id IN (SELECT id FROM memory_entries WHERE source_key = ?)",
+            params![source_key],
+        )?;
+        let deleted = tx.execute(
+            "DELETE FROM memory_entries WHERE source_key = ?",
+            params![source_key],
+        )?;
+        tx.execute(
+            "DELETE FROM memory_sources WHERE source_key = ?",
+            params![source_key],
+        )?;
+        tx.commit()?;
+        if deleted > 0 {
+            self.invalidate_embedding_cache();
+        }
+        Ok(deleted)
+    }
+
+    /// List all source keys with their entry counts.
+    pub fn list_sources_with_counts(&self) -> Result<Vec<(String, usize)>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT source_key, COUNT(*) as cnt FROM memory_entries GROUP BY source_key ORDER BY source_key",
+        )?;
+        let rows: Result<Vec<_>, _> = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
+            })?
+            .collect();
+        rows.map_err(|e| anyhow::anyhow!("failed to list sources: {e}"))
+    }
 }

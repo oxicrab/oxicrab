@@ -312,6 +312,7 @@ impl AgentLoopConfig {
                 enabled: false,
                 threshold_tokens: 40000,
                 keep_recent: 10,
+                keep_recent_turns: None,
                 extraction_enabled: false,
                 model: None,
                 pre_flush_enabled: false,

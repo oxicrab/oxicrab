@@ -34,6 +34,7 @@ async fn test_compaction_disabled_preserves_full_history() {
                 enabled: false,
                 threshold_tokens: 100,
                 keep_recent: 2,
+                keep_recent_turns: None,
                 extraction_enabled: false,
                 model: None,
                 pre_flush_enabled: false,
@@ -174,6 +175,7 @@ async fn test_compaction_triggers_at_threshold() {
                 enabled: true,
                 threshold_tokens: 100, // Very low threshold
                 keep_recent: 2,
+                keep_recent_turns: None,
                 extraction_enabled: false,
                 model: None,
                 pre_flush_enabled: false,

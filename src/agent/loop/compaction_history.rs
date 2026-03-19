@@ -36,12 +36,22 @@ impl AgentLoop {
             return Ok(session.get_history(DEFAULT_HISTORY_SIZE));
         }
 
-        if full_history.len() <= keep_recent {
-            return Ok(full_history);
-        }
+        let split_idx = if let Some(keep_turns) = self.compaction_config.keep_recent_turns {
+            let idx = crate::agent::compaction::split_at_turn_boundary(&full_history, keep_turns);
+            if idx == 0 {
+                // All messages fit within the requested turns
+                return Ok(full_history);
+            }
+            idx
+        } else {
+            if full_history.len() <= keep_recent {
+                return Ok(full_history);
+            }
+            full_history.len() - keep_recent
+        };
 
-        let old_messages = &full_history[..full_history.len() - keep_recent];
-        let recent_messages = &full_history[full_history.len() - keep_recent..];
+        let old_messages = &full_history[..split_idx];
+        let recent_messages = &full_history[split_idx..];
 
         if old_messages.is_empty() {
             return Ok(recent_messages.to_vec());

@@ -78,6 +78,40 @@ impl MemorySearchTool {
             d.query, d.search_type, d.result_count, score_str, sources, d.timestamp
         )))
     }
+
+    fn action_list_sources(&self) -> Result<ToolResult> {
+        let sources = self.memory.db().list_sources_with_counts()?;
+        if sources.is_empty() {
+            return Ok(ToolResult::new("No memory sources found.".to_string()));
+        }
+        let lines: Vec<String> = sources
+            .iter()
+            .map(|(key, count)| format!("- {key} ({count} entries)"))
+            .collect();
+        Ok(ToolResult::new(format!(
+            "{} sources:\n{}",
+            sources.len(),
+            lines.join("\n")
+        )))
+    }
+
+    fn action_delete(&self, source_key: &str) -> Result<ToolResult> {
+        if source_key.starts_with("knowledge:") {
+            return Ok(ToolResult::error(
+                "Cannot delete knowledge entries — they are protected from deletion.".to_string(),
+            ));
+        }
+        let deleted = self.memory.db().delete_by_source_key(source_key)?;
+        if deleted == 0 {
+            Ok(ToolResult::new(format!(
+                "No entries found for source '{source_key}'."
+            )))
+        } else {
+            Ok(ToolResult::new(format!(
+                "Deleted {deleted} entries from source '{source_key}'."
+            )))
+        }
+    }
 }
 
 #[async_trait]
@@ -87,7 +121,7 @@ impl Tool for MemorySearchTool {
     }
 
     fn description(&self) -> &'static str {
-        "Search long-term memory and daily notes. Actions: 'search' (default) finds relevant memories; 'explain_last' shows provenance details of the most recent search (query, method, scores, sources)."
+        "Search long-term memory and daily notes. Actions: 'search' (default) finds relevant memories; 'explain_last' shows provenance details of the most recent search; 'list_sources' lists all memory source keys with counts; 'delete' removes entries by source key."
     }
 
     fn cacheable(&self) -> bool {
@@ -98,7 +132,7 @@ impl Tool for MemorySearchTool {
         ToolCapabilities {
             built_in: true,
             subagent_access: SubagentAccess::ReadOnly,
-            actions: actions![search: ro, explain_last: ro],
+            actions: actions![search: ro, explain_last: ro, list_sources: ro, delete],
             ..Default::default()
         }
     }
@@ -109,12 +143,16 @@ impl Tool for MemorySearchTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["search", "explain_last"],
-                    "description": "Action to perform. 'search' (default) retrieves memories; 'explain_last' returns provenance of the most recent search."
+                    "enum": ["search", "explain_last", "list_sources", "delete"],
+                    "description": "Action to perform. 'search' (default) retrieves memories; 'explain_last' returns provenance of the most recent search; 'list_sources' lists all source keys with counts; 'delete' removes entries by source key."
                 },
                 "query": {
                     "type": "string",
                     "description": "Search query to find relevant memories. Required when action is 'search' (the default)."
+                },
+                "source_key": {
+                    "type": "string",
+                    "description": "Source key for delete action. Required when action is 'delete'."
                 }
             }
         })
@@ -125,6 +163,22 @@ impl Tool for MemorySearchTool {
 
         if action == "explain_last" {
             return self.action_explain_last();
+        }
+
+        if action == "list_sources" {
+            return self.action_list_sources();
+        }
+
+        if action == "delete" {
+            let source_key = match params["source_key"].as_str() {
+                Some(k) if !k.trim().is_empty() => k,
+                _ => {
+                    return Ok(ToolResult::error(
+                        "missing or empty 'source_key' parameter for delete action".to_string(),
+                    ));
+                }
+            };
+            return self.action_delete(source_key);
         }
 
         let query = match params["query"].as_str() {

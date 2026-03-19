@@ -62,8 +62,14 @@ fn test_memory_search_capabilities() {
     assert!(caps.built_in);
     assert!(!caps.network_outbound);
     assert_eq!(caps.subagent_access, SubagentAccess::ReadOnly);
-    assert_eq!(caps.actions.len(), 2);
-    assert!(caps.actions.iter().all(|a| a.read_only));
+    assert_eq!(caps.actions.len(), 4);
+    // search, explain_last, list_sources are read-only; delete is not
+    assert!(caps.actions.iter().filter(|a| a.read_only).count() >= 3);
+    assert!(
+        caps.actions
+            .iter()
+            .any(|a| a.name == "delete" && !a.read_only)
+    );
 }
 
 #[test]

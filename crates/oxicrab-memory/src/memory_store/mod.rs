@@ -261,7 +261,7 @@ impl MemoryStore {
                 HashSet::new()
             };
             let result_limit = self.search_result_limit;
-            let hits = if self.has_embeddings() {
+            let initial_hits = if self.has_embeddings() {
                 #[cfg(feature = "embeddings")]
                 {
                     match self.hybrid_search(query, result_limit, Some(&exclude)) {
@@ -278,6 +278,16 @@ impl MemoryStore {
                 }
             } else {
                 self.db.search(query, result_limit, Some(&exclude))?
+            };
+
+            // If initial search returned no results and query has multiple terms,
+            // retry with a broader keyword search (OR semantics via individual term search)
+            let hits = if initial_hits.is_empty() && query.split_whitespace().count() >= 2 {
+                debug!("memory search: no results for full query, retrying with relaxed search");
+                // Try keyword-only search which may match partial terms
+                self.db.search(query, result_limit, Some(&exclude))?
+            } else {
+                initial_hits
             };
             let max_chars = self.max_context_chars;
             let mut total_chars = 0;
@@ -349,6 +359,61 @@ impl MemoryStore {
                 _ => {}
             }
         }
+    }
+
+    /// Check if content is semantically similar to any recent daily entries
+    /// using embedding cosine similarity. Returns true if a duplicate is found.
+    /// Falls back to false if embeddings are unavailable or an error occurs.
+    #[cfg_attr(not(feature = "embeddings"), allow(unused_variables))]
+    pub fn is_semantically_duplicate(&self, content: &str, threshold: f32) -> bool {
+        #[cfg(feature = "embeddings")]
+        {
+            let Some(svc) = self.embedding_service() else {
+                return false;
+            };
+            let query_emb = match svc.embed_query(content) {
+                Ok(e) => e,
+                Err(_) => return false,
+            };
+            // Search recent daily entries using vector similarity only
+            let keyword_weight = 0.0; // pure vector search
+            match self.db.hybrid_search(
+                content,
+                &query_emb,
+                5,
+                None,
+                keyword_weight,
+                oxicrab_core::config::schema::FusionStrategy::WeightedScore,
+                60,
+                0, // no recency decay for dedup
+            ) {
+                Ok(hits) => {
+                    // Check if any hit from daily: sources has high similarity
+                    for hit in &hits {
+                        if !hit.source_key.starts_with("daily:") {
+                            continue;
+                        }
+                        // Re-embed the hit content and compare
+                        if let Ok(hit_emb) = svc.embed_query(&hit.content) {
+                            let sim = crate::embeddings::cosine_similarity(&query_emb, &hit_emb);
+                            if sim >= threshold {
+                                debug!(
+                                    "semantic dedup: similarity {:.3} >= threshold {:.3} with '{}'",
+                                    sim,
+                                    threshold,
+                                    &hit.content[..hit.content.len().min(50)]
+                                );
+                                return true;
+                            }
+                        }
+                    }
+                    false
+                }
+                Err(_) => false,
+            }
+        }
+        #[cfg(not(feature = "embeddings"))]
+        false
     }
 
     /// Get recent daily entries across all days for deduplication.
