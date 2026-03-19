@@ -219,7 +219,7 @@ impl ChannelManager {
                             return Ok(());
                         }
                         Err(e) => {
-                            if attempt < max_attempts {
+                            if attempt < max_attempts && is_retryable_channel_error(&e) {
                                 warn!(
                                     "Send to {} failed (attempt {}/{}): {}, retrying...",
                                     msg.channel, attempt, max_attempts, e
@@ -228,6 +228,12 @@ impl ChannelManager {
                                     attempt as u64,
                                 ))
                                 .await;
+                            } else if !is_retryable_channel_error(&e) {
+                                return Err(anyhow::anyhow!(
+                                    "Failed to send message to {} channel: {}",
+                                    msg.channel,
+                                    e
+                                ));
                             }
                             last_err = Some(e);
                         }
@@ -299,6 +305,19 @@ impl ChannelManager {
         }
         Ok(())
     }
+}
+
+/// Heuristic check for non-retryable channel errors.
+/// Errors indicating logical failures (auth, not found, invalid input)
+/// should not be retried.
+fn is_retryable_channel_error(err: &anyhow::Error) -> bool {
+    let msg = err.to_string().to_lowercase();
+    !msg.contains("not found")
+        && !msg.contains("unauthorized")
+        && !msg.contains("forbidden")
+        && !msg.contains("invalid")
+        && !msg.contains("permission")
+        && !msg.contains("bad request")
 }
 
 #[cfg(test)]
