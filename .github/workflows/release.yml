@@ -143,9 +143,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get install -y lintian
-          lintian --tag-display-limit 0 *.deb || true
+          lintian --tag-display-limit 0 -- ./*.deb || true
           # Fail on errors (E:), allow warnings (W:) and info (I:)
-          ! lintian *.deb 2>&1 | grep -q '^E:'
+          ! lintian -- ./*.deb 2>&1 | grep -q '^E:'
 
       - name: Build RPM package
         if: runner.os == 'Linux'
@@ -157,9 +157,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get install -y rpmlint
-          rpmlint -c deploy/rpm/rpmlint.toml *.rpm
+          rpmlint -c deploy/rpm/rpmlint.toml -- ./*.rpm
           # Log contents for review
-          rpm -qpl *.rpm || true
+          rpm -qpl -- ./*.rpm || true
 
       - name: Build DMG
         if: runner.os == 'macOS'
@@ -299,7 +299,7 @@ jobs:
           mkdir -p release-assets
           find artifacts -type f \( -name "*.tar.gz" -o -name "*.sha256" -o -name "*.deb" -o -name "*.rpm" -o -name "*.dmg" \) -exec cp {} release-assets/ \;
           cd release-assets
-          cat *.sha256 > checksums-sha256.txt
+          cat -- ./*.sha256 > checksums-sha256.txt
 
       - name: Sign release artifacts
         run: |

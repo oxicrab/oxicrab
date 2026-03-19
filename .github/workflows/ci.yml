@@ -502,22 +502,26 @@ jobs:
           else
             SIGN=""
           fi
-          echo "### Binary Size" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Current | ${{ steps.size.outputs.mb }} MB |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Baseline | $(echo "scale=2; $BASELINE / 1048576" | bc) MB |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Delta | ${SIGN}${DELTA_KB} KB |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Binary Size"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Current | ${{ steps.size.outputs.mb }} MB |"
+            echo "| Baseline | $(echo "scale=2; $BASELINE / 1048576" | bc) MB |"
+            echo "| Delta | ${SIGN}${DELTA_KB} KB |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Report size (no baseline)
         if: github.event_name != 'pull_request' || steps.baseline.outputs.cache-hit != 'true'
         run: |
-          echo "### Binary Size" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Size | ${{ steps.size.outputs.mb }} MB |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Binary Size"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Size | ${{ steps.size.outputs.mb }} MB |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save baseline (main only)
         if: github.ref == 'refs/heads/main'
@@ -576,8 +580,8 @@ jobs:
       - name: Validate DEB package
         run: |
           sudo apt-get install -y lintian
-          lintian --tag-display-limit 0 *.deb || true
-          ! lintian *.deb 2>&1 | grep -q '^E:'
+          lintian --tag-display-limit 0 -- ./*.deb || true
+          ! lintian -- ./*.deb 2>&1 | grep -q '^E:'
 
       - name: Build RPM package
         run: |
@@ -587,8 +591,8 @@ jobs:
       - name: Validate RPM package
         run: |
           sudo apt-get install -y rpmlint
-          rpmlint -c deploy/rpm/rpmlint.toml *.rpm
-          rpm -qpl *.rpm || true
+          rpmlint -c deploy/rpm/rpmlint.toml -- ./*.rpm
+          rpm -qpl -- ./*.rpm || true
 
   # ── Package (macOS) ─────────────────────────────────────────────────
   package-macos:
@@ -761,10 +765,15 @@ jobs:
             echo "::error::check failed"
             exit 1
           fi
-
-          # Code-gated jobs: fail on failure/cancelled, accept skipped (docs-only changes)
-          for job in clippy test-unit test-integration build-linux fuzz-security; do
-            result="${{ needs[job].result }}"
+          for pair in \
+            "clippy:${{ needs.clippy.result }}" \
+            "test-unit:${{ needs.test-unit.result }}" \
+            "test-integration:${{ needs.test-integration.result }}" \
+            "build-linux:${{ needs.build-linux.result }}" \
+            "fuzz-security:${{ needs.fuzz-security.result }}"
+          do
+            job="${pair%%:*}"
+            result="${pair#*:}"
             if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
               echo "::error::${job} failed"
               exit 1
