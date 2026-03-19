@@ -270,7 +270,7 @@ jobs:
             ghcr.io/${{ github.repository }}:slack-only
             ghcr.io/${{ github.repository }}:${{ env.VERSION }}-slack-only
           build-args: |
-            FEATURES=channel-slack,keyring-store,browser,embeddings
+            FEATURES=channel-slack,keyring-store,embeddings
           cache-from: type=gha,scope=slack-only
           cache-to: type=gha,mode=max,scope=slack-only
           provenance: false
