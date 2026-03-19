@@ -510,7 +510,7 @@ max_width: 1120px
   <div class="hero-text">
     <img src="oxicrab.png" alt="oxicrab" class="hero-logo">
     <h1>Your AI assistant framework, <span class="rust-highlight">built in Rust.</span></h1>
-    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 29 built-in tools, long-term memory, subagents, cron scheduling, and MCP support.</p>
+    <p>Connect Telegram, Discord, Slack, WhatsApp, and Twilio to any LLM. 29 built-in tools, layered routing, long-term memory, subagents, cron scheduling, and MCP support.</p>
     <div class="hero-actions">
       <a href="#install" class="btn btn-primary">Get Started</a>
       <a href="https://github.com/oxicrab/oxicrab" class="btn btn-ghost">View Source</a>
@@ -521,26 +521,27 @@ max_width: 1120px
       <div class="terminal-dot r"></div>
       <div class="terminal-dot y"></div>
       <div class="terminal-dot g"></div>
-      <div class="terminal-title">oxicrab gateway</div>
+      <div class="terminal-title">oxicrab agent</div>
     </div>
     <div class="terminal-body">
-      <span class="comment"># start multi-channel daemon</span><br>
+      <span class="comment"># single-turn CLI mode</span><br>
+      <span class="prompt">$</span> <span class="cmd">oxicrab agent -m "summarize my inbox"</span><br>
+      <span class="output">Loading config from ~/.oxicrab/config.toml...</span><br>
+      <span class="output">Routing: full LLM with Gmail + memory tools</span><br>
+      <span class="output">Searching gmail for recent messages...</span><br>
+      <span class="output">Found 12 unread emails. Here&apos;s your summary:</span><br>
+      <span class="highlight">1.</span> <span class="output">AWS billing alert &mdash; $47.22 for January</span><br>
+      <span class="highlight">2.</span> <span class="output">PR #142 approved by @reviewer</span><br>
+      <span class="highlight">3.</span> <span class="output">Team standup notes for Monday</span><br>
+      <br>
+      <span class="comment"># or run the multi-channel bot</span><br>
       <span class="prompt">$</span> <span class="cmd">oxicrab gateway</span><br>
       <span class="output">INFO  loading config from ~/.oxicrab/config.toml</span><br>
-      <span class="output">INFO  registered 29 tools + 2 MCP servers</span><br>
       <span class="success">INFO  telegram channel started</span><br>
       <span class="success">INFO  discord channel started</span><br>
       <span class="success">INFO  slack channel started (websocket)</span><br>
       <span class="output">INFO  cron service started (3 jobs)</span><br>
       <span class="success">INFO  oxicrab is ready</span><br>
-      <br>
-      <span class="comment"># or single-turn CLI mode</span><br>
-      <span class="prompt">$</span> <span class="cmd">oxicrab agent -m "summarize my inbox"</span><br>
-      <span class="output">Searching gmail for recent messages...</span><br>
-      <span class="output">Found 12 unread emails. Here's your summary:</span><br>
-      <span class="highlight">1.</span> <span class="output">AWS billing alert &mdash; $47.22 for January</span><br>
-      <span class="highlight">2.</span> <span class="output">PR #142 approved by @reviewer</span><br>
-      <span class="highlight">3.</span> <span class="output">Team standup notes for Monday</span><br>
     </div>
   </div>
 </section>
@@ -585,6 +586,13 @@ max_width: 1120px
         <div class="feature-detail">
           <h3>Anthropic, OpenAI, Google, and OpenAI-compatible</h3>
           <p>Claude, GPT, Gemini natively, plus OpenRouter, DeepSeek, Groq, Ollama, Moonshot, Zhipu, DashScope, MiniMax, and vLLM via OpenAI-compatible adapter. OAuth support and automatic provider selection by model name.</p>
+        </div>
+      </div>
+      <div class="feature-row">
+        <div class="feature-name">Routing Layers</div>
+        <div class="feature-detail">
+          <h3>Deterministic first, constrained LLM second, full LLM last</h3>
+          <p>Messages route through strict policy layers: direct dispatch for rules, buttons, and directives; constrained LLM turns with exact tool allow/block lists; then full LLM fallback with semantic tool narrowing when confidence is high. Session metadata persists tool-focused context and replay traces.</p>
         </div>
       </div>
       <div class="feature-row">
