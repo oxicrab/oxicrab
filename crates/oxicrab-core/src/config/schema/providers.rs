@@ -60,7 +60,14 @@ pub fn infer_provider_from_model(model: &str) -> Option<&'static str> {
     if m.starts_with("claude-") || m.starts_with("claude_") {
         return Some("anthropic");
     }
-    if m.starts_with("gpt-") || m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4") {
+    if m.starts_with("gpt-")
+        || m == "o1"
+        || m.starts_with("o1-")
+        || m == "o3"
+        || m.starts_with("o3-")
+        || m == "o4"
+        || m.starts_with("o4-")
+    {
         return Some("openai");
     }
     if m.starts_with("gemini") {
