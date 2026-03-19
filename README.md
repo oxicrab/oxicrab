@@ -102,11 +102,11 @@ Features: `channel-telegram`, `channel-discord`, `channel-slack`, `channel-whats
 # First-time setup
 oxicrab onboard
 
-# Start the multi-channel gateway
+# Start oxicrab
 oxicrab gateway
 
-# Single message (CLI mode)
-oxicrab agent -m "What's the weather?"
+# Then message it in Slack / Telegram / Discord / WhatsApp
+# e.g. "@oxicrab summarize my inbox"
 ```
 
 Other useful commands: `oxicrab doctor` (check config and dependencies), `oxicrab completion` (generate shell completions for bash/zsh/fish).

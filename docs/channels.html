@@ -485,7 +485,7 @@ doneEmoji = "white_check_mark"</code></pre>
 
     <h3>1. First-time setup</h3>
     <ol>
-      <li>Run <code>./oxicrab gateway</code> with WhatsApp enabled in config</li>
+      <li>Run <code>oxicrab gateway</code> with WhatsApp enabled in config</li>
       <li>Scan the QR code displayed in the terminal with your phone (WhatsApp &gt; Settings &gt; Linked Devices &gt; Link a Device)</li>
       <li>Session is automatically stored in <code>~/.oxicrab/whatsapp/whatsapp.db</code></li>
     </ol>
@@ -642,7 +642,7 @@ dmPolicy = "pairing"</code></pre>
     <p>Sender access is resolved from three sources, checked in order. The first match wins:</p>
     <ol>
       <li><strong>Config allowlist</strong> (<code>allowFrom</code>) &mdash; sender IDs hardcoded in <code>config.toml</code>. Checked first, always available. Use <code>["*"]</code> as a wildcard to allow everyone. Phone numbers are normalized (leading <code>+</code> stripped) so <code>"+15551234567"</code> and <code>"15551234567"</code> both match.</li>
-      <li><strong>Pairing store</strong> (SQLite <code>pairing_allowlist</code> table in workspace <code>memory.db</code>) &mdash; sender IDs added dynamically via <code>oxicrab pairing approve</code>. Read from DB on every message, so approvals take effect without restarting the gateway.</li>
+      <li><strong>Pairing store</strong> (SQLite <code>pairing_allowlist</code> table in workspace <code>memory.sqlite3</code>) &mdash; sender IDs added dynamically via <code>oxicrab pairing approve</code>. Read from DB on every message, so approvals take effect without restarting oxicrab.</li>
       <li><strong>DM policy fallback</strong> (<code>dmPolicy</code>) &mdash; what happens when a sender matches neither source above. This is where the three modes diverge.</li>
     </ol>
 
@@ -660,7 +660,7 @@ dmPolicy = "pairing"</code></pre>
         no
         v
   Sender in pairing store? ──yes──> ALLOW
-  (pairing_allowlist table in memory.db)
+  (pairing_allowlist table in memory.sqlite3)
         |
         no
         v
@@ -679,7 +679,7 @@ dmPolicy = "pairing"</code></pre>
     <p>This walkthrough applies to <strong>every channel</strong> (Telegram, Discord, Slack, WhatsApp, Twilio). The only difference is how the pairing reply is delivered.</p>
     <ol>
       <li><strong>Configure the channel.</strong> Set <code>enabled = true</code>, add your own ID to <code>allowFrom</code>, and choose a <code>dmPolicy</code>. For this walkthrough we use <code>dmPolicy = "pairing"</code>.</li>
-      <li><strong>Start the gateway.</strong> <code>oxicrab gateway</code> connects the channel. Your ID is in <code>allowFrom</code>, so your messages work immediately.</li>
+      <li><strong>Start oxicrab.</strong> <code>oxicrab gateway</code> connects the channel. Your ID is in <code>allowFrom</code>, so your messages work immediately.</li>
       <li><strong>An unknown sender messages the bot.</strong> They are not in <code>allowFrom</code> and not in the pairing store.</li>
       <li><strong>The channel generates a pairing code.</strong> An 8-character code (e.g. <code>XK7M2NPA</code>) is created with a 15-minute TTL and sent back to the sender:
         <ul class="plain" style="margin-top: 0.5rem;">
@@ -692,7 +692,7 @@ dmPolicy = "pairing"</code></pre>
       </li>
       <li><strong>The sender shares the code with you</strong> (out-of-band &mdash; in person, via another chat, etc.).</li>
       <li><strong>You approve the pairing.</strong> Run <code>oxicrab pairing approve {code}</code>. This validates the code and adds the sender's ID to the <code>pairing_allowlist</code> table in the workspace database.</li>
-      <li><strong>The sender is now permanently allowed.</strong> Their next message hits the pairing store check and passes. No gateway restart needed. You can revoke later with <code>oxicrab pairing revoke {channel} {sender_id}</code>.</li>
+      <li><strong>The sender is now permanently allowed.</strong> Their next message hits the pairing store check and passes. No restart needed. You can revoke later with <code>oxicrab pairing revoke {channel} {sender_id}</code>.</li>
     </ol>
 
     <h3>What changes with each policy</h3>
