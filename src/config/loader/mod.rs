@@ -2,6 +2,7 @@ use crate::config::Config;
 use crate::utils::{ensure_dir, get_oxicrab_home};
 use anyhow::{Context, Result};
 use fs2::FileExt;
+use serde::de::IntoDeserializer;
 use serde_json::Value as JsonValue;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,14 +33,16 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
     }
 
     if !loaded_any {
+        if config_path.is_some() {
+            anyhow::bail!("Config file not found: {}", base_path.display());
+        }
         let mut default_config = Config::default();
         apply_runtime_overrides(&mut default_config);
         return Ok(default_config);
     }
 
     let migrated = migrate_config(toml_to_json(&merged)?);
-    let mut config: Config =
-        serde_json::from_value(migrated).with_context(|| "Failed to deserialize config")?;
+    let mut config = deserialize_config_strict(migrated)?;
 
     apply_runtime_overrides(&mut config);
 
@@ -179,6 +182,29 @@ fn migrate_config(data: JsonValue) -> JsonValue {
         JsonValue::Object(map)
     } else {
         data
+    }
+}
+
+fn deserialize_config_strict(data: JsonValue) -> Result<Config> {
+    let mut ignored = Vec::new();
+    let config: Config = serde_ignored::deserialize(data.into_deserializer(), |path| {
+        ignored.push(path.to_string());
+    })
+    .with_context(|| "Failed to deserialize config")?;
+
+    if ignored.is_empty() {
+        Ok(config)
+    } else {
+        ignored.sort();
+        ignored.dedup();
+        anyhow::bail!(
+            "Unknown config key(s): {}",
+            ignored
+                .into_iter()
+                .map(|path| format!("'{path}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
 }
 

@@ -54,106 +54,108 @@ impl AgentLoop {
         // Clear request-scoped deferred tool activations from previous retries/reuse.
         self.tool_search_activated.clear(&activation_scope).await;
         self.pending_buttons.clear(&activation_scope);
-        let mut activated_snapshot = std::collections::HashSet::new();
+        let result = async {
+            let mut activated_snapshot = std::collections::HashSet::new();
 
-        let tools_defs = self
-            .tools
-            .get_tool_definitions_with_activated(&activated_snapshot);
+            let tools_defs = self
+                .tools
+                .get_tool_definitions_with_activated(&activated_snapshot);
 
-        // Exfiltration guard: hide network-outbound tools from the LLM
-        let mut tools_defs = if self.exfiltration_guard.enabled {
-            let allowed = &self.exfiltration_guard.allow_tools;
-            tools_defs
-                .into_iter()
-                .filter(|td| {
-                    let is_network = self
-                        .tools
-                        .get(&td.name)
-                        .is_some_and(|t| t.capabilities().network_outbound);
-                    !is_network || allowed.contains(&td.name)
-                })
-                .collect()
-        } else {
-            tools_defs
-        };
-
-        // Router tool filter: constrain available tools for GuidedLLM/SemanticFilter paths
-        if let Some(policy) = overrides.routing_policy.as_ref() {
-            tools_defs.retain(|td| {
-                policy.allowed_tools.contains(&td.name)
-                    || td.name == "add_buttons"
-                    || td.name == "tool_search"
-            });
-        }
-        if let Some(policy) = overrides.routing_policy.as_ref() {
-            debug!(
-                "router policy active: reason={} tools={}",
-                policy.reason,
-                tools_defs.len()
-            );
-        }
-
-        // Extract tool names for hallucination detection (may be rebuilt if tool_search activates deferred tools)
-        let mut tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
-
-        // Wrap tools in Arc for cheap cloning into each ChatRequest iteration
-        let mut tools_arc = Arc::new(tools_defs);
-
-        // Reinforce tool awareness in the system prompt. Without this, models
-        // (especially via proxy APIs like OpenRouter) sometimes claim tools are
-        // unavailable and fabricate responses instead of calling them.
-        if !tool_names.is_empty()
-            && let Some(system_msg) = messages.first_mut()
-        {
-            system_msg.content.push_str(
-                "\n\nYou have tools available. If a user asks you to perform actions, \
-                 call the matching tool directly — do not claim tools are unavailable.",
-            );
-        }
-
-        // Inject router context hint into system prompt for GuidedLLM path
-        if let Some(hint) = overrides
-            .routing_policy
-            .as_ref()
-            .and_then(|p| p.context_hint.as_ref())
-            && let Some(system_msg) = messages.first_mut()
-        {
-            use std::fmt::Write;
-            // Cap context hint to prevent excessive token usage
-            let capped = if hint.len() > 1000 {
-                &hint[..hint.floor_char_boundary(1000)]
+            // Exfiltration guard: hide network-outbound tools from the LLM
+            let mut tools_defs = if self.exfiltration_guard.enabled {
+                let allowed = &self.exfiltration_guard.allow_tools;
+                tools_defs
+                    .into_iter()
+                    .filter(|td| {
+                        let is_network = self
+                            .tools
+                            .get(&td.name)
+                            .is_some_and(|t| t.capabilities().network_outbound);
+                        !is_network || allowed.contains(&td.name)
+                    })
+                    .collect()
             } else {
-                hint.as_str()
+                tools_defs
             };
-            let _ = write!(system_msg.content, "\n\n## Active Interaction\n\n{capped}");
-        }
 
-        // Append cognitive routines to system prompt when enabled
-        if self.cognitive_config.enabled
-            && let Some(system_msg) = messages.first_mut()
-        {
-            system_msg.content.push_str(
-                "\n\n## Cognitive Routines\n\n\
-                 When working on complex tasks with many tool calls:\n\
-                 - Periodically summarize your progress in your responses\n\
-                 - If you receive a checkpoint hint, briefly note: what's done, \
-                 what's in progress, what's next\n\
-                 - Keep track of your overall plan and remaining steps",
-            );
-        }
+            // Router tool filter: constrain available tools for GuidedLLM/SemanticFilter paths
+            if let Some(policy) = overrides.routing_policy.as_ref() {
+                tools_defs.retain(|td| {
+                    policy.allowed_tools.contains(&td.name)
+                        || activated_snapshot.contains(&td.name)
+                        || td.name == "add_buttons"
+                        || td.name == "tool_search"
+                });
+            }
+            if let Some(policy) = overrides.routing_policy.as_ref() {
+                debug!(
+                    "router policy active: reason={} tools={}",
+                    policy.reason,
+                    tools_defs.len()
+                );
+            }
 
-        let wrapup_threshold =
-            (effective_max_iterations as f64 * WRAPUP_THRESHOLD_RATIO).ceil() as usize;
-        // Ensure wrapup doesn't fire on the very first iteration
-        let wrapup_threshold = wrapup_threshold.max(MIN_WRAPUP_ITERATION);
-        // Ensure at least 1 iteration remains after wrapup for the LLM to act on it
-        let wrapup_threshold = if wrapup_threshold >= effective_max_iterations {
-            effective_max_iterations.saturating_sub(1).max(1)
-        } else {
-            wrapup_threshold
-        };
+            // Extract tool names for hallucination detection (may be rebuilt if tool_search activates deferred tools)
+            let mut tool_names: Vec<String> = tools_defs.iter().map(|td| td.name.clone()).collect();
 
-        for iteration in 1..=effective_max_iterations {
+            // Wrap tools in Arc for cheap cloning into each ChatRequest iteration
+            let mut tools_arc = Arc::new(tools_defs);
+
+            // Reinforce tool awareness in the system prompt. Without this, models
+            // (especially via proxy APIs like OpenRouter) sometimes claim tools are
+            // unavailable and fabricate responses instead of calling them.
+            if !tool_names.is_empty()
+                && let Some(system_msg) = messages.first_mut()
+            {
+                system_msg.content.push_str(
+                    "\n\nYou have tools available. If a user asks you to perform actions, \
+                     call the matching tool directly — do not claim tools are unavailable.",
+                );
+            }
+
+            // Inject router context hint into system prompt for GuidedLLM path
+            if let Some(hint) = overrides
+                .routing_policy
+                .as_ref()
+                .and_then(|p| p.context_hint.as_ref())
+                && let Some(system_msg) = messages.first_mut()
+            {
+                use std::fmt::Write;
+                // Cap context hint to prevent excessive token usage
+                let capped = if hint.len() > 1000 {
+                    &hint[..hint.floor_char_boundary(1000)]
+                } else {
+                    hint.as_str()
+                };
+                let _ = write!(system_msg.content, "\n\n## Active Interaction\n\n{capped}");
+            }
+
+            // Append cognitive routines to system prompt when enabled
+            if self.cognitive_config.enabled
+                && let Some(system_msg) = messages.first_mut()
+            {
+                system_msg.content.push_str(
+                    "\n\n## Cognitive Routines\n\n\
+                     When working on complex tasks with many tool calls:\n\
+                     - Periodically summarize your progress in your responses\n\
+                     - If you receive a checkpoint hint, briefly note: what's done, \
+                     what's in progress, what's next\n\
+                     - Keep track of your overall plan and remaining steps",
+                );
+            }
+
+            let wrapup_threshold =
+                (effective_max_iterations as f64 * WRAPUP_THRESHOLD_RATIO).ceil() as usize;
+            // Ensure wrapup doesn't fire on the very first iteration
+            let wrapup_threshold = wrapup_threshold.max(MIN_WRAPUP_ITERATION);
+            // Ensure at least 1 iteration remains after wrapup for the LLM to act on it
+            let wrapup_threshold = if wrapup_threshold >= effective_max_iterations {
+                effective_max_iterations.saturating_sub(1).max(1)
+            } else {
+                wrapup_threshold
+            };
+
+            for iteration in 1..=effective_max_iterations {
             // Inject wrap-up hint when approaching iteration limit
             if iteration == wrapup_threshold && any_tools_called {
                 messages.push(Message::system(format!(
@@ -297,6 +299,7 @@ impl AgentLoop {
                         if let Some(policy) = overrides.routing_policy.as_ref() {
                             tools_defs.retain(|td| {
                                 policy.allowed_tools.contains(&td.name)
+                                    || activated_snapshot.contains(&td.name)
                                     || td.name == "add_buttons"
                                     || td.name == "tool_search"
                             });
@@ -335,7 +338,6 @@ impl AgentLoop {
                         let mut response_metadata =
                             self.take_pending_buttons_metadata(&activation_scope);
                         merge_suggested_buttons(&mut response_metadata, &collected_tool_metadata);
-                        self.tool_search_activated.clear(&activation_scope).await;
                         return Ok(AgentLoopResult {
                             content: Some(content),
                             input_tokens: last_input_tokens,
@@ -392,7 +394,6 @@ impl AgentLoop {
                     .as_ref()
                     .map(|g| (g, &self.prompt_guard_config)),
             );
-            self.tool_search_activated.clear(&activation_scope).await;
             return Ok(AgentLoopResult {
                 content: Some(content),
                 input_tokens: last_input_tokens,
@@ -413,7 +414,6 @@ impl AgentLoop {
                 .as_ref()
                 .map(|g| (g, &self.prompt_guard_config)),
         ) {
-            self.tool_search_activated.clear(&activation_scope).await;
             return Ok(AgentLoopResult {
                 content: Some(display),
                 input_tokens: last_input_tokens,
@@ -426,19 +426,22 @@ impl AgentLoop {
             });
         }
 
+            Ok(AgentLoopResult {
+                content: None,
+                input_tokens: last_input_tokens,
+                tools_used,
+                media: collected_media,
+                reasoning_content: None,
+                reasoning_signature: None,
+                response_metadata,
+                tool_metadata: collected_tool_metadata,
+            })
+        }
+        .await;
+
         self.tool_search_activated.clear(&activation_scope).await;
         self.pending_buttons.clear(&activation_scope);
-
-        Ok(AgentLoopResult {
-            content: None,
-            input_tokens: last_input_tokens,
-            tools_used,
-            media: collected_media,
-            reasoning_content: None,
-            reasoning_signature: None,
-            response_metadata,
-            tool_metadata: collected_tool_metadata,
-        })
+        result
     }
 
     /// Execute tool calls — single-tool fast-path or parallel `spawn`+`join_all`.
@@ -452,14 +455,7 @@ impl AgentLoop {
     ) -> Vec<ToolResult> {
         let allow_tools: Option<Vec<String>> = exfil_guard.map(|g| g.allow_tools.clone());
         let router_allow: Option<std::collections::HashSet<String>> =
-            routing_policy.map(|policy| {
-                let mut s: std::collections::HashSet<String> =
-                    policy.allowed_tools.iter().cloned().collect();
-                // Keep interaction helpers available in constrained turns.
-                s.insert("add_buttons".to_string());
-                s.insert("tool_search".to_string());
-                s
-            });
+            routing_policy.map(|_| tool_names.iter().cloned().collect());
         let router_block: Option<std::collections::HashSet<String>> =
             routing_policy.map(|policy| policy.blocked_tools.iter().cloned().collect());
         let blocked_by_router = |name: &str| {

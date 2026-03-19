@@ -43,7 +43,9 @@ use crate::safety::LeakDetector;
 use crate::session::{SessionManager, SessionStore};
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
+use lru::LruCache;
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -56,6 +58,7 @@ const RETRY_BACKOFF_BASE: u64 = 2;
 const MAX_RETRY_DELAY_SECS: f64 = 10.0;
 const DEFAULT_HISTORY_SIZE: usize = 50;
 const RECOVERY_CONTEXT_MAX_CHARS: usize = 200;
+const MAX_COMPACTION_STATE_SESSIONS: usize = 1024;
 
 struct CachedSemanticIndex {
     signature: u64,
@@ -103,7 +106,7 @@ pub struct AgentLoop {
     event_matcher_last_rebuild: Arc<std::sync::atomic::AtomicU64>,
     cron_service: Option<Arc<CronService>>,
     /// Per-session checkpoint state used for compaction recovery.
-    compaction_state: Arc<Mutex<HashMap<String, SessionCompactionState>>>,
+    compaction_state: Arc<Mutex<LruCache<String, SessionCompactionState>>>,
     cognitive_config: crate::config::CognitiveConfig,
     /// Exfiltration guard: hides outbound tools from the LLM
     exfiltration_guard: crate::config::ExfiltrationGuardConfig,
@@ -437,7 +440,10 @@ impl AgentLoop {
                     .map_or(0, |d| d.as_secs()),
             )),
             cron_service,
-            compaction_state: Arc::new(Mutex::new(HashMap::new())),
+            compaction_state: Arc::new(Mutex::new(LruCache::new(
+                NonZeroUsize::new(MAX_COMPACTION_STATE_SESSIONS)
+                    .expect("MAX_COMPACTION_STATE_SESSIONS must be > 0"),
+            ))),
             cognitive_config,
             exfiltration_guard,
             prompt_guard: if prompt_guard_config.enabled {
@@ -475,7 +481,7 @@ impl AgentLoop {
         &self,
         session_key: &str,
     ) -> (Option<String>, Option<String>) {
-        let guard = self.compaction_state.lock().await;
+        let mut guard = self.compaction_state.lock().await;
         let state = guard.get(session_key);
         (
             state.and_then(|s| s.last_checkpoint.clone()),
@@ -485,14 +491,28 @@ impl AgentLoop {
 
     async fn set_session_checkpoint(&self, session_key: &str, checkpoint: String) {
         let mut guard = self.compaction_state.lock().await;
-        let state = guard.entry(session_key.to_string()).or_default();
-        state.last_checkpoint = Some(checkpoint);
+        if let Some(state) = guard.get_mut(session_key) {
+            state.last_checkpoint = Some(checkpoint);
+        } else {
+            let state = SessionCompactionState {
+                last_checkpoint: Some(checkpoint),
+                ..Default::default()
+            };
+            guard.put(session_key.to_string(), state);
+        }
     }
 
     async fn set_session_cognitive_breadcrumb(&self, session_key: &str, breadcrumb: String) {
         let mut guard = self.compaction_state.lock().await;
-        let state = guard.entry(session_key.to_string()).or_default();
-        state.cognitive_breadcrumb = Some(breadcrumb);
+        if let Some(state) = guard.get_mut(session_key) {
+            state.cognitive_breadcrumb = Some(breadcrumb);
+        } else {
+            let state = SessionCompactionState {
+                cognitive_breadcrumb: Some(breadcrumb),
+                ..Default::default()
+            };
+            guard.put(session_key.to_string(), state);
+        }
     }
 
     /// Run the agent loop, processing inbound messages until the channel closes.

@@ -46,13 +46,10 @@ fn test_migrate_config_no_tools_key() {
 }
 
 #[test]
-fn test_load_config_missing_file_returns_default() {
+fn test_load_config_missing_explicit_file_errors() {
     let path = std::path::Path::new("/tmp/nonexistent_oxicrab_config_test.toml");
-    let config = load_config(Some(path)).unwrap();
-    assert_eq!(
-        config.agents.defaults.model_routing.default,
-        "claude-sonnet-4-5-20250929"
-    );
+    let err = load_config(Some(path)).unwrap_err();
+    assert!(err.to_string().contains("Config file not found"));
 }
 
 #[test]
@@ -128,7 +125,6 @@ default = "openai/gpt-5"
         overlay_dir.join("10-router.toml"),
         r"
 [router]
-enabled = true
 semanticThreshold = 0.61
 ",
     )
@@ -148,6 +144,25 @@ maxTokens = 2048
     assert_eq!(config.agents.defaults.model_routing.default, "openai/gpt-5");
     assert_eq!(config.agents.defaults.max_tokens, 2048);
     assert!((config.router.semantic_threshold - 0.61).abs() < f32::EPSILON);
+}
+
+#[test]
+fn test_unknown_config_key_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    std::fs::write(
+        &path,
+        r"
+[router]
+semanticThreshold = 0.61
+enabled = true
+",
+    )
+    .unwrap();
+
+    let err = load_config(Some(&path)).unwrap_err();
+    assert!(err.to_string().contains("Unknown config key(s)"));
+    assert!(err.to_string().contains("'router.enabled'"));
 }
 
 #[test]

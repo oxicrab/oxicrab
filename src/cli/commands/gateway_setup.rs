@@ -10,11 +10,28 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tracing::{debug, error, info, warn};
 
+fn gateway_host_is_public(host: &str) -> bool {
+    !matches!(host, "127.0.0.1" | "localhost" | "::1")
+}
+
+fn warn_if_public_gateway_without_auth(config: &Config) {
+    if config.gateway.enabled
+        && config.gateway.api_key.is_empty()
+        && gateway_host_is_public(&config.gateway.host)
+    {
+        warn!(
+            "gateway is binding to {}:{} without an API key; HTTP API and A2A task endpoints will be unauthenticated",
+            config.gateway.host, config.gateway.port
+        );
+    }
+}
+
 pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     let process_start = std::time::Instant::now();
     info!("Loading configuration...");
     let config = load_config(None)?;
     crate::observability::init_metrics_exporter(&config);
+    warn_if_public_gateway_without_auth(&config);
     let effective_model = model
         .as_deref()
         .unwrap_or(&config.agents.defaults.model_routing.default);
@@ -231,6 +248,7 @@ pub(super) async fn gateway_echo() -> Result<()> {
     info!("Loading configuration for echo mode...");
     let config = load_config(None)?;
     crate::observability::init_metrics_exporter(&config);
+    warn_if_public_gateway_without_auth(&config);
 
     // Create shared leak detector for echo mode
     let leak_detector = {
