@@ -227,32 +227,50 @@ impl BaseChannel for WhatsAppChannel {
                                     let mut content: String;
                                     let mut media_paths: Vec<String> = vec![];
 
-                                    // Classify media type from the message
+                                    // Classify media type from the message.
+                                    // Extract file_length from protobuf metadata for
+                                    // pre-download size validation (see MediaKind).
                                     let media = if let Some(ref img) = base_msg.image_message {
-                                        Some(MediaKind::Image(&**img, img.mimetype.as_deref()))
+                                        Some(MediaKind::Image(&**img, img.mimetype.as_deref(), img.file_length))
                                     } else if let Some(ref audio) = base_msg.audio_message {
-                                        Some(MediaKind::Audio(&**audio, audio.mimetype.as_deref()))
+                                        Some(MediaKind::Audio(&**audio, audio.mimetype.as_deref(), audio.file_length))
                                     } else if let Some(ref video) = base_msg.video_message {
-                                        Some(MediaKind::Video(&**video, video.mimetype.as_deref()))
+                                        Some(MediaKind::Video(&**video, video.mimetype.as_deref(), video.file_length))
                                     } else if let Some(ref doc) = base_msg.document_message {
                                         let mime = doc.mimetype.as_deref();
                                         if is_image_mime(mime) {
-                                            Some(MediaKind::Image(&**doc, mime))
+                                            Some(MediaKind::Image(&**doc, mime, doc.file_length))
                                         } else {
-                                            Some(MediaKind::Document(&**doc, mime))
+                                            Some(MediaKind::Document(&**doc, mime, doc.file_length))
                                         }
                                     } else {
                                         None
                                     };
 
                                     if let Some(media_kind) = media {
-                                        let (downloadable, mimetype, media_type, tag) = match media_kind {
-                                            MediaKind::Image(d, m) => (d, m, "image", "image"),
-                                            MediaKind::Audio(d, m) => (d, m, "audio", "audio"),
-                                            MediaKind::Document(d, m) => (d, m, "document", "document"),
-                                            MediaKind::Video(d, m) => (d, m, "video", "video"),
+                                        let (downloadable, mimetype, media_type, tag, file_len) = match media_kind {
+                                            MediaKind::Image(d, m, fl) => (d, m, "image", "image", fl),
+                                            MediaKind::Audio(d, m, fl) => (d, m, "audio", "audio", fl),
+                                            MediaKind::Document(d, m, fl) => (d, m, "document", "document", fl),
+                                            MediaKind::Video(d, m, fl) => (d, m, "video", "video", fl),
                                         };
                                         content = msg.get_caption().unwrap_or_default().to_string();
+
+                                        // Pre-download size check using protobuf file_length metadata.
+                                        // This avoids downloading oversized files when the sender
+                                        // provides the size upfront. Note: the wa-rs Downloadable
+                                        // trait downloads the full payload before returning, so this
+                                        // is the only OOM defense before the download completes.
+                                        if file_len.is_some_and(|len| len as usize > MAX_MEDIA_DOWNLOAD) {
+                                            let len = file_len.unwrap_or(0);
+                                            warn!(
+                                                "WhatsApp {} too large (file_length={} bytes, max={}), skipping download",
+                                                media_type, len, MAX_MEDIA_DOWNLOAD
+                                            );
+                                            if content.is_empty() {
+                                                content = format!("[{tag} - too large ({len} bytes)]");
+                                            }
+                                        } else {
                                         match download_whatsapp_media(&client, downloadable, mimetype, &info.id, media_type).await {
                                             Ok(path) => {
                                                 media_paths.push(path.clone());
@@ -268,6 +286,7 @@ impl BaseChannel for WhatsAppChannel {
                                                     content = format!("[{tag} - download failed]");
                                                 }
                                             }
+                                        }
                                         }
                                     } else {
                                         content = if let Some(text) = msg.text_content() { text.to_string() } else {
@@ -646,9 +665,9 @@ async fn download_whatsapp_media(
         ext
     ));
 
-    // NOTE: The wa-rs Downloadable trait provides no file_length
-    // pre-check, so the full payload is downloaded before the size check.
-    // Network-level egress limits are the primary defense against OOM here.
+    // NOTE: The wa-rs Downloadable trait downloads the full payload into memory.
+    // Callers should pre-check file_length from protobuf metadata before calling
+    // this function (see MediaKind). This post-download check is a second safety net.
     let data = client.download(downloadable).await?;
     if data.len() > MAX_MEDIA_DOWNLOAD {
         return Err(anyhow::anyhow!(
@@ -666,11 +685,29 @@ async fn download_whatsapp_media(
 }
 
 /// Classification of a `WhatsApp` media attachment for download.
+/// The `Option<u64>` is the `file_length` from the protobuf metadata,
+/// used for pre-download size validation.
 enum MediaKind<'a> {
-    Image(&'a dyn wa_rs::download::Downloadable, Option<&'a str>),
-    Audio(&'a dyn wa_rs::download::Downloadable, Option<&'a str>),
-    Document(&'a dyn wa_rs::download::Downloadable, Option<&'a str>),
-    Video(&'a dyn wa_rs::download::Downloadable, Option<&'a str>),
+    Image(
+        &'a dyn wa_rs::download::Downloadable,
+        Option<&'a str>,
+        Option<u64>,
+    ),
+    Audio(
+        &'a dyn wa_rs::download::Downloadable,
+        Option<&'a str>,
+        Option<u64>,
+    ),
+    Document(
+        &'a dyn wa_rs::download::Downloadable,
+        Option<&'a str>,
+        Option<u64>,
+    ),
+    Video(
+        &'a dyn wa_rs::download::Downloadable,
+        Option<&'a str>,
+        Option<u64>,
+    ),
 }
 
 /// Check if a MIME type is an image type.
