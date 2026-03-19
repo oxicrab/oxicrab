@@ -274,7 +274,8 @@ oxicrab doctor
 
     <h3>Workflow</h3>
     <pre><span class="hl-comment"># 1. Configure a channel with empty allowFrom (deny-all)</span>
-"allowFrom": []
+[channels.telegram]
+allowFrom = []
 
 <span class="hl-comment"># 2. Start the gateway</span>
 oxicrab gateway

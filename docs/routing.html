@@ -373,26 +373,21 @@
   <section id="config">
     <h2>Router Configuration</h2>
     <p>Common routing controls in <code>router</code> config:</p>
-    <pre><code>{
-  "router": {
-    "prefix": "!",
-    "rules": [
-      {
-        "trigger": "briefing",
-        "tool": "cron",
-        "params": { "action": "list" }
-      },
-      {
-        "trigger": "todos",
-        "tool": "todoist",
-        "params": { "action": "list" }
-      }
-    ],
-    "semanticTopK": 6,
-    "semanticPrefilterK": 16,
-    "semanticThreshold": 0.35
-  }
-}</code></pre>
+    <pre><code>[router]
+prefix = "!"
+semanticTopK = 6
+semanticPrefilterK = 16
+semanticThreshold = 0.35
+
+[[router.rules]]
+trigger = "briefing"
+tool = "cron"
+params = { action = "list" }
+
+[[router.rules]]
+trigger = "todos"
+tool = "todoist"
+params = { action = "list" }</code></pre>
     <div class="example"><strong>Example:</strong> with <code>prefix: "!"</code>, typing <code>!briefing</code> lists cron jobs and <code>!todos</code> lists tasks. Both are deterministic dispatches (no LLM needed).</div>
     <p>See <a href="config.html">Config</a> for full schema and defaults.</p>
     <p>Related guides: <a href="cli.html">CLI Reference</a> and <a href="workspace.html">Workspace Docs</a>.</p>

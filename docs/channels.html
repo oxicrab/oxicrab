@@ -678,7 +678,7 @@ dmPolicy = "pairing"</code></pre>
     <h3>Walkthrough: message lifecycle with pairing</h3>
     <p>This walkthrough applies to <strong>every channel</strong> (Telegram, Discord, Slack, WhatsApp, Twilio). The only difference is how the pairing reply is delivered.</p>
     <ol>
-      <li><strong>Configure the channel.</strong> Set <code>"enabled": true</code>, add your own ID to <code>"allowFrom"</code>, and choose a <code>"dmPolicy"</code>. For this walkthrough we use <code>"pairing"</code>.</li>
+      <li><strong>Configure the channel.</strong> Set <code>enabled = true</code>, add your own ID to <code>allowFrom</code>, and choose a <code>dmPolicy</code>. For this walkthrough we use <code>dmPolicy = "pairing"</code>.</li>
       <li><strong>Start the gateway.</strong> <code>oxicrab gateway</code> connects the channel. Your ID is in <code>allowFrom</code>, so your messages work immediately.</li>
       <li><strong>An unknown sender messages the bot.</strong> They are not in <code>allowFrom</code> and not in the pairing store.</li>
       <li><strong>The channel generates a pairing code.</strong> An 8-character code (e.g. <code>XK7M2NPA</code>) is created with a 15-minute TTL and sent back to the sender:
