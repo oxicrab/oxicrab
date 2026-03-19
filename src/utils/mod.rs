@@ -1,5 +1,4 @@
 pub mod credential_store;
-pub mod io_safe;
 pub mod path_sanitize;
 pub mod regex;
 pub mod sandbox;

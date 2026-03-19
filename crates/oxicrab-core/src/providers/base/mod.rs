@@ -22,12 +22,11 @@ pub struct LLMResponse {
     /// Input token count reported by the provider (if available).
     /// Used for precise compaction threshold checks.
     pub input_tokens: Option<u64>,
-    /// Output token count reported by the provider (if available).
-    /// Used for cost tracking.
+    /// Output token count from the LLM response.
     pub output_tokens: Option<u64>,
-    /// Anthropic prompt caching: tokens written to cache (billed at 125% of input rate).
+    /// Anthropic prompt caching: tokens written to cache in this request.
     pub cache_creation_input_tokens: Option<u64>,
-    /// Anthropic prompt caching: tokens read from cache (billed at 10% of input rate).
+    /// Anthropic prompt caching: tokens read from cache in this request.
     pub cache_read_input_tokens: Option<u64>,
     /// Model that actually served this response. Set by `FallbackProvider` when
     /// a non-primary provider handles the request; `None` means the originally

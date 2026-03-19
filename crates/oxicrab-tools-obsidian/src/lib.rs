@@ -9,9 +9,6 @@ use oxicrab_core::tools::base::Tool;
 use oxicrab_memory::memory_db::MemoryDB;
 use std::sync::Arc;
 
-/// Create the Obsidian tool and sync service.
-///
-/// Returns `(tool, cache)` on success, where `cache` is used by the sync service.
 /// Create the Obsidian tool.
 ///
 /// Returns `(tool, cache)` on success, where `cache` is needed by `ObsidianSyncService`.

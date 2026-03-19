@@ -823,11 +823,11 @@ impl Tool for BrowserTool {
                 },
                 "pixels": {
                     "type": "integer",
-                    "description": "Number of pixels to scroll (default varies by direction)"
+                    "description": "Number of pixels to scroll (default 500)"
                 },
                 "ms": {
                     "type": "integer",
-                    "description": "Milliseconds to wait (for wait action, max 30000)"
+                    "description": "Milliseconds to wait (for wait action)"
                 },
                 "navigation": {
                     "type": "string",

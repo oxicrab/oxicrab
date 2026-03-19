@@ -85,8 +85,7 @@ pub struct CronJob {
     pub created_at_ms: i64,
     #[serde(rename = "updatedAtMs")]
     pub updated_at_ms: i64,
-    /// If true, disable the job after its first execution.
-    /// Disabled jobs are eventually pruned from the store.
+    /// If true, delete the job immediately after its first execution.
     #[serde(rename = "deleteAfterRun", default)]
     pub delete_after_run: bool,
     #[serde(

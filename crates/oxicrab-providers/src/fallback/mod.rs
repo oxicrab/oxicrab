@@ -86,7 +86,7 @@ impl LLMProvider for FallbackProvider {
                         continue;
                     }
                     // Tag which model actually served the response when it
-                    // wasn't the primary, so cost tracking uses the right rates.
+                    // wasn't the primary, so token usage is attributed to the correct model.
                     if i > 0 {
                         response.actual_model = Some(model_name.clone());
                     }

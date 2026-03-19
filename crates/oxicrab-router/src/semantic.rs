@@ -9,7 +9,6 @@ pub struct SemanticSelection {
 #[derive(Debug, Clone)]
 struct SemanticEntry {
     name: String,
-    #[allow(dead_code)]
     text: String,
     tokens: Vec<String>,
 }

@@ -1072,7 +1072,7 @@ fn test_conversational_reply_passes_through() {
 
 #[test]
 fn test_action_hallucination_caught_without_tool_forcing() {
-    // Action claims should be caught by hallucination detection even without tool_choice="any"
+    // Action claims should be caught by hallucination detection (tool_choice is always auto)
     let tool_names = vec!["write_file".to_string()];
     let mut messages = vec![];
     let mut layer1_fired = false;
