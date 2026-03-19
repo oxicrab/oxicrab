@@ -22,7 +22,6 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 urlencoding = "2.1"
-walkdir = "2.5"
 
 [dev-dependencies]
 tempfile = { workspace = true }

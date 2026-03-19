@@ -23,7 +23,6 @@ oauth2 = "5.0"
 dirs = { workspace = true }
 open = "5.0"
 url = { workspace = true }
-hex = { workspace = true }
 
 [dev-dependencies]
 oxicrab-memory = { path = "../oxicrab-memory", default-features = false }
