@@ -1193,45 +1193,47 @@ semanticThreshold = 0.5
 <section id="architecture" class="arch-section">
   <div class="container fade-in">
     <div class="section-label">Architecture</div>
-    <div class="section-title">Clean, modular, extensible</div>
-    <div class="section-desc">Three core traits with a middleware pipeline for tool execution.</div>
+    <div class="section-title">Crate-based and modular</div>
+    <div class="section-desc">The codebase is split into focused crates: channels, routing, gateway, providers, memory, safety, and tool crates. The binary composes them into one bot.</div>
 
     <div class="arch-flow-box">
       <span class="node">Channel</span>
       <span class="arrow">&rarr;</span>
       <span class="node">MessageBus</span>
       <span class="arrow">&rarr;</span>
+      <span class="node">Router</span>
+      <span class="arrow">&rarr;</span>
       <span class="node">AgentLoop</span>
       <span class="arrow">&rarr;</span>
-      <span class="node">LLM Provider</span>
+      <span class="node">Providers + Tools</span>
       <br>
-      <span style="color: #78716c; font-size: 0.75rem;">LLM call &rarr; parallel tool execution &rarr; append to conversation &rarr; repeat</span>
+      <span style="color: #78716c; font-size: 0.75rem;">deterministic routing &rarr; constrained/full LLM &rarr; policy-enforced tool execution &rarr; session update</span>
     </div>
 
     <div class="arch-grid">
       <div class="arch-card">
-        <h3>trait Tool</h3>
-        <p>name(), description(), parameters() via JSON Schema, execute(). Optional cacheable(). Registered in ToolRegistry with middleware pipeline.</p>
+        <h3><code>oxicrab-channels</code></h3>
+        <p>Telegram, Discord, Slack, WhatsApp, and Twilio adapters. Channel-specific delivery, pairing flows, formatting, and reconnect behavior live here.</p>
       </div>
       <div class="arch-card">
-        <h3>trait BaseChannel</h3>
-        <p>start(), stop(), send(). Optional: send_typing(), edit_message(), delete_message(). Auto-reconnect with exponential backoff.</p>
+        <h3><code>oxicrab-router</code></h3>
+        <p>Deterministic-first routing, strict routing policy, context state machine, semantic tool narrowing, metrics, and replay traces.</p>
       </div>
       <div class="arch-card">
-        <h3>trait LLMProvider</h3>
-        <p>chat(ChatRequest) &rarr; LLMResponse. Default chat_with_retry() with backoff. warmup() pre-warms HTTP connection pools.</p>
+        <h3><code>oxicrab-gateway</code></h3>
+        <p>HTTP API, status page, webhooks, A2A endpoints, auth middleware, and rate limiting for non-chat entry points.</p>
       </div>
       <div class="arch-card">
-        <h3>ToolMiddleware</h3>
-        <p>before_execute() can short-circuit, after_execute() can modify results. Built-in: Cache, Truncation, Logging.</p>
+        <h3><code>oxicrab-providers</code></h3>
+        <p>Anthropic, OpenAI, Gemini, and OpenAI-compatible providers, with model routing, fallback chains, and JSON mode support.</p>
       </div>
       <div class="arch-card">
-        <h3>ToolRegistry</h3>
-        <p>Central execution engine. Panic isolation via tokio::spawn, timeouts, LRU cache (128 entries, 5min TTL), parallel execution.</p>
+        <h3><code>oxicrab-memory</code></h3>
+        <p>SQLite-backed memory, sessions, cron persistence, embeddings, indexing, and retrieval used across the whole system.</p>
       </div>
       <div class="arch-card">
-        <h3>ProviderFactory</h3>
-        <p>Auto-selects provider by model name. OAuth-first for Anthropic, then API key strategy with OpenAI-compatible matching.</p>
+        <h3>Tool Crates</h3>
+        <p>Web, system, API, Google, browser, Obsidian, RSS, and transcription crates keep tool logic isolated instead of packing everything into one module tree.</p>
       </div>
     </div>
   </div>
@@ -1241,32 +1243,6 @@ semanticThreshold = 0.5
 <svg class="wave-divider wave-divider-flip" viewBox="0 0 1200 48" preserveAspectRatio="none" style="fill: var(--bg-dark)">
   <path d="M0,48 L0,20 C150,44 350,4 600,28 C850,52 1050,8 1200,20 L1200,48 Z"/>
 </svg>
-
-<!-- STRUCTURE -->
-<section class="structure-section">
-  <div class="container fade-in">
-    <div class="section-label">Project Structure</div>
-    <div class="section-title">Well-organized codebase</div>
-    <div class="section-desc"></div>
-    <div class="structure-pre">
-      <pre><span class="hl-comment">src/</span>
-&#x251C;&#x2500;&#x2500; agent/          <span class="hl-comment"># Agent loop, context, memory, tools, subagents</span>
-&#x2502;   &#x2514;&#x2500;&#x2500; tools/      <span class="hl-comment"># 29 built-in tools + MCP integration</span>
-&#x251C;&#x2500;&#x2500; auth/           <span class="hl-comment"># OAuth authentication (Google)</span>
-&#x251C;&#x2500;&#x2500; bus/            <span class="hl-comment"># Message bus for channel-agent communication</span>
-&#x251C;&#x2500;&#x2500; channels/       <span class="hl-comment"># Telegram, Discord, Slack, WhatsApp, Twilio</span>
-&#x251C;&#x2500;&#x2500; cli/            <span class="hl-comment"># Command-line interface</span>
-&#x251C;&#x2500;&#x2500; config/         <span class="hl-comment"># Configuration schema and loader</span>
-&#x251C;&#x2500;&#x2500; cron/           <span class="hl-comment"># Cron job scheduling service</span>
-&#x251C;&#x2500;&#x2500; providers/      <span class="hl-comment"># Anthropic, OpenAI, Gemini, OpenAI-compat</span>
-&#x251C;&#x2500;&#x2500; session/        <span class="hl-comment"># SQLite-backed session management</span>
-&#x251C;&#x2500;&#x2500; errors/         <span class="hl-comment"># OxicrabError typed error enum</span>
-&#x251C;&#x2500;&#x2500; gateway/        <span class="hl-comment"># HTTP API, webhooks, A2A protocol</span>
-&#x251C;&#x2500;&#x2500; safety/         <span class="hl-comment"># Leak detection, prompt guard</span>
-&#x2514;&#x2500;&#x2500; utils/          <span class="hl-comment"># URL security, transcription, media</span></pre>
-    </div>
-  </div>
-</section>
 
 <!-- CTA -->
 <section class="cta-section">
