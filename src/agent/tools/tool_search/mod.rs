@@ -3,9 +3,11 @@ use crate::agent::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+const REQUEST_ID_META_KEY: &str = "request_id";
 
 /// A tool name + description pair for the search index.
 #[derive(Clone)]
@@ -23,14 +25,44 @@ pub struct ToolIndexEntry {
 /// their schemas are included in subsequent iterations of the same agent run.
 pub struct ToolSearchTool {
     index: Vec<ToolIndexEntry>,
-    /// Shared set of tool names activated during the current agent run.
+    /// Request-scoped set of tool names activated during the current agent run.
     /// The agent loop reads this to dynamically expand tool definitions.
-    activated: Arc<Mutex<HashSet<String>>>,
+    activated: ActivatedTools,
 }
 
 impl ToolSearchTool {
-    pub fn new(index: Vec<ToolIndexEntry>, activated: Arc<Mutex<HashSet<String>>>) -> Self {
+    pub fn new(index: Vec<ToolIndexEntry>, activated: ActivatedTools) -> Self {
         Self { index, activated }
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct ActivatedTools {
+    inner: Arc<Mutex<HashMap<String, HashSet<String>>>>,
+}
+
+impl ActivatedTools {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub async fn clear(&self, request_id: &str) {
+        self.inner.lock().await.remove(request_id);
+    }
+
+    pub async fn snapshot(&self, request_id: &str) -> HashSet<String> {
+        self.inner
+            .lock()
+            .await
+            .get(request_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    async fn activate(&self, request_id: &str, names: impl IntoIterator<Item = String>) {
+        let mut guard = self.inner.lock().await;
+        let entry = guard.entry(request_id.to_string()).or_default();
+        entry.extend(names);
     }
 }
 
@@ -67,7 +99,7 @@ impl Tool for ToolSearchTool {
         }
     }
 
-    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, ctx: &ExecutionContext) -> Result<ToolResult> {
         let query = params["query"].as_str().unwrap_or("").to_lowercase();
 
         if query.is_empty() {
@@ -104,13 +136,20 @@ impl Tool for ToolSearchTool {
         }
 
         // Activate any deferred tools that matched
+        if let Some(request_id) = ctx
+            .metadata
+            .get(REQUEST_ID_META_KEY)
+            .and_then(Value::as_str)
         {
-            let mut activated = self.activated.lock().await;
-            for m in &matches {
-                if m.deferred {
-                    activated.insert(m.name.clone());
-                }
-            }
+            self.activated
+                .activate(
+                    request_id,
+                    matches
+                        .iter()
+                        .filter(|m| m.deferred)
+                        .map(|m| m.name.clone()),
+                )
+                .await;
         }
 
         let lines: Vec<String> = matches
@@ -152,12 +191,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_by_keyword() {
-        let activated = Arc::new(Mutex::new(HashSet::new()));
+        let activated = ActivatedTools::new();
         let tool = ToolSearchTool::new(make_index(), activated.clone());
         let result = tool
             .execute(
                 serde_json::json!({"query": "web"}),
-                &ExecutionContext::default(),
+                &ExecutionContext {
+                    metadata: HashMap::from([(
+                        REQUEST_ID_META_KEY.to_string(),
+                        Value::String("req-1".to_string()),
+                    )]),
+                    ..ExecutionContext::default()
+                },
             )
             .await
             .unwrap();
@@ -165,12 +210,12 @@ mod tests {
         assert!(result.content.contains("web_scrape"));
         assert!(!result.content.contains("read_file"));
         // Deferred tool should be activated
-        assert!(activated.lock().await.contains("web_scrape"));
+        assert!(activated.snapshot("req-1").await.contains("web_scrape"));
     }
 
     #[tokio::test]
     async fn test_search_no_results() {
-        let activated = Arc::new(Mutex::new(HashSet::new()));
+        let activated = ActivatedTools::new();
         let tool = ToolSearchTool::new(make_index(), activated.clone());
         let result = tool
             .execute(
@@ -185,7 +230,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_query_lists_all() {
-        let activated = Arc::new(Mutex::new(HashSet::new()));
+        let activated = ActivatedTools::new();
         let tool = ToolSearchTool::new(make_index(), activated.clone());
         let result = tool
             .execute(
@@ -201,16 +246,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_non_deferred_not_activated() {
-        let activated = Arc::new(Mutex::new(HashSet::new()));
+        let activated = ActivatedTools::new();
         let tool = ToolSearchTool::new(make_index(), activated.clone());
         let _ = tool
             .execute(
                 serde_json::json!({"query": "read"}),
-                &ExecutionContext::default(),
+                &ExecutionContext {
+                    metadata: HashMap::from([(
+                        REQUEST_ID_META_KEY.to_string(),
+                        Value::String("req-2".to_string()),
+                    )]),
+                    ..ExecutionContext::default()
+                },
             )
             .await
             .unwrap();
         // read_file is not deferred, so it shouldn't be in activated
-        assert!(!activated.lock().await.contains("read_file"));
+        assert!(!activated.snapshot("req-2").await.contains("read_file"));
     }
 }

@@ -12,6 +12,9 @@ use std::collections::HashMap;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+const REQUEST_ID_META_KEY: &str = "request_id";
+const SESSION_KEY_META_KEY: &str = "session_key";
+
 impl AgentLoop {
     pub(super) async fn process_message_unlocked(
         &self,
@@ -79,7 +82,7 @@ impl AgentLoop {
             }
             crate::router::RoutingDecision::GuidedLLM { policy } => {
                 // GuidedLLM is a strict policy gate: enforce a narrow tool set.
-                let subset = self.build_guided_tool_subset(&policy.allowed_tools).await;
+                let subset = self.build_guided_tool_subset(&policy.allowed_tools);
                 routing_policy = Some(self.policy_from_allowlist(
                     subset,
                     policy.context_hint.clone(),
@@ -101,6 +104,8 @@ impl AgentLoop {
             }
         }
 
+        let request_id = format!("req-{}", Uuid::new_v4());
+
         // Build execution context for tool calls
         let context_summary = session
             .metadata
@@ -112,10 +117,12 @@ impl AgentLoop {
             &msg.chat_id,
             context_summary,
             msg.metadata.clone(),
+            &request_id,
+            &session_key,
         );
 
         debug!("Getting compacted history");
-        let checkpoint_before = self.last_checkpoint.lock().await.clone();
+        let (checkpoint_before, _) = self.session_checkpoint_snapshot(&session_key).await;
         let history = self
             .get_compacted_history_timed(&session, &session.key)
             .await?;
@@ -176,8 +183,6 @@ impl AgentLoop {
             )?
         };
         debug!("Built {} messages, starting agent loop", messages.len());
-
-        let request_id = format!("req-{}", Uuid::new_v4());
 
         // Complexity-aware routing: score the message and resolve a model override
         let (complexity_score, complexity_band) = if let Some(ref scorer) = self.complexity_scorer {
@@ -306,7 +311,7 @@ impl AgentLoop {
         // Only reload session if compaction updated it (wrote compaction_summary).
         // Compare the actual checkpoint value, not just presence, so that
         // second+ compaction runs within the same session lifetime are detected.
-        let checkpoint_after = self.last_checkpoint.lock().await.clone();
+        let (checkpoint_after, _) = self.session_checkpoint_snapshot(&session_key).await;
         let compaction_ran = checkpoint_after.is_some() && checkpoint_after != checkpoint_before;
         let mut session = if compaction_ran {
             debug!("compaction updated session, reloading");
@@ -628,6 +633,7 @@ impl AgentLoop {
         let target_lock = self.session_lock(&session_key);
         let _target_guard = target_lock.lock().await;
         let session = self.sessions.get_or_create(&session_key).await?;
+        let request_id = format!("req-{}", Uuid::new_v4());
 
         let history = self
             .get_compacted_history_timed(&session, &session_key)
@@ -663,8 +669,9 @@ impl AgentLoop {
             &origin_chat_id,
             context_summary,
             msg.metadata.clone(),
+            &request_id,
+            &session_key,
         );
-        let request_id = format!("req-{}", Uuid::new_v4());
         let system_overrides = AgentRunOverrides {
             request_id: Some(request_id),
             ..AgentRunOverrides::default()
@@ -819,8 +826,18 @@ impl AgentLoop {
         channel: &str,
         chat_id: &str,
         context_summary: Option<String>,
-        metadata: HashMap<String, Value>,
+        mut metadata: HashMap<String, Value>,
+        request_id: &str,
+        session_key: &str,
     ) -> ExecutionContext {
+        metadata.insert(
+            REQUEST_ID_META_KEY.to_string(),
+            Value::String(request_id.to_string()),
+        );
+        metadata.insert(
+            SESSION_KEY_META_KEY.to_string(),
+            Value::String(session_key.to_string()),
+        );
         ExecutionContext {
             channel: channel.to_string(),
             chat_id: chat_id.to_string(),
@@ -855,9 +872,8 @@ impl AgentLoop {
 
     /// Build the effective `GuidedLLM` tool subset.
     ///
-    /// Keeps router-selected tools, adds core interaction helpers, and includes
-    /// deferred tools activated by `tool_search` during this run.
-    async fn build_guided_tool_subset(&self, base_subset: &[String]) -> Vec<String> {
+    /// Keeps router-selected tools and adds core interaction helpers.
+    fn build_guided_tool_subset(&self, base_subset: &[String]) -> Vec<String> {
         let mut allow: std::collections::HashSet<String> = base_subset
             .iter()
             .filter(|name| self.tools.get(name).is_some())
@@ -871,13 +887,6 @@ impl AgentLoop {
         }
         if self.tools.get("tool_search").is_some() {
             allow.insert("tool_search".to_string());
-        }
-
-        let activated = self.tool_search_activated.lock().await.clone();
-        for name in activated {
-            if self.tools.get(&name).is_some() {
-                allow.insert(name);
-            }
         }
 
         let mut out: Vec<String> = allow.into_iter().collect();
@@ -917,8 +926,9 @@ impl AgentLoop {
         if query.is_empty() {
             return None;
         }
-        let activated = self.tool_search_activated.lock().await.clone();
-        let defs = self.tools.get_tool_definitions_with_activated(&activated);
+        let defs = self
+            .tools
+            .get_tool_definitions_with_activated(&std::collections::HashSet::new());
         if defs.len() < 2 {
             return None;
         }
@@ -1092,11 +1102,14 @@ impl AgentLoop {
 
         // Build execution context from message metadata (context_summary was
         // extracted from the session that the caller already loaded)
+        let request_id = format!("req-{}", Uuid::new_v4());
         let ctx = Self::build_execution_context_with_metadata(
             &msg.channel,
             &msg.chat_id,
             context_summary,
             msg.metadata.clone(),
+            &request_id,
+            session_key,
         );
 
         // Execute via the same gateway used by LLM tool calls so direct
@@ -1442,11 +1455,17 @@ impl AgentLoop {
                 }
             };
 
+            let request_id = overrides
+                .request_id
+                .clone()
+                .unwrap_or_else(|| format!("req-{}", Uuid::new_v4()));
             let ctx = Self::build_execution_context_with_metadata(
                 channel,
                 chat_id,
                 None,
                 overrides.metadata.clone(),
+                &request_id,
+                &format!("{channel}:{chat_id}"),
             );
             let available_tools = self.tools.tool_names();
             let result = execute_tool_call(
@@ -1520,23 +1539,29 @@ impl AgentLoop {
             )?
         };
 
-        let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
-        let exec_ctx = Self::build_execution_context_with_metadata(
-            channel,
-            chat_id,
-            None,
-            overrides.metadata.clone(),
-        );
         let request_id = format!("req-{}", Uuid::new_v4());
+        let typing_ctx = Some((channel.to_string(), chat_id.to_string()));
 
         let effective_overrides = if overrides.request_id.is_some() {
             overrides.clone()
         } else {
             AgentRunOverrides {
-                request_id: Some(request_id),
+                request_id: Some(request_id.clone()),
                 ..overrides.clone()
             }
         };
+        let effective_request_id = effective_overrides
+            .request_id
+            .as_deref()
+            .unwrap_or(&request_id);
+        let exec_ctx = Self::build_execution_context_with_metadata(
+            channel,
+            chat_id,
+            None,
+            overrides.metadata.clone(),
+            effective_request_id,
+            session_key,
+        );
 
         let loop_result = self
             .run_agent_loop_with_overrides(messages, typing_ctx, &exec_ctx, &effective_overrides)

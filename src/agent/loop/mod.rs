@@ -43,7 +43,7 @@ use crate::safety::LeakDetector;
 use crate::session::{SessionManager, SessionStore};
 use crate::utils::task_tracker::TaskTracker;
 use anyhow::Result;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -60,6 +60,13 @@ const RECOVERY_CONTEXT_MAX_CHARS: usize = 200;
 struct CachedSemanticIndex {
     signature: u64,
     index: crate::router::semantic::SemanticToolIndex,
+}
+
+#[derive(Default)]
+struct SessionCompactionState {
+    last_checkpoint: Option<String>,
+    cognitive_breadcrumb: Option<String>,
+    checkpoint_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 #[cfg(test)]
@@ -95,13 +102,9 @@ pub struct AgentLoop {
     /// blocking the async runtime with a `std::sync::Mutex`)
     event_matcher_last_rebuild: Arc<std::sync::atomic::AtomicU64>,
     cron_service: Option<Arc<CronService>>,
-    /// Most recent checkpoint summary (updated periodically during long loops)
-    last_checkpoint: Arc<Mutex<Option<String>>>,
-    /// Handle for the most recent background checkpoint task
-    checkpoint_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    /// Per-session checkpoint state used for compaction recovery.
+    compaction_state: Arc<Mutex<HashMap<String, SessionCompactionState>>>,
     cognitive_config: crate::config::CognitiveConfig,
-    /// Cognitive breadcrumb for compaction recovery (updated during long loops)
-    cognitive_breadcrumb: Arc<Mutex<Option<String>>>,
     /// Exfiltration guard: hides outbound tools from the LLM
     exfiltration_guard: crate::config::ExfiltrationGuardConfig,
     /// Prompt injection detection guard
@@ -115,9 +118,9 @@ pub struct AgentLoop {
     routing: Option<Arc<crate::config::routing::ResolvedRouting>>,
     /// Complexity scorer for per-message model routing (None when disabled)
     complexity_scorer: Option<complexity::ComplexityScorer>,
-    /// Shared activation set for deferred tools discovered via `tool_search`
-    tool_search_activated: Arc<tokio::sync::Mutex<HashSet<String>>>,
-    /// Shared state for interactive buttons (written by `add_buttons` tool, read after loop)
+    /// Request-scoped activation set for deferred tools discovered via `tool_search`
+    tool_search_activated: crate::agent::tools::tool_search::ActivatedTools,
+    /// Request-scoped state for interactive buttons (written by `add_buttons`, read after loop)
     pending_buttons: crate::agent::tools::interactive::PendingButtons,
     /// Priority-ordered message router for direct dispatch and guided LLM paths
     router: std::sync::Arc<crate::router::MessageRouter>,
@@ -434,10 +437,8 @@ impl AgentLoop {
                     .map_or(0, |d| d.as_secs()),
             )),
             cron_service,
-            last_checkpoint: Arc::new(Mutex::new(None)),
-            checkpoint_handle: Arc::new(Mutex::new(None)),
+            compaction_state: Arc::new(Mutex::new(HashMap::new())),
             cognitive_config,
-            cognitive_breadcrumb: Arc::new(Mutex::new(None)),
             exfiltration_guard,
             prompt_guard: if prompt_guard_config.enabled {
                 Some(crate::safety::prompt_guard::PromptGuard::new())
@@ -457,6 +458,41 @@ impl AgentLoop {
             semantic_threshold,
             semantic_index_cache: Arc::new(tokio::sync::Mutex::new(None)),
         })
+    }
+
+    async fn take_session_checkpoint_handle(
+        &self,
+        session_key: &str,
+    ) -> Option<tokio::task::JoinHandle<()>> {
+        self.compaction_state
+            .lock()
+            .await
+            .get_mut(session_key)
+            .and_then(|state| state.checkpoint_handle.take())
+    }
+
+    async fn session_checkpoint_snapshot(
+        &self,
+        session_key: &str,
+    ) -> (Option<String>, Option<String>) {
+        let guard = self.compaction_state.lock().await;
+        let state = guard.get(session_key);
+        (
+            state.and_then(|s| s.last_checkpoint.clone()),
+            state.and_then(|s| s.cognitive_breadcrumb.clone()),
+        )
+    }
+
+    async fn set_session_checkpoint(&self, session_key: &str, checkpoint: String) {
+        let mut guard = self.compaction_state.lock().await;
+        let state = guard.entry(session_key.to_string()).or_default();
+        state.last_checkpoint = Some(checkpoint);
+    }
+
+    async fn set_session_cognitive_breadcrumb(&self, session_key: &str, breadcrumb: String) {
+        let mut guard = self.compaction_state.lock().await;
+        let state = guard.entry(session_key.to_string()).or_default();
+        state.cognitive_breadcrumb = Some(breadcrumb);
     }
 
     /// Run the agent loop, processing inbound messages until the channel closes.

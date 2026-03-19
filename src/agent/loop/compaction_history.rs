@@ -65,12 +65,11 @@ impl AgentLoop {
             .to_string();
 
         // Await any in-flight checkpoint task before reading
-        if let Some(handle) = self.checkpoint_handle.lock().await.take() {
+        if let Some(handle) = self.take_session_checkpoint_handle(&session.key).await {
             let _ = handle.await;
         }
         // Get most recent checkpoint if available
-        let checkpoint = self.last_checkpoint.lock().await.clone();
-        let cognitive_crumb = self.cognitive_breadcrumb.lock().await.clone();
+        let (checkpoint, cognitive_crumb) = self.session_checkpoint_snapshot(&session.key).await;
 
         // Pre-compaction flush: extract important context before messages are lost
         if self.compaction_config.pre_flush_enabled
@@ -175,7 +174,8 @@ impl AgentLoop {
                         recovery_summary.truncate(pos);
                     }
                     // Cache summary locally so it survives save failures
-                    *self.last_checkpoint.lock().await = Some(recovery_summary.clone());
+                    self.set_session_checkpoint(&session.key, recovery_summary.clone())
+                        .await;
 
                     // Persist the enriched summary so the next compaction cycle
                     // builds incrementally on the same context the LLM actually saw

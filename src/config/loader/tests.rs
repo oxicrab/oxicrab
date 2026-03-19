@@ -126,20 +126,20 @@ default = "openai/gpt-5"
 
     std::fs::write(
         overlay_dir.join("10-router.toml"),
-        r#"
+        r"
 [router]
 enabled = true
 semanticThreshold = 0.61
-"#,
+",
     )
     .unwrap();
 
     std::fs::write(
         overlay_dir.join("20-agent.toml"),
-        r#"
+        r"
 [agents.defaults]
 maxTokens = 2048
-"#,
+",
     )
     .unwrap();
 
@@ -147,7 +147,7 @@ maxTokens = 2048
     assert_eq!(config.providers.anthropic.api_key, "base-key");
     assert_eq!(config.agents.defaults.model_routing.default, "openai/gpt-5");
     assert_eq!(config.agents.defaults.max_tokens, 2048);
-    assert_eq!(config.router.semantic_threshold, 0.61);
+    assert!((config.router.semantic_threshold - 0.61).abs() < f32::EPSILON);
 }
 
 #[test]

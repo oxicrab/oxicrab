@@ -16,6 +16,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, warn};
 
+const SESSION_KEY_META_KEY: &str = "session_key";
+
 impl AgentLoop {
     /// Core agent loop implementation with per-invocation overrides.
     ///
@@ -35,6 +37,10 @@ impl AgentLoop {
         let effective_model = overrides.model.as_deref().unwrap_or(&self.model);
         let effective_provider = overrides.provider.as_ref().unwrap_or(&self.provider);
         let effective_max_iterations = overrides.max_iterations.unwrap_or(self.max_iterations);
+        let activation_scope = overrides
+            .request_id
+            .clone()
+            .unwrap_or_else(|| format!("run-{}", fastrand::u64(..)));
         let mut empty_retries_left = EMPTY_RESPONSE_RETRIES;
         let mut any_tools_called = false;
         let mut layer1_fired = false;
@@ -45,8 +51,9 @@ impl AgentLoop {
             Vec::new();
         let mut checkpoint_tracker = CheckpointTracker::new(self.cognitive_config.clone());
 
-        // Clear deferred tool activations from previous runs
-        self.tool_search_activated.lock().await.clear();
+        // Clear request-scoped deferred tool activations from previous retries/reuse.
+        self.tool_search_activated.clear(&activation_scope).await;
+        self.pending_buttons.clear(&activation_scope);
         let mut activated_snapshot = std::collections::HashSet::new();
 
         let tools_defs = self
@@ -260,13 +267,14 @@ impl AgentLoop {
                     &mut collected_media,
                     &mut collected_tool_metadata,
                     &mut checkpoint_tracker,
+                    exec_ctx,
                 )
                 .await;
 
                 // If tool_search activated new deferred tools, rebuild tool
                 // definitions so the LLM sees their schemas in the next iteration.
                 if self.tools.deferred_count() > 0 {
-                    let current = self.tool_search_activated.lock().await.clone();
+                    let current = self.tool_search_activated.snapshot(&activation_scope).await;
                     if current.len() > activated_snapshot.len() {
                         let new_count = current.len() - activated_snapshot.len();
                         debug!("tool_search activated {new_count} new deferred tool(s)");
@@ -324,8 +332,10 @@ impl AgentLoop {
                                 .as_ref()
                                 .map(|g| (g, &self.prompt_guard_config)),
                         );
-                        let mut response_metadata = self.take_pending_buttons_metadata();
+                        let mut response_metadata =
+                            self.take_pending_buttons_metadata(&activation_scope);
                         merge_suggested_buttons(&mut response_metadata, &collected_tool_metadata);
+                        self.tool_search_activated.clear(&activation_scope).await;
                         return Ok(AgentLoopResult {
                             content: Some(content),
                             input_tokens: last_input_tokens,
@@ -358,7 +368,7 @@ impl AgentLoop {
         }
 
         // Collect pending buttons from the add_buttons tool (if any)
-        let mut response_metadata = self.take_pending_buttons_metadata();
+        let mut response_metadata = self.take_pending_buttons_metadata(&activation_scope);
         merge_suggested_buttons(&mut response_metadata, &collected_tool_metadata);
 
         // If tools were called but the loop ended without final content,
@@ -382,6 +392,7 @@ impl AgentLoop {
                     .as_ref()
                     .map(|g| (g, &self.prompt_guard_config)),
             );
+            self.tool_search_activated.clear(&activation_scope).await;
             return Ok(AgentLoopResult {
                 content: Some(content),
                 input_tokens: last_input_tokens,
@@ -402,6 +413,7 @@ impl AgentLoop {
                 .as_ref()
                 .map(|g| (g, &self.prompt_guard_config)),
         ) {
+            self.tool_search_activated.clear(&activation_scope).await;
             return Ok(AgentLoopResult {
                 content: Some(display),
                 input_tokens: last_input_tokens,
@@ -413,6 +425,9 @@ impl AgentLoop {
                 tool_metadata: collected_tool_metadata,
             });
         }
+
+        self.tool_search_activated.clear(&activation_scope).await;
+        self.pending_buttons.clear(&activation_scope);
 
         Ok(AgentLoopResult {
             content: None,
@@ -534,6 +549,7 @@ impl AgentLoop {
         collected_media: &mut Vec<String>,
         collected_tool_metadata: &mut Vec<(String, HashMap<String, serde_json::Value>)>,
         checkpoint_tracker: &mut CheckpointTracker,
+        exec_ctx: &ExecutionContext,
     ) {
         // Add all results to messages in order and collect media.
         // Pad if lengths mismatch (should not happen, but ensures every tool call
@@ -614,8 +630,14 @@ impl AgentLoop {
         }
 
         // Update cognitive breadcrumb for compaction recovery
-        if self.cognitive_config.enabled {
-            *self.cognitive_breadcrumb.lock().await = Some(checkpoint_tracker.breadcrumb());
+        if self.cognitive_config.enabled
+            && let Some(session_key) = exec_ctx
+                .metadata
+                .get(SESSION_KEY_META_KEY)
+                .and_then(serde_json::Value::as_str)
+        {
+            self.set_session_cognitive_breadcrumb(session_key, checkpoint_tracker.breadcrumb())
+                .await;
         }
     }
 
@@ -623,14 +645,10 @@ impl AgentLoop {
     /// Returns a metadata map with the `buttons` key if any were set.
     fn take_pending_buttons_metadata(
         &self,
+        request_id: &str,
     ) -> std::collections::HashMap<String, serde_json::Value> {
         let mut meta = std::collections::HashMap::new();
-        if let Some(specs) = self
-            .pending_buttons
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
-        {
+        if let Some(specs) = self.pending_buttons.take(request_id) {
             let buttons_json: Vec<serde_json::Value> = specs
                 .into_iter()
                 .map(|b| {

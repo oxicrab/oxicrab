@@ -2,7 +2,10 @@ use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory
 use crate::agent::tools::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+const REQUEST_ID_META_KEY: &str = "request_id";
 
 /// A button specification for interactive messages.
 #[derive(Debug, Clone)]
@@ -15,12 +18,42 @@ pub struct ButtonSpec {
     pub context: Option<String>,
 }
 
-/// Shared state for pending buttons. The `add_buttons` tool writes here;
-/// the agent loop reads and clears after each run.
-pub type PendingButtons = Arc<Mutex<Option<Vec<ButtonSpec>>>>;
+/// Request-scoped pending buttons. The `add_buttons` tool writes here; the
+/// agent loop reads and clears them after the matching run completes.
+#[derive(Clone, Default)]
+pub struct PendingButtons {
+    inner: Arc<Mutex<HashMap<String, Vec<ButtonSpec>>>>,
+}
+
+impl PendingButtons {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn store(&self, request_id: &str, buttons: Vec<ButtonSpec>) {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(request_id.to_string(), buttons);
+    }
+
+    pub fn take(&self, request_id: &str) -> Option<Vec<ButtonSpec>> {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(request_id)
+    }
+
+    pub fn clear(&self, request_id: &str) {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(request_id);
+    }
+}
 
 pub fn new_pending_buttons() -> PendingButtons {
-    Arc::new(Mutex::new(None))
+    PendingButtons::new()
 }
 
 /// Tool that lets the LLM attach interactive buttons to its next response.
@@ -92,7 +125,7 @@ impl Tool for AddButtonsTool {
         }
     }
 
-    async fn execute(&self, params: Value, _ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
+    async fn execute(&self, params: Value, ctx: &ExecutionContext) -> anyhow::Result<ToolResult> {
         let buttons_arr = params["buttons"]
             .as_array()
             .ok_or_else(|| anyhow::anyhow!("buttons must be an array"))?;
@@ -141,10 +174,13 @@ impl Tool for AddButtonsTool {
             });
         }
 
-        *self
-            .pending
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(specs);
+        if let Some(request_id) = ctx
+            .metadata
+            .get(REQUEST_ID_META_KEY)
+            .and_then(Value::as_str)
+        {
+            self.pending.store(request_id, specs);
+        }
 
         Ok(ToolResult::new(
             "Buttons will be attached to your next response message.",
@@ -156,6 +192,16 @@ impl Tool for AddButtonsTool {
 mod tests {
     use super::*;
 
+    fn test_ctx(request_id: &str) -> ExecutionContext {
+        ExecutionContext {
+            metadata: HashMap::from([(
+                REQUEST_ID_META_KEY.to_string(),
+                Value::String(request_id.to_string()),
+            )]),
+            ..ExecutionContext::default()
+        }
+    }
+
     #[test]
     fn test_add_buttons_stores_specs() {
         let pending = new_pending_buttons();
@@ -166,12 +212,12 @@ mod tests {
                 {"id": "no", "label": "No", "style": "danger"}
             ]
         });
-        let ctx = ExecutionContext::default();
+        let ctx = test_ctx("req-1");
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(tool.execute(params, &ctx)).unwrap();
         assert!(!result.is_error);
 
-        let specs = pending.lock().unwrap().take().unwrap();
+        let specs = pending.take("req-1").unwrap();
         assert_eq!(specs.len(), 2);
         assert_eq!(specs[0].id, "yes");
         assert_eq!(specs[0].label, "Yes");
@@ -184,15 +230,18 @@ mod tests {
     #[test]
     fn test_pending_buttons_cleared_after_take() {
         let pending = new_pending_buttons();
-        *pending.lock().unwrap() = Some(vec![ButtonSpec {
-            id: "x".into(),
-            label: "X".into(),
-            style: "primary".into(),
-            context: None,
-        }]);
-        let taken = pending.lock().unwrap().take();
+        pending.store(
+            "req-1",
+            vec![ButtonSpec {
+                id: "x".into(),
+                label: "X".into(),
+                style: "primary".into(),
+                context: None,
+            }],
+        );
+        let taken = pending.take("req-1");
         assert!(taken.is_some());
-        assert!(pending.lock().unwrap().is_none());
+        assert!(pending.take("req-1").is_none());
     }
 
     #[test]
@@ -200,7 +249,7 @@ mod tests {
         let pending = new_pending_buttons();
         let tool = AddButtonsTool::new(pending);
         let params = serde_json::json!({"buttons": []});
-        let ctx = ExecutionContext::default();
+        let ctx = test_ctx("req-empty");
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(tool.execute(params, &ctx)).unwrap();
         assert!(result.is_error);
@@ -220,7 +269,7 @@ mod tests {
                 {"id": "6", "label": "6"},
             ]
         });
-        let ctx = ExecutionContext::default();
+        let ctx = test_ctx("req-many");
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(tool.execute(params, &ctx)).unwrap();
         assert!(result.is_error);
@@ -230,7 +279,7 @@ mod tests {
     fn test_add_buttons_invalid_id_rejected() {
         let pending = new_pending_buttons();
         let tool = AddButtonsTool::new(pending);
-        let ctx = ExecutionContext::default();
+        let ctx = test_ctx("req-invalid");
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         // Control characters in ID
@@ -247,7 +296,9 @@ mod tests {
         let pending2 = new_pending_buttons();
         let tool2 = AddButtonsTool::new(pending2);
         let params = serde_json::json!({"buttons": [{"id": "confirm-yes_1", "label": "OK"}]});
-        let result = rt.block_on(tool2.execute(params, &ctx)).unwrap();
+        let result = rt
+            .block_on(tool2.execute(params, &test_ctx("req-valid")))
+            .unwrap();
         assert!(!result.is_error);
     }
 
@@ -256,7 +307,7 @@ mod tests {
         let pending = new_pending_buttons();
         let tool = AddButtonsTool::new(pending);
         let params = serde_json::json!({"buttons": [{"id": "", "label": "Empty"}]});
-        let ctx = ExecutionContext::default();
+        let ctx = test_ctx("req-empty-id");
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(tool.execute(params, &ctx)).unwrap();
         assert!(result.is_error);
@@ -270,12 +321,12 @@ mod tests {
         let params = serde_json::json!({
             "buttons": [{"id": "ok", "label": "OK", "context": long_context}]
         });
-        let ctx = ExecutionContext::default();
+        let ctx = test_ctx("req-long-context");
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(tool.execute(params, &ctx)).unwrap();
         assert!(!result.is_error);
 
-        let specs = pending.lock().unwrap().take().unwrap();
+        let specs = pending.take("req-long-context").unwrap();
         assert_eq!(specs[0].context.as_ref().unwrap().len(), 2000);
     }
 
@@ -286,12 +337,12 @@ mod tests {
         let params = serde_json::json!({
             "buttons": [{"id": "ok", "label": "OK"}]
         });
-        let ctx = ExecutionContext::default();
+        let ctx = test_ctx("req-no-context");
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(tool.execute(params, &ctx)).unwrap();
         assert!(!result.is_error);
 
-        let specs = pending.lock().unwrap().take().unwrap();
+        let specs = pending.take("req-no-context").unwrap();
         assert!(specs[0].context.is_none());
     }
 }

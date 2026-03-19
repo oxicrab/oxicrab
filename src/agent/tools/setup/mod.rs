@@ -45,15 +45,15 @@ pub struct ToolBuildContext {
 
 /// Register all tools into the registry using decentralized per-module `register()` functions.
 /// Returns `(ToolRegistry, SubagentManager, Option<McpManager>, tool_search_activated)`.
-/// The `Arc<Mutex<HashSet<String>>>` is the shared activation set for deferred tools —
-/// the agent loop reads it to dynamically expand tool schemas when `tool_search` discovers tools.
+/// The activation store is request-scoped, so deferred tool discovery stays isolated
+/// to the current agent run.
 pub async fn register_all_tools(
     ctx: &ToolBuildContext,
 ) -> Result<(
     ToolRegistry,
     Arc<SubagentManager>,
     Option<McpManager>,
-    Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+    crate::agent::tools::tool_search::ActivatedTools,
 )> {
     // Tool output stash — shared between truncation middleware and stash_retrieve tool
     let stash = Arc::new(crate::agent::tools::stash::ToolOutputStash::new());
@@ -111,8 +111,7 @@ pub async fn register_all_tools(
     ));
 
     // Build tool_search index from all registered tools (including deferred)
-    let activated: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>> =
-        Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
+    let activated = crate::agent::tools::tool_search::ActivatedTools::new();
     let index: Vec<crate::agent::tools::tool_search::ToolIndexEntry> = tools
         .iter()
         .map(
