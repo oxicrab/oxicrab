@@ -150,8 +150,9 @@ fn test_silent_response_prefix() {
 // --- Parallel tool execution tests ---
 
 use crate::agent::tools::base::{Tool, ToolResult};
-use crate::providers::base::ToolCallRequest;
+use crate::providers::base::{ChatRequest, LLMProvider, LLMResponse, Message, ToolCallRequest};
 use async_trait::async_trait;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 /// A mock tool that sleeps for a duration then returns a result.
@@ -236,6 +237,14 @@ fn make_tool_call(id: &str, name: &str) -> ToolCallRequest {
     }
 }
 
+fn make_tool_call_with_args(id: &str, name: &str, arguments: serde_json::Value) -> ToolCallRequest {
+    ToolCallRequest {
+        id: id.to_string(),
+        name: name.to_string(),
+        arguments,
+    }
+}
+
 fn empty_tools() -> Vec<String> {
     vec![]
 }
@@ -246,6 +255,59 @@ fn make_registry_with(tools_list: Vec<Arc<dyn Tool>>) -> ToolRegistry {
         registry.register(tool);
     }
     registry
+}
+
+struct QueuedProvider {
+    responses: std::sync::Mutex<VecDeque<LLMResponse>>,
+}
+
+impl QueuedProvider {
+    fn new(responses: Vec<LLMResponse>) -> Self {
+        Self {
+            responses: std::sync::Mutex::new(VecDeque::from(responses)),
+        }
+    }
+}
+
+#[async_trait]
+impl LLMProvider for QueuedProvider {
+    async fn chat(&self, _req: &ChatRequest) -> anyhow::Result<LLMResponse> {
+        Ok(self
+            .responses
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or_default())
+    }
+
+    fn default_model(&self) -> &'static str {
+        "mock-model"
+    }
+}
+
+struct DeferredTool;
+
+#[async_trait]
+impl Tool for DeferredTool {
+    fn name(&self) -> &'static str {
+        "deferred_tool"
+    }
+
+    fn description(&self) -> &'static str {
+        "Deferred test tool"
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({})
+    }
+
+    async fn execute(
+        &self,
+        _params: serde_json::Value,
+        _ctx: &ExecutionContext,
+    ) -> anyhow::Result<ToolResult> {
+        Ok(ToolResult::new("deferred ok"))
+    }
 }
 
 #[tokio::test]
@@ -312,6 +374,91 @@ async fn test_parallel_tool_execution_ordering() {
     assert!(!results[0].is_error);
     assert!(!results[1].is_error);
     assert!(!results[2].is_error);
+}
+
+#[tokio::test]
+async fn test_guided_turn_tool_search_can_activate_deferred_tool() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bus = Arc::new(crate::bus::MessageBus::default());
+    let (outbound_tx, _outbound_rx) = tokio::sync::mpsc::channel(4);
+    let provider = Arc::new(QueuedProvider::new(vec![
+        LLMResponse {
+            tool_calls: vec![make_tool_call_with_args(
+                "1",
+                "tool_search",
+                serde_json::json!({"query": "deferred"}),
+            )],
+            ..Default::default()
+        },
+        LLMResponse {
+            tool_calls: vec![make_tool_call_with_args(
+                "2",
+                "deferred_tool",
+                serde_json::json!({}),
+            )],
+            ..Default::default()
+        },
+        LLMResponse {
+            content: Some("done".to_string()),
+            ..Default::default()
+        },
+    ]));
+
+    let mut agent = AgentLoop::new(AgentLoopConfig::test_defaults(
+        bus.clone(),
+        provider,
+        tmp.path().to_path_buf(),
+        Arc::new(outbound_tx),
+    ))
+    .await
+    .unwrap();
+
+    let activated = crate::agent::tools::tool_search::ActivatedTools::new();
+    let mut registry = ToolRegistry::new();
+    registry.register_deferred(Arc::new(DeferredTool));
+    registry.register(Arc::new(
+        crate::agent::tools::tool_search::ToolSearchTool::new(
+            vec![crate::agent::tools::tool_search::ToolIndexEntry {
+                name: "deferred_tool".to_string(),
+                description: "Deferred test tool".to_string(),
+                deferred: true,
+            }],
+            activated.clone(),
+        ),
+    ));
+    agent.tools = Arc::new(registry);
+    agent.tool_search_activated = activated;
+
+    let result = agent
+        .run_agent_loop_with_overrides(
+            vec![Message::system("system".to_string())],
+            None,
+            &ExecutionContext {
+                channel: "test".to_string(),
+                chat_id: "chat".to_string(),
+                context_summary: None,
+                metadata: HashMap::from([(
+                    "request_id".to_string(),
+                    serde_json::Value::String("req-guided".to_string()),
+                )]),
+            },
+            &AgentRunOverrides {
+                request_id: Some("req-guided".to_string()),
+                routing_policy: Some(crate::router::RoutingPolicy {
+                    allowed_tools: vec!["tool_search".to_string()],
+                    blocked_tools: vec!["deferred_tool".to_string()],
+                    context_hint: None,
+                    reason: "guided",
+                }),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.content.as_deref(), Some("done"));
+    assert!(result.tools_used.iter().any(|t| t == "tool_search"));
+    assert!(result.tools_used.iter().any(|t| t == "deferred_tool"));
 }
 
 #[tokio::test]

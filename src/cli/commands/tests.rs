@@ -1,5 +1,7 @@
 use super::cli_types::{Cli, Commands};
 use super::create_workspace_templates;
+use super::gateway_setup::{gateway_host_is_public, warn_if_public_gateway_without_auth};
+use crate::config::Config;
 use clap::Parser;
 
 // --- CLI parsing tests ---
@@ -224,6 +226,67 @@ fn test_cli_parse_channels_status() {
 fn test_cli_parse_no_args_fails() {
     // Running with no subcommand should fail
     assert!(Cli::try_parse_from(["oxicrab"]).is_err());
+}
+
+#[test]
+fn test_gateway_host_public_detection() {
+    assert!(!gateway_host_is_public("127.0.0.1"));
+    assert!(!gateway_host_is_public("localhost"));
+    assert!(!gateway_host_is_public("::1"));
+    assert!(gateway_host_is_public("0.0.0.0"));
+    assert!(gateway_host_is_public("192.168.1.10"));
+}
+
+#[test]
+fn test_public_gateway_without_api_key_emits_warning() {
+    use std::io;
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone)]
+    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+    struct Guard(Arc<Mutex<Vec<u8>>>);
+
+    impl io::Write for Guard {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for SharedWriter {
+        type Writer = Guard;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            Guard(self.0.clone())
+        }
+    }
+
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .with_writer(SharedWriter(captured.clone()))
+        .without_time()
+        .finish();
+
+    let mut config = Config::default();
+    config.gateway.enabled = true;
+    config.gateway.host = "0.0.0.0".to_string();
+    config.gateway.port = 18790;
+    config.gateway.api_key.clear();
+
+    tracing::subscriber::with_default(subscriber, || {
+        warn_if_public_gateway_without_auth(&config);
+    });
+
+    let output = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+    assert!(output.contains("without an API key"));
+    assert!(output.contains("0.0.0.0:18790"));
 }
 
 // --- Workspace template tests ---

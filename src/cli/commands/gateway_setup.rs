@@ -10,11 +10,11 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tracing::{debug, error, info, warn};
 
-fn gateway_host_is_public(host: &str) -> bool {
+pub(super) fn gateway_host_is_public(host: &str) -> bool {
     !matches!(host, "127.0.0.1" | "localhost" | "::1")
 }
 
-fn warn_if_public_gateway_without_auth(config: &Config) {
+pub(super) fn warn_if_public_gateway_without_auth(config: &Config) {
     if config.gateway.enabled
         && config.gateway.api_key.is_empty()
         && gateway_host_is_public(&config.gateway.host)
