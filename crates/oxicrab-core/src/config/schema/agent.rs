@@ -154,6 +154,10 @@ fn default_embedding_cache_size() -> usize {
     10_000
 }
 
+fn default_search_result_limit() -> usize {
+    8
+}
+
 fn default_embeddings_enabled() -> bool {
     true
 }
@@ -190,6 +194,9 @@ pub struct MemoryConfig {
         rename = "recencyHalfLifeDays"
     )]
     pub recency_half_life_days: u32,
+    /// Maximum number of search results returned for memory context (default: 8).
+    #[serde(default = "default_search_result_limit", rename = "searchResultLimit")]
+    pub search_result_limit: usize,
 }
 
 impl Default for MemoryConfig {
@@ -202,6 +209,7 @@ impl Default for MemoryConfig {
             rrf_k: default_rrf_k(),
             embedding_cache_size: default_embedding_cache_size(),
             recency_half_life_days: default_recency_half_life_days(),
+            search_result_limit: default_search_result_limit(),
         }
     }
 }

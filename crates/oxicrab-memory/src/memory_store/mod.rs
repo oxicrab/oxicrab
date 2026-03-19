@@ -22,6 +22,7 @@ pub struct MemoryStore {
     rrf_k: u32,
     #[cfg(feature = "embeddings")]
     recency_half_life_days: u32,
+    search_result_limit: usize,
 }
 
 impl MemoryStore {
@@ -65,6 +66,7 @@ impl MemoryStore {
             rrf_k: 60,
             #[cfg(feature = "embeddings")]
             recency_half_life_days: 90,
+            search_result_limit: 8,
         })
     }
 
@@ -83,6 +85,7 @@ impl MemoryStore {
             rrf_k: 60,
             #[cfg(feature = "embeddings")]
             recency_half_life_days: 90,
+            search_result_limit: 8,
         }
     }
 
@@ -112,6 +115,7 @@ impl MemoryStore {
             rrf_k: memory_config.rrf_k,
             #[cfg(feature = "embeddings")]
             recency_half_life_days: memory_config.recency_half_life_days,
+            search_result_limit: memory_config.search_result_limit,
         }
     }
 
@@ -167,6 +171,7 @@ impl MemoryStore {
             rrf_k: memory_config.rrf_k,
             #[cfg(feature = "embeddings")]
             recency_half_life_days: memory_config.recency_half_life_days,
+            search_result_limit: memory_config.search_result_limit,
         })
     }
 
@@ -250,7 +255,7 @@ impl MemoryStore {
             } else {
                 HashSet::new()
             };
-            let result_limit = 8;
+            let result_limit = self.search_result_limit;
             let hits = if self.has_embeddings() {
                 #[cfg(feature = "embeddings")]
                 {
