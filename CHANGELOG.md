@@ -2,6 +2,106 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.0] - 2026-03-19
+
+### Added
+- Add routing and gateway warning regressions ([fc6fc3c](https://github.com/oxicrab/oxicrab/commit/fc6fc3cf85c882f447fa9d3ff9e149b1dab4dc39))
+- Add remember metrics and router trace logging ([532d82d](https://github.com/oxicrab/oxicrab/commit/532d82da1991e47206c5812305ffcf4d263317b7))
+- Add hallucination observability counters ([6157069](https://github.com/oxicrab/oxicrab/commit/6157069ab5ed623fb76dd636aea1d2144f0adc98))
+
+
+### Changed
+- Replace deprecated sccache action ([64580be](https://github.com/oxicrab/oxicrab/commit/64580be8ccfb201c1e6355a4eb3d12de21a8265c))
+- Migrate config system to layered TOML ([0bba087](https://github.com/oxicrab/oxicrab/commit/0bba0876e076960eda999500da51a5e4a18d0f28))
+- extract oxicrab-transcription crate ([2f39dfc](https://github.com/oxicrab/oxicrab/commit/2f39dfcd897fce3fa2e5a6c8ea35b04128383856))
+- Migrate WhatsApp channel to wa-rs and move toolchain to stable ([3524fd9](https://github.com/oxicrab/oxicrab/commit/3524fd94b46833e6f1ecadff4d55b55175321756))
+- **auth:** merge Google OAuth into oxicrab-tools-google crate ([9122570](https://github.com/oxicrab/oxicrab/commit/912257058124da21ba9a778c3d5493fe6beddfe8))
+- **session:** merge session manager into oxicrab-memory crate ([c2402d4](https://github.com/oxicrab/oxicrab/commit/c2402d432b1afc7d56f403595bae38fddb5b1b70))
+- **tools:** extract oxicrab-tools-rss crate ([84bad1f](https://github.com/oxicrab/oxicrab/commit/84bad1f570d283df1c8d5fa85f98be855a938d2a))
+- **safety:** extract oxicrab-safety crate ([0c3c7cb](https://github.com/oxicrab/oxicrab/commit/0c3c7cba651ac3b044c17c505460ab2ee600c54c))
+- **router:** extract oxicrab-router crate ([31896c6](https://github.com/oxicrab/oxicrab/commit/31896c6223ce5b0a34fadb696eda04531e25c689))
+- remove extracted tool source files from binary crate ([5891d8c](https://github.com/oxicrab/oxicrab/commit/5891d8c13180db30d362de0832d20a3ea5d7d2b2))
+- **core:** move shared http/media/url_security utils to oxicrab-core ([45006cd](https://github.com/oxicrab/oxicrab/commit/45006cd56f13b86ca8336c81fbb0676811a682c1))
+- **tools:** extract obsidian tool into oxicrab-tools-obsidian crate ([1f70191](https://github.com/oxicrab/oxicrab/commit/1f70191e8cb7684a6ed7f1de2990c91f069a16e5))
+- **tools:** extract browser tool into oxicrab-tools-browser crate ([7839d22](https://github.com/oxicrab/oxicrab/commit/7839d227927aca901758aacf8da046a312188d66))
+- **tools:** extract Google tools into oxicrab-tools-google crate ([10e4f30](https://github.com/oxicrab/oxicrab/commit/10e4f30814ca62b5a65a2d05656fd8b6fc9d4934))
+- **tools:** extract API tools into oxicrab-tools-api crate ([b14fd83](https://github.com/oxicrab/oxicrab/commit/b14fd837448e4190ded70a2200d65b8f5d43143a))
+- **tools:** extract system tools into oxicrab-tools-system crate ([0a25c89](https://github.com/oxicrab/oxicrab/commit/0a25c89fcb8696f4eec7d21db490d9c5caf5521e))
+- **tools:** extract web tools into oxicrab-tools-web crate ([b394133](https://github.com/oxicrab/oxicrab/commit/b3941333780612c1afe813c25ac0e17edd8a0ba5))
+- **gateway:** extract oxicrab-gateway crate ([865ffca](https://github.com/oxicrab/oxicrab/commit/865ffca92fe58f8e3b0779c9366cae7985e50ef7))
+- **channels:** extract oxicrab-channels crate ([6d662a7](https://github.com/oxicrab/oxicrab/commit/6d662a7c40a7ad04628dc56b08b69620ee07152c))
+- **providers:** extract oxicrab-providers crate ([491b073](https://github.com/oxicrab/oxicrab/commit/491b0731696ba321dccc38096a2712ea5fb9c14d))
+- **memory:** extract oxicrab-memory crate ([dc84bcc](https://github.com/oxicrab/oxicrab/commit/dc84bcc7eb6d953283e3500898408d535822a6c9))
+- **core:** extract config schema structs to oxicrab-core ([eaf50af](https://github.com/oxicrab/oxicrab/commit/eaf50af6228ea294df04299fb656c697909b8e0d))
+- **core:** extract BaseChannel trait to oxicrab-core ([379a37b](https://github.com/oxicrab/oxicrab/commit/379a37b397002d6a63c43199d24eb07d14b21da2))
+- **core:** extract Tool trait and types to oxicrab-core ([7bb3f59](https://github.com/oxicrab/oxicrab/commit/7bb3f59ef94be15b15c9f430a6f9f0d84712cef1))
+- **core:** extract LLM provider types and trait to oxicrab-core ([3a56dca](https://github.com/oxicrab/oxicrab/commit/3a56dca2f11ea6f2202efeebf72c38bf6f381066))
+- **core:** extract bus events to oxicrab-core crate ([56653db](https://github.com/oxicrab/oxicrab/commit/56653db8e9e63d4e107ec7e4f2f944aeecd4e6ce))
+- **core:** extract dispatch types to oxicrab-core crate ([c2af3f4](https://github.com/oxicrab/oxicrab/commit/c2af3f4e76fa0950e50541bd40546581900d3081))
+- **core:** extract now_ms to oxicrab-core crate ([466d1fe](https://github.com/oxicrab/oxicrab/commit/466d1fe0aa536d2b9f3d97a87e93c007323ab2a4))
+- **core:** extract OxicrabError to oxicrab-core crate ([6f29da7](https://github.com/oxicrab/oxicrab/commit/6f29da7b1e11b7809f2b56b725ae837c7e065a1f))
+- move provider factory out of config schema ([c4cd740](https://github.com/oxicrab/oxicrab/commit/c4cd740f0f367586a05c3e87bd7038e9772a23fc))
+- extract OAuthTokenStore trait to decouple providers from MemoryDB ([b9c4ecc](https://github.com/oxicrab/oxicrab/commit/b9c4ecc0712a896741d4b7b74f5a942d74908a26))
+- move StaticRule and DirectiveTrigger to tool base module ([d1968d0](https://github.com/oxicrab/oxicrab/commit/d1968d01e74272534f787899eec4e3c900ee7508))
+- Update docs/build.py ([0467b92](https://github.com/oxicrab/oxicrab/commit/0467b92ab319534cd554d133fbf911e4d0be9945))
+
+
+### Documentation
+- update all documentation for workspace crate structure ([13eb96d](https://github.com/oxicrab/oxicrab/commit/13eb96d33bfbee30f6434e202f38ae565e4c08a0))
+- add tool crates extraction design spec ([e7e6d3e](https://github.com/oxicrab/oxicrab/commit/e7e6d3e4dd91573338f20d7e548942b810bc8a78))
+- add workspace split design spec ([b37b218](https://github.com/oxicrab/oxicrab/commit/b37b2187046184491baeb6d3f6f28fdef6152526))
+- document schema migration system in ARCHITECTURE.md ([6341097](https://github.com/oxicrab/oxicrab/commit/63410974adfefcbd1281bb9c2b9172bd55bf6bf6))
+- add active-state handling for footer CLI/workspace links ([bbbf2b0](https://github.com/oxicrab/oxicrab/commit/bbbf2b041e7f5e2e013fa346c37f5d3234642a73))
+- **routing:** fix flow diagram arrows across all routing layers ([8a6d312](https://github.com/oxicrab/oxicrab/commit/8a6d312e0f425e825c5976b436bb3f4e83747a90))
+- **routing:** rename 'Config Knobs' section to 'Router Configuration' ([e249576](https://github.com/oxicrab/oxicrab/commit/e249576183c766b9239a87aed4417c90d5c11634))
+- **routing:** replace job-id-dependent rule example with stable commands ([45b7800](https://github.com/oxicrab/oxicrab/commit/45b780074b4fc044c7685ef5000673ed3c11013e))
+- **routing:** fix cron rule example to valid run/list patterns ([a230de6](https://github.com/oxicrab/oxicrab/commit/a230de61c6cc9ed84ff8efca048d6759f7ad1c26))
+- add contextual CLI and Workspace cross-links ([07d10a5](https://github.com/oxicrab/oxicrab/commit/07d10a5652ce1cf5865495ff8528a79cfb1907f4))
+- add routing layers guide and simplify top navigation ([44a4605](https://github.com/oxicrab/oxicrab/commit/44a46059c3257b4e9169931a7200cb9376489db3))
+
+
+### Fixed
+- address final audit findings — RSVP validation, docs, defense-in-depth ([4170611](https://github.com/oxicrab/oxicrab/commit/41706110bb936e8038ab99c91bdfba4fe9a738f6))
+- **security:** add prompt guard to display_text and handle it in direct dispatch ([bea0b57](https://github.com/oxicrab/oxicrab/commit/bea0b57d31740cb988173a11d599a339d1466e71))
+- **whatsapp:** add file size pre-check before download where possible ([5aa4c64](https://github.com/oxicrab/oxicrab/commit/5aa4c644b2d630ade537029ce248d5666b5f9c84))
+- **google:** document in-flight token refresh persistence gap ([01277dd](https://github.com/oxicrab/oxicrab/commit/01277dd5e12e3cdff2e784bf5c424e41528391f4))
+- **discord:** attach buttons and embeds in send_and_get_id ([e212698](https://github.com/oxicrab/oxicrab/commit/e2126988d942ac376763c309df81c48bed21a7da))
+- **channels:** skip retry for non-retryable channel errors ([cab55b2](https://github.com/oxicrab/oxicrab/commit/cab55b2bc25014c3464679591339e75e11c778de))
+- **slack:** document retry_after_secs override chain in classify_slack_error ([c7ec3c3](https://github.com/oxicrab/oxicrab/commit/c7ec3c3a44ddb6e0b990224a38b631aa5375ec22))
+- **cron:** enforce minimum 1-second interval and clamp negative cooldown ([f1c87c5](https://github.com/oxicrab/oxicrab/commit/f1c87c50001d19293a6a306d42f5d494bd3e2d77))
+- **config:** tighten o1/o3/o4 model inference to require hyphen ([8230bd1](https://github.com/oxicrab/oxicrab/commit/8230bd1f7d977babc7b3fbd19f2f036afba357ef))
+- **browser:** correct wait action error message param name ([1bb05de](https://github.com/oxicrab/oxicrab/commit/1bb05dee4d547ecf07f31de58062f5f216e07da9))
+- Fix workflow shellcheck issues ([5650bf5](https://github.com/oxicrab/oxicrab/commit/5650bf5b4330f43ca6b08193fe3927d7cb4d5c39))
+- Fix CI fuzz target and observability warnings ([fdfc3ea](https://github.com/oxicrab/oxicrab/commit/fdfc3ead5782a95986a10d4daabcd3f6316d50bc))
+- Fix nextest archive and fuzz CI on stable ([a1f2b17](https://github.com/oxicrab/oxicrab/commit/a1f2b174fd4e3c4527ccf525e297393078a8be41))
+- update release script for workspace crate versioning ([b9ce414](https://github.com/oxicrab/oxicrab/commit/b9ce414c6b3e81cf812b0d098e1905dfc6593afd))
+- **test:** provide RememberChecker to router in integration test ([0833e63](https://github.com/oxicrab/oxicrab/commit/0833e638cd33954d594b32a275c856288c26eef1))
+- gate channel regex_utils imports behind feature flags ([e86208a](https://github.com/oxicrab/oxicrab/commit/e86208a4d9cada304b87e78a1185f7a18916d185))
+
+
+### Maintenance
+- initialize cargo workspace ([50bb4f0](https://github.com/oxicrab/oxicrab/commit/50bb4f05c6dc08538f771da0a42f5509ccce4c24))
+
+
+### Other
+- Keep memory search metrics warning-clean ([6f494ac](https://github.com/oxicrab/oxicrab/commit/6f494ac6e1f913dbb63794f2d094352c43a639d1))
+- Restore known-good sccache action ([9b5343b](https://github.com/oxicrab/oxicrab/commit/9b5343bd64e949a5b77d27f2f6141475f034706a))
+- Align sccache env with working action ([156c4dd](https://github.com/oxicrab/oxicrab/commit/156c4dd7dcb1b4c497c309bfd4a3292c7d708914))
+- Export GitHub cache runtime for sccache ([16b8051](https://github.com/oxicrab/oxicrab/commit/16b8051cfd482c35d4b2e08b38fbfba1f98c6450))
+- Pin actionlint workflow action ([26250ce](https://github.com/oxicrab/oxicrab/commit/26250cea36584f0187cf7bf37a004abb73ce87d8))
+- Harden gateway config and unify workspace dependencies ([370235e](https://github.com/oxicrab/oxicrab/commit/370235edc3c4dd7277b39eb0816db912c9298960))
+- Harden routing state and config loading ([86428e3](https://github.com/oxicrab/oxicrab/commit/86428e32251026ad9d21ab6c0fc2ec2bcc390151))
+- Isolate agent run state by request and session ([4e315e8](https://github.com/oxicrab/oxicrab/commit/4e315e8d0aa3c04181bae5410792ded1225945aa))
+- Optimize CI and release workflow caching ([2ea93f9](https://github.com/oxicrab/oxicrab/commit/2ea93f9e0adeba10399c61ddbc0623611bc40b7c))
+- Stabilize doctor pairing store checks ([5c2090c](https://github.com/oxicrab/oxicrab/commit/5c2090c7e86d40cceb26c2d016c498dfccbec5aa))
+- Harden leak redaction path and gate critical fuzzing ([f1c3fae](https://github.com/oxicrab/oxicrab/commit/f1c3faef23f635d8e227c495528369437393064a))
+- Enable memory embeddings by default ([2ac5a4e](https://github.com/oxicrab/oxicrab/commit/2ac5a4e6ccc2deb010c2c8dbee31c573823a7e21))
+- Pin Rust toolchain to stable 1.94.0 ([5842ecd](https://github.com/oxicrab/oxicrab/commit/5842ecd514299910c105b12c00cb0be438790b6d))
+
+
+### Removed
+- Remove stray chromiumoxide root dependency ([36d390c](https://github.com/oxicrab/oxicrab/commit/36d390c0db4aea2a7a0c08b9e7f15e83da383d64))
+
 ## [0.15.0] - 2026-03-17
 
 ### Added
