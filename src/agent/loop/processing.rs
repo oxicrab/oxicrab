@@ -1169,7 +1169,25 @@ impl AgentLoop {
             && let Some(display) = meta.get("display_text").and_then(|v| v.as_str())
         {
             // display_text replaces the LLM-facing content for the user
-            let redacted = self.leak_detector.redact(display);
+            let mut redacted = self.leak_detector.redact(display);
+
+            // Prompt guard scan: display_text is tool output shown directly to the
+            // user without LLM mediation, so it must be checked for injection.
+            if matches!(
+                check_prompt_guard(
+                    self.prompt_guard.as_ref(),
+                    &self.prompt_guard_config,
+                    &redacted,
+                    "direct dispatch display_text",
+                ),
+                PromptGuardVerdict::Blocked
+            ) {
+                warn!(
+                    "security: display_text blocked by prompt guard, falling back to tool result"
+                );
+                redacted.clone_from(&result_content);
+            }
+
             if result_content.is_empty() || result_content.contains("shown to user") {
                 redacted
             } else {
@@ -1503,6 +1521,34 @@ impl AgentLoop {
                 warn!("failed to save session after direct dispatch: {e}");
             }
 
+            // Extract display_text from tool metadata (matching handle_direct_dispatch)
+            let final_content = if let Some(ref rm) = result.metadata
+                && let Some(display) = rm.get("display_text").and_then(|v| v.as_str())
+            {
+                let mut redacted = self.leak_detector.redact(display);
+                if matches!(
+                    check_prompt_guard(
+                        self.prompt_guard.as_ref(),
+                        &self.prompt_guard_config,
+                        &redacted,
+                        "direct call display_text",
+                    ),
+                    PromptGuardVerdict::Blocked
+                ) {
+                    warn!(
+                        "security: display_text blocked by prompt guard, falling back to tool result"
+                    );
+                    redacted.clone_from(&result_content);
+                }
+                if result_content.is_empty() || result_content.contains("shown to user") {
+                    redacted
+                } else {
+                    format!("{redacted}\n\n{result_content}")
+                }
+            } else {
+                result_content
+            };
+
             let mut meta = HashMap::new();
             if let Some(ref rm) = result.metadata
                 && let Some(buttons) = rm.get("suggested_buttons")
@@ -1510,7 +1556,7 @@ impl AgentLoop {
                 meta.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
             }
             return Ok(super::config::DirectResult {
-                content: result_content,
+                content: final_content,
                 metadata: meta,
             });
         }
