@@ -23,6 +23,7 @@ pub struct MemoryStore {
     #[cfg(feature = "embeddings")]
     recency_half_life_days: u32,
     search_result_limit: usize,
+    max_context_chars: usize,
 }
 
 impl MemoryStore {
@@ -67,6 +68,7 @@ impl MemoryStore {
             #[cfg(feature = "embeddings")]
             recency_half_life_days: 90,
             search_result_limit: 8,
+            max_context_chars: 4000,
         })
     }
 
@@ -86,6 +88,7 @@ impl MemoryStore {
             #[cfg(feature = "embeddings")]
             recency_half_life_days: 90,
             search_result_limit: 8,
+            max_context_chars: 4000,
         }
     }
 
@@ -116,6 +119,7 @@ impl MemoryStore {
             #[cfg(feature = "embeddings")]
             recency_half_life_days: memory_config.recency_half_life_days,
             search_result_limit: memory_config.search_result_limit,
+            max_context_chars: memory_config.max_context_chars,
         }
     }
 
@@ -172,6 +176,7 @@ impl MemoryStore {
             #[cfg(feature = "embeddings")]
             recency_half_life_days: memory_config.recency_half_life_days,
             search_result_limit: memory_config.search_result_limit,
+            max_context_chars: memory_config.max_context_chars,
         })
     }
 
@@ -274,8 +279,16 @@ impl MemoryStore {
             } else {
                 self.db.search(query, result_limit, Some(&exclude))?
             };
+            let max_chars = self.max_context_chars;
+            let mut total_chars = 0;
             for hit in hits {
-                chunks.push(format!("**{}**: {}", hit.source_key, hit.content));
+                let chunk = format!("**{}**: {}", hit.source_key, hit.content);
+                let entry_chars = chunk.len() + 10; // separator overhead
+                if total_chars + entry_chars > max_chars && !chunks.is_empty() {
+                    break;
+                }
+                total_chars += entry_chars;
+                chunks.push(chunk);
                 if chunks.len() >= result_limit {
                     break;
                 }

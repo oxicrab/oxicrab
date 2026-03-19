@@ -162,6 +162,10 @@ fn default_retention_days() -> u32 {
     180
 }
 
+fn default_max_context_chars() -> usize {
+    4000
+}
+
 fn default_embeddings_enabled() -> bool {
     true
 }
@@ -205,6 +209,11 @@ pub struct MemoryConfig {
     /// Knowledge entries (`knowledge:` prefix) are never purged regardless of this setting.
     #[serde(default = "default_retention_days", rename = "retentionDays")]
     pub retention_days: u32,
+    /// Maximum total characters of memory context injected into the system prompt
+    /// (default: 4000, ~1000 tokens). Prevents memory from consuming too much of
+    /// the context window.
+    #[serde(default = "default_max_context_chars", rename = "maxContextChars")]
+    pub max_context_chars: usize,
 }
 
 impl Default for MemoryConfig {
@@ -219,6 +228,7 @@ impl Default for MemoryConfig {
             recency_half_life_days: default_recency_half_life_days(),
             search_result_limit: default_search_result_limit(),
             retention_days: default_retention_days(),
+            max_context_chars: default_max_context_chars(),
         }
     }
 }
