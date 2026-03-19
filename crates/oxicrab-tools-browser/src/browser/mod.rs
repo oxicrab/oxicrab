@@ -661,7 +661,7 @@ impl BrowserTool {
             Ok(ToolResult::new(format!("Waited {capped}ms")))
         } else {
             Ok(ToolResult::error(
-                "'wait' action requires 'selector' (CSS selector) or 'pixels' (ms to wait)"
+                "'wait' action requires 'selector' (CSS selector) or 'ms' (milliseconds to wait)"
                     .to_string(),
             ))
         }
