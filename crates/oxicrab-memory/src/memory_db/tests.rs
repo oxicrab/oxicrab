@@ -19,7 +19,8 @@ fn test_fts_query_simple() {
     let q = fts_query("hello world");
     assert!(q.contains("hello"));
     assert!(q.contains("world"));
-    assert!(q.contains(" OR "));
+    // 2 terms uses AND for precision
+    assert!(q.contains(" AND "));
 }
 
 #[test]
@@ -46,6 +47,17 @@ fn test_fts_query_max_terms() {
     let q = fts_query(&terms.join(" "));
     let count = q.split(" OR ").count();
     assert!(count <= MAX_FTS_TERMS);
+}
+
+#[test]
+fn test_fts_query_and_for_few_terms() {
+    // 3 terms should use AND
+    let q = fts_query("rust async await");
+    assert!(q.contains(" AND "), "3 terms should use AND, got: {q}");
+
+    // 4 terms should use OR
+    let q = fts_query("rust async await tokio");
+    assert!(q.contains(" OR "), "4 terms should use OR, got: {q}");
 }
 
 #[test]

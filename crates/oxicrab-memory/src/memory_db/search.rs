@@ -50,11 +50,11 @@ impl MemoryDB {
             if !query.is_empty() && self.has_fts {
                 let conn = self.lock_conn()?;
                 let mut stmt = conn.prepare(
-                    "SELECT me.id, me.source_key, me.content, bm25(memory_fts) as score, me.created_at
+                    "SELECT me.id, me.source_key, me.content, bm25(memory_fts, 10.0, 1.0) as score, me.created_at
                      FROM memory_fts
                      JOIN memory_entries me ON memory_fts.rowid = me.id
                      WHERE memory_fts MATCH ?
-                     ORDER BY bm25(memory_fts)
+                     ORDER BY bm25(memory_fts, 10.0, 1.0)
                      LIMIT 100",
                 )?;
 
@@ -301,7 +301,7 @@ impl MemoryDB {
                 FROM memory_fts
                 JOIN memory_entries me ON memory_fts.rowid = me.id
                 WHERE memory_fts MATCH ?
-                ORDER BY bm25(memory_fts)
+                ORDER BY bm25(memory_fts, 10.0, 1.0)
                 LIMIT ?",
             )?;
 
@@ -396,10 +396,13 @@ pub(super) fn fts_query(text: &str) -> String {
     }
 
     // Double-quote each term to prevent FTS5 operator injection
-    // (e.g. user searching for "NOT important" won't trigger NOT operator)
+    // (e.g. user searching for "NOT important" won't trigger NOT operator).
+    // Use AND for precise queries (2-3 terms are likely intentional),
+    // OR for broader queries (4+ terms are likely conversational).
+    let join_op = if unique.len() <= 3 { " AND " } else { " OR " };
     unique
         .iter()
         .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
         .collect::<Vec<_>>()
-        .join(" OR ")
+        .join(join_op)
 }

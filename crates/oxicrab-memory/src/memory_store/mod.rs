@@ -207,12 +207,15 @@ impl MemoryStore {
             .and_then(|lazy| lazy.get())
             .ok_or_else(|| anyhow::anyhow!("embeddings not available"))?;
         let query_embedding = emb_svc.embed_query(query)?;
+        // Config `hybridWeight` semantics: 0.0 = keyword only, 1.0 = vector only.
+        // The DB `hybrid_search` takes `keyword_weight`, so invert.
+        let keyword_weight = 1.0 - self.hybrid_weight;
         let hits = self.db.hybrid_search(
             query,
             &query_embedding,
             limit,
             exclude_sources,
-            self.hybrid_weight,
+            keyword_weight,
             self.fusion_strategy,
             self.rrf_k,
             self.recency_half_life_days,
