@@ -8,7 +8,7 @@ license = "MIT"
 
 [dependencies]
 oxicrab-core = { path = "../oxicrab-core" }
-metrics = "0.24"
+metrics = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

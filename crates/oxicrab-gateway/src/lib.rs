@@ -36,6 +36,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use governor::{DefaultKeyedRateLimiter, Quota};
 use hmac::{Hmac, Mac};
+use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
@@ -228,6 +229,7 @@ async fn api_key_auth(
 struct RateLimitState {
     limiter: Arc<DefaultKeyedRateLimiter<String>>,
     trust_proxy: bool,
+    trusted_proxies: Arc<Vec<IpNet>>,
     /// Retry-After value derived from 1/rps (seconds), minimum 1.
     retry_after_secs: u64,
 }
@@ -253,22 +255,8 @@ async fn rate_limit_middleware(
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .copied();
-    let socket_ip = connect_info.map(|ci| ci.0.ip().to_string());
 
-    let ip = if state.trust_proxy {
-        // Trust X-Forwarded-For when behind a reverse proxy
-        request
-            .headers()
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.split(',').next())
-            .map(|s| s.trim().to_string())
-            .or(socket_ip)
-            .unwrap_or_else(|| "unknown".to_string())
-    } else {
-        // Default: use actual socket address (not spoofable)
-        socket_ip.unwrap_or_else(|| "unknown".to_string())
-    };
+    let ip = extract_rate_limit_client_ip(&state, request.headers(), connect_info);
 
     if state.limiter.check_key(&ip).is_ok() {
         return next.run(request).await;
@@ -284,6 +272,32 @@ async fn rate_limit_middleware(
         }),
     )
         .into_response()
+}
+
+fn extract_rate_limit_client_ip(
+    state: &RateLimitState,
+    headers: &HeaderMap,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
+) -> String {
+    let socket_ip = connect_info.map(|ci| ci.0.ip());
+    if state.trust_proxy
+        && socket_ip.is_some_and(|remote_ip| {
+            state
+                .trusted_proxies
+                .iter()
+                .any(|net| net.contains(&remote_ip))
+        })
+    {
+        return headers
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(',').next())
+            .map(|s| s.trim().to_string())
+            .or_else(|| socket_ip.map(|ip| ip.to_string()))
+            .unwrap_or_else(|| "unknown".to_string());
+    }
+
+    socket_ip.map_or_else(|| "unknown".to_string(), |ip| ip.to_string())
 }
 
 /// Build the HTTP API router.
@@ -753,10 +767,26 @@ async fn webhook_handler(
         // Wait for agent response, then forward to targets
         match tokio::time::timeout(Duration::from_secs(RESPONSE_TIMEOUT_SECS), rx).await {
             Ok(Ok(response)) => {
-                deliver_to_targets(&state, &config.targets, &response.content, &name).await;
+                let outcome =
+                    deliver_to_targets(&state, &config.targets, &response.content, &name).await;
+                if outcome.delivered == 0 {
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(serde_json::json!({
+                            "status": "error",
+                            "error": "no webhook targets accepted delivery",
+                            "attempted": outcome.attempted,
+                            "delivered": outcome.delivered,
+                            "failed": outcome.failed,
+                        })),
+                    )
+                        .into_response();
+                }
                 Json(serde_json::json!({
                     "status": "ok",
-                    "delivered": true
+                    "attempted": outcome.attempted,
+                    "delivered": outcome.delivered,
+                    "failed": outcome.failed,
                 }))
                 .into_response()
             }
@@ -776,28 +806,53 @@ async fn webhook_handler(
         }
     } else {
         // Direct delivery — send templated message to targets without agent
-        deliver_to_targets(&state, &config.targets, &message, &name).await;
+        let outcome = deliver_to_targets(&state, &config.targets, &message, &name).await;
+        if outcome.delivered == 0 {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "status": "error",
+                    "error": "no webhook targets accepted delivery",
+                    "attempted": outcome.attempted,
+                    "delivered": outcome.delivered,
+                    "failed": outcome.failed,
+                })),
+            )
+                .into_response();
+        }
         Json(serde_json::json!({
             "status": "ok",
-            "delivered": true
+            "attempted": outcome.attempted,
+            "delivered": outcome.delivered,
+            "failed": outcome.failed,
         }))
         .into_response()
     }
 }
 
 /// Deliver a message to configured webhook targets via the outbound channel.
+struct DeliveryOutcome {
+    attempted: usize,
+    delivered: usize,
+    failed: usize,
+}
+
 async fn deliver_to_targets(
     state: &HttpApiState,
     targets: &[WebhookTarget],
     content: &str,
     webhook_name: &str,
-) {
+) -> DeliveryOutcome {
     let Some(ref outbound_tx) = state.outbound_tx else {
         warn!(
             "webhook {}: no outbound sender configured, cannot deliver to targets",
             webhook_name
         );
-        return;
+        return DeliveryOutcome {
+            attempted: targets.len(),
+            delivered: 0,
+            failed: targets.len(),
+        };
     };
 
     // Scan for leaked secrets before delivery (this path bypasses MessageBus,
@@ -808,6 +863,8 @@ async fn deliver_to_targets(
         warn!("security: webhook {webhook_name}: redacted leaked secrets from target delivery");
     }
 
+    let mut delivered = 0usize;
+    let mut failed = 0usize;
     for target in targets {
         let msg = OutboundMessage::builder(
             target.channel.clone(),
@@ -824,12 +881,19 @@ async fn deliver_to_targets(
                 "webhook {}: failed to deliver to {}:{}: {}",
                 webhook_name, target.channel, target.chat_id, e
             );
+            failed += 1;
         } else {
             debug!(
                 "webhook {}: delivered to {}:{}",
                 webhook_name, target.channel, target.chat_id
             );
+            delivered += 1;
         }
+    }
+    DeliveryOutcome {
+        attempted: targets.len(),
+        delivered,
+        failed,
     }
 }
 
@@ -900,6 +964,17 @@ pub async fn start<S: BuildHasher>(
     if key.is_some() {
         info!("HTTP API authentication enabled (Bearer / X-API-Key)");
     }
+    let trusted_proxies = rate_limit
+        .trusted_proxies
+        .iter()
+        .filter_map(|entry| match entry.parse::<IpNet>() {
+            Ok(net) => Some(net),
+            Err(e) => {
+                warn!("ignoring invalid trusted proxy '{entry}': {e}");
+                None
+            }
+        })
+        .collect::<Vec<_>>();
     let rate_limiter = if rate_limit.enabled {
         let rps = NonZeroU32::new(rate_limit.requests_per_second).unwrap_or_else(|| {
             warn!("gateway rate limit requests_per_second is 0, using default 10");
@@ -925,6 +1000,7 @@ pub async fn start<S: BuildHasher>(
         Some(RateLimitState {
             limiter: Arc::new(governor::RateLimiter::keyed(quota)),
             trust_proxy: rate_limit.trust_proxy,
+            trusted_proxies: Arc::new(trusted_proxies),
             retry_after_secs,
         })
     } else {

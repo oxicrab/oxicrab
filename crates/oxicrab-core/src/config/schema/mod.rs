@@ -111,6 +111,10 @@ pub struct RateLimitConfig {
     /// Only enable when running behind a reverse proxy (nginx, Cloudflare, etc.).
     #[serde(default, rename = "trustProxy")]
     pub trust_proxy: bool,
+    /// Exact IPs or CIDRs allowed to supply X-Forwarded-For.
+    /// Required when trustProxy is enabled.
+    #[serde(default, rename = "trustedProxies")]
+    pub trusted_proxies: Vec<String>,
 }
 
 impl Default for RateLimitConfig {
@@ -120,6 +124,7 @@ impl Default for RateLimitConfig {
             requests_per_second: default_rps(),
             burst: default_burst(),
             trust_proxy: false,
+            trusted_proxies: vec![],
         }
     }
 }
@@ -328,6 +333,7 @@ impl Config {
         self.validate_memory()?;
         self.validate_cognitive()?;
         self.validate_gateway()?;
+        self.validate_router()?;
         self.validate_tools()?;
         self.validate_channels()?;
         self.validate_model_routing()?;
@@ -429,11 +435,21 @@ impl Config {
                 metrics.bind
             )));
         }
+        if metrics.enabled
+            && let Ok(addr) = metrics.bind.parse::<std::net::SocketAddr>()
+            && !addr.ip().is_loopback()
+        {
+            warn!(
+                "metrics exporter is binding to {} without authentication; scrape it only behind a trusted network boundary or reverse proxy",
+                addr
+            );
+        }
         Ok(())
     }
 
     fn validate_gateway(&self) -> Result<(), crate::errors::OxicrabError> {
         use crate::errors::OxicrabError;
+        use ipnet::IpNet;
 
         if self.gateway.port == 0 {
             return Err(OxicrabError::Config("gateway.port must be > 0".into()));
@@ -465,6 +481,92 @@ impl Config {
         if self.gateway.rate_limit.enabled && self.gateway.rate_limit.burst == 0 {
             return Err(OxicrabError::Config(
                 "gateway.rateLimit.burst must be > 0 when enabled".into(),
+            ));
+        }
+        if self.gateway.rate_limit.trust_proxy && self.gateway.rate_limit.trusted_proxies.is_empty()
+        {
+            return Err(OxicrabError::Config(
+                "gateway.rateLimit.trustedProxies must contain at least one IP or CIDR when trustProxy is enabled".into(),
+            ));
+        }
+        for proxy in &self.gateway.rate_limit.trusted_proxies {
+            if proxy.parse::<IpNet>().is_err() {
+                return Err(OxicrabError::Config(format!(
+                    "gateway.rateLimit.trustedProxies entries must be valid IPs or CIDRs, got '{proxy}'"
+                )));
+            }
+        }
+        for (name, webhook) in &self.gateway.webhooks {
+            if !webhook.enabled {
+                continue;
+            }
+            if webhook.secret.trim().is_empty() {
+                return Err(OxicrabError::Config(format!(
+                    "gateway.webhooks.{name}.secret is required when webhook is enabled"
+                )));
+            }
+            if webhook.targets.is_empty() {
+                return Err(OxicrabError::Config(format!(
+                    "gateway.webhooks.{name}.targets must contain at least one target when webhook is enabled"
+                )));
+            }
+            if let Some(dispatch) = &webhook.dispatch
+                && dispatch.tool.trim().is_empty()
+            {
+                return Err(OxicrabError::Config(format!(
+                    "gateway.webhooks.{name}.dispatch.tool must not be empty"
+                )));
+            }
+            if webhook.agent_turn && webhook.dispatch.is_some() {
+                return Err(OxicrabError::Config(format!(
+                    "gateway.webhooks.{name} cannot set both agentTurn and dispatch"
+                )));
+            }
+            for (idx, target) in webhook.targets.iter().enumerate() {
+                if target.channel.trim().is_empty() {
+                    return Err(OxicrabError::Config(format!(
+                        "gateway.webhooks.{name}.targets[{idx}].channel must not be empty"
+                    )));
+                }
+                if target.chat_id.trim().is_empty() {
+                    return Err(OxicrabError::Config(format!(
+                        "gateway.webhooks.{name}.targets[{idx}].chatId must not be empty"
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_router(&self) -> Result<(), crate::errors::OxicrabError> {
+        use crate::errors::OxicrabError;
+        let router = &self.router;
+
+        if router.prefix.is_empty() {
+            return Err(OxicrabError::Config(
+                "router.prefix must not be empty".into(),
+            ));
+        }
+        if router.semantic_top_k == 0 {
+            return Err(OxicrabError::Config(
+                "router.semanticTopK must be > 0".into(),
+            ));
+        }
+        if router.semantic_prefilter_k == 0 {
+            return Err(OxicrabError::Config(
+                "router.semanticPrefilterK must be > 0".into(),
+            ));
+        }
+        if router.semantic_top_k > router.semantic_prefilter_k {
+            return Err(OxicrabError::Config(
+                "router.semanticTopK must be <= router.semanticPrefilterK".into(),
+            ));
+        }
+        if !router.semantic_threshold.is_finite()
+            || !(0.0..=1.0).contains(&router.semantic_threshold)
+        {
+            return Err(OxicrabError::Config(
+                "router.semanticThreshold must be a finite number between 0.0 and 1.0".into(),
             ));
         }
         Ok(())

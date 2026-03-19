@@ -42,6 +42,85 @@ fn test_invalid_zero_port() {
 }
 
 #[test]
+fn test_invalid_router_semantic_threshold_rejected() {
+    let mut config = Config::default();
+    config.router.semantic_threshold = 1.5;
+    let err = config.validate().unwrap_err();
+    assert!(err.to_string().contains("router.semanticThreshold"));
+}
+
+#[test]
+fn test_invalid_router_top_k_greater_than_prefilter_rejected() {
+    let mut config = Config::default();
+    config.router.semantic_top_k = 4;
+    config.router.semantic_prefilter_k = 3;
+    let err = config.validate().unwrap_err();
+    assert!(err.to_string().contains("semanticTopK"));
+}
+
+#[test]
+fn test_trust_proxy_requires_trusted_proxies() {
+    let mut config = Config::default();
+    config.gateway.rate_limit.enabled = true;
+    config.gateway.rate_limit.trust_proxy = true;
+    config.gateway.rate_limit.trusted_proxies.clear();
+    let err = config.validate().unwrap_err();
+    assert!(err.to_string().contains("trustedProxies"));
+}
+
+#[test]
+fn test_invalid_trusted_proxy_cidr_rejected() {
+    let mut config = Config::default();
+    config.gateway.rate_limit.enabled = true;
+    config.gateway.rate_limit.trust_proxy = true;
+    config.gateway.rate_limit.trusted_proxies = vec!["not-a-cidr".into()];
+    let err = config.validate().unwrap_err();
+    assert!(err.to_string().contains("trustedProxies"));
+}
+
+#[test]
+fn test_enabled_webhook_requires_secret_and_targets() {
+    let mut config = Config::default();
+    config.gateway.webhooks.insert(
+        "deploy".into(),
+        WebhookConfig {
+            enabled: true,
+            secret: String::new(),
+            ..Default::default()
+        },
+    );
+    let err = config.validate().unwrap_err();
+    assert!(err.to_string().contains("gateway.webhooks.deploy.secret"));
+}
+
+#[test]
+fn test_enabled_webhook_rejects_agent_turn_and_dispatch_together() {
+    let mut config = Config::default();
+    config.gateway.webhooks.insert(
+        "deploy".into(),
+        WebhookConfig {
+            enabled: true,
+            secret: "secret".into(),
+            agent_turn: true,
+            targets: vec![WebhookTarget {
+                channel: "slack".into(),
+                chat_id: "C123".into(),
+            }],
+            dispatch: Some(WebhookDispatchConfig {
+                tool: "memory".into(),
+                params_template: serde_json::json!({}),
+            }),
+            ..Default::default()
+        },
+    );
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("cannot set both agentTurn and dispatch")
+    );
+}
+
+#[test]
 fn test_invalid_zero_exec_timeout() {
     let mut config = Config::default();
     config.tools.exec.timeout = 0;

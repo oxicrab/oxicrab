@@ -11,12 +11,12 @@ oxicrab-core = { path = "../oxicrab-core" }
 oxicrab-memory = { path = "../oxicrab-memory", default-features = false }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-chrono = { version = "0.4", features = ["serde"] }
-dirs = "6.0"
-hex = "0.4"
-sha2 = "0.10"
-url = "2.5"
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "charset", "http2"] }
+chrono = { workspace = true }
+dirs = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+url = { workspace = true }
+reqwest = { workspace = true, features = ["json", "rustls", "charset", "http2"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
@@ -25,6 +25,6 @@ urlencoding = "2.1"
 walkdir = "2.5"
 
 [dev-dependencies]
-tempfile = "3.25"
-tokio = { version = "1", features = ["macros", "rt"] }
-wiremock = "0.6.5"
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
+wiremock = { workspace = true }

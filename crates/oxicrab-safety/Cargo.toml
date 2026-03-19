@@ -9,8 +9,8 @@ license = "MIT"
 [dependencies]
 oxicrab-core = { path = "../oxicrab-core" }
 aho-corasick = "1.1"
-base64 = "0.22"
-hex = "0.4"
+base64 = { workspace = true }
+hex = { workspace = true }
 regex = { workspace = true }
 tracing = { workspace = true }
 urlencoding = "2.1"

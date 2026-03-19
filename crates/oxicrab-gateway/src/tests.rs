@@ -1,4 +1,7 @@
 use super::*;
+use axum::extract::ConnectInfo;
+use ipnet::IpNet;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 fn make_state() -> HttpApiState {
     HttpApiState {
@@ -149,6 +152,10 @@ fn make_webhook_config(enabled: bool, secret: &str) -> WebhookConfig {
     WebhookConfig {
         enabled,
         secret: secret.to_string(),
+        targets: vec![WebhookTarget {
+            channel: "slack".to_string(),
+            chat_id: "C123".to_string(),
+        }],
         ..Default::default()
     }
 }
@@ -164,6 +171,25 @@ fn make_state_with_webhooks(webhooks: HashMap<String, WebhookConfig>) -> HttpApi
         status: Arc::new(OnceLock::new()),
         echo_mode: false,
     }
+}
+
+fn make_state_with_webhooks_and_outbound(
+    webhooks: HashMap<String, WebhookConfig>,
+) -> (HttpApiState, mpsc::Receiver<OutboundMessage>) {
+    let (outbound_tx, outbound_rx) = mpsc::channel(16);
+    (
+        HttpApiState {
+            inbound_tx: Arc::new(mpsc::channel(1).0),
+            pending: Arc::new(Mutex::new(HashMap::new())),
+            webhooks: Arc::new(webhooks),
+            outbound_tx: Some(Arc::new(outbound_tx)),
+            leak_detector: Arc::new(NoopRedactor),
+            ready: Arc::new(AtomicBool::new(true)),
+            status: Arc::new(OnceLock::new()),
+            echo_mode: false,
+        },
+        outbound_rx,
+    )
 }
 
 fn sign_body(secret: &str, body: &[u8]) -> String {
@@ -182,7 +208,7 @@ async fn test_webhook_disabled_returns_404() {
         "test-hook".to_string(),
         make_webhook_config(false, "secret123"),
     );
-    let state = make_state_with_webhooks(webhooks);
+    let (state, _outbound_rx) = make_state_with_webhooks_and_outbound(webhooks);
     let app = build_router(state, None, None, None);
 
     let body = b"payload";
@@ -208,7 +234,7 @@ async fn test_webhook_enabled_validates_signature() {
         "test-hook".to_string(),
         make_webhook_config(true, "secret123"),
     );
-    let state = make_state_with_webhooks(webhooks);
+    let (state, _outbound_rx) = make_state_with_webhooks_and_outbound(webhooks);
     let app = build_router(state, None, None, None);
 
     let body = b"payload";
@@ -235,7 +261,7 @@ async fn test_webhook_bad_signature_returns_forbidden() {
         "test-hook".to_string(),
         make_webhook_config(true, "secret123"),
     );
-    let state = make_state_with_webhooks(webhooks);
+    let (state, _outbound_rx) = make_state_with_webhooks_and_outbound(webhooks);
     let app = build_router(state, None, None, None);
 
     let req = Request::builder()
@@ -333,7 +359,7 @@ async fn test_webhook_alternative_signature_headers() {
             "test-hook".to_string(),
             make_webhook_config(true, "secret123"),
         );
-        let state = make_state_with_webhooks(webhooks);
+        let (state, _outbound_rx) = make_state_with_webhooks_and_outbound(webhooks);
         let app = build_router(state, None, None, None);
 
         let req = Request::builder()
@@ -406,7 +432,9 @@ async fn test_webhook_direct_delivery_to_targets() {
     let resp_body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
     assert_eq!(json["status"], "ok");
-    assert_eq!(json["delivered"], true);
+    assert_eq!(json["attempted"], 2);
+    assert_eq!(json["delivered"], 2);
+    assert_eq!(json["failed"], 0);
 
     // Verify both targets received the templated message
     let msg1 = outbound_rx.recv().await.unwrap();
@@ -487,7 +515,9 @@ async fn test_webhook_agent_turn_routes_through_agent() {
     let resp_body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
     assert_eq!(json["status"], "ok");
-    assert_eq!(json["delivered"], true);
+    assert_eq!(json["attempted"], 1);
+    assert_eq!(json["delivered"], 1);
+    assert_eq!(json["failed"], 0);
 
     // Verify the agent's response was delivered to the target
     let delivered = outbound_rx.recv().await.unwrap();
@@ -645,8 +675,113 @@ async fn test_deliver_to_targets_no_outbound_tx() {
         channel: "slack".to_string(),
         chat_id: "C123".to_string(),
     }];
-    // Should not panic — just warn and return
-    deliver_to_targets(&state, &targets, "hello", "test-hook").await;
+    let outcome = deliver_to_targets(&state, &targets, "hello", "test-hook").await;
+    assert_eq!(outcome.attempted, 1);
+    assert_eq!(outcome.delivered, 0);
+    assert_eq!(outcome.failed, 1);
+}
+
+#[test]
+fn test_extract_rate_limit_client_ip_ignores_spoofed_xff_without_trusted_proxy() {
+    let state = RateLimitState {
+        limiter: Arc::new(governor::RateLimiter::keyed(governor::Quota::per_second(
+            std::num::NonZeroU32::new(1).unwrap(),
+        ))),
+        trust_proxy: true,
+        trusted_proxies: Arc::new(vec!["10.0.0.0/8".parse::<IpNet>().unwrap()]),
+        retry_after_secs: 1,
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert("x-forwarded-for", "198.51.100.10".parse().unwrap());
+
+    let ip = extract_rate_limit_client_ip(
+        &state,
+        &headers,
+        Some(ConnectInfo(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)),
+            443,
+        ))),
+    );
+    assert_eq!(ip, "203.0.113.7");
+}
+
+#[test]
+fn test_extract_rate_limit_client_ip_uses_xff_for_trusted_proxy() {
+    let state = RateLimitState {
+        limiter: Arc::new(governor::RateLimiter::keyed(governor::Quota::per_second(
+            std::num::NonZeroU32::new(1).unwrap(),
+        ))),
+        trust_proxy: true,
+        trusted_proxies: Arc::new(vec!["10.0.0.0/8".parse::<IpNet>().unwrap()]),
+        retry_after_secs: 1,
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-forwarded-for",
+        "198.51.100.10, 10.1.2.3".parse().unwrap(),
+    );
+
+    let ip = extract_rate_limit_client_ip(
+        &state,
+        &headers,
+        Some(ConnectInfo(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(10, 1, 2, 3)),
+            443,
+        ))),
+    );
+    assert_eq!(ip, "198.51.100.10");
+}
+
+#[tokio::test]
+async fn test_webhook_direct_delivery_returns_error_when_no_targets_accept_delivery() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let (outbound_tx, outbound_rx) = mpsc::channel(1);
+    drop(outbound_rx);
+
+    let mut webhooks = HashMap::new();
+    webhooks.insert(
+        "deploy".to_string(),
+        WebhookConfig {
+            secret: "deploy-secret".to_string(),
+            template: "Deploy event: {{body}}".to_string(),
+            targets: vec![WebhookTarget {
+                channel: "slack".to_string(),
+                chat_id: "C123".to_string(),
+            }],
+            ..Default::default()
+        },
+    );
+
+    let state = HttpApiState {
+        inbound_tx: Arc::new(mpsc::channel(1).0),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+        webhooks: Arc::new(webhooks),
+        outbound_tx: Some(Arc::new(outbound_tx)),
+        leak_detector: Arc::new(NoopRedactor),
+        ready: Arc::new(AtomicBool::new(true)),
+        status: Arc::new(OnceLock::new()),
+        echo_mode: false,
+    };
+    let app = build_router(state, None, None, None);
+
+    let body = b"v2.0 released";
+    let sig = sign_body("deploy-secret", body);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/webhook/deploy")
+        .header("X-Signature-256", &sig)
+        .body(axum::body::Body::from(&body[..]))
+        .unwrap();
+
+    let resp: axum::http::Response<_> = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    let resp_body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+    assert_eq!(json["delivered"], 0);
+    assert_eq!(json["failed"], 1);
 }
 
 #[tokio::test]
@@ -1086,7 +1221,7 @@ async fn test_webhook_replay_protection_rejects_old_timestamp() {
         "test-hook".to_string(),
         make_webhook_config(true, "secret123"),
     );
-    let state = make_state_with_webhooks(webhooks);
+    let (state, _outbound_rx) = make_state_with_webhooks_and_outbound(webhooks);
     let app = build_router(state, None, None, None);
 
     let body = b"payload";
@@ -1115,7 +1250,7 @@ async fn test_webhook_replay_protection_accepts_recent_timestamp() {
         "test-hook".to_string(),
         make_webhook_config(true, "secret123"),
     );
-    let state = make_state_with_webhooks(webhooks);
+    let (state, _outbound_rx) = make_state_with_webhooks_and_outbound(webhooks);
     let app = build_router(state, None, None, None);
 
     let body = b"payload";

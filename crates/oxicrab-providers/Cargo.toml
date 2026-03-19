@@ -10,19 +10,19 @@ license = "MIT"
 oxicrab-core = { path = "../oxicrab-core" }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-dirs = "6.0"
+dirs = { workspace = true }
 fs2 = "0.4"
-futures-util = "0.3"
+futures-util = { workspace = true }
 regex = { workspace = true }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+reqwest = { workspace = true, features = ["json", "rustls"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tempfile = "3.25"
+tempfile = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 urlencoding = "2.1"
-uuid = { version = "1.22", features = ["v4"] }
+uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 oxicrab-memory = { path = "../oxicrab-memory", default-features = false }
-wiremock = "0.6.5"
+wiremock = { workspace = true }

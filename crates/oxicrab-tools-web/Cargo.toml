@@ -10,10 +10,10 @@ license = "MIT"
 oxicrab-core = { path = "../oxicrab-core" }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true }
 html-escape = "0.2"
 regex = { workspace = true }
-reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls", "charset", "http2", "query"] }
+reqwest = { workspace = true, features = ["json", "stream", "rustls", "charset", "http2", "query"] }
 scraper = "0.25"
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -21,5 +21,5 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt"] }
-wiremock = "0.6.5"
+tokio = { workspace = true, features = ["macros", "rt"] }
+wiremock = { workspace = true }

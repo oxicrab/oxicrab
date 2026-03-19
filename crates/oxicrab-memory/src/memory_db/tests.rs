@@ -131,7 +131,7 @@ fn test_insert_memory_clone_works() {
     )
     .unwrap();
 
-    let db2 = db.clone();
+    let db2 = MemoryDB::new(&db_path).unwrap();
     let results = db2.search("cloning", 10, None).unwrap();
     assert!(!results.is_empty());
 }

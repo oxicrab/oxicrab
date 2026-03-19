@@ -52,7 +52,6 @@ pub fn recency_decay(age_days: f64, half_life_days: u32) -> f32 {
 
 pub struct MemoryDB {
     pub(crate) conn: std::sync::Mutex<Connection>,
-    db_path: String,
     has_fts: bool,
     /// Lazily populated embedding cache. The `u64` is the generation at which
     /// the cache was populated. Set to `None` to invalidate (e.g. after
@@ -62,39 +61,6 @@ pub struct MemoryDB {
     /// Monotonically increasing counter, bumped on each embedding invalidation.
     /// Used to detect stale cache reads across lock boundaries.
     embedding_generation: std::sync::atomic::AtomicU64,
-}
-
-impl Clone for MemoryDB {
-    fn clone(&self) -> Self {
-        // Re-open a connection for clones (rare, needed for spawn_blocking patterns).
-        // Panics on failure because callers depend on the clone being connected
-        // to the same database file — an in-memory fallback would silently lose data.
-        let conn = Connection::open(&self.db_path).unwrap_or_else(|e| {
-            panic!(
-                "failed to re-open memory DB at {} for clone: {}",
-                self.db_path, e
-            )
-        });
-        if let Err(e) = conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             PRAGMA busy_timeout=3000;
-             PRAGMA foreign_keys=ON;",
-        ) {
-            warn!(
-                "failed to set PRAGMAs on cloned DB connection: {} \
-                 (WAL mode, busy timeout, and foreign keys may not be active)",
-                e
-            );
-        }
-        Self {
-            conn: std::sync::Mutex::new(conn),
-            db_path: self.db_path.clone(),
-            has_fts: self.has_fts,
-            embedding_cache: std::sync::Mutex::new(None),
-            embedding_generation: std::sync::atomic::AtomicU64::new(0),
-        }
-    }
 }
 
 impl MemoryDB {
@@ -120,7 +86,6 @@ impl MemoryDB {
 
         let mut db = Self {
             conn: std::sync::Mutex::new(conn),
-            db_path: db_path.to_string_lossy().to_string(),
             has_fts: false,
             embedding_cache: std::sync::Mutex::new(None),
             embedding_generation: std::sync::atomic::AtomicU64::new(0),

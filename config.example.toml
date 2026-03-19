@@ -167,6 +167,7 @@ enabled = false
 requestsPerSecond = 10
 burst = 20
 trustProxy = false
+trustedProxies = []
 
 [tools]
 restrictToWorkspace = false
