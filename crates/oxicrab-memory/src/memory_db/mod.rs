@@ -147,6 +147,16 @@ impl MemoryDB {
     }
 }
 
+impl MemoryDB {
+    /// Run `PRAGMA optimize` to update query planner statistics.
+    /// Lightweight and safe to call periodically (e.g. during hygiene).
+    pub fn optimize(&self) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute_batch("PRAGMA optimize")?;
+        Ok(())
+    }
+}
+
 // --- Session storage ---
 
 impl MemoryDB {
