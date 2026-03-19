@@ -49,6 +49,13 @@ enum SlackApiError {
     Other(String),
 }
 
+/// Classify a Slack API error from HTTP status and error field.
+///
+/// Note: `retry_after_secs` defaults to 1 here because this layer doesn't
+/// have access to HTTP response headers. The retry wrappers
+/// (`send_slack_api_with_retry` / `send_slack_api_json_with_retry`) parse
+/// the actual `Retry-After` header value from the error string metadata
+/// and override `retry_after_secs` before using it for the delay.
 fn classify_slack_error(http_status: u16, error_field: Option<&str>) -> SlackApiError {
     if http_status == 429 {
         return SlackApiError::RateLimited {
