@@ -521,27 +521,21 @@ max_width: 1120px
       <div class="terminal-dot r"></div>
       <div class="terminal-dot y"></div>
       <div class="terminal-dot g"></div>
-      <div class="terminal-title">oxicrab agent</div>
+      <div class="terminal-title">#team-ops in Slack</div>
     </div>
     <div class="terminal-body">
-      <span class="comment"># single-turn CLI mode</span><br>
-      <span class="prompt">$</span> <span class="cmd">oxicrab agent -m "summarize my inbox"</span><br>
-      <span class="output">Loading config from ~/.oxicrab/config.toml...</span><br>
-      <span class="output">Routing: full LLM with Gmail + memory tools</span><br>
-      <span class="output">Searching gmail for recent messages...</span><br>
-      <span class="output">Found 12 unread emails. Here&apos;s your summary:</span><br>
-      <span class="highlight">1.</span> <span class="output">AWS billing alert &mdash; $47.22 for January</span><br>
-      <span class="highlight">2.</span> <span class="output">PR #142 approved by @reviewer</span><br>
-      <span class="highlight">3.</span> <span class="output">Team standup notes for Monday</span><br>
+      <span class="comment">James</span><br>
+      <span class="output">@oxicrab run my daily briefing</span><br>
       <br>
-      <span class="comment"># or run the multi-channel bot</span><br>
-      <span class="prompt">$</span> <span class="cmd">oxicrab gateway</span><br>
-      <span class="output">INFO  loading config from ~/.oxicrab/config.toml</span><br>
-      <span class="success">INFO  telegram channel started</span><br>
-      <span class="success">INFO  discord channel started</span><br>
-      <span class="success">INFO  slack channel started (websocket)</span><br>
-      <span class="output">INFO  cron service started (3 jobs)</span><br>
-      <span class="success">INFO  oxicrab is ready</span><br>
+      <span class="comment">oxicrab</span><br>
+      <span class="output">Running your daily briefing now.</span><br>
+      <span class="output">Routing: deterministic rule -&gt; <span class="highlight">cron.run</span></span><br>
+      <br>
+      <span class="output"><strong>Daily Briefing</strong></span><br>
+      <span class="highlight">1.</span> <span class="output">3 calendar events today, first starts at 9:30 AM</span><br>
+      <span class="highlight">2.</span> <span class="output">12 unread emails, 2 marked urgent</span><br>
+      <span class="highlight">3.</span> <span class="output">5 open Todoist tasks, 1 overdue</span><br>
+      <span class="highlight">4.</span> <span class="output">Weather: 61&deg;F and clear this afternoon</span><br>
     </div>
   </div>
 </section>
