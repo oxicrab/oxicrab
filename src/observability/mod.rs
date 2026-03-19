@@ -229,6 +229,7 @@ fn collect_process_metrics() -> ProcessMetrics {
     ProcessMetrics::default()
 }
 
+#[cfg(target_os = "linux")]
 fn parse_status_u64(input: &str, key: &str) -> Option<u64> {
     let line = input.lines().find(|line| line.starts_with(key))?;
     line.split_whitespace().nth(1)?.parse::<u64>().ok()
