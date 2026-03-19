@@ -115,6 +115,16 @@ fn test_validate_webhook_signature_with_prefix() {
 }
 
 #[test]
+fn test_validate_webhook_signature_uppercase_hex() {
+    let secret = "test-secret";
+    let body = b"hello world";
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(body);
+    let sig = hex::encode(mac.finalize().into_bytes()).to_ascii_uppercase();
+    assert!(validate_webhook_signature(secret, &sig, body));
+}
+
+#[test]
 fn test_validate_webhook_signature_invalid() {
     assert!(!validate_webhook_signature(
         "secret",

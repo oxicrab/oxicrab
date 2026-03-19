@@ -527,17 +527,27 @@ async fn health_handler(State(state): State<HttpApiState>) -> impl IntoResponse 
 }
 
 /// Validate HMAC-SHA256 signature against a payload.
+///
+/// Accepts lowercase or uppercase hex (and optional `sha256=` prefix). Compares
+/// decoded bytes with `subtle::ConstantTimeEq` so verification does not depend
+/// on hex letter case in the header value.
 pub fn validate_webhook_signature(secret: &str, signature: &str, body: &[u8]) -> bool {
     let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
         return false;
     };
     mac.update(body);
     let result = mac.finalize();
-    let expected = hex::encode(result.into_bytes());
+    let expected_bytes = result.into_bytes();
 
     // Support both raw hex and "sha256=..." prefix (GitHub-style)
-    let sig = signature.strip_prefix("sha256=").unwrap_or(signature);
-    expected.as_bytes().ct_eq(sig.as_bytes()).into()
+    let sig = signature
+        .strip_prefix("sha256=")
+        .unwrap_or(signature)
+        .trim();
+    let Ok(provided_bytes) = hex::decode(sig) else {
+        return false;
+    };
+    expected_bytes.as_slice().ct_eq(&provided_bytes).into()
 }
 
 /// Apply a template string, substituting `{{key}}` with JSON payload values.
