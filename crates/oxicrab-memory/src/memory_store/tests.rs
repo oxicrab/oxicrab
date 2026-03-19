@@ -1,22 +1,16 @@
 use super::*;
 
 #[cfg(feature = "embeddings")]
-#[test]
-fn test_with_config_wires_fusion_strategy() {
+#[tokio::test(flavor = "current_thread")]
+async fn test_with_config_wires_fusion_strategy() {
     let tmp = tempfile::TempDir::new().unwrap();
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
 
     let mut config = oxicrab_core::config::schema::MemoryConfig::default();
     config.fusion_strategy = oxicrab_core::config::schema::FusionStrategy::Rrf;
     config.rrf_k = 42;
     config.hybrid_weight = 0.3;
 
-    let store = rt
-        .block_on(async { MemoryStore::with_config(tmp.path(), &config) })
-        .unwrap();
+    let store = MemoryStore::with_config(tmp.path(), &config).unwrap();
     assert_eq!(
         store.fusion_strategy,
         oxicrab_core::config::schema::FusionStrategy::Rrf

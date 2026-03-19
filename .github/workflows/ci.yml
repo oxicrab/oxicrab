@@ -251,7 +251,7 @@ jobs:
           name: nextest-archive-linux
 
       - name: Run unit tests
-        run: cargo nextest run --archive-file nextest-linux.tar.zst --lib --profile default
+        run: cargo nextest run --archive-file nextest-linux.tar.zst -E 'kind(lib)' --profile default
 
       - name: Upload test results
         if: always()
@@ -288,20 +288,7 @@ jobs:
       - name: Run integration tests
         run: >
           cargo nextest run --archive-file nextest-linux.tar.zst --profile integration
-          --test session_management
-          --test cron_jobs
-          --test tool_registry
-          --test message_flow
-          --test config_validation
-          --test context_and_skills
-          --test error_handling
-          --test filesystem_tools
-          --test memory_integration
-          --test multi_turn_session
-          --test shell_exec
-          --test tool_context_caching
-          --test compaction_integration
-          --test safety_integration
+          -E 'kind(test)'
         env:
           OXICRAB_HOME: ${{ runner.temp }}/oxicrab-test
 
@@ -354,7 +341,10 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ needs.changes.outputs.toolchain }}
+          toolchain: nightly
+
+      - name: Install musl target for fuzzing
+        run: rustup target add x86_64-unknown-linux-musl --toolchain nightly
 
       - name: Install nextest
         uses: taiki-e/install-action@v2
@@ -688,27 +678,27 @@ jobs:
           command -v cmake >/dev/null || { sudo apt-get update && sudo apt-get install -y cmake; }
 
       - name: Fuzz webhook signature (30s)
-        run: cargo fuzz run fuzz_webhook_signature -- -max_total_time=30
+        run: cargo +nightly fuzz run fuzz_webhook_signature -- -max_total_time=30
         working-directory: fuzz
         continue-on-error: true
 
       - name: Fuzz config parse (30s)
-        run: cargo fuzz run fuzz_config_parse -- -max_total_time=30
+        run: cargo +nightly fuzz run fuzz_config_parse -- -max_total_time=30
         working-directory: fuzz
         continue-on-error: true
 
       - name: Fuzz prompt guard (30s)
-        run: cargo fuzz run fuzz_prompt_guard -- -max_total_time=30
+        run: cargo +nightly fuzz run fuzz_prompt_guard -- -max_total_time=30
         working-directory: fuzz
         continue-on-error: true
 
       - name: Fuzz leak detector (30s)
-        run: cargo fuzz run fuzz_leak_detector -- -max_total_time=30
+        run: cargo +nightly fuzz run fuzz_leak_detector -- -max_total_time=30
         working-directory: fuzz
         continue-on-error: true
 
       - name: Fuzz URL validation (30s)
-        run: cargo fuzz run fuzz_url_validation -- -max_total_time=30
+        run: cargo +nightly fuzz run fuzz_url_validation -- -max_total_time=30
         working-directory: fuzz
         continue-on-error: true
 
@@ -723,7 +713,10 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ needs.changes.outputs.toolchain }}
+          toolchain: nightly
+
+      - name: Install musl target for fuzzing
+        run: rustup target add x86_64-unknown-linux-musl --toolchain nightly
 
       - name: Install cargo-fuzz
         uses: taiki-e/install-action@v2
@@ -743,15 +736,15 @@ jobs:
           command -v cmake >/dev/null || { sudo apt-get update && sudo apt-get install -y cmake; }
 
       - name: Fuzz webhook signature (30s)
-        run: cargo fuzz run fuzz_webhook_signature -- -max_total_time=30
+        run: cargo +nightly fuzz run fuzz_webhook_signature -- -max_total_time=30
         working-directory: fuzz
 
       - name: Fuzz leak detector (30s)
-        run: cargo fuzz run fuzz_leak_detector -- -max_total_time=30
+        run: cargo +nightly fuzz run fuzz_leak_detector -- -max_total_time=30
         working-directory: fuzz
 
       - name: Fuzz URL validation (30s)
-        run: cargo fuzz run fuzz_url_validation -- -max_total_time=30
+        run: cargo +nightly fuzz run fuzz_url_validation -- -max_total_time=30
         working-directory: fuzz
 
   # ══════════════════════════════════════════════════════════════════
