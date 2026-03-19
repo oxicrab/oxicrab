@@ -788,12 +788,30 @@ impl BaseChannel for DiscordChannel {
             serenity::model::id::ChannelId::new(id_val)
         };
         let chunks = split_message(&msg.content, 2000);
+        let embeds = parse_embeds_from_metadata(&msg.metadata);
+        let components = parse_components_from_metadata(&msg.metadata, Some(&self.dispatch_store));
+        let chunk_count = chunks.len();
         let mut last_id = None;
-        for chunk in &chunks {
-            let sent = target
-                .say(&self.serenity_http, chunk)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?;
+        for (i, chunk) in chunks.iter().enumerate() {
+            let is_last = i == chunk_count - 1;
+            let sent = if is_last && (!embeds.is_empty() || !components.is_empty()) {
+                let mut builder = CreateMessage::new().content(chunk);
+                for embed in &embeds {
+                    builder = builder.embed(embed.clone());
+                }
+                if !components.is_empty() {
+                    builder = builder.components(components.clone());
+                }
+                target
+                    .send_message(&self.serenity_http, builder)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?
+            } else {
+                target
+                    .say(&self.serenity_http, chunk)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to send Discord message: {e}"))?
+            };
             last_id = Some(sent.id.to_string());
         }
         Ok(last_id)
