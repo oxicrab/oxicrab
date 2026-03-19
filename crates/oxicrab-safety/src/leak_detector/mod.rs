@@ -352,6 +352,9 @@ impl LeakDetector {
 
         // URL-decoded scan: if text contains percent-encoded sequences,
         // decode and re-scan for patterns that may be hidden by encoding.
+        // NOTE: Matches from URL-decoded text have start/end positions relative
+        // to the decoded string, not the original. Callers should use scan()
+        // for boolean detection only, not for positional extraction.
         if text.contains('%')
             && let Ok(decoded) = urlencoding::decode(text)
             && decoded != text

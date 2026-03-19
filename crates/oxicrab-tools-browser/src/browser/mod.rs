@@ -910,7 +910,7 @@ impl Tool for BrowserTool {
             }
             "wait" => {
                 let selector = params["selector"].as_str().filter(|s| !s.trim().is_empty());
-                let ms = params["ms"].as_u64().or_else(|| params["pixels"].as_u64());
+                let ms = params["ms"].as_u64();
                 self.action_wait(selector, ms).await
             }
             "close" => self.action_close().await,

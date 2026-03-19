@@ -425,7 +425,7 @@ impl Tool for GoogleCalendarTool {
                 let attendees = ev["attendees"].as_array().cloned().unwrap_or_default();
 
                 let mut found = false;
-                let mut updated_attendees: Vec<Value> = attendees
+                let updated_attendees: Vec<Value> = attendees
                     .into_iter()
                     .map(|mut a| {
                         if a["self"].as_bool().unwrap_or(false) {
@@ -437,11 +437,9 @@ impl Tool for GoogleCalendarTool {
                     .collect();
 
                 if !found {
-                    // If the user is not in the attendee list, add them with the response
-                    updated_attendees.push(serde_json::json!({
-                        "self": true,
-                        "responseStatus": response
-                    }));
+                    return Ok(ToolResult::error(
+                        "You are not listed as an attendee for this event. You can only RSVP to events you've been invited to.",
+                    ));
                 }
 
                 ev["attendees"] = Value::Array(updated_attendees);

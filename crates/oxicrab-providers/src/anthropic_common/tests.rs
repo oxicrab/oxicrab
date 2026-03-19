@@ -283,14 +283,12 @@ fn test_parse_response_empty_content() {
 
 #[test]
 fn test_parse_response_missing_tool_use_fields() {
+    // tool_use blocks with empty name are skipped (defense against malformed API responses)
     let json = json!({
         "content": [{"type": "tool_use"}]
     });
     let resp = parse_response(&json);
-    assert_eq!(resp.tool_calls.len(), 1);
-    assert_eq!(resp.tool_calls[0].id, "");
-    assert_eq!(resp.tool_calls[0].name, "");
-    assert_eq!(resp.tool_calls[0].arguments, json!({}));
+    assert_eq!(resp.tool_calls.len(), 0);
 }
 
 #[test]

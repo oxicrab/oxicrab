@@ -1,6 +1,7 @@
 use oxicrab_core::providers::base::{LLMResponse, Message, ToolCallRequest, ToolDefinition};
 use serde::Serialize;
 use serde_json::{Value, json};
+use tracing::warn;
 
 #[derive(Debug, Serialize)]
 pub struct AnthropicMessage {
@@ -215,9 +216,14 @@ pub fn parse_response(json: &Value) -> LLMResponse {
         for block in content_array {
             match block["type"].as_str() {
                 Some("tool_use") => {
+                    let name = block["name"].as_str().unwrap_or_default().to_string();
+                    if name.is_empty() {
+                        warn!("skipping tool_use block with empty name");
+                        continue;
+                    }
                     tool_calls.push(ToolCallRequest {
                         id: block["id"].as_str().unwrap_or_default().to_string(),
-                        name: block["name"].as_str().unwrap_or_default().to_string(),
+                        name,
                         arguments: block.get("input").cloned().unwrap_or(json!({})),
                     });
                 }
