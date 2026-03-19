@@ -277,7 +277,7 @@ impl MemoryDB {
                 delete_after_run: r.delete_after_run,
                 expires_at_ms: r.expires_at_ms,
                 max_runs: r.max_runs,
-                cooldown_secs: r.cooldown_secs.map(|v| v as u64),
+                cooldown_secs: r.cooldown_secs.map(|v| v.max(0) as u64),
                 max_concurrent: r.max_concurrent,
             });
         }
@@ -355,7 +355,7 @@ impl MemoryDB {
             delete_after_run: row.get(21)?,
             expires_at_ms: row.get(22)?,
             max_runs: row.get(23)?,
-            cooldown_secs: cooldown_secs.map(|v| v as u64),
+            cooldown_secs: cooldown_secs.map(|v| v.max(0) as u64),
             max_concurrent: row.get(25)?,
         }))
     }
