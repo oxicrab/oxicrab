@@ -67,9 +67,14 @@ impl MemoryDB {
     /// Get or populate the in-memory embedding cache.
     /// Returns cached deserialized embeddings, loading from DB on first call
     /// or after invalidation (e.g. after `store_embedding`).
+    ///
+    /// `expected_dim` is the expected embedding dimension (from the current model).
+    /// Cached embeddings with a different dimension (e.g. after a model change)
+    /// are skipped with a warning.
     pub(super) fn get_cached_embeddings(
         &self,
         exclude_sources: Option<&std::collections::HashSet<String>>,
+        expected_dim: usize,
     ) -> Result<Vec<CachedEmbedding>> {
         use crate::embeddings::deserialize_embedding;
 
@@ -94,6 +99,16 @@ impl MemoryDB {
                 return Ok(shared
                     .iter()
                     .filter(|e| !exclude.contains(&e.source_key))
+                    .filter(|e| {
+                        if e.embedding.len() != expected_dim {
+                            warn!(
+                                "embedding dimension mismatch: expected {}, got {} for entry {} — skipping",
+                                expected_dim, e.embedding.len(), e.entry_id
+                            );
+                            return false;
+                        }
+                        true
+                    })
                     .cloned()
                     .collect());
             }
@@ -104,12 +119,23 @@ impl MemoryDB {
         let mut entries = Vec::with_capacity(raw.len());
         for (entry_id, source_key, content, emb_bytes) in raw {
             match deserialize_embedding(&emb_bytes) {
-                Ok(embedding) => entries.push(CachedEmbedding {
-                    entry_id,
-                    source_key,
-                    content,
-                    embedding,
-                }),
+                Ok(embedding) => {
+                    if embedding.len() != expected_dim {
+                        warn!(
+                            "embedding dimension mismatch: expected {}, got {} for entry {} — skipping",
+                            expected_dim,
+                            embedding.len(),
+                            entry_id
+                        );
+                        continue;
+                    }
+                    entries.push(CachedEmbedding {
+                        entry_id,
+                        source_key,
+                        content,
+                        embedding,
+                    });
+                }
                 Err(e) => {
                     warn!("skipping corrupted embedding for entry {entry_id}: {e}");
                 }

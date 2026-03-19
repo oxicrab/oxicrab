@@ -116,7 +116,7 @@ impl MemoryDB {
             std::collections::HashMap::new();
 
         if keyword_weight < 1.0 {
-            let cached = self.get_cached_embeddings(exclude_sources)?;
+            let cached = self.get_cached_embeddings(exclude_sources, query_embedding.len())?;
             for entry in &cached {
                 let sim = cosine_similarity(query_embedding, &entry.embedding);
                 // Cosine similarity is already in [-1, 1]; clamp to [0, 1]
