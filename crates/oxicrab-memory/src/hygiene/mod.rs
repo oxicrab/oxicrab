@@ -35,8 +35,11 @@ pub fn cleanup_workspace_files<S: ::std::hash::BuildHasher>(
 }
 
 /// Run all hygiene tasks (purge old search logs, intent metrics,
-/// complexity routing logs, and cost logs).
-pub fn run_hygiene(db: &MemoryDB, purge_log_days: u32) {
+/// complexity routing logs, cost logs, and stale memory entries).
+///
+/// `memory_retention_days` controls how long memory entries are kept
+/// (default 180). Knowledge entries are never purged.
+pub fn run_hygiene(db: &MemoryDB, purge_log_days: u32, memory_retention_days: u32) {
     match db.purge_old_search_logs(purge_log_days) {
         Ok(n) if n > 0 => info!("purged {} old search log entries", n),
         Err(e) => warn!("search log purge failed: {}", e),
@@ -58,9 +61,7 @@ pub fn run_hygiene(db: &MemoryDB, purge_log_days: u32) {
         _ => {}
     }
     // Purge old memory entries (keep knowledge: prefixed sources).
-    // Use a longer retention period than log tables since memory entries
-    // are more valuable — 180 days by default.
-    match db.purge_old_memory_entries(180) {
+    match db.purge_old_memory_entries(memory_retention_days) {
         Ok(n) if n > 0 => info!("purged {} old memory entries", n),
         Err(e) => warn!("memory entry purge failed: {}", e),
         _ => {}

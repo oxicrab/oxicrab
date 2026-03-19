@@ -25,6 +25,7 @@ rrfK = 60
 embeddingCacheSize = 10000
 recencyHalfLifeDays = 90
 searchResultLimit = 8
+retentionDays = 180
 
 [agents.defaults.promptGuard]
 enabled = true

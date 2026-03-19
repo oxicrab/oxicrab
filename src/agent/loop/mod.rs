@@ -232,8 +232,9 @@ impl AgentLoop {
             let db = memory.db();
             let ws = workspace.clone();
             let ttl_map = tool_configs.workspace_ttl.to_map();
+            let mem_retention_days = memory_config.as_ref().map_or(180, |c| c.retention_days);
             tokio::task::spawn_blocking(move || {
-                crate::agent::memory::hygiene::run_hygiene(&db, 90);
+                crate::agent::memory::hygiene::run_hygiene(&db, 90, mem_retention_days);
                 if let Err(e) =
                     crate::agent::memory::hygiene::cleanup_workspace_files(&db, &ws, &ttl_map)
                 {

@@ -158,6 +158,10 @@ fn default_search_result_limit() -> usize {
     8
 }
 
+fn default_retention_days() -> u32 {
+    180
+}
+
 fn default_embeddings_enabled() -> bool {
     true
 }
@@ -197,6 +201,10 @@ pub struct MemoryConfig {
     /// Maximum number of search results returned for memory context (default: 8).
     #[serde(default = "default_search_result_limit", rename = "searchResultLimit")]
     pub search_result_limit: usize,
+    /// Days to retain memory entries before purging (default: 180).
+    /// Knowledge entries (`knowledge:` prefix) are never purged regardless of this setting.
+    #[serde(default = "default_retention_days", rename = "retentionDays")]
+    pub retention_days: u32,
 }
 
 impl Default for MemoryConfig {
@@ -210,6 +218,7 @@ impl Default for MemoryConfig {
             embedding_cache_size: default_embedding_cache_size(),
             recency_half_life_days: default_recency_half_life_days(),
             search_result_limit: default_search_result_limit(),
+            retention_days: default_retention_days(),
         }
     }
 }

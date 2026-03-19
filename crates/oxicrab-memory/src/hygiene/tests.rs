@@ -6,7 +6,7 @@ fn test_run_hygiene_purges_search_logs() {
     let tmp = TempDir::new().unwrap();
     let db = MemoryDB::new(tmp.path().join("test.db")).unwrap();
     // Should not panic on an empty DB
-    run_hygiene(&db, 90);
+    run_hygiene(&db, 90, 180);
 }
 
 #[test]
