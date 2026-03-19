@@ -93,7 +93,7 @@ jobs:
           tool: cargo-deny
 
       - name: Lint GitHub Actions workflows
-        uses: rhysd/actionlint@v1
+        uses: rhysd/actionlint@v1.7.11
 
       - name: Check formatting
         run: cargo fmt -- --check
