@@ -39,7 +39,15 @@ impl GoogleApiClient {
             .send_request(&url, method, &token, body.as_ref())
             .await?;
 
-        // On 401, force refresh (server rejected the token) and retry once
+        // On 401, force refresh (server rejected the token) and retry once.
+        //
+        // NOTE: The refreshed token is updated in-memory (Arc<Mutex<GoogleCredentials>>)
+        // and will be used for subsequent calls within this process lifetime. However,
+        // the token is NOT persisted to disk/DB here because GoogleApiClient does not
+        // have access to the token store or file path. If the process restarts before
+        // a normal get_credentials() call, the stale file token will trigger another
+        // refresh on next startup. This is acceptable because refresh tokens are
+        // long-lived and the startup path already handles refresh-on-load.
         if response.status() == reqwest::StatusCode::UNAUTHORIZED {
             info!("Google API returned 401, forcing token refresh and retrying");
             let new_token = {
