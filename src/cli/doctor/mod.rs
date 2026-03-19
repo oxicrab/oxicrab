@@ -360,6 +360,7 @@ fn check_empty_allowlists(config: LoadedConfig<'_>) -> CheckResult {
     check_empty_allowlists_with_store(config, None)
 }
 
+#[allow(unused_variables, unused_mut)]
 fn check_empty_allowlists_with_store(
     config: &crate::config::Config,
     pairing_store: LoadedPairingStore<'_>,

@@ -129,8 +129,15 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install sccache
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -192,8 +199,15 @@ jobs:
         with:
           tool: clippy-sarif,sarif-fmt
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install sccache
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -343,8 +357,15 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install sccache
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -409,8 +430,15 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install sccache
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -460,8 +488,15 @@ jobs:
         with:
           shared-key: ci-release-linux-${{ needs.changes.outputs.toolchain }}
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install sccache
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
 
       - name: Install system dependencies
         run: |
@@ -554,8 +589,15 @@ jobs:
         with:
           shared-key: ci-release-linux-${{ needs.changes.outputs.toolchain }}
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install sccache
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
 
       - name: Install system dependencies
         run: |
@@ -614,8 +656,15 @@ jobs:
         with:
           shared-key: ci-macos-release-${{ needs.changes.outputs.toolchain }}
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install sccache
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
 
       - name: Install system dependencies
         run: command -v cmake || brew install cmake
@@ -666,8 +715,15 @@ jobs:
         with:
           shared-key: ci-fuzz-${{ needs.changes.outputs.toolchain }}
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install sccache
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
 
       - name: Install system dependencies
         run: |
@@ -721,8 +777,15 @@ jobs:
         with:
           shared-key: ci-fuzz-${{ needs.changes.outputs.toolchain }}
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install sccache
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
 
       - name: Install system dependencies
         run: |

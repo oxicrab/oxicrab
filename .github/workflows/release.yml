@@ -78,8 +78,15 @@ jobs:
         with:
           tool: cargo-deb,cargo-generate-rpm
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install sccache
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sccache
+
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
