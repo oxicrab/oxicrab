@@ -842,7 +842,6 @@ async fn test_requires_approval_blocks_execution() {
     .await;
     assert!(result.is_error);
     assert!(result.content.contains("requires approval"));
-    assert!(result.content.contains("untrusted MCP server"));
 }
 
 #[tokio::test]

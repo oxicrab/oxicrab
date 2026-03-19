@@ -115,6 +115,9 @@ impl ExecTool {
                     Some(2)
                 } else if matches!(ch, b'|' | b';' | b'\n') {
                     Some(1)
+                } else if ch == b'&' {
+                    // Single & (background) — treat as segment separator
+                    Some(1)
                 } else {
                     None
                 };
@@ -197,6 +200,19 @@ impl ExecTool {
     ) -> Option<String> {
         let tokens = shlex::split(command).unwrap_or_default();
         for cleaned in &tokens {
+            // Detect glob patterns in absolute paths (shell will expand at runtime,
+            // bypassing our canonicalize-based workspace check)
+            let has_glob = cleaned.contains('*')
+                || cleaned.contains('?')
+                || (cleaned.contains('[') && cleaned.contains(']'));
+            if has_glob
+                && (cleaned.starts_with('/') || cleaned.starts_with('~') || cleaned.contains(".."))
+            {
+                return Some(format!(
+                    "glob pattern in path '{cleaned}' cannot be verified against workspace"
+                ));
+            }
+
             if cleaned.starts_with('/') && cleaned != "/" {
                 let path = Path::new(cleaned);
                 let resolved = path
@@ -315,6 +331,13 @@ impl Tool for ExecTool {
         });
 
         let cwd = cwd.canonicalize().unwrap_or(cwd);
+
+        if !cwd.is_dir() {
+            return Ok(ToolResult::error(format!(
+                "working directory does not exist: {}",
+                cwd.display()
+            )));
+        }
 
         if let Some(err) = self.guard_command(command, &cwd) {
             return Ok(ToolResult::error(err));

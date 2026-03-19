@@ -105,6 +105,10 @@ impl Tool for ReadOnlyToolWrapper {
         self.inner.requires_approval()
     }
 
+    fn requires_approval_for_action(&self, action: &str) -> bool {
+        self.inner.requires_approval_for_action(action)
+    }
+
     fn execution_timeout(&self) -> std::time::Duration {
         self.inner.execution_timeout()
     }

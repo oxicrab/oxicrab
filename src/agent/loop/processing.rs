@@ -1099,8 +1099,9 @@ impl AgentLoop {
             ));
         };
 
-        // Reject approval-required tools in direct dispatch
-        if tool_ref.requires_approval() {
+        // Reject approval-required tools in direct dispatch (per-action check)
+        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("");
+        if tool_ref.requires_approval_for_action(action) {
             return Ok(Some(
                 OutboundMessage::from_inbound(
                     msg.clone(),
@@ -1473,8 +1474,13 @@ impl AgentLoop {
                 });
             };
 
-            // Reject approval-required tools in action dispatch
-            if tool_ref.requires_approval() {
+            // Reject approval-required tools in action dispatch (per-action check)
+            let action = dispatch
+                .params
+                .get("action")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if tool_ref.requires_approval_for_action(action) {
                 return Ok(super::config::DirectResult {
                     content: format!("Action failed: tool '{}' requires approval.", dispatch.tool),
                     metadata: HashMap::new(),

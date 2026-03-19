@@ -1,5 +1,6 @@
 pub mod http;
 pub mod media;
+pub mod url_params;
 pub mod url_security;
 
 use anyhow::{Context, Result};

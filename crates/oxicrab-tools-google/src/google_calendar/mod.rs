@@ -7,10 +7,12 @@ use oxicrab_core::actions;
 use oxicrab_core::require_param;
 use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use oxicrab_core::tools::base::{Tool, ToolResult};
+use oxicrab_core::utils::url_params::validate_url_segment;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::time::SystemTime;
+use tracing::warn;
 
 pub struct GoogleCalendarTool {
     api: GoogleApiClient,
@@ -20,6 +22,22 @@ impl GoogleCalendarTool {
     pub fn new(credentials: GoogleCredentials) -> Self {
         Self {
             api: GoogleApiClient::new(credentials, "https://www.googleapis.com/calendar/v3"),
+        }
+    }
+
+    /// Fetch the user's timezone from Google Calendar settings.
+    /// Falls back to "UTC" on any error.
+    async fn get_user_timezone(&self) -> String {
+        match self
+            .api
+            .call("users/me/settings/timezone", "GET", None)
+            .await
+        {
+            Ok(data) => data["value"].as_str().unwrap_or("UTC").to_string(),
+            Err(e) => {
+                warn!("failed to fetch user timezone: {e}, defaulting to UTC");
+                "UTC".to_string()
+            }
         }
     }
 }
@@ -50,6 +68,10 @@ impl Tool for GoogleCalendarTool {
             ],
             category: ToolCategory::Scheduling,
         }
+    }
+
+    fn requires_approval_for_action(&self, action: &str) -> bool {
+        matches!(action, "create_event" | "update_event" | "delete_event")
     }
 
     fn usage_examples(&self) -> Vec<oxicrab_core::tools::base::ToolExample> {
@@ -120,7 +142,7 @@ impl Tool for GoogleCalendarTool {
                 },
                 "timezone": {
                     "type": "string",
-                    "description": "Timezone for the event (e.g. 'America/New_York'). Defaults to UTC."
+                    "description": "Timezone for the event (e.g. 'America/New_York'). Defaults to the user's Google Calendar timezone."
                 },
                 "attendees": {
                     "type": "array",
@@ -135,6 +157,11 @@ impl Tool for GoogleCalendarTool {
                     "type": "string",
                     "enum": ["accepted", "declined", "tentative"],
                     "description": "RSVP response status (for rsvp action)"
+                },
+                "send_updates": {
+                    "type": "string",
+                    "enum": ["all", "externalOnly", "none"],
+                    "description": "Controls who receives email notifications. Default: 'all'"
                 }
             },
             "required": ["action"]
@@ -146,6 +173,9 @@ impl Tool for GoogleCalendarTool {
         let action = require_param!(params, "action");
 
         let cal_id = params["calendar_id"].as_str().unwrap_or("primary");
+        if let Err(e) = validate_url_segment(cal_id, "calendar_id") {
+            return Ok(ToolResult::error(e));
+        }
 
         match action {
             "list_events" => {
@@ -159,23 +189,45 @@ impl Tool for GoogleCalendarTool {
                 );
                 let max_results = params["max_results"].as_u64().unwrap_or(20).min(100) as u32;
 
-                let endpoint = format!(
+                let base_endpoint = format!(
                     "calendars/{}/events?timeMin={}&timeMax={}&maxResults={}&singleEvents=true&orderBy=startTime",
                     urlencoding::encode(cal_id),
                     urlencoding::encode(&time_min),
                     urlencoding::encode(&time_max),
                     max_results
                 );
-                let result = self.api.call(&endpoint, "GET", None).await?;
-                let empty_vec: Vec<serde_json::Value> = vec![];
-                let events = result["items"].as_array().unwrap_or(&empty_vec);
 
-                if events.is_empty() {
+                let mut all_events: Vec<Value> = Vec::new();
+                let mut page_token: Option<String> = None;
+                let max_pages = 5;
+
+                for _ in 0..max_pages {
+                    let endpoint = if let Some(ref token) = page_token {
+                        format!("{}&pageToken={}", base_endpoint, urlencoding::encode(token))
+                    } else {
+                        base_endpoint.clone()
+                    };
+
+                    let data = self.api.call(&endpoint, "GET", None).await?;
+
+                    if let Some(items) = data["items"].as_array() {
+                        all_events.extend(items.iter().cloned());
+                    }
+
+                    match data["nextPageToken"].as_str() {
+                        Some(token) if !token.is_empty() => {
+                            page_token = Some(token.to_string());
+                        }
+                        _ => break,
+                    }
+                }
+
+                if all_events.is_empty() {
                     return Ok(ToolResult::new("No upcoming events found.".to_string()));
                 }
 
-                let mut lines = vec![format!("Found {} event(s):\n", events.len())];
-                for ev in events {
+                let mut lines = vec![format!("Found {} event(s):\n", all_events.len())];
+                for ev in &all_events {
                     let start = ev["start"]["dateTime"]
                         .as_str()
                         .or_else(|| ev["start"]["date"].as_str())
@@ -218,11 +270,14 @@ impl Tool for GoogleCalendarTool {
                         att_str
                     ));
                 }
-                let buttons = build_event_buttons(events, cal_id, false);
+                let buttons = build_event_buttons(&all_events, cal_id, false);
                 Ok(ToolResult::new(lines.join("\n")).with_buttons(buttons))
             }
             "get_event" => {
                 let event_id = require_param!(params, "event_id");
+                if let Err(e) = validate_url_segment(event_id, "event_id") {
+                    return Ok(ToolResult::error(e));
+                }
 
                 let endpoint = format!(
                     "calendars/{}/events/{}",
@@ -269,8 +324,16 @@ impl Tool for GoogleCalendarTool {
                 let summary = require_param!(params, "summary");
                 let start_raw = require_param!(params, "start");
 
-                let tz = params["timezone"].as_str().unwrap_or("UTC");
+                let user_tz = if params["timezone"].is_string() {
+                    None
+                } else {
+                    Some(self.get_user_timezone().await)
+                };
+                let tz = params["timezone"]
+                    .as_str()
+                    .unwrap_or_else(|| user_tz.as_deref().unwrap_or("UTC"));
                 let all_day = params["all_day"].as_bool().unwrap_or_default();
+                let send_updates = params["send_updates"].as_str().unwrap_or("all");
 
                 let mut body = serde_json::json!({
                     "summary": summary
@@ -317,10 +380,13 @@ impl Tool for GoogleCalendarTool {
                     };
                     body["end"] = serde_json::json!({"date": end_date});
                 } else {
-                    let (start_obj, end_obj) =
-                        build_event_times(start_raw, params["end"].as_str(), tz);
-                    body["start"] = start_obj;
-                    body["end"] = end_obj;
+                    match build_event_times(start_raw, params["end"].as_str(), tz) {
+                        Ok((start_obj, end_obj)) => {
+                            body["start"] = start_obj;
+                            body["end"] = end_obj;
+                        }
+                        Err(msg) => return Ok(ToolResult::error(msg)),
+                    }
                 }
 
                 if let Some(attendees) = params["attendees"].as_array() {
@@ -333,7 +399,11 @@ impl Tool for GoogleCalendarTool {
                     );
                 }
 
-                let endpoint = format!("calendars/{}/events", urlencoding::encode(cal_id));
+                let endpoint = format!(
+                    "calendars/{}/events?sendUpdates={}",
+                    urlencoding::encode(cal_id),
+                    urlencoding::encode(send_updates)
+                );
                 let ev = self.api.call(&endpoint, "POST", Some(body)).await?;
                 Ok(ToolResult::new(format!(
                     "Event created: {} (ID: {})\nLink: {}",
@@ -344,50 +414,91 @@ impl Tool for GoogleCalendarTool {
             }
             "update_event" => {
                 let event_id = require_param!(params, "event_id");
+                if let Err(e) = validate_url_segment(event_id, "event_id") {
+                    return Ok(ToolResult::error(e));
+                }
+                let send_updates = params["send_updates"].as_str().unwrap_or("all");
 
-                let endpoint = format!(
-                    "calendars/{}/events/{}",
-                    urlencoding::encode(cal_id),
-                    urlencoding::encode(event_id)
-                );
-                let mut ev = self.api.call(&endpoint, "GET", None).await?;
+                let user_tz = if params["timezone"].is_string() {
+                    None
+                } else {
+                    Some(self.get_user_timezone().await)
+                };
+                let tz = params["timezone"]
+                    .as_str()
+                    .unwrap_or_else(|| user_tz.as_deref().unwrap_or("UTC"));
+                let all_day = params["all_day"].as_bool().unwrap_or_default();
 
-                let tz = params["timezone"].as_str().unwrap_or("UTC");
+                // Build a partial update object with only the fields being changed
+                let mut patch = serde_json::Map::new();
 
                 if let Some(s) = params["summary"].as_str() {
-                    ev["summary"] = Value::String(s.to_string());
+                    patch.insert("summary".to_string(), Value::String(s.to_string()));
                 }
                 if let Some(d) = params["description"].as_str() {
-                    ev["description"] = Value::String(d.to_string());
+                    patch.insert("description".to_string(), Value::String(d.to_string()));
                 }
                 if let Some(l) = params["location"].as_str() {
-                    ev["location"] = Value::String(l.to_string());
+                    patch.insert("location".to_string(), Value::String(l.to_string()));
                 }
-                if let Some(s) = params["start"].as_str() {
-                    if params["all_day"].as_bool().unwrap_or_default() {
-                        ev["start"] = serde_json::json!({"date": s.get(..10).unwrap_or(s)});
-                    } else {
-                        ev["start"] = serde_json::json!({"dateTime": s, "timeZone": tz});
+
+                if all_day {
+                    if let Some(start) = params["start"].as_str() {
+                        let date_str = start.get(..10).unwrap_or(start);
+                        if chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d").is_err() {
+                            return Ok(ToolResult::error(format!(
+                                "invalid start date format: '{date_str}' (expected YYYY-MM-DD)"
+                            )));
+                        }
+                        patch.insert("start".to_string(), serde_json::json!({"date": date_str}));
+                    }
+                    if let Some(end) = params["end"].as_str() {
+                        let date_str = end.get(..10).unwrap_or(end);
+                        if chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d").is_err() {
+                            return Ok(ToolResult::error(format!(
+                                "invalid end date format: '{date_str}' (expected YYYY-MM-DD)"
+                            )));
+                        }
+                        patch.insert("end".to_string(), serde_json::json!({"date": date_str}));
+                    }
+                } else {
+                    if let Some(s) = params["start"].as_str() {
+                        patch.insert(
+                            "start".to_string(),
+                            serde_json::json!({"dateTime": s, "timeZone": tz}),
+                        );
+                    }
+                    if let Some(e) = params["end"].as_str() {
+                        patch.insert(
+                            "end".to_string(),
+                            serde_json::json!({"dateTime": e, "timeZone": tz}),
+                        );
                     }
                 }
-                if let Some(e) = params["end"].as_str() {
-                    if params["all_day"].as_bool().unwrap_or_default() {
-                        ev["end"] = serde_json::json!({"date": e.get(..10).unwrap_or(e)});
-                    } else {
-                        ev["end"] = serde_json::json!({"dateTime": e, "timeZone": tz});
-                    }
-                }
+
                 if let Some(attendees) = params["attendees"].as_array() {
-                    ev["attendees"] = Value::Array(
-                        attendees
-                            .iter()
-                            .filter_map(|a| a.as_str())
-                            .map(|email| serde_json::json!({"email": email}))
-                            .collect(),
+                    patch.insert(
+                        "attendees".to_string(),
+                        Value::Array(
+                            attendees
+                                .iter()
+                                .filter_map(|a| a.as_str())
+                                .map(|email| serde_json::json!({"email": email}))
+                                .collect(),
+                        ),
                     );
                 }
 
-                let updated = self.api.call(&endpoint, "PUT", Some(ev)).await?;
+                let endpoint = format!(
+                    "calendars/{}/events/{}?sendUpdates={}",
+                    urlencoding::encode(cal_id),
+                    urlencoding::encode(event_id),
+                    urlencoding::encode(send_updates)
+                );
+                let updated = self
+                    .api
+                    .call(&endpoint, "PATCH", Some(Value::Object(patch)))
+                    .await?;
                 Ok(ToolResult::new(format!(
                     "Event updated: {} (ID: {})",
                     updated["summary"].as_str().unwrap_or("?"),
@@ -396,30 +507,39 @@ impl Tool for GoogleCalendarTool {
             }
             "delete_event" => {
                 let event_id = require_param!(params, "event_id");
+                if let Err(e) = validate_url_segment(event_id, "event_id") {
+                    return Ok(ToolResult::error(e));
+                }
+                let send_updates = params["send_updates"].as_str().unwrap_or("all");
 
                 let endpoint = format!(
-                    "calendars/{}/events/{}",
+                    "calendars/{}/events/{}?sendUpdates={}",
                     urlencoding::encode(cal_id),
-                    urlencoding::encode(event_id)
+                    urlencoding::encode(event_id),
+                    urlencoding::encode(send_updates)
                 );
                 self.api.call(&endpoint, "DELETE", None).await?;
                 Ok(ToolResult::new(format!("Event {event_id} deleted.")))
             }
             "rsvp" => {
                 let event_id = require_param!(params, "event_id");
+                if let Err(e) = validate_url_segment(event_id, "event_id") {
+                    return Ok(ToolResult::error(e));
+                }
                 let response = require_param!(params, "response");
                 if !matches!(response, "accepted" | "declined" | "tentative") {
                     return Ok(ToolResult::error(format!(
                         "invalid response '{response}'. Must be accepted, declined, or tentative"
                     )));
                 }
+                let send_updates = params["send_updates"].as_str().unwrap_or("all");
 
-                let endpoint = format!(
+                let get_endpoint = format!(
                     "calendars/{}/events/{}",
                     urlencoding::encode(cal_id),
                     urlencoding::encode(event_id)
                 );
-                let mut ev = self.api.call(&endpoint, "GET", None).await?;
+                let mut ev = self.api.call(&get_endpoint, "GET", None).await?;
 
                 // Find or add the current user in the attendees list
                 let attendees = ev["attendees"].as_array().cloned().unwrap_or_default();
@@ -444,7 +564,13 @@ impl Tool for GoogleCalendarTool {
 
                 ev["attendees"] = Value::Array(updated_attendees);
 
-                let updated = self.api.call(&endpoint, "PUT", Some(ev)).await?;
+                let put_endpoint = format!(
+                    "calendars/{}/events/{}?sendUpdates={}",
+                    urlencoding::encode(cal_id),
+                    urlencoding::encode(event_id),
+                    urlencoding::encode(send_updates)
+                );
+                let updated = self.api.call(&put_endpoint, "PUT", Some(ev)).await?;
                 Ok(ToolResult::new(format!(
                     "RSVP '{}' for event: {} (ID: {})",
                     response,
@@ -483,24 +609,31 @@ impl Tool for GoogleCalendarTool {
 /// Build the start/end JSON objects for a timed (non all-day) event.
 /// Bare timestamps are passed through without appending Z so that the
 /// timeZone field controls interpretation. If no end time is provided,
-/// defaults to start + 1 hour.
-fn build_event_times(start_raw: &str, end_raw: Option<&str>, tz: &str) -> (Value, Value) {
+/// defaults to start + 1 hour. Returns an error if the start time cannot
+/// be parsed and no explicit end time is given.
+fn build_event_times(
+    start_raw: &str,
+    end_raw: Option<&str>,
+    tz: &str,
+) -> std::result::Result<(Value, Value), String> {
     let start_obj = serde_json::json!({"dateTime": start_raw, "timeZone": tz});
-    let end_str = end_raw.map_or_else(
-        || {
-            DateTime::parse_from_rfc3339(&ensure_rfc3339_tz(start_raw)).map_or_else(
-                |_| start_raw.to_string(),
-                |dt| {
-                    (dt + chrono::Duration::hours(1))
-                        .format("%Y-%m-%dT%H:%M:%S")
-                        .to_string()
-                },
-            )
+    let end_str = match end_raw {
+        Some(e) => e.to_string(),
+        None => match DateTime::parse_from_rfc3339(&ensure_rfc3339_tz(start_raw)) {
+            Ok(dt) => (dt + chrono::Duration::hours(1))
+                .format("%Y-%m-%dT%H:%M:%S")
+                .to_string(),
+            Err(_) => {
+                return Err(format!(
+                    "could not parse start time '{}' to compute default end time \
+                         -- please provide an explicit end time",
+                    start_raw
+                ));
+            }
         },
-        ToString::to_string,
-    );
+    };
     let end_obj = serde_json::json!({"dateTime": &end_str, "timeZone": tz});
-    (start_obj, end_obj)
+    Ok((start_obj, end_obj))
 }
 
 /// Ensure a timestamp string has a timezone suffix for RFC 3339 compliance.

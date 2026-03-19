@@ -100,9 +100,23 @@ impl WorkspaceTool {
         };
         let date = params["date"].as_str();
         let tags = params["tags"].as_str();
+        let limit = params["limit"].as_u64().unwrap_or(50).clamp(1, 200) as usize;
+        let offset = params["offset"].as_u64().unwrap_or(0) as usize;
 
-        let entries = self.manager.list_files(category, date, tags)?;
-        Ok(ToolResult::new(Self::format_file_table(&entries)))
+        let all_entries = self.manager.list_files(category, date, tags)?;
+        let total = all_entries.len();
+        let entries: Vec<_> = all_entries.into_iter().skip(offset).take(limit).collect();
+
+        let output = Self::format_file_table(&entries);
+        if total > limit || offset > 0 {
+            let end = (offset + entries.len()).min(total);
+            let start = offset + 1;
+            Ok(ToolResult::new(format!(
+                "{output}\n\nShowing {start}-{end} of {total} files"
+            )))
+        } else {
+            Ok(ToolResult::new(output))
+        }
     }
 
     fn action_search(&self, params: &Value) -> Result<ToolResult> {
@@ -379,6 +393,17 @@ impl Tool for WorkspaceTool {
                 "tags": {
                     "type": "string",
                     "description": "Comma-separated tags (for tag action, or filter for list)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max files to return (for list, default 50, max 200)",
+                    "minimum": 1,
+                    "maximum": 200
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Number of files to skip (for list, default 0)",
+                    "minimum": 0
                 }
             },
             "required": ["action"]

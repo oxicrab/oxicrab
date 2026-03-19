@@ -186,7 +186,7 @@ maxResults = 5
 
 [tools.exec]
 timeout = 60
-allowedCommands = ["ls", "find", "tree", "pwd", "basename", "dirname", "realpath", "stat", "file", "cat", "head", "tail", "less", "wc", "md5sum", "sha256sum", "grep", "awk", "sed", "sort", "uniq", "cut", "tr", "diff", "comm", "paste", "rg", "ag", "fd", "jq", "yq", "git", "cargo", "rustc", "npm", "npx", "node", "python3", "pip3", "make", "go", "date", "cal", "whoami", "hostname", "uname", "uptime", "df", "du", "free", "ps", "journalctl", "env", "printenv", "which", "type", "curl", "wget", "dig", "nslookup", "ping", "host", "echo", "printf", "test", "true", "false", "yes", "seq", "xargs", "tar", "zip", "unzip", "gzip", "gunzip", "zcat", "tee", "touch", "mkdir", "cp", "mv", "ln"]
+allowedCommands = ["ls", "find", "tree", "pwd", "basename", "dirname", "realpath", "stat", "file", "cat", "head", "tail", "less", "wc", "md5sum", "sha256sum", "grep", "awk", "sed", "sort", "uniq", "cut", "tr", "diff", "comm", "paste", "rg", "ag", "fd", "jq", "yq", "git", "cargo", "rustc", "npm", "npx", "pip3", "make", "go", "date", "cal", "whoami", "hostname", "uname", "uptime", "df", "du", "free", "ps", "journalctl", "env", "printenv", "which", "type", "curl", "wget", "dig", "nslookup", "ping", "host", "echo", "printf", "test", "true", "false", "yes", "seq", "xargs", "tar", "zip", "unzip", "gzip", "gunzip", "zcat", "tee", "touch", "mkdir", "cp", "mv", "ln"]
 
 [tools.exec.sandbox]
 enabled = true

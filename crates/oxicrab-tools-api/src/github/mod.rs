@@ -2,6 +2,7 @@ use oxicrab_core::actions;
 use oxicrab_core::require_param;
 use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use oxicrab_core::tools::base::{Tool, ToolResult};
+use oxicrab_core::utils::url_params::{validate_identifier, validate_url_segment};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -9,18 +10,9 @@ use base64::Engine;
 use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
-use tracing::warn;
+use tracing::{debug, warn};
 
 const GITHUB_API: &str = "https://api.github.com";
-
-/// Validate a GitHub owner or repo name: alphanumeric, hyphens, dots, underscores only.
-fn is_valid_github_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 100
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.' || b == b'_')
-}
 
 pub struct GitHubTool {
     token: String,
@@ -102,7 +94,7 @@ impl GitHubTool {
         Ok(body)
     }
 
-    async fn api_get(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
+    async fn api_get_inner(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
         let req = self.github_headers(
             self.client
                 .get(format!("{}{}", self.base_url, path))
@@ -111,13 +103,37 @@ impl GitHubTool {
         self.api_send(req).await
     }
 
-    async fn api_post(&self, path: &str, body: &Value) -> Result<Value> {
+    async fn api_get(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
+        match self.api_get_inner(path, query).await {
+            Ok(v) => Ok(v),
+            Err(e) if e.to_string().contains("GitHub API 5") => {
+                debug!("GitHub API server error, retrying once after 2s");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                self.api_get_inner(path, query).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn api_post_inner(&self, path: &str, body: &Value) -> Result<Value> {
         let req = self.github_headers(
             self.client
                 .post(format!("{}{}", self.base_url, path))
                 .json(body),
         );
         self.api_send(req).await
+    }
+
+    async fn api_post(&self, path: &str, body: &Value) -> Result<Value> {
+        match self.api_post_inner(path, body).await {
+            Ok(v) => Ok(v),
+            Err(e) if e.to_string().contains("GitHub API 5") => {
+                debug!("GitHub API server error, retrying once after 2s");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                self.api_post_inner(path, body).await
+            }
+            Err(e) => Err(e),
+        }
     }
 
     async fn api_post_no_content(&self, path: &str, body: &Value) -> Result<()> {
@@ -129,6 +145,9 @@ impl GitHubTool {
         let resp = req.send().await?;
         let status = resp.status();
         Self::check_rate_limit(&resp);
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            anyhow::bail!("GitHub API rate limit exceeded, try again later");
+        }
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
             let msg = serde_json::from_str::<Value>(&text).map_or_else(
@@ -383,19 +402,37 @@ impl GitHubTool {
     }
 
     async fn get_pr_files(&self, owner: &str, repo: &str, number: u64) -> Result<String> {
-        let json = self
-            .api_get(
-                &format!("/repos/{owner}/{repo}/pulls/{number}/files"),
-                &[("per_page", "100")],
-            )
-            .await?;
+        let per_page = 100;
+        let max_pages = 3;
+        let mut all_files: Vec<Value> = Vec::new();
+        let mut truncated = false;
 
-        let files = json.as_array().map(Vec::as_slice).unwrap_or_default();
-        if files.is_empty() {
+        for page in 1..=max_pages {
+            let page_str = page.to_string();
+            let per_page_str = per_page.to_string();
+            let json = self
+                .api_get(
+                    &format!("/repos/{owner}/{repo}/pulls/{number}/files"),
+                    &[("per_page", &per_page_str), ("page", &page_str)],
+                )
+                .await?;
+
+            let files = json.as_array().map(Vec::as_slice).unwrap_or_default();
+            all_files.extend(files.iter().cloned());
+
+            if files.len() < per_page {
+                break;
+            }
+            if page == max_pages {
+                truncated = true;
+            }
+        }
+
+        if all_files.is_empty() {
             return Ok(format!("No files changed in PR #{number}"));
         }
 
-        let lines: Vec<String> = files
+        let lines: Vec<String> = all_files
             .iter()
             .map(|f| {
                 let filename = f["filename"].as_str().unwrap_or("?");
@@ -417,11 +454,21 @@ impl GitHubTool {
             })
             .collect();
 
+        let truncation_note = if truncated {
+            format!(
+                "\n\n(showing first {} files, more may be available)",
+                all_files.len()
+            )
+        } else {
+            String::new()
+        };
+
         Ok(format!(
-            "Files in PR #{} ({} files):\n{}",
+            "Files in PR #{} ({} files):\n{}{}",
             number,
-            files.len(),
-            lines.join("\n\n")
+            all_files.len(),
+            lines.join("\n\n"),
+            truncation_note
         ))
     }
 
@@ -511,6 +558,21 @@ impl GitHubTool {
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(&cleaned)
             .map_err(|e| anyhow::anyhow!("Failed to decode base64: {e}"))?;
+
+        // Detect binary files: if >10% of bytes are non-printable (excluding common whitespace), skip content
+        let non_printable = decoded
+            .iter()
+            .filter(|&&b| b < 0x20 && b != b'\n' && b != b'\r' && b != b'\t')
+            .count();
+        if decoded.len() > 32 && non_printable * 10 > decoded.len() {
+            return Ok(format!(
+                "Binary file: {} ({} bytes, encoding: {})",
+                file_path,
+                decoded.len(),
+                encoding
+            ));
+        }
+
         let text = String::from_utf8_lossy(&decoded);
 
         // Truncate at 10k chars
@@ -555,14 +617,19 @@ impl GitHubTool {
         owner: &str,
         repo: &str,
         workflow_id: Option<&str>,
+        page: u64,
     ) -> Result<String> {
         let path = match workflow_id {
             Some(wid) => format!("/repos/{owner}/{repo}/actions/workflows/{wid}/runs"),
             None => format!("/repos/{owner}/{repo}/actions/runs"),
         };
 
-        let json = self.api_get(&path, &[("per_page", "10")]).await?;
+        let page_str = page.to_string();
+        let json = self
+            .api_get(&path, &[("per_page", "10"), ("page", &page_str)])
+            .await?;
 
+        let total_count = json["total_count"].as_u64().unwrap_or(0);
         let runs = json["workflow_runs"]
             .as_array()
             .map(Vec::as_slice)
@@ -587,17 +654,20 @@ impl GitHubTool {
             .collect();
 
         Ok(format!(
-            "Workflow runs in {}/{} ({} shown):\n{}",
+            "Workflow runs in {}/{} (page {}, {} shown, {} total):\n{}",
             owner,
             repo,
+            page,
             runs.len(),
+            total_count,
             lines.join("\n")
         ))
     }
 
-    async fn list_notifications(&self) -> Result<String> {
+    async fn list_notifications(&self, page: u64) -> Result<String> {
+        let page_str = page.to_string();
         let json = self
-            .api_get("/notifications", &[("per_page", "15")])
+            .api_get("/notifications", &[("per_page", "15"), ("page", &page_str)])
             .await?;
 
         let notifs = json.as_array().map(Vec::as_slice).unwrap_or_default();
@@ -617,7 +687,8 @@ impl GitHubTool {
             .collect();
 
         Ok(format!(
-            "Unread notifications ({}):\n{}",
+            "Unread notifications (page {}, {} shown):\n{}",
+            page,
             notifs.len(),
             lines.join("\n")
         ))
@@ -783,6 +854,13 @@ impl Tool for GitHubTool {
         }
     }
 
+    fn requires_approval_for_action(&self, action: &str) -> bool {
+        matches!(
+            action,
+            "create_issue" | "create_pr_review" | "trigger_workflow"
+        )
+    }
+
     fn usage_examples(&self) -> Vec<oxicrab_core::tools::base::ToolExample> {
         vec![
             oxicrab_core::tools::base::ToolExample {
@@ -871,7 +949,7 @@ impl Tool for GitHubTool {
                 "page": {
                     "type": "integer",
                     "default": 1,
-                    "description": "Page number for pagination (for list_issues/list_prs)"
+                    "description": "Page number for pagination (for list_issues, list_prs, get_workflow_runs, notifications)"
                 },
                 "per_page": {
                     "type": "integer",
@@ -897,11 +975,11 @@ impl Tool for GitHubTool {
                     return Ok(ToolResult::error("missing 'repo' parameter".to_string()));
                 };
 
-                // Validate owner/repo — only alphanumeric, hyphens, dots, underscores
-                if !is_valid_github_name(owner) || !is_valid_github_name(repo) {
-                    return Ok(ToolResult::error(
-                        "owner and repo must contain only alphanumeric characters, hyphens, dots, or underscores".to_string(),
-                    ));
+                if let Err(e) = validate_identifier(owner, "owner") {
+                    return Ok(ToolResult::error(e));
+                }
+                if let Err(e) = validate_identifier(repo, "repo") {
+                    return Ok(ToolResult::error(e));
                 }
 
                 // Extract pagination params with defaults and cap
@@ -1027,6 +1105,9 @@ impl Tool for GitHubTool {
                                 "missing 'workflow_id' parameter".to_string(),
                             ));
                         };
+                        if let Err(e) = validate_url_segment(workflow_id, "workflow_id") {
+                            return Ok(ToolResult::error(e));
+                        }
                         let git_ref = params["ref"].as_str().unwrap_or("main");
                         let inputs = if params["inputs"].is_null() {
                             None
@@ -1037,8 +1118,18 @@ impl Tool for GitHubTool {
                             .await
                     }
                     "get_workflow_runs" => {
-                        self.get_workflow_runs(owner, repo, params["workflow_id"].as_str())
-                            .await
+                        if let Some(wid) = params["workflow_id"].as_str()
+                            && let Err(e) = validate_url_segment(wid, "workflow_id")
+                        {
+                            return Ok(ToolResult::error(e));
+                        }
+                        self.get_workflow_runs(
+                            owner,
+                            repo,
+                            params["workflow_id"].as_str(),
+                            page_num,
+                        )
+                        .await
                     }
                     other => {
                         return Ok(ToolResult::error(format!("unknown repo action: '{other}'")));
@@ -1047,10 +1138,13 @@ impl Tool for GitHubTool {
 
                 Ok(ToolResult::from_result(result, "GitHub"))
             }
-            "notifications" => Ok(ToolResult::from_result(
-                self.list_notifications().await,
-                "GitHub",
-            )),
+            "notifications" => {
+                let page_num = params["page"].as_u64().unwrap_or(1).max(1);
+                Ok(ToolResult::from_result(
+                    self.list_notifications(page_num).await,
+                    "GitHub",
+                ))
+            }
             _ => Ok(ToolResult::error(format!("unknown action: {action}"))),
         }
     }

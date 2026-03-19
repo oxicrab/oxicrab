@@ -6,6 +6,7 @@ use oxicrab_core::actions;
 use oxicrab_core::require_param;
 use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use oxicrab_core::tools::base::{Tool, ToolResult};
+use oxicrab_core::utils::url_params::validate_url_segment;
 use serde_json::Value;
 
 pub struct GoogleTasksTool {
@@ -102,19 +103,39 @@ impl Tool for GoogleTasksTool {
         let action = require_param!(params, "action");
 
         let list_id = params["task_list_id"].as_str().unwrap_or("@default");
+        if let Err(e) = validate_url_segment(list_id, "task_list_id") {
+            return Ok(ToolResult::error(e));
+        }
 
         match action {
             "list_task_lists" => {
-                let result = self.api.call("users/@me/lists", "GET", None).await?;
-                let empty_vec: Vec<Value> = vec![];
-                let lists = result["items"].as_array().unwrap_or(&empty_vec);
+                let mut all_lists: Vec<Value> = Vec::new();
+                let mut page_token: Option<String> = None;
+                let max_pages = 3;
 
-                if lists.is_empty() {
+                for _ in 0..max_pages {
+                    let mut endpoint = "users/@me/lists?maxResults=100".to_string();
+                    if let Some(ref token) = page_token {
+                        endpoint.push_str(&format!("&pageToken={}", urlencoding::encode(token)));
+                    }
+
+                    let result = self.api.call(&endpoint, "GET", None).await?;
+                    let empty_vec: Vec<Value> = vec![];
+                    let page_lists = result["items"].as_array().unwrap_or(&empty_vec);
+                    all_lists.extend(page_lists.iter().cloned());
+
+                    match result["nextPageToken"].as_str() {
+                        Some(t) if !t.is_empty() => page_token = Some(t.to_string()),
+                        _ => break,
+                    }
+                }
+
+                if all_lists.is_empty() {
                     return Ok(ToolResult::new("No task lists found.".to_string()));
                 }
 
-                let mut lines = vec![format!("Found {} task list(s):\n", lists.len())];
-                for list in lists {
+                let mut lines = vec![format!("Found {} task list(s):\n", all_lists.len())];
+                for list in &all_lists {
                     lines.push(format!(
                         "- {}\n  ID: {}",
                         list["title"].as_str().unwrap_or("(untitled)"),
@@ -127,25 +148,46 @@ impl Tool for GoogleTasksTool {
                 let max_results = params["max_results"].as_u64().unwrap_or(20).min(100) as u32;
                 let show_completed = params["show_completed"].as_bool().unwrap_or(true);
 
-                let mut endpoint = format!(
-                    "lists/{}/tasks?maxResults={}",
-                    urlencoding::encode(list_id),
-                    max_results
-                );
-                if !show_completed {
-                    endpoint.push_str("&showCompleted=false&showHidden=false");
+                let mut all_tasks: Vec<Value> = Vec::new();
+                let mut page_token: Option<String> = None;
+                let max_pages = 3;
+                let cap: usize = 200;
+
+                for _ in 0..max_pages {
+                    let mut endpoint = format!(
+                        "lists/{}/tasks?maxResults={}",
+                        urlencoding::encode(list_id),
+                        max_results
+                    );
+                    if !show_completed {
+                        endpoint.push_str("&showCompleted=false&showHidden=false");
+                    }
+                    if let Some(ref token) = page_token {
+                        endpoint.push_str(&format!("&pageToken={}", urlencoding::encode(token)));
+                    }
+
+                    let result = self.api.call(&endpoint, "GET", None).await?;
+                    let empty_vec: Vec<Value> = vec![];
+                    let page_tasks = result["items"].as_array().unwrap_or(&empty_vec);
+                    all_tasks.extend(page_tasks.iter().cloned());
+
+                    if all_tasks.len() >= cap {
+                        all_tasks.truncate(cap);
+                        break;
+                    }
+
+                    match result["nextPageToken"].as_str() {
+                        Some(t) if !t.is_empty() => page_token = Some(t.to_string()),
+                        _ => break,
+                    }
                 }
 
-                let result = self.api.call(&endpoint, "GET", None).await?;
-                let empty_vec: Vec<Value> = vec![];
-                let tasks = result["items"].as_array().unwrap_or(&empty_vec);
-
-                if tasks.is_empty() {
+                if all_tasks.is_empty() {
                     return Ok(ToolResult::new("No tasks found.".to_string()));
                 }
 
-                let mut lines = vec![format!("Found {} task(s):\n", tasks.len())];
-                for task in tasks {
+                let mut lines = vec![format!("Found {} task(s):\n", all_tasks.len())];
+                for task in &all_tasks {
                     let title = task["title"].as_str().unwrap_or("(untitled)");
                     let status = task["status"].as_str().unwrap_or("?");
                     let status_icon = if status == "completed" { "[x]" } else { "[ ]" };
@@ -163,11 +205,14 @@ impl Tool for GoogleTasksTool {
                         due_str,
                     ));
                 }
-                let buttons = build_google_task_buttons(tasks, list_id);
+                let buttons = build_google_task_buttons(&all_tasks, list_id);
                 Ok(ToolResult::new(lines.join("\n")).with_buttons(buttons))
             }
             "get_task" => {
                 let task_id = require_param!(params, "task_id");
+                if let Err(e) = validate_url_segment(task_id, "task_id") {
+                    return Ok(ToolResult::error(e));
+                }
 
                 let endpoint = format!(
                     "lists/{}/tasks/{}",
@@ -200,6 +245,9 @@ impl Tool for GoogleTasksTool {
             }
             "update_task" => {
                 let task_id = require_param!(params, "task_id");
+                if let Err(e) = validate_url_segment(task_id, "task_id") {
+                    return Ok(ToolResult::error(e));
+                }
 
                 let mut body = serde_json::json!({});
 
@@ -237,6 +285,9 @@ impl Tool for GoogleTasksTool {
             }
             "delete_task" => {
                 let task_id = require_param!(params, "task_id");
+                if let Err(e) = validate_url_segment(task_id, "task_id") {
+                    return Ok(ToolResult::error(e));
+                }
 
                 let endpoint = format!(
                     "lists/{}/tasks/{}",

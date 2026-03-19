@@ -1,12 +1,10 @@
 use super::*;
 
 fn allowed() -> Vec<String> {
-    [
-        "ls", "cat", "grep", "git", "echo", "curl", "python3", "cargo",
-    ]
-    .iter()
-    .map(ToString::to_string)
-    .collect()
+    ["ls", "cat", "grep", "git", "echo", "curl", "cargo"]
+        .iter()
+        .map(ToString::to_string)
+        .collect()
 }
 
 fn tool(cmds: Vec<String>) -> ExecTool {

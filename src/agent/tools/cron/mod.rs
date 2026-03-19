@@ -12,6 +12,8 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const MAX_CRON_MESSAGE_LEN: usize = 10_000;
+
 pub struct CronTool {
     cron_service: Arc<CronService>,
     channels_config: Option<ChannelsConfig>,
@@ -490,21 +492,21 @@ impl Tool for CronTool {
     async fn execute(&self, params: Value, ctx: &ExecutionContext) -> Result<ToolResult> {
         let action = require_param!(params, "action");
 
+        // Prevent infinite feedback loops: cron jobs cannot schedule or trigger other jobs
+        if matches!(action, "add" | "run" | "dlq_replay")
+            && ctx
+                .metadata
+                .get(crate::bus::meta::IS_CRON_JOB)
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        {
+            return Ok(ToolResult::error(
+                "cannot schedule or trigger jobs from within a cron job execution".to_string(),
+            ));
+        }
+
         match action {
             "add" => {
-                // Prevent infinite feedback loops: cron jobs cannot schedule new cron jobs
-                if ctx
-                    .metadata
-                    .get(crate::bus::meta::IS_CRON_JOB)
-                    .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false)
-                {
-                    return Ok(ToolResult::error(
-                        "cannot schedule new cron jobs from within a cron job execution"
-                            .to_string(),
-                    ));
-                }
-
                 let job_type = params["type"].as_str().unwrap_or("agent");
                 if job_type != "agent" && job_type != "echo" {
                     return Ok(ToolResult::error(format!(
@@ -515,6 +517,13 @@ impl Tool for CronTool {
                 let message = require_param!(params, "message");
                 if message.trim().is_empty() {
                     return Ok(ToolResult::error("Missing 'message' parameter".to_string()));
+                }
+                if message.len() > MAX_CRON_MESSAGE_LEN {
+                    return Ok(ToolResult::error(format!(
+                        "message too long ({} chars, max {})",
+                        message.len(),
+                        MAX_CRON_MESSAGE_LEN
+                    )));
                 }
                 let message = message.to_string();
 
@@ -615,10 +624,13 @@ impl Tool for CronTool {
                 )))
             }
             "list" => {
-                let jobs = self.cron_service.list_jobs(false)?;
-                if jobs.is_empty() {
+                let all_jobs = self.cron_service.list_jobs(false)?;
+                if all_jobs.is_empty() {
                     return Ok(ToolResult::new("No scheduled jobs.".to_string()));
                 }
+                let total = all_jobs.len();
+                let display_limit = 50;
+                let jobs: Vec<&CronJob> = all_jobs.iter().take(display_limit).collect();
                 let lines: Vec<String> = jobs
                     .iter()
                     .map(|j| {
@@ -672,11 +684,19 @@ impl Tool for CronTool {
                         )
                     })
                     .collect();
-                let buttons = build_job_buttons(&jobs);
-                Ok(
-                    ToolResult::new(format!("Scheduled jobs:\n{}", lines.join("\n")))
-                        .with_buttons(buttons),
-                )
+                let buttons = build_job_buttons(&all_jobs);
+                let truncation_note = if total > display_limit {
+                    format!("\n\n(showing first {display_limit} of {total} jobs)")
+                } else {
+                    String::new()
+                };
+                Ok(ToolResult::new(format!(
+                    "Scheduled jobs ({}):\n{}{}",
+                    total,
+                    lines.join("\n"),
+                    truncation_note
+                ))
+                .with_buttons(buttons))
             }
             "pause" => {
                 let job_id = require_param!(params, "job_id");
@@ -708,6 +728,11 @@ impl Tool for CronTool {
             }
             "run" => {
                 let job_id = require_param!(params, "job_id").to_string();
+
+                // Verify job exists before spawning background execution
+                if self.cron_service.get_job(&job_id)?.is_none() {
+                    return Ok(ToolResult::error(format!("job '{job_id}' not found")));
+                }
 
                 // Spawn job execution on a separate task to avoid deadlock.
                 // The agent loop holds a per-session lock during tool execution,
@@ -772,6 +797,14 @@ impl Tool for CronTool {
                 let Some(entry) = entry else {
                     return Ok(ToolResult::error(format!("DLQ entry {dlq_id} not found")));
                 };
+
+                // Verify the referenced job still exists before replaying
+                if self.cron_service.get_job(&entry.job_id)?.is_none() {
+                    return Ok(ToolResult::error(format!(
+                        "cannot replay DLQ entry {}: referenced job '{}' no longer exists",
+                        dlq_id, entry.job_id
+                    )));
+                }
 
                 // Spawn replay on a separate task to avoid deadlock (same
                 // reason as the "run" action — session lock re-entrancy).

@@ -308,3 +308,6 @@ fn check_io_redirect(redir: &ast::IoRedirect, violations: &mut Vec<AstViolation>
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -50,7 +50,8 @@ fn test_build_event_times_bare_timestamp_not_z_suffixed() {
         "2026-02-15T14:00:00",
         Some("2026-02-15T15:00:00"),
         "America/New_York",
-    );
+    )
+    .unwrap();
     assert_eq!(start["dateTime"], "2026-02-15T14:00:00");
     assert_eq!(start["timeZone"], "America/New_York");
     assert_eq!(end["dateTime"], "2026-02-15T15:00:00");
@@ -63,14 +64,15 @@ fn test_build_event_times_preserves_existing_offset() {
         "2026-02-15T14:00:00-05:00",
         Some("2026-02-15T15:00:00-05:00"),
         "America/New_York",
-    );
+    )
+    .unwrap();
     // Offset already present -- passed through as-is
     assert_eq!(start["dateTime"], "2026-02-15T14:00:00-05:00");
 }
 
 #[test]
 fn test_build_event_times_default_end_plus_one_hour() {
-    let (start, end) = build_event_times("2026-02-15T14:00:00", None, "America/New_York");
+    let (start, end) = build_event_times("2026-02-15T14:00:00", None, "America/New_York").unwrap();
     assert_eq!(start["dateTime"], "2026-02-15T14:00:00");
     // Default end = start + 1hr, also bare (no Z)
     assert_eq!(end["dateTime"], "2026-02-15T15:00:00");
@@ -79,8 +81,18 @@ fn test_build_event_times_default_end_plus_one_hour() {
 
 #[test]
 fn test_build_event_times_utc_default_tz() {
-    let (start, _) = build_event_times("2026-02-15T14:00:00", Some("2026-02-15T15:00:00"), "UTC");
+    let (start, _) =
+        build_event_times("2026-02-15T14:00:00", Some("2026-02-15T15:00:00"), "UTC").unwrap();
     assert_eq!(start["timeZone"], "UTC");
+}
+
+#[test]
+fn test_build_event_times_unparseable_start_no_end_returns_error() {
+    let result = build_event_times("tomorrow 2pm", None, "America/New_York");
+    assert!(result.is_err());
+    let msg = result.unwrap_err();
+    assert!(msg.contains("could not parse start time"));
+    assert!(msg.contains("tomorrow 2pm"));
 }
 
 fn test_credentials() -> crate::credentials::GoogleCredentials {

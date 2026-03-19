@@ -7,6 +7,7 @@ use oxicrab_core::actions;
 use oxicrab_core::require_param;
 use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use oxicrab_core::tools::base::{Tool, ToolResult};
+use oxicrab_core::utils::url_params::validate_url_segment;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::SystemTime;
@@ -48,6 +49,10 @@ impl Tool for GoogleMailTool {
             ],
             category: ToolCategory::Communication,
         }
+    }
+
+    fn requires_approval_for_action(&self, action: &str) -> bool {
+        matches!(action, "send" | "reply")
     }
 
     fn parameters(&self) -> Value {
@@ -110,16 +115,38 @@ impl Tool for GoogleMailTool {
                 let query = require_param!(params, "query");
                 let max_results = params["max_results"].as_u64().unwrap_or(10).min(50) as u32;
 
-                let endpoint = format!(
-                    "users/me/messages?q={}&maxResults={}",
-                    urlencoding::encode(query),
-                    max_results
-                );
-                let result = self.api.call(&endpoint, "GET", None).await?;
-                let empty_messages: Vec<serde_json::Value> = vec![];
-                let messages = result["messages"].as_array().unwrap_or(&empty_messages);
+                // Fetch message IDs with pagination (up to 3 pages, capped at max_results total)
+                let mut all_message_stubs: Vec<Value> = Vec::new();
+                let mut page_token: Option<String> = None;
+                let max_pages = 3;
+                let per_page = max_results.min(50);
 
-                if messages.is_empty() {
+                for _ in 0..max_pages {
+                    let mut endpoint = format!(
+                        "users/me/messages?q={}&maxResults={}",
+                        urlencoding::encode(query),
+                        per_page
+                    );
+                    if let Some(ref token) = page_token {
+                        endpoint.push_str(&format!("&pageToken={}", urlencoding::encode(token)));
+                    }
+                    let result = self.api.call(&endpoint, "GET", None).await?;
+                    let empty_messages: Vec<Value> = vec![];
+                    let page_messages = result["messages"].as_array().unwrap_or(&empty_messages);
+                    all_message_stubs.extend(page_messages.iter().cloned());
+
+                    if all_message_stubs.len() >= max_results as usize {
+                        all_message_stubs.truncate(max_results as usize);
+                        break;
+                    }
+
+                    match result["nextPageToken"].as_str() {
+                        Some(t) if !t.is_empty() => page_token = Some(t.to_string()),
+                        _ => break,
+                    }
+                }
+
+                if all_message_stubs.is_empty() {
                     return Ok(ToolResult::new(format!(
                         "No messages found for query: {query}"
                     )));
@@ -127,11 +154,11 @@ impl Tool for GoogleMailTool {
 
                 let mut lines = vec![format!(
                     "Found {} message(s) for: {}\n",
-                    messages.len(),
+                    all_message_stubs.len(),
                     query
                 )];
                 let mut msg_entries: Vec<(String, String)> = Vec::new();
-                for msg_stub in messages {
+                for msg_stub in &all_message_stubs {
                     let Some(msg_id) = msg_stub["id"].as_str().filter(|s| !s.is_empty()) else {
                         continue;
                     };
@@ -171,6 +198,9 @@ impl Tool for GoogleMailTool {
             }
             "read" => {
                 let message_id = require_param!(params, "message_id");
+                if let Err(e) = validate_url_segment(message_id, "message_id") {
+                    return Ok(ToolResult::error(e));
+                }
 
                 let endpoint = format!(
                     "users/me/messages/{}?format=full",
@@ -188,6 +218,17 @@ impl Tool for GoogleMailTool {
                     })
                     .collect();
                 let body = extract_body(&msg["payload"]);
+                const MAX_EMAIL_BODY_CHARS: usize = 50_000;
+                let body = if body.len() > MAX_EMAIL_BODY_CHARS {
+                    let boundary = body.floor_char_boundary(MAX_EMAIL_BODY_CHARS);
+                    format!(
+                        "{}...\n[truncated, {} total chars]",
+                        &body[..boundary],
+                        body.len()
+                    )
+                } else {
+                    body
+                };
                 let labels: Vec<String> = msg["labelIds"]
                     .as_array()
                     .unwrap_or(&vec![])
@@ -262,6 +303,9 @@ impl Tool for GoogleMailTool {
             }
             "reply" => {
                 let message_id = require_param!(params, "message_id");
+                if let Err(e) = validate_url_segment(message_id, "message_id") {
+                    return Ok(ToolResult::error(e));
+                }
                 let body = require_param!(params, "body");
                 let body = body.replace('\r', "");
 
@@ -336,6 +380,9 @@ impl Tool for GoogleMailTool {
             }
             "label" => {
                 let message_id = require_param!(params, "message_id");
+                if let Err(e) = validate_url_segment(message_id, "message_id") {
+                    return Ok(ToolResult::error(e));
+                }
                 let label_ids = params["label_ids"]
                     .as_array()
                     .map(|a| {
@@ -484,6 +531,9 @@ fn extract_body_inner(payload: &Value, depth: u32) -> String {
 
     // Multipart - look for text/plain first, then text/html
     if let Some(parts) = payload["parts"].as_array() {
+        // Phase 1: Check direct children at this level for each MIME type
+        // in preference order. Do NOT recurse here — that would find HTML in
+        // a nested part before checking sibling text/plain at this level.
         for mime in &["text/plain", "text/html"] {
             for part in parts {
                 if part["mimeType"].as_str() == Some(mime)
@@ -492,31 +542,38 @@ fn extract_body_inner(payload: &Value, depth: u32) -> String {
                     && let Ok(text) = String::from_utf8(decoded)
                 {
                     if *mime == "text/html" {
-                        // Strip HTML tags (replace with space to preserve word boundaries)
-                        let stripped = crate::utils::html_tags_regex()
-                            .replace_all(&text, " ")
-                            .to_string();
-                        let cleaned = decode_html_entities(&stripped);
-                        let collapsed = collapse_whitespace(&cleaned);
-                        if collapsed.len() >= 20 {
-                            return collapsed;
-                        }
-                        return "(HTML email with minimal text content. Subject and headers above may contain the key details.)".to_string();
+                        return strip_html_body(&text);
                     }
                     return text;
                 }
-                // Nested multipart
-                if part["parts"].is_array() {
-                    let nested = extract_body_inner(part, depth + 1);
-                    if nested != "(no readable body)" {
-                        return nested;
-                    }
+            }
+        }
+
+        // Phase 2: No direct match found — recurse into nested multipart parts
+        for part in parts {
+            if part["parts"].is_array() {
+                let nested = extract_body_inner(part, depth + 1);
+                if nested != "(no readable body)" && nested != "(nested too deep)" {
+                    return nested;
                 }
             }
         }
     }
 
     "(no readable body)".to_string()
+}
+
+/// Strip HTML to plain text: remove style/script blocks, tags, decode entities,
+/// and collapse whitespace.
+fn strip_html_body(html: &str) -> String {
+    let stripped = crate::utils::strip_html_to_text(html);
+    let cleaned = decode_html_entities(&stripped);
+    let collapsed = collapse_whitespace(&cleaned);
+    if collapsed.len() >= 20 {
+        return collapsed;
+    }
+    "(HTML email with minimal text content. Subject and headers above may contain the key details.)"
+        .to_string()
 }
 
 /// Decode common HTML entities into their character equivalents.

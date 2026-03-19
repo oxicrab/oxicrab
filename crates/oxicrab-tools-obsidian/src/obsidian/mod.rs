@@ -163,6 +163,17 @@ impl Tool for ObsidianTool {
                         "order": { "type": "string" },
                         "parent": { "type": "string" }
                     }
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results to return (for list, default 100; for search, default 50)",
+                    "minimum": 1,
+                    "maximum": 500
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Number of results to skip (for search and list, default 0)",
+                    "minimum": 0
                 }
             },
             "required": ["action"]
@@ -223,27 +234,40 @@ impl Tool for ObsidianTool {
                     Some(q) if !q.is_empty() => q,
                     _ => return Ok(ToolResult::error("'query' is required for search")),
                 };
-                let results = self.cache.search_cached(query).await;
-                if results.is_empty() {
+                let offset = params["offset"].as_u64().unwrap_or(0) as usize;
+                let limit = params["limit"].as_u64().unwrap_or(50).clamp(1, 500) as usize;
+                let all_results = self.cache.search_cached(query).await;
+                let total = all_results.len();
+                if total == 0 {
                     Ok(ToolResult::new(format!("No results found for '{query}'.")))
                 } else {
+                    let results: Vec<_> =
+                        all_results.into_iter().skip(offset).take(limit).collect();
                     let lines: Vec<String> = results
                         .iter()
                         .map(|(path, line)| format!("{}:  {}", path, line.trim()))
                         .collect();
-                    let truncated = results.len() >= 50;
+                    let end = offset + results.len();
+                    let range_note = if total > limit || offset > 0 {
+                        format!(" (showing {}-{} of {})", offset + 1, end, total)
+                    } else {
+                        String::new()
+                    };
                     Ok(ToolResult::new(format!(
                         "Found {} matches{}:\n{}",
-                        results.len(),
-                        if truncated { " (showing first 50)" } else { "" },
+                        total,
+                        range_note,
                         lines.join("\n")
                     )))
                 }
             }
             "list" => {
                 let folder = params["folder"].as_str();
-                let files = self.cache.list_cached(folder).await;
-                if files.is_empty() {
+                let offset = params["offset"].as_u64().unwrap_or(0) as usize;
+                let limit = params["limit"].as_u64().unwrap_or(100).clamp(1, 500) as usize;
+                let all_files = self.cache.list_cached(folder).await;
+                let total = all_files.len();
+                if total == 0 {
                     let msg = if let Some(f) = folder {
                         format!("No notes found in folder '{f}'.")
                     } else {
@@ -251,9 +275,17 @@ impl Tool for ObsidianTool {
                     };
                     Ok(ToolResult::new(msg))
                 } else {
+                    let files: Vec<_> = all_files.into_iter().skip(offset).take(limit).collect();
+                    let end = offset + files.len();
+                    let range_note = if total > limit || offset > 0 {
+                        format!(" (showing {}-{} of {})", offset + 1, end, total)
+                    } else {
+                        String::new()
+                    };
                     Ok(ToolResult::new(format!(
-                        "{} notes:\n{}",
-                        files.len(),
+                        "{} notes{}:\n{}",
+                        total,
+                        range_note,
                         files.join("\n")
                     )))
                 }

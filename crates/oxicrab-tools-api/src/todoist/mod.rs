@@ -2,6 +2,7 @@ use oxicrab_core::actions;
 use oxicrab_core::require_param;
 use oxicrab_core::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use oxicrab_core::tools::base::{Tool, ToolResult};
+use oxicrab_core::utils::url_params::validate_url_segment;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -612,6 +613,9 @@ impl Tool for TodoistTool {
                 let Some(task_id) = params["task_id"].as_str() else {
                     return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
+                if let Err(e) = validate_url_segment(task_id, "task_id") {
+                    return Ok(ToolResult::error(e));
+                }
                 let result = self.get_task(task_id).await;
                 match result {
                     Ok((text, task)) => {
@@ -652,6 +656,9 @@ impl Tool for TodoistTool {
                 let Some(task_id) = params["task_id"].as_str() else {
                     return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
+                if let Err(e) = validate_url_segment(task_id, "task_id") {
+                    return Ok(ToolResult::error(e));
+                }
                 let labels: Option<Vec<&str>> = params["labels"]
                     .as_array()
                     .map(|a| a.iter().filter_map(|v| v.as_str()).collect());
@@ -671,6 +678,9 @@ impl Tool for TodoistTool {
                 let Some(task_id) = params["task_id"].as_str() else {
                     return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
+                if let Err(e) = validate_url_segment(task_id, "task_id") {
+                    return Ok(ToolResult::error(e));
+                }
                 let result = self.complete_task(task_id).await;
                 Ok(ToolResult::from_result(result, "Todoist"))
             }
@@ -678,6 +688,9 @@ impl Tool for TodoistTool {
                 let Some(task_id) = params["task_id"].as_str() else {
                     return Ok(ToolResult::error("missing 'task_id' parameter".to_string()));
                 };
+                if let Err(e) = validate_url_segment(task_id, "task_id") {
+                    return Ok(ToolResult::error(e));
+                }
                 let result = self.delete_task(task_id).await;
                 Ok(ToolResult::from_result(result, "Todoist"))
             }

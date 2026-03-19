@@ -363,17 +363,36 @@ impl BrowserTool {
 
         let result = self
             .with_timeout(async {
+                // Query actual content dimensions, clamped to prevent OOM.
+                // full_page(true) is NOT used because chromiumoxide overwrites the clip
+                // viewport when full_page is set, making the height clamp ineffective.
+                let content_height: f64 = session
+                    .page
+                    .evaluate("Math.min(document.documentElement.scrollHeight || document.body.scrollHeight || 768, 10080)")
+                    .await
+                    .ok()
+                    .and_then(|v| v.into_value().ok())
+                    .unwrap_or(768.0);
+                let content_width: f64 = session
+                    .page
+                    .evaluate("Math.min(document.documentElement.scrollWidth || document.body.scrollWidth || 1280, 1920)")
+                    .await
+                    .ok()
+                    .and_then(|v| v.into_value().ok())
+                    .unwrap_or(1280.0);
+
                 let bytes = session
                     .page
                     .screenshot(
                         ScreenshotParams::builder()
-                            .full_page(true)
-                            // Clip height to prevent OOM on pathologically tall pages
+                            .format(
+                                chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat::Png,
+                            )
                             .clip(chromiumoxide::cdp::browser_protocol::page::Viewport {
                                 x: 0.0,
                                 y: 0.0,
-                                width: 1920.0,
-                                height: 10080.0, // ~5x 1080p
+                                width: content_width,
+                                height: content_height,
                                 scale: 1.0,
                             })
                             .build(),
@@ -466,6 +485,12 @@ impl BrowserTool {
             ));
         };
 
+        // SECURITY NOTE: eval can use fetch()/XHR to reach internal IPs.
+        // Chrome's network stack bypasses our URL validation. Mitigate by
+        // running the browser with --host-resolver-rules or network-level
+        // firewalling. CDP Network.setBlockedURLs requires Network.enable
+        // and uses URLPattern syntax which is fragile for IP range blocking.
+
         // Always wrap in an IIFE to provide a fresh scope — prevents
         // "already been declared" errors for const/let across multiple evals
         // on the same page, and allows `return` statements to work
@@ -532,7 +557,7 @@ impl BrowserTool {
                         Ok(url)
                     }
                     "text" => {
-                        let js = "document.body ? document.body.innerText : ''";
+                        let js = "(() => { const t = document.body?.innerText || ''; return t.length > 50000 ? t.substring(0, 50000) + '\\n[truncated]' : t; })()";
                         let eval = session
                             .page
                             .evaluate(js)
@@ -710,6 +735,10 @@ impl BrowserTool {
                 Ok(format!("Navigated: {navigation}"))
             })
             .await;
+
+        // back/forward/reload are async — wait briefly for navigation to settle
+        // before checking the URL, otherwise we may validate the old URL
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         if let Some(err) = self.check_post_action_url(session).await {
             return Ok(ToolResult::error(err));

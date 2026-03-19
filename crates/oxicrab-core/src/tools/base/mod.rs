@@ -172,6 +172,14 @@ pub trait Tool: Send + Sync {
         false
     }
 
+    /// Whether a specific action requires user approval.
+    /// Override for action-based tools that have a mix of read-only and mutating actions.
+    /// Defaults to `self.requires_approval()` (blanket approval).
+    fn requires_approval_for_action(&self, action: &str) -> bool {
+        let _ = action;
+        self.requires_approval()
+    }
+
     /// Per-tool execution timeout. Overrides the registry-level default.
     fn execution_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_mins(2)

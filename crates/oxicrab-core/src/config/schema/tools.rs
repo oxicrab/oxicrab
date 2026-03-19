@@ -204,8 +204,6 @@ fn default_allowed_commands() -> Vec<String> {
         "rustc",
         "npm",
         "npx",
-        "node",
-        "python3",
         "pip3",
         "make",
         "go",

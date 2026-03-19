@@ -146,11 +146,15 @@ pub(super) async fn execute_tool_call(
         ));
     };
 
-    // Approval gate: block untrusted MCP tools
-    if tool.requires_approval() {
-        warn!("blocked untrusted MCP tool: {}", tc_name);
+    // Approval gate: block untrusted MCP tools and per-action approval
+    let action = tc_args.get("action").and_then(|v| v.as_str()).unwrap_or("");
+    if tool.requires_approval_for_action(action) {
+        warn!(
+            "blocked tool requiring approval: {} (action={})",
+            tc_name, action
+        );
         return ToolResult::error(format!(
-            "Error: tool '{tc_name}' is from an untrusted MCP server and requires approval. \
+            "Error: tool '{tc_name}' requires approval for this action. \
              Change the server's trust level to \"local\" in config to allow execution."
         ));
     }

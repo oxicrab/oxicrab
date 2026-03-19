@@ -445,6 +445,10 @@ impl CronService {
         Ok(())
     }
 
+    pub fn get_job(&self, job_id: &str) -> Result<Option<CronJob>> {
+        self.db.get_cron_job(job_id)
+    }
+
     pub fn remove_job(&self, job_id: &str) -> Result<Option<CronJob>> {
         let job = self.db.get_cron_job(job_id)?;
         if job.is_some() {
