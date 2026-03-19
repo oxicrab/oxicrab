@@ -1,5 +1,9 @@
 # Rust
 target/
+# cargo-fuzz (local corpora / lockfile; fuzz manifest lives in fuzz/)
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/Cargo.lock
 # Cargo.lock should be committed for binaries (applications)
 # Only ignore for libraries
 
