@@ -137,10 +137,6 @@ walkdir = "2.5"
 wa-rs = { version = "0.2", optional = true, default-features = false, features = ["sqlite-storage"] }
 wa-rs-tokio-transport = { version = "0.2", optional = true }
 wa-rs-ureq-http = { version = "0.2", optional = true }
-feed-rs = { version = "2", optional = true }
-nalgebra = { version = "0.33", optional = true }
-rand = { version = "0.8", optional = true }
-rand_distr = { version = "0.4", optional = true }
 qr2term = { version = "0.3", optional = true }
 qrcode = { version = "0.14", optional = true }
 which = "8.0"
