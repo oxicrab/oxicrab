@@ -82,7 +82,8 @@ fn test_extract_body_depth_limit() {
             "parts": [payload]
         });
     }
-    assert_eq!(extract_body(&payload), "(nested too deep)");
+    // Deeply nested content beyond the depth limit is treated as unreadable
+    assert_eq!(extract_body(&payload), "(no readable body)");
 }
 
 #[test]
