@@ -1,5 +1,6 @@
+use crate::actions;
 use crate::agent::subagent::SubagentManager;
-use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
+use crate::agent::tools::base::{ExecutionContext, SubagentAccess, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
 use crate::require_param;
 use anyhow::Result;
@@ -30,6 +31,8 @@ impl Tool for SpawnTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
+            subagent_access: SubagentAccess::Full,
+            actions: actions![spawn],
             category: ToolCategory::System,
             ..Default::default()
         }

@@ -1,6 +1,7 @@
 use crate::utils::media::{extension_from_content_type, save_media_file};
 use anyhow::Result;
 use async_trait::async_trait;
+use oxicrab_core::actions;
 use oxicrab_core::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use reqwest::Client;
@@ -224,6 +225,7 @@ impl Tool for HttpTool {
         ToolCapabilities {
             built_in: true,
             network_outbound: true,
+            actions: actions![request],
             category: ToolCategory::Web,
             ..Default::default()
         }

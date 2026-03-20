@@ -1,3 +1,4 @@
+use crate::actions;
 use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
 use lru::LruCache;
@@ -139,6 +140,7 @@ impl Tool for StashRetrieveTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
+            actions: actions![retrieve: ro],
             category: ToolCategory::Core,
             ..Default::default()
         }

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use base64::Engine;
+use oxicrab_core::actions;
 use oxicrab_core::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
 use oxicrab_core::tools::base::{Tool, ToolResult};
 use reqwest::Client;
@@ -246,6 +247,7 @@ impl Tool for ImageGenTool {
         ToolCapabilities {
             built_in: true,
             network_outbound: true,
+            actions: actions![generate],
             category: ToolCategory::Media,
             ..Default::default()
         }

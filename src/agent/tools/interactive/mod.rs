@@ -1,3 +1,4 @@
+use crate::actions;
 use crate::agent::tools::base::{ExecutionContext, ToolCapabilities, ToolCategory};
 use crate::agent::tools::{Tool, ToolResult};
 use async_trait::async_trait;
@@ -120,6 +121,7 @@ impl Tool for AddButtonsTool {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
             built_in: true,
+            actions: actions![add: ro],
             category: ToolCategory::Core,
             ..Default::default()
         }
