@@ -10,7 +10,7 @@ Source is split across `crates/` (library crates) and `src/` (binary crate + re-
 
 ## Build & Development
 
-Requires **Rust nightly** (pinned in `rust-toolchain.toml`) and system deps: `cmake`. Voice transcription also requires `ffmpeg`. TLS uses rustls (pure Rust, no OpenSSL dependency).
+Requires **Rust stable** (1.85+ for edition 2024) and system deps: `cmake`. Voice transcription also requires `ffmpeg`. TLS uses rustls (pure Rust, no OpenSSL dependency).
 
 ```bash
 # Build (all channels)

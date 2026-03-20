@@ -67,10 +67,10 @@ All release artifacts are signed with [Sigstore cosign](https://docs.sigstore.de
 ```bash
 # Verify a binary archive
 cosign verify-blob \
-  --bundle oxicrab-0.14.2-linux-x86_64.tar.gz.bundle \
+  --bundle oxicrab-0.16.1-linux-x86_64.tar.gz.bundle \
   --certificate-identity-regexp "https://github.com/oxicrab/oxicrab/.github/workflows/release.yml@refs/tags/v.*" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  oxicrab-0.14.2-linux-x86_64.tar.gz
+  oxicrab-0.16.1-linux-x86_64.tar.gz
 
 # Verify the Docker image
 cosign verify \
@@ -185,7 +185,6 @@ Access control: `allowFrom` (pre-authorized senders), `dmPolicy` (`"allowlist"`,
 │   ├── TOOLS.md             # Tool usage guide
 │   ├── memory/
 │   │   └── memory.sqlite3   # Memory database (FTS5, cron, pairing, tokens, logs)
-│   ├── sessions/            # Conversation sessions
 │   └── skills/              # Custom skills (SKILL.md per skill)
 ├── models/                  # Whisper model files
 └── media/                   # Downloaded media files (auto-cleaned)
