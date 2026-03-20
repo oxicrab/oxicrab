@@ -37,6 +37,9 @@ pub struct TelegramConfig {
     pub allow_groups: Vec<String>,
     #[serde(default = "default_dm_policy", rename = "dmPolicy")]
     pub dm_policy: DmPolicy,
+    /// When true, only respond in groups when the bot is @mentioned or replied to.
+    #[serde(default, rename = "mentionOnly")]
+    pub mention_only: bool,
 }
 
 impl Default for TelegramConfig {
@@ -47,6 +50,7 @@ impl Default for TelegramConfig {
             allow_from: Vec::new(),
             allow_groups: Vec::new(),
             dm_policy: default_dm_policy(),
+            mention_only: false,
         }
     }
 }
@@ -58,6 +62,7 @@ redact_debug!(
     allow_from,
     allow_groups,
     dm_policy,
+    mention_only,
 );
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
