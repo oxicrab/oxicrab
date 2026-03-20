@@ -90,7 +90,7 @@ pub(super) fn merge_suggested_buttons(
     // Collect all suggested buttons from tool metadata across iterations
     let all_buttons: Vec<serde_json::Value> = collected_tool_metadata
         .iter()
-        .filter_map(|(_, meta)| meta.get("suggested_buttons")?.as_array())
+        .filter_map(|(_, meta)| meta.get(crate::bus::meta::SUGGESTED_BUTTONS)?.as_array())
         .flatten()
         .cloned()
         .collect();
@@ -163,7 +163,7 @@ mod merge_tests {
         let tool_meta = vec![(
             "tool".to_string(),
             HashMap::from([(
-                "suggested_buttons".to_string(),
+                crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
                 serde_json::json!([
                     {"id": "complete-1", "label": "Complete Task", "style": "primary",
                      "context": "{\"task_id\":\"1\"}"}
@@ -198,7 +198,7 @@ mod merge_tests {
         let tool_meta = vec![(
             "tool".to_string(),
             HashMap::from([(
-                "suggested_buttons".to_string(),
+                crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
                 serde_json::json!([
                     {"id": "complete-1", "label": "Complete", "style": "primary"}
                 ]),
@@ -220,7 +220,7 @@ mod merge_tests {
         let tool_meta = vec![(
             "tool".to_string(),
             HashMap::from([(
-                "suggested_buttons".to_string(),
+                crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
                 serde_json::json!([
                     {"id": "complete-1", "label": "Tool Complete", "style": "primary"}
                 ]),
@@ -237,7 +237,7 @@ mod merge_tests {
         let tool_meta = vec![(
             "tool".to_string(),
             HashMap::from([(
-                "suggested_buttons".to_string(),
+                crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
                 serde_json::json!([
                     {"id": "a", "label": "A", "style": "primary"},
                     {"id": "b", "label": "B", "style": "primary"},
@@ -262,7 +262,7 @@ mod merge_tests {
             (
                 "tool".to_string(),
                 HashMap::from([(
-                    "suggested_buttons".to_string(),
+                    crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
                     serde_json::json!([
                         {"id": "complete-1", "label": "Complete: Task 1", "style": "primary"},
                         {"id": "complete-2", "label": "Complete: Task 2 (old)", "style": "primary"},
@@ -272,7 +272,7 @@ mod merge_tests {
             (
                 "tool".to_string(),
                 HashMap::from([(
-                    "suggested_buttons".to_string(),
+                    crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
                     serde_json::json!([
                         {"id": "complete-2", "label": "Complete: Task 2 (new)", "style": "primary"},
                         {"id": "complete-3", "label": "Complete: Task 3", "style": "primary"},
@@ -302,7 +302,7 @@ mod merge_tests {
         let tool_meta = vec![(
             "tool".to_string(),
             HashMap::from([(
-                "suggested_buttons".to_string(),
+                crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
                 serde_json::json!([
                     {"id": "rss-accept-abc12345", "label": "Accept", "style": "primary",
                      "context": "CALL rss tool with action=accept article_ids=[\"abc12345\"]"},
@@ -329,7 +329,7 @@ mod merge_tests {
         let tool_meta = vec![(
             "tool".to_string(),
             HashMap::from([(
-                "suggested_buttons".to_string(),
+                crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
                 serde_json::json!([
                     {"id": "rss-accept-x", "label": "Accept", "style": "primary"}
                 ]),
@@ -392,7 +392,7 @@ mod display_text_tests {
         let meta = vec![(
             "tool".to_string(),
             HashMap::from([(
-                "suggested_buttons".to_string(),
+                crate::bus::meta::SUGGESTED_BUTTONS.to_string(),
                 serde_json::json!([{"id": "btn", "label": "Click"}]),
             )]),
         )];

@@ -35,7 +35,7 @@ pub async fn run() -> Result<()> {
             Box::pin(subcommands::agent(message, session)).await?;
         }
         Commands::Cron { cmd } => {
-            cron_cmd::cron_command(cmd).await?;
+            cron_cmd::cron_command(cmd)?;
         }
         Commands::Auth { cmd } => {
             subcommands::auth_command(cmd).await?;

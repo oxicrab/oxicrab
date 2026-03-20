@@ -12,16 +12,19 @@ pub(super) enum TextAction {
     Return,
 }
 
+// Note: the "layer" label is vestigial — only "regex_l1" exists. Kept for
+// backward compatibility with existing Grafana dashboards.
 pub(super) fn record_detection() {
-    metrics::counter!("agent_hallucination_detected_total", "layer" => "regex_l1").increment(1);
+    metrics::counter!("oxicrab_agent_hallucination_detected_total", "layer" => "regex_l1")
+        .increment(1);
 }
 
 pub(super) fn record_retry_success() {
-    metrics::counter!("agent_hallucination_retry_total", "layer" => "regex_l1", "outcome" => "succeeded").increment(1);
+    metrics::counter!("oxicrab_agent_hallucination_retry_total", "layer" => "regex_l1", "outcome" => "succeeded").increment(1);
 }
 
 pub(super) fn record_retry_failure() {
-    metrics::counter!("agent_hallucination_retry_total", "layer" => "regex_l1", "outcome" => "failed").increment(1);
+    metrics::counter!("oxicrab_agent_hallucination_retry_total", "layer" => "regex_l1", "outcome" => "failed").increment(1);
 }
 
 /// Single-layer hallucination detection: catches action claims without tool calls.

@@ -35,12 +35,7 @@ pub fn init_metrics_exporter(config: &crate::config::Config) {
         return;
     };
 
-    if !addr.ip().is_loopback() {
-        warn!(
-            "metrics exporter is binding to {} without authentication; expose it only on a trusted network or behind a reverse proxy",
-            addr
-        );
-    }
+    // Non-loopback warning is emitted by validate_observability() in config validation.
 
     let builder = metrics_exporter_prometheus::PrometheusBuilder::new().with_http_listener(addr);
     match builder.install() {
@@ -120,8 +115,6 @@ fn publish_runtime_metrics(start_mono: Instant, start_unix: f64) {
             .duration_since(UNIX_EPOCH)
             .map_or(start_unix, |d| d.as_secs_f64()),
     );
-    metrics::gauge!("oxicrab_runtime_executor_up").set(1.0);
-
     let stats = collect_process_metrics();
     if let Some(fd_count) = stats.open_fds {
         metrics::gauge!("oxicrab_process_open_fds").set(fd_count as f64);

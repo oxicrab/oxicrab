@@ -364,6 +364,8 @@ impl ToolRegistry {
             }
         }
 
+        let exec_start = Instant::now();
+
         // Phase 2: Execute with timeout + panic guard
         let mut result = self
             .execute_with_guards(name, tool.clone(), params.clone(), ctx)
@@ -374,6 +376,18 @@ impl ToolRegistry {
             mw.after_execute(name, &params, ctx, tool.as_ref(), &mut result)
                 .await;
         }
+
+        // Record tool execution metrics (after middleware, so errors from guards are captured)
+        let exec_duration = exec_start.elapsed().as_secs_f64();
+        metrics::histogram!("oxicrab_tool_execution_duration_seconds",
+            "tool" => name.to_string()
+        )
+        .record(exec_duration);
+        metrics::counter!("oxicrab_tool_executions_total",
+            "tool" => name.to_string(),
+            "status" => if result.is_error { "error" } else { "success" }
+        )
+        .increment(1);
 
         // Phase 4: On error, inject schema hint so the LLM learns the correct usage.
         // Especially useful for deferred/MCP tools whose schemas the LLM may not have seen.

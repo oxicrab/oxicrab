@@ -18,8 +18,6 @@ pub mod meta {
     pub const SESSION_ID: &str = "session_id";
     /// Requested response format from the HTTP API (`json`).
     pub const RESPONSE_FORMAT: &str = "response_format";
-    /// Name of the webhook that produced this message (`string`).
-    pub const WEBHOOK_SOURCE: &str = "webhook_source";
     /// Name of the webhook that triggered this inbound message (`string`).
     pub const WEBHOOK_NAME: &str = "webhook_name";
     /// Provider-reported input tokens from the last LLM call (`u64`).
@@ -31,6 +29,12 @@ pub mod meta {
     /// Interactive buttons to attach to the outbound message (`array`).
     /// Unified format: `[{"id": "...", "label": "...", "style": "primary|danger|success|secondary"}]`
     pub const BUTTONS: &str = "buttons";
+    /// The tool currently focused in the router context (`string`).
+    pub const ACTIVE_TOOL: &str = "active_tool";
+    /// Suggested buttons from tool result metadata (`array`).
+    pub const SUGGESTED_BUTTONS: &str = "suggested_buttons";
+    /// Action directives from tool result metadata (`array`).
+    pub const ACTION_DIRECTIVES: &str = "action_directives";
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -148,7 +152,15 @@ impl OutboundMessage {
     }
 
     /// Build from an inbound message, moving `channel`, `chat_id`, and `metadata`.
+    ///
+    /// Inbound-only metadata keys (`IS_CRON_JOB`, `RESPONSE_FORMAT`, `WEBHOOK_NAME`)
+    /// are stripped so they don't leak to outbound consumers.
     pub fn from_inbound(msg: InboundMessage, content: impl Into<String>) -> OutboundMessageBuilder {
+        let mut metadata = msg.metadata;
+        // Remove inbound-only metadata that shouldn't appear on outbound messages
+        metadata.remove(meta::IS_CRON_JOB);
+        metadata.remove(meta::RESPONSE_FORMAT);
+        metadata.remove(meta::WEBHOOK_NAME);
         OutboundMessageBuilder {
             inner: OutboundMessage {
                 channel: msg.channel,
@@ -156,7 +168,7 @@ impl OutboundMessage {
                 content: content.into(),
                 reply_to: None,
                 media: Vec::new(),
-                metadata: msg.metadata,
+                metadata,
             },
         }
     }

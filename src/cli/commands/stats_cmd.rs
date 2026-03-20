@@ -1,9 +1,7 @@
 use super::cli_types::StatsCommands;
-use crate::config::load_config;
 use anyhow::Result;
 
 pub(super) fn stats_command(cmd: &StatsCommands) -> Result<()> {
-    let _config = load_config(None)?;
     let db_path = crate::utils::get_memory_db_path()?;
 
     if !db_path.exists() {

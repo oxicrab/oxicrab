@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS scheduled_task_dlq (
     status TEXT NOT NULL DEFAULT 'pending_retry'
 );
 
+-- Vestigial: this table has no INSERT statements; only CREATE + purge remain.
+-- Kept for backward compatibility with existing databases.
 CREATE TABLE IF NOT EXISTS intent_metrics (
     id INTEGER PRIMARY KEY,
     timestamp TEXT NOT NULL DEFAULT (datetime('now')),

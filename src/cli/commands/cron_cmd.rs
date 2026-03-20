@@ -6,8 +6,7 @@ use anyhow::{Context, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[allow(clippy::too_many_lines)]
-pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
-    let _config = load_config(None)?;
+pub(super) fn cron_command(cmd: CronCommands) -> Result<()> {
     let db_path = crate::utils::get_memory_db_path()?;
     let db = std::sync::Arc::new(crate::agent::memory::memory_db::MemoryDB::new(&db_path)?);
     let cron = CronService::new(db);
@@ -126,8 +125,10 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                 max_concurrent: None,
             };
 
+            let job_id = job.id.clone();
+            let job_name = job.name.clone();
             cron.add_job(job)?;
-            println!("Cron job added successfully.");
+            println!("Cron job '{job_name}' added successfully (id: {job_id})");
         }
         CronCommands::Remove { id } => match cron.remove_job(&id)? {
             Some(job) => {
@@ -242,15 +243,20 @@ pub(super) async fn cron_command(cmd: CronCommands) -> Result<()> {
                 }
             }
         }
-        CronCommands::Run { id, force } => match cron.run_job(&id, force).await? {
-            Some(result) => {
-                println!("Job executed successfully.");
-                if let Some(output) = result {
-                    println!("{output}");
-                }
+        CronCommands::Run { id, force: _ } => match cron.get_job(&id)? {
+            Some(job) => {
+                println!(
+                    "Job '{}' (id: {}) exists and is {}",
+                    job.name,
+                    job.id,
+                    if job.enabled { "enabled" } else { "paused" }
+                );
+                println!("\nTo run this job, use the gateway command:");
+                println!("  oxicrab gateway");
+                println!("\nThe cron scheduler will execute jobs automatically.");
             }
             None => {
-                println!("Failed to run job {id} (not found or disabled)");
+                anyhow::bail!("job '{id}' not found");
             }
         },
     }

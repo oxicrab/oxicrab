@@ -34,11 +34,11 @@ impl MemorySearchTool {
         }
 
         if fast_hits > 0 {
-            metrics::counter!("memory_remember_retrieved_total", "path" => "fast")
+            metrics::counter!("oxicrab_memory_remember_retrieved_total", "path" => "fast")
                 .increment(fast_hits);
         }
         if llm_hits > 0 {
-            metrics::counter!("memory_remember_retrieved_total", "path" => "llm")
+            metrics::counter!("oxicrab_memory_remember_retrieved_total", "path" => "llm")
                 .increment(llm_hits);
         }
     }

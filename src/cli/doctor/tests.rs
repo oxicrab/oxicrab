@@ -27,7 +27,8 @@ fn test_check_git_available() {
 fn test_check_config_default_parses() {
     // Default config should always parse (even if file doesn't exist,
     // load_config falls back to defaults)
-    let result = check_config_parses();
+    let loaded = crate::config::load_config(None);
+    let result = check_config_parses(&loaded);
     // This may pass or fail depending on environment, but shouldn't panic
     let _ = result;
 }

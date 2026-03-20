@@ -123,6 +123,32 @@ pub(super) async fn channels_command(cmd: ChannelCommands) -> Result<()> {
             }
             #[cfg(not(feature = "channel-slack"))]
             println!("Slack: not compiled (enable 'channel-slack' feature)");
+
+            // Twilio
+            #[cfg(feature = "channel-twilio")]
+            {
+                let tw = &config.channels.twilio;
+                println!(
+                    "Twilio: {}",
+                    if tw.enabled {
+                        "\u{2713} enabled"
+                    } else {
+                        "\u{2717} disabled"
+                    }
+                );
+                if tw.enabled {
+                    println!(
+                        "  Credentials: {}",
+                        if tw.account_sid.is_empty() || tw.auth_token.is_empty() {
+                            "not set"
+                        } else {
+                            "configured"
+                        }
+                    );
+                }
+            }
+            #[cfg(not(feature = "channel-twilio"))]
+            println!("Twilio: not compiled (enable 'channel-twilio' feature)");
         }
         ChannelCommands::Login => {
             #[cfg(feature = "channel-whatsapp")]

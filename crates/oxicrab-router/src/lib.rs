@@ -61,7 +61,7 @@ impl DispatchSource {
             Self::Button => "button",
             Self::ActionDirective => "directive",
             Self::StaticRule => "rule",
-            Self::ConfigRule => "command",
+            Self::ConfigRule => "config_rule",
             Self::RememberFastPath => "remember",
             Self::Webhook => "webhook",
             Self::Cron => "cron",

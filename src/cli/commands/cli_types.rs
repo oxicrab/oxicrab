@@ -207,7 +207,7 @@ pub(super) enum CredentialCommands {
     Set {
         /// Credential slot name (e.g. "anthropic-api-key")
         name: String,
-        /// Value to store (reads from stdin if omitted)
+        /// Value to store (reads from stdin if omitted to avoid shell history exposure)
         value: Option<String>,
     },
     /// Check if a credential exists (shows \[set\] or \[empty\])

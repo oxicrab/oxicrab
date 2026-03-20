@@ -30,6 +30,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
     let process_start = std::time::Instant::now();
     info!("Loading configuration...");
     let config = load_config(None)?;
+    config.validate()?;
     crate::observability::init_metrics_exporter(&config);
     warn_if_public_gateway_without_auth(&config);
     let effective_model = model
@@ -247,6 +248,7 @@ pub(super) async fn gateway(model: Option<String>) -> Result<()> {
 pub(super) async fn gateway_echo() -> Result<()> {
     info!("Loading configuration for echo mode...");
     let config = load_config(None)?;
+    config.validate()?;
     crate::observability::init_metrics_exporter(&config);
     warn_if_public_gateway_without_auth(&config);
 
@@ -313,7 +315,10 @@ pub(super) async fn gateway_echo() -> Result<()> {
         .take_inbound_rx()
         .ok_or_else(|| anyhow::anyhow!("Inbound receiver already taken"))?;
 
-    // Echo loop: read inbound, write echo outbound
+    // NOTE: Echo mode bypasses MessageBus safety protections (leak detection,
+    // rate limiting, truncation) since it routes directly through mpsc channels.
+    // This is acceptable for a diagnostic tool but means echo mode should not
+    // be used in production.
     let echo_task = {
         let outbound_tx = outbound_tx.clone();
         tokio::spawn(async move {

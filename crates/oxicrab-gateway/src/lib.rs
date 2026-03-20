@@ -881,10 +881,6 @@ async fn deliver_to_targets(
             target.chat_id.clone(),
             safe_content.clone(),
         )
-        .meta(
-            oxicrab_core::bus::meta::WEBHOOK_SOURCE,
-            serde_json::Value::String(webhook_name.to_string()),
-        )
         .build();
         if let Err(e) = outbound_tx.send(msg).await {
             error!(

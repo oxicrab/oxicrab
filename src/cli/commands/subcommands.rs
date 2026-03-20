@@ -107,6 +107,7 @@ pub(super) async fn auth_command(cmd: AuthCommands) -> Result<()> {
                 None,
             ) {
                 println!("\u{2713} Already authenticated with Google.");
+                return Ok(());
             }
 
             if headless {
@@ -176,7 +177,12 @@ pub(super) fn status_command() -> Result<()> {
         let has_anthropic = !config.providers.anthropic.api_key.is_empty();
         let has_openai = !config.providers.openai.api_key.is_empty();
         let has_gemini = !config.providers.gemini.api_key.is_empty();
+        let has_deepseek = !config.providers.deepseek.api_key.is_empty();
+        let has_groq = !config.providers.groq.api_key.is_empty();
+        let has_minimax = !config.providers.minimax.api_key.is_empty();
         let has_vllm = config.providers.vllm.base.api_base.is_some();
+        let has_ollama = !config.providers.ollama.base.api_key.is_empty()
+            || config.providers.ollama.base.api_base.is_some();
 
         println!(
             "OpenRouter API: {}",
@@ -198,6 +204,18 @@ pub(super) fn status_command() -> Result<()> {
             "Gemini API: {}",
             if has_gemini { "\u{2713}" } else { "not set" }
         );
+        println!(
+            "DeepSeek API: {}",
+            if has_deepseek { "\u{2713}" } else { "not set" }
+        );
+        println!(
+            "Groq API: {}",
+            if has_groq { "\u{2713}" } else { "not set" }
+        );
+        println!(
+            "Minimax API: {}",
+            if has_minimax { "\u{2713}" } else { "not set" }
+        );
         if has_vllm {
             if let Some(api_base) = config.providers.vllm.base.api_base.as_ref() {
                 println!("vLLM/Local: \u{2713} {api_base}");
@@ -206,6 +224,18 @@ pub(super) fn status_command() -> Result<()> {
             }
         } else {
             println!("vLLM/Local: not set");
+        }
+        if has_ollama {
+            let base = config
+                .providers
+                .ollama
+                .base
+                .api_base
+                .as_deref()
+                .unwrap_or("http://localhost:11434");
+            println!("Ollama: \u{2713} {base}");
+        } else {
+            println!("Ollama: not set");
         }
 
         // Voice transcription status

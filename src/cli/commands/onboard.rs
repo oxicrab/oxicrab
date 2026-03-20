@@ -12,7 +12,8 @@ pub(super) fn onboard() -> Result<()> {
             "\u{26a0}\u{fe0f}  Config already exists at {}",
             config_path.display()
         );
-        println!("Overwrite? (y/N): ");
+        eprint!("Overwrite? (y/N): ");
+        std::io::Write::flush(&mut std::io::stderr())?;
         let mut input = String::new();
         std::io::stdin().read_line(&mut input)?;
         if !input.trim().eq_ignore_ascii_case("y") {

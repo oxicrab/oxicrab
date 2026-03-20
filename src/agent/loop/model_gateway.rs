@@ -52,8 +52,33 @@ impl ModelGateway {
         provider: &dyn LLMProvider,
         req: ChatRequest,
     ) -> Result<LLMResponse> {
-        provider
+        let model_name = req.model.clone().unwrap_or_default();
+        let start = std::time::Instant::now();
+        let result = provider
             .chat_with_retry(&req, Some(RetryConfig::default()))
-            .await
+            .await;
+        let duration = start.elapsed().as_secs_f64();
+
+        metrics::histogram!("oxicrab_llm_request_duration_seconds",
+            "model" => model_name.clone()
+        )
+        .record(duration);
+
+        match &result {
+            Ok(_) => {
+                metrics::counter!("oxicrab_llm_requests_total",
+                    "model" => model_name, "status" => "success"
+                )
+                .increment(1);
+            }
+            Err(_) => {
+                metrics::counter!("oxicrab_llm_requests_total",
+                    "model" => model_name, "status" => "error"
+                )
+                .increment(1);
+            }
+        }
+
+        result
     }
 }

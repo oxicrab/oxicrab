@@ -17,6 +17,8 @@ const DEFAULT_OUTBOUND_CAPACITY: usize = 1000;
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum inbound message content length (1 MB)
 const MAX_INBOUND_CONTENT_LEN: usize = 1_000_000;
+/// Maximum outbound message content length (1 MB)
+const MAX_OUTBOUND_CONTENT_LEN: usize = 1_000_000;
 /// Maximum number of tracked senders/destinations before forced pruning
 const MAX_TRACKED_ENDPOINTS: usize = 5000;
 
@@ -108,6 +110,9 @@ impl MessageBus {
     }
 
     pub async fn publish_inbound(&self, mut msg: InboundMessage) -> Result<()> {
+        metrics::counter!("oxicrab_messages_received_total", "channel" => msg.channel.clone())
+            .increment(1);
+
         // Validate content size to prevent OOM from oversized messages
         if msg.content.len() > MAX_INBOUND_CONTENT_LEN {
             warn!(
@@ -178,6 +183,20 @@ impl MessageBus {
     }
 
     pub async fn publish_outbound(&self, mut msg: OutboundMessage) -> Result<()> {
+        metrics::counter!("oxicrab_messages_sent_total", "channel" => msg.channel.clone())
+            .increment(1);
+
+        // Validate content size to prevent oversized outbound messages
+        if msg.content.len() > MAX_OUTBOUND_CONTENT_LEN {
+            warn!(
+                "outbound message too large ({} bytes), truncating to {}",
+                msg.content.len(),
+                MAX_OUTBOUND_CONTENT_LEN
+            );
+            msg.content
+                .truncate(msg.content.floor_char_boundary(MAX_OUTBOUND_CONTENT_LEN));
+        }
+
         // Outbound rate limiting per destination (brief lock, no await inside)
         {
             let mut state = self
@@ -185,6 +204,8 @@ impl MessageBus {
                 .lock()
                 .map_err(|e| anyhow::anyhow!("rate state lock poisoned: {e}"))?;
             let now = Instant::now();
+            // Allocates a String key per message; cheap relative to the mutex
+            // and simpler than a composite (String, String) key type.
             let key = format!("{}:{}", msg.channel, msg.chat_id);
             let rate_window = state.rate_window;
             let outbound_rate_limit = state.outbound_rate_limit;

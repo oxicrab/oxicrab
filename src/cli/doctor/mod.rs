@@ -50,15 +50,15 @@ fn check_config_exists() -> CheckResult {
     }
 }
 
-fn check_config_parses() -> CheckResult {
-    match crate::config::load_config(None) {
+fn check_config_parses(config: &Result<crate::config::Config, anyhow::Error>) -> CheckResult {
+    match config {
         Ok(_) => CheckResult::Pass("valid TOML".to_string()),
         Err(e) => CheckResult::Fail(format!("{e}")),
     }
 }
 
-fn check_config_validates() -> CheckResult {
-    match crate::config::load_config(None) {
+fn check_config_validates(config: &Result<crate::config::Config, anyhow::Error>) -> CheckResult {
+    match config {
         Ok(config) => match config.validate() {
             Ok(()) => CheckResult::Pass("all checks passed".to_string()),
             Err(e) => CheckResult::Fail(format!("{e}")),
@@ -496,10 +496,7 @@ fn check_pairing_store_with_store(pairing_store: LoadedPairingStore<'_>) -> Chec
             let pending = store.list_pending().len();
             CheckResult::Pass(format!("{paired} paired sender(s), {pending} pending"))
         }
-        None => CheckResult::Fail(
-            "cannot load: Failed to open database at: /home/james/.oxicrab/workspace/memory/memory.sqlite3"
-                .to_string(),
-        ),
+        None => CheckResult::Fail("cannot load pairing store database".to_string()),
     }
 }
 
@@ -555,13 +552,15 @@ pub async fn doctor_command() -> Result<()> {
     let r_config_exists = check_config_exists();
     record("Config file", &r_config_exists);
 
-    let r_config_parses = check_config_parses();
+    let loaded_result = crate::config::load_config(None);
+
+    let r_config_parses = check_config_parses(&loaded_result);
     record("Config parses", &r_config_parses);
 
-    let r_config_validates = check_config_validates();
+    let r_config_validates = check_config_validates(&loaded_result);
     record("Config validates", &r_config_validates);
 
-    let loaded_config = crate::config::load_config(None).ok();
+    let loaded_config = loaded_result.ok();
     let config = loaded_config.as_ref();
     let pairing_store = config.and_then(|cfg| {
         crate::pairing::PairingStore::open_for_workspace(&cfg.workspace_path()).ok()

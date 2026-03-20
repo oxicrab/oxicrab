@@ -415,7 +415,7 @@ impl AgentLoop {
                                     memory.append_to_section("Facts", &filtered)
                                 {
                                     metrics::counter!(
-                                        "memory_remember_write_total",
+                                        "oxicrab_memory_remember_write_total",
                                         "path" => "llm",
                                         "outcome" => "error"
                                     )
@@ -423,7 +423,7 @@ impl AgentLoop {
                                     warn!("failed to save facts to daily note: {}", e);
                                 } else {
                                     metrics::counter!(
-                                        "memory_remember_write_total",
+                                        "oxicrab_memory_remember_write_total",
                                         "path" => "llm",
                                         "outcome" => "written"
                                     )
@@ -561,6 +561,7 @@ impl AgentLoop {
             "security: secret detected in inbound message from {}:{}: {:?} — redacting",
             msg.channel, msg.sender_id, names
         );
+        metrics::counter!("oxicrab_security_secrets_redacted_total").increment(1);
         self.leak_detector.redact(&content)
     }
 
@@ -729,7 +730,7 @@ impl AgentLoop {
         let response = match check_quality(content) {
             QualityVerdict::Reject(reason) => {
                 metrics::counter!(
-                    "memory_remember_write_total",
+                    "oxicrab_memory_remember_write_total",
                     "path" => "fast",
                     "outcome" => "rejected"
                 )
@@ -742,7 +743,7 @@ impl AgentLoop {
                 let recent = self.memory.get_recent_daily_entries(50).unwrap_or_default();
                 if is_duplicate_of_entries(&reframed, &recent) {
                     metrics::counter!(
-                        "memory_remember_write_total",
+                        "oxicrab_memory_remember_write_total",
                         "path" => "fast",
                         "outcome" => "duplicate"
                     )
@@ -751,7 +752,7 @@ impl AgentLoop {
                     "I already have that noted.".to_string()
                 } else if self.memory.is_semantically_duplicate(&reframed, 0.85) {
                     metrics::counter!(
-                        "memory_remember_write_total",
+                        "oxicrab_memory_remember_write_total",
                         "path" => "fast",
                         "outcome" => "duplicate"
                     )
@@ -762,7 +763,7 @@ impl AgentLoop {
                 } else {
                     self.memory.append_today(&reframed)?;
                     metrics::counter!(
-                        "memory_remember_write_total",
+                        "oxicrab_memory_remember_write_total",
                         "path" => "fast",
                         "outcome" => "written_reframed"
                     )
@@ -778,7 +779,7 @@ impl AgentLoop {
                 let recent = self.memory.get_recent_daily_entries(50).unwrap_or_default();
                 if is_duplicate_of_entries(content, &recent) {
                     metrics::counter!(
-                        "memory_remember_write_total",
+                        "oxicrab_memory_remember_write_total",
                         "path" => "fast",
                         "outcome" => "duplicate"
                     )
@@ -787,7 +788,7 @@ impl AgentLoop {
                     "I already have that noted.".to_string()
                 } else if self.memory.is_semantically_duplicate(content, 0.85) {
                     metrics::counter!(
-                        "memory_remember_write_total",
+                        "oxicrab_memory_remember_write_total",
                         "path" => "fast",
                         "outcome" => "duplicate"
                     )
@@ -798,7 +799,7 @@ impl AgentLoop {
                 } else {
                     self.memory.append_today(content)?;
                     metrics::counter!(
-                        "memory_remember_write_total",
+                        "oxicrab_memory_remember_write_total",
                         "path" => "fast",
                         "outcome" => "written"
                     )
@@ -1224,22 +1225,23 @@ impl AgentLoop {
         // Build outbound with buttons from tool metadata
         let mut metadata = HashMap::new();
         if let Some(ref meta) = result.metadata
-            && let Some(buttons) = meta.get("suggested_buttons")
+            && let Some(buttons) = meta.get(crate::bus::meta::SUGGESTED_BUTTONS)
         {
             metadata.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
         }
 
-        Ok(Some(
+        let mut builder =
             OutboundMessage::builder(msg.channel.clone(), msg.chat_id.clone(), final_content)
-                .reply_to(
-                    msg.metadata
-                        .get(crate::bus::meta::TS)
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default(),
-                )
-                .metadata(metadata)
-                .build(),
-        ))
+                .metadata(metadata);
+        let reply_to = msg
+            .metadata
+            .get(crate::bus::meta::TS)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+        if let Some(id) = reply_to {
+            builder = builder.reply_to(id);
+        }
+        Ok(Some(builder.build()))
     }
 
     /// Apply router metadata from a multi-tool turn.
@@ -1259,7 +1261,10 @@ impl AgentLoop {
         let mut saw_explicit_clear = false;
 
         for (tool_name, meta) in tool_metadata {
-            if let Some(active) = meta.get("active_tool").and_then(|v| v.as_str()) {
+            if let Some(active) = meta
+                .get(crate::bus::meta::ACTIVE_TOOL)
+                .and_then(|v| v.as_str())
+            {
                 if active == tool_name {
                     last_active_tool = Some(active.to_string());
                 } else {
@@ -1269,7 +1274,7 @@ impl AgentLoop {
                     );
                 }
             }
-            if let Some(directives_val) = meta.get("action_directives") {
+            if let Some(directives_val) = meta.get(crate::bus::meta::ACTION_DIRECTIVES) {
                 saw_directives_payload = true;
                 match serde_json::from_value::<Vec<crate::router::context::ActionDirective>>(
                     directives_val.clone(),
@@ -1342,7 +1347,10 @@ impl AgentLoop {
         metadata: &HashMap<String, Value>,
         producing_tool: &str,
     ) {
-        if let Some(active) = metadata.get("active_tool").and_then(|v| v.as_str()) {
+        if let Some(active) = metadata
+            .get(crate::bus::meta::ACTIVE_TOOL)
+            .and_then(|v| v.as_str())
+        {
             if active == producing_tool {
                 ctx.set_active_tool(Some(active.to_string()));
             } else {
@@ -1352,7 +1360,7 @@ impl AgentLoop {
                 );
             }
         }
-        if let Some(directives_val) = metadata.get("action_directives")
+        if let Some(directives_val) = metadata.get(crate::bus::meta::ACTION_DIRECTIVES)
             && let Ok(mut directives) = serde_json::from_value::<
                 Vec<crate::router::context::ActionDirective>,
             >(directives_val.clone())
@@ -1588,7 +1596,7 @@ impl AgentLoop {
 
             let mut meta = HashMap::new();
             if let Some(ref rm) = result.metadata
-                && let Some(buttons) = rm.get("suggested_buttons")
+                && let Some(buttons) = rm.get(crate::bus::meta::SUGGESTED_BUTTONS)
             {
                 meta.insert(crate::bus::meta::BUTTONS.to_string(), buttons.clone());
             }
@@ -1726,6 +1734,7 @@ fn check_prompt_guard(
         );
     }
     if config.should_block() {
+        metrics::counter!("oxicrab_security_injection_blocked_total").increment(1);
         PromptGuardVerdict::Blocked
     } else {
         PromptGuardVerdict::Pass

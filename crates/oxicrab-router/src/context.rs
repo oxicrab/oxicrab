@@ -68,6 +68,9 @@ impl DirectiveMatcher {
 pub struct RouterContext {
     pub state: ContextState,
     pub updated_at_ms: i64,
+    /// Pre-compiled directive matcher. `#[serde(skip)]` means this is `None`
+    /// after raw deserialization — always use `from_session_metadata()` which
+    /// calls `rebuild_matcher()`.
     #[serde(skip, default)]
     matcher: DirectiveMatcher,
 }
@@ -135,6 +138,10 @@ impl RouterContext {
         }
     }
 
+    /// Returns the current routing state. Note: when directives are empty,
+    /// this returns `Idle` even though `active_tool()` returns `Some(tool)`.
+    /// This is intentional — the router's tier 7 check uses `state()`, so an
+    /// active tool without directives falls through to FullLLM correctly.
     pub fn state(&self, now_ms: i64) -> RouterState<'_> {
         match &self.state {
             ContextState::ToolFocused {
@@ -387,5 +394,53 @@ mod tests {
         let restored: RouterContext = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.active_tool(), Some("rss"));
         assert_eq!(restored.directives().len(), 1);
+    }
+
+    #[test]
+    fn test_from_session_metadata_rebuilds_matcher() {
+        let mut ctx = RouterContext::default();
+        ctx.set_active_tool(Some("rss".into()));
+        let ts = now_ms();
+        ctx.install_directives(vec![ActionDirective {
+            trigger: DirectiveTrigger::Exact("next".into()),
+            tool: "rss".into(),
+            params: serde_json::json!({"action": "next"}),
+            single_use: false,
+            ttl_ms: 300_000,
+            created_at_ms: ts,
+        }]);
+
+        // Serialize to session metadata and restore — matcher must be rebuilt.
+        let mut metadata = std::collections::HashMap::new();
+        ctx.to_session_metadata(&mut metadata);
+        let restored = RouterContext::from_session_metadata(&metadata);
+        assert_eq!(
+            restored.match_directive_index("next", ts),
+            Some(0),
+            "from_session_metadata must rebuild the matcher so directives are matchable"
+        );
+    }
+
+    #[test]
+    fn test_raw_deserialized_matcher_is_empty() {
+        let mut ctx = RouterContext::default();
+        ctx.set_active_tool(Some("rss".into()));
+        ctx.install_directives(vec![ActionDirective {
+            trigger: DirectiveTrigger::Exact("next".into()),
+            tool: "rss".into(),
+            params: serde_json::json!({"action": "next"}),
+            single_use: false,
+            ttl_ms: 300_000,
+            created_at_ms: now_ms(),
+        }]);
+
+        // Raw serde deserialization skips the matcher — match_directive_index
+        // returns None. This is why from_session_metadata() must be used.
+        let json = serde_json::to_string(&ctx).unwrap();
+        let raw: RouterContext = serde_json::from_str(&json).unwrap();
+        assert!(
+            raw.matcher.literal_to_index.is_empty(),
+            "raw deserialization should leave matcher empty"
+        );
     }
 }

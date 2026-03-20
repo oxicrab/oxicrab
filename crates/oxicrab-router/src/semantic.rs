@@ -95,6 +95,8 @@ impl SemanticToolIndex {
             crate::metrics::record_semantic_low_confidence_fallback();
             return None;
         }
+        // Minimum 2 tools required for semantic filtering — filtering to a single
+        // tool would be overly aggressive and prevent cross-domain requests.
         if selected.len() < 2 {
             return None;
         }
@@ -154,15 +156,18 @@ impl SemanticToolIndex {
             &scored.iter().map(|(_, s)| *s).collect::<Vec<f32>>(),
         );
         scored.sort_by(|a, b| b.1.total_cmp(&a.1));
-        if scored.len() >= 2 && (scored[0].1 - scored[1].1) < self.min_margin {
-            crate::metrics::record_semantic_low_confidence_fallback();
-            return None;
-        }
+        // Apply threshold first, then margin — consistent with select().
         let selected: Vec<(String, f32)> = scored
             .into_iter()
             .filter(|(_, s)| *s >= self.threshold)
             .take(self.top_k)
             .collect();
+        if selected.len() >= 2 && (selected[0].1 - selected[1].1) < self.min_margin {
+            crate::metrics::record_semantic_low_confidence_fallback();
+            return None;
+        }
+        // Minimum 2 tools required for semantic filtering — filtering to a single
+        // tool would be overly aggressive and prevent cross-domain requests.
         if selected.len() < 2 {
             return None;
         }
@@ -209,6 +214,9 @@ impl SemanticToolIndex {
     }
 }
 
+// NOTE: Tokenization is ASCII-only — non-Latin scripts (CJK, Cyrillic, Arabic)
+// produce zero tokens, causing semantic filtering to fall through to FullLLM.
+// This is a graceful degradation, not a correctness issue.
 fn tokenize(text: &str) -> Vec<String> {
     text.to_lowercase()
         .split(|c: char| !c.is_ascii_alphanumeric())

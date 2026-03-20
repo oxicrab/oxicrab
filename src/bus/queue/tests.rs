@@ -65,15 +65,13 @@ async fn test_inbound_rate_limit_per_sender() {
 }
 
 #[tokio::test]
-async fn test_outbound_rate_limit_enforced() {
-    // Use a small outbound rate limit for testing (3 msg/min)
+async fn test_outbound_publishing_works() {
     let bus = MessageBus::new(30, 60.0, 100, 100);
     let _rx = bus.take_outbound_rx().unwrap();
 
-    // The default outbound limit is 60/min. To test it quickly, send enough
-    // messages to trigger the limit would be impractical, so we verify the
-    // rate limiting mechanics work via the inbound test above. This test
-    // verifies basic outbound publishing works.
+    // Verifies basic outbound publishing works. The default outbound rate
+    // limit is 60/min which makes triggering it in a test impractical;
+    // inbound rate limiting mechanics are covered by the test above.
     bus.publish_outbound(make_outbound("ch", "dest1", "msg1"))
         .await
         .unwrap();
